@@ -1,31 +1,14 @@
-# Schema Field Usage Audit (v14 -> v15)
+# Schema Field Usage Audit
 
-This audit captures read-path/runtime usage before any schema column removals.
+The active RAG schema is the NornicDB content graph schema defined in
+`base/rag/indexer/app/schema.py`.
 
-## Active In Runtime Retrieval
+Current audit focus:
 
-- `artifact_kind`, `language`, `domain`, `source_url`, `heading_path`, `document_name`: consumed by planner retrieval result mapping in `base/planner-ts/src/retrieval/rag-client.ts` and `base/planner-ts/src/retrieval/unified.ts`.
-- `corpus_class`, `constraint_kind`, `content_profile`, `scope_tags`, `constraint_source`, `golden_path_id`, `novel_pattern`, `novel_trace_level`: retrieved + filterable in `base/planner-ts/src/retrieval/rag-client.ts`, `base/planner-ts/src/retrieval/types.ts`, `base/planner-ts/src/retrieval/metadata-filter.ts`.
-- `scan_status`, `scan_signals`, `approval_status`, `review_trace_id`, `raw_content_hash`, `crawl_timestamp`, `effective_at_epoch`: passed into trust/evidence payloads from planner retrieval code.
+- Graph node fields used by planner and MCP search results.
+- Code fields used by coder retrieval and evidence scoring.
+- Scope, ACL, and `authz_object_id` fields used for RAG hardening.
+- Pack/version fields used by SynPacks and language packs.
 
-## Ingestion + Telemetry Critical
-
-- `index_decision`, `quality_score`, `technical_depth`, `domain_relevance`, `content_type`: written by indexer pipeline and used for gate/evaluation telemetry (`base/rag/indexer/app/pipeline.py`).
-- `visibility_scope`, `org_id`, `tenant_id`, `acl_mode`, `acl_groups`: required for scope/ACL enforcement and query filter construction.
-- `scan_signals`, `review_trace_id`: required for trust attribution and admin diagnostics.
-
-## UI / API Surfacing
-
-- Queue/item diagnostics fields are surfaced through admin ingestion routes and queue stats payloads.
-- Metadata filter fields are surfaced to planner and compatible clients via knowledge search request/response types.
-
-## New v15 Fields
-
-- `has_code`, `code_signal_count`, `code_density`, `code_language` are now used to:
-  - enrich indexed entities in `base/rag/indexer/app/pipeline.py`
-  - flow through planner retrieval mapping in `base/planner-ts/src/retrieval/rag-client.ts`
-  - bias coder retrieval assembly in `base/planner-ts/src/retrieval/unified.ts`
-
-## Removal Decision
-
-No existing v14 columns should be removed in this rollout. Existing columns remain in active use across ingestion, filtering, and retrieval orchestration.
+For the current field list and update checklist, use
+[rag-schema-and-knowledge-sources.md](rag-schema-and-knowledge-sources.md).

@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 from synesis_telemetry import get_logger
 
+from .code_graph import derive_graph_edges
 from .embed_client import EmbedClient
 from .enrichment import enrich_chunks_bulk
 from .handlers import get_handler
@@ -379,6 +380,7 @@ def build_pack_from_sources(
     edges_path = tmp / "edges.jsonl"
     sources_lock: list[dict[str, Any]] = []
     total_rows = 0
+    rows: list[dict[str, Any]] = []
     embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
     items = _load_bootstrap_items(source_path)
 
@@ -468,6 +470,8 @@ def build_pack_from_sources(
                     package_name=str(
                         chunk.metadata.get("package_name", "") or doc.metadata.get("package_name", "") or ""
                     ),
+                    import_refs=str(chunk.metadata.get("import_refs", "") or doc.metadata.get("import_refs", "")),
+                    call_refs=str(chunk.metadata.get("call_refs", "") or doc.metadata.get("call_refs", "")),
                     source_url=chunk.metadata.get("source_url") or doc.source_url,
                     scan_status=status,
                     scan_signals=",".join(signals),
@@ -486,37 +490,14 @@ def build_pack_from_sources(
                     crawl_timestamp=int(time.time() * 1000),
                     enrichment_profile="synpack_build_v1",
                 )
+                rows.append(row)
                 rows_f.write(json.dumps(row, ensure_ascii=False) + "\n")
-                if row.get("doc_id"):
-                    edges_f.write(
-                        json.dumps(
-                            {
-                                "type": "CONTAINS",
-                                "source_id": row["doc_id"],
-                                "target_id": row["id"],
-                                "source": "deterministic_pack_builder",
-                            },
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
-                if row.get("symbol_fqn"):
-                    edges_f.write(
-                        json.dumps(
-                            {
-                                "type": "DEFINES",
-                                "source_id": row["id"],
-                                "target_id": row["symbol_fqn"],
-                                "source": "deterministic_pack_builder",
-                            },
-                            ensure_ascii=False,
-                        )
-                        + "\n"
-                    )
                 total_rows += 1
 
             if max_chunks and total_rows >= max_chunks:
                 break
+        for edge in derive_graph_edges(rows, include_structural_edges=True):
+            edges_f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
 
     manifest = {
         "format": "synesis-content-pack",
@@ -541,6 +522,8 @@ def build_pack_from_sources(
             "scope_tags",
             "content_profile",
             "constraint_kind",
+            "import_refs",
+            "call_refs",
         ],
         "created_at": int(time.time()),
         "row_count": total_rows,

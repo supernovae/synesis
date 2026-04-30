@@ -9,7 +9,7 @@ Use this when editing `intent_weights.yaml`, `vertical_prompts.yaml`, plugins un
 ## 1. Canonical Domain IDs
 
 Domain IDs are used for:
-- **RAG routing** — `domain` filter in Milvus/vector search
+- **RAG routing** — `domain` filter in NornicDB graph/vector search
 - **Entry classifier** — `active_domain_refs` / `active_domains`
 - **Document vs code** — `document_domains` in intent_classes
 

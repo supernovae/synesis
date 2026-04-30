@@ -1,7 +1,8 @@
 """Document-level semantic gatekeeper (optional OpenAI-compatible LLM).
 
 Runs once per document (hierarchical labeling) when enabled. Produces structured
-metadata inherited by all chunks from that document. See docs/plans/semantic_rag_ingestion_v9.md.
+metadata inherited by all chunks from that document. See docs/INGESTION_ENRICHMENT.md
+and docs/INDEXERS.md.
 
 No torch/transformers in this module — HTTP only.
 """

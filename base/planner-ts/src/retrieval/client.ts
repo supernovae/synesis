@@ -41,6 +41,7 @@ export class UnifiedRetrievalClient implements RetrievalClient {
         nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
         nornicVectorIndex: config.SYNESIS_NORNIC_VECTOR_INDEX,
         nornicRuntimeProfile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
+        embedderUrl: config.SYNESIS_EMBEDDER_URL,
         embedderModel: config.SYNESIS_EMBEDDER_MODEL,
         retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
         rrfK: config.SYNESIS_RAG_RRF_K,

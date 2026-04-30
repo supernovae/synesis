@@ -192,7 +192,26 @@ These are rendered via `authorityDatamark()` and appear inside the trust packet 
 
 Module: `base/rag/indexer/app/injection_scan.py`
 
-RAG chunks are scanned at index time (during ingestion) rather than query time. Each chunk receives a `scan_status` field: `clean`, `flagged`, or `unscanned`. This field is stored in Milvus alongside the document and surfaced in the Admin UI review queue. The `AttributionV1.ingest_scan_status` field on evidence packets carries this status through to retrieval consumers.
+RAG chunks are scanned at index time (during ingestion) rather than query time. Each chunk receives a `scan_status` field: `clean`, `flagged`, or `unscanned`. This field is stored on NornicDB `ContentNode` graph nodes alongside the document and surfaced in the Admin UI review queue. The `AttributionV1.ingest_scan_status` field on evidence packets carries this status through to retrieval consumers.
+
+### Layer 7b: Structural RAG Authorization
+
+RAG retrieval uses deterministic authorization metadata instead of semantic
+filtering. Ingested nodes carry `visibility_scope`, `org_id`, `tenant_id`,
+`owner_user_id`, `conversation_id`, `acl_mode`, `acl_group_ids`, and
+`authz_object_id`.
+
+Planner knowledge search derives scope from the resolved principal:
+
+- PATs supply user, org, tenant, role, and token scopes from Postgres.
+- Trusted forwarded identity is accepted only when the bearer token matches `SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN`.
+- Request-body org, tenant, ACL, and user hints are ignored and logged with `authz_trace_id`.
+
+NornicDB applies the same visibility/ACL predicate to vector seed nodes and
+graph-expanded neighbor nodes. In `SYNESIS_RAG_AUTHZ_MODE=enforce`,
+non-global/restricted/private rows are additionally checked through OpenFGA
+`can_read` against their indexed `rag_doc:*` object before the planner returns
+them.
 
 ### Layer 8: Output Guardrail
 
@@ -223,7 +242,7 @@ User-facing error messages never expose internal trust metadata, scan patterns, 
 ```mermaid
 flowchart LR
     Ingest["Document\nIngestion"] -->|"scan_chunk_text_detailed()"| Status{"scan_status\n+ scan_signals"}
-    Status -->|clean| Catalog["Milvus Catalog\n(v13 schema)"]
+    Status -->|clean| Catalog["NornicDB content graph\n(schema v19)"]
     Status -->|flagged| Queue["Admin Review Queue\n(sort: freshness, authority)"]
     Queue -->|"human review"| Vet["Vet\n(authority -> vetted\nreview_trace_id set)"]
     Queue -->|"human review"| Reject["Reject\n(approval -> rejected\nreview_trace_id set)"]
@@ -268,7 +287,7 @@ Domain filtering is supported via the `domain` query parameter.
 - **Trust policies depend on model compliance.** Smaller or less instruction-tuned models may not reliably follow trust policy directives. Use models with strong instruction-following capabilities.
 - **Sandwich defense effectiveness varies by model.** Most effective with models that attend well to recent context.
 - **Index-time scanning does not cover all obfuscation.** Sophisticated attacks using steganography or semantic-level injection may not be caught by regex patterns alone.
-- **Attribution metadata requires v13 schema.** Documents indexed before the v13 schema migration will have `scan_signals`, `review_trace_id`, and `effective_at_epoch` as empty/zero until reindexed. The `ingested_at` field is carried through when present.
+- **Attribution metadata requires current graph schema fields.** Documents indexed before the current NornicDB schema will have `scan_signals`, `review_trace_id`, `effective_at_epoch`, `acl_group_ids`, or `authz_object_id` as empty/zero until reindexed. The `ingested_at` field is carried through when present.
 
 ## Files
 
@@ -319,7 +338,8 @@ Domain filtering is supported via the `domain` query parameter.
 | `base/rag/indexer/app/injection_scan.py` | Index-time chunk scanning |
 | `base/admin/app/routers/security.py` | Security events ingest + console API |
 | `base/admin/app/routers/rag.py` | Review queue API with trust/freshness pivots, HITL review trace IDs |
-| `base/admin/app/services/milvus_service.py` | Milvus client abstractions (v13 schema) |
+| `base/rag/indexer/app/nornic_writer.py` | NornicDB graph writer, constraints, indexes, and authz metadata propagation |
+| `base/planner-ts/src/retrieval/rag-client.ts` | NornicDB retrieval predicates, graph expansion, and OpenFGA row enforcement |
 
 ### Security event ingest
 

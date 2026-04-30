@@ -168,7 +168,7 @@ const EnvSchema = z.object({
   SYNESIS_NORNIC_URI: z.string().default("bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"),
   SYNESIS_NORNIC_USER: z.string().default("neo4j"),
   SYNESIS_NORNIC_PASSWORD: z.string().default("synesis-nornicdb"),
-  SYNESIS_NORNIC_DATABASE: z.string().default("neo4j"),
+  SYNESIS_NORNIC_DATABASE: z.string().default("nornic"),
   SYNESIS_NORNIC_VECTOR_INDEX: z.string().default("embeddings"),
   SYNESIS_NORNIC_RUNTIME_PROFILE: z.enum(["cpu-bge", "cuda-bge", "metal-bge"]).default("cpu-bge"),
   SYNESIS_NORNIC_GRAPH_DEPTH: z.coerce.number().default(2),
@@ -190,6 +190,12 @@ const EnvSchema = z.object({
   SYNESIS_RAG_OVERFETCH_MIN: z.coerce.number().default(30),
   SYNESIS_RAG_OVERFETCH_MAX: z.coerce.number().default(50),
   SYNESIS_RAG_ADAPTIVE_GAP_MULTIPLIER: z.coerce.number().default(1.5),
+  /**
+   * RAG authz hardening mode.
+   * audit: derive scope from auth context and log ignored caller-provided scope hints.
+   * enforce: same filtering behavior, with response diagnostics marked as enforced.
+   */
+  SYNESIS_RAG_AUTHZ_MODE: z.enum(["audit", "enforce"]).default("audit"),
 
   // --- Web search ---
   SYNESIS_WEB_SEARCH_ENABLED: z

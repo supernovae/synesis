@@ -2,139 +2,119 @@
 
 ## Purpose
 
-Define how coder/planner knowledge is represented, enriched, and consumed across indexer, admin, planner, MCP, and Yarn.
+Define how coder/planner knowledge is represented, enriched, authorized, and
+consumed across indexer, admin, planner, MCP, and Yarn.
 
 ## Current Baseline
 
-- Milvus catalog schema version is currently defined in [`base/rag/indexer/app/schema.py`](../../base/rag/indexer/app/schema.py).
-- Admin mirror schema is in [`base/admin/app/services/milvus_service.py`](../../base/admin/app/services/milvus_service.py).
-- Schema-sync behavior and ingestion lifecycle are documented in [`docs/INDEXERS.md`](../INDEXERS.md).
+- Canonical graph schema lives in [`base/rag/indexer/app/schema.py`](../../base/rag/indexer/app/schema.py).
+- NornicDB writer logic lives in [`base/rag/indexer/app/nornic_writer.py`](../../base/rag/indexer/app/nornic_writer.py).
+- Planner retrieval lives in [`base/planner-ts/src/retrieval/rag-client.ts`](../../base/planner-ts/src/retrieval/rag-client.ts).
+- Ingestion lifecycle is documented in [`docs/INDEXERS.md`](../INDEXERS.md).
 
-## Schema v14 — Constraint-Aware Retrieval
+Current schema version: **v19**.
 
-Implemented in Phase 14. Promotes metadata previously packed into the 512-byte `tags` VARCHAR column to first-class Milvus columns with efficient equality/scalar-index filtering.
+## Schema v19 — NornicDB Content Graph
 
-### New First-Class Columns
+Schema v19 is graph-native. Chunks remain searchable by vector embeddings, but
+they are also connected to structural nodes and relationships:
 
-| Column | Type | Description |
-|---|---|---|
-| `corpus_class` | VARCHAR(32) | `coder_enriched`, `general`, `hybrid` |
-| `constraint_kind` | VARCHAR(16) | `hard`, `guiding`, `advisory` |
-| `content_profile` | VARCHAR(32) | `reference`, `procedural`, `tutorial`, `api_spec`, `architecture`, `policy`, `code`, `docs`, `mixed` |
-| `scope_tags` | VARCHAR(256) | Comma-separated purpose tags (e.g. `error-catalog,linter-rules`) |
-| `constraint_source` | VARCHAR(64) | Origin of constraint classification (e.g. `typescript-spec`, `eslint`, `ruff`) |
-| `constraint_confidence` | FLOAT | 0.0–1.0 enrichment-time confidence in the constraint classification |
-| `golden_path_id` | VARCHAR(128) | Links to Backstage/Developer Hub golden path template |
-| `novel_pattern` | BOOL | Whether this content represents an experimental approach |
-| `novel_trace_level` | VARCHAR(16) | `none`, `basic`, `enhanced` — tracing guidance for novel patterns |
+| Element | Purpose |
+|---------|---------|
+| `ContentNode` | Shared base label for searchable graph entities |
+| `Document` / `File` / `Chunk` | Source hierarchy and path-aware retrieval |
+| `Symbol` / `Function` / `Class` / `Method` | Code-aware retrieval anchors |
+| `CONTAINS` | Document/file/chunk containment |
+| `DEFINES` | Chunk-to-symbol definitions |
+| `IMPORTS` / `CALLS` | Deterministic code relationship edges |
+| `REFERENCES` / `DOCUMENTS` | Semantic and documentation relationships |
 
-### Why v14
+Code chunks preserve `import_refs` and `call_refs`; deterministic resolution
+matches exact symbols, same-file symbols, package/module hints, and unresolved
+external references. This works for ordinary GitHub code ingestion and managed
+SynPack/language-pack artifacts without requiring an LLM.
 
-- **Efficient filtering**: Milvus scalar indexes on `corpus_class`, `constraint_kind` instead of `LIKE "%ck:hard%"` on `tags`
-- **Richer constraint metadata**: `constraint_source` and `constraint_confidence` enable the decision matrix to reason about evidence quality directly
-- **Golden path linking**: Connects corpus chunks to organizational best practices from Developer Hub/Backstage
-- **Novel pattern tracking**: Distinguishes proven patterns from experimental approaches, feeding sensemaking
-- **Content profile on results**: Yarn can distinguish `reference` from `procedural` from `tutorial` evidence, improving confidence scoring
+## First-Class Retrieval Fields
 
-### Backward Compatibility
+Important current fields include:
 
-- The `tags` column is still written (tag-packed metadata alongside new columns) during the transition period
-- `extractTagMetadata()` in planner-ts remains as a fallback parser for pre-v14 data
-- After a full re-index, tag-packed metadata is vestigial but harmless
-- Existing v13 data in `tags` remains readable — columns just default to empty/zero
-
-### Previous Extension Candidates (v13+ doc → resolved)
-
-The following candidates from the original v13+ proposal were resolved in v14:
-
-| Proposed | Resolution |
+| Field | Description |
 |---|---|
-| `constraint_domain` | Covered by `scope_tags` + `constraint_source` |
-| `constraint_kind` | Promoted to first-class column |
-| `constraint_source` | Promoted to first-class column |
-| `constraint_confidence` | Promoted to first-class column |
-| `constraint_fix_class` | Handled by language pack `FixRecipe` system (runtime, not schema) |
-| `constraint_applicability` | Covered by `content_profile` + `scope_tags` |
-| `golden_path_id` | Promoted to first-class column |
-| `validation_recipe_id` | Handled by language pack `VerificationCommand` system (runtime, not schema) |
-| `novel_pattern` | Promoted to first-class column |
-| `novel_trace_level` | Promoted to first-class column |
+| `pack_id`, `pack_version`, `pack_source_version`, `pack_partition` | Managed pack identity and versioning |
+| `symbol_kind`, `symbol_fqn`, `symbol_name`, `package_name` | Code and API reference targeting |
+| `corpus_class`, `constraint_kind`, `content_profile`, `scope_tags` | Constraint-aware retrieval and evidence scoring |
+| `constraint_source`, `constraint_confidence`, `golden_path_id` | Source quality and organizational golden path linkage |
+| `novel_pattern`, `novel_trace_level` | Experimental-pattern handling |
+| `agent_hook`, `perf_tier`, `safety_contract`, `lifecycle_model`, `agent_enrichment_json` | Agent-facing pack guidance |
+| `visibility_scope`, `org_id`, `tenant_id`, `owner_user_id`, `conversation_id` | Structural scope filtering |
+| `acl_mode`, `acl_groups`, `acl_group_ids`, `authz_object_id` | Exact ACL matching and OpenFGA object mapping |
+
+## Authorization Model
+
+RAG authorization is no longer dependent on caller-provided semantic hints.
+
+1. Admin RBAC normalizes effective scope on ingestion items.
+2. The indexer validates scope and ACL fields before writing graph nodes.
+3. Scope and ACL metadata are copied onto chunk, document, file, and symbol nodes.
+4. Planner retrieval derives caller scope from auth context, not request body.
+5. NornicDB applies the same auth predicate to seed nodes and graph neighbors.
+6. In `SYNESIS_RAG_AUTHZ_MODE=enforce`, restricted/private or non-global rows are
+   checked through OpenFGA `can_read` using `authz_object_id` such as `rag_doc:<doc_id>`.
+
+This makes retrieval isolation objective: graph traversal can improve recall
+without crossing org, tenant, session, or ACL boundaries.
 
 ## Cross-Component Update Checklist
 
 Any schema extension must update:
 
-1. **Indexer** — `schema.py` (fields, entity builder), `pipeline.py` (column writes)
-2. **Admin** — `milvus_service.py` (mirror schema for recreate)
-3. **Planner-TS** — `rag-client.ts` (OUTPUT_FIELDS), `metadata-filter.ts` (filter builder), `types.ts` (KnowledgeResult/RagResult)
-4. **MCP-TS** — `knowledge-search.ts` (tool schemas, pass-through params)
-5. **Yarn-TS** — `knowledge-search.ts` (KnowledgeSearchResult), `fast-path.ts` (confidence scoring)
-6. **Documentation** — this file, `implementation-phases.md`
-7. **Backfill** — re-index existing corpus to populate new columns
-
-## Schema v16 — Managed Doc Packs
-
-Schema v16 adds model-aware SynPack support and moves the Milvus partition key
-from `authority` to `pack_id`. Existing/global ingestion writes `pack_id="global"`;
-managed language/framework packs write stable ids such as `go-latest` or
-`rust-1.90`.
-
-New columns: `pack_id`, `pack_version`, `pack_source_version`,
-`pack_artifact_hash`, `pack_partition`, `symbol_kind`, `symbol_fqn`,
-`package_name`, and `doc_relation_ids`. Dense embeddings are now 1024-dimensional
-`BAAI/bge-m3` vectors.
-
-## Schema v17 — Agentic SynPack Enrichment
-
-Schema v17 adds universal agent-facing enrichment fields for managed packs:
-`agent_hook`, `perf_tier`, `safety_contract`, `lifecycle_model`, and
-`agent_enrichment_json`. Language-specific details remain in the JSON payload;
-the Go pack stores memory semantics, concurrency contracts, idiomatic version
-scope, zero-value behavior, related interfaces, and hidden warnings there.
+1. **Indexer** — `schema.py`, `pipeline.py`, and tests.
+2. **NornicDB writer** — graph node/edge propagation and indexes when needed.
+3. **Planner-TS** — `rag-client.ts`, `metadata-filter.ts`, and `types.ts`.
+4. **MCP-TS** — knowledge-search tool schemas and pass-through params.
+5. **Yarn-TS** — knowledge-search result types and confidence scoring if consumed by coder workflows.
+6. **Admin** — ingestion/RBAC fields and review/quality surfaces if operator-facing.
+7. **Documentation** — this file, `docs/RAG.md`, and `docs/INDEXERS.md`.
+8. **Backfill** — re-index existing corpus to populate new graph fields.
 
 ## Knowledge Source Model
 
-- **Backstage/Developer Hub**: first-class source for templates, pipelines, and platform standards. Linked via `golden_path_id`.
-- **Curated technical docs**: language/framework/tooling references for coder reliability. Identified by `content_profile` (reference, api_spec) and `constraint_source`.
-- **General corpus**: non-coding domain context for product/domain reasoning. Identified by `corpus_class: general`.
-- **Internal governance artifacts**: constitutions, ADRs, runbooks, quality bars. Identified by `content_profile: policy` and `constraint_kind: hard/guiding`.
+- **Backstage/Developer Hub**: templates, pipelines, and platform standards linked via `golden_path_id`.
+- **Curated technical docs**: language/framework/tooling references for coder reliability.
+- **General corpus**: non-coding domain context for product/domain reasoning.
+- **Internal governance artifacts**: constitutions, ADRs, runbooks, quality bars, and policy references.
 
-All sources require provenance, authority classification, and freshness handling.
+All sources require provenance, authority classification, scan status, freshness
+metadata, and scope metadata.
 
-## Pipeline Flow (v14)
+## Pipeline Flow
 
-```
-Corpus YAML → Indexer pipeline.py
-  ├─ Reads corpus_class, constraint_kind, content_profile, scope_tags from source_config
-  ├─ Reads constraint_source, golden_path_id, novel_pattern, novel_trace_level
-  ├─ Validates whitelist (corpus_class: coder_enriched/general/hybrid, etc.)
-  ├─ Falls back to synesis_meta for missing fields
-  ├─ Writes new columns directly via catalog_entity()
-  └─ Writes tag-packed duplicates for backward compat
+```text
+Corpus / Admin queue item
+  -> indexer source handler
+  -> deterministic chunking and metadata extraction
+  -> optional enrichment and quality gates
+  -> TEI BGE-M3 embedding
+  -> injection scan and review metadata
+  -> NornicDB ContentNode upsert
+  -> deterministic graph edge upsert
 
-Planner-TS → Milvus query
-  ├─ buildMetadataFilter() uses equality on new columns
-  ├─ OUTPUT_FIELDS includes all v14 columns
-  ├─ toRagResult() maps raw rows to RagResult with new fields
-  └─ KnowledgeResult maps first-class columns (falls back to extractTagMetadata for pre-v14)
+Planner-TS
+  -> embed query
+  -> NornicDB vector seed search
+  -> metadata + authz predicates
+  -> graph expansion with neighbor authz
+  -> optional OpenFGA row enforcement
+  -> RRF merge with web evidence
 
-MCP-TS → Planner API
-  ├─ Tool schemas expose content_profile, constraint_source, golden_path_id
-  └─ buildSearchBody() passes new params through
-
-Yarn-TS → evidence scoring
-  ├─ KnowledgeSearchResult includes content_profile, constraint_source, etc.
-  ├─ computeEvidenceConfidence() weights reference/api_spec profiles higher
-  └─ formatEvidenceBlock() includes profile tag in output
+MCP / Yarn
+  -> call planner knowledge-search APIs
+  -> receive structured graph-aware evidence
 ```
 
 ## Backfill and Migration
 
-**Existing v13 data**: Columns default to empty string / -1.0 / false. The `tags` column remains readable and `extractTagMetadata()` parses it as a fallback.
-
-**Migration path**:
-1. Deploy v14 schema (automatic: indexer's `ensure_synesis_catalog` detects field drift, drops and recreates)
-2. Re-index all corpus sources — new columns populated on insert
-3. After full re-index, tag-packed metadata is vestigial
-
-**No manual migration required** — the schema auto-migrates on indexer startup. Data re-index populates the new columns.
+After schema or authz metadata changes, re-run the indexer for affected sources.
+Rows that predate `acl_group_ids` or `authz_object_id` remain readable in audit
+mode, but `enforce` mode requires correct `rag_doc:*` grants for non-global or
+restricted/private content.

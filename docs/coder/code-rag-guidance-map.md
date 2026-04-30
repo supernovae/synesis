@@ -17,9 +17,9 @@ Implemented:
 Guidance: persist explicit code signals to improve filtering/ranking and observability.
 
 Implemented:
-- Milvus schema v15 fields in:
+- NornicDB schema v19 fields in:
   - `base/rag/indexer/app/schema.py`
-  - `base/admin/app/services/milvus_service.py`
+  - `base/rag/indexer/app/nornic_writer.py`
 - New fields:
   - `has_code`
   - `code_signal_count`
@@ -67,8 +67,7 @@ Implemented:
 - Raised global defaults in `base/rag/indexer/app/crawl_config.py`.
 - Added profile-based knobs (`reference`, `tutorial`, `blog`) and wired Go corpus entries to profiles.
 
-## Next Iterations (not part of this patch)
+## Current Follow-Ups
 
-- Expand graph edges (imports/calls/type links) into retrieval-time structural expansion.
-- Add explicit symbol-index store and symbol-level retrieval endpoints.
 - Add task-level evaluation harness for coding queries (`hit@k` symbol/file + answer quality deltas).
+- Continue expanding language-specific symbol resolution where tree-sitter support is available.

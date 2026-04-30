@@ -1599,7 +1599,7 @@ patch_planner_retrieval_and_web() {
     if is_true "${SYNESIS_DEPLOY_PLANNER_RETRIEVAL:-true}"; then
         local embedder="${SYNESIS_PLANNER_EMBEDDER_URL:-http://embedder.synesis-rag.svc.cluster.local:8080/v1}"
         local nornic_uri="${SYNESIS_PLANNER_NORNIC_URI:-bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687}"
-        local nornic_database="${SYNESIS_PLANNER_NORNIC_DATABASE:-neo4j}"
+        local nornic_database="${SYNESIS_PLANNER_NORNIC_DATABASE:-nornic}"
         local searx="${SYNESIS_PLANNER_SEARXNG_URL:-http://searxng.synesis-search.svc.cluster.local:8080}"
         local web_on="${SYNESIS_PLANNER_WEB_SEARCH_ENABLED:-true}"
         log "  SYNESIS_DEPLOY_PLANNER_RETRIEVAL enabled — patching $ns/$deploy (embedder, NornicDB, SearXNG)"

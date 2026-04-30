@@ -2,8 +2,8 @@
   "version": 2,
   "description": "Targeted corpus for production AI assistant architecture: RAG security, vector DB selection, model routing, confidence policies, code assistant patterns, deployment rollout, and Kubernetes AI serving. Designed to fill gaps identified by external critic scoring of mega-prompt output.",
   "_mapping_notes": {
-    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
-    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored on NornicDB graph nodes at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored as a retrieval filter."
   },
   "sources": [
     {

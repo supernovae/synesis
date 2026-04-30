@@ -84,4 +84,30 @@ describe("search route authorization", () => {
     expect(res.statusCode).toBe(400);
     await app.close();
   });
+
+  it("ignores caller-provided RAG scope hints and returns authz diagnostics", async () => {
+    const app = buildApp(makeConfig({
+      SYNESIS_NORNIC_URI: "",
+      SYNESIS_RAG_AUTHZ_MODE: "enforce",
+    }));
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/search",
+      headers: { authorization: "Bearer syn-valid" },
+      payload: {
+        query: "tenant private docs",
+        caller_org_id: "other-org",
+        caller_tenant_ids: ["other-tenant"],
+        caller_acl_groups: ["admins"],
+        caller_user_id: "other-user",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["x-synesis-authz-trace-id"]).toBeTruthy();
+    const body = res.json();
+    expect(body.authz_mode).toBe("enforce");
+    expect(body.authz_trace_id).toBe(res.headers["x-synesis-authz-trace-id"]);
+    expect(body.results).toEqual([]);
+    await app.close();
+  });
 });

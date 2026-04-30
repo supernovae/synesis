@@ -502,7 +502,7 @@ in routing YAML against taxonomy keys — any mismatch is logged as a warning.
 |-------|------------|
 | **Taxonomy** | `domain_keywords.athletics` → `domain: athletics_running`. Add `music` with subdomains `music_piano`, `music_synthesizer` as separate entries. |
 | **Indexer** | Tag chunks with `domain=<taxonomy_id>` when upserting. Each item in the ingestion queue specifies `domain: <taxonomy_id>` (set via admin UI or bootstrap YAML). |
-| **RAG client** | `select_collections_for_task` builds `domain in ["athletics_running", "music"]` from `active_domain_refs`. Milvus vector search applies filter. |
+| **RAG client** | `select_collections_for_task` builds `domain in ["athletics_running", "music"]` from `active_domain_refs`. NornicDB graph/vector search applies the filter. |
 
 **Adding a new vertical (e.g. music):**
 1. Add `domain_keywords.music_piano` in a plugin with `domain: music_piano`, keywords like `piano`, `keyboard`.

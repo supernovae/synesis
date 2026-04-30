@@ -23,7 +23,8 @@ function hasForwardedIdentityHeaders(request: FastifyRequest): boolean {
     "x-openwebui-user-id",
     "x-openwebui-user-email",
     "x-synesis-org-id",
-    "x-synesis-tenant-ids"
+    "x-synesis-tenant-ids",
+    "x-synesis-acl-groups"
   ];
   return keys.some((key) => {
     const value = request.headers[key];
@@ -60,11 +61,13 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
   if (trustedForwarded) {
     const forwardedEmail = String(request.headers["x-openwebui-user-email"] ?? "");
     const tenantIdsFromHeader = parseCsvHeader(request.headers["x-synesis-tenant-ids"]);
+    const aclGroupsFromHeader = parseCsvHeader(request.headers["x-synesis-acl-groups"]);
     return {
       userId: String(request.headers["x-openwebui-user-id"] ?? "forwarded-user"),
       userEmail: forwardedEmail,
       orgId: String(request.headers["x-synesis-org-id"] ?? ""),
       tenantIds: tenantIdsFromHeader,
+      aclGroups: aclGroupsFromHeader,
       role: "user",
       tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
       authMethod: "internal_service",

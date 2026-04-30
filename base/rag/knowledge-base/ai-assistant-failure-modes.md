@@ -39,7 +39,7 @@ Production AI assistants fail in predictable ways. This catalog documents concre
 
 **Detection mechanisms**:
 - **Constraint echo check**: Extract user's stated constraints and verify each appears in the response. If "budget is limited" appears in the prompt but the response proposes 4 separate managed services, the model ignored the constraint.
-- **Specificity ratio**: Count generic terms ("scalable", "robust", "efficient") vs. specific terms ("L40S", "Milvus", "3-month timeline"). Ratio >2:1 generic-to-specific indicates template output.
+- **Specificity ratio**: Count generic terms ("scalable", "robust", "efficient") vs. specific terms ("L40S", "NornicDB", "3-month timeline"). Ratio >2:1 generic-to-specific indicates template output.
 
 **Mitigations**:
 - Inject constraints into the planner's assumption list so they propagate to every section.

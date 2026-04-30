@@ -22,6 +22,7 @@ import {
   type PolicyDecision
 } from "./auth/policy-engine.js";
 import { resolveAuthContext } from "./auth/resolver.js";
+import type { AuthContext } from "./auth/types.js";
 import { initFgaClient } from "./auth/openfga-client.js";
 import { resolvePatFromDb } from "./auth/pat-resolver.js";
 import { assertCapabilityLock } from "./capability-lock.js";
@@ -64,7 +65,7 @@ import { getTracer } from "./telemetry/otel.js";
 import { PromptRegistry } from "./prompt-registry.js";
 import { setPlannerPromptSnapshot } from "./prompt-composer.js";
 import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
-import type { WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
+import type { ScopeFilterOptions, WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
 import { CapabilityMatrixClient } from "./capability-matrix/client.js";
 import { resolveCapabilityMatrix } from "./capability-matrix/resolver.js";
 
@@ -161,6 +162,39 @@ function optionalString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const s = String(value).trim();
   return s.length > 0 ? s : undefined;
+}
+
+function hasCallerScopeHints(body: Record<string, unknown> | null): boolean {
+  if (!body) return false;
+  return [
+    "caller_org_id",
+    "caller_tenant_ids",
+    "caller_acl_groups",
+    "caller_user_id",
+  ].some((key) => body[key] !== undefined && body[key] !== null);
+}
+
+function deriveKnowledgeSearchScope(
+  auth: AuthContext,
+  body: Record<string, unknown> | null,
+  config: AppConfig,
+  authzTraceId: string,
+): ScopeFilterOptions {
+  const trustedScopeSource = auth.trustedForwardedIdentity ? "trusted_forwarded_identity" : "auth_context";
+  const callerOrgId = optionalString(auth.orgId);
+  const callerUserId = auth.userId && auth.userId !== "anonymous" ? optionalString(auth.userId) : undefined;
+  const callerConversationId = callerUserId ? optionalString(body?.caller_conversation_id) : undefined;
+
+  return {
+    callerOrgId,
+    callerTenantIds: auth.tenantIds.length > 0 ? auth.tenantIds.slice(0, 50) : undefined,
+    callerAclGroups: auth.aclGroups && auth.aclGroups.length > 0 ? auth.aclGroups.slice(0, 100) : undefined,
+    callerUserId,
+    callerConversationId,
+    authzMode: config.SYNESIS_RAG_AUTHZ_MODE,
+    authzTraceId,
+    trustedScopeSource,
+  };
 }
 
 function inferPlannerModelFamily(modelId: string): string {
@@ -392,6 +426,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
     nornicVectorIndex: config.SYNESIS_NORNIC_VECTOR_INDEX,
     nornicRuntimeProfile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
+    embedderUrl: config.SYNESIS_EMBEDDER_URL,
     embedderModel: config.SYNESIS_EMBEDDER_MODEL,
     retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
     rrfK: config.SYNESIS_RAG_RRF_K,
@@ -961,6 +996,19 @@ export function buildApp(config: AppConfig): FastifyInstance {
     )) {
       return reply.code(401).send({ error: "unauthorized" });
     }
+    const authzTraceId = crypto.randomUUID();
+    reply.header("x-synesis-authz-trace-id", authzTraceId);
+
+    let auth: AuthContext;
+    try {
+      auth = await resolveAuthContext(request, config);
+    } catch (err) {
+      const statusCode = (err as ErrorWithMeta).statusCode ?? 401;
+      return reply.code(statusCode).send({
+        error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+        authz_trace_id: authzTraceId,
+      });
+    }
 
     const body = request.body as Record<string, unknown> | null;
     const query = String(body?.query ?? "").trim();
@@ -997,12 +1045,21 @@ export function buildApp(config: AppConfig): FastifyInstance {
       code_language: body?.code_language ? String(body.code_language) : undefined,
     };
 
-    const scopeOpts = {
-      callerOrgId: body?.caller_org_id ? String(body.caller_org_id) : undefined,
-      callerTenantIds: Array.isArray(body?.caller_tenant_ids) ? (body.caller_tenant_ids as string[]) : undefined,
-      callerAclGroups: Array.isArray(body?.caller_acl_groups) ? (body.caller_acl_groups as string[]) : undefined,
-      callerUserId: body?.caller_user_id ? String(body.caller_user_id) : undefined,
-    };
+    const bodyScopeHintsIgnored = hasCallerScopeHints(body);
+    const scopeOpts = deriveKnowledgeSearchScope(auth, body, config, authzTraceId);
+    if (bodyScopeHintsIgnored) {
+      request.log.warn({
+        authz_trace_id: authzTraceId,
+        auth_method: auth.authMethod,
+        trusted_forwarded_identity: auth.trustedForwardedIdentity,
+        ignored_fields: [
+          "caller_org_id",
+          "caller_tenant_ids",
+          "caller_acl_groups",
+          "caller_user_id",
+        ].filter((key) => body?.[key] !== undefined),
+      }, "knowledge_search_body_scope_ignored");
+    }
 
     const metaFilter = buildMetadataFilterFn(metaParams);
 
@@ -1083,12 +1140,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
         results_count: mapped.length,
         filter_applied: metaFilter || null,
         total_ms: Math.round(totalMs * 10) / 10,
+        authz_trace_id: authzTraceId,
+        authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
+        auth_scope_source: scopeOpts.trustedScopeSource,
       }, "knowledge_search_complete");
 
       return {
         results: mapped,
         query,
         total: mapped.length,
+        authz_trace_id: authzTraceId,
+        authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
         timings: {
           embed_ms: 0,
           search_ms: Math.round(totalMs * 10) / 10,

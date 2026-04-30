@@ -127,7 +127,7 @@ The admin UI allows managing the lifecycle of knowledge gaps:
 - **Reopen**: Return a resolved gap to open status if it resurfaces
 - **Purge**: Permanently delete a gap and its status record
 
-The gap status data is stored in a companion Milvus collection (`synesis_knowledge_gap_status`) alongside the original backlog collection.
+The gap status data is stored in Admin/Postgres alongside the original backlog records.
 
 ---
 

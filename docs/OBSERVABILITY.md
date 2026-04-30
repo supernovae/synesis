@@ -255,7 +255,7 @@ Browse traces in the Admin UI under **Tracing > Activity Log**:
 
 ## Knowledge Gap Lifecycle
 
-Knowledge gaps (low-confidence retrieval events) are recorded in the `synesis_knowledge_backlog` Milvus collection. Admins can manage their lifecycle through the Admin UI or API:
+Knowledge gaps (low-confidence retrieval events) are recorded in Admin/Postgres and can be validated against NornicDB retrieval. Admins can manage their lifecycle through the Admin UI or API:
 
 | Status | Description |
 |--------|-------------|

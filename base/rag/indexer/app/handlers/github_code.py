@@ -9,6 +9,7 @@ structured_data handler for format-aware chunking.
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess  # nosec B404
 import tempfile
@@ -261,6 +262,8 @@ class GitHubCodeHandler:
                 code_chunks = []
 
             if code_chunks:
+                repo = str(doc.metadata.get("repo", "") or "")
+                import_refs = _join_refs(_extract_import_refs(source_code, language))
                 return [
                     Chunk(
                         text=cc["text"],
@@ -270,9 +273,18 @@ class GitHubCodeHandler:
                         metadata={
                             "symbol_name": cc.get("symbol_name", ""),
                             "symbol_type": cc.get("symbol_type", ""),
+                            "symbol_kind": cc.get("symbol_type", ""),
+                            "symbol_fqn": _symbol_fqn(repo, file_path, cc.get("symbol_name", "")),
+                            "package_name": repo,
+                            "repo_path": repo,
+                            "file_path": file_path,
                             "content_format": language,
+                            "language": language,
+                            "artifact_kind": "code",
                             "start_line": cc.get("start_line", 0),
                             "end_line": cc.get("end_line", 0),
+                            "import_refs": import_refs,
+                            "call_refs": _join_refs(_extract_call_refs(cc["text"], language)),
                         },
                     )
                     for i, cc in enumerate(code_chunks)
@@ -285,7 +297,16 @@ class GitHubCodeHandler:
                     section=file_path,
                     heading_path=file_path,
                     chunk_index=0,
-                    metadata={"content_format": language or "text"},
+                    metadata={
+                        "content_format": language or "text",
+                        "language": language or "",
+                        "artifact_kind": "code" if language else "",
+                        "repo_path": doc.metadata.get("repo", ""),
+                        "file_path": file_path,
+                        "package_name": doc.metadata.get("repo", ""),
+                        "import_refs": _join_refs(_extract_import_refs(source_code, language or "")),
+                        "call_refs": _join_refs(_extract_call_refs(source_code, language or "")),
+                    },
                 )
             ]
         return []
@@ -478,3 +499,76 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
         else:
             break
     return b"\n".join(comment_lines) + b"\n" if comment_lines else b""
+
+
+def _symbol_fqn(repo: str, file_path: str, symbol_name: str) -> str:
+    prefix = f"{repo}:" if repo else ""
+    if symbol_name:
+        return f"{prefix}{file_path}:{symbol_name}"
+    return ""
+
+
+def _join_refs(values: list[str], limit: int = 64) -> str:
+    seen: list[str] = []
+    for value in values:
+        value = value.strip()
+        if value and value not in seen:
+            seen.append(value)
+        if len(seen) >= limit:
+            break
+    return ",".join(seen)
+
+
+def _extract_import_refs(source_code: str, language: str) -> list[str]:
+    refs: list[str] = []
+    if language == "python":
+        patterns = [
+            r"(?m)^\s*import\s+([A-Za-z_][\w.]*)(?:\s+as\s+\w+)?",
+            r"(?m)^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+",
+        ]
+    elif language in {"javascript", "typescript"}:
+        patterns = [
+            r"""(?m)^\s*import\s+.*?\s+from\s+['"]([^'"]+)['"]""",
+            r"""(?m)^\s*import\s+['"]([^'"]+)['"]""",
+            r"""require\(\s*['"]([^'"]+)['"]\s*\)""",
+        ]
+    elif language == "go":
+        patterns = [r"""(?m)^\s*import\s+(?:\(\s*)?"([^"]+)"""]
+    elif language == "rust":
+        patterns = [r"(?m)^\s*use\s+([^;]+);"]
+    elif language == "java":
+        patterns = [r"(?m)^\s*import\s+([\w.*]+);"]
+    else:
+        patterns = []
+
+    for pattern in patterns:
+        refs.extend(m.group(1).strip() for m in re.finditer(pattern, source_code))
+    return refs
+
+
+_CALL_KEYWORDS = {
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "return",
+    "func",
+    "function",
+    "def",
+    "class",
+    "new",
+    "sizeof",
+}
+
+
+def _extract_call_refs(source_code: str, language: str) -> list[str]:
+    del language
+    refs: list[str] = []
+    for match in re.finditer(r"\b([A-Za-z_][\w.]*)\s*\(", source_code):
+        name = match.group(1)
+        leaf = name.rsplit(".", 1)[-1]
+        if leaf.lower() in _CALL_KEYWORDS:
+            continue
+        refs.append(name)
+    return refs

@@ -102,7 +102,7 @@ Faceted search allows users to explore multiple dimensions simultaneously. Facet
 
 Augmenting generation with retrieved evidence reduces hallucination, grounds responses in verifiable sources, and enables domain specialization without model retraining.
 
-**Design impact:** The entire planner-ts pipeline is retrieval-first: the router gathers evidence packets before the writer generates content, the critic scores evidence utilization, and deterministic validators check citation preservation. Hybrid retrieval (dense + sparse vectors via Milvus, web search via SearXNG, RRF merge) provides broad coverage. Authority-weighted provenance and freshness scoring ensure the most relevant, trustworthy evidence surfaces.
+**Design impact:** The entire planner-ts pipeline is retrieval-first: the router gathers evidence packets before the writer generates content, the critic scores evidence utilization, and deterministic validators check citation preservation. Graph-native retrieval (NornicDB vector seeds plus code/document graph expansion, web search via SearXNG, RRF merge) provides broad coverage. Authority-weighted provenance, objective authz predicates, and freshness scoring ensure the most relevant, trustworthy evidence surfaces.
 
 ### 2.11 Human–AI Collaborative Sensemaking
 
@@ -216,5 +216,5 @@ See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WOR
 | [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) | Domain behavior configuration via YAML |
 | [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) | Full pipeline flow, router-governed evidence, anti-oscillation |
 | [CRITIC_RESEARCH.md](CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
-| [INDEXERS.md](INDEXERS.md) | RAG indexer, v13 schema, trust attribution fields |
+| [INDEXERS.md](INDEXERS.md) | RAG indexer, schema v19 content graph, trust attribution fields |
 | [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review |

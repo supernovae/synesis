@@ -15,7 +15,7 @@ Synesis keeps **per-scope** state in the **planner** so the agent can resolve re
 | **L1** | In-process (`ConversationMemory`) | Recent turns, `pending_*` maps, last language / last routing context (`is_code_task`, domain refs), unified **pending question** snapshot | **No** — all L1 data is lost on rollout/restart |
 | **L2 (Redis)** | Optional, same Redis URL as pivot archive when configured | (a) **Pending question** write-through: `store_pending_question` mirrors to Redis so a reply can resume after L1 loss; (b) **Pivot archive**: raw history strings archived on context pivot | **Yes**, within TTL — but only for those two mechanisms, not general chat |
 
-**Not implemented yet:** The `_on_evict` hook on L1 turn eviction is still a **stub** (debug log only). A future design could summarize evicted turns and upsert to Milvus (`conversation_memory_v1` or similar) for long-horizon memory — see [Future work](#future-work-user-expectations-and-recommended-changes).
+**Not implemented yet:** The `_on_evict` hook on L1 turn eviction is still a **stub** (debug log only). A future design could summarize evicted turns and upsert session-scoped memory into NornicDB (`conversation_memory_v1` or similar) for long-horizon memory — see [Future work](#future-work-user-expectations-and-recommended-changes).
 
 ---
 

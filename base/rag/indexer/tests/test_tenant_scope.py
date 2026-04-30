@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.schema import EMBEDDING_DIM, EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV17TenancyFields:
-    def test_version_is_17(self):
-        assert SCHEMA_VERSION == 17
+class TestSchemaV19TenancyFields:
+    def test_version_is_19(self):
+        assert SCHEMA_VERSION == 19
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS
@@ -38,6 +38,8 @@ class TestSchemaV17TenancyFields:
         assert "safety_contract" in EXPECTED_FIELDS
         assert "lifecycle_model" in EXPECTED_FIELDS
         assert "agent_enrichment_json" in EXPECTED_FIELDS
+        assert "acl_group_ids" in EXPECTED_FIELDS
+        assert "authz_object_id" in EXPECTED_FIELDS
 
     def test_catalog_entity_defaults_to_global(self):
         entity = catalog_entity(
@@ -59,6 +61,20 @@ class TestSchemaV17TenancyFields:
         assert entity["safety_contract"] == ""
         assert entity["lifecycle_model"] == ""
         assert entity["agent_enrichment_json"] == ""
+        assert entity["acl_group_ids"] == []
+        assert entity["authz_object_id"] == "rag_doc:c1"
+
+    def test_catalog_entity_parses_acl_group_ids(self):
+        entity = catalog_entity(
+            chunk_id="c-acl",
+            doc_id="doc-acl",
+            text="restricted content",
+            embedding=[0.0] * EMBEDDING_DIM,
+            acl_mode="restricted",
+            acl_groups="team-alpha, team-beta,team-alpha",
+        )
+        assert entity["acl_group_ids"] == ["team-alpha", "team-beta"]
+        assert entity["authz_object_id"] == "rag_doc:doc-acl"
 
     def test_catalog_entity_org_scope(self):
         entity = catalog_entity(

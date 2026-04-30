@@ -204,7 +204,7 @@ Defense in depth: network policies restrict which pods can reach each service, i
 | Planner (port 8000) | Open WebUI, Yarn, admin (for health checks) |
 | Warm pool (port 8080) | Planner only (namespace deny-all + planner ingress) |
 | Sandbox pods | No ingress (ephemeral execution only) |
-| Milvus (port 19530) | Planner, indexer |
+| NornicDB (Bolt port 7687) | Planner, indexer |
 | Admin API (port 8080) | Yarn (for MCP), Open WebUI (for settings) |
 
 Network policies are the first line of defense. Application-level auth (Bearer tokens, RBAC) is the second.
@@ -236,7 +236,7 @@ Before deploying to production, verify:
 - [ ] `SYNESIS_PAT_PEPPER` set on planner, yarn, and admin
 - [ ] Open WebUI uses internal service token (not model API key) as `OPENAI_API_KEY`
 - [ ] LiteLLM `forward_client_headers_to_llm_api: false` in gateway config
-- [ ] Network policies applied for planner, warm pool, sandbox, and Milvus
+- [ ] Network policies applied for planner, warm pool, sandbox, and NornicDB
 - [ ] Planner startup logs show `identity_trust_config_ok` (no security WARNINGs)
 - [ ] `synesis-internal-service-auth` secret synced to all namespaces
 - [ ] PAT pepper is distinct from any other secret value

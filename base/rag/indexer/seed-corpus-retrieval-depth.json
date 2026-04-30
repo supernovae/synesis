@@ -2,8 +2,8 @@
   "version": 2,
   "description": "Targeted corpus for retrieval architecture depth, current LangChain/LangGraph patterns, FAISS limitations, hybrid search, vector DB comparisons, self-hosted LLM operations, and code-aware retrieval. Fills gaps identified by external critic: retrieval topology precision, current framework versions, operational realism, and code-context architecture.",
   "_mapping_notes": {
-    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
-    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored on NornicDB graph nodes at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored as a retrieval filter."
   },
   "sources": [
     {

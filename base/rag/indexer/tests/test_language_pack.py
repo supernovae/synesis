@@ -32,7 +32,7 @@ from app.language_pack import (
     parse_terraform_stable_tag,
     prepare_staged_language_pack,
 )
-from app.schema import EMBEDDING_DIM
+from app.schema import EMBEDDING_DIM, SCHEMA_VERSION
 from app.synpack import SynPackError, validate_synpack
 
 
@@ -601,7 +601,9 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     )
     assert result["ok"] is True
     manifest = validate_synpack(out)
-    assert manifest["schema_version"] == 17
+    assert manifest["schema_version"] == SCHEMA_VERSION
+    with zipfile.ZipFile(out) as zf:
+        assert "edges.jsonl" in zf.namelist()
     assert manifest["source_version"] == "go1.26.2"
     assert manifest["doc_language"] == "en"
     assert manifest["supported_doc_languages"] == ["en"]
@@ -728,7 +730,9 @@ def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, 
     )
     assert result["ok"] is True
     manifest = validate_synpack(out)
-    assert manifest["schema_version"] == 17
+    assert manifest["schema_version"] == SCHEMA_VERSION
+    with zipfile.ZipFile(out) as zf:
+        assert "edges.jsonl" in zf.namelist()
     assert manifest["source_version"] == "1.88.0"
     assert manifest["enrichment"]["prompt_id"] == "rust_agentic_architect_2024_v1"
     assert "rust_error_debugger_v1" in manifest["enrichment"]["prompt_hashes"]

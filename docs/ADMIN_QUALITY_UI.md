@@ -17,7 +17,7 @@ This document is the **source of truth** for how corpus quality, retrieval gaps,
 | **Evidence starvation / pack** | High-confidence chunks dropped from writer context | **Tracing → trace detail → Writer context budgeting** |
 | **Critic / quality of answer** | Approvals, scores, failure modes over traces | **Pipeline → Critic** |
 | **Proposed new sources** | Curator agent YAML (file-backed) | **Feedback → Curator** |
-| **Trust attribution** | Provenance, scan status, authority tier, review trace per evidence source | **RAG → Review Queue** (v13 trust fields) |
+| **Trust attribution** | Provenance, scan status, authority tier, review trace per evidence source | **RAG → Review Queue** (schema v19 graph fields) |
 | **Document freshness** | Recency distribution across corpus, stale source detection | **RAG → Quality** (freshness_pct), **Review Queue** (freshness score) |
 
 **Hallucinated URLs / unsupported citations** are tracked in **trace** `critic_scores` (e.g. `hallucinated_urls_count`) and Critic analytics — there is not yet a dedicated "hallucination inbox" page; use **Traces** + **Pipeline → Critic** as the front door.
@@ -55,7 +55,7 @@ flowchart TB
     OBS[routers/observability.py]
     PG[(synesis_admin DB)]
     RAG --> PG
-    RAG --> MIL[Milvus synesis_catalog v13]
+    RAG --> NDB[NornicDB content_graph v19]
     FB --> PG
     FB --> YAML
     OBS --> PG
@@ -94,7 +94,7 @@ flowchart TB
 sequenceDiagram
   participant U as User
   participant P as Planner-ts / Router
-  participant R as RAG (Milvus + Web)
+  participant R as RAG (NornicDB + Web)
   participant W as Writer
   participant C as Critic
   participant DB as Admin Postgres
@@ -139,7 +139,7 @@ All JSON is behind the same auth as the SPA (`/api/v1/...`). Suitable for **scri
 ## How quality numbers are produced
 
 1. **`GET /rag/quality`** — Reads **`quality_snapshots`** (latest rows per domain) when present; otherwise falls back to **`corpus_audit_report.json`** at `SYNESIS_QUALITY_REPORT_PATH`.
-2. **`POST /rag/quality/refresh`** — Recomputes health from **Milvus** domain hierarchy (chunk counts per domain → strong/adequate/weak/empty). Now also computes **real `freshness_pct`** from `effective_at_epoch` / `crawl_timestamp` (chunks with freshness score ≥ 0.5 count as fresh).
+2. **`POST /rag/quality/refresh`** — Recomputes health from the **NornicDB** domain hierarchy (chunk counts per domain → strong/adequate/weak/empty). Now also computes **real `freshness_pct`** from `effective_at_epoch` / `crawl_timestamp` (chunks with freshness score ≥ 0.5 count as fresh).
 3. **`GET /rag/quality/domains/{key}`** — Prefers **audit JSON** scorecard for that domain; if missing, returns the latest **`QualitySnapshot`** row shaped for the UI (inventory; MRR/hit rate from audit only when JSON exists).
 
 So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline audit** (or CI/CronJob) writing JSON **or** future work to persist full scorecards in Postgres.
@@ -159,7 +159,7 @@ So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline 
 ## CLI / local "front door"
 
 1. **Authenticated HTTP** — Same endpoints as the SPA; use org API tokens from **Account → API Tokens** (if enabled in your deployment).
-2. **Port-forward** Milvus + admin DB + admin service as in [QUALITY_PIPELINE.md](QUALITY_PIPELINE.md) prerequisites.
+2. **Port-forward** NornicDB + admin DB + admin service as in [QUALITY_PIPELINE.md](QUALITY_PIPELINE.md) prerequisites.
 3. **Tests** — `base/admin/tests/test_quality_smoke.py` exercises every admin quality/feedback endpoint.
 
 ---
@@ -191,7 +191,7 @@ curl "$ADMIN_URL/api/v1/feedback/knowledge-gaps?status=open" \
 ```bash
 curl "$ADMIN_URL/api/v1/dashboard/quality-wiring" \
   -H "Authorization: Bearer $TOKEN"
-# Verify: milvus_ok=true, traces_total > 0, quality_snapshots > 0
+# Verify: nornic_ok=true, traces_total > 0, quality_snapshots > 0
 ```
 
 ### 4. Audit import via quality-runner
@@ -232,17 +232,17 @@ curl "$ADMIN_URL/api/v1/rag/review?status=flagged&sort=freshness" \
 | **Quality-runner CronJob** — `base/quality-runner/cronjob.yaml` runs `audit_corpus.py` nightly, POSTs results to admin import endpoint. | Done |
 | **Hallucination filter** — trace list supports `?min_hallucinated_urls=1` API filter + UI toggle button. | Done |
 | **Benchmark import** — `POST /api/v1/rag/benchmarks/import` accepts full regression results, separate from the inline lightweight probe. | Done |
-| **Quality wiring health** — `GET /api/v1/dashboard/quality-wiring` shows Milvus, DB table counts, file presence, and last-trace age. | Done |
+| **Quality wiring health** — `GET /api/v1/dashboard/quality-wiring` shows NornicDB, DB table counts, file presence, and last-trace age. | Done |
 | **Latest-per-domain SQL** — uses `row_number()` window function instead of SQLAlchemy `distinct()`. | Done |
 | **Smoke tests** — `base/admin/tests/test_quality_smoke.py` hits every quality/feedback endpoint. | Done |
 | **planner-ts hallucination count** — `hallucinated_urls_count` emitted in `critic_scores` on traces via cited-vs-evidence URL comparison. | Done |
 | **planner-ts knowledge gap ingest** — router emits gaps via `POST /api/v1/feedback/knowledge-gaps/ingest` when evidence confidence is below threshold. | Done |
 | **planner-ts context curation (lightweight)** — `context_curation` blob on traces with budget/evidence-pack stats for `TraceDetail`. | Done |
 | **Knowledge gap HTTP ingest endpoint** — `POST /api/v1/feedback/knowledge-gaps/ingest` in admin accepts service-token-auth gaps from any runtime. | Done |
-| **v13 trust attribution on review queue** — `scan_signals`, `review_trace_id`, `effective_at_epoch`, `crawl_timestamp` returned per chunk; freshness score computed server-side. | Done |
+| **Trust attribution on review queue** — `scan_signals`, `review_trace_id`, `effective_at_epoch`, `crawl_timestamp`, and authz metadata returned per chunk; freshness score computed server-side. | Done |
 | **Review queue sort pivots** — `?sort=freshness\|authority\|scan_status` and `?domain=` filter. | Done |
 | **HITL review_trace_id** — vet/reject/bulk actions generate and persist trace IDs for audit traceability. | Done |
-| **Quality refresh freshness** — `POST /rag/quality/refresh` computes real `freshness_pct` from Milvus timestamps (exponential decay, 90-day half-life). | Done |
+| **Quality refresh freshness** — `POST /rag/quality/refresh` computes real `freshness_pct` from NornicDB timestamps (exponential decay, 90-day half-life). | Done |
 | **Shared freshness scoring** — `@synesis/context-trust` `freshnessScore`/`freshnessBoost` shared across planner-ts and admin. | Done |
 
 ---
@@ -278,7 +278,7 @@ curl "$ADMIN_URL/api/v1/rag/review?status=flagged&sort=freshness" \
 | **Curator proposals → DB queue** | Curator proposals currently live in a YAML file. Move to a Postgres-backed queue shared with the ingestion pipeline so approvals flow directly into `ingestion_items` without manual YAML editing. | Medium |
 | **Retrieval gap auto-close** | When new content is indexed that covers an open knowledge gap (detected by embedding similarity between gap query and new chunks), auto-close the gap and link to the ingestion item that resolved it. | Medium |
 | **Cross-domain coverage analysis** | Some queries span multiple taxonomy domains (e.g. "deploy a GPU model on Kubernetes" touches both `ml` and `infrastructure`). The current quality model is per-domain. Add a cross-domain coverage heuristic that identifies frequent multi-domain query patterns from traces and flags domain pairs with weak intersection coverage. | Large |
-| **Scan signal trend analysis** | v13 `scan_signals` captures which injection patterns trigger at index time. Track signal frequency over time by domain/source to detect: (a) sources that consistently trigger scans (possible content hygiene issue), (b) new patterns emerging in recently crawled content (possible attack trend). Surface in Security Events dashboard. | Medium |
+| **Scan signal trend analysis** | `scan_signals` captures which injection patterns trigger at index time. Track signal frequency over time by domain/source to detect: (a) sources that consistently trigger scans (possible content hygiene issue), (b) new patterns emerging in recently crawled content (possible attack trend). Surface in Security Events dashboard. | Medium |
 
 ---
 

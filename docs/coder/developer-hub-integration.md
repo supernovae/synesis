@@ -64,7 +64,7 @@ curl -X POST https://admin.synesis.example/api/v1/developer-hub/connectors/{conn
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-Returns a `SyncResult` with counts of created, updated, unchanged, and errored items. Synced entities become `IngestionItem` records in `pending` status, ready for the indexer to pick up and index into Milvus.
+Returns a `SyncResult` with counts of created, updated, unchanged, and errored items. Synced entities become `IngestionItem` records in `pending` status, ready for the indexer to pick up and index into NornicDB.
 
 ## Auth Types
 
@@ -76,7 +76,7 @@ Returns a `SyncResult` with counts of created, updated, unchanged, and errored i
 
 ## Entity-to-Corpus Mapping
 
-Each synced entity becomes an `IngestionItem` with metadata populated for the v14 schema:
+Each synced entity becomes an `IngestionItem` with metadata populated for the current graph schema:
 
 | Entity Kind | `handler` | `content_profile` | `golden_path_id` | `constraint_source` |
 |-------------|-----------|-------------------|-------------------|---------------------|

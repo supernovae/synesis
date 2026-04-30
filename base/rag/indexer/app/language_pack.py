@@ -29,6 +29,7 @@ import defusedxml.ElementTree as ET
 import httpx
 import yaml
 
+from .code_graph import derive_graph_edges, extract_call_refs, extract_import_refs
 from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
 from .extract import html_to_markdown, normalize_doc_markdown
@@ -3184,6 +3185,11 @@ def _build_rows(
         enrichment.setdefault("doc_language", doc_language)
         status, signals = scan_chunk_text_detailed(chunk.text)
         has_code, code_signal_count, code_density = _code_chunk_metrics(chunk.text)
+        import_refs = str(chunk.metadata.get("import_refs") or "")
+        call_refs = str(chunk.metadata.get("call_refs") or "")
+        if has_code:
+            import_refs = import_refs or _join_csv([extract_import_refs(chunk.text, language)])
+            call_refs = call_refs or _join_csv([extract_call_refs(chunk.text, language)])
         chunk_id = chunk_id_hash(chunk.text, f"{pack_id}:{chunk.doc_id}:{chunk.section}")
         rows.append(
             catalog_entity(
@@ -3244,6 +3250,8 @@ def _build_rows(
                 ),
                 module_path=chunk.module_path,
                 symbol_name=chunk.symbol_name,
+                import_refs=import_refs,
+                call_refs=call_refs,
                 artifact_kind=chunk.artifact_kind,
                 has_code=has_code,
                 code_signal_count=code_signal_count,
@@ -3828,6 +3836,10 @@ def finalize_staged_language_pack(
     with rows_path.open("w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    edges_path = final_dir / "edges.jsonl"
+    with edges_path.open("w", encoding="utf-8") as f:
+        for edge in derive_graph_edges(rows, include_structural_edges=True):
+            f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
     sources_lock_path = work / "sources.lock.json"
     final_manifest = {
         **{key: value for key, value in manifest.items() if key not in {"staged", "pack_config", "prompt_variable"}},
@@ -3836,6 +3848,7 @@ def finalize_staged_language_pack(
         "row_count": len(rows),
         "sources_lock_sha256": _sha256_file(sources_lock_path),
         "metadata_sha256": _sha256_file(rows_path),
+        "edges_sha256": _sha256_file(edges_path),
     }
     manifest_path = final_dir / "manifest.json"
     manifest_path.write_text(json.dumps(final_manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -3844,6 +3857,7 @@ def finalize_staged_language_pack(
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(manifest_path, "manifest.json")
         zf.write(rows_path, "metadata.jsonl")
+        zf.write(edges_path, "edges.jsonl")
         zf.write(sources_lock_path, "sources.lock.json")
     return {
         "ok": True,
@@ -4062,6 +4076,10 @@ def build_language_pack(
         with rows_path.open("w", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        edges_path = tmp / "edges.jsonl"
+        with edges_path.open("w", encoding="utf-8") as f:
+            for edge in derive_graph_edges(rows, include_structural_edges=True):
+                f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
 
         sources_lock["row_count"] = len(rows)
         sources_lock_path = tmp / "sources.lock.json"
@@ -4093,6 +4111,8 @@ def build_language_pack(
                 "safety_contract",
                 "lifecycle_model",
                 "agent_enrichment_json",
+                "import_refs",
+                "call_refs",
             ],
             "enrichment": {
                 "model": enrichment_model if enrichment_url and not skip_enrichment else "",
@@ -4117,6 +4137,7 @@ def build_language_pack(
             "row_count": len(rows),
             "sources_lock_sha256": _sha256_file(sources_lock_path),
             "metadata_sha256": _sha256_file(rows_path),
+            "edges_sha256": _sha256_file(edges_path),
         }
         manifest_path = tmp / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -4125,6 +4146,7 @@ def build_language_pack(
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(manifest_path, "manifest.json")
             zf.write(rows_path, "metadata.jsonl")
+            zf.write(edges_path, "edges.jsonl")
             zf.write(sources_lock_path, "sources.lock.json")
         return {
             "ok": True,

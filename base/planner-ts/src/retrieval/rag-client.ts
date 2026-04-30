@@ -12,6 +12,8 @@ import neo4j, { type Driver, type QueryResult, type Record as Neo4jRecord } from
 import type { RagResult, ScopeFilterOptions } from "./types.js";
 import { AUTHORITY_BOOST as AUTH_BOOST } from "./types.js";
 import type { MetadataFilterParams } from "./metadata-filter.js";
+import { embed } from "./embedder.js";
+import { fgaCheck } from "../auth/openfga-client.js";
 
 export interface RagClientConfig {
   nornicUri: string;
@@ -20,6 +22,7 @@ export interface RagClientConfig {
   nornicDatabase: string;
   nornicVectorIndex: string;
   nornicRuntimeProfile: "cpu-bge" | "cuda-bge" | "metal-bge";
+  embedderUrl: string;
   embedderModel: string;
   retrievalStrategy: "hybrid" | "vector" | "bm25";
   rrfK: number;
@@ -115,13 +118,54 @@ function edgePattern(edgeTypes: string[], depth: number): string {
   return `${typeExpr}*1..${safeDepth}`;
 }
 
+function addScopeParams(scope: ScopeFilterOptions | undefined, params: Record<string, unknown>): void {
+  if (!scope) return;
+  if (scope.callerOrgId) params.caller_org_id = scope.callerOrgId;
+  if (scope.callerTenantIds?.length) params.caller_tenant_ids = scope.callerTenantIds.slice(0, 50);
+  if (scope.callerAclGroups?.length) params.caller_acl_groups = scope.callerAclGroups.slice(0, 100);
+  if (scope.callerUserId) params.caller_user_id = scope.callerUserId;
+  if (scope.callerConversationId) {
+    params.caller_conversation_id = scope.callerConversationId;
+    params.now_epoch = Math.floor(Date.now() / 1000);
+  }
+}
+
+function buildScopePredicate(alias: string, scope: ScopeFilterOptions | undefined): string {
+  const visibilityClauses = [`coalesce(${alias}.visibility_scope, "global") = "global"`];
+
+  if (scope?.callerOrgId) {
+    visibilityClauses.push(`(${alias}.visibility_scope = "org" AND ${alias}.org_id = $caller_org_id)`);
+
+    if (scope.callerTenantIds?.length) {
+      visibilityClauses.push(`(${alias}.visibility_scope = "tenant" AND ${alias}.org_id = $caller_org_id AND ${alias}.tenant_id IN $caller_tenant_ids)`);
+    }
+
+    if (scope.callerUserId) {
+      visibilityClauses.push(`(${alias}.visibility_scope = "user" AND ${alias}.org_id = $caller_org_id AND ${alias}.owner_user_id = $caller_user_id)`);
+
+      if (scope.callerConversationId) {
+        visibilityClauses.push(`(${alias}.visibility_scope = "session" AND ${alias}.org_id = $caller_org_id AND ${alias}.owner_user_id = $caller_user_id AND ${alias}.conversation_id = $caller_conversation_id AND (coalesce(${alias}.expires_at_epoch, 0) <= 0 OR ${alias}.expires_at_epoch >= $now_epoch))`);
+      }
+    }
+  }
+
+  const aclClause = scope?.authzMode === "enforce" && scope.callerUserId
+    ? `coalesce(${alias}.acl_mode, "open") IN ["open", "", "restricted", "private"]`
+    : scope?.callerAclGroups?.length
+    ? `(coalesce(${alias}.acl_mode, "open") IN ["open", ""] OR any(group IN $caller_acl_groups WHERE group IN coalesce(${alias}.acl_group_ids, []) OR group IN [g IN split(coalesce(${alias}.acl_groups, ""), ",") | trim(g)]))`
+    : `coalesce(${alias}.acl_mode, "open") IN ["open", ""]`;
+
+  return `((${visibilityClauses.join(" OR ")}) AND ${aclClause})`;
+}
+
 function buildWhere(
   scope: ScopeFilterOptions | undefined,
   metadata: MetadataFilterParams | undefined,
   temporal: Pick<GraphRetrievalOptions, "version" | "commit" | "branch" | "temporalAt">,
-): { clauses: string[]; params: Record<string, unknown> } {
+): { clauses: string[]; params: Record<string, unknown>; neighborAuthzClause: string } {
   const clauses: string[] = [];
   const params: Record<string, unknown> = {};
+  addScopeParams(scope, params);
 
   const eq = (prop: string, value: unknown, paramName = prop) => {
     if (value === undefined || value === null || value === "") return;
@@ -177,37 +221,9 @@ function buildWhere(
     clauses.push("(node.valid_to IS NULL OR node.valid_to = \"\" OR node.valid_to >= $temporal_at)");
   }
 
-  const visibilityClauses = ['coalesce(node.visibility_scope, "global") = "global"'];
-  if (scope?.callerOrgId) {
-    params.caller_org_id = scope.callerOrgId;
-    visibilityClauses.push('(node.visibility_scope = "org" AND node.org_id = $caller_org_id)');
+  clauses.push(buildScopePredicate("node", scope));
 
-    if (scope.callerTenantIds?.length) {
-      params.caller_tenant_ids = scope.callerTenantIds.slice(0, 50);
-      visibilityClauses.push('(node.visibility_scope = "tenant" AND node.org_id = $caller_org_id AND node.tenant_id IN $caller_tenant_ids)');
-    }
-
-    if (scope.callerUserId) {
-      params.caller_user_id = scope.callerUserId;
-      visibilityClauses.push('(node.visibility_scope = "user" AND node.org_id = $caller_org_id AND node.owner_user_id = $caller_user_id)');
-
-      if (scope.callerConversationId) {
-        params.caller_conversation_id = scope.callerConversationId;
-        params.now_epoch = Math.floor(Date.now() / 1000);
-        visibilityClauses.push('(node.visibility_scope = "session" AND node.org_id = $caller_org_id AND node.owner_user_id = $caller_user_id AND node.conversation_id = $caller_conversation_id AND (coalesce(node.expires_at_epoch, 0) <= 0 OR node.expires_at_epoch >= $now_epoch))');
-      }
-    }
-  }
-  clauses.push(`(${visibilityClauses.join(" OR ")})`);
-
-  if (scope?.callerAclGroups?.length) {
-    params.caller_acl_groups = scope.callerAclGroups.slice(0, 100);
-    clauses.push('(coalesce(node.acl_mode, "open") IN ["open", ""] OR any(group IN $caller_acl_groups WHERE coalesce(node.acl_groups, "") CONTAINS group))');
-  } else {
-    clauses.push('coalesce(node.acl_mode, "open") IN ["open", ""]');
-  }
-
-  return { clauses, params };
+  return { clauses, params, neighborAuthzClause: buildScopePredicate("neighbor", scope) };
 }
 
 async function runGraphSearch(
@@ -217,7 +233,7 @@ async function runGraphSearch(
 ): Promise<QueryResult> {
   const depth = Math.min(Math.max(Math.floor(options.graphDepth ?? config.graphDepth), 0), MAX_GRAPH_DEPTH);
   const edges = options.edgeTypes?.length ? options.edgeTypes : config.edgeTypes.length ? config.edgeTypes : DEFAULT_EDGE_TYPES;
-  const { clauses, params } = buildWhere(options.scopeFilter, options.metadata, {
+  const { clauses, params, neighborAuthzClause } = buildWhere(options.scopeFilter, options.metadata, {
     version: options.version,
     commit: options.commit,
     branch: options.branch,
@@ -225,13 +241,22 @@ async function runGraphSearch(
   });
 
   const limit = Math.min(Math.max(options.topK * 2, 1), 100);
+  const queryVector = config.embedderUrl
+    ? (await embed([query], {
+        url: config.embedderUrl,
+        model: config.embedderModel,
+        timeoutMs: config.timeoutMs ?? 10000,
+      }))[0]
+    : [];
+  const vectorQuery = queryVector?.length ? queryVector : query;
   const where = clauses.length ? `WHERE ${clauses.join("\n  AND ")}` : "";
   const expansion = depth > 0
     ? `
 OPTIONAL MATCH path=(node)-[rels${edgePattern(edges, depth)}]-(neighbor)
+WHERE ${neighborAuthzClause}
 WITH node, score,
      collect(DISTINCT neighbor)[0..12] AS neighbors,
-     reduce(acc = [], r IN collect(rels) | acc + r)[0..24] AS edge_list`
+     reduce(acc = [], r IN collect(coalesce(rels, [])) | acc + r)[0..24] AS edge_list`
     : `
 WITH node, score, [] AS neighbors, [] AS edge_list`;
 
@@ -250,7 +275,7 @@ LIMIT $result_limit
     return await session.run(cypher, {
       ...params,
       index_name: config.nornicVectorIndex,
-      query,
+      query: vectorQuery,
       limit,
       result_limit: options.topK,
     }, { timeout: config.timeoutMs ?? 15000 });
@@ -337,7 +362,45 @@ function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
     code_signal_count: asNumber(row.code_signal_count, 0),
     code_density: asNumber(row.code_density, 0),
     code_language: asString(row.code_language),
+    visibility_scope: asString(row.visibility_scope, "global"),
+    acl_mode: asString(row.acl_mode, "open"),
+    authz_object_id: asString(row.authz_object_id),
   };
+}
+
+function parseAuthzObject(value: string): { objectType: string; objectId: string } | null {
+  const idx = value.indexOf(":");
+  if (idx <= 0 || idx >= value.length - 1) return null;
+  return {
+    objectType: value.slice(0, idx),
+    objectId: value.slice(idx + 1),
+  };
+}
+
+function needsFgaCheck(row: RagResult): boolean {
+  const visibility = (row.visibility_scope ?? "global").trim().toLowerCase();
+  const aclMode = (row.acl_mode ?? "open").trim().toLowerCase();
+  return visibility !== "global" || !["", "open"].includes(aclMode);
+}
+
+async function filterByFga(rows: RagResult[], scope: ScopeFilterOptions | undefined): Promise<RagResult[]> {
+  if (scope?.authzMode !== "enforce") return rows;
+  const callerUserId = scope.callerUserId?.trim();
+  if (!callerUserId) return rows.filter((row) => !needsFgaCheck(row));
+
+  const out: RagResult[] = [];
+  for (const row of rows) {
+    if (!needsFgaCheck(row)) {
+      out.push(row);
+      continue;
+    }
+
+    const authzObject = parseAuthzObject(row.authz_object_id ?? "");
+    if (!authzObject) continue;
+    const decision = await fgaCheck(`user:${callerUserId}`, "can_read", authzObject.objectType, authzObject.objectId);
+    if (decision.allowed) out.push(row);
+  }
+  return out;
 }
 
 /**
@@ -365,8 +428,8 @@ export async function retrieveContext(
     return bScore - aScore;
   });
 
-  if (config.rerankScoreMin > 0 && config.rerankEnabled) {
-    return mapped.filter((row) => row.rerank_score >= config.rerankScoreMin);
-  }
-  return mapped.slice(0, topK);
+  const scoreFiltered = config.rerankScoreMin > 0 && config.rerankEnabled
+    ? mapped.filter((row) => row.rerank_score >= config.rerankScoreMin)
+    : mapped.slice(0, topK);
+  return filterByFga(scoreFiltered, options.scopeFilter);
 }

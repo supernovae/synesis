@@ -2,8 +2,8 @@
   "version": 3,
   "description": "Broader high-signal corpus for general-purpose LLM grounding across common user verticals: health, finance, taxes, business, travel, food safety, career guidance, and consumer protection.",
   "_mapping_notes": {
-    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
-    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored on NornicDB graph nodes at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored as a retrieval filter."
   },
   "sources": [
     {

@@ -2,8 +2,8 @@
   "version": 2,
   "description": "Broader role-aware corpus for planner/critic/writer/router/retrieval-design across architecture, writing, science, law, music, and communication",
   "_mapping_notes": {
-    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md \u2014 stored in Milvus 'domain' field at index time. 'generalist' means cross-cutting (never filtered out by domain scoping).",
-    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md \u2014 stored on NornicDB graph nodes at index time. 'generalist' means cross-cutting (never filtered out by domain scoping).",
+    "category": "Human-readable grouping for corpus organization. Not stored as a retrieval filter."
   },
   "sources": [
     {

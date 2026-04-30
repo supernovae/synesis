@@ -147,7 +147,7 @@ The `overlays/openrouter` Kustomize overlay includes everything **except** `base
 |---|---|---|
 | LiteLLM gateway | `synesis-gateway` | Yes (routes to OpenRouter) |
 | Planner (LangGraph pipeline) | `synesis-planner` | Yes |
-| RAG stack (Milvus, embedder, keyword-service, preprocess-service, spam-service, GLiNER) | `synesis-rag` | Yes |
+| RAG stack (NornicDB, embedder, keyword-service, preprocess-service, spam-service, GLiNER) | `synesis-rag` | Yes |
 | Supervisor (health monitoring) | `synesis-planner` | Yes (checks LiteLLM, not vLLM) |
 | Open WebUI | `synesis-webui` | Yes |
 | SearXNG (web search) | `synesis-search` | Yes |
@@ -220,7 +220,7 @@ oc logs -n synesis-planner deployment/synesis-planner --tail=100 | grep -i json
 
 ### Switching between overlays (dev ↔ openrouter)
 
-The `dev` and `openrouter` overlays share all non-model infrastructure (Milvus, embedder, Redis, SearXNG, etc.) with identical manifests. Switching overlays only changes the resources that actually differ — LiteLLM config, planner env vars, and supervisor health checks. Shared infra stays untouched and pods don't restart.
+The `dev` and `openrouter` overlays share all non-model infrastructure (NornicDB, embedder, Redis, SearXNG, etc.) with identical manifests. Switching overlays only changes the resources that actually differ — LiteLLM config, planner env vars, and supervisor health checks. Shared infra stays untouched and pods don't restart.
 
 To switch back to self-hosted:
 

@@ -13,7 +13,7 @@ When Synesis is invoked by Cursor, Claude Code, or other IDE/agent clients, thos
 | **Rules / policies** | Cursor "rules for AI", project rules from .cursor/rules, user rules | Untrusted unless allowlisted |
 | **Doc indexes** | @Docs, retrieved passages from indexed docs | Untrusted |
 | **Tool outputs** | Build logs, test output, lints, terminal output | Untrusted |
-| **RAG context** | Retrieved snippets from Milvus (code, specs, arch) | Untrusted |
+| **RAG context** | Retrieved snippets from NornicDB graph/vector search (code, specs, arch) | Untrusted |
 | **Conversation history** | Prior user/assistant turns from memory | Untrusted (may contain prior injection) |
 
 **Trusted (top-of-stack only):**

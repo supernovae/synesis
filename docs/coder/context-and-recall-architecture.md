@@ -15,7 +15,7 @@ flowchart TD
   deterministicPath -->|needsInference| recallEngine[RecallAndKnowledgeComposer]
   sensemaking --> recallEngine
   recallEngine --> sourceSelect[KnowledgeSourceSelector]
-  sourceSelect --> ragStore[RagMilvus]
+  sourceSelect --> ragStore[NornicDB RAG]
   sourceSelect --> memStore[InMemoryJsonState]
   sourceSelect --> pkgStore[ExecutableConstraintPackages]
   recallEngine --> composition[ConstrainedComposition]

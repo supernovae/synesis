@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetry"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.schema import EMBEDDING_DIM
+from app.schema import CORPUS_VERSION, EMBEDDING_DIM
 from app.synpack import SynPackError, validate_synpack
 
 
@@ -44,7 +44,7 @@ def test_validate_synpack_accepts_bge_m3_manifest(tmp_path: Path):
     assert manifest["pack_id"] == "go-1-26"
     assert manifest["embedding_model"] == "BAAI/bge-m3"
     assert manifest["embedding_profile"] == "bge-m3-1024-cosine-v1"
-    assert manifest["corpus_version"].startswith("synesis-catalog-v")
+    assert manifest["corpus_version"] == CORPUS_VERSION
 
 
 def test_validate_synpack_rejects_dimension_mismatch(tmp_path: Path):

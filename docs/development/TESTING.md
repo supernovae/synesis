@@ -240,8 +240,8 @@ gh workflow run prompt-regression.yml -f model="synesis-agent" -f categories="gr
 # Retrieval regression — custom tolerance
 gh workflow run retrieval-regression.yml -f tolerance=0.03
 
-# Retrieval regression — custom Milvus host (port-forwarded)
-gh workflow run retrieval-regression.yml -f milvus_host=localhost:19530
+# Retrieval regression — custom NornicDB URI (port-forwarded)
+gh workflow run retrieval-regression.yml -f nornic_uri=bolt://localhost:7687
 ```
 
 **Locally (no GitHub required):**
@@ -304,7 +304,7 @@ Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
 
 ```bash
 python benchmarks/retrieval/bench_hybrid.py \
-  --milvus-uri http://localhost:19530 \
+  --nornic-uri bolt://localhost:7687 \
   --embedder-url http://localhost:8082/v1 \
   --output benchmarks/retrieval/baseline.json
 ```

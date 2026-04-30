@@ -54,7 +54,9 @@ Key conditional loops:
 
 - `router`
   - **Single retrieval orchestrator**
-  - Executes retrieval via `runRouter` and retrieval client
+  - Executes retrieval via `runRouter` and the unified retrieval client
+  - Runs NornicDB RAG and web retrieval in parallel when policy allows
+  - Uses principal-derived RAG scope; request-body org/tenant/user/ACL hints are ignored by the public knowledge-search route
   - Owns evidence packet production and retrieval policy routing
 
 - `writer`
@@ -86,6 +88,21 @@ In `base/planner-ts/src/app.ts`:
 Retrieval is router-governed. Only router code invokes retrieval clients and builds
 evidence packets consumed downstream.
 
+Current retrieval behavior:
+
+1. Router dispatches `retrieveUnified()` with the authenticated user/org/tenant/session state from `GraphState`.
+2. RAG retrieval embeds the query with TEI/BGE-M3 when configured.
+3. NornicDB vector search finds seed `ContentNode` matches.
+4. Cypher applies pack, metadata, visibility, ACL, version, branch, commit, and temporal predicates.
+5. Graph expansion follows allowed edges such as `CONTAINS`, `DEFINES`, `CALLS`, `IMPORTS`, `REFERENCES`, `OVERRIDES`, `IMPLEMENTS`, and `DOCUMENTS`.
+6. The same authorization predicate is applied to graph neighbor nodes before they can appear in graph context.
+7. In `SYNESIS_RAG_AUTHZ_MODE=enforce`, non-global/restricted/private rows are also checked through OpenFGA `can_read` against their indexed `rag_doc:*` object.
+8. RAG and web results are merged with RRF, then writer context budgeting selects evidence packets.
+
+The practical result is stronger retrieval and stronger isolation: code answers
+can use AST/code graph neighbors, while org/tenant/ACL constraints remain
+structural and auditable instead of semantic.
+
 ## State and Safety
 
 State type is `GraphState` (`base/planner-ts/src/state/types.ts`), with graph updates
@@ -109,6 +126,7 @@ Notable groups:
 - Node timeout and stream admission controls
 - Session and Redis config
 - Retrieval / web-search / taxonomy config
+- RAG authz config: `SYNESIS_RAG_AUTHZ_MODE=audit|enforce`
 
 ## Notes on Legacy References
 

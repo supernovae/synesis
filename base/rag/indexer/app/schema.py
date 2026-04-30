@@ -9,7 +9,7 @@ from synesis_telemetry import get_logger
 logger = get_logger("synesis.indexer.schema")
 
 SYNESIS_CATALOG = "content_graph"
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 EMBEDDING_DIM = 1024
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_PROFILE = "bge-m3-1024-cosine-v1"
@@ -43,12 +43,48 @@ GRAPH_EDGE_TYPES = (
     "DERIVED_FROM",
 )
 
+EXPECTED_FIELDS = (
+    "visibility_scope",
+    "org_id",
+    "tenant_id",
+    "owner_user_id",
+    "conversation_id",
+    "is_ephemeral",
+    "expires_at_epoch",
+    "acl_mode",
+    "acl_groups",
+    "acl_group_ids",
+    "authz_object_id",
+    "pack_id",
+    "pack_version",
+    "package_name",
+    "agent_hook",
+    "perf_tier",
+    "safety_contract",
+    "lifecycle_model",
+    "agent_enrichment_json",
+)
+
 
 def _trunc_bytes(s: str, max_bytes: int) -> str:
     encoded = s.encode("utf-8")
     if len(encoded) <= max_bytes:
         return s
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def _split_csv(value: str, limit: int = 100) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in (value or "").split(","):
+        item = part.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        out.append(_trunc_bytes(item, 64))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def ensure_synesis_catalog(client: Any | None = None, uri: str = "") -> Any:
@@ -110,6 +146,8 @@ def catalog_entity(
     repo_path: str = "",
     module_path: str = "",
     symbol_name: str = "",
+    import_refs: str = "",
+    call_refs: str = "",
     artifact_kind: str = "",
     has_code: bool = False,
     code_signal_count: int = 0,
@@ -126,6 +164,7 @@ def catalog_entity(
     expires_at_epoch: int = 0,
     acl_mode: str = "open",
     acl_groups: str = "",
+    authz_object_id: str = "",
     scan_signals: str = "",
     review_trace_id: str = "",
     effective_at_epoch: int = 0,
@@ -163,6 +202,8 @@ def catalog_entity(
 ) -> dict[str, Any]:
     """Build a graph node property dict for upsert."""
     pack = _trunc_bytes(pack_id or "global", 96)
+    effective_doc_id = doc_id or chunk_id
+    acl_group_ids = _split_csv(acl_groups)
     return {
         "id": _trunc_bytes(chunk_id, 128),
         "chunk_id": _trunc_bytes(chunk_id, 128),
@@ -212,6 +253,8 @@ def catalog_entity(
         "path": _trunc_bytes(module_path or repo_path or source_url or "", 512),
         "module_path": _trunc_bytes(module_path or "", 256),
         "symbol_name": _trunc_bytes(symbol_name or "", 128),
+        "import_refs": _trunc_bytes(import_refs or "", 2048),
+        "call_refs": _trunc_bytes(call_refs or "", 2048),
         "artifact_kind": (artifact_kind or "")[:32],
         "has_code": bool(has_code),
         "code_signal_count": int(code_signal_count),
@@ -228,6 +271,8 @@ def catalog_entity(
         "expires_at_epoch": int(expires_at_epoch),
         "acl_mode": (acl_mode or "open")[:16],
         "acl_groups": _trunc_bytes(acl_groups or "", 1024),
+        "acl_group_ids": acl_group_ids,
+        "authz_object_id": _trunc_bytes(authz_object_id or f"rag_doc:{effective_doc_id}", 192),
         "scan_signals": _trunc_bytes(scan_signals or "", 1024),
         "review_trace_id": _trunc_bytes(review_trace_id or "", 128),
         "effective_at_epoch": int(effective_at_epoch),

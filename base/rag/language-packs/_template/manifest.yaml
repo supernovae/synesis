@@ -9,7 +9,7 @@
 # The ingestion pipeline will:
 #   - Fetch documents from URLs in sources.yaml
 #   - Chunk them using the strategy in manifest.yaml
-#   - Embed and store in a Milvus collection named by 'collection'
+#   - Embed and store in the NornicDB content graph using the pack collection name
 
 name: "LANGUAGE_NAME"
 version: "1.0"

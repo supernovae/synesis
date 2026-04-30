@@ -24,8 +24,25 @@ the resolved principal identically for all paths.
 1. **Identity resolve** — PAT DB lookup or JWT verification
 2. **Scope check** — PAT `tokenScopes` must include required prefix (`model:` for planner, `coder:` for yarn)
 3. **OpenFGA check** — `user:<id>` + `can_invoke` on `planner_endpoint:chat_completions` (or `yarn_endpoint:completions`)
-4. **RAG gate** (planner only) — `can_read_public` or `can_read_org`/`can_read_tenant` on `rag_catalog:default` before retrieval
-5. **Milvus scope filter** — data-plane visibility/ACL enforcement
+4. **RAG structural filter** (planner only) — NornicDB visibility/ACL predicates derived from the resolved principal, applied to vector seed nodes and graph-expanded neighbor nodes
+5. **RAG row enforcement** (planner only, `SYNESIS_RAG_AUTHZ_MODE=enforce`) — OpenFGA `can_read` on indexed `rag_doc:*` objects before non-global/restricted/private rows are returned
+
+## RAG enforcement details
+
+The public knowledge-search route ignores request-body org, tenant, ACL, and
+user scope hints. Scope is derived from the authenticated principal or from
+trusted forwarded identity headers when the bearer token equals the internal
+service token.
+
+Indexer-written graph nodes carry:
+
+- `visibility_scope`, `org_id`, `tenant_id`, `owner_user_id`, `conversation_id`
+- `acl_mode`, `acl_group_ids`
+- `authz_object_id`, normally `rag_doc:<doc_id>`
+
+NornicDB predicates provide the fast fail-closed data-plane filter. OpenFGA is
+the final object decision point for protected rows when enforcement mode is
+enabled.
 
 ## Environment variables (all services)
 

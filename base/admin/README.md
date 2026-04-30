@@ -55,5 +55,5 @@ PYTHONPATH="/Users/bymiller/src/synesis/base/admin:/Users/bymiller/src/synesis/b
 
 - [docs/admin/KEYCLOAK_BOOTSTRAP.md](../../docs/admin/KEYCLOAK_BOOTSTRAP.md) — install order: `master` admin → user in **`synesis`** realm → **`synesis-admin`** role → first UI login → PATs.
 - [docs/admin/YARN_TRANSITION_CALIBRATION_OBSERVABILITY.md](../../docs/admin/YARN_TRANSITION_CALIBRATION_OBSERVABILITY.md) — Coder transition-quality telemetry, calibration visibility, and operator playbook.
-- [docs/admin/TODO.md](../../docs/admin/TODO.md) — backlog, API explorer, future admin MCP.
+- [../../docs/ADMIN_QUALITY_UI.md](../../docs/ADMIN_QUALITY_UI.md) — RAG quality and feedback surfaces.
 - [`.cursor/rules/admin-ui.mdc`](../../.cursor/rules/admin-ui.mdc) — Cursor guidance for this UI.

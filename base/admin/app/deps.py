@@ -10,7 +10,7 @@ import httpx
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
 NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
-NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "neo4j")
+NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
     "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",

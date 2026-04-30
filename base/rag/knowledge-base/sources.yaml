@@ -17,7 +17,7 @@ sources:
   - name: "rag-retrieval-architecture"
     path: "rag-retrieval-architecture.md"
     type: markdown
-    tags: ["rag", "retrieval", "vector-search", "milvus", "chunking"]
+    tags: ["rag", "retrieval", "vector-search", "nornicdb", "chunking"]
 
   - name: "phased-rollout-template"
     path: "phased-rollout-template.md"

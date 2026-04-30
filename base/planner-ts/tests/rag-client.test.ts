@@ -14,15 +14,17 @@ vi.mock("neo4j-driver", () => ({
 }));
 
 const { retrieveContext } = await import("../src/retrieval/rag-client.js");
+const { setFgaCheckOverride } = await import("../src/auth/openfga-client.js");
 import type { RagClientConfig } from "../src/retrieval/rag-client.js";
 
 const baseConfig: RagClientConfig = {
   nornicUri: "bolt://nornic.local:7687",
   nornicUser: "neo4j",
   nornicPassword: "secret",
-  nornicDatabase: "neo4j",
+  nornicDatabase: "nornic",
   nornicVectorIndex: "embeddings",
   nornicRuntimeProfile: "cpu-bge",
+  embedderUrl: "",
   embedderModel: "BAAI/bge-m3",
   retrievalStrategy: "hybrid",
   rrfK: 60,
@@ -38,6 +40,7 @@ afterEach(() => {
   runMock.mockReset();
   closeMock.mockReset();
   sessionMock.mockClear();
+  setFgaCheckOverride(null);
 });
 
 describe("retrieveContext", () => {
@@ -82,7 +85,7 @@ describe("retrieveContext", () => {
     });
 
     expect(driverMock).toHaveBeenCalledWith("bolt://nornic.local:7687", expect.anything());
-    expect(sessionMock).toHaveBeenCalledWith({ database: "neo4j" });
+    expect(sessionMock).toHaveBeenCalledWith({ database: "nornic" });
     expect(runMock).toHaveBeenCalledTimes(1);
     const [cypher, params] = runMock.mock.calls[0];
     expect(cypher).toContain("CALL db.index.vector.queryNodes($index_name");
@@ -100,5 +103,90 @@ describe("retrieveContext", () => {
     expect(results[0]?.symbol_name).toBe("aws_instance");
     expect(results[0]?.module_path).toBe("provider-schemas/aws.json");
     expect(results[0]?.content_format).toBe("json");
+  });
+
+  it("applies exact ACL and scope predicates to seed and graph neighbor nodes", async () => {
+    runMock.mockResolvedValue({ records: [] });
+
+    await retrieveContext("private code graph", baseConfig, {
+      topK: 3,
+      scopeFilter: {
+        callerOrgId: "org-1",
+        callerTenantIds: ["tenant-1"],
+        callerAclGroups: ["team-alpha"],
+        callerUserId: "user-1",
+        callerConversationId: "chat-1",
+        authzMode: "audit",
+        authzTraceId: "trace-1",
+        trustedScopeSource: "auth_context",
+      },
+      graphDepth: 2,
+    });
+
+    const [cypher, params] = runMock.mock.calls[0];
+    expect(cypher).toContain('node.visibility_scope = "tenant"');
+    expect(cypher).toContain('node.tenant_id IN $caller_tenant_ids');
+    expect(cypher).toContain("group IN coalesce(node.acl_group_ids, [])");
+    expect(cypher).toContain('split(coalesce(node.acl_groups, ""), ",")');
+    expect(cypher).not.toContain('coalesce(node.acl_groups, "") CONTAINS group');
+    expect(cypher).toContain("OPTIONAL MATCH path=(node)-[rels:DEFINES|CALLS|IMPORTS*1..2]-(neighbor)");
+    expect(cypher).toContain('WHERE ((coalesce(neighbor.visibility_scope, "global") = "global"');
+    expect(cypher).toContain("group IN coalesce(neighbor.acl_group_ids, [])");
+    expect(params).toMatchObject({
+      caller_org_id: "org-1",
+      caller_tenant_ids: ["tenant-1"],
+      caller_acl_groups: ["team-alpha"],
+      caller_user_id: "user-1",
+      caller_conversation_id: "chat-1",
+    });
+  });
+
+  it("post-filters restricted results through OpenFGA in enforce mode", async () => {
+    setFgaCheckOverride((_user, _relation, objectType, objectId) => ({
+      allowed: objectType === "rag_doc" && objectId === "doc-allow",
+      resolution: "test",
+    }));
+    runMock.mockResolvedValue({
+      records: ["doc-allow", "doc-deny"].map((docId) => ({
+        get(key: string) {
+          if (key === "node") {
+            return {
+              properties: {
+                id: `${docId}:chunk`,
+                doc_id: docId,
+                text: `content for ${docId}`,
+                source_url: "https://example.test/private",
+                document_name: docId,
+                authority: "vetted",
+                visibility_scope: "org",
+                org_id: "org-1",
+                acl_mode: "private",
+                authz_object_id: `rag_doc:${docId}`,
+              },
+            };
+          }
+          if (key === "score") return 0.9;
+          if (key === "neighbors") return [];
+          if (key === "edge_list") return [];
+          return undefined;
+        },
+      })),
+    });
+
+    const results = await retrieveContext("private docs", baseConfig, {
+      topK: 5,
+      scopeFilter: {
+        callerOrgId: "org-1",
+        callerUserId: "user-1",
+        authzMode: "enforce",
+        authzTraceId: "trace-enforce",
+        trustedScopeSource: "auth_context",
+      },
+    });
+
+    const [cypher] = runMock.mock.calls[0];
+    expect(cypher).toContain('coalesce(node.acl_mode, "open") IN ["open", "", "restricted", "private"]');
+    expect(results).toHaveLength(1);
+    expect(results[0]?.doc_id).toBe("doc-allow");
   });
 });

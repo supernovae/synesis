@@ -45,7 +45,7 @@ spec:
       ports:
         - port: 4000
           protocol: TCP
-    # Milvus (synesis-rag namespace) — collection stats, knowledge gap validation
+    # NornicDB (synesis-rag namespace) — content graph stats, knowledge gap validation
     - to:
         - namespaceSelector:
             matchLabels:

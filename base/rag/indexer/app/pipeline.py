@@ -20,6 +20,7 @@ from typing import Any
 
 from synesis_telemetry import get_logger
 
+from .code_graph import derive_graph_edges
 from .content_gate import GatePolicy, score_chunk
 from .crawl_config import effective_crawl_config
 from .embed_client import EmbedClient
@@ -568,6 +569,12 @@ def index_parsed_chunk_pairs(
         repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
         module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
         symbol_name = chunk.metadata.get("symbol_name", "")
+        import_refs = chunk.metadata.get("import_refs", "") or doc.metadata.get("import_refs", "")
+        call_refs = chunk.metadata.get("call_refs", "") or doc.metadata.get("call_refs", "")
+        if isinstance(import_refs, list):
+            import_refs = ",".join(str(x) for x in import_refs if str(x).strip())
+        if isinstance(call_refs, list):
+            call_refs = ",".join(str(x) for x in call_refs if str(x).strip())
         pack_id = str(chunk.metadata.get("pack_id", "") or doc.metadata.get("pack_id", "") or src_pack_id or "global")
         pack_version = str(
             chunk.metadata.get("pack_version", "") or doc.metadata.get("pack_version", "") or src_pack_version
@@ -666,6 +673,8 @@ def index_parsed_chunk_pairs(
                 repo_path=repo_path,
                 module_path=module_path,
                 symbol_name=symbol_name,
+                import_refs=str(import_refs),
+                call_refs=str(call_refs),
                 artifact_kind=artifact_kind,
                 has_code=has_code,
                 code_signal_count=code_signal_count,
@@ -707,6 +716,10 @@ def index_parsed_chunk_pairs(
         )
 
     count = writer.upsert_batch(entities)
+    edge_count = writer.upsert_edges(derive_graph_edges(entities))
+    if edge_count:
+        fetch_meta["semantic_contract"]["edges_written"] = edge_count
+        fetch_meta["edges_written"] = edge_count
     fetch_meta["semantic_contract"]["written_total"] = count
     fetch_meta["written_total"] = count
     for _, _, cid in new_chunks:

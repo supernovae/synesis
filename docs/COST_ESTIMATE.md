@@ -129,7 +129,7 @@ Scale replicas for throughput without changing models:
 | Service | Approximate Cost |
 |---------|-----------------|
 | OpenShift cluster (control plane) | ~$0.17/hr ($122/mo) per cluster |
-| Milvus (RAG, single node) | Included in compute |
+| NornicDB (RAG graph/vector database, single node) | Included in compute |
 | S3 (model pipeline artifacts) | ~$5-20/mo |
 | EFS (shared model storage) | ~$0.30/GB/mo (pay for actual usage) |
 | Data transfer (inter-AZ) | ~$0.01/GB |

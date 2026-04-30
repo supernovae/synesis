@@ -18,7 +18,7 @@ logger = get_logger("synesis.indexer.nornic")
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
 NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
-NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "neo4j")
+NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 
 
@@ -53,6 +53,7 @@ class NornicGraphWriter:
             "CREATE INDEX content_node_symbol_fqn IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)",
             "CREATE INDEX content_node_path IF NOT EXISTS FOR (n:ContentNode) ON (n.path)",
             "CREATE INDEX content_node_acl IF NOT EXISTS FOR (n:ContentNode) ON (n.visibility_scope, n.org_id, n.tenant_id)",
+            "CREATE INDEX content_node_authz_object IF NOT EXISTS FOR (n:ContentNode) ON (n.authz_object_id)",
             "CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)",
         ]
         with self.driver.session(database=self.database) as session:
@@ -104,8 +105,40 @@ class NornicGraphWriter:
                   d.pack_version = row.pack_version,
                   d.source_version = row.source_version,
                   d.name = row.document_name,
-                  d.path = row.path
+                  d.path = row.path,
+                  d.visibility_scope = row.visibility_scope,
+                  d.org_id = row.org_id,
+                  d.tenant_id = row.tenant_id,
+                  d.owner_user_id = row.owner_user_id,
+                  d.conversation_id = row.conversation_id,
+                  d.acl_mode = row.acl_mode,
+                  d.acl_groups = row.acl_groups,
+                  d.acl_group_ids = row.acl_group_ids,
+                  d.authz_object_id = row.authz_object_id
               MERGE (d)-[:CONTAINS]->(n)
+            )
+            WITH n, row
+            FOREACH (_ IN CASE WHEN row.path <> "" THEN [1] ELSE [] END |
+              MERGE (f:ContentNode:File {id: row.pack + ":file:" + row.path})
+              SET f.pack = row.pack,
+                  f.pack_version = row.pack_version,
+                  f.source_version = row.source_version,
+                  f.name = row.path,
+                  f.path = row.path,
+                  f.repo_path = row.repo_path,
+                  f.module_path = row.module_path,
+                  f.kind = "File",
+                  f.language = row.language,
+                  f.visibility_scope = row.visibility_scope,
+                  f.org_id = row.org_id,
+                  f.tenant_id = row.tenant_id,
+                  f.owner_user_id = row.owner_user_id,
+                  f.conversation_id = row.conversation_id,
+                  f.acl_mode = row.acl_mode,
+                  f.acl_groups = row.acl_groups,
+                  f.acl_group_ids = row.acl_group_ids,
+                  f.authz_object_id = row.authz_object_id
+              MERGE (f)-[:CONTAINS]->(n)
             )
             WITH n, row
             FOREACH (_ IN CASE WHEN row.symbol_fqn <> "" THEN [1] ELSE [] END |
@@ -116,7 +149,18 @@ class NornicGraphWriter:
                   s.symbol_fqn = row.symbol_fqn,
                   s.symbol_name = row.symbol_name,
                   s.symbol_kind = row.symbol_kind,
-                  s.language = row.language
+                  s.language = row.language,
+                  s.path = row.path,
+                  s.repo_path = row.repo_path,
+                  s.visibility_scope = row.visibility_scope,
+                  s.org_id = row.org_id,
+                  s.tenant_id = row.tenant_id,
+                  s.owner_user_id = row.owner_user_id,
+                  s.conversation_id = row.conversation_id,
+                  s.acl_mode = row.acl_mode,
+                  s.acl_groups = row.acl_groups,
+                  s.acl_group_ids = row.acl_group_ids,
+                  s.authz_object_id = row.authz_object_id
               MERGE (n)-[:DEFINES]->(s)
             )
             """,
@@ -126,6 +170,7 @@ class NornicGraphWriter:
     def upsert_edges(self, edges: list[dict[str, Any]]) -> int:
         if not edges:
             return 0
+        grouped: dict[str, list[dict[str, Any]]] = {}
         total = 0
         for edge in edges:
             edge_type = str(edge.get("type", "")).upper()
@@ -137,16 +182,23 @@ class NornicGraphWriter:
             if not source_id or not target_id:
                 continue
             props = {k: v for k, v in edge.items() if k not in {"type", "source_id", "target_id", "from", "to"}}
-            cypher = f"""
-            MERGE (a:ContentNode {{id: $source_id}})
-            MERGE (b:ContentNode {{id: $target_id}})
-            MERGE (a)-[r:{edge_type}]->(b)
-            SET r += $props
-            """
-            with self.driver.session(database=self.database) as session:
-                session.run(cypher, source_id=source_id, target_id=target_id, props=props)
+            grouped.setdefault(edge_type, []).append({"source_id": source_id, "target_id": target_id, "props": props})
             total += 1
+        for edge_type, rows in grouped.items():
+            self._write_edge_group(edge_type, rows)
         return total
+
+    def _write_edge_group(self, edge_type: str, rows: list[dict[str, Any]]) -> None:
+        cypher = f"""
+        UNWIND $rows AS row
+        MERGE (a:ContentNode {{id: row.source_id}})
+        MERGE (b:ContentNode {{id: row.target_id}})
+        MERGE (a)-[r:{edge_type}]->(b)
+        SET r += row.props
+        """
+        for i in range(0, len(rows), 500):
+            with self.driver.session(database=self.database) as session:
+                session.run(cypher, rows=rows[i : i + 500])
 
     def delete_by_doc_id(self, doc_id: str, collection_name: str = SYNESIS_CATALOG) -> int:
         del collection_name

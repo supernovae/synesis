@@ -48,7 +48,7 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 |-----------|------------|--------|-------|
 | Planner (FastAPI + LangGraph) | 2 cores | 6Gi req / 12Gi limit | One worker per pod by default; scale via replicas for multi-user. See Scaling Guidance. |
 | LiteLLM Gateway | 500m | 512Mi | Lightweight proxy |
-| Milvus (standalone) | 2 cores | 8Gi | Vector database |
+| NornicDB | 2 cores | 8Gi | Graph/vector database |
 | Embedder | 1 core | 2Gi | Sentence transformer |
 | SearXNG | 250m | 256Mi | Meta-search engine |
 | Open WebUI | 250m | 512Mi | Chat frontend |
@@ -60,7 +60,7 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 |-----------|-----------|-------|--------------|
 | **GPU models** | GPU node | 2-4 | Per role placement and model memory footprint |
 | **Services** | Worker node | 2 | 8 vCPU, 16 GB RAM each |
-| **Milvus + Infra** | Worker node | 1 | 4 vCPU, 16 GB RAM |
+| **NornicDB + Infra** | Worker node | 1 | 4 vCPU, 16 GB RAM |
 
 ## Scaling Guidance
 

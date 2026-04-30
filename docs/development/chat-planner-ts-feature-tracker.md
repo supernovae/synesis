@@ -114,7 +114,7 @@ Engineering working document for **chat** — the TypeScript planner pipeline in
   - Prevents keyword pollution that causes irrelevant BM25 matches
   - evidence: `base/planner/app/unified_retrieval.py`
 - TS behavior:
-  - RAG client sends raw query to Milvus hybrid search (no pre-distillation)
+  - RAG client sends the embedded query to NornicDB graph/vector retrieval (no pre-distillation)
   - evidence: `base/planner-ts/src/retrieval/rag-client.ts`
 - Decision: gap — implement when keyword-service integration lands in TS retrieval path
 
@@ -251,7 +251,7 @@ Seed candidates (editable):
 
 - Feature: Hybrid retrieval cache (`retrieval_cache.py`)
   - Decision: `drop entirely`
-  - Reason: Removed as a product feature. Milvus hybrid search + RRF provides equivalent deduplication at the retrieval layer without in-process caching complexity.
+  - Reason: Removed as a product feature. NornicDB graph/vector retrieval + RRF provides equivalent deduplication at the retrieval layer without in-process caching complexity.
   - Risk if ported unchanged: stale cached evidence, memory pressure, added maintenance.
   - Owner: platform
   - Date: 2026-03-27

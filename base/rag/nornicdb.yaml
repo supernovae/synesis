@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: nornicdb
-          image: ghcr.io/orneryd/nornicdb:latest
+          image: docker.io/timothyswt/nornicdb-amd64-cpu:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: bolt

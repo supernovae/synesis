@@ -13,7 +13,7 @@
 A working assistant that answers questions about internal documentation with measurable quality.
 
 ### Deliverables
-- **RAG pipeline**: Document ingestion (markdown, code), embedding, vector store (Milvus Standalone), retrieval endpoint.
+- **RAG pipeline**: Document ingestion (markdown, code), embedding, NornicDB graph/vector storage, retrieval endpoint.
 - **Single model serving**: One general-purpose model (Qwen3-32B FP8 or equivalent) serving via vLLM on a single L40S.
 - **Basic API**: FastAPI endpoint accepting questions, returning markdown responses with source citations.
 - **Simple UI**: Connect to an existing chat UI (Open WebUI, or equivalent). Do not build a custom UI in phase 1.

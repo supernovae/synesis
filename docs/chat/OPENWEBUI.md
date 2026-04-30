@@ -100,7 +100,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). The WebUI pod does not call LiteLLM — **planner-ts** calls LiteLLM (or vLLM) for upstream model traffic. WebUI has no access to Milvus, sandbox, or the rest of the data plane unless you add routes.
+Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). The WebUI pod does not call LiteLLM — **planner-ts** calls LiteLLM (or vLLM) for upstream model traffic. WebUI has no access to NornicDB, sandbox, or the rest of the data plane unless you add routes.
 
 ## Theme
 

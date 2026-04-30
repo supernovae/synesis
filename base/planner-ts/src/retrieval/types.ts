@@ -73,6 +73,9 @@ export interface ScopeFilterOptions {
   callerAclGroups?: string[];
   callerUserId?: string;
   callerConversationId?: string;
+  authzMode?: "audit" | "enforce";
+  authzTraceId?: string;
+  trustedScopeSource?: "auth_context" | "trusted_forwarded_identity" | "none";
 }
 
 export interface UnifiedRetrievalRequest {
@@ -181,6 +184,9 @@ export interface RagResult {
   code_signal_count?: number;
   code_density?: number;
   code_language?: string;
+  visibility_scope?: string;
+  acl_mode?: string;
+  authz_object_id?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */
@@ -227,6 +233,7 @@ export interface KnowledgeSearchRequest {
   caller_tenant_ids?: string[];
   caller_acl_groups?: string[];
   caller_user_id?: string;
+  caller_conversation_id?: string;
   version?: string;
   commit?: string;
   branch?: string;

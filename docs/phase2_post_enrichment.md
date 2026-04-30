@@ -10,7 +10,7 @@ upper harness more decisive for small and OSS coding models.
   usage proves high: `map_level`, `center_of_gravity`, and `dependency_edge`.
 - Add a hierarchical retrieval mode: project map search, module zoom, then
   surgical code fetch.
-- Evaluate session-scoped repo maps in Milvus, Redis, or local memory for
+- Evaluate session-scoped repo maps in NornicDB, Redis, or local memory for
   user workspaces that should not become global knowledge.
 - Generate maps from `pyproject.toml`, `__init__.py`, public exports, imports,
   module docstrings, type hints, and side-effect signals.

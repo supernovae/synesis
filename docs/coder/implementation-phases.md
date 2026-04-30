@@ -87,7 +87,7 @@
 
 ## Phase 14: Schema v14 and Knowledge Pipeline Upgrade — COMPLETE
 
-- Promoted constraint/corpus metadata to first-class Milvus columns
+- Promoted constraint/corpus metadata to first-class NornicDB graph node properties
 - Updated full pipeline: indexer → admin → planner → MCP → Yarn
 - Equality filters replace tag-packed LIKE queries for efficient retrieval
 - Content profile weighting in evidence confidence scoring

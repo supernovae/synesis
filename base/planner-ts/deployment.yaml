@@ -144,7 +144,9 @@ spec:
             - name: SYNESIS_NORNIC_URI
               value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
             - name: SYNESIS_NORNIC_DATABASE
-              value: "neo4j"
+              value: "nornic"
+            - name: SYNESIS_RAG_AUTHZ_MODE
+              value: "audit"
             - name: SYNESIS_WEB_SEARCH_ENABLED
               value: "true"
             - name: SYNESIS_WEB_SEARCH_URL

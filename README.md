@@ -20,8 +20,8 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 
 | Capability | What It Means |
 |-----------|--------------|
-| **Knowledge Pipeline** | Every chat turn goes through intent classification, domain profiling, structured planning, hybrid retrieval (Milvus + web), evidence-gated writing, and multi-axis critic review — not just "prompt → LLM → response" |
-| **Hybrid RAG** | Dense + sparse vector search (Milvus), web search (SearXNG), RRF merge, cross-encoder reranking, authority-weighted provenance, document freshness scoring, and HITL review queues |
+| **Knowledge Pipeline** | Every chat turn goes through intent classification, domain profiling, structured planning, graph-native retrieval (NornicDB + web), evidence-gated writing, and multi-axis critic review — not just "prompt → LLM → response" |
+| **Graph-Native RAG** | NornicDB vector search plus code/document graph expansion, web search (SearXNG), RRF merge, cross-encoder reranking, authority-weighted provenance, document freshness scoring, and HITL review queues |
 | **Agentic Coding** | Dedicated coder model with tool-calling, sandbox execution — IDE-native via MCP and OpenAI-compatible endpoints |
 | **MCP Integration** | Domain agents (coding, analysis, compliance) connect to shared organizational intelligence (RAG, taxonomy, quality gates) through MCP tool calls — lightweight agents, shared infrastructure |
 | **Taxonomy-Driven Behavior** | ~190 domain entries configure persona, depth, epistemic guidance, output style, and critic behavior via YAML — no prompt logic hardcoded in nodes |
@@ -71,7 +71,7 @@ flowchart TD
     end
 
     subgraph support [Data plane]
-        RAG[Hybrid RAG + Milvus]
+        RAG[NornicDB graph-native RAG]
         WEB[SearXNG]
     end
 
@@ -105,7 +105,8 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 
 - **Unified planner-first graph** — every chat turn hits entry → planner → plan gate before retrieval. Plan gate validates the structured plan and can retry the planner with repair feedback. See [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD).
 - **Router-governed evidence** — after the plan passes the gate, the router is the sole retrieval orchestrator (RAG + web). Evidence flows as structured packets with trust envelopes and attribution metadata.
-- **Unified retrieval with RRF** — parallel RAG and web searches merged via Reciprocal Rank Fusion. RAG uses Milvus hybrid search (dense + sparse) with adaptive top-K, cross-encoder reranking (BGE or FlashRank), authority weighting, and freshness scoring.
+- **Unified retrieval with RRF** — parallel RAG and web searches merged via Reciprocal Rank Fusion. RAG uses NornicDB seed-vector search plus graph expansion over code/document relationships, adaptive top-K, cross-encoder reranking (BGE or FlashRank), authority weighting, freshness scoring, and objective authz filters.
+- **Hardened RAG authorization** — `/v1/knowledge/search` derives org, tenant, user, and ACL scope from the resolved principal instead of request-body hints. NornicDB seed and neighbor predicates apply the same visibility rules, and `SYNESIS_RAG_AUTHZ_MODE=enforce` adds OpenFGA `can_read` checks against indexed `rag_doc:*` objects for non-global/restricted rows.
 - **Evidence-aware critic** — 6-axis scoring with `evidence_utilization`, deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty.
 - **Anti-oscillation controls** — immutable semantic frame, decision ledger, deterministic validators, oscillation detector, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing.
 - **Sensemaking-driven profiling** — Frame extraction builds a TopicFrame and DomainProfile with weighted multi-domain understanding. Frame coherence (focused / composite / diffuse) maps to Cynefin-style response strategies. See [docs/SYSTEMS_THEORY.md](docs/SYSTEMS_THEORY.md).
@@ -189,7 +190,7 @@ Step-by-step: **[docs/admin/KEYCLOAK_BOOTSTRAP.md](docs/admin/KEYCLOAK_BOOTSTRAP
 
 ### 5. Deploy the indexer
 
-Run after `deploy.sh` so Milvus and embedder are healthy first. A single queue-driven CronJob processes all pending items from the admin database:
+Run after `deploy.sh` so NornicDB and the embedder are healthy first. A single queue-driven CronJob processes all pending items from the admin database:
 
 ```bash
 ./scripts/deploy-indexer.sh            # Deploy the queue CronJob
@@ -225,7 +226,7 @@ The admin service serves the React SPA and a JSON API under `/api/v1`. **Interac
 - **RAG Pipeline** — ingestion queue, corpus review, quality benchmarks, trust attribution, freshness scoring
 - **Observability** — traces, web search log, knowledge gaps, feedback review
 
-Operator UX conventions and backlog: [base/admin/README.md](base/admin/README.md), [docs/admin/TODO.md](docs/admin/TODO.md).
+Operator UX conventions: [base/admin/README.md](base/admin/README.md).
 
 See [docs/user/USERGUIDE.md](docs/user/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
 
@@ -235,7 +236,7 @@ See [docs/user/USERGUIDE.md](docs/user/USERGUIDE.md) for detailed configuration,
 |-----------|-------------|---------------|
 | **Knowledge Pipeline** | Sensemaking-driven domain profiling, Cynefin-aware clarification, structured planning, evidence-gated writing, multi-axis critic | [docs/chat/WORKFLOW_PLANNER.MD](docs/chat/WORKFLOW_PLANNER.MD) |
 | **Taxonomy-Driven Prompt Shaping** | ~190 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
-| **Hybrid RAG** | Milvus hybrid search (dense + sparse), RRF merge of RAG + web, cross-encoder reranking, authority-weighted provenance, freshness scoring | [docs/RAG.md](docs/RAG.md) |
+| **Graph-Native RAG** | NornicDB vector search, code/document graph expansion, exact scope/ACL predicates, optional OpenFGA row enforcement, RRF merge of RAG + web, authority-weighted provenance, freshness scoring | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Queue-driven indexer with handler plugins: code (tree-sitter AST), API specs, docs, license, web pages — content managed via admin UI | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Agentic Coding** | Coder model with tool-calling, code sandbox (lint, security scan, execute) | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
@@ -262,7 +263,7 @@ synesis/
 │   ├── model-serving/          # vLLM deployments + InferenceService manifests
 │   ├── gateway/                # LiteLLM proxy (OpenAI-compatible API)
 │   ├── mcp/                    # MCP server for IDE tool integration
-│   ├── rag/                    # Milvus + embedder + unified catalog + indexers
+│   ├── rag/                    # NornicDB + embedder + content graph + indexers
 │   ├── sandbox/                # Isolated code execution (warm pool + Jobs)
 │   ├── search/                 # SearXNG meta-search engine
 │   ├── webui/                  # Open WebUI chat frontend
@@ -298,8 +299,8 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
 | [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — domain entries across categories |
-| [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, multi-query expansion, provenance, authority weighting |
-| [docs/INDEXERS.md](docs/INDEXERS.md) | Queue-driven RAG indexer, handler plugins, v13 schema, trust attribution |
+| [docs/RAG.md](docs/RAG.md) | Graph-native retrieval pipeline, NornicDB authz hardening, provenance, authority weighting |
+| [docs/INDEXERS.md](docs/INDEXERS.md) | Queue-driven RAG indexer, handler plugins, schema v19 content graph, trust attribution |
 | [docs/ADMIN_QUALITY_UI.md](docs/ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review, freshness scoring |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |
@@ -316,7 +317,6 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 | [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
 | [docs/chat/PLANNER_PREFIX_KV_CACHE.md](docs/chat/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations, LiteLLM usage |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
-| [docs/admin/TODO.md](docs/admin/TODO.md) | Admin UI backlog: API explorer, MCP roadmap, doc/UX gaps |
 
 ## Changing Models
 

@@ -104,7 +104,7 @@ or ambiguous evidence behavior.
 │    ├─ LiteLLM gateway (model inference)                  │
 │    ├─ Redis (sessions, optional)                         │
 │    ├─ Postgres (PAT validation, via pg Pool)             │
-│    ├─ Milvus (RAG vector search)                         │
+│    ├─ NornicDB (RAG graph/vector search)                  │
 │    ├─ TEI embedder (embedding service)                   │
 │    ├─ BGE reranker (reranking service)                   │
 │    ├─ SearXNG (web search)                               │
@@ -134,7 +134,7 @@ each hold an open SSE connection and await multiple sequential LLM calls.
 | LiteLLM gateway | HTTP/JSON | 5xx, timeout, connection refused | `AbortController` + `setTimeout` (300s). No retry, no circuit breaker. |
 | Redis (sessions) | TCP | Connection error, timeout | `ioredis` with `maxRetriesPerRequest: 3`, `retryStrategy` (200ms backoff, 3s cap). Falls back to `MemorySessionStore` at startup if URL empty. No runtime fallback. |
 | Postgres (PATs) | TCP | Connection error, pool exhaustion | `pg.Pool` with `max: 5`. No circuit breaker. Pool exhaustion blocks auth resolution. |
-| Milvus | gRPC | Timeout, connection reset | `@zilliz/milvus2-sdk-node` with configurable timeout. No retry. |
+| NornicDB | Bolt | Timeout, connection reset | Neo4j-compatible driver with configurable timeout. |
 | TEI embedder | HTTP | 5xx, timeout | `AbortController` + timeout (10s default). No retry. |
 | BGE reranker | HTTP | 5xx, timeout | `AbortController` + timeout (15s default). No retry. |
 | SearXNG | HTTP | 5xx, timeout | `AbortController` + timeout (5s default). No retry. |
@@ -192,7 +192,7 @@ Same as above through step 5, then:
 | Auth (PAT DB + OpenFGA) | 10–50ms | Network RTT to Postgres + OpenFGA |
 | Entry pipeline (classify + frame) | 50–200ms | GLiNER service call |
 | Planner (LLM JSON plan) | 1–8s | LLM inference |
-| Router (RAG + web search) | 0.5–5s | Milvus + SearXNG + reranker |
+| Router (RAG + web search) | 0.5–5s | NornicDB + SearXNG + reranker |
 | Writer (LLM streaming) | 3–30s | LLM inference + token generation |
 | Critic (background) | 2–10s | LLM inference (non-blocking) |
 | **Total (TTFT streaming)** | **2–15s** | **Entry + planner + router + first writer tokens** |
@@ -380,7 +380,7 @@ rules, exposed in `x-synesis-authz-rules` response header.
 **Issue:** The fail-safe `- {}` egress rule effectively allows all egress,
 negating the policy's restrictiveness. This was added for startup/service
 discovery edge cases. For production, this should be replaced with explicit
-rules for all egress targets (Redis, Postgres, Milvus, SearXNG, TEI, BGE
+rules for all egress targets (Redis, Postgres, NornicDB, SearXNG, TEI, BGE
 reranker, GLiNER, Admin, OpenFGA).
 
 ### 8.4  Container security
@@ -509,12 +509,12 @@ limit may be tight under heavy concurrent load with large graph states.
 | # | Flaw | Impact | When it bites | Severity |
 |---|------|--------|--------------|----------|
 | 1 | **No circuit breaker** | Stuck LLM endpoint causes every request to wait up to 300s (non-stream) or 1200s (stream) before failing. Under load, pending requests accumulate, exhaust memory, and cascade. | LiteLLM gateway degraded (slow responses, intermittent 502/503) | **Critical** |
-| 2 | **No per-node timeout** | Python planner wraps every graph node with `with_timeout(settings.node_timeout_seconds)`. TS planner has no per-node guard — a stuck node blocks the entire request for the full LLM timeout. | Any external dep (Milvus, SearXNG, GLiNER) becomes slow | **Critical** |
+| 2 | **No per-node timeout** | Python planner wraps every graph node with `with_timeout(settings.node_timeout_seconds)`. TS planner has no per-node guard — a stuck node blocks the entire request for the full LLM timeout. | Any external dep (NornicDB, SearXNG, GLiNER) becomes slow | **Critical** |
 | 3 | **No LLM retry** | Any transient error (502, 503, 429) causes immediate request failure. Python has retry + backoff + fallback. | LiteLLM restart, gateway pod scaling, provider rate limit | **Critical** |
 | 4 | **No admission control** | No limit on concurrent requests. N users × M concurrent requests all proceed to graph execution simultaneously. | >5 concurrent users, burst load | **High** |
 | 5 | **MemorySessionStore unbounded** | When Redis is not configured, the in-memory session store grows without limit. | Development/staging without Redis, or Redis connection failure at startup | **Medium** |
 | 6 | **Network policy egress catch-all** | `- {}` egress rule negates the policy. Any compromised process can reach any network destination. | Security audit, compliance review | **Medium** |
-| 7 | **No readiness differentiation** | Liveness and readiness both hit `/health`. A pod with a stuck downstream dep still reports ready, receives traffic, and fails requests. | Milvus/Redis/OpenFGA down | **Medium** |
+| 7 | **No readiness differentiation** | Liveness and readiness both hit `/health`. A pod with a stuck downstream dep still reports ready, receives traffic, and fails requests. | NornicDB/Redis/OpenFGA down | **Medium** |
 
 ---
 
@@ -538,7 +538,7 @@ limit may be tight under heavy concurrent load with large graph states.
 | 7 | MemorySessionStore cap | Add `maxSessions` parameter. On insert: if at cap, evict oldest by `lastSeenAt`. | `context/session-store.ts` | ~15 lines |
 | 8 | Readiness probe differentiation | Add `GET /health/readiness` that checks LLM reachability (LiteLLM `/health`) and Redis connectivity. Keep `/health` as liveness (always 200 if process alive). | `app.ts` | ~30 lines |
 | 9 | Failure store | Record error patterns (error type, stage, count) for admin dashboard. Fast-fail cache for repeated identical errors. | New `diagnostics/failure-store.ts`, `app.ts` | ~80 lines |
-| 10 | Network policy tighten | Replace egress `- {}` catch-all with explicit rules for Redis, Postgres, Milvus, SearXNG, TEI, BGE reranker, GLiNER, Admin, OpenFGA. | `network-policy.yaml` | ~40 lines |
+| 10 | Network policy tighten | Replace egress `- {}` catch-all with explicit rules for Redis, Postgres, NornicDB, SearXNG, TEI, BGE reranker, GLiNER, Admin, OpenFGA. | `network-policy.yaml` | ~40 lines |
 | 11 | DB pool monitoring | Add `pool.on('error')` logging. Expose pool stats in `/health`. Consider `pg-pool` idle timeout. | `auth/pat-resolver.ts`, `app.ts` | ~10 lines |
 
 ### Phase 2: Scale-out (10–25 users)
@@ -549,7 +549,7 @@ limit may be tight under heavy concurrent load with large graph states.
 | 13 | PDB | Add `PodDisruptionBudget` (`minAvailable: 1`). | New `pdb.yaml` | Manifest |
 | 14 | Retrieval cache | **Won't do for this effort.** Revisit only with explicit provenance-safe cache invalidation and evidence freshness guarantees. | N/A | Decision |
 | 15 | OTEL tracing | Bootstrap `@opentelemetry/*` SDK. Wrap node functions with OTEL spans. Export to Jaeger/OTLP collector. | New `telemetry/otel.ts`, `pipeline.ts` | ~100 lines + deps |
-| 16 | Health monitor | Periodic probe of all downstream deps (LiteLLM, Redis, Milvus, etc). Expose aggregate health in `/health/deps`. Fire Prometheus alerts on failures. | New `diagnostics/health-monitor.ts` | ~120 lines |
+| 16 | Health monitor | Periodic probe of all downstream deps (LiteLLM, Redis, NornicDB, etc). Expose aggregate health in `/health/deps`. Fire Prometheus alerts on failures. | New `diagnostics/health-monitor.ts` | ~120 lines |
 
 ### Phase 3: Production (25–100+ users)
 
@@ -709,7 +709,7 @@ Use this checklist to verify each implementation item.
 ### Network policy tightening
 
 - [x] Remove `- {}` egress catch-all
-- [ ] Add explicit egress rules for: Redis, Postgres, Milvus, SearXNG, TEI, BGE reranker, GLiNER, Admin, OpenFGA
+- [ ] Add explicit egress rules for: Redis, Postgres, NornicDB, SearXNG, TEI, BGE reranker, GLiNER, Admin, OpenFGA
 - [ ] Verify: `kubectl exec` into pod → cannot reach unauthorized services
 
 ---
