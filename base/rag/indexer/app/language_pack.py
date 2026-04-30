@@ -2977,7 +2977,9 @@ def _enrichment_usage_from_response(data: dict[str, Any]) -> dict[str, int]:
     prompt_details = usage.get("prompt_tokens_details")
     if not isinstance(prompt_details, dict):
         prompt_details = {}
-    cache_hit = usage.get("prompt_cache_hit_tokens", prompt_details.get("cache_hit_tokens", prompt_details.get("cached_tokens", 0)))
+    cache_hit = usage.get(
+        "prompt_cache_hit_tokens", prompt_details.get("cache_hit_tokens", prompt_details.get("cached_tokens", 0))
+    )
     cache_miss = usage.get("prompt_cache_miss_tokens", prompt_details.get("cache_miss_tokens", 0))
     fields = {
         "prompt_tokens": usage.get("prompt_tokens", 0),
@@ -3575,7 +3577,9 @@ def prepare_staged_language_pack(
             for aux in include.get("aux_sources", [])
             if isinstance(aux, dict)
         ]
-    chunks = _extract_chunks_for_language(language, source_root, config=config, tag=resolved_tag, provider_schema=provider_schema)
+    chunks = _extract_chunks_for_language(
+        language, source_root, config=config, tag=resolved_tag, provider_schema=provider_schema
+    )
     if max_chunks:
         chunks = chunks[: max(0, max_chunks)]
     chunks, source_quality_report = prepare_language_chunks_for_enrichment(chunks)
@@ -3584,7 +3588,9 @@ def prepare_staged_language_pack(
     source_quality_report["doc_language"] = doc_language
     prompt_templates, prompt_hashes = _load_prompt_templates(config, config_path=config_path)
     default_prompt_id = str(config.get("prompt_id") or _default_prompt_id_for_language(language))
-    prompt_variable = str(config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}"))
+    prompt_variable = str(
+        config.get("prompt_variable") or ("{{RAW_GO_DOC_CONTENT}}" if language == "go" else "{{DOC_CHUNK}}")
+    )
     enrichment_cost_estimate = estimate_enrichment_token_budget(
         chunks,
         prompt_templates=prompt_templates,
@@ -3627,7 +3633,9 @@ def prepare_staged_language_pack(
             "url_configured": bool(enrichment_url),
             "skipped": False,
             "max_tokens": max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(enrichment_max_tokens or 0)),
-            "concurrency": max(1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)),
+            "concurrency": max(
+                1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)
+            ),
             "thinking": {"type": "enabled", "reasoning_effort": "max"},
             "think_mode_header": "Max",
             "doc_language": doc_language,
@@ -3757,7 +3765,9 @@ def enrich_staged_language_pack(
                         },
                     )
                 completed_now = len(_completed_enrichment_map(work))
-                _write_enrich_state(work, total=len(records), completed=completed_now, failed=failed, submitted=submitted)
+                _write_enrich_state(
+                    work, total=len(records), completed=completed_now, failed=failed, submitted=submitted
+                )
         if limit and submitted >= limit:
             break
         start = submitted
@@ -3785,7 +3795,9 @@ def finalize_staged_language_pack(
     manifest = json.loads((work / "run_manifest.json").read_text(encoding="utf-8"))
     records = _read_jsonl(work / "chunks.jsonl")
     completed = _completed_enrichment_map(work)
-    missing = [str(record.get("chunk_key") or "") for record in records if str(record.get("chunk_key") or "") not in completed]
+    missing = [
+        str(record.get("chunk_key") or "") for record in records if str(record.get("chunk_key") or "") not in completed
+    ]
     if missing:
         raise SynPackError(f"cannot finalize staged pack; missing {len(missing)} enrichments")
     chunks = [_chunk_from_record(record) for record in records]
@@ -3875,9 +3887,7 @@ def build_language_pack(
     pack_id = _sanitize_pack_id(pack_id or str(config.get("pack_id") or f"{language}-latest"))
     doc_language = _normalize_doc_language(doc_language or str(config.get("doc_language") or "en"))
     supported_doc_languages = _supported_doc_languages(config)
-    _validate_doc_language(
-        doc_language=doc_language, supported_doc_languages=supported_doc_languages, pack_id=pack_id
-    )
+    _validate_doc_language(doc_language=doc_language, supported_doc_languages=supported_doc_languages, pack_id=pack_id)
     resolved_tag = _resolve_language_tag(language, latest_tag=latest_tag, source_version=source_version)
     source_version = resolved_tag
     tmp = Path(tempfile.mkdtemp(prefix="synpack-language-"))
@@ -4003,7 +4013,8 @@ def build_language_pack(
                     "url_configured": bool(enrichment_url),
                     "max_tokens": max(DEFAULT_ENRICHMENT_MAX_TOKENS, int(enrichment_max_tokens or 0)),
                     "concurrency": max(
-                        1, min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY)
+                        1,
+                        min(int(enrichment_concurrency or DEFAULT_ENRICHMENT_CONCURRENCY), MAX_ENRICHMENT_CONCURRENCY),
                     ),
                     "thinking": {"type": "enabled", "reasoning_effort": "max"},
                     "doc_language": doc_language,

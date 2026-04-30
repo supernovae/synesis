@@ -83,9 +83,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             from sqlalchemy import select as _select
 
             row = (
-                await session.execute(
-                    _select(GraphSchemaSync).where(GraphSchemaSync.collection == CATALOG_COLLECTION)
-                )
+                await session.execute(_select(GraphSchemaSync).where(GraphSchemaSync.collection == CATALOG_COLLECTION))
             ).scalar_one_or_none()
             if row:
                 schema_version = row.schema_version

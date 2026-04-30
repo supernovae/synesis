@@ -367,7 +367,13 @@ def _run_synpack(args: argparse.Namespace) -> None:
 
             pack_id = str(json.loads(manifest_path.read_text(encoding="utf-8")).get("pack_id") or "synpack")
         output = args.output or f"dist/synpacks/{pack_id or 'synpack'}.synpack"
-        print(json_dump(finalize_staged_language_pack(work_dir=args.work_dir, output_path=output, embedder_url=args.embedder_url)))
+        print(
+            json_dump(
+                finalize_staged_language_pack(
+                    work_dir=args.work_dir, output_path=output, embedder_url=args.embedder_url
+                )
+            )
+        )
         return
 
     if args.synpack_command == "build-go":

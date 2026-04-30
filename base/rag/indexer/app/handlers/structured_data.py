@@ -571,7 +571,9 @@ def _chunk_generic(content: str, file_path: str, document_name: str, fmt: str) -
     return chunks
 
 
-def _split_long_text(text: str, max_chars: int = MAX_CHUNK_CHARS, overlap_chars: int = CHUNK_OVERLAP_CHARS) -> list[str]:
+def _split_long_text(
+    text: str, max_chars: int = MAX_CHUNK_CHARS, overlap_chars: int = CHUNK_OVERLAP_CHARS
+) -> list[str]:
     """Split oversized structured snippets without dropping bytes.
 
     Prefer line boundaries because YAML, Helm, Terraform, logs, and stack traces

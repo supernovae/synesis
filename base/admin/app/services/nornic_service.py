@@ -153,7 +153,12 @@ def collection_stats(collection: str) -> dict[str, Any]:
             node_count = session.run("MATCH (n:ContentNode) RETURN count(n) AS c").single()["c"]
             edge_count = session.run("MATCH (:ContentNode)-[r]->(:ContentNode) RETURN count(r) AS c").single()["c"]
             pack_count = session.run("MATCH (n:ContentNode) RETURN count(DISTINCT n.pack) AS c").single()["c"]
-        return {"row_count": int(node_count), "node_count": int(node_count), "edge_count": int(edge_count), "pack_count": int(pack_count)}
+        return {
+            "row_count": int(node_count),
+            "node_count": int(node_count),
+            "edge_count": int(edge_count),
+            "pack_count": int(pack_count),
+        }
     except Exception as exc:
         logger.warning("nornic_stats_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:80])
         return {"row_count": 0, "node_count": 0, "edge_count": 0, "pack_count": 0}
@@ -165,8 +170,30 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
         "collection": CATALOG_COLLECTION,
         "graph": CATALOG_COLLECTION,
         "schema_version": expected_graph_schema_version(),
-        "node_labels": ["ContentNode", "Document", "File", "Chunk", "Symbol", "Function", "Class", "Method", "Resource", "Concept"],
-        "edge_types": ["CONTAINS", "DEFINES", "CALLS", "IMPORTS", "REFERENCES", "OVERRIDES", "IMPLEMENTS", "DOCUMENTS", "VALID_IN", "DERIVED_FROM"],
+        "node_labels": [
+            "ContentNode",
+            "Document",
+            "File",
+            "Chunk",
+            "Symbol",
+            "Function",
+            "Class",
+            "Method",
+            "Resource",
+            "Concept",
+        ],
+        "edge_types": [
+            "CONTAINS",
+            "DEFINES",
+            "CALLS",
+            "IMPORTS",
+            "REFERENCES",
+            "OVERRIDES",
+            "IMPLEMENTS",
+            "DOCUMENTS",
+            "VALID_IN",
+            "DERIVED_FROM",
+        ],
         "vector_indexes": ["embeddings"],
     }
 

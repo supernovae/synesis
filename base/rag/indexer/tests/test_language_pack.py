@@ -276,7 +276,9 @@ def test_doc_chunks_include_provider_markdown_and_mdx(tmp_path: Path):
     docs = tmp_path / "website" / "docs" / "r"
     docs.mkdir(parents=True)
     (docs / "aws_instance.html.markdown").write_text("# aws_instance\n\nResource docs.", encoding="utf-8")
-    (docs / "azurerm_linux_virtual_machine.mdx").write_text("# azurerm_linux_virtual_machine\n\nMDX docs.", encoding="utf-8")
+    (docs / "azurerm_linux_virtual_machine.mdx").write_text(
+        "# azurerm_linux_virtual_machine\n\nMDX docs.", encoding="utf-8"
+    )
 
     chunks = language_pack._doc_chunks(
         tmp_path,

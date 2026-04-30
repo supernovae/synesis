@@ -40,14 +40,22 @@ def upgrade() -> None:
         )
 
     for table in ("ingestion_items", "ingestion_documents"):
-        if _has_table(conn, table) and _has_column(conn, table, "milvus_doc_id") and not _has_column(conn, table, "graph_node_id"):
+        if (
+            _has_table(conn, table)
+            and _has_column(conn, table, "milvus_doc_id")
+            and not _has_column(conn, table, "graph_node_id")
+        ):
             op.alter_column(table, "milvus_doc_id", new_column_name="graph_node_id")
 
 
 def downgrade() -> None:
     conn = op.get_bind()
     for table in ("ingestion_items", "ingestion_documents"):
-        if _has_table(conn, table) and _has_column(conn, table, "graph_node_id") and not _has_column(conn, table, "milvus_doc_id"):
+        if (
+            _has_table(conn, table)
+            and _has_column(conn, table, "graph_node_id")
+            and not _has_column(conn, table, "milvus_doc_id")
+        ):
             op.alter_column(table, "graph_node_id", new_column_name="milvus_doc_id")
     if _has_table(conn, "content_graph_schema_sync") and not _has_table(conn, "milvus_schema_sync"):
         op.rename_table("content_graph_schema_sync", "milvus_schema_sync")
