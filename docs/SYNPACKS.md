@@ -78,6 +78,19 @@ DeepSeek V4 Pro is the default pack enrichment model. The builder sends
 `X-DeepSeek-Think-Mode: Max`, uses `deepseek-v4-pro`, sets `reasoning_effort`
 to `max`, and keeps `max_tokens` at least `8192`.
 
+Custom OpenAI-compatible enrichment providers are supported with
+`--enrichment-provider openai-compatible`, `--enrichment-url`, and
+`--enrichment-token`. The URL may be a provider root, a `/v1` base URL, or a
+full `/v1/chat/completions` endpoint. Tokens can also come from
+`SYNESIS_INDEXER_ENRICHMENT_API_KEY` or `SYNESIS_INDEXER_ENRICHMENT_TOKEN`;
+DeepSeek defaults continue to read `DEEPSEEK_TOKEN` or `DEEPSEEK_API_KEY`.
+
+Chunks rescued for retrieval with `source_quality_score=0.0` are kept in the
+pack but use deterministic fallback enrichment by default, avoiding LLM calls
+for content the gate already judged as having no enrichment value. Pass
+`--enrich-zero-quality` only when you explicitly want those chunks sent to the
+enrichment provider.
+
 ## Staged Builds
 
 Use staged commands for recoverable large builds:
@@ -88,15 +101,26 @@ python -m app.cli --mode synpack --synpack-command prepare-language \
 
 python -m app.cli --mode synpack --synpack-command enrich-language \
   --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest \
-  --batch-size 250 --max-requests 7500 --concurrency 6
+  --batch-size 250 --request-limit 7500 --enrichment-concurrency 6
 
 python -m app.cli --mode synpack --synpack-command finalize-language \
   --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest \
   --output dist/synpacks/go-latest.synpack
 ```
 
-Use `--estimate-costs-only` after prepare/staging when you want a grounded cost
+Use `--estimate-cost-only` after prepare/staging when you want a grounded cost
 estimate from extracted chunks before spending enrichment tokens.
+
+Example custom provider:
+
+```bash
+python -m app.cli --mode synpack --synpack-command enrich-language \
+  --work-dir /tmp/synesis-packs/go-latest \
+  --enrichment-provider openai-compatible \
+  --enrichment-url https://provider.example/v1 \
+  --enrichment-token "$SYNESIS_INDEXER_ENRICHMENT_TOKEN" \
+  --enrichment-model deepseek/deepseek-v3.2
+```
 
 ## Loading And Search
 

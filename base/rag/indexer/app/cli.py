@@ -107,6 +107,19 @@ def main() -> None:
     parser.add_argument("--pack-config", default="", help="Language pack config path")
     parser.add_argument("--enrichment-url", default="", help="OpenAI-compatible enrichment base URL")
     parser.add_argument("--enrichment-model", default="deepseek-v4-pro", help="Enrichment model name")
+    parser.add_argument(
+        "--enrichment-provider",
+        default="deepseek",
+        choices=["deepseek", "openai", "openai-compatible", "custom", "custom-openai"],
+        help="Enrichment provider payload mode; deepseek is the default",
+    )
+    parser.add_argument(
+        "--enrichment-token",
+        "--enrichment-api-key",
+        dest="enrichment_api_key",
+        default="",
+        help="Bearer token for the enrichment endpoint",
+    )
     parser.add_argument("--enrichment-concurrency", type=int, default=6, help="Max enrichment requests in flight")
     parser.add_argument("--enrichment-max-tokens", type=int, default=8192, help="Max output tokens per enrichment call")
     parser.add_argument("--enrichment-timeout", type=float, default=180.0, help="HTTP timeout per enrichment call")
@@ -128,6 +141,11 @@ def main() -> None:
         help="Extract chunks and print enrichment token/cost estimate without model calls or embedding",
     )
     parser.add_argument("--skip-enrichment", action="store_true", help="Use deterministic fallback enrichment")
+    parser.add_argument(
+        "--enrich-zero-quality",
+        action="store_true",
+        help="Force LLM enrichment for source_quality_score=0.0 chunks; default uses deterministic fallback",
+    )
     parser.add_argument("--latest-tag", default="", help="Resolved upstream tag override, e.g. go1.26.2")
     parser.add_argument(
         "--source-dir", default="", help="Existing source checkout for language-pack build tests/debugging"
@@ -318,6 +336,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_input_price_per_mtok=args.enrichment_input_price_per_mtok,
@@ -343,12 +364,15 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     work_dir=args.work_dir,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
                     request_limit=max(0, args.request_limit),
                     batch_size=max(1, args.batch_size),
                     skip_enrichment=args.skip_enrichment,
+                    skip_zero_quality=not args.enrich_zero_quality,
                 )
             )
         )
@@ -393,6 +417,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -426,6 +453,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -459,6 +489,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -492,6 +525,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -525,6 +561,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -558,6 +597,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -592,6 +634,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,
@@ -627,6 +672,9 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     latest_tag=args.latest_tag,
                     enrichment_url=args.enrichment_url or args.llm_url,
                     enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
                     enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
                     enrichment_max_tokens=args.enrichment_max_tokens,
                     enrichment_timeout=args.enrichment_timeout,

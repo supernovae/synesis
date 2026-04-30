@@ -225,6 +225,8 @@ def test_deepseek_enrichment_payload_uses_v4_max_thinking_and_usage(monkeypatch:
             captured["payload"] = json
             return FakeResponse()
 
+    monkeypatch.delenv("SYNESIS_INDEXER_ENRICHMENT_API_KEY", raising=False)
+    monkeypatch.delenv("SYNESIS_INDEXER_ENRICHMENT_TOKEN", raising=False)
     monkeypatch.setenv("DEEPSEEK_TOKEN", "secret")
     monkeypatch.setattr(language_pack.httpx, "Client", FakeClient)
     client = language_pack.OpenAICompatibleEnrichmentClient(
@@ -246,6 +248,71 @@ def test_deepseek_enrichment_payload_uses_v4_max_thinking_and_usage(monkeypatch:
     assert captured["payload"]["response_format"] == {"type": "json_object"}
     assert "principal software architect" in captured["payload"]["messages"][0]["content"]
     assert enrichment["_enrichment_usage"]["prompt_cache_hit_tokens"] == 80
+
+
+def test_openai_compatible_enrichment_uses_custom_url_token_and_standard_payload(monkeypatch: pytest.MonkeyPatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "agent_hook": "Use for portable provider calls.",
+                                    "perf_tier": "io-bound",
+                                    "safety_contract": "Check provider rate limits.",
+                                    "lifecycle_model": "Create request, parse response.",
+                                }
+                            )
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["payload"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(language_pack.httpx, "Client", FakeClient)
+    client = language_pack.OpenAICompatibleEnrichmentClient(
+        base_url="https://third-party.example/v1",
+        model="deepseek/deepseek-v3.2",
+        provider="openai-compatible",
+        api_key="custom-secret",
+        max_tokens=2048,
+        prompt_templates={"p": "Inspect this chunk:\n{{DOC_CHUNK}}"},
+        default_prompt_id="p",
+    )
+    chunk = language_pack.LanguageChunk(text="func ReadAll()", doc_id="d", chunk_index=0, document_name="doc")
+
+    enrichment = client.enrich(chunk)
+
+    assert captured["url"] == "https://third-party.example/v1/chat/completions"
+    assert captured["headers"] == {"Authorization": "Bearer custom-secret"}
+    assert captured["payload"]["model"] == "deepseek/deepseek-v3.2"
+    assert captured["payload"]["max_tokens"] == 2048
+    assert "reasoning_effort" not in captured["payload"]
+    assert "thinking" not in captured["payload"]
+    assert enrichment["_enrichment_usage"]["prompt_tokens"] == 20
 
 
 def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
@@ -270,6 +337,23 @@ def test_enrichment_token_budget_estimate_uses_max_thinking_budget():
     assert estimate["worst_case_total_tokens"] >= estimate["prompt_tokens_estimate"]
     assert estimate["note"].startswith("Completion and thinking values are worst-case")
     assert estimate["estimated_uncached_usd"] is not None
+
+
+def test_openai_compatible_estimate_honors_max_tokens_without_thinking_budget():
+    chunk = language_pack.LanguageChunk(text="resource example", doc_id="d", chunk_index=0, document_name="doc")
+    estimate = language_pack.estimate_enrichment_token_budget(
+        [chunk],
+        prompt_templates={"p": "Analyze:\n{{DOC_CHUNK}}"},
+        default_prompt_id="p",
+        enrichment_model="deepseek/deepseek-v3.2",
+        enrichment_provider="openai-compatible",
+        max_tokens=4096,
+    )
+
+    assert estimate["provider"] == "openai-compatible"
+    assert estimate["max_tokens_per_request"] == 4096
+    assert estimate["thinking_budget_tokens"] == 0
+    assert estimate["thinking_mode"] == "disabled"
 
 
 def test_doc_chunks_include_provider_markdown_and_mdx(tmp_path: Path):
@@ -420,6 +504,99 @@ def test_source_quality_is_attached_to_fallback_enrichment():
 
     assert enrichment["source_quality"]["source_quality_status"] == "warn"
     assert "thin+empty" in enrichment["hidden_warnings"]
+
+
+def test_zero_quality_chunks_use_fallback_without_llm_call(monkeypatch: pytest.MonkeyPatch):
+    class ExplodingClient:
+        def __init__(self, timeout):
+            del timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            raise AssertionError("zero-quality chunk should not call enrichment endpoint")
+
+    monkeypatch.setattr(language_pack.httpx, "Client", ExplodingClient)
+    chunk = language_pack.LanguageChunk(
+        text="func Syscall(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, Errno)",
+        doc_id="go:api",
+        chunk_index=0,
+        document_name="api/go1.txt",
+        metadata={
+            "source_quality_status": "warn",
+            "source_quality_score": 0.0,
+            "source_quality_reason": "thin+short: 8 words, no rescue signals",
+        },
+    )
+
+    enrichment = language_pack.enrich_language_chunks(
+        [chunk],
+        prompt_templates={"go_agentic_architect_v1": "{{DOC_CHUNK}}"},
+        default_prompt_id="go_agentic_architect_v1",
+        enrichment_url="https://provider.example/v1",
+    )[0]
+
+    assert enrichment["enrichment_status"] == "fallback"
+    assert "source_quality_score=0.0" in enrichment["enrichment_error"]
+    assert enrichment["source_quality"]["source_quality_score"] == 0.0
+
+
+def test_staged_zero_quality_chunks_complete_without_llm_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    class ExplodingClient:
+        def __init__(self, timeout):
+            del timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            raise AssertionError("zero-quality chunk should not call enrichment endpoint")
+
+    monkeypatch.setattr(language_pack.httpx, "Client", ExplodingClient)
+    work = tmp_path / "go-work"
+    work.mkdir()
+    (work / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "pack_id": "go-latest",
+                "enrichment": {
+                    "model": "deepseek-v4-pro",
+                    "provider": "deepseek",
+                    "prompt_id": "go_agentic_architect_v1",
+                    "prompt_hashes": {"go_agentic_architect_v1": "x"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    chunk = language_pack.LanguageChunk(
+        text="func Syscall(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, Errno)",
+        doc_id="go:api",
+        chunk_index=0,
+        document_name="api/go1.txt",
+        metadata={
+            "source_quality_status": "warn",
+            "source_quality_score": 0.0,
+            "source_quality_reason": "thin+short: 8 words, no rescue signals",
+        },
+    )
+    (work / "chunks.jsonl").write_text(json.dumps(language_pack._chunk_record("go-latest", chunk)) + "\n")
+
+    result = enrich_staged_language_pack(work_dir=work, enrichment_url="https://provider.example/v1")
+
+    completed = (work / "enrichments" / "completed.jsonl").read_text(encoding="utf-8").strip()
+    completed_record = json.loads(completed)
+    assert result["completed"] == 1
+    assert completed_record["skipped"] is True
+    assert completed_record["skip_reason"] == "zero_quality_source"
+    assert completed_record["enrichment"]["enrichment_status"] == "fallback"
 
 
 def test_fallback_enrichment_is_deterministic():
