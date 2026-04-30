@@ -103,12 +103,12 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="space-y-1 text-sm text-amber-800 dark:text-amber-300">
             <p>
-              Adding or rotating a key triggers a brief LiteLLM gateway restart (~30s). Active
-              requests may be interrupted.
+              Adding or rotating a key syncs the provider secret to LiteLLM, Yarn, and Planner, then
+              triggers brief rollout restarts (~30s). Active requests may be interrupted.
             </p>
             <p className="text-amber-900/90 dark:text-amber-200/90">
-              Keys are stored in the cluster secret and injected into LiteLLM. The list below is the
-              same source of truth as the key column in the provider table above.
+              Keys are stored in the cluster secret and injected into the model runtime services. The
+              list below is the same source of truth as the key column in the provider table above.
             </p>
           </div>
         </div>

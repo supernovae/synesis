@@ -32,6 +32,10 @@ router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
 _SECRET_NAME = "provider-api-keys"
 _SECRET_NAMESPACE = os.environ.get("SYNESIS_GATEWAY_NAMESPACE", "synesis-gateway")
 _LITELLM_DEPLOYMENT = "litellm-proxy"
+_PROVIDER_KEY_CONSUMERS = (
+    ("synesis-yarn", "synesis-yarn"),
+    ("synesis-planner", "synesis-planner-ts"),
+)
 
 _SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 _SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -176,24 +180,105 @@ async def _remove_key_from_secret(key: str) -> None:
         raise HTTPException(502, _k8s_error_detail(f"Removing provider key {key}", exc))
 
 
-async def _restart_litellm() -> None:
+def _provider_key_secret_body(namespace: str, data: dict[str, str], resource_version: str | None = None) -> dict:
+    metadata = {
+        "name": _SECRET_NAME,
+        "namespace": namespace,
+        "labels": {
+            "app.kubernetes.io/part-of": "synesis",
+            "app.kubernetes.io/component": "provider-keys",
+        },
+    }
+    if resource_version:
+        metadata["resourceVersion"] = resource_version
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": metadata,
+        "type": "Opaque",
+        "data": data,
+    }
+
+
+async def _get_secret_in_namespace(namespace: str) -> dict | None:
+    url = f"{_k8s_base()}/api/v1/namespaces/{namespace}/secrets/{_SECRET_NAME}"
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.get(url, headers=_k8s_headers(), timeout=_HTTP_TIMEOUT_SECONDS)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_get_consumer_secret_failed namespace=%s", namespace, exc_info=True)
+        raise HTTPException(502, _k8s_error_detail(f"Reading provider key secret in {namespace}", exc))
+
+
+async def _upsert_provider_key_secret(namespace: str, data: dict[str, str]) -> None:
+    existing = await _get_secret_in_namespace(namespace)
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            if existing is None:
+                url = f"{_k8s_base()}/api/v1/namespaces/{namespace}/secrets"
+                resp = await client.post(
+                    url,
+                    headers=_k8s_headers(),
+                    json=_provider_key_secret_body(namespace, data),
+                    timeout=_HTTP_TIMEOUT_SECONDS,
+                )
+            else:
+                rv = ((existing.get("metadata") or {}).get("resourceVersion") or "").strip()
+                url = f"{_k8s_base()}/api/v1/namespaces/{namespace}/secrets/{_SECRET_NAME}"
+                resp = await client.put(
+                    url,
+                    headers=_k8s_headers(),
+                    json=_provider_key_secret_body(namespace, data, resource_version=rv),
+                    timeout=_HTTP_TIMEOUT_SECONDS,
+                )
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_upsert_consumer_secret_failed namespace=%s", namespace, exc_info=True)
+        raise HTTPException(502, _k8s_error_detail(f"Syncing provider key secret to {namespace}", exc))
+
+
+async def _sync_provider_key_secret_to_consumers() -> list[str]:
+    secret = await _get_secret()
+    if not secret:
+        return []
+    data = dict(secret.get("data") or {})
+    synced: list[str] = []
+    for namespace, _deployment in _PROVIDER_KEY_CONSUMERS:
+        await _upsert_provider_key_secret(namespace, data)
+        synced.append(f"{namespace}/{_SECRET_NAME}")
+    return synced
+
+
+async def _restart_deployment(namespace: str, deployment: str) -> None:
     """Trigger a rollout restart by patching a pod template annotation."""
-    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}/deployments/{_LITELLM_DEPLOYMENT}"
+    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{namespace}/deployments/{deployment}"
     body = {"spec": {"template": {"metadata": {"annotations": {"synesis.io/restart-trigger": str(int(time.time()))}}}}}
     headers = {**_k8s_headers(), "Content-Type": "application/strategic-merge-patch+json"}
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
             resp = await client.patch(url, headers=headers, json=body, timeout=_HTTP_TIMEOUT_SECONDS)
             resp.raise_for_status()
-            logger.info("litellm_restart_triggered")
+            logger.info("provider_key_consumer_restart_triggered namespace=%s deployment=%s", namespace, deployment)
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("litellm_restart_failed", exc_info=True)
+        logger.warning("provider_key_consumer_restart_failed namespace=%s deployment=%s", namespace, deployment, exc_info=True)
         detail = (
-            f"{_k8s_error_detail('Restarting LiteLLM deployment', exc)}. "
-            "Provider key was saved, but LiteLLM may still have stale env vars. "
-            "Run: oc rollout restart deployment/litellm-proxy -n synesis-gateway"
+            f"{_k8s_error_detail(f'Restarting {namespace}/{deployment}', exc)}. "
+            "Provider key was saved, but one or more services may still have stale env vars."
         )
         raise HTTPException(502, detail)
+
+
+async def _restart_provider_key_consumers() -> list[str]:
+    targets = [(_SECRET_NAMESPACE, _LITELLM_DEPLOYMENT), *_PROVIDER_KEY_CONSUMERS]
+    restarted: list[str] = []
+    for namespace, deployment in targets:
+        await _restart_deployment(namespace, deployment)
+        restarted.append(f"{namespace}/{deployment}")
+    return restarted
 
 
 async def _assert_key_state(name: str, *, should_exist: bool) -> None:
@@ -405,7 +490,8 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
         else:
             await _patch_secret({name: body.value.strip()})
         await _assert_key_state(name, should_exist=True)
-        await _restart_litellm()
+        synced = await _sync_provider_key_secret_to_consumers()
+        restarted = await _restart_provider_key_consumers()
     except HTTPException as exc:
         await _audit_best_effort(
             user=user,
@@ -421,10 +507,10 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
         user=user,
         action="providers.key_set",
         status="success",
-        summary=f"Set provider key {name} and triggered LiteLLM rollout restart",
-        detail={"env_var": name, "restart": True},
+        summary=f"Set provider key {name} and refreshed provider consumers",
+        detail={"env_var": name, "synced_secrets": synced, "restarted": restarted},
     )
-    return {"ok": True, "name": name, "restart": True}
+    return {"ok": True, "name": name, "synced_secrets": synced, "restarted": restarted}
 
 
 @router.delete("/keys/{name}")
@@ -443,7 +529,8 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
     try:
         await _remove_key_from_secret(name)
         await _assert_key_state(name, should_exist=False)
-        await _restart_litellm()
+        synced = await _sync_provider_key_secret_to_consumers()
+        restarted = await _restart_provider_key_consumers()
     except HTTPException as exc:
         await _audit_best_effort(
             user=user,
@@ -459,10 +546,10 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
         user=user,
         action="providers.key_delete",
         status="success",
-        summary=f"Removed provider key {name} and triggered LiteLLM rollout restart",
-        detail={"env_var": name, "restart": True},
+        summary=f"Removed provider key {name} and refreshed provider consumers",
+        detail={"env_var": name, "synced_secrets": synced, "restarted": restarted},
     )
-    return {"ok": True, "name": name, "restart": True}
+    return {"ok": True, "name": name, "synced_secrets": synced, "restarted": restarted}
 
 
 @router.post("/spend/reconcile")

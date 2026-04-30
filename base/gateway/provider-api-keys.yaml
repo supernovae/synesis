@@ -1,7 +1,8 @@
 # Provider API keys — all LLM provider credentials in one secret.
 #
 # NOT listed in kustomization.yaml: applying an empty Secret would clear
-# existing keys on every `oc apply`. LiteLLM uses envFrom with optional: true.
+# existing keys on every `oc apply`. LiteLLM, Yarn, and Planner consume synced
+# copies with envFrom optional: true.
 #
 # Create/update via:
 #   ./scripts/deploy.sh api   (prompts for OPENROUTER_API_KEY)

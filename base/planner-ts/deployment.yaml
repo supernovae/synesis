@@ -179,6 +179,10 @@ spec:
                 secretKeyRef:
                   name: openfga-client-config
                   key: auth-token
+          envFrom:
+            - secretRef:
+                name: provider-api-keys
+                optional: true
           resources:
             requests:
               cpu: 500m

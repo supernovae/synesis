@@ -377,22 +377,27 @@ ensure_internal_service_auth() {
 }
 
 # -----------------------------------------------------------------------
-# Yarn (synesis-yarn): clone gateway secrets so envFrom provider-api-keys
-# resolves in the Yarn namespace (OpenRouter API key, etc.).
+# Yarn/Planner: clone gateway secrets so envFrom provider-api-keys resolves in
+# the service namespaces (OpenRouter API key, custom provider keys, etc.).
 # -----------------------------------------------------------------------
-ensure_yarn_secrets_from_gateway() {
+ensure_model_runtime_secrets_from_gateway() {
     local gw="synesis-gateway"
-    local yn="synesis-yarn"
+    local consumer_namespaces=("synesis-yarn" "synesis-planner")
 
-    oc create namespace "$yn" 2>/dev/null || true
+    local ns
+    for ns in "${consumer_namespaces[@]}"; do
+        oc create namespace "$ns" 2>/dev/null || true
+    done
 
-    _yarn_clone_secret() {
+    _runtime_clone_secret() {
         local sname="$1"
         if ! oc get secret "$sname" -n "$gw" &>/dev/null; then
             return 0
         fi
-        log "  Cloning secret $gw/$sname -> $yn/$sname"
-        SRC_NS="$gw" DEST_NS="$yn" SNAME="$sname" "$PYTHON" -c '
+        local dest_ns
+        for dest_ns in "${consumer_namespaces[@]}"; do
+            log "  Cloning secret $gw/$sname -> $dest_ns/$sname"
+            SRC_NS="$gw" DEST_NS="$dest_ns" SNAME="$sname" "$PYTHON" -c '
 import json, os, subprocess
 
 gw = os.environ["SRC_NS"]
@@ -404,10 +409,11 @@ d.pop("status", None)
 d["metadata"] = {"name": name, "namespace": yn}
 subprocess.run(["oc", "apply", "-f", "-"], input=json.dumps(d).encode(), check=True)
 '
+        done
     }
 
-    _yarn_clone_secret provider-api-keys
-    _yarn_clone_secret litellm-secrets
+    _runtime_clone_secret provider-api-keys
+    _runtime_clone_secret litellm-secrets
 }
 
 # -----------------------------------------------------------------------
@@ -2205,8 +2211,8 @@ if [[ "$MODE" == "api" ]]; then
 fi
 
 log ""
-log "Syncing gateway secrets to Yarn namespace (synesis-yarn)..."
-ensure_yarn_secrets_from_gateway
+log "Syncing gateway secrets to model runtime namespaces (synesis-yarn, synesis-planner)..."
+ensure_model_runtime_secrets_from_gateway
 
 # -----------------------------------------------------------------------
 # Admin ConfigMap: taxonomy prompt config mounted into the pod.
@@ -2562,8 +2568,8 @@ log "Reconciling provider API keys (post-apply)..."
 reconcile_provider_api_keys
 
 log ""
-log "Refreshing Yarn secrets from gateway (post-apply)..."
-ensure_yarn_secrets_from_gateway
+log "Refreshing model runtime secrets from gateway (post-apply)..."
+ensure_model_runtime_secrets_from_gateway
 
 log ""
 log "Patching Yarn reducer runtime envs (post-apply)..."
