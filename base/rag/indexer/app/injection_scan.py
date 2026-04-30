@@ -2,7 +2,7 @@
 
 Mirrors the Tier-1 core patterns from the planner's injection_scanner.py.
 Scans each chunk at ingest time and returns a scan_status ('clean' or 'flagged')
-stored in Milvus for the admin review queue.
+stored in NornicDB for the admin review queue.
 
 This is intentionally a standalone copy (not an import from the planner service)
 because the indexer runs as a separate container/CronJob.

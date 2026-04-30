@@ -52,6 +52,25 @@ function buildSearchBody(
   const packPartition = optionalString(args.pack_partition);
   if (packPartition !== undefined) body.pack_partition = packPartition;
 
+  const version = optionalString(args.version);
+  if (version !== undefined) body.version = version;
+
+  const commit = optionalString(args.commit);
+  if (commit !== undefined) body.commit = commit;
+
+  const branch = optionalString(args.branch);
+  if (branch !== undefined) body.branch = branch;
+
+  const temporalAt = optionalString(args.temporal_at);
+  if (temporalAt !== undefined) body.temporal_at = temporalAt;
+
+  const graphDepth = optionalNumber(args.graph_depth);
+  if (graphDepth !== undefined) body.graph_depth = Math.min(Math.max(Math.floor(graphDepth), 0), 3);
+
+  if (Array.isArray(args.edge_types) && args.edge_types.length > 0) {
+    body.edge_types = args.edge_types.map((v) => String(v).toUpperCase()).filter((v) => v.trim());
+  }
+
   const symbolKind = optionalString(args.symbol_kind);
   if (symbolKind !== undefined) body.symbol_kind = symbolKind;
 

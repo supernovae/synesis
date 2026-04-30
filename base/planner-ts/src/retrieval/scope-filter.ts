@@ -1,6 +1,6 @@
 /**
- * Milvus boolean expression builder — full parity with Python
- * historical build_scope_filter() behavior from the retired planner runtime.
+ * Scope/ACL boolean expression builder used for diagnostics and tests.
+ * Runtime retrieval applies equivalent constraints as Cypher parameters.
  *
  * Access tiers (OR-combined):
  *   1. visibility_scope == "global"           — always allowed

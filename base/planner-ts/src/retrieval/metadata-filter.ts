@@ -1,11 +1,9 @@
 /**
  * Metadata filter builder for knowledge search endpoint.
  *
- * Constructs Milvus boolean filter expressions from structured metadata
- * parameters. With schema v14, corpus_class, constraint_kind, content_profile,
- * and scope_tags are first-class columns with equality/like filters.
- * The tags column remains for backward compatibility with pre-v14 data;
- * extractTagMetadata parses it as a fallback.
+ * Constructs diagnostic boolean filter expressions from structured metadata.
+ * Planner retrieval applies these fields as Cypher parameters in the NornicDB
+ * graph client; this string builder remains useful for logs.
  */
 
 import { buildScopeFilter } from "./scope-filter.js";
@@ -142,7 +140,7 @@ export function buildMetadataFilter(params: MetadataFilterParams): string {
 }
 
 /**
- * Combine scope/ACL filter with metadata filters into a single Milvus
+ * Combine scope/ACL filter with metadata filters into a single diagnostic
  * boolean expression. Either part may be empty.
  */
 export function buildCombinedFilter(
@@ -157,10 +155,10 @@ export function buildCombinedFilter(
 }
 
 /**
- * Extract structured metadata from a Milvus tags string (backward compat).
+ * Extract structured metadata from packed tags.
  * Tags are comma-separated; prefixed entries like "corpus_class:X",
  * "ck:X", "scope:X", "content_profile:X" are parsed into typed fields.
- * With v14, prefer the first-class columns over these tag-parsed values.
+ * Prefer first-class graph properties over these tag-parsed values.
  */
 export function extractTagMetadata(tags: string): {
   corpus_class: string;

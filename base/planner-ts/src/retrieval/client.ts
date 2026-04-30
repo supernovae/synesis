@@ -19,10 +19,10 @@ export class NullRetrievalClient implements RetrievalClient {
 }
 
 /**
- * Full retrieval client backed by Milvus + SearXNG + TEI + cohesion.
+ * Full retrieval client backed by NornicDB + SearXNG + cohesion.
  *
  * Mirrors the Python retrieve_unified() pipeline:
- *   parallel RAG + web -> RRF merge -> adaptive top-k -> cohesion.
+ *   graph RAG + web -> RRF merge -> adaptive top-k -> cohesion.
  */
 export class UnifiedRetrievalClient implements RetrievalClient {
   private settings: RetrievalSettings;
@@ -35,15 +35,20 @@ export class UnifiedRetrievalClient implements RetrievalClient {
 
     this.settings = {
       rag: {
-        milvusHost: config.SYNESIS_MILVUS_HOST,
-        milvusPort: config.SYNESIS_MILVUS_PORT,
-        embedderUrl: config.SYNESIS_EMBEDDER_URL,
+        nornicUri: config.SYNESIS_NORNIC_URI,
+        nornicUser: config.SYNESIS_NORNIC_USER,
+        nornicPassword: config.SYNESIS_NORNIC_PASSWORD,
+        nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
+        nornicVectorIndex: config.SYNESIS_NORNIC_VECTOR_INDEX,
+        nornicRuntimeProfile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
         embedderModel: config.SYNESIS_EMBEDDER_MODEL,
-        bgeRerankerUrl: config.SYNESIS_BGE_RERANKER_URL,
         retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
         rrfK: config.SYNESIS_RAG_RRF_K,
         scoreThreshold: config.SYNESIS_RAG_SCORE_THRESHOLD,
         rerankScoreMin: config.SYNESIS_RAG_RERANK_SCORE_MIN,
+        graphDepth: config.SYNESIS_NORNIC_GRAPH_DEPTH,
+        edgeTypes: config.SYNESIS_NORNIC_EDGE_TYPES.split(",").map((s) => s.trim()).filter(Boolean),
+        rerankEnabled: config.SYNESIS_NORNIC_RERANK_ENABLED,
       },
       web: {
         url: config.SYNESIS_WEB_SEARCH_URL,

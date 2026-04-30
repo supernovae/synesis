@@ -80,6 +80,12 @@ export interface UnifiedRetrievalRequest {
   difficulty?: number;
   collections?: string[];
   topK?: number;
+  version?: string;
+  commit?: string;
+  branch?: string;
+  temporalAt?: string;
+  graphDepth?: number;
+  edgeTypes?: string[];
   webQuery?: string;
   forceWeb?: boolean;
   domainHints?: string[];
@@ -221,6 +227,12 @@ export interface KnowledgeSearchRequest {
   caller_tenant_ids?: string[];
   caller_acl_groups?: string[];
   caller_user_id?: string;
+  version?: string;
+  commit?: string;
+  branch?: string;
+  temporal_at?: string;
+  graph_depth?: number;
+  edge_types?: string[];
 }
 
 export interface KnowledgeResult {

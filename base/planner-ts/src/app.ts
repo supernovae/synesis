@@ -386,15 +386,20 @@ export function buildApp(config: AppConfig): FastifyInstance {
   });
 
   const knowledgeSearchRagConfig: import("./retrieval/rag-client.js").RagClientConfig = {
-    milvusHost: config.SYNESIS_MILVUS_HOST,
-    milvusPort: config.SYNESIS_MILVUS_PORT,
-    embedderUrl: config.SYNESIS_EMBEDDER_URL,
+    nornicUri: config.SYNESIS_NORNIC_URI,
+    nornicUser: config.SYNESIS_NORNIC_USER,
+    nornicPassword: config.SYNESIS_NORNIC_PASSWORD,
+    nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
+    nornicVectorIndex: config.SYNESIS_NORNIC_VECTOR_INDEX,
+    nornicRuntimeProfile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
     embedderModel: config.SYNESIS_EMBEDDER_MODEL,
-    bgeRerankerUrl: config.SYNESIS_BGE_RERANKER_URL,
     retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
     rrfK: config.SYNESIS_RAG_RRF_K,
     scoreThreshold: config.SYNESIS_RAG_SCORE_THRESHOLD,
     rerankScoreMin: config.SYNESIS_RAG_RERANK_SCORE_MIN,
+    graphDepth: config.SYNESIS_NORNIC_GRAPH_DEPTH,
+    edgeTypes: config.SYNESIS_NORNIC_EDGE_TYPES.split(",").map((s) => s.trim()).filter(Boolean),
+    rerankEnabled: config.SYNESIS_NORNIC_RERANK_ENABLED,
   };
 
   const retrieveContextFn = retrieveContext;
@@ -912,7 +917,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
     }
     return {
       embedder_url: config.SYNESIS_EMBEDDER_URL ? "configured" : "not_set",
-      milvus_host: config.SYNESIS_MILVUS_HOST ? "configured" : "not_set",
+      nornic_uri: config.SYNESIS_NORNIC_URI ? "configured" : "not_set",
+      nornic_database: config.SYNESIS_NORNIC_DATABASE,
+      nornic_runtime_profile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
       web_search_enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
       web_search_url: config.SYNESIS_WEB_SEARCH_URL ? "configured" : "not_set",
       unified_retrieval_client_registered: isRetrievalClientRegistered(),
@@ -1004,7 +1011,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
       const results = await retrieveContextFn(query, knowledgeSearchRagConfig, {
         topK,
         scopeFilter: scopeOpts,
-        extraFilter: metaFilter || undefined,
+        metadata: metaParams,
+        graphDepth: Number(body?.graph_depth) || undefined,
+        edgeTypes: Array.isArray(body?.edge_types) ? (body.edge_types as string[]) : undefined,
+        version: body?.version ? String(body.version) : undefined,
+        commit: body?.commit ? String(body.commit) : undefined,
+        branch: body?.branch ? String(body.branch) : undefined,
+        temporalAt: body?.temporal_at ? String(body.temporal_at) : undefined,
       });
       const totalMs = performance.now() - t0;
 

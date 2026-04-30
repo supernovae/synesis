@@ -1,77 +1,88 @@
-# RAG Stack (OpenShift AI 3)
+# RAG Stack
 
-Synesis RAG uses a **Milvus Operator-managed standalone deployment**. The operator handles etcd lifecycle, PVC provisioning, Service creation, and rolling updates via a `kind: Milvus` Custom Resource.
+Synesis RAG uses **NornicDB** as the single graph/vector backend. The planner,
+MCP tools, admin UI, indexer, and content pack loader all target the same
+content graph.
 
 ## Install
 
 ```bash
-# 1. Install Milvus Operator (one-time, handled by bootstrap)
-./scripts/bootstrap.sh
-
-# 2. Apply RAG stack
-./scripts/install-rag-stack.sh         # Apply manifests only
-./scripts/install-rag-stack.sh --wait  # Apply and wait for Milvus + embedder
+./scripts/install-rag-stack.sh
+./scripts/install-rag-stack.sh --wait
 ```
 
-The full `./scripts/deploy.sh dev` also installs the RAG stack as part of the overlay.
+The full `./scripts/deploy.sh dev` applies the RAG stack as part of the
+overlay and waits for `synesis-nornicdb`.
 
 ## Components
 
 | Component | Purpose |
 |-----------|---------|
-| **milvus-operator.yaml** | Milvus Operator CR — standalone mode, etcd on efs-sc, Service `synesis-milvus` on port 19530 |
-| **embedder/** | TEI (BAAI/bge-m3) for indexer, planner, and SynPack search |
-| **indexer/** | Unified config-driven indexer with handler plugins — all sources write to `synesis_catalog` |
+| `nornicdb.yaml` | NornicDB graph/vector database, Bolt service, and durable PVC |
+| `embedder/` | BGE-M3 embedding service for components that still need explicit embeddings |
+| `indexer/` | Queue/staged/content-pack indexer that writes `ContentNode` graph nodes and relationships |
 
-## Architecture
+## Content Graph
 
-The Milvus Operator creates and manages:
-- **etcd** — metadata store, PVC backed by `efs-sc` for durability across spot instance restarts
-- **Milvus standalone** — vector store with rocksmq (embedded message queue)
-- **Service** — `synesis-milvus` on port 19530 (gRPC) and 9091 (health/metrics)
+The canonical graph is `content_graph`.
 
-For scaling and HA options, see `docs/MILVUS_SCALING.md`.
+Primary node labels:
 
-## Optional: LlamaStackDistribution
+- `ContentNode`
+- `Document`
+- `File`
+- `Chunk`
+- `Symbol`
+- `Function`
+- `Class`
+- `Method`
+- `Resource`
+- `Concept`
 
-If you have **Llama Stack Operator** enabled in OpenShift AI 3, you can optionally add the full Llama Stack RAG (OpenAI-compatible APIs). See `llamastack-distribution.yaml` for the CR and secret setup instructions.
+Primary edge types:
 
-The LlamaStackDistribution connects to the same Milvus (`synesis-milvus`) and can use your deployed vLLM models. It is **not required** for Synesis — our planner and indexer work with Milvus + embedder directly.
+- `CONTAINS`
+- `DEFINES`
+- `CALLS`
+- `IMPORTS`
+- `REFERENCES`
+- `OVERRIDES`
+- `IMPLEMENTS`
+- `DOCUMENTS`
+- `VALID_IN`
+- `DERIVED_FROM`
 
-## Provenance and Authority
+## Retrieval
 
-Every chunk in `synesis_catalog` carries provenance metadata:
+Planner retrieval follows:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `authority` | Trust tier: canonical, vetted, community, external | `canonical` (internal ADRs) |
-| `pack_id` | Milvus partition key; `global` for ordinary ingestion, pack id for SynPacks | `go-latest` |
-| `origin_type` | Source category: internal, external, curated | `internal` |
-| `source_url` | URL for citation | `https://github.com/org/repo` |
-| `document_name` | Source document name for citation | `vLLM Deployment Guide` |
-| `heading_path` | Document structure breadcrumb | `Architecture > Retrieval > BM25` |
+1. vector query against the `embeddings` index
+2. pack/scope/ACL/temporal Cypher filtering
+3. graph expansion across semantic edges
+4. rerank/authority boost
+5. structured context returned to planner and MCP callers
 
-Authority tiers influence retrieval ranking: canonical > vetted > community > external. The planner and section workers cite sources with document_name and source_url in responses when available.
+Example:
 
-## Enrichment Fields
+```cypher
+CALL db.index.vector.queryNodes('embeddings', 10, 'k8s pod eviction')
+YIELD node, score
+WHERE node.pack = 'kubernetes'
+RETURN node, score
+ORDER BY score DESC
+```
 
-The unified indexer populates enrichment fields for improved retrieval quality:
+## Content Packs
 
-| Field | Purpose |
-|-------|---------|
-| `context_prefix` | Contextual sentence prepended before embedding (Contextual Retrieval pattern) |
-| `chunk_summary` | 1-2 sentence neutral description (optional, LLM-generated) |
-| `heading_path` | Document structure breadcrumb for context in retrieval and display |
-| `keywords` | KeyBERT-extracted keywords for enhanced BM25 matching |
+Portable content packs are ZIP archives with:
 
-## Indexer Idempotency
+- `manifest.json`
+- `nodes.jsonl`
+- `edges.jsonl`
+- `sources.lock.json`
+- optional `vectors.npy`
 
-The indexer uses **content-hash chunk IDs** (`chunk_id_hash`) and `existing_chunk_ids()` to skip re-embedding unchanged content. On re-run:
-
-- **Same source data** → existing chunks skipped, only new/changed chunks embedded and upserted
-- **Upsert by primary key** → same chunk_id overwrites in place (no duplicates)
-- Use `--force` to re-embed everything (e.g., after embedding model change)
-
-## Collection Loading
-
-Milvus requires collections to be **loaded** before search/query. The indexer calls `load_collection` when it creates or ensures a collection. If Milvus restarts, collections may be unloaded. The planner and failure store will attempt to load on first "collection not loaded" error and retry. Missing or empty collections return `[]` gracefully — some collections take time to build.
+The loader upserts graph nodes idempotently and creates deterministic
+relationships such as `CONTAINS` and `DEFINES`. Enrichment may add candidate
+relationships and retrieval hints, but deterministic extraction remains the
+authoritative source for graph edges.

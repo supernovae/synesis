@@ -15,11 +15,11 @@ from sqlalchemy import func
 from ..auth import UserInfo, get_current_user
 from ..deps import CATALOG_COLLECTION, QUALITY_REPORT_PATH
 from ..rbac import RouteGroup, can_access_route_group
-from ..services.milvus_service import (
+from ..services.nornic_service import (
     collection_domain_hierarchy,
     collection_schema_info,
     collection_stats,
-    expected_milvus_schema_version,
+    expected_graph_schema_version,
     safe_query,
 )
 
@@ -75,7 +75,7 @@ def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     _ensure_org_observability(_user)
     from ..db.engine import async_session as _async_session
-    from ..db.models import MilvusSchemaSync
+    from ..db.models import GraphSchemaSync
 
     schema_version = 0
     try:
@@ -84,7 +84,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
 
             row = (
                 await session.execute(
-                    _select(MilvusSchemaSync).where(MilvusSchemaSync.collection == CATALOG_COLLECTION)
+                    _select(GraphSchemaSync).where(GraphSchemaSync.collection == CATALOG_COLLECTION)
                 )
             ).scalar_one_or_none()
             if row:
@@ -92,7 +92,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     except Exception:
         pass
 
-    expected_sv = expected_milvus_schema_version()
+    expected_sv = expected_graph_schema_version()
     schema_upgrade_pending = schema_version < expected_sv
 
     try:
@@ -131,7 +131,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/corpus/schema")
 async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
-    """Milvus collection schema: fields, indexes, domain->source hierarchy."""
+    """Content graph collection schema: fields, indexes, domain->source hierarchy."""
     _ensure_org_observability(_user)
     try:
         schema = collection_schema_info(CATALOG_COLLECTION)
@@ -148,7 +148,7 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/packs")
 async def list_doc_packs(_user: UserInfo = Depends(get_current_user)):
-    """List installed SynPack partitions from Milvus catalog metadata."""
+    """List installed SynPack partitions from Content graph catalog metadata."""
     _ensure_org_observability(_user)
     rows = safe_query(
         CATALOG_COLLECTION,
@@ -248,7 +248,7 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 
 @router.post("/quality/refresh")
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
-    """Compute per-domain health scores from Milvus and store in quality_snapshots."""
+    """Compute per-domain health scores from Content graph and store in quality_snapshots."""
     _ensure_org_content_admin(_user)
     hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
     if not hierarchy:
@@ -430,7 +430,7 @@ async def quality_domains(
 
 
 def _scorecard_from_snapshot(row: Any) -> dict:
-    """Shape stored Milvus-derived snapshots for the Domain Health React page.
+    """Shape stored Content graph-derived snapshots for the Domain Health React page.
 
     If the snapshot carries a ``raw_scorecard`` (imported audit JSON), we merge
     that data so the UI can surface MRR, hit-rate, and dead-weight samples even
@@ -864,7 +864,7 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     _ensure_org_content_admin(_user)
     import uuid
 
-    from ..services.milvus_service import safe_query as sq
+    from ..services.nornic_service import safe_query as sq, safe_upsert
 
     rows = sq(
         CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1
@@ -874,22 +874,20 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
 
     trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
-        client = get_milvus()
-        client.upsert(
-            collection_name=CATALOG_COLLECTION,
-            data=[
-                {
-                    "chunk_id": chunk_id,
-                    "scan_status": "vetted",
-                    "authority": "vetted",
-                    "approval_status": "approved",
-                    "review_trace_id": trace_id,
-                }
-            ],
+        safe_upsert(
+            CATALOG_COLLECTION,
+            {
+                "id": chunk_id,
+                "chunk_id": chunk_id,
+                "scan_status": "vetted",
+                "authority": "vetted",
+                "approval_status": "approved",
+                "review_trace_id": trace_id,
+            },
         )
     except Exception:
-        logger.warning("review_vet_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
-        return {"ok": False, "error": "milvus update failed"}
+        logger.warning("review_vet_nornic_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
+        return {"ok": False, "error": "graph update failed"}
     logger.info("review_vet_chunk", extra={"chunk_id": chunk_id, "user": _user.username, "review_trace_id": trace_id})
     return {"ok": True, "chunk_id": chunk_id, "action": "vetted", "review_trace_id": trace_id}
 
@@ -902,21 +900,21 @@ async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user
 
     trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
-        client = get_milvus()
-        client.upsert(
-            collection_name=CATALOG_COLLECTION,
-            data=[
-                {
-                    "chunk_id": chunk_id,
-                    "scan_status": "rejected",
-                    "approval_status": "rejected",
-                    "review_trace_id": trace_id,
-                }
-            ],
+        from ..services.nornic_service import safe_upsert
+
+        safe_upsert(
+            CATALOG_COLLECTION,
+            {
+                "id": chunk_id,
+                "chunk_id": chunk_id,
+                "scan_status": "rejected",
+                "approval_status": "rejected",
+                "review_trace_id": trace_id,
+            },
         )
         ok = True
     except Exception:
-        logger.warning("review_reject_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
+        logger.warning("review_reject_nornic_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
         ok = False
     logger.info(
         "review_reject_chunk",
@@ -947,34 +945,32 @@ async def bulk_review_action(
 
     batch_trace_id = f"review-batch-{uuid.uuid4().hex[:12]}"
     results: dict[str, Any] = {"ok": True, "processed": 0, "errors": 0, "review_trace_id": batch_trace_id}
-    client = get_milvus()
+    from ..services.nornic_service import safe_upsert
 
     for chunk_id in chunk_ids:
         try:
             if action == "vet":
-                client.upsert(
-                    collection_name=CATALOG_COLLECTION,
-                    data=[
-                        {
-                            "chunk_id": chunk_id,
-                            "scan_status": "vetted",
-                            "authority": "vetted",
-                            "approval_status": "approved",
-                            "review_trace_id": batch_trace_id,
-                        }
-                    ],
+                safe_upsert(
+                    CATALOG_COLLECTION,
+                    {
+                        "id": chunk_id,
+                        "chunk_id": chunk_id,
+                        "scan_status": "vetted",
+                        "authority": "vetted",
+                        "approval_status": "approved",
+                        "review_trace_id": batch_trace_id,
+                    },
                 )
             else:
-                client.upsert(
-                    collection_name=CATALOG_COLLECTION,
-                    data=[
-                        {
-                            "chunk_id": chunk_id,
-                            "scan_status": "rejected",
-                            "approval_status": "rejected",
-                            "review_trace_id": batch_trace_id,
-                        }
-                    ],
+                safe_upsert(
+                    CATALOG_COLLECTION,
+                    {
+                        "id": chunk_id,
+                        "chunk_id": chunk_id,
+                        "scan_status": "rejected",
+                        "approval_status": "rejected",
+                        "review_trace_id": batch_trace_id,
+                    },
                 )
             results["processed"] += 1
         except Exception:
@@ -992,9 +988,3 @@ async def bulk_review_action(
         },
     )
     return results
-
-
-def get_milvus():
-    from ..deps import get_milvus as _gm
-
-    return _gm()

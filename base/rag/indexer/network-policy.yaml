@@ -1,6 +1,6 @@
 # Egress for unified indexer Jobs/CronJobs (--mode queue, staged-*, yaml).
 # Without this, clusters that use namespace isolation / default-deny egress can
-# block: admin API (claim/status), Milvus, embedder, optional LiteLLM, or web fetch.
+# block: admin API (claim/status), Content graph, embedder, optional LiteLLM, or web fetch.
 #
 # Pod label must match job templates: app.kubernetes.io/name=synesis-indexer
 apiVersion: networking.k8s.io/v1
@@ -26,13 +26,13 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
-    # Same namespace: Milvus (19530), TEI embedder, preprocess, spam, keyword, etc. (8080)
+    # Same namespace: NornicDB (7687), TEI embedder, preprocess, spam, keyword, etc. (8080)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: synesis-rag
       ports:
-        - port: 19530
+        - port: 7687
           protocol: TCP
         - port: 8080
           protocol: TCP

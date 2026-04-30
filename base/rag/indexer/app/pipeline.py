@@ -28,7 +28,7 @@ from .gatekeeper import entities_to_json, labels_for_document, section_outline_t
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
 from .injection_scan import scan_chunk_text_detailed
-from .milvus_writer import MilvusWriter, ProgressTracker, chunk_id_hash
+from .nornic_writer import NornicGraphWriter, ProgressTracker, chunk_id_hash
 from .preprocess_client import (
     clean_html_document,
     preprocess_base_url,
@@ -149,7 +149,7 @@ def index_parsed_chunk_pairs(
     source_config: dict[str, Any],
     parsed_pairs: list[tuple[RawDocument, Chunk]],
     fetch_meta: dict[str, Any],
-    writer: MilvusWriter,
+    writer: NornicGraphWriter,
     embedder: EmbedClient,
     progress: ProgressTracker,
     existing_ids: set[str],
@@ -719,7 +719,7 @@ def index_parsed_chunk_pairs(
 def index_normalized_markdown_doc(
     source_config: dict[str, Any],
     raw_doc: RawDocument,
-    writer: MilvusWriter,
+    writer: NornicGraphWriter,
     embedder: EmbedClient,
     progress: ProgressTracker,
     existing_ids: set[str],
@@ -729,7 +729,7 @@ def index_normalized_markdown_doc(
     dry_run: bool = False,
     gate_policy: GatePolicy | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Staged path: chunk normalized markdown and index (Milvus + embed)."""
+    """Staged path: chunk normalized markdown and index into NornicDB."""
     from .chunking import heading_aware_split
 
     md = raw_doc.content if isinstance(raw_doc.content, str) else raw_doc.content.decode("utf-8", errors="replace")
@@ -770,7 +770,7 @@ def index_normalized_markdown_doc(
 
 def index_source(
     source_config: dict[str, Any],
-    writer: MilvusWriter,
+    writer: NornicGraphWriter,
     embedder: EmbedClient,
     progress: ProgressTracker,
     existing_ids: set[str],
@@ -872,7 +872,7 @@ def run_pipeline(
     dry_run: bool = False,
     handler_filter: str | None = None,
     source_filter: str | None = None,
-    milvus_uri: str = "",
+    nornic_uri: str = "",
     embedder_url: str = "",
 ) -> None:
     """Run the full indexing pipeline across all sources."""
@@ -905,16 +905,16 @@ def run_pipeline(
     )
 
     if dry_run:
-        logger.info("indexer_dry_run_validation", extra={"detail": "No Milvus/embedder connection"})
+        logger.info("indexer_dry_run_validation", extra={"detail": "No NornicDB/embedder connection"})
 
-    writer_kwargs = {"uri": milvus_uri} if milvus_uri else {}
+    writer_kwargs = {"uri": nornic_uri} if nornic_uri else {}
     embedder_kwargs = {"url": embedder_url} if embedder_url else {}
 
     if not dry_run:
         try:
-            writer = MilvusWriter(**writer_kwargs)
+            writer = NornicGraphWriter(**writer_kwargs)
         except Exception as e:
-            logger.error("indexer_milvus_connect_failed", extra={"error": str(e)})
+            logger.error("indexer_nornic_connect_failed", extra={"error": str(e)})
             return
 
         embedder = EmbedClient(**embedder_kwargs)

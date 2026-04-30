@@ -1,4 +1,4 @@
-"""Sync PatternEntry rows to IngestionItem for Milvus indexing."""
+"""Sync PatternEntry rows to IngestionItem for Content graph indexing."""
 
 from __future__ import annotations
 

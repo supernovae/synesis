@@ -1,4 +1,4 @@
-"""Staged pipeline workers: fetch→S3, normalize→S3, enrich→Milvus."""
+"""Staged pipeline workers: fetch->S3, normalize->S3, enrich->NornicDB."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .embed_client import EmbedClient
 from .extract import html_to_markdown, normalize_doc_markdown
 from .handlers import get_handler
 from .handlers.base import RawDocument
-from .milvus_writer import MilvusWriter, ProgressTracker
+from .nornic_writer import NornicGraphWriter, ProgressTracker
 from .pipeline import _indexer_stats_from_fetch, index_normalized_markdown_doc
 from .queue_runner import _build_source_config
 from .schema import SCHEMA_VERSION, ensure_synesis_catalog
@@ -228,7 +228,7 @@ def run_staged_enrich(
     worker_id: str = "",
     enrich_full: bool = False,
     llm_url: str = "",
-    milvus_uri: str = "",
+    nornic_uri: str = "",
     embedder_url: str = "",
     force: bool = False,
 ) -> None:
@@ -237,11 +237,11 @@ def run_staged_enrich(
     client = StagedIngestionClient(admin_url)
     store = None if dry_run else StagedS3Store()
 
-    writer_kwargs = {"uri": milvus_uri} if milvus_uri else {}
+    writer_kwargs = {"uri": nornic_uri} if nornic_uri else {}
     embedder_kwargs = {"url": embedder_url} if embedder_url else {}
 
     if not dry_run:
-        writer = MilvusWriter(**writer_kwargs)
+        writer = NornicGraphWriter(**writer_kwargs)
         embedder = EmbedClient(**embedder_kwargs)
         ensure_synesis_catalog(writer.client)
         try:
@@ -334,7 +334,7 @@ def run_staged_enrich(
                         {
                             "status": "done",
                             "chunk_count": chunks,
-                            "milvus_doc_id": doc_key[:128],
+                            "graph_node_id": doc_key[:128],
                         },
                     )
                     logger.info(

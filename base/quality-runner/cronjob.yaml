@@ -25,8 +25,8 @@ spec:
               image: quality-runner:latest
               command: ["python", "entrypoint.py"]
               env:
-                - name: SYNESIS_MILVUS_URI
-                  value: "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
+                - name: SYNESIS_NORNIC_URI
+                  value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
                 - name: SYNESIS_EMBEDDER_URL
                   value: "http://embedder.synesis-rag.svc.cluster.local:8080"
                 - name: SYNESIS_ADMIN_API_URL

@@ -3,8 +3,7 @@ set -euo pipefail
 
 # Synesis RAG Stack Installer
 #
-# Applies the Milvus Operator CR + embedder in synesis-rag.
-# Requires: Milvus Operator already installed (bootstrap.sh handles this).
+# Applies NornicDB + embedder in synesis-rag.
 #
 # Use this for standalone RAG infra setup. deploy.sh applies this
 # as part of the full stack; deploy-indexer.sh handles the indexer CronJob separately.
@@ -22,8 +21,8 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--wait]"
             echo ""
-            echo "Applies Milvus Operator CR + embedder."
-            echo "  --wait  Wait for Milvus CR to become Healthy and embedder to be ready"
+            echo "Applies NornicDB + embedder."
+            echo "  --wait  Wait for NornicDB and embedder to be ready"
             exit 0
             ;;
         *)
@@ -50,11 +49,6 @@ if ! command -v kustomize &>/dev/null; then
     exit 1
 fi
 
-if ! oc get crd milvus.milvus.io &>/dev/null; then
-    err "Milvus Operator CRD not found. Run ./scripts/bootstrap.sh first to install the operator."
-    exit 1
-fi
-
 log "=== Installing Synesis RAG Stack ==="
 log ""
 
@@ -66,26 +60,18 @@ fi
 
 log ""
 log "RAG stack applied. Components:"
-log "  - Milvus CR 'synesis' (operator-managed, service: synesis-milvus:19530)"
+log "  - NornicDB graph/vector database (service: synesis-nornicdb:7687)"
 log "  - embedder (TEI for embeddings)"
 log ""
 
 if [[ "$WAIT_FOR_READY" == "true" ]]; then
-    log "Waiting for Milvus CR to become Healthy..."
     ns="synesis-rag"
 
-    for i in $(seq 1 30); do
-        STATUS=$(oc get milvus synesis -n "$ns" -o jsonpath='{.status.status}' 2>/dev/null || echo "")
-        if [[ "$STATUS" == "Healthy" ]]; then
-            log "  Milvus CR is Healthy"
-            break
-        fi
-        log "  Milvus status: ${STATUS:-Pending} (attempt $i/30)"
-        sleep 10
-    done
-    if [[ "$STATUS" != "Healthy" ]]; then
-        log "WARNING: Milvus CR status is '$STATUS' after 5 min."
-        log "  Check: oc get milvus synesis -n $ns -o yaml"
+    if oc get deployment synesis-nornicdb -n "$ns" &>/dev/null; then
+        log "  Waiting for $ns/synesis-nornicdb..."
+        oc rollout status deployment/synesis-nornicdb -n "$ns" --timeout=300s || {
+            log "WARNING: Rollout timeout for $ns/synesis-nornicdb"
+        }
     fi
 
     if oc get deployment embedder -n "$ns" &>/dev/null; then

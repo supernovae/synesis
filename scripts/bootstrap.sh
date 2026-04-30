@@ -501,125 +501,6 @@ configure_hf_token() {
     done
 }
 
-install_milvus_operator() {
-    local ns="milvus-operator"
-    local release="milvus-operator"
-    local repo_url="https://zilliztech.github.io/milvus-operator/"
-    local chart="milvus-operator/milvus-operator"
-
-    local ocp_values=(
-        --set "securityContext.capabilities.drop[0]=ALL"
-        --set "securityContext.seccompProfile.type=RuntimeDefault"
-        --set "podSecurityContext.runAsUser=null"
-    )
-
-    # Ensure Helm repo is registered (idempotent)
-    helm repo add milvus-operator "$repo_url" 2>/dev/null || true
-
-    # Get currently installed chart version (empty string if not installed)
-    local installed_version=""
-    installed_version=$(helm list -n "$ns" -o json 2>/dev/null \
-        | grep -o '"chart":"milvus-operator-[^"]*"' \
-        | head -1 | sed 's/.*milvus-operator-//' | sed 's/"//' || true)
-
-    if [[ -n "$installed_version" ]]; then
-        # Already installed — check if upgrade is actually needed
-        helm repo update milvus-operator 2>&1 | while read -r line; do log "  $line"; done
-
-        local latest_version=""
-        latest_version=$(helm search repo milvus-operator/milvus-operator -o json 2>/dev/null \
-            | grep -o '"version":"[^"]*"' | head -1 | sed 's/"version":"//' | sed 's/"//' || true)
-
-        if [[ "$installed_version" == "$latest_version" ]]; then
-            local operator_ready
-            operator_ready=$(oc get deploy milvus-operator -n "$ns" \
-                -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-
-            if [[ "${operator_ready:-0}" -ge 1 ]]; then
-                log "  Milvus Operator v${installed_version} already running and healthy — skipping"
-                _ensure_milvus_s3_secret
-                return 0
-            fi
-
-            log "  Milvus Operator v${installed_version} installed but not ready — re-applying"
-            helm upgrade "$release" "$chart" -n "$ns" --version "$installed_version" --wait \
-                "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
-        else
-            log "  Milvus Operator upgrade available: v${installed_version} -> v${latest_version}"
-            helm upgrade "$release" "$chart" -n "$ns" --wait \
-                "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
-        fi
-    else
-        # Fresh install
-        helm repo update milvus-operator 2>&1 | while read -r line; do log "  $line"; done
-        log "  Installing Milvus Operator..."
-        helm install "$release" "$chart" \
-            -n "$ns" --create-namespace --wait \
-            "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
-    fi
-
-    # --- Post-install/upgrade steps (only reached when Helm actually ran) ---
-
-    log "  Waiting for Milvus Operator CRD..."
-    for _ in $(seq 1 30); do
-        if oc get crd milvus.milvus.io &>/dev/null; then
-            log "  Milvus CRD available"
-            break
-        fi
-        sleep 5
-    done
-
-    log "  Granting Milvus Operator SCC access for OpenShift..."
-    oc apply -f - <<'EOSCC'
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: milvus-operator-scc
-  labels:
-    app.kubernetes.io/part-of: synesis
-rules:
-  - apiGroups: ["security.openshift.io"]
-    resources: ["securitycontextconstraints"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "use"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: milvus-operator-scc
-  labels:
-    app.kubernetes.io/part-of: synesis
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: milvus-operator-scc
-subjects:
-  - kind: ServiceAccount
-    name: milvus-operator
-    namespace: milvus-operator
-EOSCC
-    log "  Milvus Operator SCC ClusterRoleBinding created"
-
-    log "  Granting anyuid SCC to synesis-rag default SA..."
-    oc adm policy add-scc-to-user anyuid -z default -n synesis-rag 2>/dev/null || true
-
-    _ensure_milvus_s3_secret
-}
-
-_ensure_milvus_s3_secret() {
-    if ! oc get secret milvus-s3-secret -n synesis-rag &>/dev/null; then
-        log "  Creating placeholder milvus-s3-secret (update with real AWS keys)"
-        oc create secret generic milvus-s3-secret \
-            -n synesis-rag \
-            --from-literal=accesskey="REPLACE_ME" \
-            --from-literal=secretkey="REPLACE_ME" \
-            --dry-run=client -o yaml | oc apply -f -
-        log "  WARNING: Update milvus-s3-secret with real AWS keys."
-        log "    See docs/MILVUS_SCALING.md for IAM user setup."
-    else
-        log "  milvus-s3-secret already exists"
-    fi
-}
-
 main() {
     log "=== Synesis Bootstrap (mode: $MODE) ==="
     log ""
@@ -679,8 +560,8 @@ main() {
     fi
 
     log ""
-    log "--- Milvus Operator (RAG vector store) ---"
-    install_milvus_operator || true
+    log "--- NornicDB (RAG graph/vector store) ---"
+    log "  No operator bootstrap required; base/rag/nornicdb.yaml is applied by deploy.sh/install-rag-stack.sh"
 
     log ""
     log "--- HuggingFace Token (gated model access) ---"

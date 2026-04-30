@@ -20,7 +20,7 @@ logger = logging.getLogger("synesis.admin.settings")
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 PUBLIC_ENV_PREFIXES = (
-    "SYNESIS_MILVUS_",
+    "SYNESIS_NORNIC_",
     "SYNESIS_PLANNER_",
     "SYNESIS_LITELLM_",
     "SYNESIS_MCP_",

@@ -19,7 +19,7 @@ from synesis_telemetry import get_logger
 
 from .content_gate import GatePolicy
 from .embed_client import EmbedClient
-from .milvus_writer import MilvusWriter, ProgressTracker
+from .nornic_writer import NornicGraphWriter, ProgressTracker
 from .pipeline import index_source
 from .schema import SCHEMA_VERSION, ensure_synesis_catalog
 
@@ -71,7 +71,7 @@ class QueueClient:
         chunk_count: int = 0,
         error_message: str = "",
         content_hash: str = "",
-        milvus_doc_id: str = "",
+        graph_node_id: str = "",
         indexer_stats: dict[str, Any] | None = None,
     ) -> None:
         payload: dict[str, Any] = {"status": status}
@@ -81,8 +81,8 @@ class QueueClient:
             payload["error_message"] = error_message[:2000]
         if content_hash:
             payload["content_hash"] = content_hash
-        if milvus_doc_id:
-            payload["milvus_doc_id"] = milvus_doc_id
+        if graph_node_id:
+            payload["graph_node_id"] = graph_node_id
         if indexer_stats:
             payload["indexer_stats"] = indexer_stats
         resp = self._http.patch(f"/api/v1/ingestion/items/{item_id}/status", json=payload)
@@ -97,8 +97,8 @@ class QueueClient:
         resp = self._http.patch(f"/api/v1/ingestion/runs/{run_id}", json=kwargs)
         resp.raise_for_status()
 
-    def report_schema_version(self, version: int, collection: str = "synesis_catalog") -> dict[str, Any]:
-        """Report the current Milvus schema version to the admin service.
+    def report_schema_version(self, version: int, collection: str = "content_graph") -> dict[str, Any]:
+        """Report the current content graph schema version to the admin service.
 
         If the version changed, admin resets all 'indexed' items to 'pending'.
         """
@@ -202,7 +202,7 @@ def run_queue(
     enrich_full: bool = False,
     llm_url: str = "",
     dry_run: bool = False,
-    milvus_uri: str = "",
+    nornic_uri: str = "",
     embedder_url: str = "",
     trigger: str = "cron",
 ) -> None:
@@ -224,14 +224,14 @@ def run_queue(
     run_id = client.create_run(trigger=trigger)
     logger.info("queue_run_created", extra={"run_id": run_id})
 
-    writer_kwargs = {"uri": milvus_uri} if milvus_uri else {}
+    writer_kwargs = {"uri": nornic_uri} if nornic_uri else {}
     embedder_kwargs = {"url": embedder_url} if embedder_url else {}
 
     if not dry_run:
         try:
-            writer = MilvusWriter(**writer_kwargs)
+            writer = NornicGraphWriter(**writer_kwargs)
         except Exception as e:
-            logger.error("queue_milvus_connect_failed", extra={"error": str(e)})
+            logger.error("queue_nornic_connect_failed", extra={"error": str(e)})
             try:
                 client.update_run(run_id, status="failed")
             except Exception:

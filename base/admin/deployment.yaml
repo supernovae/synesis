@@ -31,10 +31,10 @@ spec:
           env:
             - name: SYNESIS_LOG_LEVEL
               value: "info"
-            - name: SYNESIS_MILVUS_HOST
-              value: "synesis-milvus.synesis-rag.svc.cluster.local"
-            - name: SYNESIS_MILVUS_PORT
-              value: "19530"
+            - name: SYNESIS_NORNIC_URI
+              value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
+            - name: SYNESIS_NORNIC_DATABASE
+              value: "neo4j"
             - name: SYNESIS_PLANNER_URL
               value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_LITELLM_URL
@@ -82,7 +82,7 @@ spec:
             # JWT issuer in tokens stays the public URL; only the token HTTP call uses this.
             - name: SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL
               value: "http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis"
-            # Milvus catalog expected schema: defaults to milvus_service.SCHEMA_VERSION (set SYNESIS_EXPECTED_SCHEMA_VERSION only for coordinated rollouts).
+            # Content graph expected schema: defaults to nornic_service.SCHEMA_VERSION.
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

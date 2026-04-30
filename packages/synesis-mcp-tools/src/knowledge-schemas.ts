@@ -8,6 +8,14 @@ export const knowledgeSearchInputSchema = z.object({
   pack_ids: z.array(z.string()).optional(),
   pack_version: z.string().optional(),
   pack_partition: z.string().optional(),
+  version: z.string().optional(),
+  commit: z.string().optional(),
+  branch: z.string().optional(),
+  temporal_at: z.string().optional(),
+  graph_depth: z.number().int().min(0).max(3).optional(),
+  edge_types: z
+    .array(z.enum(["CONTAINS", "DEFINES", "CALLS", "IMPORTS", "REFERENCES", "OVERRIDES", "IMPLEMENTS", "DOCUMENTS"]))
+    .optional(),
   symbol_kind: z.string().optional(),
   symbol_fqn: z.string().optional(),
   package_name: z.string().optional(),

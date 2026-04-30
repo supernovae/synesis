@@ -8,7 +8,7 @@ Tier 2 (--enrich full, uses synesis-general LLM):
   - Enhanced context_prefix: LLM-generated contextual sentence
 
 Keyword extraction removed: BM25 benchmark (benchmarks/bm25/) showed that
-Milvus native BM25 on raw text outperforms enriched-text BM25, and keywords
+NornicDB graph/vector retrieval on raw text outperforms enriched-text keyword search, and keywords
 were only consumed by the now-removed custom BM25 service.
 
 Research: Anthropic Contextual Retrieval (2024), arxiv 2601.11863.

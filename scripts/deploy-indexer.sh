@@ -54,18 +54,17 @@ done
 CRONJOB_NAME="synesis-indexer-queue"
 NAMESPACE="synesis-rag"
 
-# ── Pre-flight: verify Milvus and embedder ────────────────────────────
+# ── Pre-flight: verify NornicDB and embedder ─────────────────────────
 log "=== Synesis RAG Indexer (queue mode) ==="
 log ""
 log "Checking RAG dependencies..."
 
-MILVUS_READY=$(oc get pods -n "$NAMESPACE" \
-    -l app.kubernetes.io/instance=synesis,app.kubernetes.io/name=milvus \
-    --no-headers 2>&1 | grep -c Running || true)
-if [[ "$MILVUS_READY" -gt 0 ]] 2>/dev/null; then
-    log "  Milvus: running ($MILVUS_READY pods)"
+NORNIC_READY=$(oc get deployment synesis-nornicdb -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+if [[ "$NORNIC_READY" -gt 0 ]] 2>/dev/null; then
+    log "  NornicDB: running ($NORNIC_READY replicas)"
 else
-    warn "Milvus is not running in $NAMESPACE."
+    warn "NornicDB is not running in $NAMESPACE."
     warn "  Deploy services first: ./scripts/deploy.sh"
     exit 1
 fi

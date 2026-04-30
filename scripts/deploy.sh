@@ -89,8 +89,8 @@ set -euo pipefail
 #
 # Planner-ts — RAG + SearXNG + Admin web_search_log (post-apply patch, survives manifest drift):
 #   Default: SYNESIS_DEPLOY_PLANNER_RETRIEVAL=true (or unset) — patches synesis-planner-ts with:
-#     SYNESIS_EMBEDDER_URL, SYNESIS_MILVUS_HOST, SYNESIS_MILVUS_PORT,
-#     SYNESIS_WEB_SEARCH_ENABLED, SYNESIS_WEB_SEARCH_URL (in-cluster TEI, Milvus, SearXNG).
+#     SYNESIS_EMBEDDER_URL, SYNESIS_NORNIC_URI, SYNESIS_WEB_SEARCH_ENABLED,
+#     SYNESIS_WEB_SEARCH_URL (in-cluster TEI, NornicDB, SearXNG).
 #   web_search_log rows require Secret synesis-admin-db-url (admin-url) in synesis-planner —
 #     created by patch_admin_db_urls when CNPG synesis-admin-db-app password is ready (same as Yarn/admin).
 #   Disable unified retrieval + web for planner: SYNESIS_DEPLOY_PLANNER_RETRIEVAL=false
@@ -1584,7 +1584,7 @@ patch_planner_feature_flags() {
     _patch_deployment_env "$ns" "$deploy" "SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE" "${SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE:-audit}" "$container"
 }
 
-# Reconcile planner-ts unified retrieval (TEI + Milvus + SearXNG) on every deploy so OpenShift/Kustomize
+# Reconcile planner-ts unified retrieval (TEI + NornicDB + SearXNG) on every deploy so OpenShift/Kustomize
 # applies do not leave SYNESIS_WEB_SEARCH_URL empty (planner-ts default) or drop service URLs.
 # Admin Integrations → Web Search log: requires synesis-admin-db-url in synesis-planner (see patch_admin_db_urls).
 patch_planner_retrieval_and_web() {
@@ -1598,14 +1598,14 @@ patch_planner_retrieval_and_web() {
 
     if is_true "${SYNESIS_DEPLOY_PLANNER_RETRIEVAL:-true}"; then
         local embedder="${SYNESIS_PLANNER_EMBEDDER_URL:-http://embedder.synesis-rag.svc.cluster.local:8080/v1}"
-        local milvus_host="${SYNESIS_PLANNER_MILVUS_HOST:-synesis-milvus.synesis-rag.svc.cluster.local}"
-        local milvus_port="${SYNESIS_PLANNER_MILVUS_PORT:-19530}"
+        local nornic_uri="${SYNESIS_PLANNER_NORNIC_URI:-bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687}"
+        local nornic_database="${SYNESIS_PLANNER_NORNIC_DATABASE:-neo4j}"
         local searx="${SYNESIS_PLANNER_SEARXNG_URL:-http://searxng.synesis-search.svc.cluster.local:8080}"
         local web_on="${SYNESIS_PLANNER_WEB_SEARCH_ENABLED:-true}"
-        log "  SYNESIS_DEPLOY_PLANNER_RETRIEVAL enabled — patching $ns/$deploy (embedder, Milvus, SearXNG)"
+        log "  SYNESIS_DEPLOY_PLANNER_RETRIEVAL enabled — patching $ns/$deploy (embedder, NornicDB, SearXNG)"
         _patch_deployment_env "$ns" "$deploy" "SYNESIS_EMBEDDER_URL" "$embedder" "$container"
-        _patch_deployment_env "$ns" "$deploy" "SYNESIS_MILVUS_HOST" "$milvus_host" "$container"
-        _patch_deployment_env "$ns" "$deploy" "SYNESIS_MILVUS_PORT" "$milvus_port" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_NORNIC_URI" "$nornic_uri" "$container"
+        _patch_deployment_env "$ns" "$deploy" "SYNESIS_NORNIC_DATABASE" "$nornic_database" "$container"
         _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_ENABLED" "$web_on" "$container"
         _patch_deployment_env "$ns" "$deploy" "SYNESIS_WEB_SEARCH_URL" "$searx" "$container"
         if oc get secret synesis-admin-db-url -n "$ns" &>/dev/null; then
@@ -2727,27 +2727,9 @@ wait_for_deployment() {
 # litellm-proxy rollout is managed by Helm --wait (deploy_litellm_helm).
 wait_for_deployment synesis-planner synesis-planner
 wait_for_deployment synesis-planner synesis-health-monitor
-# Milvus is managed by the Milvus Operator (kind: Milvus CR).
-# The operator handles etcd + Milvus pod lifecycle. We wait for the
-# operator-created Milvus deployment instead of manual etcd/milvus.
-if oc get milvus synesis -n synesis-rag &>/dev/null 2>&1; then
-    log "  Waiting for Milvus CR 'synesis' to become Healthy..."
-    for _ in $(seq 1 30); do
-        STATUS=$(oc get milvus synesis -n synesis-rag -o jsonpath='{.status.status}' 2>/dev/null || echo "")
-        if [[ "$STATUS" == "Healthy" ]]; then
-            log "  Milvus CR is Healthy"
-            break
-        fi
-        sleep 10
-    done
-    if [[ "$STATUS" != "Healthy" ]]; then
-        log "WARNING: Milvus CR status is '$STATUS' after 5 min. Check: oc get milvus synesis -n synesis-rag -o yaml"
-    fi
-else
-    log "  No Milvus CR found — install Milvus Operator first (see bootstrap.sh)"
-fi
-# RAG data plane: base/core includes base/rag (embedder, keyword, gliner, preprocess, spam, redis, Milvus operator).
+# RAG data plane: base/core includes base/rag (NornicDB, embedder, keyword, gliner, preprocess, spam, redis).
 # Indexer CronJob is a separate kustomize overlay — ./scripts/deploy-indexer.sh
+wait_for_deployment synesis-rag synesis-nornicdb
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
@@ -2847,7 +2829,7 @@ if [[ -n "${KEYCLOAK_ADMIN_USER:-}" ]]; then
     log "IMPORTANT: Change the Keycloak admin password after first login!"
     log ""
 fi
-log "Next: deploy indexer CronJobs (after Milvus is healthy):"
+log "Next: deploy indexer CronJobs (after NornicDB is healthy):"
 log "  ./scripts/deploy-indexer.sh"
 log "  ./scripts/deploy-indexer.sh --run   # process pending queue items now"
 log "  ./scripts/deploy-indexer.sh --s3-bucket <name>   # staged S3 pipeline (fetch/normalize/enrich CronJobs)"

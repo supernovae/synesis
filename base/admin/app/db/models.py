@@ -335,16 +335,16 @@ class DiscoveredConflictGroup(Base):
     )
 
 
-class MilvusSchemaSync(Base):
-    """Tracks the last-known Milvus schema version for drift detection.
+class GraphSchemaSync(Base):
+    """Tracks the last-known Content graph schema version for drift detection.
 
     On startup and when the indexer reports a schema change, the admin service
     compares stored vs. current version. If they differ, all 'indexed' ingestion
-    items are reset to 'pending' for re-indexing, since the Milvus collection
+    items are reset to 'pending' for re-indexing, since the Content graph collection
     was dropped+recreated and all previous chunks are gone.
     """
 
-    __tablename__ = "milvus_schema_sync"
+    __tablename__ = "content_graph_schema_sync"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     collection: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
@@ -408,7 +408,7 @@ class IngestionItem(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    milvus_doc_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    graph_node_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     indexer_stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
@@ -459,7 +459,7 @@ class IngestionDocument(Base):
     norm_s3_meta_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     normalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enrich_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    milvus_doc_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    graph_node_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -475,7 +475,7 @@ class IngestionDocument(Base):
 
 
 class IngestionEnrichQueue(Base):
-    """GPU / Milvus enrichment work queue (SKIP LOCKED batch claims)."""
+    """GPU / Content graph enrichment work queue (SKIP LOCKED batch claims)."""
 
     __tablename__ = "ingestion_enrich_queue"
 

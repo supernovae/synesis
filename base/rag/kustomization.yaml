@@ -10,7 +10,7 @@ labels:
 
 resources:
   - namespace.yaml
-  - milvus-operator.yaml
+  - nornicdb.yaml
   - embedder/deployment.yaml
   - embedder/service.yaml
   - keyword-service/deployment.yaml

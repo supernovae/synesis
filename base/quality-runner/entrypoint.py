@@ -17,7 +17,7 @@ import tempfile
 import httpx
 
 ADMIN_API_URL = os.getenv("SYNESIS_ADMIN_API_URL", "http://synesis-admin.synesis-admin.svc.cluster.local:8080")
-MILVUS_URI = os.getenv("SYNESIS_MILVUS_URI", "http://synesis-milvus.synesis-rag.svc.cluster.local:19530")
+NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 EMBEDDER_URL = os.getenv("SYNESIS_EMBEDDER_URL", "http://embedder.synesis-rag.svc.cluster.local:8080")
 LLM_URL = os.getenv("SYNESIS_LLM_URL", "")
 LLM_MODEL = os.getenv("SYNESIS_LLM_MODEL", "synesis-general")
@@ -35,8 +35,8 @@ def run_audit() -> bool:
     cmd = [
         sys.executable,
         "benchmarks/corpus/audit_corpus.py",
-        "--milvus-uri",
-        MILVUS_URI,
+        "--nornic-uri",
+        NORNIC_URI,
         "--embedder-url",
         EMBEDDER_URL,
         "--taxonomy",

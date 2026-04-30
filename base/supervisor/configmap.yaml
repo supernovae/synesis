@@ -55,9 +55,9 @@ data:
           backoff_max_seconds: 5.0
         timeout_seconds: 30
 
-      milvus:
-        endpoint: "http://synesis-milvus.synesis-rag.svc.cluster.local:9091"
-        health_path: "/healthz"
+      nornicdb:
+        endpoint: "http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474"
+        health_path: "/"
         circuit_breaker:
           failure_threshold: 3
           reset_timeout_seconds: 30

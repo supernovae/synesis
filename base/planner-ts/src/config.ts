@@ -165,8 +165,18 @@ const EnvSchema = z.object({
   SYNESIS_GLINER_SERVICE_URL: z.string().default(""),
 
   // --- Retrieval / RAG ---
-  SYNESIS_MILVUS_HOST: z.string().default("synesis-milvus.synesis-rag.svc.cluster.local"),
-  SYNESIS_MILVUS_PORT: z.coerce.number().default(19530),
+  SYNESIS_NORNIC_URI: z.string().default("bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"),
+  SYNESIS_NORNIC_USER: z.string().default("neo4j"),
+  SYNESIS_NORNIC_PASSWORD: z.string().default("synesis-nornicdb"),
+  SYNESIS_NORNIC_DATABASE: z.string().default("neo4j"),
+  SYNESIS_NORNIC_VECTOR_INDEX: z.string().default("embeddings"),
+  SYNESIS_NORNIC_RUNTIME_PROFILE: z.enum(["cpu-bge", "cuda-bge", "metal-bge"]).default("cpu-bge"),
+  SYNESIS_NORNIC_GRAPH_DEPTH: z.coerce.number().default(2),
+  SYNESIS_NORNIC_EDGE_TYPES: z.string().default("CONTAINS,DEFINES,CALLS,IMPORTS,REFERENCES,OVERRIDES,IMPLEMENTS,DOCUMENTS"),
+  SYNESIS_NORNIC_RERANK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_EMBEDDER_URL: z.string().default(""),
   SYNESIS_EMBEDDER_MODEL: z.string().default("BAAI/bge-m3"),
   SYNESIS_BGE_RERANKER_URL: z.string().default(""),

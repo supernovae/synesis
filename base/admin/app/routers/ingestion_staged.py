@@ -38,7 +38,7 @@ class StagedItemStatusBody(BaseModel):
     indexer_stats: dict[str, Any] | None = None
     chunk_count: int | None = None
     content_hash: str | None = None
-    milvus_doc_id: str | None = None
+    graph_node_id: str | None = None
 
 
 class DocumentRegisterRow(BaseModel):
@@ -81,7 +81,7 @@ class EnrichStatusBody(BaseModel):
     status: str = Field(..., pattern="^(done|failed)$")
     error: str | None = None
     chunk_count: int | None = None
-    milvus_doc_id: str | None = None
+    graph_node_id: str | None = None
 
 
 class ItemRerunBody(BaseModel):
@@ -201,8 +201,8 @@ async def update_staged_item_status(item_id: int, body: StagedItemStatusBody):
             item.chunk_count = body.chunk_count
         if body.content_hash is not None:
             item.content_hash = body.content_hash
-        if body.milvus_doc_id is not None:
-            item.milvus_doc_id = body.milvus_doc_id
+        if body.graph_node_id is not None:
+            item.graph_node_id = body.graph_node_id
 
         if body.status == "failed":
             item.retry_count = (item.retry_count or 0) + 1
@@ -261,7 +261,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
             item.error_message = ""
             item.indexer_stats = None
             item.content_hash = None
-            item.milvus_doc_id = ""
+            item.graph_node_id = ""
             item.chunk_count = 0
             item.started_at = None
             item.completed_at = None
@@ -293,7 +293,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
                 d.norm_s3_meta_key = None
                 d.normalized_at = None
                 d.enrich_status = "pending"
-                d.milvus_doc_id = ""
+                d.graph_node_id = ""
                 d.chunk_count = 0
                 d.error_message = ""
                 d.updated_at = now
@@ -302,7 +302,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
             item.started_at = None
             item.completed_at = None
             item.chunk_count = 0
-            item.milvus_doc_id = ""
+            item.graph_node_id = ""
             await session.commit()
             return {
                 "ok": True,
@@ -323,7 +323,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
             if d.norm_status != "done":
                 continue
             d.enrich_status = "pending"
-            d.milvus_doc_id = ""
+            d.graph_node_id = ""
             d.chunk_count = 0
             d.error_message = ""
             d.updated_at = now
@@ -344,7 +344,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
         item.started_at = None
         item.completed_at = None
         item.chunk_count = 0
-        item.milvus_doc_id = ""
+        item.graph_node_id = ""
         await session.commit()
         return {
             "ok": True,
@@ -701,8 +701,8 @@ async def enrich_job_status(job_id: int, body: EnrichStatusBody):
             doc.enrich_status = "done"
             if body.chunk_count is not None:
                 doc.chunk_count = body.chunk_count
-            if body.milvus_doc_id:
-                doc.milvus_doc_id = body.milvus_doc_id[:128]
+            if body.graph_node_id:
+                doc.graph_node_id = body.graph_node_id[:128]
         else:
             job.status = "failed"
             job.done_at = now
@@ -750,14 +750,14 @@ async def enrich_job_status(job_id: int, body: EnrichStatusBody):
             item.error_message = ""
             first_mid = (
                 await session.execute(
-                    select(IngestionDocument.milvus_doc_id)
+                    select(IngestionDocument.graph_node_id)
                     .where(IngestionDocument.ingestion_item_id == item_id)
                     .order_by(IngestionDocument.id)
                     .limit(1)
                 )
             ).scalar()
             if first_mid:
-                item.milvus_doc_id = (first_mid or "")[:128]
+                item.graph_node_id = (first_mid or "")[:128]
 
         await session.commit()
 

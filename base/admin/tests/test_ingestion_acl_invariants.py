@@ -135,12 +135,12 @@ class TestPydanticSchemaDefaults:
         assert i.visibility_scope == "global"
 
 
-class TestMilvusResetConfirm:
+class TestGraphResetConfirm:
     def test_accepts_catalog_and_schema_phrases(self):
-        from app.routers.ingestion import _milvus_reset_confirm_ok
+        from app.routers.ingestion import _graph_reset_confirm_ok
 
-        assert _milvus_reset_confirm_ok("DELETE_SYNESIS_CATALOG")
-        assert _milvus_reset_confirm_ok("DELETE_MILVUS_SCHEMA")
-        assert _milvus_reset_confirm_ok("  DELETE_MILVUS_SCHEMA  ")
-        assert not _milvus_reset_confirm_ok("wrong")
-        assert not _milvus_reset_confirm_ok("")
+        assert _graph_reset_confirm_ok("DELETE_SYNESIS_CATALOG")
+        assert _graph_reset_confirm_ok("DELETE_CONTENT_GRAPH")
+        assert _graph_reset_confirm_ok("  DELETE_CONTENT_GRAPH  ")
+        assert not _graph_reset_confirm_ok("wrong")
+        assert not _graph_reset_confirm_ok("")

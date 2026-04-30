@@ -14,7 +14,7 @@ logger = logging.getLogger("synesis.admin.health_prober")
 
 CORE_SERVICES = [
     {"name": "synesis-planner-ts", "url": "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/health"},
-    {"name": "milvus", "url": "http://synesis-milvus.synesis-rag.svc.cluster.local:9091/healthz"},
+    {"name": "nornicdb", "url": "http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474"},
     {"name": "embedder", "url": "http://embedder.synesis-rag.svc.cluster.local:8080/health"},
     {"name": "keyword-service", "url": "http://keyword-service.synesis-rag.svc.cluster.local:8080/health"},
     {"name": "litellm-proxy", "url": "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/health"},

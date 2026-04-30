@@ -1,4 +1,4 @@
-"""64-bit simhash for near-duplicate signals (stored as decimal string in Milvus)."""
+"""64-bit simhash for near-duplicate signals (stored as decimal string in Content graph)."""
 
 from __future__ import annotations
 

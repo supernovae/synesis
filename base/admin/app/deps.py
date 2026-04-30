@@ -1,4 +1,4 @@
-"""Shared dependencies: Milvus client, httpx pool, Postgres, config constants."""
+"""Shared dependencies: NornicDB client, httpx pool, Postgres, config constants."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ from functools import lru_cache
 
 import httpx
 
-MILVUS_HOST = os.getenv(
-    "SYNESIS_MILVUS_HOST",
-    "synesis-milvus.synesis-rag.svc.cluster.local",
-)
-MILVUS_PORT = int(os.getenv("SYNESIS_MILVUS_PORT", "19530"))
+NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
+NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
+NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
+NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "neo4j")
 PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
     "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
@@ -54,29 +53,18 @@ TAXONOMY_YAML_PATH = os.getenv(
 )
 
 FAILURES_COLLECTION = "failures_v1"
-CATALOG_COLLECTION = "synesis_catalog"
+CATALOG_COLLECTION = "content_graph"
 
-_resilient_milvus = None
-
-
-def _get_resilient():
-    global _resilient_milvus
-    if _resilient_milvus is None:
-        from .milvus_utils import ResilientMilvusClient
-
-        _resilient_milvus = ResilientMilvusClient(
-            uri=f"http://{MILVUS_HOST}:{MILVUS_PORT}",
-        )
-    return _resilient_milvus
+_nornic_driver = None
 
 
-def get_milvus():
-    return _get_resilient().get()
+def get_nornic_driver():
+    global _nornic_driver
+    if _nornic_driver is None:
+        from neo4j import GraphDatabase
 
-
-def get_resilient_milvus():
-    """Return the ResilientMilvusClient for callers that need retry semantics."""
-    return _get_resilient()
+        _nornic_driver = GraphDatabase.driver(NORNIC_URI, auth=(NORNIC_USER, NORNIC_PASSWORD))
+    return _nornic_driver
 
 
 @lru_cache

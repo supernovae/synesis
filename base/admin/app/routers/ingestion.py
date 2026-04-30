@@ -24,9 +24,8 @@ from ..db.models import (
     IngestionItem,
     IngestionRun,
     IngestionSource,
-    MilvusSchemaSync,
+    GraphSchemaSync,
 )
-from ..deps import get_milvus
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import (
     Role,
@@ -37,9 +36,9 @@ from ..rbac import (
     resolve_role,
 )
 from ..services.admin_audit import record_admin_audit
-from ..services.milvus_service import expected_milvus_schema_version, recreate_synesis_catalog_v12
+from ..services.nornic_service import expected_graph_schema_version, recreate_content_graph
 
-EXPECTED_SCHEMA_VERSION = expected_milvus_schema_version()
+EXPECTED_SCHEMA_VERSION = expected_graph_schema_version()
 
 logger = logging.getLogger("synesis.admin.ingestion")
 
@@ -92,7 +91,7 @@ class StatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(indexed|failed|pending|dead_letter)$")
     chunk_count: int | None = None
     error_message: str | None = None
-    milvus_doc_id: str | None = None
+    graph_node_id: str | None = None
     content_hash: str | None = None
     indexer_stats: dict[str, Any] | None = None
 
@@ -136,7 +135,7 @@ def _item_dict(r: IngestionItem) -> dict:
         "content_hash": r.content_hash,
         "chunk_count": r.chunk_count,
         "error_message": r.error_message[:200] if r.error_message else "",
-        "milvus_doc_id": r.milvus_doc_id,
+        "graph_node_id": r.graph_node_id,
         "indexer_stats": r.indexer_stats,
         "retry_count": r.retry_count,
         "max_retries": r.max_retries,
@@ -1250,8 +1249,8 @@ async def update_item_status(
             item.chunk_count = body.chunk_count
         if body.error_message is not None:
             item.error_message = body.error_message
-        if body.milvus_doc_id is not None:
-            item.milvus_doc_id = body.milvus_doc_id
+        if body.graph_node_id is not None:
+            item.graph_node_id = body.graph_node_id
         if body.content_hash is not None:
             item.content_hash = body.content_hash
         if body.indexer_stats is not None:
@@ -1476,7 +1475,7 @@ async def ingestion_stats(_user: UserInfo = Depends(require_org_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Schema sync — detect Milvus schema drift and reset stale items
+# Schema sync — detect Content graph schema drift and reset stale items
 # ---------------------------------------------------------------------------
 
 
@@ -1491,10 +1490,10 @@ async def report_schema_version(
     body: SchemaReport,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
 ):
-    """Called by the indexer after ensuring/recreating the Milvus collection.
+    """Called by the indexer after ensuring/recreating the Content graph collection.
 
     If the reported version differs from what's stored, all 'indexed' and
-    'running' ingestion items are reset to 'pending' (since the old Milvus
+    'running' ingestion items are reset to 'pending' (since the old Content graph
     data is gone after a schema bump). This makes re-import automatic.
 
     Requires internal service token or platform_admin token.
@@ -1502,11 +1501,11 @@ async def report_schema_version(
     now = datetime.now(UTC)
     async with async_session() as session:
         row = (
-            await session.execute(select(MilvusSchemaSync).where(MilvusSchemaSync.collection == body.collection))
+            await session.execute(select(GraphSchemaSync).where(GraphSchemaSync.collection == body.collection))
         ).scalar_one_or_none()
 
         if row is None:
-            row = MilvusSchemaSync(
+            row = GraphSchemaSync(
                 collection=body.collection,
                 schema_version=body.schema_version,
                 last_reported_by=body.reporter,
@@ -1566,7 +1565,7 @@ async def report_schema_version(
                 status="pending",
                 chunk_count=0,
                 error_message="",
-                milvus_doc_id="",
+                graph_node_id="",
                 indexer_stats=None,
                 retry_count=0,
                 started_at=None,
@@ -1599,76 +1598,68 @@ async def report_schema_version(
 
 SYNESIS_CATALOG_NAME = "synesis_catalog"
 
-_MILVUS_RESET_CONFIRM_PHRASES = frozenset(
+_GRAPH_RESET_CONFIRM_PHRASES = frozenset(
     {
         "DELETE_SYNESIS_CATALOG",
-        "DELETE_MILVUS_SCHEMA",
+        "DELETE_CONTENT_GRAPH",
     }
 )
 
 
-def _milvus_reset_confirm_ok(raw: str) -> bool:
-    return (raw or "").strip() in _MILVUS_RESET_CONFIRM_PHRASES
+def _graph_reset_confirm_ok(raw: str) -> bool:
+    return (raw or "").strip() in _GRAPH_RESET_CONFIRM_PHRASES
 
 
 class ResetCatalogRequest(BaseModel):
-    """Dangerous: drops Milvus synesis_catalog. Requires exact confirm phrase."""
+    """Dangerous: drops NornicDB content graph nodes. Requires exact confirm phrase."""
 
     confirm: str = Field(
         ...,
-        description="Must be DELETE_SYNESIS_CATALOG or DELETE_MILVUS_SCHEMA (after trim)",
+        description="Must be DELETE_SYNESIS_CATALOG or DELETE_CONTENT_GRAPH (after trim)",
     )
     reset_queue: bool = Field(True, description="Reset ingestion items to pending")
     recreate_now: bool = Field(
-        True, description="Immediately recreate collection from admin at expected schema version"
+        True, description="Immediately recreate graph schema from admin at expected schema version"
     )
 
 
-@router.post("/milvus/reset-catalog")
-async def reset_milvus_catalog(
+@router.post("/graph/reset-catalog")
+async def reset_graph_catalog(
     body: ResetCatalogRequest,
     user: UserInfo = Depends(require_admin),
 ):
     """Drop the unified RAG collection and optionally reset the ingestion queue.
 
-    By default, recreate happens immediately at the expected Milvus schema version.
+    By default, recreate happens immediately at the expected graph schema version.
     """
-    if not _milvus_reset_confirm_ok(body.confirm):
+    if not _graph_reset_confirm_ok(body.confirm):
         raise HTTPException(
             status_code=400,
-            detail='confirm must be "DELETE_SYNESIS_CATALOG" or "DELETE_MILVUS_SCHEMA"',
+            detail='confirm must be "DELETE_SYNESIS_CATALOG" or "DELETE_CONTENT_GRAPH"',
         )
     now = datetime.now(UTC)
     drop_err = ""
     recreate_err = ""
-    try:
-        client = get_milvus().get()
-        if SYNESIS_CATALOG_NAME in client.list_collections():
-            client.drop_collection(collection_name=SYNESIS_CATALOG_NAME)
-    except Exception as e:
-        drop_err = str(e)[:500]
-        logger.warning("milvus_reset_catalog_drop_failed", extra={"error": drop_err})
-
     recreated = False
     reported_schema_version = 0
     if body.recreate_now:
-        recreate_result = recreate_synesis_catalog_v12(SYNESIS_CATALOG_NAME)
+        recreate_result = recreate_content_graph(SYNESIS_CATALOG_NAME)
         recreated = bool(recreate_result.get("ok"))
         if recreated:
             reported_schema_version = int(recreate_result.get("schema_version") or EXPECTED_SCHEMA_VERSION)
         if not recreated:
             recreate_err = str(recreate_result.get("error") or "unknown")[:500]
-            logger.warning("milvus_reset_catalog_recreate_failed", extra={"error": recreate_err})
+            logger.warning("graph_reset_catalog_recreate_failed", extra={"error": recreate_err})
 
     from sqlalchemy import delete, update
 
     async with async_session() as session:
         row = (
-            await session.execute(select(MilvusSchemaSync).where(MilvusSchemaSync.collection == SYNESIS_CATALOG_NAME))
+            await session.execute(select(GraphSchemaSync).where(GraphSchemaSync.collection == SYNESIS_CATALOG_NAME))
         ).scalar_one_or_none()
         if row is None:
             session.add(
-                MilvusSchemaSync(
+                GraphSchemaSync(
                     collection=SYNESIS_CATALOG_NAME,
                     schema_version=reported_schema_version if recreated else 0,
                     last_reported_by="admin_reset",
@@ -1705,7 +1696,7 @@ async def reset_milvus_catalog(
                     status="pending",
                     chunk_count=0,
                     error_message="",
-                    milvus_doc_id="",
+                    graph_node_id="",
                     indexer_stats=None,
                     retry_count=0,
                     started_at=None,
@@ -1719,7 +1710,7 @@ async def reset_milvus_catalog(
     await record_admin_audit(
         user=user,
         source="api",
-        action="ingestion.milvus.reset_catalog",
+        action="ingestion.graph.reset_catalog",
         status="success" if not drop_err and not recreate_err else "partial",
         summary=f"Dropped {SYNESIS_CATALOG_NAME}; recreated={recreated}; queue_reset={body.reset_queue}",
         detail={
@@ -1741,15 +1732,15 @@ async def reset_milvus_catalog(
 
 @router.get("/schema-sync")
 async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
-    """Get the current Milvus schema version tracked by the admin DB.
+    """Get the current content graph schema version tracked by the admin DB.
 
-    Includes expected_version (from :func:`~app.services.milvus_service.expected_milvus_schema_version`)
+    Includes expected_version from the NornicDB graph schema service
     and upgrade_pending so the UI can show a banner when the indexer has not reported the latest
     schema yet (or the DB row is behind code).
     """
-    exp = expected_milvus_schema_version()
+    exp = expected_graph_schema_version()
     async with async_session() as session:
-        rows = (await session.execute(select(MilvusSchemaSync))).scalars().all()
+        rows = (await session.execute(select(GraphSchemaSync))).scalars().all()
 
         syncs = []
         any_pending = False
@@ -1773,7 +1764,7 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
             any_pending = True
             syncs.append(
                 {
-                    "collection": "synesis_catalog",
+                    "collection": "content_graph",
                     "schema_version": 0,
                     "expected_version": exp,
                     "upgrade_pending": True,
@@ -2161,7 +2152,7 @@ async def bootstrap_from_yaml(
     With ``upsert=true``: update existing rows. If ``handler`` or ``config`` changed,
     reset to ``pending`` and clear index fields so the indexer picks it up again.
     If only title/domain/tags/priority/authority/origin_type change, update those
-    columns and leave ``status`` (and Milvus bookkeeping) unchanged.
+    columns and leave ``status`` (and Content graph bookkeeping) unchanged.
     """
     content = await file.read()
     try:
@@ -2322,7 +2313,7 @@ async def bootstrap_from_yaml(
             row.content_hash = None
             row.chunk_count = 0
             row.error_message = ""
-            row.milvus_doc_id = ""
+            row.graph_node_id = ""
             row.indexer_stats = None
             row.retry_count = 0
             row.started_at = None

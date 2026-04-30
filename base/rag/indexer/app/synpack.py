@@ -1,15 +1,15 @@
-"""SynPack build/load utilities.
+"""Graph content pack build/load utilities.
 
-SynPack is a ZIP-based, model-aware documentation pack format. A pack contains
+Content packs are ZIP-based, graph-aware documentation/code packs. A pack contains
 at least:
 
 - manifest.json
-- metadata.jsonl (one chunk per line; either complete catalog entities or
-  normalized chunk records)
+- nodes.jsonl or metadata.jsonl
+- edges.jsonl
 
 Optional files include cleaned Markdown, vectors.npy, embedder.onnx, and graph
-exports. The loader validates manifest compatibility before writing rows into
-the unified Milvus catalog.
+exports. The loader validates manifest compatibility before writing nodes and
+relationships into the NornicDB content graph.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pymilvus import MilvusClient
 from synesis_telemetry import get_logger
 
 from .embed_client import EmbedClient
@@ -33,7 +32,7 @@ from .enrichment import enrich_chunks_bulk
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
 from .injection_scan import scan_chunk_text_detailed
-from .milvus_writer import MILVUS_URI, MilvusWriter, chunk_id_hash
+from .nornic_writer import NORNIC_URI, NornicGraphWriter, chunk_id_hash
 from .pipeline import _code_chunk_metrics, _infer_artifact_kind
 from .queue_runner import _build_source_config
 from .schema import (
@@ -42,14 +41,13 @@ from .schema import (
     EMBEDDING_MODEL,
     EMBEDDING_PROFILE,
     SCHEMA_VERSION,
-    SYNESIS_CATALOG,
     catalog_entity,
     ensure_synesis_catalog,
 )
 
 logger = get_logger("synesis.indexer.synpack")
 
-SYNPACK_FORMAT_VERSION = "1.0"
+SYNPACK_FORMAT_VERSION = "2.0"
 DEFAULT_PACK_MODEL = EMBEDDING_MODEL
 
 
@@ -123,8 +121,8 @@ def validate_synpack(pack_path: str | Path) -> dict[str, Any]:
     manifest = validate_manifest(read_manifest(path))
     with zipfile.ZipFile(path) as zf:
         names = set(zf.namelist())
-    if "metadata.jsonl" not in names:
-        raise SynPackError("metadata.jsonl missing from SynPack")
+    if "nodes.jsonl" not in names and "metadata.jsonl" not in names:
+        raise SynPackError("nodes.jsonl missing from content pack")
     return manifest
 
 
@@ -254,8 +252,8 @@ def _row_to_entity(row: dict[str, Any], manifest: dict[str, Any], embedding: lis
     )
 
 
-def load_synpack(pack_path: str | Path, *, milvus_uri: str = MILVUS_URI, replace: bool = False) -> dict[str, Any]:
-    milvus_uri = milvus_uri or MILVUS_URI
+def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace: bool = False) -> dict[str, Any]:
+    nornic_uri = nornic_uri or NORNIC_URI
     manifest = validate_synpack(pack_path)
     pack_id = manifest["pack_id"]
     tmp = Path(tempfile.mkdtemp(prefix="synpack-load-"))
@@ -263,14 +261,17 @@ def load_synpack(pack_path: str | Path, *, milvus_uri: str = MILVUS_URI, replace
         with zipfile.ZipFile(pack_path) as zf:
             zf.extractall(tmp)
         vectors = _load_vectors_if_present(tmp)
-        rows = list(_iter_jsonl(tmp / "metadata.jsonl"))
+        rows_file = tmp / "nodes.jsonl"
+        if not rows_file.exists():
+            rows_file = tmp / "metadata.jsonl"
+        rows = list(_iter_jsonl(rows_file))
         if vectors is not None and len(vectors) != len(rows):
             raise SynPackError(f"vectors.npy row count {len(vectors)} does not match metadata rows {len(rows)}")
 
-        writer = MilvusWriter(uri=milvus_uri)
+        writer = NornicGraphWriter(uri=nornic_uri)
         ensure_synesis_catalog(writer.client)
         if replace:
-            writer.client.delete(collection_name=SYNESIS_CATALOG, filter=f'pack_id == "{pack_id}"')
+            writer.delete_pack(pack_id)
 
         artifact_hash = _sha256_file(Path(pack_path))
         manifest["artifact_hash"] = artifact_hash
@@ -278,40 +279,41 @@ def load_synpack(pack_path: str | Path, *, milvus_uri: str = MILVUS_URI, replace
             _row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)
         ]
         count = writer.upsert_batch(entities)
-        return {"ok": True, "pack_id": pack_id, "rows": count, "artifact_hash": artifact_hash}
+        edge_count = 0
+        edges_path = tmp / "edges.jsonl"
+        if edges_path.exists():
+            edge_count = writer.upsert_edges(list(_iter_jsonl(edges_path)))
+        return {
+            "ok": True,
+            "pack_id": pack_id,
+            "nodes": count,
+            "edges": edge_count,
+            "artifact_hash": artifact_hash,
+        }
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def list_packs(*, milvus_uri: str = MILVUS_URI, limit: int = 16384) -> list[dict[str, Any]]:
-    milvus_uri = milvus_uri or MILVUS_URI
-    client = MilvusClient(uri=milvus_uri)
-    if SYNESIS_CATALOG not in client.list_collections():
-        return []
-    client.load_collection(collection_name=SYNESIS_CATALOG)
-    rows = client.query(
-        collection_name=SYNESIS_CATALOG,
-        filter='pack_id != ""',
-        output_fields=["pack_id", "pack_version", "pack_source_version", "language", "domain", "pack_artifact_hash"],
-        limit=limit,
-    )
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        pid = str(row.get("pack_id") or "global")
-        entry = grouped.setdefault(
-            pid,
-            {
-                "pack_id": pid,
-                "pack_version": row.get("pack_version", ""),
-                "pack_source_version": row.get("pack_source_version", ""),
-                "language": row.get("language", ""),
-                "domain": row.get("domain", ""),
-                "pack_artifact_hash": row.get("pack_artifact_hash", ""),
-                "row_count": 0,
-            },
+def list_packs(*, nornic_uri: str = NORNIC_URI, limit: int = 16384) -> list[dict[str, Any]]:
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        rows = session.run(
+            """
+            MATCH (n:ContentNode)
+            WHERE coalesce(n.pack, "") <> ""
+            RETURN n.pack AS pack_id,
+                   max(n.pack_version) AS pack_version,
+                   max(n.source_version) AS pack_source_version,
+                   max(n.language) AS language,
+                   max(n.domain) AS domain,
+                   max(n.pack_artifact_hash) AS pack_artifact_hash,
+                   count(n) AS node_count
+            ORDER BY pack_id
+            LIMIT $limit
+            """,
+            limit=limit,
         )
-        entry["row_count"] += 1
-    return sorted(grouped.values(), key=lambda x: str(x["pack_id"]))
+        return [dict(row) for row in rows]
 
 
 def search_pack(
@@ -319,45 +321,31 @@ def search_pack(
     *,
     pack_id: str,
     top_k: int = 5,
-    milvus_uri: str = MILVUS_URI,
+    nornic_uri: str = NORNIC_URI,
     embedder_url: str = "",
 ) -> list[dict[str, Any]]:
-    milvus_uri = milvus_uri or MILVUS_URI
-    client = MilvusClient(uri=milvus_uri)
-    if SYNESIS_CATALOG not in client.list_collections():
-        return []
-    client.load_collection(collection_name=SYNESIS_CATALOG)
-    embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
-    vector = embedder.embed_texts([query])[0]
-    results = client.search(
-        collection_name=SYNESIS_CATALOG,
-        data=[vector],
-        anns_field="embedding",
-        limit=max(1, min(top_k, 50)),
-        filter=f'pack_id == "{_sanitize_pack_id(pack_id)}"',
-        output_fields=[
-            "text",
-            "source_url",
-            "document_name",
-            "heading_path",
-            "pack_id",
-            "pack_version",
-            "package_name",
-            "symbol_kind",
-            "symbol_fqn",
-            "agent_hook",
-            "perf_tier",
-            "safety_contract",
-            "lifecycle_model",
-            "agent_enrichment_json",
-        ],
-    )
-    out: list[dict[str, Any]] = []
-    for hit in results[0] if results else []:
-        entity = dict(hit.get("entity", hit) if isinstance(hit, dict) else {})
-        entity["score"] = hit.get("distance", 0.0) if isinstance(hit, dict) else getattr(hit, "distance", 0.0)
-        out.append(entity)
-    return out
+    del embedder_url
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        rows = session.run(
+            """
+            CALL db.index.vector.queryNodes('embeddings', $limit, $query)
+            YIELD node, score
+            WHERE node.pack = $pack_id
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit
+            """,
+            query=query,
+            pack_id=_sanitize_pack_id(pack_id),
+            limit=max(1, min(top_k, 50)),
+        )
+        out = []
+        for row in rows:
+            item = dict(row["node"])
+            item["score"] = row["score"]
+            out.append(item)
+        return out
 
 
 def _load_bootstrap_items(sources_path: Path) -> list[dict[str, Any]]:
@@ -387,13 +375,14 @@ def build_pack_from_sources(
     source_path = Path(sources_path)
     out_path = Path(output_path)
     tmp = Path(tempfile.mkdtemp(prefix="synpack-build-"))
-    rows_path = tmp / "metadata.jsonl"
+    rows_path = tmp / "nodes.jsonl"
+    edges_path = tmp / "edges.jsonl"
     sources_lock: list[dict[str, Any]] = []
     total_rows = 0
     embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
     items = _load_bootstrap_items(source_path)
 
-    with rows_path.open("w", encoding="utf-8") as rows_f:
+    with rows_path.open("w", encoding="utf-8") as rows_f, edges_path.open("w", encoding="utf-8") as edges_f:
         for item in items:
             source_config = _build_source_config(item)
             source_config.update(
@@ -498,13 +487,39 @@ def build_pack_from_sources(
                     enrichment_profile="synpack_build_v1",
                 )
                 rows_f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                if row.get("doc_id"):
+                    edges_f.write(
+                        json.dumps(
+                            {
+                                "type": "CONTAINS",
+                                "source_id": row["doc_id"],
+                                "target_id": row["id"],
+                                "source": "deterministic_pack_builder",
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+                if row.get("symbol_fqn"):
+                    edges_f.write(
+                        json.dumps(
+                            {
+                                "type": "DEFINES",
+                                "source_id": row["id"],
+                                "target_id": row["symbol_fqn"],
+                                "source": "deterministic_pack_builder",
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
                 total_rows += 1
 
             if max_chunks and total_rows >= max_chunks:
                 break
 
     manifest = {
-        "format": "synpack",
+        "format": "synesis-content-pack",
         "format_version": SYNPACK_FORMAT_VERSION,
         "pack_id": pack_id,
         "pack_version": pack_version,
@@ -516,7 +531,7 @@ def build_pack_from_sources(
         "embedding_dimensions": EMBEDDING_DIM,
         "embedding_profile": EMBEDDING_PROFILE,
         "corpus_version": CORPUS_VERSION,
-        "synesis_catalog_schema_version": SCHEMA_VERSION,
+        "content_graph_schema_version": SCHEMA_VERSION,
         "schema_version": SCHEMA_VERSION,
         "partitions": [pack_id],
         "metadata_fields": [
@@ -530,7 +545,8 @@ def build_pack_from_sources(
         "created_at": int(time.time()),
         "row_count": total_rows,
         "sources_lock_sha256": "",
-        "metadata_sha256": _sha256_file(rows_path),
+        "nodes_sha256": _sha256_file(rows_path),
+        "edges_sha256": _sha256_file(edges_path),
     }
     sources_lock_path = tmp / "sources.lock.json"
     sources_lock_path.write_text(json.dumps(sources_lock, indent=2), encoding="utf-8")
@@ -540,7 +556,8 @@ def build_pack_from_sources(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(tmp / "manifest.json", "manifest.json")
-        zf.write(rows_path, "metadata.jsonl")
+        zf.write(rows_path, "nodes.jsonl")
+        zf.write(edges_path, "edges.jsonl")
         zf.write(sources_lock_path, "sources.lock.json")
 
     artifact_hash = _sha256_file(out_path)

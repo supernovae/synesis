@@ -133,11 +133,11 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
 import time as _time
 
 
-async def _milvus_ok() -> bool:
+async def _nornic_ok() -> bool:
     try:
-        from ..services.milvus_service import collection_stats
+        from ..services.nornic_service import collection_stats
 
-        stats = collection_stats("synesis_catalog")
+        stats = collection_stats("content_graph")
         return stats.get("row_count", 0) > 0
     except Exception:
         return False
@@ -189,8 +189,8 @@ async def quality_wiring(_user: UserInfo = Depends(get_current_user)):
     """Diagnostic view: is every quality feedback loop source actually populated?"""
     if resolve_role(_user) < Role.org_admin:
         raise HTTPException(status_code=403, detail="Requires org_admin role or higher")
-    milvus_ok, db = await asyncio.gather(
-        _safe(_milvus_ok(), "milvus_check", False),
+    nornic_ok, db = await asyncio.gather(
+        _safe(_nornic_ok(), "nornic_check", False),
         _safe(_db_counts(), "db_counts", {}),
     )
 
@@ -198,7 +198,7 @@ async def quality_wiring(_user: UserInfo = Depends(get_current_user)):
     curator_file_present = bool(CURATOR_PROPOSALS_PATH and Path(CURATOR_PROPOSALS_PATH).exists())
 
     return {
-        "milvus_ok": milvus_ok,
+        "nornic_ok": nornic_ok,
         "quality_report_present": quality_report_present,
         "curator_file_present": curator_file_present,
         **db,

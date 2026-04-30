@@ -36,7 +36,7 @@ export function registerSynesisMcpTools(server: McpServer, auth: SynesisMcpAuth,
     "synesis_search",
     {
       description:
-        "RAG retrieval against the Synesis knowledge catalog. Returns ranked chunks with provenance and scores. Uses planner /v1/knowledge/search with your PAT scope.",
+        "Graph-native RAG retrieval against the Synesis content graph. Supports pack, symbol, temporal, and graph-expansion filters via planner /v1/knowledge/search with your PAT scope.",
       inputSchema: knowledgeSearchInputSchema,
     },
     async (args) =>

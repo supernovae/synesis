@@ -307,6 +307,12 @@ export async function retrieveUnified(
     requestId,
     sessionKey,
     traceId,
+    version,
+    commit,
+    branch,
+    temporalAt,
+    graphDepth,
+    edgeTypes,
   } = request;
 
   const t0 = performance.now();
@@ -327,6 +333,12 @@ export async function retrieveUnified(
     collections,
     topK: overfetch,
     scopeFilter: { callerOrgId, callerTenantIds, callerAclGroups, callerUserId, callerConversationId },
+    version,
+    commit,
+    branch,
+    temporalAt,
+    graphDepth,
+    edgeTypes,
   }).catch((err) => {
     ragDegraded = true;
     degradationNotes.push(`RAG failed: ${err instanceof Error ? err.message : String(err)}`);

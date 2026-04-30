@@ -33,7 +33,7 @@ from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
 from .extract import html_to_markdown, normalize_doc_markdown
 from .injection_scan import scan_chunk_text_detailed
-from .milvus_writer import chunk_id_hash
+from .nornic_writer import chunk_id_hash
 from .pipeline import _code_chunk_metrics
 from .schema import CORPUS_VERSION, EMBEDDING_DIM, EMBEDDING_PROFILE, SCHEMA_VERSION, catalog_entity
 from .synpack import DEFAULT_PACK_MODEL, SYNPACK_FORMAT_VERSION, SynPackError, _sanitize_pack_id, _sha256_file

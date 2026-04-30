@@ -2,13 +2,13 @@ httpx>=0.28.1
 boto3>=1.35.0
 # synesis_telemetry: installed separately in Dockerfile (UBI base-api path copy, not base-api image)
 defusedxml>=0.7.0
-pymilvus>=2.4.0
+neo4j>=5.27.0
 pyyaml>=6.0
 # PDF parsing
 PyMuPDF>=1.24.0
 # HTML parsing and content extraction
 beautifulsoup4>=4.14.3
-lxml>=6.1.0
+lxml>=5.3,<6
 trafilatura>=2.0.0
 # Web crawling — pin exact version; pulls nltk transitively (pip-audit ignores
 # for nltk CVEs are indexer-only — see .github/SECURITY.md).  Also pulls

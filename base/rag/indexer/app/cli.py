@@ -44,7 +44,7 @@ def main() -> None:
         choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich", "synpack"],
         default="yaml",
         help=(
-            "yaml: read sources from file (default). queue: direct Milvus path via admin API. "
+            "yaml: read sources from file (default). queue: direct NornicDB path via admin API. "
             "staged-*: S3 staged pipeline (see docs/INDEXERS.md). synpack: build/load managed doc packs."
         ),
     )
@@ -54,7 +54,7 @@ def main() -> None:
     parser.add_argument("--handler", default=None, help="Only run sources with this handler type")
     parser.add_argument("--source", default=None, help="Only run this source by name")
     parser.add_argument("--force", action="store_true", help="Re-embed all chunks (ignore existing)")
-    parser.add_argument("--dry-run", action="store_true", help="Validate config, no Milvus/embedder")
+    parser.add_argument("--dry-run", action="store_true", help="Validate config, no NornicDB/embedder")
     parser.add_argument(
         "--enrich",
         choices=["basic", "full"],
@@ -62,7 +62,7 @@ def main() -> None:
         help="Enrichment level: basic (template context_prefix) or full (+ LLM summary)",
     )
     parser.add_argument("--llm-url", default="", help="LLM endpoint URL for full enrichment")
-    parser.add_argument("--milvus-uri", default="", help="Override Milvus URI")
+    parser.add_argument("--nornic-uri", default="", help="Override NornicDB URI")
     parser.add_argument("--embedder-url", default="", help="Override embedder URL")
     parser.add_argument(
         "--staged-batch-limit",
@@ -196,7 +196,7 @@ def _run_staged_enrich(args: argparse.Namespace) -> None:
         worker_id=args.staged_worker_id,
         enrich_full=args.enrich == "full",
         llm_url=args.llm_url,
-        milvus_uri=args.milvus_uri,
+        nornic_uri=args.nornic_uri,
         embedder_url=args.embedder_url,
         force=args.force,
     )
@@ -214,7 +214,7 @@ def _run_queue_mode(args: argparse.Namespace) -> None:
         enrich_full=args.enrich == "full",
         llm_url=args.llm_url,
         dry_run=args.dry_run,
-        milvus_uri=args.milvus_uri,
+        nornic_uri=args.nornic_uri,
         embedder_url=args.embedder_url,
         trigger=args.trigger,
     )
@@ -254,7 +254,7 @@ def _run_yaml_mode(args: argparse.Namespace) -> None:
         dry_run=args.dry_run,
         handler_filter=args.handler,
         source_filter=args.source,
-        milvus_uri=args.milvus_uri,
+        nornic_uri=args.nornic_uri,
         embedder_url=args.embedder_url,
     )
 
@@ -274,11 +274,11 @@ def _run_synpack(args: argparse.Namespace) -> None:
         if not args.synpack:
             logger.error("synpack_path_required")
             sys.exit(1)
-        print(json_dump(load_synpack(args.synpack, milvus_uri=args.milvus_uri or "", replace=args.replace)))
+        print(json_dump(load_synpack(args.synpack, nornic_uri=args.nornic_uri or "", replace=args.replace)))
         return
 
     if args.synpack_command == "list":
-        print(json_dump({"packs": list_packs(milvus_uri=args.milvus_uri or "")}))
+        print(json_dump({"packs": list_packs(nornic_uri=args.nornic_uri or "")}))
         return
 
     if args.synpack_command == "search":
@@ -292,7 +292,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
                         args.query,
                         pack_id=args.pack_id,
                         top_k=args.top_k,
-                        milvus_uri=args.milvus_uri or "",
+                        nornic_uri=args.nornic_uri or "",
                         embedder_url=args.embedder_url or "",
                     )
                 }

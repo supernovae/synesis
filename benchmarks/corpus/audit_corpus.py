@@ -6,7 +6,7 @@ retrieval, and scores coverage. Identifies domains with gaps and documents
 that never surface in top-K results (dead weight).
 
 Usage:
-    python audit_corpus.py [--milvus-uri URI] [--embedder-url URL]
+    python audit_corpus.py [--nornic-uri URI] [--embedder-url URL]
                            [--taxonomy PATH] [--top-k K] [--domains D1,D2]
                            [--llm-url URL] [--model MODEL]
                            [--output corpus_audit_report.json]
@@ -25,9 +25,9 @@ from typing import Any
 
 import httpx
 import yaml
-from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
+from neo4j import GraphDatabase
 
-COLLECTION = "synesis_catalog"
+COLLECTION = "content_graph"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 SEARCH_OUTPUT_FIELDS = [
@@ -71,35 +71,28 @@ def embed_text(text: str, embedder_url: str) -> list[float]:
 def hybrid_search(
     query: str,
     query_vector: list[float],
-    client: MilvusClient,
+    client: Any,
     top_k: int,
     domain_filter: str = "",
 ) -> list[dict[str, Any]]:
-    dense_req = AnnSearchRequest(
-        data=[query_vector],
-        anns_field="embedding",
-        param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
-        limit=top_k,
-        expr=domain_filter or None,
-    )
-    sparse_req = AnnSearchRequest(
-        data=[query],
-        anns_field="sparse_text",
-        param={"metric_type": "BM25"},
-        limit=top_k,
-        expr=domain_filter or None,
-    )
-    results = client.hybrid_search(
-        collection_name=COLLECTION,
-        reqs=[dense_req, sparse_req],
-        ranker=RRFRanker(k=60),
-        limit=top_k,
-        output_fields=SEARCH_OUTPUT_FIELDS,
-    )
+    del query_vector, domain_filter
     formatted = []
-    for hit in results[0] if results else []:
-        entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+    with client.session(database="neo4j") as session:
+        rows = session.run(
+            """
+            CALL db.index.vector.queryNodes('embeddings', $limit, $query)
+            YIELD node, score
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit
+            """,
+            query=query,
+            limit=top_k,
+        )
+        results = list(rows)
+    for hit in results:
+        entity = dict(hit["node"])
+        get = entity.get
         formatted.append(
             {
                 "chunk_id": get("chunk_id", ""),
@@ -110,7 +103,7 @@ def hybrid_search(
                 "authority": get("authority", ""),
                 "source_url": get("source_url", ""),
                 "handler": get("handler", ""),
-                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
+                "rrf_score": float(hit["score"] or 0.0),
             }
         )
     return formatted
@@ -194,23 +187,29 @@ def generate_queries_from_taxonomy(
 
 
 def get_corpus_inventory(
-    client: MilvusClient,
+    client: Any,
     domain: str = "",
 ) -> list[dict]:
     """Fetch all chunk metadata for a domain (or all domains)."""
-    expr = f'domain == "{domain}"' if domain else ""
     all_chunks = []
     offset = 0
     batch = 1000
 
     while True:
-        results = client.query(
-            collection_name=COLLECTION,
-            filter=expr or None,
-            output_fields=INVENTORY_FIELDS,
-            limit=batch,
-            offset=offset,
-        )
+        with client.session(database="neo4j") as session:
+            rows = session.run(
+                """
+                MATCH (n:ContentNode)
+                WHERE $domain = "" OR n.domain = $domain
+                RETURN n
+                SKIP $offset
+                LIMIT $limit
+                """,
+                domain=domain,
+                offset=offset,
+                limit=batch,
+            )
+            results = [dict(row["n"]) for row in rows]
         if not results:
             break
         all_chunks.extend(results)
@@ -229,7 +228,7 @@ def get_corpus_inventory(
 def audit_domain(
     domain_key: str,
     domain_config: dict,
-    client: MilvusClient,
+    client: Any,
     embedder_url: str,
     top_k: int,
     llm_url: str | None,
@@ -342,7 +341,7 @@ def classify_domain(scorecard: dict) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Corpus quality audit")
-    parser.add_argument("--milvus-uri", default="http://localhost:19530")
+    parser.add_argument("--nornic-uri", default="bolt://localhost:7687")
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
     parser.add_argument("--llm-url", default=None, help="Optional: LLM URL for richer query generation")
     parser.add_argument("--model", default="synesis-general")
@@ -366,7 +365,7 @@ def main():
         [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else list(taxonomy.keys())
     )
 
-    client = MilvusClient(uri=args.milvus_uri)
+    client = GraphDatabase.driver(args.nornic_uri, auth=("neo4j", "synesis-nornicdb"))
     embedder_url = args.embedder_url.rstrip("/")
 
     scope_filter = ""

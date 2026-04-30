@@ -559,19 +559,19 @@ async def validate_knowledge_gaps(
     """Re-query RAG for open knowledge gaps and auto-resolve satisfied ones.
 
     For each open/reopened gap, embeds the query via TEI and runs a vector
-    similarity search against synesis_catalog. If the top hit score exceeds
+    similarity search against the NornicDB content graph. If the top hit score exceeds
     the threshold, the gap is auto-resolved.
     """
     threshold = req.score_threshold if req else 0.6
     max_gaps = req.max_gaps if req else 200
 
     try:
-        from ..services.milvus_service import safe_vector_search
+        from ..services.nornic_service import safe_vector_search
     except ImportError:
         return GapValidateResponse(
             errors=1,
             details=[
-                {"status": "error", "reason": "Milvus client not available; vector search required for validation."}
+                {"status": "error", "reason": "NornicDB client not available; vector search required for validation."}
             ],
         )
 
@@ -605,7 +605,7 @@ async def validate_knowledge_gaps(
 
         try:
             hits = safe_vector_search(
-                "synesis_catalog",
+                "content_graph",
                 vector=embedding,
                 top_k=1,
                 output_fields=["chunk_id", "text", "source_url"],

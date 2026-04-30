@@ -4,7 +4,7 @@ Reads a seed-corpus.json manifest, fetches each source URL, and produces
 chunks with per-source domain and tag metadata.  HTML pages are converted
 to Markdown via trafilatura; PDFs are extracted with PyMuPDF.  The JSON
 file is the single source of truth — every entry carries its own domain
-and tags which propagate to Milvus at index time via chunk.metadata
+and tags which propagate to NornicDB at index time via chunk.metadata
 overrides.
 """
 

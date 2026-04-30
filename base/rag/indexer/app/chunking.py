@@ -23,7 +23,7 @@ DEFAULT_MAX_WORDS = 600
 DEFAULT_OVERLAP_WORDS = 80
 DEFAULT_MAX_CHARS = 4000
 
-# Hard ceiling: Milvus text field is VARCHAR(8192) *bytes*.
+# Hard ceiling: graph node text property is capped at 8192 bytes for retrieval prompts.
 # catalog_entity() truncates with _trunc_bytes(text, 8192), but silent
 # truncation drops content.  Instead, re-split oversized chunks here so
 # nothing is silently lost.

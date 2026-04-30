@@ -2,7 +2,7 @@
 
 These verify that every route in docs/ADMIN_QUALITY_UI.md returns a valid
 response (not 5xx) with expected top-level keys.  They do NOT require a live
-Milvus or Postgres — mocks are injected where needed.
+Content graph or Postgres — mocks are injected where needed.
 
 Run from base/admin/:
     PYTHONPATH=. uv run pytest tests/test_quality_smoke.py -v
@@ -78,7 +78,7 @@ async def _fake_async_session():
 
 @pytest.fixture(autouse=True)
 def _mock_all(monkeypatch):
-    """Patch DB, Milvus, and HTTP-calling services.
+    """Patch DB, Content graph, and HTTP-calling services.
 
     Auth is handled via ``dependency_overrides`` on the ``client`` fixture (monkeypatching
     ``get_current_user`` breaks FastAPI Depends resolution).
@@ -89,19 +89,19 @@ def _mock_all(monkeypatch):
     monkeypatch.setattr("app.routers.feedback.async_session", _fake_async_session)
     monkeypatch.setattr("app.routers.observability.async_session", _fake_async_session)
     monkeypatch.setattr(
-        "app.services.milvus_service.collection_stats",
+        "app.services.nornic_service.collection_stats",
         lambda *a, **kw: {"row_count": 42},
     )
     monkeypatch.setattr(
-        "app.services.milvus_service.collection_domain_hierarchy",
+        "app.services.nornic_service.collection_domain_hierarchy",
         lambda *a, **kw: [],
     )
     monkeypatch.setattr(
-        "app.services.milvus_service.safe_query",
+        "app.services.nornic_service.safe_query",
         lambda *a, **kw: [],
     )
     monkeypatch.setattr(
-        "app.services.milvus_service.collection_schema_info",
+        "app.services.nornic_service.collection_schema_info",
         lambda *a, **kw: {"exists": True},
     )
     monkeypatch.setattr("app.deps.QUALITY_REPORT_PATH", "")
@@ -130,7 +130,7 @@ def test_dashboard_quality_wiring(client):
     resp = client.get("/api/v1/dashboard/quality-wiring")
     assert resp.status_code == 200
     data = resp.json()
-    assert "milvus_ok" in data
+    assert "nornic_ok" in data
 
 
 def test_rag_quality(client):

@@ -1,4 +1,4 @@
-# Staged pipeline — phase 3: normalized S3 → Milvus (+ optional LLM enrich). Mount GPU node via tolerations in overlay.
+# Staged pipeline — phase 3: normalized S3 → Content graph (+ optional LLM enrich). Mount GPU node via tolerations in overlay.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

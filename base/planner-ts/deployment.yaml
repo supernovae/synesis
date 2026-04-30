@@ -138,13 +138,13 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
-            # RAG + web (router retrieveUnified). Embedder required for Milvus vector path; web can use defaults when unset.
+            # RAG + web (router retrieveUnified). NornicDB serves graph/vector retrieval; web can use defaults when unset.
             - name: SYNESIS_EMBEDDER_URL
               value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
-            - name: SYNESIS_MILVUS_HOST
-              value: "synesis-milvus.synesis-rag.svc.cluster.local"
-            - name: SYNESIS_MILVUS_PORT
-              value: "19530"
+            - name: SYNESIS_NORNIC_URI
+              value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
+            - name: SYNESIS_NORNIC_DATABASE
+              value: "neo4j"
             - name: SYNESIS_WEB_SEARCH_ENABLED
               value: "true"
             - name: SYNESIS_WEB_SEARCH_URL
