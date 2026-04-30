@@ -20,7 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 PYTHON_VERSION="3.12"
-PLATFORM="x86_64-unknown-linux-gnu"
+# Synesis Python images are UBI 10 based; target that glibc floor so uv can
+# resolve packages that only ship newer manylinux wheels.
+PLATFORM="x86_64-manylinux_2_34"
 
 CHECK_ONLY=false
 ONLY=""
@@ -185,9 +187,16 @@ check_one() {
         args+=( --overrides "$overrides" )
     fi
 
-    local tmp
+    local tmp compile_log
     tmp="$(mktemp)"
-    uv pip compile "$src" "${args[@]}" -o "$tmp" 2>/dev/null
+    compile_log="$(mktemp)"
+    if ! uv pip compile "$src" "${args[@]}" -o "$tmp" >"$compile_log" 2>&1; then
+        log "ERROR $name — failed to compile requirements.lock"
+        sed 's/^/[lock-deps]   /' "$compile_log" >&2
+        rm -f "$tmp" "$compile_log"
+        return 1
+    fi
+    rm -f "$compile_log"
 
     if ! diff -q "$lock" "$tmp" &>/dev/null; then
         log "STALE $name — requirements.lock differs from compiled output"
