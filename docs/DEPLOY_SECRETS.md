@@ -8,6 +8,8 @@ These credentials are **created or updated by `./scripts/deploy.sh`** (or the Ad
 | `litellm-secrets` (synesis-gateway) | `master-key` | LiteLLM proxy auth (model mode); shared source for `webui-api-key` material (Bearer to planner-ts from Open WebUI — not a LiteLLM hop) |
 | `webui-api-key` (synesis-webui) | `api-key` | Open WebUI `OPENAI_API_KEY` + `WEBUI_SECRET_KEY` (planner-ts validates; chat does not go through LiteLLM) |
 
+Admin archive storage is configured on the Admin API deployment, not through a checked-in Secret manifest. Set `SYNESIS_ADMIN_ARCHIVE_S3_BUCKET` plus optional `SYNESIS_ADMIN_ARCHIVE_S3_PREFIX` and `SYNESIS_ADMIN_ARCHIVE_S3_ENDPOINT_URL`; provide credentials with IRSA/workload identity or your cluster's normal S3-compatible credential mechanism. See [admin archive storage](admin/ADMIN_ARCHIVE_STORAGE.md).
+
 **Post-apply reconciliation** in `deploy.sh` (after manifest apply):
 
 - `reconcile_provider_api_keys` — heal missing `OPENROUTER_API_KEY`, restart `litellm-proxy`

@@ -34,6 +34,12 @@ The **Settings → Admin audit** page and `admin_audit_events` table cover model
 
 If you run **`oc apply -k base/admin`** without going through deploy, the live DB URL can be reset to the placeholder → **migration auth failures** and restarts. Re-run **`./scripts/deploy.sh`** (or patch the env from the secret as in deploy.sh).
 
+## Archive storage
+
+Coder session history and trace activity records can be archived before deletion. Admin writes gzip JSONL objects to S3 or an S3-compatible blob store using `SYNESIS_ADMIN_ARCHIVE_S3_BUCKET`, `SYNESIS_ADMIN_ARCHIVE_S3_PREFIX`, and optional `SYNESIS_ADMIN_ARCHIVE_S3_ENDPOINT_URL`.
+
+See [docs/admin/ADMIN_ARCHIVE_STORAGE.md](../../docs/admin/ADMIN_ARCHIVE_STORAGE.md) for configuration, permissions, object layout, and operator behavior.
+
 ## Local test bootstrap
 
 For local `pytest` runs in `base/admin`, use a dedicated venv and include both the admin module path and shared telemetry package on `PYTHONPATH`.
