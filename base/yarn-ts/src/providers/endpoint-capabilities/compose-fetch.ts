@@ -87,7 +87,7 @@ export function composeEndpointTransportFetch(
   nativeFetch: typeof globalThis.fetch,
   adapter: EndpointTransportAdapter,
   getSessionKey: () => string | null,
-  options?: { retryPolicy?: EndpointTransportRetryPolicy },
+  options?: { retryPolicy?: EndpointTransportRetryPolicy; getMarkerIndices?: () => number[] },
 ): typeof globalThis.fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const retryPolicy: EndpointTransportRetryPolicy = options?.retryPolicy ?? {
@@ -101,7 +101,7 @@ export function composeEndpointTransportFetch(
     let attempt = 1;
 
     while (true) {
-      const augmented = adapter.augmentRequest(input, init, getSessionKey);
+      const augmented = adapter.augmentRequest(input, init, getSessionKey, options?.getMarkerIndices);
       try {
         const response = await nativeFetch(augmented.input, augmented.init);
         const shouldRetry =

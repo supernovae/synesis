@@ -52,6 +52,8 @@ IDE agent sessions are extremely input-heavy. The model re-reads:
 
 Most of this content is identical across consecutive requests within a session. The Yarn buffer's three-zone layout exploits this.
 
+For OpenAI-compatible hosted providers, Yarn keeps the client/harness protocol stable while optimizing the provider-facing prompt. Provider-specific cache markers are only applied where the upstream endpoint supports them. DashScope explicit context cache is gated by `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE` (`off`, `canary`, `auto`) and remains off by default; vLLM/OpenRouter/Fireworks-style routes rely on stable prefix ordering and provider telemetry.
+
 ### Buffer Layout
 
 ```

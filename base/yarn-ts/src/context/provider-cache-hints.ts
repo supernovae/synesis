@@ -13,12 +13,13 @@
  * 2. **DeepSeek direct**: Automatic prefix caching (1024+ token prefix).
  *    No annotations needed; prefix stability is sufficient.
  *
- * 3. **Implicit prefix**: vLLM, RunPod, DashScope, and other inference
- *    engines that benefit from stable prefix ordering via KV-cache reuse.
- *    No explicit markers (DashScope explicit caching was tested and found to
- *    use full-body matching, not prefix matching — see alibaba-ticket).
+ * 3. **Implicit prefix**: vLLM, RunPod, and other inference engines that
+ *    benefit from stable prefix ordering via KV-cache reuse.
  *
- * 4. **Anthropic explicit**: `cache_control: { type: "ephemeral" }` on
+ * 4. **DashScope explicit**: endpoint-scoped `cache_control` markers are
+ *    available behind `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE`.
+ *
+ * 5. **Anthropic explicit**: `cache_control: { type: "ephemeral" }` on
  *    system message parts. Not yet active since Yarn uses createOpenAI.
  */
 
@@ -53,8 +54,8 @@ export function detectCacheStrategy(baseUrl: string, backendModel: string): Cach
   }
 
   // vLLM (self-hosted with prefix caching + RAM) and similar benefit from stable
-  // prefix ordering for KV cache (implicit_prefix). DashScope explicit path removed
-  // entirely to avoid fixed-marker capping of cached_tokens (now variable/high on long runs).
+  // prefix ordering for KV cache (implicit_prefix). DashScope explicit markers
+  // are handled in endpoint-capabilities so this diagnostic helper remains conservative.
   if (url.includes("vllm") || url.includes("localhost") || url.includes("runpod") || url.includes(".svc.cluster.local")) {
     return "implicit_prefix";
   }

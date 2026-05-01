@@ -13,6 +13,11 @@ export function resolveEndpointCapabilityId(baseUrl: string): EndpointCapability
   const host = parsed?.hostname.toLowerCase() ?? baseUrl.toLowerCase();
   const path = parsed?.pathname.toLowerCase() ?? baseUrl.toLowerCase();
   if (host === "fireworks.ai" || host.endsWith(".fireworks.ai")) return "fireworks";
+  if (
+    host === "dashscope.aliyuncs.com"
+    || host.endsWith(".dashscope.aliyuncs.com")
+    || /^dashscope(?:-[a-z0-9-]+)?\.aliyuncs\.com$/.test(host)
+  ) return "dashscope";
   if (host === "openrouter.ai" || host.endsWith(".openrouter.ai")) return "openrouter";
   if ((host === "kimi.com" || host.endsWith(".kimi.com")) && path.includes("/coding")) return "kimi_coding";
   if (

@@ -44,6 +44,7 @@ import {
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
 import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
+import { resolveEndpointCapabilityId } from "./providers/endpoint-capabilities/resolve.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import {
   effectiveSawtoothCheckpointToolCalls,
@@ -2906,15 +2907,20 @@ const tierRegistry = new SynesisProviderRegistry({
     maxDelayMs: Math.max(0, config.SYNESIS_YARN_UPSTREAM_RETRY_MAX_DELAY_MS),
     jitterMs: Math.max(0, config.SYNESIS_YARN_UPSTREAM_RETRY_JITTER_MS),
   },
+  dashscopeOptions: {
+    mode: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE,
+    canaryPct: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT,
+    maxMarkers: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS,
+  },
 });
 
-// DashScope explicit cache and markerBackend removed (see synesis-provider.ts). Prefix optimizer
-// now always uses "none" for markers (relies on implicit_prefix for vLLM KV cache). This allows
-// variable/high cached_tokens reporting from your self-hosted vLLM with prefix caching enabled.
+// Prefix optimizer always builds stable-first layouts. Explicit markers are selected per request
+// for provider endpoints that support them (currently gated DashScope); vLLM/OpenRouter/etc. keep
+// markerBackend="none" and rely on implicit prefix reuse.
 const prefixOptimizer = config.SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED
   ? new PrefixOptimizer({
       markerBackend: "none" as MarkerBackend,
-      maxMarkers: 0,
+      maxMarkers: Math.max(0, config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS),
       enableReduction: true,
       enableDiagnosticLogging: true,
     })
@@ -4227,7 +4233,26 @@ const dashScopeCacheOpts: DashScopeCacheOpts = {
   enabled: false,
   maxMarkers: 0,
 };
-/** Intentional no-op: keeps `resolve()` call-site shape for optional DashScope-style shims. Default path uses implicit prefix / OpenAI-shaped bodies — see `docs/CACHING.md`. */
+/** Intentional no-op: keeps `resolve()` call-site shape; DashScope markers now live in endpoint-capabilities. */
+
+function dashscopeCanaryEnabledForSession(sessionKey: string): boolean {
+  const pct = Math.max(0, Math.min(100, Math.floor(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT)));
+  if (pct <= 0) return false;
+  if (pct >= 100) return true;
+  const hash = crypto.createHash("sha256").update(sessionKey || "anon").digest();
+  return hash.readUInt32BE(0) % 100 < pct;
+}
+
+function markerBackendForRequest(modelId: string, fallbackModelId: string, sessionKey: string): MarkerBackend {
+  const mode = config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE;
+  if (mode === "off") return "none";
+  if (mode === "canary" && !dashscopeCanaryEnabledForSession(sessionKey)) return "none";
+  const primary = tierRegistry.getTierConfig(modelId);
+  const fallback = tierRegistry.getTierConfig(fallbackModelId);
+  const tier = primary ?? fallback;
+  if (!tier || resolveEndpointCapabilityId(tier.baseUrl) !== "dashscope") return "none";
+  return "dashscope";
+}
 
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   try {
@@ -8744,6 +8769,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         normalizedRequest.messages as never,
         normalizedRequest.tools as never,
         sessionKey,
+        { markerBackend: markerBackendForRequest(normalizedRequest.model, config.SYNESIS_YARN_DEFAULT_TIER, sessionKey) },
       );
       oaiOptLedger.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
       normalizedRequest.messages = optimized.messages as never;
@@ -12348,6 +12374,7 @@ app.post("/v1/messages", async (req, reply) => {
         openAIShape.messages as never,
         openAIShape.tools as never,
         claudeSessionKey,
+        { markerBackend: markerBackendForRequest(openAIShape.model, config.SYNESIS_YARN_DEFAULT_TIER, claudeSessionKey) },
       );
       openAIShape.messages = optimized.messages as never;
       if (optimized.tools) {

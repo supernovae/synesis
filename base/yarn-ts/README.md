@@ -59,7 +59,10 @@ See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/LIVE_
 - `SYNESIS_YARN_WEB_SEARCH_ENABLED` — inject `synesis_web_search` similarly (planner-backed web; `fetch_pages` is token-heavy).
 - `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.
 - `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
-- Token accounting: Shared `@synesis/telemetry/extractUsage` (strengthened for vLLM `cache_hit_tokens`, `prefix_cache_hit_tokens`, etc.). Admin UI no longer double-counts cached tokens in "Tokens" column. DashScope explicit cache + fixed markers removed (was causing consistent 8.2k/16.3k cached; vLLM now reports variable/high KV cache hits on long runs with prefix caching enabled). See `usage-extract.ts`, `synesis-provider.ts`, `provider-cache-hints.ts`.
+- Token accounting: Shared `@synesis/telemetry/extractUsage` (strengthened for vLLM `cache_hit_tokens`, `prefix_cache_hit_tokens`, etc.). Admin UI no longer double-counts cached tokens in "Tokens" column. DashScope explicit cache markers are provider-scoped and gated by `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE`; vLLM/OpenRouter-style routes continue to rely on stable prefix ordering and provider usage telemetry. See `usage-extract.ts`, `synesis-provider.ts`, `provider-cache-hints.ts`.
+- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE` (default `off`) — `off|canary|auto`; enables DashScope `cache_control` markers only for DashScope endpoint URLs.
+- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT` (default `10`) — deterministic session-hash canary percentage when mode is `canary`.
+- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS` (default `3`) — marker cap passed to the prefix optimizer and DashScope endpoint adapter.
 
 ## OpenAI and Claude: model reasoning (thinking)
 

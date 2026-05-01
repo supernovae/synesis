@@ -24,6 +24,20 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_MODE).toBe("guidance");
     expect(config.SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID).toBe(true);
     expect(config.SYNESIS_YARN_CLAUDE_TIER_MAP).toEqual({});
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE).toBe("off");
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT).toBe(10);
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS).toBe(3);
+  });
+
+  it("parses DashScope explicit cache controls", () => {
+    const config = loadConfig({
+      SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE: "canary",
+      SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT: "25",
+      SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS: "2",
+    } as never);
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE).toBe("canary");
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT).toBe(25);
+    expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS).toBe(2);
   });
 
   it("parses SYNESIS_YARN_CLAUDE_TIER_MAP JSON", () => {

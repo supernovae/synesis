@@ -235,6 +235,12 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** DashScope explicit context cache markers. `off` is safe default; `canary` gates by session hash; `auto` enables for all DashScope tiers. */
+  SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE: z
+    .enum(["off", "canary", "auto"])
+    .default("off"),
+  SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT: z.coerce.number().default(10),
+  SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS: z.coerce.number().default(3),
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),

@@ -16,7 +16,7 @@ This document is the **authoritative** description of how Synesis Coder (the `sy
 
 ## Explicit / "tiered" cache — pluggable, not guaranteed
 
-- Some vendors offer **marker-based** or **id-based** cache reporting on responses. Yarn exposes a path for **Anthropic-style** `cache_control` in [annotateCacheBreakpoints](../src/context/provider-cache-hints.ts), but the **default OpenAI-shaped** route may **not** attach those markers. That is an **intentional** tradeoff, not a TODO left open by mistake.
+- Some vendors offer **marker-based** or **id-based** cache reporting on responses. Yarn exposes provider-scoped marker hooks where they are useful, but the default OpenAI-shaped route does not attach markers globally. That is an intentional tradeoff, not a TODO left open by mistake.
 - **Historical note**: an integration that mapped a vendor's **tiered / id** cache fields to our telemetry showed **no useful hit rate** in practice. Do not assume "vendor says cache" means **measurable** savings until `cached_tokens` / hit metrics move in a controlled experiment.
 
 ### Deterministic breakpoint strategy (Anthropic explicit)
@@ -49,11 +49,17 @@ The key insight: new messages only append to the tail.  Everything before **BP2*
 3. Compare **input token growth** per turn vs. expected cache discount.
 4. Check that BP2 position is not shifting every turn — verify `SYNESIS_YARN_SCOPE_EPOCH_INTERVAL` is set.
 
-## DashScope and similar providers (service-layer shim)
+## DashScope explicit cache (provider adapter)
 
 - **DashScope**-style backends are optional **inference** targets, like any other `baseUrl` in the model registry. They are **not** architectural requirements of Yarn.
-- The repository may retain **test-only** or **shim** helpers (e.g. [dashscope-cache-interceptor.ts](../src/providers/dashscope-cache-interceptor.ts)) to reproduce a provider's wire behavior. Production may pass a no-op or neutral cache options object where a legacy call signature remains for **compatibility** with `resolve()`.
-- Re-introducing a full DashScope cache shim belongs in the **provider adapter** layer, not in the core enrichment pipeline.
+- Production DashScope markers live in the **endpoint adapter** layer ([dashscope.ts](../src/providers/endpoint-capabilities/dashscope.ts)), not in the core enrichment pipeline.
+- Enable with `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE=canary` or `auto`. The default is `off`.
+- `canary` uses `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT` and a deterministic session hash so a session remains consistently in or out of the experiment.
+- Markers are only applied when `resolveEndpointCapabilityId()` detects a DashScope URL and the prefix optimizer produced marker candidates for that session.
+- The endpoint adapter places the marker on the **actual outbound leading-system boundary** after AI SDK/provider transforms, then adds a tool-schema marker when tools are present.
+- Prefixes below the provider's minimum estimated cache size are left unmarked.
+
+The legacy [dashscope-cache-interceptor.ts](../src/providers/dashscope-cache-interceptor.ts) remains as a lower-level repro/test helper; production routing uses endpoint capabilities.
 
 ## Optional Redis layers (multi-replica)
 

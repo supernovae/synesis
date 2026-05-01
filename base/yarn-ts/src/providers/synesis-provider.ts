@@ -8,14 +8,9 @@ import {
   composeEndpointTransportFetch,
   type EndpointTransportRetryPolicy,
 } from "./endpoint-capabilities/compose-fetch.js";
+import type { DashScopeEndpointAdapterOptions } from "./endpoint-capabilities/dashscope.js";
 import { getEndpointTransportAdapter } from "./endpoint-capabilities/registry.js";
 import { resolveEndpointCapabilityId } from "./endpoint-capabilities/resolve.js";
-
-// DashScope explicit cache removed (Alibaba does not provide true KV/prefix caching like vLLM.
-// It capped reported cached_tokens at fixed marker sizes and interfered with self-hosted
-// vLLM KV reporting via broad hasNativeQwenToolParser and marker logic. We now rely on
-// implicit_prefix + full SDK usage reporting for accurate variable cached tokens (80-90%
-// expected on long runs with your vLLM + prefix caching + RAM).
 
 export interface DashScopeCacheOpts {
   enabled: boolean;
@@ -27,8 +22,12 @@ export class SynesisProviderRegistry {
   private prefixOptimizer: PrefixOptimizer | null = null;
   private currentSessionKey: string | null = null;
   private readonly upstreamRetryPolicy: EndpointTransportRetryPolicy;
+  private readonly dashscopeOptions: DashScopeEndpointAdapterOptions;
 
-  constructor(opts?: { upstreamRetryPolicy?: EndpointTransportRetryPolicy }) {
+  constructor(opts?: {
+    upstreamRetryPolicy?: EndpointTransportRetryPolicy;
+    dashscopeOptions?: DashScopeEndpointAdapterOptions;
+  }) {
     this.upstreamRetryPolicy = opts?.upstreamRetryPolicy ?? {
       enabled: true,
       maxAttempts: 2,
@@ -36,6 +35,7 @@ export class SynesisProviderRegistry {
       maxDelayMs: 2_000,
       jitterMs: 125,
     };
+    this.dashscopeOptions = opts?.dashscopeOptions ?? { mode: "off", canaryPct: 0, maxMarkers: 3 };
   }
 
   updateTiers(tiers: TierConfig[]): void {
@@ -104,12 +104,17 @@ export class SynesisProviderRegistry {
       throw new Error(`No tier config available for ${modelId} or fallback ${fallbackModelId}`);
     }
     const capabilityId = resolveEndpointCapabilityId(selected.baseUrl);
-    const transportAdapter = getEndpointTransportAdapter(capabilityId);
+    const transportAdapter = getEndpointTransportAdapter(capabilityId, { dashscope: this.dashscopeOptions });
     const transportFetch = composeEndpointTransportFetch(
       globalThis.fetch,
       transportAdapter,
       () => this.currentSessionKey,
-      { retryPolicy: this.upstreamRetryPolicy },
+      {
+        retryPolicy: this.upstreamRetryPolicy,
+        getMarkerIndices: () => this.currentSessionKey && this.prefixOptimizer
+          ? this.prefixOptimizer.getMarkerIndicesForSession(this.currentSessionKey)
+          : [],
+      },
     );
 
     const upstream = createOpenAI({
@@ -147,12 +152,17 @@ export class SynesisProviderRegistry {
     adapterHint?: string | null,
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const capabilityId = resolveEndpointCapabilityId(baseUrl);
-    const transportAdapter = getEndpointTransportAdapter(capabilityId);
+    const transportAdapter = getEndpointTransportAdapter(capabilityId, { dashscope: this.dashscopeOptions });
     const transportFetch = composeEndpointTransportFetch(
       globalThis.fetch,
       transportAdapter,
       () => this.currentSessionKey,
-      { retryPolicy: this.upstreamRetryPolicy },
+      {
+        retryPolicy: this.upstreamRetryPolicy,
+        getMarkerIndices: () => this.currentSessionKey && this.prefixOptimizer
+          ? this.prefixOptimizer.getMarkerIndicesForSession(this.currentSessionKey)
+          : [],
+      },
     );
     const upstream = createOpenAI({
       baseURL: baseUrl,

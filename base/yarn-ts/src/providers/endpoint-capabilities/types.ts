@@ -3,7 +3,7 @@
  * resolved per tier (baseUrl), not applied globally across Yarn.
  */
 
-export type EndpointCapabilityId = "generic" | "openrouter" | "vllm" | "fireworks" | "kimi_coding";
+export type EndpointCapabilityId = "generic" | "openrouter" | "vllm" | "fireworks" | "kimi_coding" | "dashscope";
 
 export interface EndpointTransportAdapter {
   readonly id: EndpointCapabilityId;
@@ -13,6 +13,7 @@ export interface EndpointTransportAdapter {
     input: RequestInfo | URL,
     init: RequestInit | undefined,
     getSessionKey: () => string | null,
+    getMarkerIndices?: () => number[],
   ): { input: RequestInfo | URL; init?: RequestInit };
   /**
    * Optional response rewrite (e.g. merge Fireworks cache counts from headers into JSON body).
