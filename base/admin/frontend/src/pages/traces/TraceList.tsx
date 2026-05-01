@@ -6,12 +6,14 @@ import {
   useDeleteTrace,
   usePurgeTrivialTraces,
   useBulkDeleteTraces,
+  useArchiveTraces,
+  usePurgeOldTraces,
 } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import DataTable from "../../components/common/DataTable";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
-import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2 } from "lucide-react";
+import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2, Archive } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { TraceRecord } from "../../types";
 import { formatProviderCacheSummary, getProviderTokenRollup } from "./providerTokenRollup";
@@ -42,6 +44,7 @@ export default function TraceList() {
   const [orgFilter, setOrgFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [purgeThreshold, setPurgeThreshold] = useState(100);
+  const [retentionDays, setRetentionDays] = useState(90);
   const [maxTokensFilter, setMaxTokensFilter] = useState<number | undefined>(undefined);
   const [hallucinationFilter, setHallucinationFilter] = useState(false);
   const [serviceFilter, setServiceFilter] = useState<"planner" | "yarn" | "all">("planner");
@@ -61,6 +64,8 @@ export default function TraceList() {
   const deleteTrace = useDeleteTrace();
   const purgeMutation = usePurgeTrivialTraces();
   const bulkDelete = useBulkDeleteTraces();
+  const archiveTraces = useArchiveTraces();
+  const purgeOldTraces = usePurgeOldTraces();
   const traces = useMemo(() => data?.traces ?? [], [data]);
   const total = data?.total ?? 0;
 
@@ -117,6 +122,21 @@ export default function TraceList() {
     });
   }, [selected, bulkDelete]);
 
+  const handleArchiveSelected = useCallback(
+    (deleteAfterArchive: boolean) => {
+      const ids = [...selected];
+      if (ids.length === 0) return;
+      if (deleteAfterArchive && !confirm(`Archive and delete ${ids.length} selected trace(s)?`)) return;
+      archiveTraces.mutate(
+        { trace_ids: ids, dry_run: false, delete_after_archive: deleteAfterArchive },
+        { onSuccess: () => setSelected(new Set()) },
+      );
+    },
+    [selected, archiveTraces],
+  );
+
+  const cleanupResult = archiveTraces.data ?? purgeOldTraces.data;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
@@ -138,16 +158,34 @@ export default function TraceList() {
         </div>
         <div className="flex items-center gap-2">
           {someSelected && (
-            <button
-              onClick={handleBulkDelete}
-              disabled={bulkDelete.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {bulkDelete.isPending
-                ? "Deleting..."
-                : `Delete ${selected.size} selected`}
-            </button>
+            <>
+              <button
+                onClick={() => handleArchiveSelected(false)}
+                disabled={archiveTraces.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive {selected.size}
+              </button>
+              <button
+                onClick={() => handleArchiveSelected(true)}
+                disabled={archiveTraces.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive + delete
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDelete.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {bulkDelete.isPending
+                  ? "Deleting..."
+                  : `Delete ${selected.size} selected`}
+              </button>
+            </>
           )}
           <div className="flex items-center gap-1.5">
             <select
@@ -177,6 +215,73 @@ export default function TraceList() {
           </div>
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-gray-700 dark:bg-gray-900">
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          Archive exports matching trace records to object storage before removing them from live tables.
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Older than</span>
+          <select
+            value={retentionDays}
+            onChange={(e) => setRetentionDays(Number(e.target.value))}
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>180 days</option>
+            <option value={365}>1 year</option>
+          </select>
+          <button
+            onClick={() =>
+              purgeOldTraces.mutate({
+                older_than_days: retentionDays,
+                trace_service: serviceFilter,
+                dry_run: true,
+                archive_before_delete: true,
+              })
+            }
+            disabled={purgeOldTraces.isPending}
+            className="rounded-md border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-800"
+          >
+            Dry run
+          </button>
+          <button
+            onClick={() => {
+              if (!confirm(`Archive and purge ${serviceFilter} traces older than ${retentionDays} days?`)) return;
+              purgeOldTraces.mutate({
+                older_than_days: retentionDays,
+                trace_service: serviceFilter,
+                dry_run: false,
+                archive_before_delete: true,
+              });
+            }}
+            disabled={purgeOldTraces.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            Archive + purge
+          </button>
+        </div>
+      </div>
+
+      {cleanupResult && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          {cleanupResult.dry_run ? (
+            <>
+              Found <strong>{cleanupResult.matched}</strong> trace(s);{" "}
+              <strong>{cleanupResult.selected}</strong> will be processed
+              {cleanupResult.limited ? " in this batch." : "."}
+            </>
+          ) : (
+            <>
+              Archived {cleanupResult.archive?.record_count ?? 0} record(s)
+              {cleanupResult.archive?.key ? ` to ${cleanupResult.archive.key}` : ""}.
+              {cleanupResult.deleted ? ` Deleted ${cleanupResult.deleted} trace(s).` : ""}
+            </>
+          )}
+        </div>
+      )}
 
       {purgeMutation.data && (
         <div className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">

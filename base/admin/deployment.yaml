@@ -122,6 +122,16 @@ spec:
                 secretKeyRef:
                   name: openfga-client-config
                   key: auth-token
+            # ── Admin archive object storage ──
+            # Configure the bucket in overlays/secrets when enabling archive + purge actions.
+            - name: SYNESIS_ADMIN_ARCHIVE_S3_BUCKET
+              value: ""
+            - name: SYNESIS_ADMIN_ARCHIVE_S3_PREFIX
+              value: "admin-archives"
+            - name: SYNESIS_ADMIN_ARCHIVE_S3_ENDPOINT_URL
+              value: ""
+            - name: AWS_REGION
+              value: "us-east-1"
             # Keep OpenAPI/docs disabled by default on public deployments.
             - name: SYNESIS_ENABLE_OPENAPI
               value: "false"

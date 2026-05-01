@@ -4,17 +4,60 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import case, func, select, text
 
 from ..db.engine import async_session
-from ..db.models import YarnSafetyEvent, YarnSession, YarnSessionEvent, YarnUsageLog
+from ..db.models import PersonalAccessToken, YarnSafetyEvent, YarnSession, YarnSessionEvent, YarnUsageLog
+from .archive_store import write_jsonl_archive
 
 logger = logging.getLogger("synesis.admin.yarn_service")
 
 
 def _cutoff(since_hours: int) -> datetime:
     return datetime.now(UTC) - timedelta(hours=since_hours)
+
+
+def _row_dict(row: object) -> dict[str, Any]:
+    return {col.name: getattr(row, col.name) for col in row.__table__.columns}
+
+
+def _masked_external_bearer(user_id: str) -> str:
+    suffix = user_id.rsplit("-", 1)[-1][-6:] if user_id else ""
+    return f"External bearer ****{suffix}" if suffix else "External bearer"
+
+
+def _user_display(user_id: str, username: str | None, pat_usernames: dict[str, str]) -> str:
+    if username:
+        return username
+    pat_username = pat_usernames.get(user_id)
+    if pat_username:
+        return pat_username
+    if "@" in user_id and "." in user_id.rsplit("@", 1)[-1]:
+        return user_id.lower()
+    if user_id.startswith("bearer-"):
+        return _masked_external_bearer(user_id)
+    return user_id or "Unknown user"
+
+
+async def _pat_usernames_for(user_ids: list[str]) -> dict[str, str]:
+    ids = [uid for uid in dict.fromkeys(user_ids) if uid and not uid.startswith("bearer-")]
+    if not ids:
+        return {}
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(PersonalAccessToken.user_id, PersonalAccessToken.username)
+                .where(PersonalAccessToken.user_id.in_(ids))
+                .order_by(PersonalAccessToken.last_used_at.desc().nullslast(), PersonalAccessToken.created_at.desc())
+            )
+        ).all()
+    mapping: dict[str, str] = {}
+    for user_id, username in rows:
+        if user_id and username and user_id not in mapping:
+            mapping[user_id] = username
+    return mapping
 
 
 # ── Overview summary ──────────────────────────────────────────────────────────
@@ -115,6 +158,7 @@ async def list_yarn_sessions(
         result = await session.execute(stmt)
         rows = result.scalars().all()
 
+    pat_usernames = await _pat_usernames_for([r.user_id for r in rows])
     sessions = [
         {
             "id": r.id,
@@ -122,6 +166,7 @@ async def list_yarn_sessions(
             "user_id": r.user_id,
             "org_id": r.org_id,
             "username": r.username,
+            "user_display": _user_display(r.user_id, r.username, pat_usernames),
             "role": r.role,
             "conversation_id": r.conversation_id,
             "client_kind": getattr(r, "client_kind", "unknown"),
@@ -184,6 +229,7 @@ async def get_yarn_session_detail(
         events_result = await session.execute(events_stmt)
         events = events_result.scalars().all()
 
+    pat_usernames = await _pat_usernames_for([r.user_id])
     return {
         "session": {
             "id": r.id,
@@ -191,6 +237,7 @@ async def get_yarn_session_detail(
             "user_id": r.user_id,
             "org_id": r.org_id,
             "username": r.username,
+            "user_display": _user_display(r.user_id, r.username, pat_usernames),
             "role": r.role,
             "conversation_id": r.conversation_id,
             "client_kind": getattr(r, "client_kind", "unknown"),
@@ -1755,53 +1802,221 @@ async def get_yarn_safety_summary(
 # ── Purge ─────────────────────────────────────────────────────────────────────
 
 
+async def _select_session_keys(
+    *,
+    session_keys: list[str] | None = None,
+    older_than_days: int | None = None,
+    session_key_prefix: str = "",
+) -> list[str]:
+    cleaned_keys = [k.strip()[:256] for k in (session_keys or []) if k.strip()]
+    if cleaned_keys:
+        return list(dict.fromkeys(cleaned_keys))[:1000]
+
+    if older_than_days is None:
+        return []
+
+    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+    async with async_session() as session:
+        base = select(YarnSession.session_key).where(YarnSession.last_active_at < cutoff)
+        if session_key_prefix:
+            base = base.where(YarnSession.session_key.like(f"{session_key_prefix[:128]}%"))
+        result = await session.execute(base.order_by(YarnSession.last_active_at.asc()).limit(10000))
+    return [r[0] for r in result.all()]
+
+
+async def _count_yarn_archive_rows(keys: list[str]) -> dict[str, int]:
+    if not keys:
+        return {"sessions": 0, "usage_rows": 0, "events": 0, "safety_events": 0}
+    async with async_session() as session:
+        sessions_count = (
+            await session.execute(
+                select(func.count()).select_from(
+                    select(YarnSession).where(YarnSession.session_key.in_(keys)).subquery()
+                )
+            )
+        ).scalar() or 0
+        usage_count = (
+            await session.execute(
+                select(func.count()).select_from(
+                    select(YarnUsageLog).where(YarnUsageLog.session_key.in_(keys)).subquery()
+                )
+            )
+        ).scalar() or 0
+        events_count = (
+            await session.execute(
+                select(func.count()).select_from(
+                    select(YarnSessionEvent).where(YarnSessionEvent.session_key.in_(keys)).subquery()
+                )
+            )
+        ).scalar() or 0
+        safety_count = (
+            await session.execute(
+                select(func.count()).select_from(
+                    select(YarnSafetyEvent).where(YarnSafetyEvent.session_key.in_(keys)).subquery()
+                )
+            )
+        ).scalar() or 0
+    return {
+        "sessions": int(sessions_count),
+        "usage_rows": int(usage_count),
+        "events": int(events_count),
+        "safety_events": int(safety_count),
+    }
+
+
+async def _archive_records_for_yarn(keys: list[str]) -> list[dict[str, Any]]:
+    if not keys:
+        return []
+    records: list[dict[str, Any]] = []
+    async with async_session() as session:
+        session_rows = (
+            (
+                await session.execute(
+                    select(YarnSession).where(YarnSession.session_key.in_(keys)).order_by(YarnSession.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        usage_rows = (
+            (
+                await session.execute(
+                    select(YarnUsageLog)
+                    .where(YarnUsageLog.session_key.in_(keys))
+                    .order_by(YarnUsageLog.created_at, YarnUsageLog.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        event_rows = (
+            (
+                await session.execute(
+                    select(YarnSessionEvent)
+                    .where(YarnSessionEvent.session_key.in_(keys))
+                    .order_by(YarnSessionEvent.created_at, YarnSessionEvent.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        safety_rows = (
+            (
+                await session.execute(
+                    select(YarnSafetyEvent)
+                    .where(YarnSafetyEvent.session_key.in_(keys))
+                    .order_by(YarnSafetyEvent.created_at, YarnSafetyEvent.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    records.extend({"record_type": "yarn_session", "data": _row_dict(row)} for row in session_rows)
+    records.extend({"record_type": "yarn_usage_log", "data": _row_dict(row)} for row in usage_rows)
+    records.extend({"record_type": "yarn_session_event", "data": _row_dict(row)} for row in event_rows)
+    records.extend({"record_type": "yarn_safety_event", "data": _row_dict(row)} for row in safety_rows)
+    return records
+
+
+async def _delete_yarn_keys(keys: list[str]) -> dict[str, int]:
+    if not keys:
+        return {"sessions": 0, "usage_rows": 0, "events": 0, "safety_events": 0}
+    async with async_session() as session:
+        events_result = await session.execute(
+            YarnSessionEvent.__table__.delete().where(YarnSessionEvent.session_key.in_(keys))
+        )
+        usage_result = await session.execute(YarnUsageLog.__table__.delete().where(YarnUsageLog.session_key.in_(keys)))
+        safety_result = await session.execute(
+            YarnSafetyEvent.__table__.delete().where(YarnSafetyEvent.session_key.in_(keys))
+        )
+        sessions_result = await session.execute(YarnSession.__table__.delete().where(YarnSession.session_key.in_(keys)))
+        await session.commit()
+    return {
+        "sessions": int(sessions_result.rowcount or 0),
+        "usage_rows": int(usage_result.rowcount or 0),
+        "events": int(events_result.rowcount or 0),
+        "safety_events": int(safety_result.rowcount or 0),
+    }
+
+
+async def archive_yarn_sessions(
+    *,
+    session_keys: list[str] | None = None,
+    older_than_days: int | None = None,
+    session_key_prefix: str = "",
+    dry_run: bool = True,
+    delete_after_archive: bool = False,
+    actor_user_id: str = "",
+) -> dict:
+    """Archive selected or old Yarn session records to object storage."""
+    keys = await _select_session_keys(
+        session_keys=session_keys,
+        older_than_days=older_than_days,
+        session_key_prefix=session_key_prefix,
+    )
+    counts = await _count_yarn_archive_rows(keys)
+    result: dict[str, Any] = {
+        "dry_run": dry_run,
+        "delete_after_archive": delete_after_archive,
+        "session_keys": len(keys),
+        **counts,
+        "archive": None,
+        "deleted": None,
+    }
+    if dry_run or not keys:
+        return result
+
+    records = await _archive_records_for_yarn(keys)
+    archive = await write_jsonl_archive(
+        kind="yarn/sessions",
+        records=records,
+        manifest={
+            "actor_user_id": actor_user_id,
+            "older_than_days": older_than_days,
+            "session_key_prefix": session_key_prefix,
+            "session_key_count": len(keys),
+            "counts": counts,
+        },
+    )
+    result["archive"] = archive
+
+    if delete_after_archive:
+        result["deleted"] = await _delete_yarn_keys(keys)
+    return result
+
+
+async def delete_yarn_sessions(session_keys: list[str]) -> dict:
+    keys = await _select_session_keys(session_keys=session_keys)
+    counts = await _delete_yarn_keys(keys)
+    return {"requested": len(session_keys), "session_keys": len(keys), **counts}
+
+
 async def purge_yarn_sessions(
     older_than_days: int = 30,
     session_key_prefix: str = "",
     dry_run: bool = True,
+    archive_before_delete: bool = False,
+    actor_user_id: str = "",
 ) -> dict:
     """Delete sessions (and associated usage/events) older than a threshold.
 
     Returns counts of rows that would be (or were) deleted.
     """
-    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
-    async with async_session() as session:
-        base = select(YarnSession.session_key).where(YarnSession.last_active_at < cutoff)
-        if session_key_prefix:
-            base = base.where(YarnSession.session_key.like(f"{session_key_prefix}%"))
-        result = await session.execute(base)
-        keys = [r[0] for r in result.all()]
-        if not keys:
-            return {"dry_run": dry_run, "sessions": 0, "usage_rows": 0, "events": 0}
-
-        usage_count_q = select(func.count()).select_from(
-            select(YarnUsageLog).where(YarnUsageLog.session_key.in_(keys)).subquery()
+    if archive_before_delete:
+        return await archive_yarn_sessions(
+            older_than_days=older_than_days,
+            session_key_prefix=session_key_prefix,
+            dry_run=dry_run,
+            delete_after_archive=True,
+            actor_user_id=actor_user_id,
         )
-        usage_count = (await session.execute(usage_count_q)).scalar() or 0
 
-        events_count_q = select(func.count()).select_from(
-            select(YarnSessionEvent).where(YarnSessionEvent.session_key.in_(keys)).subquery()
-        )
-        events_count = (await session.execute(events_count_q)).scalar() or 0
+    keys = await _select_session_keys(older_than_days=older_than_days, session_key_prefix=session_key_prefix)
+    counts = await _count_yarn_archive_rows(keys)
+    if dry_run:
+        return {"dry_run": True, **counts}
 
-        if dry_run:
-            return {
-                "dry_run": True,
-                "sessions": len(keys),
-                "usage_rows": int(usage_count),
-                "events": int(events_count),
-            }
-
-        await session.execute(YarnSessionEvent.__table__.delete().where(YarnSessionEvent.session_key.in_(keys)))
-        await session.execute(YarnUsageLog.__table__.delete().where(YarnUsageLog.session_key.in_(keys)))
-        await session.execute(YarnSafetyEvent.__table__.delete().where(YarnSafetyEvent.session_key.in_(keys)))
-        await session.execute(YarnSession.__table__.delete().where(YarnSession.session_key.in_(keys)))
-        await session.commit()
-
-    logger.info("purged_yarn_sessions older_than_days=%d sessions=%d", older_than_days, len(keys))
-    return {
-        "dry_run": False,
-        "sessions": len(keys),
-        "usage_rows": int(usage_count),
-        "events": int(events_count),
-    }
+    deleted = await _delete_yarn_keys(keys)
+    logger.info("purged_yarn_sessions older_than_days=%d sessions=%d", older_than_days, deleted["sessions"])
+    return {"dry_run": False, **deleted}

@@ -10,15 +10,25 @@ import time
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from ..auth import UserInfo, get_current_user
 from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_URL
 from ..rbac import RouteGroup, can_access_route_group, can_access_trace, require_platform_admin, trace_scope_filters
 from ..services import trace_store
+from ..services.archive_store import ArchiveConfigError
 
 logger = logging.getLogger("synesis.admin.traces")
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
+
+
+class TraceArchiveRequest(BaseModel):
+    trace_ids: list[str] = Field(default_factory=list, max_length=500)
+    older_than_days: int | None = Field(default=None, ge=1, le=3650)
+    trace_service: str = Field(default="", max_length=32)
+    dry_run: bool = True
+    delete_after_archive: bool = False
 
 
 def _ensure_org_observability(user: UserInfo) -> None:
@@ -283,6 +293,48 @@ async def bulk_delete_traces(
         )
         await session.commit()
     return {"deleted": result.rowcount, "requested": len(trace_ids)}
+
+
+@router.post("/archive")
+async def archive_traces(
+    body: TraceArchiveRequest,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Archive selected or old trace rows to object storage, optionally deleting live rows."""
+    if not body.trace_ids and body.older_than_days is None:
+        raise HTTPException(status_code=400, detail="Provide trace_ids or older_than_days")
+    try:
+        return await trace_store.archive_traces(
+            trace_ids=body.trace_ids,
+            older_than_days=body.older_than_days,
+            trace_service=body.trace_service,
+            dry_run=body.dry_run,
+            delete_after_archive=body.delete_after_archive,
+            actor_user_id=user.user_id or user.username,
+        )
+    except ArchiveConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/purge")
+async def purge_traces(
+    older_than_days: int = Query(90, ge=1, le=3650),
+    trace_service: str = Query("", max_length=32),
+    dry_run: bool = Query(True),
+    archive_before_delete: bool = Query(False),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Delete old trace rows, optionally archiving them to object storage first."""
+    try:
+        return await trace_store.purge_traces(
+            older_than_days=older_than_days,
+            trace_service=trace_service,
+            dry_run=dry_run,
+            archive_before_delete=archive_before_delete,
+            actor_user_id=user.user_id or user.username,
+        )
+    except ArchiveConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/session/{conversation_id}")

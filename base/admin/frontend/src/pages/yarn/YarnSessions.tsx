@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clsx } from "clsx";
-import { useYarnSessions, type YarnSessionRow } from "../../api/hooks";
+import { Archive, Trash2 } from "lucide-react";
+import {
+  useYarnSessions,
+  useYarnSessionsArchive,
+  useYarnSessionsBulkDelete,
+  useYarnSessionsPurge,
+  type YarnPurgeResult,
+  type YarnSessionRow,
+} from "../../api/hooks";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { fmtTokens, fmtCost } from "../../lib/formatUsage";
@@ -22,15 +30,59 @@ export default function YarnSessions() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [sinceHours, setSinceHours] = useState(168);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cleanupDays, setCleanupDays] = useState(90);
   const pageSize = 20;
   const { data, isLoading, isError, error, isFetching } = useYarnSessions(page, pageSize, sinceHours);
+  const archiveSessions = useYarnSessionsArchive();
+  const deleteSessions = useYarnSessionsBulkDelete();
+  const purgeSessions = useYarnSessionsPurge();
 
   const sessions = data?.sessions ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const visibleKeys = new Set(sessions.map((row) => row.session_key));
+  const allSelected = visibleKeys.size > 0 && [...visibleKeys].every((key) => selected.has(key));
+  const selectedKeys = [...selected];
+  const latestCleanup: YarnPurgeResult | undefined = archiveSessions.data ?? purgeSessions.data;
 
   function goRow(row: YarnSessionRow) {
     navigate(`/yarn/sessions/${encodeURIComponent(row.session_key)}`);
+  }
+
+  function toggleOne(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) => {
+      if (allSelected) {
+        const next = new Set(prev);
+        for (const key of visibleKeys) next.delete(key);
+        return next;
+      }
+      return new Set([...prev, ...visibleKeys]);
+    });
+  }
+
+  function archiveSelected(deleteAfterArchive: boolean) {
+    if (selectedKeys.length === 0) return;
+    if (deleteAfterArchive && !confirm(`Archive and delete ${selectedKeys.length} selected Coder session(s)?`)) return;
+    archiveSessions.mutate(
+      { session_keys: selectedKeys, dry_run: false, delete_after_archive: deleteAfterArchive },
+      { onSuccess: () => setSelected(new Set()) },
+    );
+  }
+
+  function deleteSelected() {
+    if (selectedKeys.length === 0) return;
+    if (!confirm(`Delete ${selectedKeys.length} selected Coder session(s) from the live DB?`)) return;
+    deleteSessions.mutate(selectedKeys, { onSuccess: () => setSelected(new Set()) });
   }
 
   return (
@@ -63,7 +115,95 @@ export default function YarnSessions() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedKeys.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => archiveSelected(false)}
+                disabled={archiveSessions.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive {selectedKeys.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => archiveSelected(true)}
+                disabled={archiveSessions.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive + delete
+              </button>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                disabled={deleteSessions.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Cleanup older than</span>
+          <select
+            value={cleanupDays}
+            onChange={(e) => setCleanupDays(Number(e.target.value))}
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>180 days</option>
+            <option value={365}>1 year</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => purgeSessions.mutate({ older_than_days: cleanupDays, dry_run: true, archive_before_delete: true })}
+            disabled={purgeSessions.isPending}
+            className="rounded-md border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-800"
+          >
+            Dry run
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!confirm(`Archive and purge Coder sessions older than ${cleanupDays} days?`)) return;
+              purgeSessions.mutate({ older_than_days: cleanupDays, dry_run: false, archive_before_delete: true });
+            }}
+            disabled={purgeSessions.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            Archive + purge
+          </button>
+        </div>
+      </div>
+
+      {latestCleanup && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          {latestCleanup.dry_run ? (
+            <>
+              Found <strong>{latestCleanup.sessions}</strong> old session(s),{" "}
+              <strong>{latestCleanup.usage_rows}</strong> usage rows, and{" "}
+              <strong>{latestCleanup.events}</strong> event rows eligible for cleanup.
+            </>
+          ) : (
+            <>
+              Archived {latestCleanup.archive?.record_count ?? 0} record(s)
+              {latestCleanup.archive?.key ? ` to ${latestCleanup.archive.key}` : ""}.
+              {latestCleanup.deleted ? ` Deleted ${latestCleanup.deleted.sessions} session(s).` : ""}
+            </>
+          )}
+        </div>
+      )}
+
       <ApiErrorBanner error={isError ? error : undefined} />
+      <ApiErrorBanner error={archiveSessions.error ?? deleteSessions.error ?? purgeSessions.error ?? undefined} />
 
       {isLoading && !data ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
@@ -76,6 +216,14 @@ export default function YarnSessions() {
               <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-800">
                   <tr>
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       User
                     </th>
@@ -119,8 +267,16 @@ export default function YarnSessions() {
                         onClick={() => goRow(row)}
                         className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
                       >
+                        <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(row.session_key)}
+                            onChange={() => toggleOne(row.session_key)}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-900 dark:text-gray-100">
-                          {row.username || row.user_id || "—"}
+                          <span title={row.user_id}>{row.user_display || row.username || row.user_id || "—"}</span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">
                           {row.client_kind || "—"}

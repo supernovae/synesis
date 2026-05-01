@@ -9,13 +9,15 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import YarnReducerTelemetrySnapshot
-from ..rbac import Role, require_org_admin, resolve_role
+from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role
 from ..services import yarn_service
+from ..services.archive_store import ArchiveConfigError
 from ..services.health_prober import probe_service
 from ..services.telemetry_scraper import get_yarn_reducer_scrape_status
 from ..services.yarn_reducer_history import (
@@ -32,6 +34,18 @@ _YARN_URL = os.getenv(
     "SYNESIS_YARN_URL",
     "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000",
 )
+
+
+class YarnSessionArchiveRequest(BaseModel):
+    session_keys: list[str] = Field(default_factory=list, max_length=500)
+    older_than_days: int | None = Field(default=None, ge=1, le=3650)
+    session_key_prefix: str = Field(default="", max_length=128)
+    dry_run: bool = True
+    delete_after_archive: bool = False
+
+
+class YarnSessionBulkDeleteRequest(BaseModel):
+    session_keys: list[str] = Field(..., min_length=1, max_length=500)
 
 
 def _scope(user: UserInfo) -> tuple[str, str, str]:
@@ -364,19 +378,55 @@ async def yarn_verify(
 # ── Purge ─────────────────────────────────────────────────────────────────────
 
 
+@router.post("/sessions/archive")
+async def yarn_sessions_archive(
+    body: YarnSessionArchiveRequest,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Archive selected or old sessions to object storage, optionally deleting live rows."""
+    if not body.session_keys and body.older_than_days is None:
+        raise HTTPException(status_code=400, detail="Provide session_keys or older_than_days")
+    try:
+        return await yarn_service.archive_yarn_sessions(
+            session_keys=body.session_keys,
+            older_than_days=body.older_than_days,
+            session_key_prefix=body.session_key_prefix,
+            dry_run=body.dry_run,
+            delete_after_archive=body.delete_after_archive,
+            actor_user_id=user.user_id or user.username,
+        )
+    except ArchiveConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/sessions/bulk-delete")
+async def yarn_sessions_bulk_delete(
+    body: YarnSessionBulkDeleteRequest,
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Delete selected sessions and their usage/events from the live DB."""
+    return await yarn_service.delete_yarn_sessions(body.session_keys)
+
+
 @router.post("/sessions/purge")
 async def yarn_sessions_purge(
     older_than_days: int = Query(30, ge=1, le=3650),
     session_key_prefix: str = Query(""),
     dry_run: bool = Query(True),
-    user: UserInfo = Depends(require_org_admin),
+    archive_before_delete: bool = Query(False),
+    user: UserInfo = Depends(require_platform_admin),
 ):
     """Purge sessions (and usage/events) older than the given threshold."""
-    return await yarn_service.purge_yarn_sessions(
-        older_than_days=older_than_days,
-        session_key_prefix=session_key_prefix,
-        dry_run=dry_run,
-    )
+    try:
+        return await yarn_service.purge_yarn_sessions(
+            older_than_days=older_than_days,
+            session_key_prefix=session_key_prefix,
+            dry_run=dry_run,
+            archive_before_delete=archive_before_delete,
+            actor_user_id=user.user_id or user.username,
+        )
+    except ArchiveConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ── Safety events ─────────────────────────────────────────────────────────────

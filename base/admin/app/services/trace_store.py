@@ -15,8 +15,11 @@ from sqlalchemy import case, desc, func, select
 
 from ..db.engine import async_session
 from ..db.models import Trace
+from .archive_store import write_jsonl_archive
 
 logger = logging.getLogger("synesis.admin.trace_store")
+
+_TRACE_ARCHIVE_MAX = 10000
 
 
 def _trace_service_filter(service: str):
@@ -204,6 +207,141 @@ async def get_trace_chain(trace_id: str, limit: int = 200) -> dict[str, Any] | N
         except Exception:
             logger.warning("trace_store_chain_failed", exc_info=True)
             return None
+
+
+def _trace_archive_query(
+    *,
+    trace_ids: list[str] | None = None,
+    older_than_days: int | None = None,
+    trace_service: str = "",
+):
+    cleaned_ids = [tid.strip()[:64] for tid in (trace_ids or []) if tid.strip()]
+    q = select(Trace)
+    if cleaned_ids:
+        q = q.where(Trace.trace_id.in_(list(dict.fromkeys(cleaned_ids))[:500]))
+    elif older_than_days is not None:
+        cutoff = time.time() - older_than_days * 86400
+        q = q.where(Trace.timestamp < cutoff)
+    else:
+        q = q.where(sa.false())
+
+    tsf = _trace_service_filter(trace_service)
+    if tsf is not None:
+        q = q.where(tsf)
+    return q
+
+
+async def archive_traces(
+    *,
+    trace_ids: list[str] | None = None,
+    older_than_days: int | None = None,
+    trace_service: str = "",
+    dry_run: bool = True,
+    delete_after_archive: bool = False,
+    actor_user_id: str = "",
+) -> dict[str, Any]:
+    """Archive selected or old trace rows to object storage."""
+    base_q = _trace_archive_query(trace_ids=trace_ids, older_than_days=older_than_days, trace_service=trace_service)
+    async with async_session() as session:
+        total = (await session.execute(select(func.count()).select_from(base_q.subquery()))).scalar_one() or 0
+        rows = (await session.execute(base_q.order_by(Trace.timestamp.asc()).limit(_TRACE_ARCHIVE_MAX))).scalars().all()
+
+    limited = int(total) > len(rows)
+    result: dict[str, Any] = {
+        "dry_run": dry_run,
+        "delete_after_archive": delete_after_archive,
+        "matched": int(total),
+        "selected": len(rows),
+        "limited": limited,
+        "archive": None,
+        "deleted": 0,
+    }
+    if dry_run or not rows:
+        return result
+
+    ids = [row.trace_id for row in rows]
+    records = [
+        {
+            "record_type": "trace",
+            "data": {
+                **_row_to_dict(row),
+                "db_id": row.id,
+                "db_created_at": row.created_at,
+            },
+        }
+        for row in rows
+    ]
+    result["archive"] = await write_jsonl_archive(
+        kind="traces",
+        records=records,
+        manifest={
+            "actor_user_id": actor_user_id,
+            "older_than_days": older_than_days,
+            "trace_service": trace_service,
+            "matched": int(total),
+            "selected": len(rows),
+            "limited": limited,
+        },
+    )
+    if delete_after_archive:
+        result["deleted"] = await delete_traces_by_ids(ids)
+    return result
+
+
+async def purge_traces(
+    *,
+    older_than_days: int,
+    trace_service: str = "",
+    dry_run: bool = True,
+    archive_before_delete: bool = False,
+    actor_user_id: str = "",
+) -> dict[str, Any]:
+    if archive_before_delete:
+        return await archive_traces(
+            older_than_days=older_than_days,
+            trace_service=trace_service,
+            dry_run=dry_run,
+            delete_after_archive=True,
+            actor_user_id=actor_user_id,
+        )
+
+    base_q = _trace_archive_query(older_than_days=older_than_days, trace_service=trace_service)
+    async with async_session() as session:
+        ids = [
+            row[0]
+            for row in (
+                await session.execute(
+                    base_q.with_only_columns(Trace.trace_id).order_by(Trace.timestamp.asc()).limit(_TRACE_ARCHIVE_MAX)
+                )
+            ).all()
+        ]
+        matched = (await session.execute(select(func.count()).select_from(base_q.subquery()))).scalar_one() or 0
+    if dry_run:
+        return {
+            "dry_run": True,
+            "matched": int(matched),
+            "selected": len(ids),
+            "limited": int(matched) > len(ids),
+            "deleted": 0,
+        }
+    deleted = await delete_traces_by_ids(ids)
+    return {
+        "dry_run": False,
+        "matched": int(matched),
+        "selected": len(ids),
+        "limited": int(matched) > len(ids),
+        "deleted": deleted,
+    }
+
+
+async def delete_traces_by_ids(trace_ids: list[str]) -> int:
+    cleaned_ids = [tid.strip()[:64] for tid in dict.fromkeys(trace_ids) if tid.strip()]
+    if not cleaned_ids:
+        return 0
+    async with async_session() as session:
+        result = await session.execute(sa.delete(Trace).where(Trace.trace_id.in_(cleaned_ids)))
+        await session.commit()
+    return int(result.rowcount or 0)
 
 
 async def get_trace_stats(

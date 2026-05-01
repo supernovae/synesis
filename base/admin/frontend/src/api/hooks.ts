@@ -1157,6 +1157,52 @@ export function useBulkDeleteTraces() {
   });
 }
 
+export interface TraceArchiveResult {
+  dry_run: boolean;
+  delete_after_archive: boolean;
+  matched: number;
+  selected: number;
+  limited: boolean;
+  archive: { archive_id: string; bucket: string; key: string; record_count: number; bytes: number } | null;
+  deleted: number;
+}
+
+export function useArchiveTraces() {
+  const qc = useQueryClient();
+  return useMutation<
+    TraceArchiveResult,
+    Error,
+    {
+      trace_ids?: string[];
+      older_than_days?: number;
+      trace_service?: string;
+      dry_run?: boolean;
+      delete_after_archive?: boolean;
+    }
+  >({
+    mutationFn: (data) => client.post("/traces/archive", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["traces"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
+export function usePurgeOldTraces() {
+  const qc = useQueryClient();
+  return useMutation<
+    TraceArchiveResult,
+    Error,
+    { older_than_days: number; trace_service?: string; dry_run?: boolean; archive_before_delete?: boolean }
+  >({
+    mutationFn: (params) => client.post("/traces/purge", null, { params }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["traces"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
 export function useClearCriticData() {
   const qc = useQueryClient();
   return useMutation<{ trace_id: string; cleared: boolean }, Error, string>({
@@ -2474,6 +2520,7 @@ export interface YarnSessionRow {
   id: number;
   session_key: string;
   user_id: string;
+  user_display?: string;
   username: string | null;
   role: string | null;
   conversation_id: string | null;
@@ -2705,16 +2752,65 @@ export function useYarnSessionDetail(sessionKey: string | undefined) {
 
 export interface YarnPurgeResult {
   dry_run: boolean;
+  delete_after_archive?: boolean;
+  session_keys?: number;
   sessions: number;
   usage_rows: number;
   events: number;
+  safety_events?: number;
+  archive?: { archive_id: string; bucket: string; key: string; record_count: number; bytes: number } | null;
+  deleted?: {
+    sessions: number;
+    usage_rows: number;
+    events: number;
+    safety_events: number;
+  } | null;
 }
 
 export function useYarnSessionsPurge() {
   const qc = useQueryClient();
-  return useMutation<YarnPurgeResult, Error, { older_than_days: number; session_key_prefix?: string; dry_run: boolean }>({
+  return useMutation<
+    YarnPurgeResult,
+    Error,
+    { older_than_days: number; session_key_prefix?: string; dry_run: boolean; archive_before_delete?: boolean }
+  >({
     mutationFn: (params) =>
       client.post("/yarn/sessions/purge", null, { params }).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["yarn"] });
+    },
+  });
+}
+
+export function useYarnSessionsArchive() {
+  const qc = useQueryClient();
+  return useMutation<
+    YarnPurgeResult,
+    Error,
+    {
+      session_keys?: string[];
+      older_than_days?: number;
+      session_key_prefix?: string;
+      dry_run?: boolean;
+      delete_after_archive?: boolean;
+    }
+  >({
+    mutationFn: (data) => client.post("/yarn/sessions/archive", data).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["yarn"] });
+    },
+  });
+}
+
+export function useYarnSessionsBulkDelete() {
+  const qc = useQueryClient();
+  return useMutation<
+    { requested: number; session_keys: number; sessions: number; usage_rows: number; events: number; safety_events: number },
+    Error,
+    string[]
+  >({
+    mutationFn: (sessionKeys) =>
+      client.post("/yarn/sessions/bulk-delete", { session_keys: sessionKeys }).then((r) => r.data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["yarn"] });
     },

@@ -51,6 +51,20 @@ async def _override_require_org_admin():
     return u
 
 
+async def _override_require_platform_admin():
+    from app.auth import UserInfo
+    from app.rbac import Role, resolve_role
+
+    u = _auth_ctx["user"]
+    assert isinstance(u, UserInfo)
+    if resolve_role(u) < Role.platform_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Requires platform_admin role",
+        )
+    return u
+
+
 def _user(*, role: str, user_id: str = "test-user", username: str = "test-user"):
     from app.auth import UserInfo
 
@@ -128,11 +142,13 @@ def _yarn_router_env(monkeypatch):
 def client():
     import app.routers.yarn as yarn_mod
     from app.main import app
-    from app.rbac import require_org_admin
+    from app.rbac import require_org_admin, require_platform_admin
 
     prev_org = app.dependency_overrides.get(require_org_admin)
+    prev_platform = app.dependency_overrides.get(require_platform_admin)
     prev_yarn_user = app.dependency_overrides.get(yarn_mod.get_current_user)
     app.dependency_overrides[require_org_admin] = _override_require_org_admin
+    app.dependency_overrides[require_platform_admin] = _override_require_platform_admin
     app.dependency_overrides[yarn_mod.get_current_user] = _override_yarn_get_current_user
     try:
         yield TestClient(app, raise_server_exceptions=True)
@@ -141,6 +157,10 @@ def client():
             app.dependency_overrides.pop(require_org_admin, None)
         else:
             app.dependency_overrides[require_org_admin] = prev_org
+        if prev_platform is None:
+            app.dependency_overrides.pop(require_platform_admin, None)
+        else:
+            app.dependency_overrides[require_platform_admin] = prev_platform
         if prev_yarn_user is None:
             app.dependency_overrides.pop(yarn_mod.get_current_user, None)
         else:
@@ -552,6 +572,7 @@ def test_yarn_session_detail_includes_events(client, monkeypatch):
 
 
 def test_yarn_sessions_purge_dry_run(client, monkeypatch):
+    _auth_ctx["user"] = _user(role="platform_admin")
     purge_result = {"dry_run": True, "sessions": 5, "usage_rows": 42, "events": 3}
     monkeypatch.setattr(
         "app.services.yarn_service.purge_yarn_sessions",
@@ -562,6 +583,32 @@ def test_yarn_sessions_purge_dry_run(client, monkeypatch):
     body = resp.json()
     assert body["dry_run"] is True
     assert body["sessions"] == 5
+
+
+def test_yarn_sessions_archive_selected(client, monkeypatch):
+    _auth_ctx["user"] = _user(role="platform_admin")
+    archive_result = {
+        "dry_run": False,
+        "delete_after_archive": True,
+        "session_keys": 1,
+        "sessions": 1,
+        "usage_rows": 2,
+        "events": 3,
+        "safety_events": 0,
+        "archive": {"key": "admin-archives/yarn/sessions/test.jsonl.gz"},
+        "deleted": {"sessions": 1, "usage_rows": 2, "events": 3, "safety_events": 0},
+    }
+    mock_archive = AsyncMock(return_value=archive_result)
+    monkeypatch.setattr("app.services.yarn_service.archive_yarn_sessions", mock_archive)
+    resp = client.post(
+        "/api/v1/yarn/sessions/archive",
+        json={"session_keys": ["synesis:alice:claude-code:_"], "dry_run": False, "delete_after_archive": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["deleted"]["sessions"] == 1
+    kwargs = mock_archive.await_args.kwargs
+    assert kwargs["session_keys"] == ["synesis:alice:claude-code:_"]
+    assert kwargs["delete_after_archive"] is True
 
 
 def test_yarn_sessions_purge_requires_admin(client, monkeypatch):

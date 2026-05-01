@@ -216,7 +216,9 @@ export default function YarnSessionDetail() {
                   User
                 </dt>
                 <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                  {data.session.username || data.session.user_id || "—"}
+                  <span title={data.session.user_id}>
+                    {data.session.user_display || data.session.username || data.session.user_id || "—"}
+                  </span>
                 </dd>
               </div>
               <div>
