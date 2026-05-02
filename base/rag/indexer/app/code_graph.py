@@ -24,6 +24,16 @@ def csv_values(value: Any) -> list[str]:
     return seen
 
 
+METADATA_EDGE_FIELDS = {
+    "contains_refs": "CONTAINS",
+    "documents_refs": "DOCUMENTS",
+    "implements_refs": "IMPLEMENTS",
+    "overrides_refs": "OVERRIDES",
+    "valid_in_refs": "VALID_IN",
+    "derived_from_refs": "DERIVED_FROM",
+}
+
+
 def derive_graph_edges(
     rows: list[dict[str, Any]],
     *,
@@ -63,6 +73,10 @@ def derive_graph_edges(
 
         for ref in csv_values(row.get("doc_relation_ids")):
             edges.append({"type": "REFERENCES", "source_id": chunk_id, "target_id": ref, "source": "metadata"})
+
+        for field, edge_type in METADATA_EDGE_FIELDS.items():
+            for ref in csv_values(row.get(field)):
+                edges.append({"type": edge_type, "source_id": source_id, "target_id": ref, "source": "metadata"})
 
         for ref in csv_values(row.get("import_refs")):
             target_id, confidence = resolver.resolve_import(ref, row)

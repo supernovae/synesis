@@ -1844,6 +1844,80 @@ def _xml_text(node: ET.Element | None) -> str:
     return "".join(node.itertext()).strip()
 
 
+GODOT_LIFECYCLE_CALLBACKS = (
+    "_enter_tree",
+    "_ready",
+    "_process",
+    "_physics_process",
+    "_exit_tree",
+    "_input",
+    "_unhandled_input",
+)
+
+
+def _unique_metadata_values(*groups: Any) -> list[str]:
+    values: list[str] = []
+    for group in groups:
+        if isinstance(group, list):
+            candidates = group
+        elif isinstance(group, (tuple, set)):
+            candidates = list(group)
+        elif isinstance(group, str):
+            candidates = group.split(",")
+        else:
+            candidates = []
+        for item in candidates:
+            text = str(item).strip()
+            if text and text not in values:
+                values.append(text)
+    return values
+
+
+def _godot_lifecycle_callbacks(text: str) -> list[str]:
+    return [callback for callback in GODOT_LIFECYCLE_CALLBACKS if callback in text]
+
+
+def _godot_migration_topics(text: str) -> list[str]:
+    lower = text.lower()
+    topics: list[str] = []
+    if "godot 3" in lower or "3.x" in lower or "migration" in lower or "legacy" in lower:
+        topics.append("godot-3-to-4")
+    if "signal" in lower or "connect" in lower or "await" in lower:
+        topics.append("signal-api")
+    if "scene tree" in lower or "node" in lower:
+        topics.append("node-lifecycle")
+    if "shader" in lower:
+        topics.append("shader-language")
+    if "physics" in lower:
+        topics.append("physics")
+    return topics
+
+
+def _godot_scene_tree_role(text: str, *, artifact_kind: str, symbol_kind: str = "") -> str:
+    lower = text.lower()
+    if artifact_kind == "engine_proposal" or "migration" in lower:
+        return "migration"
+    if symbol_kind == "signal" or "signal" in lower or "connect" in lower:
+        return "signal-contract"
+    if _godot_lifecycle_callbacks(text) or "scene tree" in lower:
+        return "node-lifecycle"
+    if artifact_kind == "shader_language" or "shader" in lower:
+        return "rendering"
+    if "physics" in lower:
+        return "physics"
+    if any(token in lower for token in ("button", "control", "ui", "container")):
+        return "ui-control"
+    return "reference"
+
+
+def _godot_signal_args(signal: ET.Element) -> list[str]:
+    return [
+        f"{param.attrib.get('name', '')}: {param.attrib.get('type', '')}".strip()
+        for param in signal.findall("param")
+        if param.attrib.get("name") or param.attrib.get("type")
+    ]
+
+
 def _godot_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str, symbol_kind: str = "") -> str:
     lower = f"{rel_path}\n{text}".lower()
     if artifact_kind == "class_reference":
@@ -1881,6 +1955,10 @@ def _godot_metadata(
         tags.append("physics")
     return {
         "scope_tags": tags,
+        "engine_major_version": "4",
+        "lifecycle_callbacks": _godot_lifecycle_callbacks(text),
+        "migration_topics": _godot_migration_topics(f"{rel_path}\n{text}"),
+        "scene_tree_role": _godot_scene_tree_role(text, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
         "constraint_kind": "hard" if artifact_kind in {"class_reference", "shader_language"} else "guiding",
         "constraint_source": "godot-class-reference"
         if artifact_kind == "class_reference"
@@ -1949,20 +2027,34 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
         signals = []
         properties = []
         constants = []
+        method_refs: list[str] = []
+        signal_refs: list[str] = []
+        property_refs: list[str] = []
+        constant_refs: list[str] = []
         for method in class_el.findall("./methods/method"):
             name = method.attrib.get("name", "")
             return_type = method.find("return")
             ret = return_type.attrib.get("type", "") if return_type is not None else ""
             args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in method.findall("param")]
             methods.append(f"{name}({', '.join(args)}) -> {ret}".strip())
+            if name:
+                method_refs.append(f"{class_name}.{name}")
         for signal in class_el.findall("./signals/signal"):
             name = signal.attrib.get("name", "")
-            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in signal.findall("param")]
+            args = _godot_signal_args(signal)
             signals.append(f"{name}({', '.join(args)})")
+            if name:
+                signal_refs.append(f"{class_name}.{name}")
         for prop in class_el.findall("./members/member"):
-            properties.append(f"{prop.attrib.get('name', '')}: {prop.attrib.get('type', '')}")
+            name = prop.attrib.get("name", "")
+            properties.append(f"{name}: {prop.attrib.get('type', '')}")
+            if name:
+                property_refs.append(f"{class_name}.{name}")
         for const in class_el.findall("./constants/constant"):
-            constants.append(f"{const.attrib.get('name', '')}={const.attrib.get('value', '')}")
+            name = const.attrib.get("name", "")
+            constants.append(f"{name}={const.attrib.get('value', '')}")
+            if name:
+                constant_refs.append(f"{class_name}.{name}")
         class_text = "\n".join(
             [
                 f"Class: {class_name}",
@@ -1985,12 +2077,18 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
                 symbol_kind="class",
                 symbol_name=class_name,
                 symbol_fqn=class_name,
-                metadata_extra={"inherits": inherits, "signal_list": signals},
+                metadata_extra={
+                    "node_class": class_name,
+                    "inherits": inherits,
+                    "implements_refs": [inherits] if inherits else [],
+                    "contains_refs": [*method_refs, *signal_refs, *property_refs, *constant_refs],
+                    "signal_list": signals,
+                },
             )
         )
         for signal in class_el.findall("./signals/signal"):
             name = signal.attrib.get("name", "")
-            args = [f"{a.attrib.get('name', '')}: {a.attrib.get('type', '')}" for a in signal.findall("param")]
+            args = _godot_signal_args(signal)
             text = f"Signal: {class_name}.{name}({', '.join(args)})\n\n{_xml_text(signal.find('description'))}".strip()
             chunks.append(
                 _godot_class_row(
@@ -2002,6 +2100,12 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
                     symbol_kind="signal",
                     symbol_name=name,
                     symbol_fqn=f"{class_name}.{name}",
+                    metadata_extra={
+                        "node_class": class_name,
+                        "member_of": class_name,
+                        "signal_name": name,
+                        "signal_args": args,
+                    },
                 )
             )
         for method in class_el.findall("./methods/method"):
@@ -2020,6 +2124,11 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
                     symbol_kind="method",
                     symbol_name=name,
                     symbol_fqn=f"{class_name}.{name}",
+                    metadata_extra={
+                        "node_class": class_name,
+                        "member_of": class_name,
+                        "lifecycle_callbacks": _godot_lifecycle_callbacks(name),
+                    },
                 )
             )
         for prop in class_el.findall("./members/member"):
@@ -2035,6 +2144,7 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
                     symbol_kind="property",
                     symbol_name=name,
                     symbol_fqn=f"{class_name}.{name}",
+                    metadata_extra={"node_class": class_name, "member_of": class_name},
                 )
             )
         for const in class_el.findall("./constants/constant"):
@@ -2050,6 +2160,7 @@ def _extract_godot_class_reference(source_root: Path, *, config: dict[str, Any],
                     symbol_kind="constant",
                     symbol_name=name,
                     symbol_fqn=f"{class_name}.{name}",
+                    metadata_extra={"node_class": class_name, "member_of": class_name},
                 )
             )
     return chunks
@@ -2133,11 +2244,73 @@ def _extract_godot_shader_chunks(source_root: Path, *, config: dict[str, Any], t
     return chunks
 
 
+def _godot_word_present(needle: str, haystack: str) -> bool:
+    if not needle:
+        return False
+    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle)}(?![A-Za-z0-9_])", haystack))
+
+
+def _attach_godot_doc_references(chunks: list[LanguageChunk]) -> None:
+    class_names = sorted(
+        {
+            chunk.symbol_fqn
+            for chunk in chunks
+            if chunk.artifact_kind == "class_reference" and chunk.symbol_kind == "class" and chunk.symbol_fqn
+        },
+        key=len,
+        reverse=True,
+    )
+    symbol_fqns = sorted(
+        {
+            chunk.symbol_fqn
+            for chunk in chunks
+            if chunk.artifact_kind == "class_reference" and chunk.symbol_kind != "class" and chunk.symbol_fqn
+        },
+        key=len,
+        reverse=True,
+    )
+    signals_by_leaf: dict[str, list[str]] = {}
+    for chunk in chunks:
+        if chunk.artifact_kind != "class_reference" or chunk.symbol_kind != "signal" or not chunk.symbol_fqn:
+            continue
+        signals_by_leaf.setdefault(chunk.symbol_name, []).append(chunk.symbol_fqn)
+    unique_signals = {leaf: refs[0] for leaf, refs in signals_by_leaf.items() if leaf and len(refs) == 1}
+
+    for chunk in chunks:
+        if chunk.artifact_kind == "class_reference":
+            continue
+        haystack = f"{chunk.heading_path}\n{chunk.section}\n{chunk.text}"
+        lower = haystack.lower()
+        refs: list[str] = []
+        for class_name in class_names:
+            if _godot_word_present(class_name, haystack):
+                refs.append(class_name)
+        for symbol_fqn in symbol_fqns:
+            if symbol_fqn in haystack:
+                refs.append(symbol_fqn)
+        if any(token in lower for token in ("signal", "connect", "await")):
+            for leaf, signal_fqn in unique_signals.items():
+                if _godot_word_present(leaf, haystack):
+                    refs.append(signal_fqn)
+        for callback in _godot_lifecycle_callbacks(haystack):
+            refs.append(f"godot:lifecycle:{callback}")
+        if chunk.metadata.get("migration_topics"):
+            for topic in chunk.metadata["migration_topics"]:
+                refs.append(f"godot:topic:{topic}")
+        refs = _unique_metadata_values(chunk.metadata.get("doc_relation_ids"), refs)
+        if not refs:
+            continue
+        chunk.metadata["doc_relation_ids"] = refs
+        if chunk.artifact_kind in {"engine_manual", "engine_proposal"}:
+            chunk.metadata["documents_refs"] = _unique_metadata_values(chunk.metadata.get("documents_refs"), refs)
+
+
 def extract_godot_chunks(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
     chunks: list[LanguageChunk] = []
     chunks.extend(_extract_godot_class_reference(source_root, config=config, tag=tag))
     chunks.extend(_extract_godot_docs(source_root, config=config, tag=tag))
     chunks.extend(_extract_godot_shader_chunks(source_root, config=config, tag=tag))
+    _attach_godot_doc_references(chunks)
     for idx, chunk in enumerate(chunks):
         chunk.chunk_index = idx
     return chunks
@@ -2825,11 +2998,36 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
         }
     if language.lower() == "godot":
         signal_list = chunk.metadata.get("signal_list") if isinstance(chunk.metadata.get("signal_list"), list) else []
+        signal_args = chunk.metadata.get("signal_args") if isinstance(chunk.metadata.get("signal_args"), list) else []
+        lifecycle_callbacks = (
+            chunk.metadata.get("lifecycle_callbacks")
+            if isinstance(chunk.metadata.get("lifecycle_callbacks"), list)
+            else _godot_lifecycle_callbacks(chunk.text)
+        )
+        migration_topics = (
+            chunk.metadata.get("migration_topics") if isinstance(chunk.metadata.get("migration_topics"), list) else []
+        )
         return {
             "agent_hook": f"Use this Godot {chunk.symbol_kind or 'documentation'} chunk for {chunk.symbol_fqn or chunk.document_name}.",
             "perf_tier": "unknown",
             "safety_contract": "Validate scene-tree lifecycle, signal routing, threading, rendering/physics boundaries, and Godot 4.x API behavior against the source text.",
             "lifecycle_model": "No model-derived lifecycle summary is available; rely on the official Godot class/docs source in this chunk.",
+            "node_class": str(
+                chunk.metadata.get("node_class")
+                or (chunk.symbol_fqn if chunk.symbol_kind == "class" else "")
+                or ""
+            ),
+            "inherits": str(chunk.metadata.get("inherits") or ""),
+            "member_of": str(chunk.metadata.get("member_of") or ""),
+            "signal_name": str(chunk.metadata.get("signal_name") or (chunk.symbol_name if chunk.symbol_kind == "signal" else "")),
+            "signal_args": signal_args,
+            "lifecycle_callbacks": lifecycle_callbacks,
+            "scene_tree_role": str(
+                chunk.metadata.get("scene_tree_role")
+                or _godot_scene_tree_role(chunk.text, artifact_kind=chunk.artifact_kind, symbol_kind=chunk.symbol_kind)
+            ),
+            "engine_major_version": str(chunk.metadata.get("engine_major_version") or "4"),
+            "migration_topics": migration_topics,
             "node_compatibility": "unknown",
             "signal_list": signal_list,
             "signal_contract": "unknown",
@@ -3287,106 +3485,117 @@ def _build_rows(
             import_refs = import_refs or _join_csv([extract_import_refs(chunk.text, language)])
             call_refs = call_refs or _join_csv([extract_call_refs(chunk.text, language)])
         chunk_id = chunk_id_hash(chunk.text, f"{pack_id}:{chunk.doc_id}:{chunk.section}")
-        rows.append(
-            catalog_entity(
-                chunk_id=chunk_id,
-                text=chunk.text,
-                embedding=embedding,
-                doc_id=chunk.doc_id,
-                chunk_index=chunk.chunk_index,
-                context_prefix=str(enrichment.get("agent_hook", "") or ""),
-                chunk_summary=str(enrichment.get("agent_hook", "") or ""),
-                heading_path=chunk.heading_path,
-                section=chunk.section,
-                document_name=chunk.document_name,
-                source_type="docs",
-                handler="language_pack",
-                domain=domain,
-                tags=_join_csv(
-                    [f"language-pack,{language}", f"doc-language:{doc_language}", chunk.metadata.get("scope_tags", [])]
-                ),
-                keywords=",".join(str(x) for x in [chunk.package_name, chunk.symbol_kind, chunk.symbol_name] if x),
-                origin_type="curated",
-                authority="vetted",
-                pack_id=pack_id,
-                pack_version=pack_version,
-                pack_source_version=source_version,
-                pack_partition=pack_id,
-                symbol_kind=chunk.symbol_kind,
-                symbol_fqn=chunk.symbol_fqn,
-                package_name=chunk.package_name,
-                source_url=chunk.source_url,
-                agent_hook=str(enrichment.get("agent_hook", "") or ""),
-                perf_tier=str(enrichment.get("perf_tier", "") or ""),
-                safety_contract=str(enrichment.get("safety_contract", "") or ""),
-                lifecycle_model=str(enrichment.get("lifecycle_model", "") or ""),
-                agent_enrichment_json=_agent_json(enrichment),
-                scan_status=status,
-                scan_signals=",".join(signals),
-                content_format=chunk.content_format,
-                symbol_type=chunk.symbol_kind,
-                language=language,
-                repo_path=str(
-                    chunk.metadata.get("repo_path")
-                    or (
-                        "golang/go"
-                        if language == "go"
-                        else "rust-lang/rust"
-                        if language == "rust"
-                        else "quarkusio/quarkus"
-                        if language == "quarkus"
-                        else "python/cpython"
-                        if language == "python"
-                        else "godotengine/godot"
-                        if language == "godot"
-                        else "tc39/proposals"
-                        if language == "ecma"
-                        else "hashicorp/terraform"
-                    )
-                ),
-                module_path=chunk.module_path,
-                symbol_name=chunk.symbol_name,
-                import_refs=import_refs,
-                call_refs=call_refs,
-                artifact_kind=chunk.artifact_kind,
-                has_code=has_code,
-                code_signal_count=code_signal_count,
-                code_density=code_density,
-                code_language=language if has_code else "",
-                corpus_class="coder_enriched",
-                constraint_kind=str(chunk.metadata.get("constraint_kind") or ""),
-                content_profile=str(chunk.metadata.get("content_profile") or "reference"),
-                scope_tags=_join_csv([chunk.metadata.get("scope_tags", [])]),
-                constraint_source=str(chunk.metadata.get("constraint_source") or ""),
-                constraint_confidence=1.0
-                if chunk.metadata.get("constraint_kind") == "hard"
-                else 0.85
-                if chunk.metadata.get("constraint_kind")
-                else -1.0,
-                crawl_timestamp=int(time.time() * 1000),
-                raw_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
-                clean_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
-                enrichment_profile=str(
-                    enrichment.get("prompt_id")
-                    or chunk.prompt_id
-                    or (
-                        GO_PROMPT_ID
-                        if language == "go"
-                        else RUST_PROMPT_ID
-                        if language == "rust"
-                        else QUARKUS_PROMPT_ID
-                        if language == "quarkus"
-                        else PYTHON_PROMPT_ID
-                        if language == "python"
-                        else GODOT_PROMPT_ID
-                        if language == "godot"
-                        else ECMA_PROMPT_ID
-                        if language == "ecma"
-                        else TERRAFORM_PROMPT_ID
-                    )
-                ),
-            )
+        row = catalog_entity(
+            chunk_id=chunk_id,
+            text=chunk.text,
+            embedding=embedding,
+            doc_id=chunk.doc_id,
+            chunk_index=chunk.chunk_index,
+            context_prefix=str(enrichment.get("agent_hook", "") or ""),
+            chunk_summary=str(enrichment.get("agent_hook", "") or ""),
+            heading_path=chunk.heading_path,
+            section=chunk.section,
+            document_name=chunk.document_name,
+            source_type="docs",
+            handler="language_pack",
+            domain=domain,
+            tags=_join_csv(
+                [f"language-pack,{language}", f"doc-language:{doc_language}", chunk.metadata.get("scope_tags", [])]
+            ),
+            keywords=",".join(str(x) for x in [chunk.package_name, chunk.symbol_kind, chunk.symbol_name] if x),
+            origin_type="curated",
+            authority="vetted",
+            pack_id=pack_id,
+            pack_version=pack_version,
+            pack_source_version=source_version,
+            pack_partition=pack_id,
+            symbol_kind=chunk.symbol_kind,
+            symbol_fqn=chunk.symbol_fqn,
+            package_name=chunk.package_name,
+            doc_relation_ids=_join_csv([chunk.metadata.get("doc_relation_ids", [])]),
+            source_url=chunk.source_url,
+            agent_hook=str(enrichment.get("agent_hook", "") or ""),
+            perf_tier=str(enrichment.get("perf_tier", "") or ""),
+            safety_contract=str(enrichment.get("safety_contract", "") or ""),
+            lifecycle_model=str(enrichment.get("lifecycle_model", "") or ""),
+            agent_enrichment_json=_agent_json(enrichment),
+            scan_status=status,
+            scan_signals=",".join(signals),
+            content_format=chunk.content_format,
+            symbol_type=chunk.symbol_kind,
+            language=language,
+            repo_path=str(
+                chunk.metadata.get("repo_path")
+                or (
+                    "golang/go"
+                    if language == "go"
+                    else "rust-lang/rust"
+                    if language == "rust"
+                    else "quarkusio/quarkus"
+                    if language == "quarkus"
+                    else "python/cpython"
+                    if language == "python"
+                    else "godotengine/godot"
+                    if language == "godot"
+                    else "tc39/proposals"
+                    if language == "ecma"
+                    else "hashicorp/terraform"
+                )
+            ),
+            module_path=chunk.module_path,
+            symbol_name=chunk.symbol_name,
+            import_refs=import_refs,
+            call_refs=call_refs,
+            artifact_kind=chunk.artifact_kind,
+            has_code=has_code,
+            code_signal_count=code_signal_count,
+            code_density=code_density,
+            code_language=language if has_code else "",
+            corpus_class="coder_enriched",
+            constraint_kind=str(chunk.metadata.get("constraint_kind") or ""),
+            content_profile=str(chunk.metadata.get("content_profile") or "reference"),
+            scope_tags=_join_csv([chunk.metadata.get("scope_tags", [])]),
+            constraint_source=str(chunk.metadata.get("constraint_source") or ""),
+            constraint_confidence=1.0
+            if chunk.metadata.get("constraint_kind") == "hard"
+            else 0.85
+            if chunk.metadata.get("constraint_kind")
+            else -1.0,
+            crawl_timestamp=int(time.time() * 1000),
+            raw_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
+            clean_content_hash=hashlib.sha256(chunk.text.encode()).hexdigest(),
+            enrichment_profile=str(
+                enrichment.get("prompt_id")
+                or chunk.prompt_id
+                or (
+                    GO_PROMPT_ID
+                    if language == "go"
+                    else RUST_PROMPT_ID
+                    if language == "rust"
+                    else QUARKUS_PROMPT_ID
+                    if language == "quarkus"
+                    else PYTHON_PROMPT_ID
+                    if language == "python"
+                    else GODOT_PROMPT_ID
+                    if language == "godot"
+                    else ECMA_PROMPT_ID
+                    if language == "ecma"
+                    else TERRAFORM_PROMPT_ID
+                )
+            ),
         )
+        for key in (
+            "contains_refs",
+            "documents_refs",
+            "implements_refs",
+            "overrides_refs",
+            "valid_in_refs",
+            "derived_from_refs",
+        ):
+            value = _join_csv([chunk.metadata.get(key, [])])
+            if value:
+                row[key] = value
+        rows.append(row)
     return rows
 
 

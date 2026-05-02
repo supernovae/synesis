@@ -1136,6 +1136,15 @@ def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch,
 """,
         encoding="utf-8",
     )
+    (source / "doc" / "classes" / "BaseButton.xml").write_text(
+        """
+<class name="BaseButton" inherits="Control">
+  <brief_description>Base class for button controls.</brief_description>
+  <description>Defines shared button behavior for UI controls.</description>
+</class>
+""",
+        encoding="utf-8",
+    )
     (source / "doc" / "classes" / "Area2D.xml").write_text(
         """
 <class name="Area2D" inherits="CollisionObject2D">
@@ -1192,6 +1201,7 @@ def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch,
     assert "godot_class_reference_architect_v1" in manifest["enrichment"]["prompt_hashes"]
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+        edges = [json.loads(line) for line in zf.read("edges.jsonl").decode().splitlines()]
     assert any(row["artifact_kind"] == "class_reference" and row["symbol_kind"] == "class" for row in rows)
     assert any(
         row["artifact_kind"] == "class_reference"
@@ -1204,9 +1214,40 @@ def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch,
     assert any(row["artifact_kind"] == "shader_language" for row in rows)
     assert any("signals" in row["scope_tags"] for row in rows)
     signal_row = next(row for row in rows if row["symbol_fqn"] == "Button.pressed")
-    assert json.loads(signal_row["agent_enrichment_json"])["signal_contract"] == "unknown"
+    signal_json = json.loads(signal_row["agent_enrichment_json"])
+    assert signal_json["signal_contract"] == "unknown"
+    assert signal_json["member_of"] == "Button"
+    assert signal_json["signal_name"] == "pressed"
+    assert signal_json["signal_args"] == []
     class_row = next(row for row in rows if row["symbol_fqn"] == "Button")
-    assert json.loads(class_row["agent_enrichment_json"])["signal_list"] == ["pressed()"]
+    class_json = json.loads(class_row["agent_enrichment_json"])
+    assert class_json["signal_list"] == ["pressed()"]
+    assert class_json["node_class"] == "Button"
+    assert class_json["inherits"] == "BaseButton"
+    assert class_json["engine_major_version"] == "4"
+    assert class_row["contains_refs"] == "Button.set_text,Button.pressed,Button.text,Button.ALIGN_CENTER"
+    assert class_row["implements_refs"] == "BaseButton"
+    manual_row = next(row for row in rows if row["artifact_kind"] == "engine_manual" and "signals.rst" in row["module_path"])
+    manual_json = json.loads(manual_row["agent_enrichment_json"])
+    assert manual_json["lifecycle_callbacks"] == ["_ready"]
+    assert "Button.pressed" in manual_row["doc_relation_ids"]
+    proposal_row = next(row for row in rows if row["artifact_kind"] == "engine_proposal")
+    proposal_json = json.loads(proposal_row["agent_enrichment_json"])
+    assert "godot-3-to-4" in proposal_json["migration_topics"]
+    assert any(
+        edge["type"] == "IMPLEMENTS" and edge["source_id"] == "Button" and edge["target_id"] == "BaseButton"
+        for edge in edges
+    )
+    assert any(
+        edge["type"] == "CONTAINS" and edge["source_id"] == "Button" and edge["target_id"] == "Button.pressed"
+        for edge in edges
+    )
+    assert any(
+        edge["type"] == "DOCUMENTS"
+        and edge["source_id"] == manual_row["id"]
+        and edge["target_id"] == "godot:lifecycle:_ready"
+        for edge in edges
+    )
 
 
 def test_build_language_pack_from_terraform_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

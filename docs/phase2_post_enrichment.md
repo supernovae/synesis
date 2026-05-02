@@ -36,17 +36,38 @@ upper harness more decisive for small and OSS coding models.
 
 ## Godot Scene And Asset Awareness
 
+- Current Godot SynPacks should use NornicDB as an engine-reference graph, not
+  only a vector corpus. Official class XML rows can emit `IMPLEMENTS` edges for
+  class inheritance, `CONTAINS` edges from class rows to methods/properties/
+  signals/constants, and `DOCUMENTS`/`REFERENCES` edges from manuals and
+  proposals to exact classes, signals, lifecycle callbacks, and Godot 3.x to
+  4.x migration topics.
+- Keep pack-specific Godot fields in `agent_enrichment_json` until usage proves
+  they need first-class indexes: `node_class`, `inherits`, `member_of`,
+  `signal_name`, `signal_args`, `lifecycle_callbacks`, `scene_tree_role`,
+  `engine_major_version`, and `migration_topics`.
 - Add a guarded `godot_scene_mapper` MCP tool that reads `.tscn`, `.scn`, and
   project settings to summarize the active scene tree before an agent edits
   scripts.
+- Let the mapper run as either a pack-enabled capability or a standalone
+  workspace tool. When a Godot SynPack is installed, join local scene nodes and
+  scripts to official `class_reference` graph symbols; when it is not installed,
+  still return a local-only map that the harness can use for navigation.
 - Use Godot pack metadata to join local scene nodes to class-reference rows:
   `node_compatibility`, `signal_contract`, lifecycle order, thread safety, and
   legacy Godot 3.x warnings.
 - Consider a local-only scene map partition for large games: node path, script
   path, groups, exported properties, signals, autoloads, input map actions, and
   resource dependencies.
+- Include reusable graph rows for `project.godot` settings, autoloads, input map
+  actions, script-to-scene ownership, signal connections, exported properties,
+  resource dependencies, and scene inheritance. These should live in a
+  workspace/session partition, never the global official pack.
 - Add headless validation helpers for `godot --headless --check-only`,
   GDScript parse checks, imported resource checks, and minimal scene smoke runs.
+- Generalize the mapper pattern later for other SDK/framework packs: official
+  reference graph plus local project graph, connected by stable symbol IDs and
+  kept private unless the user intentionally archives it.
 - Track fine-tuning export formats from enriched rows: prompt, raw source
   excerpt, enrichment JSON, and preferred agent advice pairs. Godot is a good
   candidate because Godot 3.x/4.x differences are compact and high-impact.

@@ -112,6 +112,29 @@ def test_code_graph_resolves_import_to_pack_file():
     )
 
 
+def test_metadata_refs_derive_semantic_graph_edges():
+    edges = derive_graph_edges(
+        [
+            {
+                "id": "button-class-chunk",
+                "symbol_fqn": "Button",
+                "contains_refs": "Button.pressed,Button.set_text",
+                "implements_refs": "BaseButton",
+            },
+            {
+                "id": "signals-doc-chunk",
+                "documents_refs": "Button.pressed,godot:lifecycle:_ready",
+                "doc_relation_ids": "Button.pressed",
+            },
+        ]
+    )
+
+    assert any(edge["type"] == "CONTAINS" and edge["source_id"] == "Button" and edge["target_id"] == "Button.pressed" for edge in edges)
+    assert any(edge["type"] == "IMPLEMENTS" and edge["source_id"] == "Button" and edge["target_id"] == "BaseButton" for edge in edges)
+    assert any(edge["type"] == "DOCUMENTS" and edge["source_id"] == "signals-doc-chunk" and edge["target_id"] == "godot:lifecycle:_ready" for edge in edges)
+    assert any(edge["type"] == "REFERENCES" and edge["source_id"] == "signals-doc-chunk" and edge["target_id"] == "Button.pressed" for edge in edges)
+
+
 def test_lightweight_code_reference_extractors():
     assert set(_extract_import_refs("from pkg.mod import thing\nimport os\n", "python")) == {"pkg.mod", "os"}
     calls = _extract_call_refs("if ready:\n    client.fetch(url)\n    helper()\n", "python")
