@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import Fastify from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { Registry } from "prom-client";
-import { generateText, streamText } from "ai";
+import { generateText, jsonSchema, Output as aiOutput, streamText } from "ai";
 import {
   createServiceMetrics,
   recordUsageMetrics,
@@ -27,7 +27,12 @@ import {
   type ClaudeMessagesRequest,
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
-import { shouldIncludeStreamUsage, toOpenAiUsage } from "./openai-compat.js";
+import {
+  shouldIncludeStreamUsage,
+  toAiSdkJsonResponseFormat,
+  toOpenAiUsage,
+  type AiSdkJsonResponseFormat,
+} from "./openai-compat.js";
 import {
   buildClaudeBootstrapTemplate,
   executeClaudeCompatCommand,
@@ -3293,6 +3298,32 @@ function suppressThinkingWhenRequiredToolChoice(
       openai: nextOpenaiOptions,
     },
     suppressed: true,
+  };
+}
+
+function buildOpenAiJsonOutput(format: AiSdkJsonResponseFormat | undefined) {
+  if (!format) return undefined;
+  if ("schema" in format) {
+    return aiOutput.object({
+      schema: jsonSchema(format.schema),
+      ...(format.name ? { name: format.name } : {}),
+      ...(format.description ? { description: format.description } : {}),
+    });
+  }
+  return aiOutput.json();
+}
+
+function applyOpenAiJsonSchemaStrictness(
+  providerOptions: Record<string, Record<string, unknown>> | undefined,
+  format: AiSdkJsonResponseFormat | undefined,
+): Record<string, Record<string, unknown>> | undefined {
+  if (!format || !("strict" in format) || format.strict === undefined) return providerOptions;
+  return {
+    ...(providerOptions ?? {}),
+    openai: {
+      ...((providerOptions?.openai ?? {}) as Record<string, unknown>),
+      strictJsonSchema: format.strict,
+    },
   };
 }
 
@@ -9253,6 +9284,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         },
       }
     : adapterProviderOptions;
+  const oaiJsonResponseFormat = toAiSdkJsonResponseFormat(request.response_format);
+  const oaiStructuredOutput = buildOpenAiJsonOutput(oaiJsonResponseFormat);
+  oaiProviderOptions = applyOpenAiJsonSchemaStrictness(oaiProviderOptions, oaiJsonResponseFormat);
   const oaiThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
     oaiProviderOptions,
     effectiveToolChoice as PhaseAwareToolChoice | undefined,
@@ -9433,6 +9467,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         maxOutputTokens: clampMaxOutputTokensForSafety(
           Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
         ),
+        ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
         ...oaiSamplingOptions,
         ...(sdkTools ? { tools: sdkTools } : {}),
         ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
@@ -9473,6 +9508,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           maxOutputTokens: clampMaxOutputTokensForSafety(
             Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
           ),
+          ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
           ...oaiSamplingOptions,
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
@@ -9516,6 +9552,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             maxOutputTokens: clampMaxOutputTokensForSafety(
               Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
             ),
+            ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
             ...oaiSamplingOptions,
             ...(sdkTools ? { tools: sdkTools } : {}),
             ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
@@ -9621,6 +9658,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           maxOutputTokens: clampMaxOutputTokensForSafety(
             Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
           ),
+          ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
           ...oaiSamplingOptions,
           ...(sdkTools ? { tools: sdkTools } : {}),
           ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
@@ -10229,6 +10267,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maxOutputTokens: clampMaxOutputTokensForSafety(
       Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
     ),
+    ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
     ...oaiSamplingOptions,
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),

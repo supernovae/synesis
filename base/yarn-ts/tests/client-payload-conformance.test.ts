@@ -72,6 +72,34 @@ describe("client payload conformance fixtures", () => {
     expect(assistant).toBeDefined();
   });
 
+  it("accepts OpenAI JSON response formats for agents that request structured output", () => {
+    const jsonObject = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Return JSON." }],
+      response_format: { type: "json_object" },
+    });
+    expect(jsonObject.success).toBe(true);
+
+    const jsonSchema = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Return JSON." }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "agent_result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { status: { type: "string" } },
+            required: ["status"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    expect(jsonSchema.success).toBe(true);
+  });
+
   it("codex-cli fixture sanitizes malformed tool IDs and maps tool_choice", () => {
     const body = loadFixture("codex-cli", "openai_malformed_tool_payload.json");
     const parsed = OpenAIChatCompletionRequestSchema.safeParse(body);
@@ -188,4 +216,3 @@ describe("client payload conformance fixtures", () => {
     }
   });
 });
-

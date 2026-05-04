@@ -9,6 +9,24 @@ export const ChatMessageSchema = z.object({
   tool_call_id: z.string().optional()
 });
 
+export const OpenAIResponseFormatSchema = z.union([
+  z.object({
+    type: z.literal("text"),
+  }).passthrough(),
+  z.object({
+    type: z.literal("json_object"),
+  }).passthrough(),
+  z.object({
+    type: z.literal("json_schema"),
+    json_schema: z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      schema: z.record(z.string(), z.unknown()).optional(),
+      strict: z.boolean().optional(),
+    }).passthrough(),
+  }).passthrough(),
+]);
+
 export const OpenAIChatCompletionRequestSchema = z.object({
   model: z.string().default("auto"),
   messages: z.array(ChatMessageSchema),
@@ -27,6 +45,7 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   }).passthrough().optional(),
   tools: z.array(z.any()).optional(),
   tool_choice: z.any().optional(),
+  response_format: OpenAIResponseFormatSchema.optional(),
   user: z.string().optional(),
   conversation_id: z.string().optional()
 }).passthrough();
