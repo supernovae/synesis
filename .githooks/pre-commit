@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+staged_python_files=()
+while IFS= read -r file; do
+    staged_python_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+
+if [ "${#staged_python_files[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+if ! command -v uvx >/dev/null 2>&1; then
+    echo "pre-commit: uvx is required to run Ruff." >&2
+    echo "Install uv from https://docs.astral.sh/uv/ and retry the commit." >&2
+    exit 1
+fi
+
+echo "pre-commit: running Ruff on staged Python files"
+uvx ruff check --fix "${staged_python_files[@]}"
+uvx ruff format "${staged_python_files[@]}"
+
+if ! git diff --quiet -- "${staged_python_files[@]}"; then
+    echo "pre-commit: Ruff updated files. Review and stage the changes, then commit again." >&2
+    exit 1
+fi

@@ -262,11 +262,9 @@ async def _restart_deployment(namespace: str, deployment: str) -> None:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
             resp = await client.patch(url, headers=headers, json=body, timeout=_HTTP_TIMEOUT_SECONDS)
             resp.raise_for_status()
-            logger.info("provider_key_consumer_restart_triggered namespace=%s deployment=%s", namespace, deployment)
+            logger.info("provider_key_consumer_restart_triggered")
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning(
-            "provider_key_consumer_restart_failed namespace=%s deployment=%s", namespace, deployment, exc_info=True
-        )
+        logger.warning("provider_key_consumer_restart_failed", exc_info=True)
         detail = (
             f"{_k8s_error_detail(f'Restarting {namespace}/{deployment}', exc)}. "
             "Provider key was saved, but one or more services may still have stale env vars."
