@@ -1,0 +1,50 @@
+{{- if .Values.networkPolicies.enabled }}
+{{- $root := . -}}
+{{- $namespaces := dict -}}
+{{- range $key, $namespace := .Values.namespaces }}
+{{- $_ := set $namespaces $namespace true -}}
+{{- end }}
+{{- range $namespace, $_ := $namespaces }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: synesis-baseline
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "synesis.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: synesis-baseline
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: synesis
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if $root.Values.networkPolicies.ingress.allowAll }}
+  ingress:
+    - {}
+  {{- else }}
+  ingress:
+  {{- range $peerNamespace := $root.Values.namespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $peerNamespace }}
+  {{- end }}
+  {{- range $peerNamespace := $root.Values.networkPolicies.ingress.extraNamespaceNames }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $peerNamespace }}
+  {{- end }}
+  {{- end }}
+  {{- if $root.Values.networkPolicies.egress.allowAll }}
+  egress:
+    - {}
+  {{- else }}
+  egress: []
+  {{- end }}
+{{- end }}
+{{- end }}

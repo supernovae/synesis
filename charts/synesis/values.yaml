@@ -287,6 +287,20 @@ routes:
       host: auth-admin.apps.example.com
       timeout: 300s
 
+networkPolicies:
+  enabled: true
+  # Baseline policies are intentionally non-disruptive: they associate every
+  # Synesis workload with a NetworkPolicy while preserving the chart's default
+  # cloud-provider and external-model access paths.
+  ingress:
+    allowAll: false
+    extraNamespaceNames:
+      - openshift-ingress
+      - openshift-monitoring
+      - openshift-user-workload-monitoring
+  egress:
+    allowAll: true
+
 persistence:
   webui:
     enabled: true
