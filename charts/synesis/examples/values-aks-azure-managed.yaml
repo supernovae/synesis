@@ -1,0 +1,155 @@
+# AKS example using Azure Database for PostgreSQL Flexible Server and
+# Azure Cache for Redis. Operators are assumed to be installed outside Helm.
+
+global:
+  provider: aks
+  openshift: false
+
+operators:
+  installWithOLM: false
+  cloudnativepg:
+    enabled: false
+  keycloak:
+    enabled: false
+  redkey:
+    enabled: false
+
+routes:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: synesis-tls
+  items:
+    synesis-api:
+      namespace: gateway
+      service: litellm-proxy
+      port: http
+      host: api.synesis.example.com
+      path: /
+      pathType: Prefix
+    synesis-admin:
+      namespace: admin
+      service: synesis-admin
+      port: http
+      host: admin.synesis.example.com
+      path: /
+      pathType: Prefix
+    synesis-webui:
+      namespace: webui
+      service: open-webui
+      port: http
+      host: chat.synesis.example.com
+      path: /
+      pathType: Prefix
+    synesis-yarn:
+      namespace: yarn
+      service: synesis-yarn
+      port: http
+      host: coder.synesis.example.com
+      path: /
+      pathType: Prefix
+    synesis-auth:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth.synesis.example.com
+      path: /
+      pathType: Prefix
+    synesis-auth-admin:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth-admin.synesis.example.com
+      path: /
+      pathType: Prefix
+
+postgres:
+  mode: azureFlexible
+  azureFlexible:
+    host: synesis-postgres.postgres.database.azure.com
+    port: 5432
+    sslmode: require
+    admin:
+      database: synesis_admin
+      username: app
+      password: replace-me
+    keycloak:
+      database: keycloak
+      username: app
+      password: replace-me
+    openfga:
+      database: openfga
+      username: openfga
+      password: replace-me
+
+kv:
+  mode: azureRedis
+  azureRedis:
+    host: synesis-cache.redis.cache.windows.net
+    port: 6380
+    password: replace-me
+    database: 3
+    tls: true
+
+keycloak:
+  publicUrl: https://auth.synesis.example.com
+  adminUrl: https://auth-admin.synesis.example.com
+  additionalOptions:
+    - name: features
+      value: organization
+    - name: db-url-properties
+      value: "?sslmode=require"
+  operatorIngress:
+    enabled: false
+  realmImport:
+    webuiRedirectUris:
+      - https://chat.synesis.example.com/*
+    webuiWebOrigins:
+      - https://chat.synesis.example.com
+    adminRedirectUris:
+      - https://admin.synesis.example.com/*
+    adminWebOrigins:
+      - https://admin.synesis.example.com
+
+workloads:
+  webui:
+    env:
+      - name: OPENAI_API_BASE_URL
+        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+      - name: WEBUI_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: webui-api-key
+            key: api-key
+      - name: WEBUI_AUTH
+        value: "true"
+      - name: ENABLE_LOGIN_FORM
+        value: "false"
+      - name: ENABLE_OAUTH_SIGNUP
+        value: "true"
+      - name: OPENID_PROVIDER_URL
+        value: https://auth.synesis.example.com/realms/synesis/.well-known/openid-configuration
+      - name: OAUTH_CLIENT_ID
+        value: synesis-webui
+      - name: OAUTH_CODE_CHALLENGE_METHOD
+        value: S256
+      - name: OPENID_REDIRECT_URI
+        value: https://chat.synesis.example.com/oauth/oidc/callback
+      - name: WEBUI_URL
+        value: https://chat.synesis.example.com
+      - name: ENABLE_API_KEYS
+        value: "true"
+      - name: ENABLE_OLLAMA_API
+        value: "false"
+      - name: WEBUI_NAME
+        value: Synesis

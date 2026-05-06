@@ -1,4 +1,5 @@
-{{- if and .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.createNamespace }}
+{{- $olmEnabled := eq (include "synesis.olmEnabled" .) "true" -}}
+{{- if and $olmEnabled .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.createNamespace }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -7,7 +8,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: synesis
 {{- end }}
-{{- if and .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.operatorGroup }}
+{{- if and $olmEnabled .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.operatorGroup }}
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -18,7 +19,7 @@ spec:
   targetNamespaces:
     - {{ .Values.operators.cloudnativepg.namespace }}
 {{- end }}
-{{- if .Values.operators.cloudnativepg.enabled }}
+{{- if and $olmEnabled .Values.operators.cloudnativepg.enabled }}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -33,7 +34,7 @@ spec:
   sourceNamespace: {{ .Values.operators.cloudnativepg.subscription.sourceNamespace }}
 {{- end }}
 
-{{- if and .Values.operators.keycloak.enabled .Values.operators.keycloak.operatorGroup }}
+{{- if and $olmEnabled .Values.operators.keycloak.enabled .Values.operators.keycloak.operatorGroup }}
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -44,7 +45,7 @@ spec:
   targetNamespaces:
     - {{ .Values.operators.keycloak.namespace }}
 {{- end }}
-{{- if .Values.operators.keycloak.enabled }}
+{{- if and $olmEnabled .Values.operators.keycloak.enabled }}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -59,7 +60,7 @@ spec:
   sourceNamespace: {{ .Values.operators.keycloak.subscription.sourceNamespace }}
 {{- end }}
 
-{{- if and .Values.operators.redkey.enabled .Values.operators.redkey.createNamespace }}
+{{- if and $olmEnabled .Values.operators.redkey.enabled .Values.operators.redkey.createNamespace }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -68,7 +69,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: synesis
 {{- end }}
-{{- if and .Values.operators.redkey.enabled .Values.operators.redkey.operatorGroup }}
+{{- if and $olmEnabled .Values.operators.redkey.enabled .Values.operators.redkey.operatorGroup }}
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -79,7 +80,7 @@ spec:
   targetNamespaces:
     - {{ .Values.operators.redkey.namespace }}
 {{- end }}
-{{- if .Values.operators.redkey.enabled }}
+{{- if and $olmEnabled .Values.operators.redkey.enabled }}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

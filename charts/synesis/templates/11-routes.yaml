@@ -1,4 +1,4 @@
-{{- if and .Values.global.openshift .Values.routes.enabled }}
+{{- if and (eq (include "synesis.isOpenShift" .) "true") .Values.routes.enabled }}
 {{- range $name, $route := .Values.routes.items }}
 {{- $host := include "synesis.host" (dict "root" $ "name" $name "host" $route.host) -}}
 {{- $ns := include "synesis.namespace" (dict "root" $ "key" $route.namespace) -}}

@@ -34,8 +34,9 @@ spec:
         name: {{ $db.name }}-app
   storage:
     size: {{ $db.storage.size }}
-    {{- if $db.storage.storageClass }}
-    storageClass: {{ $db.storage.storageClass }}
+    {{- $storageClass := include "synesis.storageClass" (dict "root" $ "key" "postgres" "storageClass" $db.storage.storageClass) }}
+    {{- if $storageClass }}
+    storageClass: {{ $storageClass }}
     {{- end }}
   resources:
     {{- toYaml $db.resources | nindent 4 }}

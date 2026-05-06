@@ -1,8 +1,8 @@
 # Synesis Helm values.
 #
 # Backend modes:
-#   postgres.mode: cloudnativepg | external
-#   kv.mode:       redkey | external
+#   postgres.mode: cloudnativepg | external | azureFlexible
+#   kv.mode:       redkey | external | azureRedis
 #
 # "redkey" intentionally means a Redis-compatible open source KV backend, with
 # Valkey/RedKey-style operator CRs by default. The app still consumes redis://
@@ -19,8 +19,31 @@ global:
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   clusterDomain: cluster.local
+  # Provider controls cloud-specific defaults. Use "auto" for best-effort
+  # detection, or set explicitly to openshift, aks, eks, gke, or kubernetes.
+  provider: openshift
+  # Deprecated compatibility switch. Prefer global.provider=openshift.
   openshift: true
   routeDomain: apps.example.com
+
+platform:
+  storage:
+    # If a PVC/database storageClass is unset, use provider defaults below.
+    useProviderDefaults: true
+    defaultClass: ""
+    postgresClass: ""
+    webuiClass: ""
+    nornicdbClass: ""
+  openshift:
+    storageClass: ""
+  aks:
+    storageClass: managed-csi
+  eks:
+    storageClass: gp3
+  gke:
+    storageClass: standard-rwo
+  kubernetes:
+    storageClass: ""
 
 namespaces:
   admin: synesis-admin
@@ -36,6 +59,9 @@ namespaces:
   models: synesis-models
 
 operators:
+  # true renders OLM Subscription resources. Set false on AKS/EKS/GKE unless
+  # OLM is installed and intentionally managed through this chart.
+  installWithOLM: true
   cloudnativepg:
     enabled: true
     createNamespace: true
@@ -150,11 +176,41 @@ postgres:
       password: changeme
       sslmode: require
       datastoreUri: ""
+  azureFlexible:
+    host: synesis-postgres.postgres.database.azure.com
+    port: 5432
+    sslmode: require
+    admin:
+      database: synesis_admin
+      username: app
+      password: changeme
+      adminUrl: ""
+      traceUrl: ""
+      litellmUrl: ""
+    keycloak:
+      database: keycloak
+      username: app
+      password: changeme
+    openfga:
+      database: openfga
+      username: openfga
+      password: changeme
+      datastoreUri: ""
 
 kv:
   mode: redkey
   external:
     url: redis://managed-valkey.example.com:6379/3
+  azureRedis:
+    # Azure Cache for Redis commonly uses TLS on 6380 and a password/access key.
+    # Set url to override the generated rediss:// URL.
+    url: ""
+    host: synesis-cache.redis.cache.windows.net
+    port: 6380
+    username: ""
+    password: changeme
+    database: 3
+    tls: true
   redkey:
     # Set this to the service DNS name created by your Valkey/RedKey operator.
     url: redis://synesis-valkey.synesis-rag.svc.cluster.local:6379/3
@@ -189,6 +245,12 @@ keycloak:
   publicUrl: https://auth.apps.example.com
   adminUrl: https://auth-admin.apps.example.com
   internalIssuerUrl: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis
+  additionalOptions:
+    - name: features
+      value: organization
+  # Passed through to spec.ingress on the Keycloak CR when non-empty. Useful
+  # when a cloud Ingress is managed by this chart instead of the operator.
+  operatorIngress: {}
   resources:
     requests:
       cpu: 250m
@@ -286,6 +348,59 @@ routes:
       port: http
       host: auth-admin.apps.example.com
       timeout: 300s
+
+ingress:
+  # Enable this for AKS/EKS/GKE/generic Kubernetes. OpenShift defaults to Route
+  # resources through routes.enabled.
+  enabled: false
+  className: ""
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: ""
+  items:
+    synesis-api:
+      namespace: gateway
+      service: litellm-proxy
+      port: http
+      host: api.example.com
+      path: /
+      pathType: Prefix
+    synesis-admin:
+      namespace: admin
+      service: synesis-admin
+      port: http
+      host: admin.example.com
+      path: /
+      pathType: Prefix
+    synesis-webui:
+      namespace: webui
+      service: open-webui
+      port: http
+      host: chat.example.com
+      path: /
+      pathType: Prefix
+    synesis-yarn:
+      namespace: yarn
+      service: synesis-yarn
+      port: http
+      host: coder.example.com
+      path: /
+      pathType: Prefix
+    synesis-auth:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth.example.com
+      path: /
+      pathType: Prefix
+    synesis-auth-admin:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth-admin.example.com
+      path: /
+      pathType: Prefix
 
 networkPolicies:
   enabled: true

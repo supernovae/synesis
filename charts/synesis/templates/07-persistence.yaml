@@ -14,8 +14,9 @@ spec:
   resources:
     requests:
       storage: {{ .Values.persistence.webui.size }}
-  {{- if .Values.persistence.webui.storageClass }}
-  storageClassName: {{ .Values.persistence.webui.storageClass }}
+  {{- $webuiStorageClass := include "synesis.storageClass" (dict "root" . "key" "webui" "storageClass" .Values.persistence.webui.storageClass) }}
+  {{- if $webuiStorageClass }}
+  storageClassName: {{ $webuiStorageClass }}
   {{- end }}
 {{- end }}
 {{- if .Values.persistence.nornicdb.enabled }}
@@ -34,7 +35,8 @@ spec:
   resources:
     requests:
       storage: {{ .Values.persistence.nornicdb.size }}
-  {{- if .Values.persistence.nornicdb.storageClass }}
-  storageClassName: {{ .Values.persistence.nornicdb.storageClass }}
+  {{- $nornicdbStorageClass := include "synesis.storageClass" (dict "root" . "key" "nornicdb" "storageClass" .Values.persistence.nornicdb.storageClass) }}
+  {{- if $nornicdbStorageClass }}
+  storageClassName: {{ $nornicdbStorageClass }}
   {{- end }}
 {{- end }}

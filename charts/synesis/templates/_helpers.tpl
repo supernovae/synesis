@@ -39,9 +39,88 @@ app.kubernetes.io/part-of: synesis
 {{- end -}}
 {{- end -}}
 
+{{- define "synesis.provider" -}}
+{{- $provider := lower (default "openshift" .Values.global.provider) -}}
+{{- if eq $provider "auto" -}}
+{{- $gitVersion := lower (.Capabilities.KubeVersion.GitVersion | default "") -}}
+{{- if .Capabilities.APIVersions.Has "route.openshift.io/v1/Route" -}}
+openshift
+{{- else if contains "aks" $gitVersion -}}
+aks
+{{- else if contains "eks" $gitVersion -}}
+eks
+{{- else if contains "gke" $gitVersion -}}
+gke
+{{- else -}}
+kubernetes
+{{- end -}}
+{{- else -}}
+{{- $provider -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.isOpenShift" -}}
+{{- $provider := include "synesis.provider" . -}}
+{{- if eq $provider "openshift" -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.olmEnabled" -}}
+{{- if kindIs "bool" .Values.operators.installWithOLM -}}
+{{- .Values.operators.installWithOLM -}}
+{{- else if eq (lower (toString .Values.operators.installWithOLM)) "auto" -}}
+{{- if or (eq (include "synesis.isOpenShift" .) "true") (.Capabilities.APIVersions.Has "operators.coreos.com/v1alpha1/Subscription") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- else -}}
+{{- .Values.operators.installWithOLM -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.providerStorageClass" -}}
+{{- $provider := include "synesis.provider" . -}}
+{{- if eq $provider "aks" -}}
+{{- .Values.platform.aks.storageClass -}}
+{{- else if eq $provider "eks" -}}
+{{- .Values.platform.eks.storageClass -}}
+{{- else if eq $provider "gke" -}}
+{{- .Values.platform.gke.storageClass -}}
+{{- else if eq $provider "openshift" -}}
+{{- .Values.platform.openshift.storageClass -}}
+{{- else -}}
+{{- .Values.platform.kubernetes.storageClass -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.storageClass" -}}
+{{- $root := .root -}}
+{{- $key := .key | default "" -}}
+{{- $explicit := .storageClass | default "" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else if and (eq $key "postgres") $root.Values.platform.storage.postgresClass -}}
+{{- $root.Values.platform.storage.postgresClass -}}
+{{- else if and (eq $key "webui") $root.Values.platform.storage.webuiClass -}}
+{{- $root.Values.platform.storage.webuiClass -}}
+{{- else if and (eq $key "nornicdb") $root.Values.platform.storage.nornicdbClass -}}
+{{- $root.Values.platform.storage.nornicdbClass -}}
+{{- else if $root.Values.platform.storage.defaultClass -}}
+{{- $root.Values.platform.storage.defaultClass -}}
+{{- else if $root.Values.platform.storage.useProviderDefaults -}}
+{{- include "synesis.providerStorageClass" $root -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "synesis.postgres.adminHost" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- printf "%s-rw.%s.svc" .Values.postgres.cloudnativepg.admin.name .Values.namespaces.admin -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.host -}}
 {{- else -}}
 {{- .Values.postgres.external.admin.host -}}
 {{- end -}}
@@ -50,6 +129,8 @@ app.kubernetes.io/part-of: synesis
 {{- define "synesis.postgres.keycloakHost" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- printf "%s-rw.%s.svc" .Values.postgres.cloudnativepg.keycloak.name .Values.namespaces.auth -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.host -}}
 {{- else -}}
 {{- .Values.postgres.external.keycloak.host -}}
 {{- end -}}
@@ -58,14 +139,66 @@ app.kubernetes.io/part-of: synesis
 {{- define "synesis.postgres.openfgaHost" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- printf "%s-rw.%s.svc" .Values.postgres.cloudnativepg.openfga.name .Values.namespaces.authz -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.host -}}
 {{- else -}}
 {{- .Values.postgres.external.openfga.host -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.postgres.database" -}}
+{{- $root := .root -}}
+{{- $key := .key -}}
+{{- if eq $root.Values.postgres.mode "cloudnativepg" -}}
+{{- (index $root.Values.postgres.cloudnativepg $key).database -}}
+{{- else if eq $root.Values.postgres.mode "azureFlexible" -}}
+{{- (index $root.Values.postgres.azureFlexible $key).database -}}
+{{- else -}}
+{{- (index $root.Values.postgres.external $key).database -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.postgres.username" -}}
+{{- $root := .root -}}
+{{- $key := .key -}}
+{{- if eq $root.Values.postgres.mode "cloudnativepg" -}}
+{{- (index $root.Values.postgres.cloudnativepg $key).owner -}}
+{{- else if eq $root.Values.postgres.mode "azureFlexible" -}}
+{{- (index $root.Values.postgres.azureFlexible $key).username -}}
+{{- else -}}
+{{- (index $root.Values.postgres.external $key).username -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.postgres.port" -}}
+{{- $root := .root -}}
+{{- $key := .key -}}
+{{- if eq $root.Values.postgres.mode "cloudnativepg" -}}
+5432
+{{- else if eq $root.Values.postgres.mode "azureFlexible" -}}
+{{- $root.Values.postgres.azureFlexible.port | int -}}
+{{- else -}}
+{{- (index $root.Values.postgres.external $key).port | int -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.postgres.sslmode" -}}
+{{- $root := .root -}}
+{{- $key := .key -}}
+{{- if eq $root.Values.postgres.mode "cloudnativepg" -}}
+disable
+{{- else if eq $root.Values.postgres.mode "azureFlexible" -}}
+{{- $root.Values.postgres.azureFlexible.sslmode -}}
+{{- else -}}
+{{- (index $root.Values.postgres.external $key).sslmode -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "synesis.postgres.adminPassword" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- .Values.postgres.cloudnativepg.admin.password -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.admin.password -}}
 {{- else -}}
 {{- .Values.postgres.external.admin.password -}}
 {{- end -}}
@@ -74,6 +207,8 @@ app.kubernetes.io/part-of: synesis
 {{- define "synesis.postgres.keycloakPassword" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- .Values.postgres.cloudnativepg.keycloak.password -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.keycloak.password -}}
 {{- else -}}
 {{- .Values.postgres.external.keycloak.password -}}
 {{- end -}}
@@ -82,6 +217,8 @@ app.kubernetes.io/part-of: synesis
 {{- define "synesis.postgres.openfgaPassword" -}}
 {{- if eq .Values.postgres.mode "cloudnativepg" -}}
 {{- .Values.postgres.cloudnativepg.openfga.password -}}
+{{- else if eq .Values.postgres.mode "azureFlexible" -}}
+{{- .Values.postgres.azureFlexible.openfga.password -}}
 {{- else -}}
 {{- .Values.postgres.external.openfga.password -}}
 {{- end -}}
@@ -90,6 +227,21 @@ app.kubernetes.io/part-of: synesis
 {{- define "synesis.kvUrl" -}}
 {{- if eq .Values.kv.mode "external" -}}
 {{- .Values.kv.external.url -}}
+{{- else if eq .Values.kv.mode "azureRedis" -}}
+{{- if .Values.kv.azureRedis.url -}}
+{{- .Values.kv.azureRedis.url -}}
+{{- else -}}
+{{- $scheme := ternary "rediss" "redis" .Values.kv.azureRedis.tls -}}
+{{- $auth := "" -}}
+{{- if .Values.kv.azureRedis.password -}}
+{{- if .Values.kv.azureRedis.username -}}
+{{- $auth = printf "%s:%s@" (.Values.kv.azureRedis.username | urlquery) (.Values.kv.azureRedis.password | urlquery) -}}
+{{- else -}}
+{{- $auth = printf ":%s@" (.Values.kv.azureRedis.password | urlquery) -}}
+{{- end -}}
+{{- end -}}
+{{- printf "%s://%s%s:%v/%v" $scheme $auth .Values.kv.azureRedis.host (.Values.kv.azureRedis.port | int) (.Values.kv.azureRedis.database | int) -}}
+{{- end -}}
 {{- else -}}
 {{- .Values.kv.redkey.url -}}
 {{- end -}}

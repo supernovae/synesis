@@ -1,5 +1,5 @@
 {{- if .Values.keycloak.enabled }}
-{{- if eq .Values.postgres.mode "external" }}
+{{- if ne .Values.postgres.mode "cloudnativepg" }}
 ---
 apiVersion: v1
 kind: Secret
@@ -10,8 +10,8 @@ metadata:
     {{- include "synesis.labels" . | nindent 4 }}
 type: kubernetes.io/basic-auth
 stringData:
-  username: {{ .Values.postgres.external.keycloak.username | quote }}
-  password: {{ .Values.postgres.external.keycloak.password | quote }}
+  username: {{ include "synesis.postgres.username" (dict "root" . "key" "keycloak") | quote }}
+  password: {{ include "synesis.postgres.keycloakPassword" . | quote }}
 {{- end }}
 ---
 apiVersion: k8s.keycloak.org/v2alpha1
@@ -25,14 +25,15 @@ metadata:
     app.kubernetes.io/component: identity-provider
 spec:
   instances: {{ .Values.keycloak.instances }}
+  {{- if .Values.keycloak.additionalOptions }}
   additionalOptions:
-    - name: features
-      value: organization
+    {{- toYaml .Values.keycloak.additionalOptions | nindent 4 }}
+  {{- end }}
   db:
     vendor: postgres
     host: {{ include "synesis.postgres.keycloakHost" . }}
-    port: {{ ternary 5432 (.Values.postgres.external.keycloak.port | int) (eq .Values.postgres.mode "cloudnativepg") }}
-    database: {{ ternary .Values.postgres.cloudnativepg.keycloak.database .Values.postgres.external.keycloak.database (eq .Values.postgres.mode "cloudnativepg") }}
+    port: {{ include "synesis.postgres.port" (dict "root" . "key" "keycloak") }}
+    database: {{ include "synesis.postgres.database" (dict "root" . "key" "keycloak") }}
     usernameSecret:
       name: synesis-auth-db-app
       key: username
@@ -42,6 +43,10 @@ spec:
   hostname:
     hostname: {{ .Values.keycloak.publicUrl | quote }}
     admin: {{ .Values.keycloak.adminUrl | quote }}
+  {{- if .Values.keycloak.operatorIngress }}
+  ingress:
+    {{- toYaml .Values.keycloak.operatorIngress | nindent 4 }}
+  {{- end }}
   http:
     httpEnabled: true
   proxy:

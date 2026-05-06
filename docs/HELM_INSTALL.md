@@ -2,7 +2,32 @@
 
 This guide installs Synesis from the repo-local Helm chart at
 `charts/synesis`. The chart is values-driven so the same release can use cloud
-services or in-cluster operator-managed services.
+services or in-cluster operator-managed services. The shared chart supports
+OpenShift, AKS, EKS, GKE, and generic Kubernetes through provider values.
+
+## Platform choices
+
+Set the provider explicitly for managed Kubernetes:
+
+```yaml
+global:
+  provider: aks        # openshift | aks | eks | gke | kubernetes | auto
+  openshift: false    # compatibility switch; set false off OpenShift
+```
+
+`global.provider=auto` performs best-effort detection using available API
+groups and Kubernetes version metadata. Helm cannot reliably distinguish every
+managed service, so production AKS/EKS/GKE installs should set the provider.
+
+Provider-aware behavior:
+
+- OpenShift: renders `Route` resources when `routes.enabled=true`.
+- AKS/EKS/GKE/generic Kubernetes: renders `Ingress` resources when
+  `ingress.enabled=true`.
+- Storage defaults come from `platform.<provider>.storageClass` when PVC or
+  CloudNativePG storage classes are not set explicitly.
+- OLM subscriptions are controlled by `operators.installWithOLM`; set it false
+  on AKS/EKS/GKE unless OLM is installed and intentionally managed by Helm.
 
 ## Backend choices
 
@@ -11,12 +36,16 @@ Postgres:
 - `postgres.mode=external` uses a cloud or externally managed Postgres service.
 - `postgres.mode=cloudnativepg` creates CloudNativePG `Cluster` resources for
   Synesis Admin, Keycloak, and OpenFGA.
+- `postgres.mode=azureFlexible` uses Azure Database for PostgreSQL Flexible
+  Server and generates SSL-enabled URLs.
 
 KV:
 
 - `kv.mode=external` uses a managed Redis-compatible or Valkey service.
 - `kv.mode=redkey` creates a configurable Valkey/RedKey-style custom resource
   and stores the Redis-compatible URL in Secret `synesis-redis`.
+- `kv.mode=azureRedis` generates a TLS `rediss://` URL for Azure Cache for
+  Redis.
 
 Synesis does not deploy Redis. The app still uses `redis://` URLs because Valkey
 and RedKey-compatible servers use the same client protocol and URI scheme.
@@ -56,6 +85,7 @@ At minimum, change:
 
 - `global.routeDomain`
 - `routes.items.*.host`
+- `ingress.items.*.host` when deploying outside OpenShift
 - `keycloak.publicUrl`
 - `keycloak.adminUrl`
 - `keycloak.realmImport.*RedirectUris`
@@ -64,7 +94,65 @@ At minimum, change:
 - Postgres passwords or external Postgres connection details
 - `kv.redkey.url` or `kv.external.url`
 
-## Option A: external cloud services
+## Option A: AKS with Azure managed services
+
+Start from the AKS example:
+
+```bash
+cp charts/synesis/examples/values-aks-azure-managed.yaml my-aks-values.yaml
+```
+
+Important fields:
+
+```yaml
+global:
+  provider: aks
+  openshift: false
+
+operators:
+  installWithOLM: false
+  cloudnativepg:
+    enabled: false
+  redkey:
+    enabled: false
+
+postgres:
+  mode: azureFlexible
+  azureFlexible:
+    host: synesis-postgres.postgres.database.azure.com
+    sslmode: require
+    admin:
+      username: app
+      password: replace-me
+
+kv:
+  mode: azureRedis
+  azureRedis:
+    host: synesis-cache.redis.cache.windows.net
+    port: 6380
+    password: replace-me
+    tls: true
+
+ingress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+```
+
+The AKS example also sets Keycloak `additionalOptions` with
+`db-url-properties=?sslmode=require` so the Red Hat build of Keycloak can reach
+Azure PostgreSQL over SSL, and sets `keycloak.operatorIngress.enabled=false`
+because the chart-owned Kubernetes Ingress exposes Keycloak. The Keycloak
+operator/CRDs must already exist on non-OpenShift clusters, or
+`keycloak.enabled` must be disabled and an external issuer wired in separately.
+
+Install:
+
+```bash
+helm upgrade --install synesis ./charts/synesis \
+  -f my-aks-values.yaml
+```
+
+## Option B: external cloud services
 
 Use this when Postgres and KV are managed outside the cluster.
 
@@ -112,7 +200,12 @@ helm upgrade --install synesis ./charts/synesis \
   -f my-synesis-values.yaml
 ```
 
-## Option B: in-cluster CloudNativePG and RedKey/Valkey
+EKS and GKE starting points are available at:
+
+- `charts/synesis/examples/values-eks-external.yaml`
+- `charts/synesis/examples/values-gke-external.yaml`
+
+## Option C: in-cluster CloudNativePG and RedKey/Valkey
 
 Use this when the cluster should run Postgres and KV services.
 

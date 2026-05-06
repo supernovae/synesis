@@ -1,8 +1,11 @@
 Synesis chart rendered for release {{ .Release.Name }}.
 
 Backends:
+  Provider: {{ include "synesis.provider" . }}
   Postgres mode: {{ .Values.postgres.mode }}
   KV mode: {{ .Values.kv.mode }}
+  OpenShift routes: {{ and (eq (include "synesis.isOpenShift" .) "true") .Values.routes.enabled }}
+  Kubernetes ingress: {{ and (ne (include "synesis.isOpenShift" .) "true") .Values.ingress.enabled }}
 
 Important:
   - Replace default placeholder secrets before production use.

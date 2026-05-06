@@ -1,0 +1,82 @@
+# GKE example using externally managed Postgres and Redis-compatible KV.
+
+global:
+  provider: gke
+  openshift: false
+
+operators:
+  installWithOLM: false
+  cloudnativepg:
+    enabled: false
+  keycloak:
+    enabled: false
+  redkey:
+    enabled: false
+
+routes:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: gce
+  annotations: {}
+  tls:
+    enabled: true
+  items:
+    synesis-api:
+      namespace: gateway
+      service: litellm-proxy
+      port: http
+      host: api.synesis.example.com
+    synesis-admin:
+      namespace: admin
+      service: synesis-admin
+      port: http
+      host: admin.synesis.example.com
+    synesis-webui:
+      namespace: webui
+      service: open-webui
+      port: http
+      host: chat.synesis.example.com
+    synesis-yarn:
+      namespace: yarn
+      service: synesis-yarn
+      port: http
+      host: coder.synesis.example.com
+    synesis-auth:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth.synesis.example.com
+    synesis-auth-admin:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth-admin.synesis.example.com
+
+postgres:
+  mode: external
+  external:
+    admin:
+      host: 10.10.0.5
+      database: synesis_admin
+      username: app
+      password: replace-me
+      sslmode: require
+    keycloak:
+      host: 10.10.0.5
+      database: keycloak
+      username: app
+      password: replace-me
+    openfga:
+      host: 10.10.0.5
+      database: openfga
+      username: openfga
+      password: replace-me
+      sslmode: require
+
+kv:
+  mode: external
+  external:
+    url: rediss://:replace-me@10.20.0.6:6379/3
+
