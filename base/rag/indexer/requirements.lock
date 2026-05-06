@@ -164,13 +164,13 @@ beautifulsoup4==4.14.3 \
     --hash=sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb \
     --hash=sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86
     # via crawl4ai, -r base/rag/indexer/requirements.txt
-boto3==1.43.4 \
-    --hash=sha256:00f40e9ca704c0f860b70ef47b042813c8d9a66b3d5e7bf81d578f79ae17dcd3 \
-    --hash=sha256:c4910b54c1f2401ab55d9fbca3d92df0a68e4ac64a69f2bab47a079e384a9d4f
+boto3==1.43.5 \
+    --hash=sha256:414be7868f25c3b6a0232301c8ab40347911b6b191926b61f00a63f89b97b2bc \
+    --hash=sha256:aa8a296c8db55d812767b282cfe4c7977f0b0eeaa709abdaeb368b9c738e901f
     # via -r base/rag/indexer/requirements.txt
-botocore==1.43.4 \
-    --hash=sha256:1a95c90fa9ca6ee85c1a02b04c8e05e948661d201b85b443000d676857905019 \
-    --hash=sha256:f1897d3254965cacac7514cfed1b6ff016166b165ee2e06232b4a3954cf9d713
+botocore==1.43.5 \
+    --hash=sha256:5c7207816ab5e48382adcb2a64db388fa4abe9ee1d23f72c82ae62c51a0bc84e \
+    --hash=sha256:a1df6e0c6346735936f42e6b99f3b28f1e9397731c0bc2563c617df7965a0dc0
     # via boto3, s3transfer
 brotli==1.2.0 \
     --hash=sha256:022426c9e99fd65d9475dce5c195526f04bb8be8907607e27e747893f6ee3e24 \
@@ -1584,9 +1584,9 @@ numpy==2.4.4 \
     --hash=sha256:fbc356aae7adf9e6336d336b9c8111d390a05df88f1805573ebb0807bd06fd1d \
     --hash=sha256:fcfe2045fd2e8f3cb0ce9d4ba6dba6333b8fa05bb8a4939c908cd43322d14c7e
     # via alphashape, crawl4ai, rank-bm25, scipy, shapely, trimesh
-openai==2.35.0 \
-    --hash=sha256:164fd0477d001e784369f7cd81ccadb8db3c22f16b33973d8f95e3095c7f71d8 \
-    --hash=sha256:607f62257d6be167240c6b82db052fabf940e3c4d9ad3e8629364e837a601395
+openai==2.35.1 \
+    --hash=sha256:38ff2e0394dbf56c3d39151c2aa05f3264223b6a76be2a499e87b466017a1263 \
+    --hash=sha256:ae61ad96c514295476c42fbd61d1f84b2060bc6dd8e4e4a7d85273f089614ce4
     # via unclecode-litellm
 packaging==26.2 \
     --hash=sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e \
