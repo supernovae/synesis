@@ -210,7 +210,7 @@ async def _get_secret_in_namespace(namespace: str) -> dict | None:
             resp.raise_for_status()
             return resp.json()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("k8s_get_consumer_secret_failed namespace=%s", namespace, exc_info=True)
+        logger.warning("k8s_get_provider_key_config_failed namespace=%s", namespace, exc_info=True)
         raise HTTPException(502, _k8s_error_detail(f"Reading provider key secret in {namespace}", exc))
 
 
@@ -237,7 +237,7 @@ async def _upsert_provider_key_secret(namespace: str, data: dict[str, str]) -> N
                 )
             resp.raise_for_status()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("k8s_upsert_consumer_secret_failed namespace=%s", namespace, exc_info=True)
+        logger.warning("k8s_upsert_provider_key_config_failed namespace=%s", namespace, exc_info=True)
         raise HTTPException(502, _k8s_error_detail(f"Syncing provider key secret to {namespace}", exc))
 
 
