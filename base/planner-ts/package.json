@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",
-    "@openfga/sdk": "^0.9.4",
+    "@openfga/sdk": "0.9.3",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.216.0",
     "@opentelemetry/resources": "^2.7.1",
