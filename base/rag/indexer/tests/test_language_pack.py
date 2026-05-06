@@ -1227,7 +1227,9 @@ def test_build_language_pack_from_godot_fixture(monkeypatch: pytest.MonkeyPatch,
     assert class_json["engine_major_version"] == "4"
     assert class_row["contains_refs"] == "Button.set_text,Button.pressed,Button.text,Button.ALIGN_CENTER"
     assert class_row["implements_refs"] == "BaseButton"
-    manual_row = next(row for row in rows if row["artifact_kind"] == "engine_manual" and "signals.rst" in row["module_path"])
+    manual_row = next(
+        row for row in rows if row["artifact_kind"] == "engine_manual" and "signals.rst" in row["module_path"]
+    )
     manual_json = json.loads(manual_row["agent_enrichment_json"])
     assert manual_json["lifecycle_callbacks"] == ["_ready"]
     assert "Button.pressed" in manual_row["doc_relation_ids"]

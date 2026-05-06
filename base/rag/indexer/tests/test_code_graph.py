@@ -129,10 +129,26 @@ def test_metadata_refs_derive_semantic_graph_edges():
         ]
     )
 
-    assert any(edge["type"] == "CONTAINS" and edge["source_id"] == "Button" and edge["target_id"] == "Button.pressed" for edge in edges)
-    assert any(edge["type"] == "IMPLEMENTS" and edge["source_id"] == "Button" and edge["target_id"] == "BaseButton" for edge in edges)
-    assert any(edge["type"] == "DOCUMENTS" and edge["source_id"] == "signals-doc-chunk" and edge["target_id"] == "godot:lifecycle:_ready" for edge in edges)
-    assert any(edge["type"] == "REFERENCES" and edge["source_id"] == "signals-doc-chunk" and edge["target_id"] == "Button.pressed" for edge in edges)
+    assert any(
+        edge["type"] == "CONTAINS" and edge["source_id"] == "Button" and edge["target_id"] == "Button.pressed"
+        for edge in edges
+    )
+    assert any(
+        edge["type"] == "IMPLEMENTS" and edge["source_id"] == "Button" and edge["target_id"] == "BaseButton"
+        for edge in edges
+    )
+    assert any(
+        edge["type"] == "DOCUMENTS"
+        and edge["source_id"] == "signals-doc-chunk"
+        and edge["target_id"] == "godot:lifecycle:_ready"
+        for edge in edges
+    )
+    assert any(
+        edge["type"] == "REFERENCES"
+        and edge["source_id"] == "signals-doc-chunk"
+        and edge["target_id"] == "Button.pressed"
+        for edge in edges
+    )
 
 
 def test_lightweight_code_reference_extractors():

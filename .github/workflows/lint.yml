@@ -69,8 +69,10 @@ jobs:
 
       - name: Install kustomize
         run: |
-          curl -sL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          sudo mv kustomize /usr/local/bin/
+          KUSTOMIZE_VERSION=v5.7.1
+          curl -fsSL -o /tmp/kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
 
       - name: Validate kustomize build (${{ matrix.overlay }})
         run: kustomize build overlays/${{ matrix.overlay }} > /dev/null

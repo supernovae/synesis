@@ -3013,13 +3013,13 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             "safety_contract": "Validate scene-tree lifecycle, signal routing, threading, rendering/physics boundaries, and Godot 4.x API behavior against the source text.",
             "lifecycle_model": "No model-derived lifecycle summary is available; rely on the official Godot class/docs source in this chunk.",
             "node_class": str(
-                chunk.metadata.get("node_class")
-                or (chunk.symbol_fqn if chunk.symbol_kind == "class" else "")
-                or ""
+                chunk.metadata.get("node_class") or (chunk.symbol_fqn if chunk.symbol_kind == "class" else "") or ""
             ),
             "inherits": str(chunk.metadata.get("inherits") or ""),
             "member_of": str(chunk.metadata.get("member_of") or ""),
-            "signal_name": str(chunk.metadata.get("signal_name") or (chunk.symbol_name if chunk.symbol_kind == "signal" else "")),
+            "signal_name": str(
+                chunk.metadata.get("signal_name") or (chunk.symbol_name if chunk.symbol_kind == "signal" else "")
+            ),
             "signal_args": signal_args,
             "lifecycle_callbacks": lifecycle_callbacks,
             "scene_tree_role": str(
