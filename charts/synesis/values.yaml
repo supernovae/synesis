@@ -1,0 +1,736 @@
+# Synesis Helm values.
+#
+# Backend modes:
+#   postgres.mode: cloudnativepg | external
+#   kv.mode:       redkey | external
+#
+# "redkey" intentionally means a Redis-compatible open source KV backend, with
+# Valkey/RedKey-style operator CRs by default. The app still consumes redis://
+# URLs because the Node/Python Redis clients use that URI scheme for compatible
+# servers.
+
+nameOverride: ""
+fullnameOverride: ""
+createNamespaces: true
+
+global:
+  imageRegistry: ghcr.io/supernovae/synesis
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  clusterDomain: cluster.local
+  openshift: true
+  routeDomain: apps.example.com
+
+namespaces:
+  admin: synesis-admin
+  auth: synesis-auth
+  authz: synesis-authz
+  gateway: synesis-gateway
+  planner: synesis-planner
+  rag: synesis-rag
+  sandbox: synesis-sandbox
+  search: synesis-search
+  webui: synesis-webui
+  yarn: synesis-yarn
+  models: synesis-models
+
+operators:
+  cloudnativepg:
+    enabled: true
+    createNamespace: true
+    namespace: cnpg-system
+    operatorGroup: true
+    subscription:
+      name: cloudnative-pg
+      package: cloudnative-pg
+      channel: stable-v1
+      source: community-operators
+      sourceNamespace: openshift-marketplace
+      installPlanApproval: Automatic
+  keycloak:
+    enabled: true
+    namespace: synesis-auth
+    operatorGroup: true
+    subscription:
+      name: rhbk-operator
+      package: rhbk-operator
+      channel: stable-v26
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+      # Red Hat recommends Manual for production upgrades. Automatic gives a
+      # smoother first bootstrap; switch to Manual in controlled environments.
+      installPlanApproval: Automatic
+  redkey:
+    enabled: false
+    createNamespace: true
+    namespace: valkey-operator-system
+    operatorGroup: true
+    subscription:
+      name: valkey-operator
+      package: valkey-operator
+      channel: stable
+      source: community-operators
+      sourceNamespace: openshift-marketplace
+      installPlanApproval: Automatic
+
+postgres:
+  mode: cloudnativepg
+  cloudnativepg:
+    admin:
+      name: synesis-admin-db
+      database: synesis_admin
+      owner: app
+      password: changeme
+      instances: 1
+      storage:
+        size: 5Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    keycloak:
+      name: synesis-auth-db
+      database: keycloak
+      owner: app
+      password: changeme
+      instances: 1
+      storage:
+        size: 2Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    openfga:
+      name: synesis-openfga-db
+      database: openfga
+      owner: openfga
+      password: changeme
+      instances: 1
+      storage:
+        size: 2Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+  external:
+    admin:
+      host: ""
+      port: 5432
+      database: synesis_admin
+      username: app
+      password: changeme
+      sslmode: require
+      adminUrl: ""
+      traceUrl: ""
+      litellmUrl: ""
+    keycloak:
+      host: ""
+      port: 5432
+      database: keycloak
+      username: app
+      password: changeme
+    openfga:
+      host: ""
+      port: 5432
+      database: openfga
+      username: openfga
+      password: changeme
+      sslmode: require
+      datastoreUri: ""
+
+kv:
+  mode: redkey
+  external:
+    url: redis://managed-valkey.example.com:6379/3
+  redkey:
+    # Set this to the service DNS name created by your Valkey/RedKey operator.
+    url: redis://synesis-valkey.synesis-rag.svc.cluster.local:6379/3
+    createCustomResource: true
+    apiVersion: cache.cs.sap.com/v1alpha1
+    kind: Valkey
+    name: synesis-valkey
+    spec:
+      replicas: 1
+      sentinel:
+        enabled: false
+      metrics:
+        enabled: true
+      tls:
+        enabled: false
+
+secrets:
+  internalServiceToken: synesis-internal-change-me
+  litellmMasterKey: sk-synesis-change-me
+  litellmSaltKey: sk-salt-change-me
+  webuiSecretKey: sk-synesis-change-me
+  providerApiKeys:
+    OPENROUTER_API_KEY: sk-or-v1-REPLACE_ME
+  openfgaAuthToken: changeme-generate-a-real-key
+  openwebuiAdminToken: ""
+
+keycloak:
+  enabled: true
+  name: synesis-keycloak
+  realm: synesis
+  instances: 1
+  publicUrl: https://auth.apps.example.com
+  adminUrl: https://auth-admin.apps.example.com
+  internalIssuerUrl: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  realmImport:
+    enabled: true
+    webuiRedirectUris:
+      - https://chat.apps.example.com/*
+    webuiWebOrigins:
+      - https://chat.apps.example.com
+    adminRedirectUris:
+      - https://admin.apps.example.com/*
+    adminWebOrigins:
+      - https://admin.apps.example.com
+
+litellm:
+  enabled: true
+  image:
+    repository: ghcr.io/berriai/litellm-non_root
+    tag: main-v1.82.3-stable
+    pullPolicy: IfNotPresent
+  replicas: 1
+  config:
+    model_list:
+      - model_name: Synesis
+        litellm_params:
+          model: openai/Synesis
+          api_base: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
+          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
+          max_tokens: 65536
+          temperature: 0.2
+      - model_name: Synesis Coder
+        litellm_params:
+          model: openai/synesis-yarn
+          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
+          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
+          max_tokens: 32768
+          temperature: 0.2
+      - model_name: synesis-thinking
+        litellm_params:
+          model: openrouter/deepseek/deepseek-r1-distill-llama-70b
+          api_key: os.environ/OPENROUTER_API_KEY
+          max_tokens: 16384
+          temperature: 0.2
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 300
+    general_settings:
+      master_key: os.environ/PROXY_MASTER_KEY
+      forward_client_headers_to_llm_api: false
+      background_health_checks: false
+      allow_requests_on_db_unavailable: true
+
+routes:
+  enabled: true
+  items:
+    synesis-api:
+      namespace: gateway
+      service: litellm-proxy
+      port: http
+      host: ""
+      timeout: 300s
+    synesis-admin:
+      namespace: admin
+      service: synesis-admin
+      port: http
+      host: admin.apps.example.com
+      timeout: 300s
+    synesis-webui:
+      namespace: webui
+      service: open-webui
+      port: http
+      host: chat.apps.example.com
+      timeout: 300s
+    synesis-yarn:
+      namespace: yarn
+      service: synesis-yarn
+      port: http
+      host: coder.apps.example.com
+      timeout: 300s
+    synesis-auth:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth.apps.example.com
+      timeout: 300s
+    synesis-auth-admin:
+      namespace: auth
+      service: synesis-keycloak-service
+      port: http
+      host: auth-admin.apps.example.com
+      timeout: 300s
+
+persistence:
+  webui:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  nornicdb:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+
+workloads:
+  admin:
+    enabled: true
+    namespace: admin
+    name: synesis-admin
+    component: admin
+    image:
+      repository: ghcr.io/supernovae/synesis/admin
+      tag: latest
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: SYNESIS_LOG_LEVEL
+        value: info
+      - name: SYNESIS_ADMIN_DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-admin-db-url
+            key: admin-url
+      - name: SYNESIS_KEYCLOAK_ISSUER_URL
+        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
+      - name: SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL
+        value: "{{ .Values.keycloak.internalIssuerUrl }}"
+      - name: SYNESIS_KEYCLOAK_AUDIENCE
+        value: ""
+      - name: SYNESIS_KEYCLOAK_EXPECTED_AZP
+        value: synesis-admin
+      - name: SYNESIS_PLANNER_URL
+        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
+      - name: SYNESIS_LITELLM_URL
+        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
+      - name: SYNESIS_LITELLM_MASTER_KEY
+        valueFrom:
+          secretKeyRef:
+            name: litellm-secrets
+            key: master-key
+      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+      - name: SYNESIS_OPENFGA_API_URL
+        value: http://openfga.synesis-authz.svc.cluster.local:8080
+      - name: SYNESIS_OPENFGA_STORE_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: store-id
+      - name: SYNESIS_OPENFGA_AUTH_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: auth-token
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    probes:
+      readiness: /api/v1/health
+      liveness: /api/v1/health
+      startup: /api/v1/health
+  plannerTs:
+    enabled: true
+    namespace: planner
+    name: synesis-planner-ts
+    component: planner
+    image:
+      repository: ghcr.io/supernovae/synesis/planner-ts
+      tag: latest
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: NODE_ENV
+        value: production
+      - name: PORT
+        value: "8080"
+      - name: HOST
+        value: 0.0.0.0
+      - name: SYNESIS_PLANNER_TS_LLM_BASE_URL
+        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
+      - name: SYNESIS_PLANNER_TS_LLM_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: litellm-secrets
+            key: master-key
+      - name: SYNESIS_PLANNER_TS_REDIS_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-redis
+            key: url
+      - name: SYNESIS_PLANNER_TS_ADMIN_DB_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-admin-db-url
+            key: admin-url
+      - name: SYNESIS_ADMIN_URL
+        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+      - name: SYNESIS_EMBEDDER_URL
+        value: http://embedder.synesis-rag.svc.cluster.local:8080/v1
+      - name: SYNESIS_NORNIC_URI
+        value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+      - name: SYNESIS_WEB_SEARCH_ENABLED
+        value: "true"
+      - name: SYNESIS_WEB_SEARCH_URL
+        value: http://searxng.synesis-search.svc.cluster.local:8080
+      - name: SYNESIS_OPENFGA_API_URL
+        value: http://openfga.synesis-authz.svc.cluster.local:8080
+      - name: SYNESIS_OPENFGA_STORE_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: store-id
+      - name: SYNESIS_OPENFGA_AUTH_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: auth-token
+    envFrom:
+      - secretRef:
+          name: provider-api-keys
+          optional: true
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    probes:
+      readiness: /health/readiness
+      liveness: /health
+  yarn:
+    enabled: true
+    namespace: yarn
+    name: synesis-yarn
+    component: yarn
+    image:
+      repository: ghcr.io/supernovae/synesis/yarn-ts
+      tag: latest
+    replicas: 2
+    ports:
+      - name: http
+        containerPort: 8000
+    env:
+      - name: NODE_ENV
+        value: production
+      - name: PORT
+        value: "8000"
+      - name: HOST
+        value: 0.0.0.0
+      - name: SYNESIS_YARN_ADMIN_API_URL
+        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+      - name: SYNESIS_YARN_SESSION_REDIS_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-redis
+            key: url
+      - name: SYNESIS_YARN_ADMIN_DB_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-admin-db-url
+            key: admin-url
+      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+      - name: SYNESIS_OPENFGA_API_URL
+        value: http://openfga.synesis-authz.svc.cluster.local:8080
+      - name: SYNESIS_OPENFGA_STORE_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: store-id
+      - name: SYNESIS_OPENFGA_AUTH_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: auth-token
+    envFrom:
+      - secretRef:
+          name: provider-api-keys
+          optional: true
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    probes:
+      readiness: /health/readiness
+      liveness: /health
+  mcpTs:
+    enabled: true
+    namespace: yarn
+    name: synesis-mcp-ts
+    component: mcp
+    image:
+      repository: ghcr.io/supernovae/synesis/mcp-ts
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8100
+    env:
+      - name: PORT
+        value: "8100"
+      - name: SYNESIS_MCP_HTTP_PATH
+        value: /mcp
+      - name: SYNESIS_PLANNER_URL
+        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
+      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+  adminMcpTs:
+    enabled: true
+    namespace: admin
+    name: synesis-admin-mcp-ts
+    component: admin-mcp
+    image:
+      repository: ghcr.io/supernovae/synesis/admin-mcp-ts
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8102
+    env:
+      - name: PORT
+        value: "8102"
+      - name: SYNESIS_ADMIN_URL
+        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+  webui:
+    enabled: true
+    namespace: webui
+    name: open-webui
+    component: webui
+    image:
+      repository: ghcr.io/open-webui/open-webui
+      tag: v0.8.12
+    strategy: Recreate
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: OPENAI_API_BASE_URL
+        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+      - name: WEBUI_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: webui-api-key
+            key: api-key
+      - name: WEBUI_AUTH
+        value: "true"
+      - name: ENABLE_LOGIN_FORM
+        value: "false"
+      - name: ENABLE_OAUTH_SIGNUP
+        value: "true"
+      - name: OPENID_PROVIDER_URL
+        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}/.well-known/openid-configuration"
+      - name: OAUTH_CLIENT_ID
+        value: synesis-webui
+      - name: OAUTH_CODE_CHALLENGE_METHOD
+        value: S256
+      - name: OPENID_REDIRECT_URI
+        value: https://chat.apps.example.com/oauth/oidc/callback
+      - name: WEBUI_URL
+        value: https://chat.apps.example.com
+      - name: ENABLE_API_KEYS
+        value: "true"
+      - name: ENABLE_OLLAMA_API
+        value: "false"
+      - name: WEBUI_NAME
+        value: Synesis
+    volumeMounts:
+      - name: data
+        mountPath: /app/backend/data
+      - name: tmp-home
+        mountPath: /tmp/home
+    volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: open-webui-data
+      - name: tmp-home
+        emptyDir: {}
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    probes:
+      readiness: /health
+      liveness: /health
+      startup: /health
+  search:
+    enabled: true
+    namespace: search
+    name: searxng
+    component: search
+    image:
+      repository: docker.io/searxng/searxng
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: SEARXNG_BASE_URL
+        value: http://searxng.synesis-search.svc.cluster.local:8080/
+  nornicdb:
+    enabled: true
+    namespace: rag
+    name: synesis-nornicdb
+    component: graph-store
+    image:
+      repository: docker.io/timothyswt/nornicdb-amd64-cpu
+      tag: latest
+    ports:
+      - name: bolt
+        containerPort: 7687
+      - name: http
+        containerPort: 7474
+    volumeMounts:
+      - name: data
+        mountPath: /data
+    volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: synesis-nornicdb-data
+  embedder:
+    enabled: true
+    namespace: rag
+    name: embedder
+    component: embedder
+    image:
+      repository: ghcr.io/huggingface/text-embeddings-inference
+      tag: cpu-1.9
+    ports:
+      - name: http
+        containerPort: 8080
+    args:
+      - --model-id
+      - BAAI/bge-small-en-v1.5
+      - --port
+      - "8080"
+  keywordService:
+    enabled: true
+    namespace: rag
+    name: keyword-service
+    component: keyword
+    image:
+      repository: ghcr.io/supernovae/synesis/keyword-service
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+  preprocessService:
+    enabled: true
+    namespace: rag
+    name: preprocess-service
+    component: preprocess
+    image:
+      repository: ghcr.io/supernovae/synesis/preprocess-service
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+  spamService:
+    enabled: true
+    namespace: rag
+    name: spam-service
+    component: spam
+    image:
+      repository: ghcr.io/supernovae/synesis/spam-service
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+  glinerService:
+    enabled: true
+    namespace: rag
+    name: gliner-service
+    component: gliner
+    image:
+      repository: ghcr.io/supernovae/synesis/gliner-service
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+  openfga:
+    enabled: true
+    namespace: authz
+    name: openfga
+    component: authz
+    image:
+      repository: openfga/openfga
+      tag: v1.8.5
+    replicas: 2
+    args:
+      - run
+    ports:
+      - name: http
+        containerPort: 8080
+      - name: grpc
+        containerPort: 8081
+      - name: metrics
+        containerPort: 2112
+    env:
+      - name: OPENFGA_DATASTORE_ENGINE
+        value: postgres
+      - name: OPENFGA_DATASTORE_URI
+        valueFrom:
+          secretKeyRef:
+            name: openfga-config
+            key: OPENFGA_DATASTORE_URI
+      - name: OPENFGA_AUTHN_METHOD
+        value: preshared
+      - name: OPENFGA_AUTHN_PRESHARED_KEYS
+        valueFrom:
+          secretKeyRef:
+            name: openfga-config
+            key: OPENFGA_AUTHN_PRESHARED_KEYS
+
+extraManifests: []

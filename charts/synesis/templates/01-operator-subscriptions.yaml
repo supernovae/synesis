@@ -1,0 +1,95 @@
+{{- if and .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.createNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.operators.cloudnativepg.namespace }}
+  labels:
+    app.kubernetes.io/part-of: synesis
+{{- end }}
+{{- if and .Values.operators.cloudnativepg.enabled .Values.operators.cloudnativepg.operatorGroup }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cloudnative-pg
+  namespace: {{ .Values.operators.cloudnativepg.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.operators.cloudnativepg.namespace }}
+{{- end }}
+{{- if .Values.operators.cloudnativepg.enabled }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.operators.cloudnativepg.subscription.name }}
+  namespace: {{ .Values.operators.cloudnativepg.namespace }}
+spec:
+  channel: {{ .Values.operators.cloudnativepg.subscription.channel | quote }}
+  installPlanApproval: {{ .Values.operators.cloudnativepg.subscription.installPlanApproval }}
+  name: {{ .Values.operators.cloudnativepg.subscription.package }}
+  source: {{ .Values.operators.cloudnativepg.subscription.source }}
+  sourceNamespace: {{ .Values.operators.cloudnativepg.subscription.sourceNamespace }}
+{{- end }}
+
+{{- if and .Values.operators.keycloak.enabled .Values.operators.keycloak.operatorGroup }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhbk
+  namespace: {{ .Values.operators.keycloak.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.operators.keycloak.namespace }}
+{{- end }}
+{{- if .Values.operators.keycloak.enabled }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.operators.keycloak.subscription.name }}
+  namespace: {{ .Values.operators.keycloak.namespace }}
+spec:
+  channel: {{ .Values.operators.keycloak.subscription.channel | quote }}
+  installPlanApproval: {{ .Values.operators.keycloak.subscription.installPlanApproval }}
+  name: {{ .Values.operators.keycloak.subscription.package }}
+  source: {{ .Values.operators.keycloak.subscription.source }}
+  sourceNamespace: {{ .Values.operators.keycloak.subscription.sourceNamespace }}
+{{- end }}
+
+{{- if and .Values.operators.redkey.enabled .Values.operators.redkey.createNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.operators.redkey.namespace }}
+  labels:
+    app.kubernetes.io/part-of: synesis
+{{- end }}
+{{- if and .Values.operators.redkey.enabled .Values.operators.redkey.operatorGroup }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: redkey
+  namespace: {{ .Values.operators.redkey.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.operators.redkey.namespace }}
+{{- end }}
+{{- if .Values.operators.redkey.enabled }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.operators.redkey.subscription.name }}
+  namespace: {{ .Values.operators.redkey.namespace }}
+spec:
+  channel: {{ .Values.operators.redkey.subscription.channel | quote }}
+  installPlanApproval: {{ .Values.operators.redkey.subscription.installPlanApproval }}
+  name: {{ .Values.operators.redkey.subscription.package }}
+  source: {{ .Values.operators.redkey.subscription.source }}
+  sourceNamespace: {{ .Values.operators.redkey.subscription.sourceNamespace }}
+{{- end }}

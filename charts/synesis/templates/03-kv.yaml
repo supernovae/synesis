@@ -1,0 +1,13 @@
+{{- if and (eq .Values.kv.mode "redkey") .Values.kv.redkey.createCustomResource }}
+---
+apiVersion: {{ .Values.kv.redkey.apiVersion }}
+kind: {{ .Values.kv.redkey.kind }}
+metadata:
+  name: {{ .Values.kv.redkey.name }}
+  namespace: {{ .Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kv
+spec:
+  {{- toYaml .Values.kv.redkey.spec | nindent 2 }}
+{{- end }}

@@ -1,0 +1,49 @@
+{{- if eq .Values.postgres.mode "cloudnativepg" }}
+{{- $clusters := dict "admin" .Values.postgres.cloudnativepg.admin "keycloak" .Values.postgres.cloudnativepg.keycloak "openfga" .Values.postgres.cloudnativepg.openfga -}}
+{{- range $key, $db := $clusters }}
+{{- $nsKey := ternary "auth" (ternary "authz" "admin" (eq $key "openfga")) (eq $key "keycloak") -}}
+{{- $ns := include "synesis.namespace" (dict "root" $ "key" $nsKey) -}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $db.name }}-app
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ $db.owner | quote }}
+  password: {{ $db.password | quote }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $db.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  instances: {{ $db.instances }}
+  bootstrap:
+    initdb:
+      database: {{ $db.database }}
+      owner: {{ $db.owner }}
+      secret:
+        name: {{ $db.name }}-app
+  storage:
+    size: {{ $db.storage.size }}
+    {{- if $db.storage.storageClass }}
+    storageClass: {{ $db.storage.storageClass }}
+    {{- end }}
+  resources:
+    {{- toYaml $db.resources | nindent 4 }}
+  postgresql:
+    parameters:
+      max_connections: "100"
+      log_statement: "ddl"
+  monitoring:
+    enablePodMonitor: false
+{{ end }}
+{{- end }}

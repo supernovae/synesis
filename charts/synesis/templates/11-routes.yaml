@@ -1,0 +1,29 @@
+{{- if and .Values.global.openshift .Values.routes.enabled }}
+{{- range $name, $route := .Values.routes.items }}
+{{- $host := include "synesis.host" (dict "root" $ "name" $name "host" $route.host) -}}
+{{- $ns := include "synesis.namespace" (dict "root" $ "key" $route.namespace) -}}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ $route.timeout | default "300s" | quote }}
+spec:
+  {{- if $host }}
+  host: {{ $host }}
+  {{- end }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: {{ $route.service }}
+    weight: 100
+  port:
+    targetPort: {{ $route.port | default "http" }}
+{{ end }}
+{{- end }}

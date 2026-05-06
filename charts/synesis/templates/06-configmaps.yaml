@@ -1,0 +1,34 @@
+{{- if .Values.litellm.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: {{ .Values.namespaces.gateway }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    {{- toYaml .Values.litellm.config | nindent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-webui-default-prompts
+  namespace: {{ .Values.namespaces.webui }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+data:
+  default-prompt-suggestions.json: |
+    [
+      {
+        "title": ["Explore", "this codebase"],
+        "content": "Explain the key architecture and where I should start."
+      },
+      {
+        "title": ["Review", "a change"],
+        "content": "Review this change for regressions, missing tests, and operational risk."
+      }
+    ]

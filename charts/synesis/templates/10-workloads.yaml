@@ -1,0 +1,131 @@
+{{- range $key, $workload := .Values.workloads }}
+{{- if $workload.enabled }}
+{{- $ns := include "synesis.namespace" (dict "root" $ "key" $workload.namespace) -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $workload.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $workload.name }}
+    app.kubernetes.io/component: {{ $workload.component | default $key }}
+spec:
+  replicas: {{ $workload.replicas | default 1 }}
+  {{- if $workload.strategy }}
+  strategy:
+    type: {{ $workload.strategy }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $workload.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $workload.name }}
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: {{ $workload.component | default $key }}
+      {{- if $workload.annotations }}
+      annotations:
+        {{- toYaml $workload.annotations | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $workload.containerName | default $workload.name }}
+          image: {{ $workload.image.repository }}:{{ default $.Values.global.imageTag $workload.image.tag }}
+          imagePullPolicy: {{ default $.Values.global.imagePullPolicy $workload.image.pullPolicy }}
+          {{- if $workload.command }}
+          command:
+            {{- toYaml $workload.command | nindent 12 }}
+          {{- end }}
+          {{- if $workload.args }}
+          args:
+            {{- toYaml $workload.args | nindent 12 }}
+          {{- end }}
+          {{- if $workload.ports }}
+          ports:
+            {{- toYaml $workload.ports | nindent 12 }}
+          {{- end }}
+          {{- if $workload.envFrom }}
+          envFrom:
+            {{- toYaml $workload.envFrom | nindent 12 }}
+          {{- end }}
+          {{- if $workload.env }}
+          env:
+            {{- tpl (toYaml $workload.env) $ | nindent 12 }}
+          {{- end }}
+          {{- if $workload.volumeMounts }}
+          volumeMounts:
+            {{- toYaml $workload.volumeMounts | nindent 12 }}
+          {{- end }}
+          {{- if $workload.resources }}
+          resources:
+            {{- toYaml $workload.resources | nindent 12 }}
+          {{- end }}
+          {{- if $workload.probes }}
+          {{- if $workload.probes.startup }}
+          startupProbe:
+            httpGet:
+              path: {{ $workload.probes.startup }}
+              port: {{ (first $workload.ports).name | default (first $workload.ports).containerPort }}
+            failureThreshold: 60
+            periodSeconds: 5
+          {{- end }}
+          {{- if $workload.probes.readiness }}
+          readinessProbe:
+            httpGet:
+              path: {{ $workload.probes.readiness }}
+              port: {{ (first $workload.ports).name | default (first $workload.ports).containerPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
+          {{- if $workload.probes.liveness }}
+          livenessProbe:
+            httpGet:
+              path: {{ $workload.probes.liveness }}
+              port: {{ (first $workload.ports).name | default (first $workload.ports).containerPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          {{- end }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      {{- if $workload.volumes }}
+      volumes:
+        {{- toYaml $workload.volumes | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $workload.serviceName | default $workload.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $workload.name }}
+    app.kubernetes.io/component: {{ $workload.component | default $key }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $workload.name }}
+  ports:
+    {{- range $port := $workload.ports }}
+    - name: {{ $port.name | default "http" }}
+      port: {{ $port.servicePort | default $port.containerPort }}
+      targetPort: {{ $port.name | default $port.containerPort }}
+    {{ end }}
+{{ end }}
+{{ end }}

@@ -1,0 +1,12 @@
+Synesis chart rendered for release {{ .Release.Name }}.
+
+Backends:
+  Postgres mode: {{ .Values.postgres.mode }}
+  KV mode: {{ .Values.kv.mode }}
+
+Important:
+  - Replace default placeholder secrets before production use.
+  - If OLM installPlanApproval is Manual, approve install plans before applying
+    Keycloak, CloudNativePG, or RedKey/Valkey custom resources.
+  - For kv.mode=redkey, set kv.redkey.url to the service name produced by your
+    selected Valkey/RedKey operator.

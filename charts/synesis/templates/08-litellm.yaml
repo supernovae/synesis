@@ -1,0 +1,127 @@
+{{- if .Values.litellm.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: {{ .Values.namespaces.gateway }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: litellm-proxy
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.litellm.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm-proxy
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: /metrics
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: litellm
+          image: {{ .Values.litellm.image.repository }}:{{ .Values.litellm.image.tag }}
+          imagePullPolicy: {{ .Values.litellm.image.pullPolicy }}
+          args:
+            - --config
+            - /app/config.yaml
+            - --port
+            - "4000"
+            - --num_workers
+            - "2"
+          ports:
+            - name: http
+              containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: provider-api-keys
+                optional: true
+          env:
+            - name: PROXY_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secrets
+                  key: master-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-database-url
+                  key: database-url
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secrets
+                  key: salt-key
+                  optional: true
+            - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+            - name: STORE_MODEL_IN_DB
+              value: "true"
+            - name: NO_PROXY
+              value: localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy
+  namespace: {{ .Values.namespaces.gateway }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: litellm-proxy
+    app.kubernetes.io/component: gateway
+spec:
+  selector:
+    app.kubernetes.io/name: litellm-proxy
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+{{- end }}

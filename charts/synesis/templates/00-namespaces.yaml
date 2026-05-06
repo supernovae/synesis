@@ -1,0 +1,11 @@
+{{- if .Values.createNamespaces }}
+{{- range $key, $name := .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: synesis
+{{- end }}
+{{- end }}

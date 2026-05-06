@@ -1,0 +1,172 @@
+{{- if .Values.keycloak.enabled }}
+{{- if eq .Values.postgres.mode "external" }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: synesis-auth-db-app
+  namespace: {{ .Values.namespaces.auth }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ .Values.postgres.external.keycloak.username | quote }}
+  password: {{ .Values.postgres.external.keycloak.password | quote }}
+{{- end }}
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: {{ .Values.keycloak.name }}
+  namespace: {{ .Values.namespaces.auth }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ .Values.keycloak.name }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  instances: {{ .Values.keycloak.instances }}
+  additionalOptions:
+    - name: features
+      value: organization
+  db:
+    vendor: postgres
+    host: {{ include "synesis.postgres.keycloakHost" . }}
+    port: {{ ternary 5432 (.Values.postgres.external.keycloak.port | int) (eq .Values.postgres.mode "cloudnativepg") }}
+    database: {{ ternary .Values.postgres.cloudnativepg.keycloak.database .Values.postgres.external.keycloak.database (eq .Values.postgres.mode "cloudnativepg") }}
+    usernameSecret:
+      name: synesis-auth-db-app
+      key: username
+    passwordSecret:
+      name: synesis-auth-db-app
+      key: password
+  hostname:
+    hostname: {{ .Values.keycloak.publicUrl | quote }}
+    admin: {{ .Values.keycloak.adminUrl | quote }}
+  http:
+    httpEnabled: true
+  proxy:
+    headers: xforwarded
+  resources:
+    {{- toYaml .Values.keycloak.resources | nindent 4 }}
+{{- if .Values.keycloak.realmImport.enabled }}
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: synesis-realm-import
+  namespace: {{ .Values.namespaces.auth }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  keycloakCRName: {{ .Values.keycloak.name }}
+  realm:
+    realm: {{ .Values.keycloak.realm }}
+    enabled: true
+    organizationsEnabled: true
+    registrationAllowed: true
+    registrationEmailAsUsername: true
+    loginWithEmailAllowed: true
+    resetPasswordAllowed: true
+    bruteForceProtected: true
+    sslRequired: external
+    accessTokenLifespan: 1800
+    ssoSessionIdleTimeout: 14400
+    ssoSessionMaxLifespan: 43200
+    roles:
+      realm:
+        - name: synesis-user
+          description: Standard Synesis user
+        - name: synesis-admin
+          description: Synesis platform administrator
+        - name: synesis-org-admin
+          description: Synesis organization administrator
+    defaultRoles:
+      - synesis-user
+    clientScopes:
+      - name: synesis-roles
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "false"
+        protocolMappers:
+          - name: realm-roles
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-realm-role-mapper
+            consentRequired: false
+            config:
+              multivalued: "true"
+              userinfo.token.claim: "true"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              claim.name: realm_access.roles
+              jsonType.label: String
+      - name: synesis-organization
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "false"
+        protocolMappers:
+          - name: organization
+            protocol: openid-connect
+            protocolMapper: oidc-organization-membership-mapper
+            consentRequired: false
+            config:
+              id.token.claim: "true"
+              access.token.claim: "true"
+              claim.name: organization
+              userinfo.token.claim: "true"
+    clients:
+      - clientId: synesis-webui
+        name: Synesis Web UI
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        redirectUris:
+          {{- toYaml .Values.keycloak.realmImport.webuiRedirectUris | nindent 10 }}
+        webOrigins:
+          {{- toYaml .Values.keycloak.realmImport.webuiWebOrigins | nindent 10 }}
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+          - synesis-organization
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: {{ join " " .Values.keycloak.realmImport.webuiRedirectUris | quote }}
+      - clientId: synesis-admin
+        name: Synesis Admin Dashboard
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        redirectUris:
+          {{- toYaml .Values.keycloak.realmImport.adminRedirectUris | nindent 10 }}
+        webOrigins:
+          {{- toYaml .Values.keycloak.realmImport.adminWebOrigins | nindent 10 }}
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+          - synesis-organization
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: {{ join " " .Values.keycloak.realmImport.adminRedirectUris | quote }}
+      - clientId: synesis-api
+        name: Synesis API service account
+        enabled: true
+        publicClient: false
+        standardFlowEnabled: false
+        serviceAccountsEnabled: true
+        directAccessGrantsEnabled: false
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+          - synesis-organization
+{{- end }}
+{{- end }}

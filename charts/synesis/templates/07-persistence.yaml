@@ -1,0 +1,40 @@
+{{- if .Values.persistence.webui.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: open-webui-data
+  namespace: {{ .Values.namespaces.webui }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webui
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.webui.size }}
+  {{- if .Values.persistence.webui.storageClass }}
+  storageClassName: {{ .Values.persistence.webui.storageClass }}
+  {{- end }}
+{{- end }}
+{{- if .Values.persistence.nornicdb.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synesis-nornicdb-data
+  namespace: {{ .Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: graph-store
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.nornicdb.size }}
+  {{- if .Values.persistence.nornicdb.storageClass }}
+  storageClassName: {{ .Values.persistence.nornicdb.storageClass }}
+  {{- end }}
+{{- end }}
