@@ -56,7 +56,9 @@ RUN uv pip install --system --python /opt/app-root/bin/python --no-cache /tmp/sy
     && rm -rf /tmp/synesis-telemetry/
 
 COPY rag/indexer/requirements.lock .
-RUN uv pip install --system --python /opt/app-root/bin/python --no-cache --require-hashes -r requirements.lock \
+# requirements.lock is fully resolved with security overrides; install the
+# locked set directly so uv does not re-solve crawl4ai's stale lxml<6 metadata.
+RUN uv pip install --system --python /opt/app-root/bin/python --no-cache --require-hashes --no-deps -r requirements.lock \
     && (uv pip uninstall --system --python /opt/app-root/bin/python unclecode-litellm 2>/dev/null || true)
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
