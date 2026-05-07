@@ -11,14 +11,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.100.6",
-    "axios": "1.15.2",
+    "@tanstack/react-query": "^5.100.9",
+    "axios": "1.16.0",
     "clsx": "^2.1.0",
     "lucide-react": "^1.14.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.14.2",
+    "react-router-dom": "^7.15.0",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.0"
   },
@@ -37,10 +37,10 @@
     "eslint": "^9.0.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
-    "postcss": "^8.5.12",
+    "postcss": "^8.5.14",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.1",
+    "typescript-eslint": "^8.59.2",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
   }
