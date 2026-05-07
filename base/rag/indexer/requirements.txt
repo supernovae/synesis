@@ -3,7 +3,7 @@ boto3>=1.35.0
 # synesis_telemetry: installed separately in Dockerfile (UBI base-api path copy, not base-api image)
 defusedxml>=0.7.1
 neo4j>=5.27.0
-pyyaml>=6.0
+pyyaml>=6.0.3
 # PDF parsing
 PyMuPDF>=1.27.2.3
 # HTML parsing and content extraction
