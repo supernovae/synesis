@@ -86,35 +86,24 @@ export class AuthResolver {
   }
 
   private resolveBearerIdentity(token: string): { userId: string; displayName?: string } {
+    // Non-PAT bearer tokens are opaque at this layer. Do not derive the
+    // authorization principal from unsigned JWT claims.
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex").slice(0, 24);
+    const identity = { userId: `bearer-${tokenHash}` };
+
     const payload = this.decodeJwtPayload(token);
     if (payload) {
       const fromEmail = this.safePayloadString(payload, ["email", "preferred_username", "upn"]);
-      const fromSub = this.safePayloadString(payload, ["sub", "user_id", "uid"]);
       if (fromEmail) {
         const normalized = fromEmail.toLowerCase();
         return {
-          userId: normalized.slice(0, 200),
+          ...identity,
           displayName: normalized,
-        };
-      }
-      if (fromSub) {
-        const atIndex = fromSub.indexOf("@");
-        const domainStart = atIndex + 1;
-        const looksLikeEmail = atIndex > 0
-          && domainStart < fromSub.length
-          && fromSub.indexOf("@", domainStart) === -1
-          && !fromSub.includes(" ")
-          && fromSub.indexOf(".", domainStart) > domainStart;
-        return {
-          userId: fromSub.slice(0, 200),
-          displayName: looksLikeEmail ? fromSub.toLowerCase() : undefined,
         };
       }
     }
 
-    // Keep identity stable for non-PAT opaque bearer tokens.
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex").slice(0, 24);
-    return { userId: `bearer-${tokenHash}` };
+    return identity;
   }
 
   private decodeJwtPayload(token: string): Record<string, unknown> | null {

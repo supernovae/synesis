@@ -218,6 +218,10 @@ jobs:
             dir: base/mcp-ts
           - name: admin-mcp-ts
             dir: base/admin-mcp-ts
+          - name: planner-ts
+            dir: base/planner-ts
+          - name: yarn-ts
+            dir: base/yarn-ts
     steps:
       - uses: actions/checkout@v6
 
@@ -281,6 +285,42 @@ jobs:
         with:
           name: semgrep-js-results
           path: semgrep-js-results.json
+
+  semgrep-ts-services:
+    name: Semgrep (Planner/Yarn TypeScript Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Run Semgrep on Planner/Yarn TypeScript (report)
+        run: |
+          uvx semgrep scan \
+            --config "https://semgrep.dev/p/typescript" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --config "https://semgrep.dev/p/xss" \
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
+            --json --json-output=semgrep-ts-services-results.json \
+            base/planner-ts/src/ base/yarn-ts/src/ || true
+
+      - name: Run Semgrep on Planner/Yarn TypeScript (gate)
+        run: |
+          uvx semgrep scan \
+            --config "https://semgrep.dev/p/typescript" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --config "https://semgrep.dev/p/xss" \
+            --severity ERROR \
+            --error \
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
+            base/planner-ts/src/ base/yarn-ts/src/
+
+      - name: Upload Semgrep Planner/Yarn results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: semgrep-ts-services-results
+          path: semgrep-ts-services-results.json
 
   # ---------------------------------------------------------------------------
   # Supply-chain guardrails

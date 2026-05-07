@@ -7199,7 +7199,7 @@ app.get("/v1/artifacts/:id", async (req, reply) => {
   if (!artifact) {
     return reply.code(404).send({ error: { type: "not_found", message: "Artifact not found" } });
   }
-  return reply.send(artifact);
+  return artifact;
 });
 
 // --- Native MCP tools (replaces Python MCP proxy) ---

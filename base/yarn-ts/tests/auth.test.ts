@@ -77,23 +77,25 @@ describe("AuthResolver", () => {
       expect(again.userId).toBe(user.userId);
     });
 
-    it("normalizes JWT bearer identity from a test user email", async () => {
+    it("does not trust unsigned JWT email claims for authorization identity", async () => {
       resolver = new AuthResolver(makeConfig());
       const token = unsignedJwt({
         email: "Yarn.Test.User@example.com",
         sub: "test-user-subject",
       });
       const user = await resolver.resolve(`Bearer ${token}`);
-      expect(user.userId).toBe("yarn.test.user@example.com");
+      expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);
+      expect(user.userId).not.toBe("yarn.test.user@example.com");
       expect(user.displayName).toBe("yarn.test.user@example.com");
       expect(user.authMethod).toBe("bearer");
     });
 
-    it("normalizes JWT bearer identity from sub when email is absent", async () => {
+    it("does not trust unsigned JWT sub claims for authorization identity", async () => {
       resolver = new AuthResolver(makeConfig());
       const token = unsignedJwt({ sub: "test-user-subject" });
       const user = await resolver.resolve(`Bearer ${token}`);
-      expect(user.userId).toBe("test-user-subject");
+      expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);
+      expect(user.userId).not.toBe("test-user-subject");
       expect(user.displayName).toBeUndefined();
     });
 
