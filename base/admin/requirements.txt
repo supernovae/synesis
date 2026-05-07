@@ -1,6 +1,6 @@
 httpx>=0.28.1
 openfga-sdk>=0.9.0
-neo4j>=5.27.0
+neo4j>=6.2.0
 python-multipart>=0.0.27
 pyyaml>=6.0.3
 pyjwt[crypto]>=2.8.0
