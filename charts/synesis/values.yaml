@@ -14,6 +14,9 @@ fullnameOverride: ""
 createNamespaces: true
 
 global:
+  # The chart default is API mode: external/provider LLMs through LiteLLM,
+  # no RHOAI/KServe/model-serving resources.
+  mode: api
   imageRegistry: ghcr.io/supernovae/synesis
   imageTag: latest
   imagePullPolicy: IfNotPresent
@@ -25,6 +28,17 @@ global:
   # Deprecated compatibility switch. Prefer global.provider=openshift.
   openshift: true
   routeDomain: apps.example.com
+
+registryCredentials:
+  # Optional replacement for scripts/bootstrap.sh --ghcr-creds. When enabled,
+  # Helm creates a docker-registry pull secret in Synesis namespaces and mounts
+  # it through imagePullSecrets on chart-managed pods.
+  enabled: false
+  name: ghcr-pull-secret
+  registry: ghcr.io
+  username: ""
+  password: ""
+  email: ""
 
 platform:
   storage:
@@ -62,6 +76,15 @@ operators:
   # true renders OLM Subscription resources. Set false on AKS/EKS/GKE unless
   # OLM is installed and intentionally managed through this chart.
   installWithOLM: true
+  customResources:
+    # auto renders operator-backed custom resources only after Helm discovery
+    # can see their CRDs. This lets a first install create OLM subscriptions
+    # without failing on Keycloak/CloudNativePG/Valkey kinds that OLM has not
+    # installed yet; rerun helm upgrade after the CRDs appear.
+    # Use "always" when rendering offline or when CRDs are managed externally.
+    # Use "never" for an operators-only bootstrap pass.
+    create: auto
+    failOnMissingCRDs: false
   cloudnativepg:
     enabled: true
     createNamespace: true
@@ -119,6 +142,22 @@ postgres:
         limits:
           cpu: "1"
           memory: 1Gi
+    litellm:
+      name: synesis-litellm-db
+      database: litellm
+      owner: app
+      password: changeme
+      instances: 1
+      storage:
+        size: 2Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
     keycloak:
       name: synesis-auth-db
       database: keycloak
@@ -234,8 +273,42 @@ secrets:
   webuiSecretKey: sk-synesis-change-me
   providerApiKeys:
     OPENROUTER_API_KEY: sk-or-v1-REPLACE_ME
+    XAI_API_KEY: xai-REPLACE_ME
+    DEEPINFRA_API_KEY: REPLACE_ME
   openfgaAuthToken: changeme-generate-a-real-key
   openwebuiAdminToken: ""
+  githubToken: ""
+  huggingFaceToken: ""
+
+openfga:
+  client:
+    # Leave empty until the OpenFGA bootstrap step creates a real store. The
+    # services treat an empty store ID as "OpenFGA not configured"; a placeholder
+    # non-ULID value makes the OpenFGA SDK fail during startup.
+    storeId: ""
+    modelId: ""
+  bootstrap:
+    enabled: true
+    storeName: synesis
+    image:
+      repository: python
+      tag: 3.12-alpine
+      pullPolicy: IfNotPresent
+    timeoutSeconds: 300
+    writeModel: true
+    writeBaselineTuples: true
+    consumerNamespaces:
+      - admin
+      - planner
+      - yarn
+      - rag
+    restartDeployments:
+      - namespace: admin
+        name: synesis-admin
+      - namespace: planner
+        name: synesis-planner-ts
+      - namespace: yarn
+        name: synesis-yarn
 
 keycloak:
   enabled: true
@@ -260,6 +333,17 @@ keycloak:
       memory: 1Gi
   realmImport:
     enabled: true
+    # Optional first-login user for the application realm. This is disabled by
+    # default because the password is embedded in the KeycloakRealmImport spec.
+    # Enable only for controlled bootstrap flows, then rotate or replace it.
+    bootstrapAdmin:
+      enabled: false
+      username: synesis-admin
+      email: admin@example.com
+      firstName: Synesis
+      lastName: Admin
+      password: ""
+      temporaryPassword: true
     webuiRedirectUris:
       - https://chat.apps.example.com/*
     webuiWebOrigins:
@@ -268,6 +352,19 @@ keycloak:
       - https://admin.apps.example.com/*
     adminWebOrigins:
       - https://admin.apps.example.com
+  deferredBootstrap:
+    # When operators.customResources.create=auto and Helm cannot see the
+    # Keycloak CRDs during the first render, this hook waits for OLM and applies
+    # the Keycloak CR and realm import before the Helm install completes.
+    enabled: true
+    image:
+      repository: bitnami/kubectl
+      tag: 1.31.3
+      pullPolicy: IfNotPresent
+    timeoutSeconds: 1200
+    keycloakReadyTimeoutSeconds: 900
+    postgresReadyTimeoutSeconds: 900
+    realmImportTimeoutSeconds: 600
 
 litellm:
   enabled: true
@@ -276,7 +373,29 @@ litellm:
     tag: main-v1.82.3-stable
     pullPolicy: IfNotPresent
   replicas: 1
+  numWorkers: 1
+  podSecurityContext:
+    runAsNonRoot: true
+  containerSecurityContext:
+    runAsUser: 65534
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
   config:
+    # Static LiteLLM routes are only service entrypoints. Provider-backed role
+    # aliases (synesis-router, synesis-general, synesis-critic, coder tiers,
+    # summarizer, indexer, etc.) are seeded into the Admin DB and reconciled from
+    # the Admin Model Registry.
     model_list:
       - model_name: Synesis
         litellm_params:
@@ -292,11 +411,12 @@ litellm:
           api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
           max_tokens: 32768
           temperature: 0.2
-      - model_name: synesis-thinking
+      - model_name: synesis-yarn
         litellm_params:
-          model: openrouter/deepseek/deepseek-r1-distill-llama-70b
-          api_key: os.environ/OPENROUTER_API_KEY
-          max_tokens: 16384
+          model: openai/synesis-yarn
+          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
+          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
+          max_tokens: 32768
           temperature: 0.2
     litellm_settings:
       drop_params: true
@@ -351,7 +471,8 @@ routes:
 
 ingress:
   # Enable this for AKS/EKS/GKE/generic Kubernetes. OpenShift defaults to Route
-  # resources through routes.enabled.
+  # resources through routes.enabled. cloudflared can also reuse these items
+  # when cloudflared.enabled=true; in that case ingress.enabled can stay false.
   enabled: false
   className: ""
   annotations: {}
@@ -363,6 +484,7 @@ ingress:
       namespace: gateway
       service: litellm-proxy
       port: http
+      originPort: 4000
       host: api.example.com
       path: /
       pathType: Prefix
@@ -370,6 +492,7 @@ ingress:
       namespace: admin
       service: synesis-admin
       port: http
+      originPort: 8080
       host: admin.example.com
       path: /
       pathType: Prefix
@@ -377,6 +500,7 @@ ingress:
       namespace: webui
       service: open-webui
       port: http
+      originPort: 8080
       host: chat.example.com
       path: /
       pathType: Prefix
@@ -384,6 +508,7 @@ ingress:
       namespace: yarn
       service: synesis-yarn
       port: http
+      originPort: 8000
       host: coder.example.com
       path: /
       pathType: Prefix
@@ -391,6 +516,7 @@ ingress:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth.example.com
       path: /
       pathType: Prefix
@@ -398,9 +524,75 @@ ingress:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth-admin.example.com
       path: /
       pathType: Prefix
+
+cloudflared:
+  # Optional Cloudflare Tunnel connector. When enabled, this renders a
+  # cloudflared Deployment and a local tunnel config that routes public hostnames
+  # to the internal services listed in ingress.items.
+  enabled: false
+  namespace: gateway
+  name: cloudflared
+  replicas: 2
+  image:
+    repository: cloudflare/cloudflared
+    tag: latest
+    pullPolicy: IfNotPresent
+  tunnel:
+    # "credentials" runs a locally-managed tunnel with credentials.json and
+    # chart-rendered ingress rules. "token" runs a remotely-managed tunnel using
+    # the Docker/Kubernetes token from Cloudflare and remote tunnel config.
+    mode: credentials
+    # Required in credentials mode. Use the UUID of a locally managed
+    # Cloudflare Tunnel.
+    id: ""
+    # Set existingSecret=true when this secret is managed out of band.
+    # Credentials mode expects credentialsSecretKey. Token mode expects
+    # tokenSecretKey.
+    existingSecret: false
+    credentialsSecretName: cloudflared-credentials
+    credentialsSecretKey: credentials.json
+    tokenSecretKey: token
+    # Remotely-managed Cloudflare Tunnel token. Prefer an external values file
+    # or a pre-created Secret over --set so shell history does not retain it.
+    token: ""
+    # Structured Cloudflare tunnel credentials. This is safer than passing raw
+    # JSON via --set because Helm can type-coerce JSON-like CLI values.
+    credentials: {}
+    # Raw Cloudflare tunnel credentials JSON string. Prefer a values file.
+    credentialsJson: ""
+  ingress:
+    useChartIngressItems: true
+    defaultService: http_status:404
+    # Additional raw cloudflared ingress rules appended after chart-derived
+    # rules and before defaultService.
+    items: []
+  originRequest: {}
+  logLevel: info
+  metrics: 0.0.0.0:2000
+  metricsPort: 2000
+  extraArgs: []
+  extraEnv: []
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  podAnnotations: {}
+  podLabels: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
 
 networkPolicies:
   enabled: true
@@ -464,6 +656,18 @@ workloads:
           secretKeyRef:
             name: litellm-secrets
             key: master-key
+      - name: SYNESIS_ADMIN_ASSISTANT_MODEL
+        value: synesis-general
+      - name: SYNESIS_MCP_URL
+        value: http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100
+      - name: SYNESIS_ADMIN_MCP_URL
+        value: http://synesis-admin-mcp-ts.synesis-admin.svc.cluster.local:8102
+      - name: SYNESIS_QUALITY_REPORT_PATH
+        value: /data/quality/corpus_audit_report.json
+      - name: SYNESIS_CURATOR_PROPOSALS_PATH
+        value: /data/quality/proposed_sources.yaml
+      - name: SYNESIS_TAXONOMY_YAML_PATH
+        value: /etc/synesis/taxonomy_prompt_config.yaml
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
         valueFrom:
           secretKeyRef:
@@ -476,11 +680,25 @@ workloads:
           secretKeyRef:
             name: openfga-client-config
             key: store-id
+      - name: SYNESIS_OPENFGA_MODEL_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: model-id
       - name: SYNESIS_OPENFGA_AUTH_TOKEN
         valueFrom:
           secretKeyRef:
             name: openfga-client-config
             key: auth-token
+    volumeMounts:
+      - name: taxonomy-config
+        mountPath: /etc/synesis/taxonomy_prompt_config.yaml
+        subPath: taxonomy_prompt_config.yaml
+        readOnly: true
+    volumes:
+      - name: taxonomy-config
+        configMap:
+          name: synesis-taxonomy-config
     resources:
       requests:
         cpu: 100m
@@ -518,26 +736,86 @@ workloads:
           secretKeyRef:
             name: litellm-secrets
             key: master-key
+      - name: SYNESIS_PLANNER_TS_LLM_ENABLED
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_MODEL_ID
+        value: Synesis Auto
+      - name: SYNESIS_PLANNER_TS_MODEL_IDS
+        value: Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon
+      - name: SYNESIS_PLANNER_TS_WRITER_MODEL
+        value: synesis-general
+      - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
+        value: synesis-critic
+      - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
+        value: auto
+      - name: SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
       - name: SYNESIS_PLANNER_TS_REDIS_URL
         valueFrom:
           secretKeyRef:
             name: synesis-redis
             key: url
+      - name: SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX
+        value: "synesis:planner:session:"
+      - name: SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S
+        value: "14400"
+      - name: SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS
+        value: "5000"
+      - name: SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES
+        value: "5"
+      - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_ENABLED
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_INTERVAL_MS
+        value: "15000"
+      - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_TIMEOUT_MS
+        value: "2000"
       - name: SYNESIS_PLANNER_TS_ADMIN_DB_URL
         valueFrom:
           secretKeyRef:
             name: synesis-admin-db-url
             key: admin-url
+      - name: SYNESIS_ADMIN_INTERNAL_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
       - name: SYNESIS_ADMIN_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - name: SYNESIS_EMBEDDER_URL
         value: http://embedder.synesis-rag.svc.cluster.local:8080/v1
       - name: SYNESIS_NORNIC_URI
         value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+      - name: SYNESIS_NORNIC_DATABASE
+        value: nornic
+      - name: SYNESIS_RAG_AUTHZ_MODE
+        value: audit
       - name: SYNESIS_WEB_SEARCH_ENABLED
         value: "true"
       - name: SYNESIS_WEB_SEARCH_URL
         value: http://searxng.synesis-search.svc.cluster.local:8080
+      - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL
+        value: synesis-general
+      - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS
+        value: "350"
+      - name: SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD
+        value: "0.58"
+      - name: SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT
+        value: "true"
+      - name: SYNESIS_PLANNER_TS_WRITER_BUDGET_MODE
+        value: audit
       - name: SYNESIS_OPENFGA_API_URL
         value: http://openfga.synesis-authz.svc.cluster.local:8080
       - name: SYNESIS_OPENFGA_STORE_ID
@@ -545,6 +823,11 @@ workloads:
           secretKeyRef:
             name: openfga-client-config
             key: store-id
+      - name: SYNESIS_OPENFGA_MODEL_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: model-id
       - name: SYNESIS_OPENFGA_AUTH_TOKEN
         valueFrom:
           secretKeyRef:
@@ -600,6 +883,192 @@ workloads:
           secretKeyRef:
             name: synesis-internal-service-auth
             key: token
+      - name: SYNESIS_YARN_KEYCLOAK_ISSUER_URL
+        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
+      - name: SYNESIS_YARN_REDUCERS_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_REDUCER_DISABLED_FAMILIES
+        value: ""
+      - name: SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
+        value: "0.6"
+      - name: SYNESIS_YARN_REDUCER_PROFILE
+        value: balanced
+      - name: SYNESIS_YARN_DEBUG_PROTOCOL
+        value: "true"
+      - name: SYNESIS_YARN_REQUEST_FORENSICS_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD
+        value: "false"
+      - name: SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS
+        value: "4000"
+      - name: SYNESIS_YARN_MAX_CONCURRENT_STREAMS
+        value: "50"
+      - name: SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH
+        value: "100"
+      - name: SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS
+        value: "30000"
+      - name: SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS
+        value: "10000000"
+      - name: SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS
+        value: "50000000"
+      - name: SYNESIS_YARN_SESSION_BUDGET_MODE
+        value: audit
+      - name: SYNESIS_YARN_CONTEXT_ADMISSION_MODE
+        value: hybrid
+      - name: SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS
+        value: "80000"
+      - name: SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS
+        value: "100000"
+      - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT
+        value: "15"
+      - name: SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT
+        value: "9"
+      - name: SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT
+        value: "4"
+      - name: SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT
+        value: "2"
+      - name: SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_POLICY_HARD_REJECT_AFTER
+        value: "6"
+      - name: SYNESIS_YARN_TASK_INTAKE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_PLAN_GRAPH_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES
+        value: qwen3-coder
+      - name: SYNESIS_YARN_MODEL_SELECTION_MODE
+        value: respect_explicit
+      - name: SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED
+        value: "false"
+      - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS
+        value: "3600000"
+      - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT
+        value: "10000000"
+      - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT
+        value: "20000000"
+      - name: SYNESIS_YARN_TOOL_COLLAPSE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM
+        value: "false"
+      - name: SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS
+        value: "100"
+      - name: SYNESIS_YARN_DEDUPE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_DEDUPE_CACHE_MAX
+        value: "512"
+      - name: SYNESIS_YARN_DEDUPE_MAX_SEARCH_QUERY_CHARS
+        value: "4096"
+      - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRIES
+        value: "512"
+      - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES
+        value: "262144"
+      - name: SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_RESPONSE_DEDUPE_BROAD_ENABLED
+        value: "false"
+      - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
+        value: lightweight
+      - name: SYNESIS_YARN_SCOPE_EPOCH_INTERVAL
+        value: "10"
+      - name: SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD
+        value: "80"
+      - name: SYNESIS_YARN_SCOPE_BUCKET_SIZE
+        value: "50"
+      - name: SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE
+        value: "true"
+      - name: SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME
+        value: "true"
+      - name: SYNESIS_YARN_RESPONSE_STYLE_MODE
+        value: guidance
+      - name: SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID
+        value: "true"
+      - name: SYNESIS_YARN_MCP_TOOLS_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_WEB_SEARCH_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_GOVERNANCE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_SESSION_CONTINUITY_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_VALIDATION_TIER_C_ROLE
+        value: coder-normalizer
+      - name: SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS
+        value: "1500"
+      - name: SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS
+        value: "8000"
+      - name: SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS
+        value: "8"
+      - name: SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE
+        value: "0"
+      - name: SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP
+        value: "8"
+      - name: SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_STABLE_PREFIX_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_JSON_COMPACTION_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_ATTENTION_POSITIONING_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_SORTED_TOOLS_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS
+        value: "5"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS
+        value: "25"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS
+        value: "80000"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS
+        value: "400"
+      - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS
+        value: "2000"
+      - name: SYNESIS_YARN_CONTENT_DISPATCH_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED
+        value: "false"
+      - name: SYNESIS_YARN_COMPLETION_GATE_ENABLED
+        value: "false"
+      - name: SYNESIS_YARN_TRUST_PACKET_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_INJECTION_SCAN_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_SECURITY_INGEST_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_EVAL_API_ENABLED
+        value: "true"
+      - name: SYNESIS_YARN_EVAL_OBSERVER_ENABLED
+        value: "true"
       - name: SYNESIS_OPENFGA_API_URL
         value: http://openfga.synesis-authz.svc.cluster.local:8080
       - name: SYNESIS_OPENFGA_STORE_ID
@@ -607,6 +1076,11 @@ workloads:
           secretKeyRef:
             name: openfga-client-config
             key: store-id
+      - name: SYNESIS_OPENFGA_MODEL_ID
+        valueFrom:
+          secretKeyRef:
+            name: openfga-client-config
+            key: model-id
       - name: SYNESIS_OPENFGA_AUTH_TOKEN
         valueFrom:
           secretKeyRef:
@@ -649,6 +1123,12 @@ workloads:
           secretKeyRef:
             name: synesis-internal-service-auth
             key: token
+      - name: SYNESIS_ADMIN_DB_URL
+        valueFrom:
+          secretKeyRef:
+            name: synesis-admin-db-url
+            key: admin-url
+            optional: true
   adminMcpTs:
     enabled: true
     namespace: admin
@@ -665,14 +1145,16 @@ workloads:
         value: "8102"
       - name: SYNESIS_ADMIN_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+      - name: SYNESIS_ADMIN_API_URL
+        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
   webui:
     enabled: true
     namespace: webui
     name: open-webui
     component: webui
     image:
-      repository: ghcr.io/open-webui/open-webui
-      tag: v0.8.12
+      repository: ghcr.io/supernovae/synesis/open-webui
+      tag: v0.9.4
     strategy: Recreate
     ports:
       - name: http
@@ -730,6 +1212,10 @@ workloads:
       limits:
         cpu: "1"
         memory: 1Gi
+    podSecurityContext:
+      runAsNonRoot: false
+      seccompProfile:
+        type: RuntimeDefault
     probes:
       readiness: /health
       liveness: /health
@@ -748,6 +1234,26 @@ workloads:
     env:
       - name: SEARXNG_BASE_URL
         value: http://searxng.synesis-search.svc.cluster.local:8080/
+      - name: SEARXNG_PORT
+        value: "8080"
+      - name: GRANIAN_PORT
+        value: "8080"
+    podSecurityContext:
+      runAsNonRoot: false
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+      - name: cache
+        mountPath: /var/cache/searxng
+      - name: tmp-etc
+        mountPath: /etc/searxng
+    volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: tmp-etc
+        emptyDir:
+          sizeLimit: 10Mi
   nornicdb:
     enabled: true
     namespace: rag
@@ -768,6 +1274,10 @@ workloads:
       - name: data
         persistentVolumeClaim:
           claimName: synesis-nornicdb-data
+    podSecurityContext:
+      runAsNonRoot: false
+      seccompProfile:
+        type: RuntimeDefault
   embedder:
     enabled: true
     namespace: rag
@@ -784,6 +1294,17 @@ workloads:
       - BAAI/bge-small-en-v1.5
       - --port
       - "8080"
+    env:
+      - name: HOME
+        value: /tmp
+      - name: XDG_CACHE_HOME
+        value: /tmp/.cache
+      - name: HF_HOME
+        value: /tmp/hf_home
+    podSecurityContext:
+      runAsNonRoot: false
+      seccompProfile:
+        type: RuntimeDefault
   keywordService:
     enabled: true
     namespace: rag
@@ -817,6 +1338,21 @@ workloads:
     ports:
       - name: http
         containerPort: 8080
+    env:
+      - name: HOME
+        value: /tmp
+      - name: XDG_CACHE_HOME
+        value: /tmp/.cache
+      - name: HF_HOME
+        value: /tmp/hf_home
+      - name: TRANSFORMERS_CACHE
+        value: /tmp/hf_home
+      - name: TORCH_HOME
+        value: /tmp/torch
+      - name: TORCHINDUCTOR_CACHE_DIR
+        value: /tmp/torchinductor
+      - name: TOKENIZERS_PARALLELISM
+        value: "false"
   glinerService:
     enabled: true
     namespace: rag
@@ -828,6 +1364,80 @@ workloads:
     ports:
       - name: http
         containerPort: 8080
+    env:
+      - name: HOME
+        value: /tmp
+      - name: XDG_CACHE_HOME
+        value: /tmp/.cache
+      - name: HF_HOME
+        value: /tmp/hf_home
+      - name: TRANSFORMERS_CACHE
+        value: /tmp/hf_home
+      - name: TORCH_HOME
+        value: /tmp/torch
+      - name: TORCHINDUCTOR_CACHE_DIR
+        value: /tmp/torchinductor
+      - name: TOKENIZERS_PARALLELISM
+        value: "false"
+  astMcp:
+    enabled: true
+    namespace: yarn
+    name: synesis-ast-mcp
+    component: ast-mcp
+    image:
+      repository: ghcr.io/supernovae/synesis/synesis-ast-mcp
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: PORT
+        value: "8080"
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      runAsUser: 1001
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  visionWorker:
+    enabled: true
+    namespace: yarn
+    name: synesis-vision-worker
+    component: vision-worker
+    image:
+      repository: ghcr.io/supernovae/synesis/vision-worker
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8080
+    env:
+      - name: PORT
+        value: "8080"
+    podSecurityContext:
+      runAsNonRoot: false
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
   openfga:
     enabled: true
     namespace: authz
@@ -836,6 +1446,14 @@ workloads:
     image:
       repository: openfga/openfga
       tag: v1.8.5
+    containerSecurityContext:
+      runAsUser: 10001
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
     replicas: 2
     args:
       - run
@@ -861,5 +1479,112 @@ workloads:
           secretKeyRef:
             name: openfga-config
             key: OPENFGA_AUTHN_PRESHARED_KEYS
+
+jobs:
+  indexer:
+    enabled: false
+    image:
+      repository: ghcr.io/supernovae/synesis/indexer
+      tag: latest
+      pullPolicy: IfNotPresent
+    serviceAccountName: default
+    githubTokenSecretName: synesis-github-token
+    hfTokenSecretName: synesis-hf-token
+    adminUrl: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      runAsUser: 1001
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    queue:
+      enabled: true
+      suspend: true
+      schedule: "0 3 * * 0"
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 7200
+      resources:
+        requests:
+          cpu: "1"
+          memory: 3Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+      extraEnv: []
+    staged:
+      enabled: false
+      s3Bucket: ""
+      s3Prefix: ""
+      fetch:
+        suspend: true
+        schedule: "15 3 * * 0"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+      normalize:
+        suspend: true
+        schedule: "30 3 * * 0"
+        batchLimit: 16
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+      enrich:
+        suspend: true
+        schedule: "45 3 * * 0"
+        batchLimit: 8
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            cpu: "8"
+            memory: 16Gi
+  qualityRunner:
+    enabled: false
+    schedule: "0 4 * * *"
+    image:
+      repository: ghcr.io/supernovae/synesis/quality-runner
+      tag: latest
+      pullPolicy: IfNotPresent
+    command:
+      - python
+      - entrypoint.py
+    activeDeadlineSeconds: 3600
+    backoffLimit: 1
+    runCurator: false
+    env:
+      - name: SYNESIS_NORNIC_URI
+        value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+      - name: SYNESIS_EMBEDDER_URL
+        value: http://embedder.synesis-rag.svc.cluster.local:8080
+      - name: SYNESIS_ADMIN_API_URL
+        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+      - name: SYNESIS_LLM_URL
+        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
+      - name: SYNESIS_LLM_MODEL
+        value: synesis-general
+      - name: SYNESIS_TAXONOMY_PATH
+        value: /app/taxonomy_prompt_config.yaml
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
 
 extraManifests: []

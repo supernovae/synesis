@@ -19,6 +19,20 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
+{{- define "synesis.imagePullSecrets" -}}
+{{- $secrets := list -}}
+{{- range .Values.global.imagePullSecrets }}
+{{- $secrets = append $secrets . -}}
+{{- end }}
+{{- if .Values.registryCredentials.enabled }}
+{{- $secrets = append $secrets (dict "name" .Values.registryCredentials.name) -}}
+{{- end }}
+{{- if $secrets }}
+imagePullSecrets:
+{{- toYaml $secrets | nindent 2 }}
+{{- end }}
+{{- end -}}
+
 {{- define "synesis.selectorLabels" -}}
 app.kubernetes.io/name: {{ .name }}
 app.kubernetes.io/part-of: synesis
@@ -79,6 +93,25 @@ false
 {{- end -}}
 {{- else -}}
 {{- .Values.operators.installWithOLM -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.operatorCustomResourceReady" -}}
+{{- $root := .root -}}
+{{- $gvk := .apiVersion -}}
+{{- $mode := lower (toString (default "auto" $root.Values.operators.customResources.create)) -}}
+{{- if or (eq $mode "always") (eq $mode "true") -}}
+true
+{{- else if or (eq $mode "never") (eq $mode "false") -}}
+false
+{{- else if eq $mode "auto" -}}
+{{- if $root.Capabilities.APIVersions.Has $gvk -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- else -}}
+{{- fail (printf "operators.customResources.create must be one of auto, always, or never; got %q" $mode) -}}
 {{- end -}}
 {{- end -}}
 

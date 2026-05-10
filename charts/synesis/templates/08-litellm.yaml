@@ -21,16 +21,19 @@ spec:
         app.kubernetes.io/part-of: synesis
         app.kubernetes.io/component: gateway
       annotations:
+        checksum/synesis-secrets: {{ include (print $.Template.BasePath "/04-secrets.yaml") . | sha256sum }}
+        checksum/synesis-configmaps: {{ include (print $.Template.BasePath "/06-configmaps.yaml") . | sha256sum }}
         prometheus.io/scrape: "true"
         prometheus.io/port: "4000"
         prometheus.io/path: /metrics
     spec:
-      {{- with .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "synesis.imagePullSecrets" . | nindent 6 }}
       securityContext:
+        {{- if .Values.litellm.podSecurityContext }}
+        {{- toYaml .Values.litellm.podSecurityContext | nindent 8 }}
+        {{- else }}
         runAsNonRoot: true
+        {{- end }}
       containers:
         - name: litellm
           image: {{ .Values.litellm.image.repository }}:{{ .Values.litellm.image.tag }}
@@ -41,7 +44,7 @@ spec:
             - --port
             - "4000"
             - --num_workers
-            - "2"
+            - {{ .Values.litellm.numWorkers | default 1 | quote }}
           ports:
             - name: http
               containerPort: 4000
@@ -88,19 +91,33 @@ spec:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: http
             initialDelaySeconds: 60
             periodSeconds: 15
+          {{- with .Values.litellm.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           securityContext:
+            {{- if .Values.litellm.containerSecurityContext }}
+            {{- toYaml .Values.litellm.containerSecurityContext | nindent 12 }}
+            {{- else }}
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+            {{- end }}
       volumes:
         - name: config
           configMap:

@@ -52,6 +52,8 @@ DEFAULT_ENRICHMENT_TIMEOUT_SECONDS = 180.0
 DEFAULT_ENRICHMENT_CONCURRENCY = 6
 MAX_ENRICHMENT_CONCURRENCY = 8
 DEFAULT_THINKING_CAP_TOKENS = 8192
+DEFAULT_EMBEDDER_BATCH_SIZE = 8
+DEFAULT_EMBEDDER_TIMEOUT_SECONDS = 300.0
 FRONTIER_ENRICHMENT_SYSTEM_PROMPT = (
     "You are a principal software architect building retrieval enrichment for a portable Synesis SynPack. "
     "Analyze the chunk deeply for agentic retrieval, operational hazards, version constraints, lifecycle, "
@@ -4132,6 +4134,8 @@ def finalize_staged_language_pack(
     work_dir: str | Path,
     output_path: str | Path,
     embedder_url: str = "",
+    embedder_batch_size: int = DEFAULT_EMBEDDER_BATCH_SIZE,
+    embedder_timeout: float = DEFAULT_EMBEDDER_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     work = Path(work_dir)
     manifest = json.loads((work / "run_manifest.json").read_text(encoding="utf-8"))
@@ -4145,7 +4149,13 @@ def finalize_staged_language_pack(
     chunks = [_chunk_from_record(record) for record in records]
     enrichments = [completed[str(record["chunk_key"])] for record in records]
     enrichment_usage = aggregate_enrichment_usage(enrichments)
-    embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
+    embedder_kwargs: dict[str, Any] = {
+        "batch_size": max(1, int(embedder_batch_size or 1)),
+        "timeout": max(1.0, float(embedder_timeout or 1.0)),
+    }
+    if embedder_url:
+        embedder_kwargs["url"] = embedder_url
+    embedder = EmbedClient(**embedder_kwargs)
     embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
     embeddings = embedder.embed_texts(embed_inputs) if embed_inputs else []
     if len(embeddings) != len(chunks):
@@ -4225,6 +4235,8 @@ def build_language_pack(
     estimate_cost_only: bool = False,
     skip_enrichment: bool = False,
     embedder_url: str = "",
+    embedder_batch_size: int = DEFAULT_EMBEDDER_BATCH_SIZE,
+    embedder_timeout: float = DEFAULT_EMBEDDER_TIMEOUT_SECONDS,
     max_chunks: int = 0,
     source_dir: str | Path = "",
     provider_schema: str | Path = "",
@@ -4401,7 +4413,13 @@ def build_language_pack(
         source_quality_report["fallback_enriched"] = sum(
             1 for enrichment in enrichments if enrichment.get("enrichment_status") == "fallback"
         )
-        embedder = EmbedClient(**({"url": embedder_url} if embedder_url else {}))
+        embedder_kwargs: dict[str, Any] = {
+            "batch_size": max(1, int(embedder_batch_size or 1)),
+            "timeout": max(1.0, float(embedder_timeout or 1.0)),
+        }
+        if embedder_url:
+            embedder_kwargs["url"] = embedder_url
+        embedder = EmbedClient(**embedder_kwargs)
         embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
         embeddings = embedder.embed_texts(embed_inputs) if embed_inputs else []
         if len(embeddings) != len(chunks):

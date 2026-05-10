@@ -13,6 +13,20 @@ data:
     {{- toYaml .Values.litellm.config | nindent 4 }}
 {{- end }}
 ---
+{{- if .Values.workloads.admin.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synesis-taxonomy-config
+  namespace: {{ .Values.namespaces.admin }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+data:
+  taxonomy_prompt_config.yaml: |-
+{{ .Files.Get "files/admin/taxonomy_prompt_config.yaml" | nindent 4 }}
+---
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1,7 +1,11 @@
-{{- if eq .Values.postgres.mode "cloudnativepg" }}
-{{- $clusters := dict "admin" .Values.postgres.cloudnativepg.admin "keycloak" .Values.postgres.cloudnativepg.keycloak "openfga" .Values.postgres.cloudnativepg.openfga -}}
+{{- $cnpgReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "postgresql.cnpg.io/v1/Cluster")) "true" -}}
+{{- if and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady) .Values.operators.customResources.failOnMissingCRDs -}}
+{{- fail "postgres.mode=cloudnativepg requires the CloudNativePG CRD clusters.postgresql.cnpg.io. Install the CloudNativePG operator first, or keep operators.customResources.create=auto and rerun helm upgrade after OLM installs the CRD." -}}
+{{- end -}}
+{{- if and (eq .Values.postgres.mode "cloudnativepg") $cnpgReady }}
+{{- $clusters := dict "admin" .Values.postgres.cloudnativepg.admin "litellm" .Values.postgres.cloudnativepg.litellm "keycloak" .Values.postgres.cloudnativepg.keycloak "openfga" .Values.postgres.cloudnativepg.openfga -}}
 {{- range $key, $db := $clusters }}
-{{- $nsKey := ternary "auth" (ternary "authz" "admin" (eq $key "openfga")) (eq $key "keycloak") -}}
+{{- $nsKey := ternary "auth" (ternary "authz" (ternary "gateway" "admin" (eq $key "litellm")) (eq $key "openfga")) (eq $key "keycloak") -}}
 {{- $ns := include "synesis.namespace" (dict "root" $ "key" $nsKey) -}}
 ---
 apiVersion: v1
@@ -9,6 +13,9 @@ kind: Secret
 metadata:
   name: {{ $db.name }}-app
   namespace: {{ $ns }}
+  annotations:
+    meta.helm.sh/release-name: {{ $.Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ $.Release.Namespace | quote }}
   labels:
     {{- include "synesis.labels" $ | nindent 4 }}
 type: kubernetes.io/basic-auth
@@ -21,6 +28,9 @@ kind: Cluster
 metadata:
   name: {{ $db.name }}
   namespace: {{ $ns }}
+  annotations:
+    meta.helm.sh/release-name: {{ $.Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ $.Release.Namespace | quote }}
   labels:
     {{- include "synesis.labels" $ | nindent 4 }}
     app.kubernetes.io/component: database

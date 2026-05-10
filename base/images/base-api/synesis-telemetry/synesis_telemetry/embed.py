@@ -9,6 +9,7 @@ Requires httpx and numpy — both provided by the base-api image.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import httpx
@@ -40,11 +41,36 @@ class EmbedClient:
         *,
         batch_size: int = DEFAULT_BATCH_SIZE,
         timeout: float = 60,
+        max_retries: int = 2,
     ):
         self.url = url.rstrip("/")
         self.model = model
         self.batch_size = batch_size
-        self._client = httpx.Client(timeout=timeout)
+        self.timeout = timeout
+        self.max_retries = max(0, int(max_retries))
+        self._client = httpx.Client(timeout=self.timeout)
+
+    def _reset_client(self) -> None:
+        self._client.close()
+        self._client = httpx.Client(timeout=self.timeout)
+
+    def _post_embeddings(self, batch: list[str]) -> httpx.Response:
+        for attempt in range(self.max_retries + 1):
+            try:
+                return self._client.post(
+                    f"{self.url}/embeddings",
+                    json={"input": batch, "model": self.model},
+                )
+            except httpx.TransportError:
+                if attempt >= self.max_retries:
+                    raise
+                logger.warning(
+                    "embedder_transport_retry",
+                    extra={"attempt": attempt + 1, "batch_size": len(batch), "url": self.url},
+                )
+                self._reset_client()
+                time.sleep(min(2.0, 0.25 * (2**attempt)))
+        raise RuntimeError("unreachable embedder retry state")
 
     # -- numpy interface (planner, keyword-service) --
 
@@ -56,10 +82,7 @@ class EmbedClient:
         all_vecs: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
-            resp = self._client.post(
-                f"{self.url}/embeddings",
-                json={"input": batch, "model": self.model},
-            )
+            resp = self._post_embeddings(batch)
             resp.raise_for_status()
             all_vecs.extend(item["embedding"] for item in resp.json()["data"])
 
@@ -76,10 +99,7 @@ class EmbedClient:
         all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i : i + self.batch_size]
-            resp = self._client.post(
-                f"{self.url}/embeddings",
-                json={"input": batch, "model": self.model},
-            )
+            resp = self._post_embeddings(batch)
             resp.raise_for_status()
             all_embeddings.extend(item["embedding"] for item in resp.json()["data"])
         return all_embeddings

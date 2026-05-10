@@ -1,4 +1,9 @@
-{{- if and (eq .Values.kv.mode "redkey") .Values.kv.redkey.createCustomResource }}
+{{- $redkeyGVK := printf "%s/%s" .Values.kv.redkey.apiVersion .Values.kv.redkey.kind -}}
+{{- $redkeyReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" $redkeyGVK)) "true" -}}
+{{- if and (eq .Values.kv.mode "redkey") .Values.kv.redkey.createCustomResource (not $redkeyReady) .Values.operators.customResources.failOnMissingCRDs -}}
+{{- fail (printf "kv.mode=redkey requires the %s custom resource API. Install the selected Valkey/RedKey operator first, or keep operators.customResources.create=auto and rerun helm upgrade after OLM installs the CRD." $redkeyGVK) -}}
+{{- end -}}
+{{- if and (eq .Values.kv.mode "redkey") .Values.kv.redkey.createCustomResource $redkeyReady }}
 ---
 apiVersion: {{ .Values.kv.redkey.apiVersion }}
 kind: {{ .Values.kv.redkey.kind }}

@@ -1,0 +1,283 @@
+{{- if .Values.cloudflared.enabled }}
+{{- $root := . -}}
+{{- $cloudflared := .Values.cloudflared -}}
+{{- $ns := include "synesis.namespace" (dict "root" . "key" $cloudflared.namespace) -}}
+{{- $saName := default $cloudflared.name $cloudflared.serviceAccount.name -}}
+{{- $credentialsSecretName := required "cloudflared.tunnel.credentialsSecretName is required when cloudflared.enabled=true" $cloudflared.tunnel.credentialsSecretName -}}
+{{- $credentialsSecretKey := required "cloudflared.tunnel.credentialsSecretKey is required when cloudflared.enabled=true" $cloudflared.tunnel.credentialsSecretKey -}}
+{{- $tokenSecretKey := required "cloudflared.tunnel.tokenSecretKey is required when cloudflared.enabled=true" $cloudflared.tunnel.tokenSecretKey -}}
+{{- $mode := default "credentials" $cloudflared.tunnel.mode -}}
+{{- $tokenMode := eq $mode "token" -}}
+{{- $credentialsMode := eq $mode "credentials" -}}
+{{- if not (or $tokenMode $credentialsMode) -}}
+{{- fail "cloudflared.tunnel.mode must be either \"credentials\" or \"token\"" -}}
+{{- end -}}
+{{- $tunnelId := "" -}}
+{{- if $credentialsMode -}}
+{{- $tunnelId = required "cloudflared.tunnel.id is required when cloudflared.enabled=true and cloudflared.tunnel.mode=credentials" $cloudflared.tunnel.id -}}
+{{- end -}}
+{{- $credentials := "" -}}
+{{- if $cloudflared.tunnel.credentialsJson -}}
+{{- if kindIs "string" $cloudflared.tunnel.credentialsJson -}}
+{{- $credentials = $cloudflared.tunnel.credentialsJson -}}
+{{- else -}}
+{{- $credentials = toJson $cloudflared.tunnel.credentialsJson -}}
+{{- end -}}
+{{- else if $cloudflared.tunnel.credentials -}}
+{{- $credentials = toJson $cloudflared.tunnel.credentials -}}
+{{- end -}}
+{{- if and $credentialsMode (not $cloudflared.tunnel.existingSecret) (not $credentials) -}}
+{{- fail "cloudflared.enabled=true requires cloudflared.tunnel.credentials, cloudflared.tunnel.credentialsJson, or cloudflared.tunnel.existingSecret=true for a pre-created Secret" -}}
+{{- end -}}
+{{- if and $tokenMode (not $cloudflared.tunnel.existingSecret) (not $cloudflared.tunnel.token) -}}
+{{- fail "cloudflared.enabled=true with cloudflared.tunnel.mode=token requires cloudflared.tunnel.token or cloudflared.tunnel.existingSecret=true for a pre-created Secret" -}}
+{{- end -}}
+{{- if $cloudflared.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+  {{- with $cloudflared.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if and $credentialsMode (not $cloudflared.tunnel.existingSecret) $credentials }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $credentialsSecretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+type: Opaque
+stringData:
+  {{ $credentialsSecretKey }}: |-
+    {{- $credentials | nindent 4 }}
+{{- end }}
+{{- if and $tokenMode (not $cloudflared.tunnel.existingSecret) $cloudflared.tunnel.token }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $credentialsSecretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+type: Opaque
+stringData:
+  {{ $tokenSecretKey }}: {{ $cloudflared.tunnel.token | quote }}
+{{- end }}
+{{- if $credentialsMode }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cloudflared.name }}-config
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+data:
+  config.yaml: |
+    tunnel: {{ $tunnelId | quote }}
+    credentials-file: /etc/cloudflared/creds/{{ $credentialsSecretKey }}
+    {{- with $cloudflared.originRequest }}
+    originRequest:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    ingress:
+      {{- if $cloudflared.ingress.useChartIngressItems }}
+      {{- range $name, $ingress := $root.Values.ingress.items }}
+      {{- if $ingress.host }}
+      {{- $ingressCloudflared := default dict $ingress.cloudflared -}}
+      {{- $serviceUrl := default "" $ingressCloudflared.serviceUrl -}}
+      {{- if not $serviceUrl }}
+      {{- $originPort := default $ingress.port $ingress.originPort -}}
+      {{- if not (regexMatch "^[0-9]+$" (toString $originPort)) }}
+      {{- fail (printf "ingress.items.%s.originPort must be numeric when cloudflared.enabled=true; got %v" $name $originPort) }}
+      {{- end }}
+      {{- $originNs := include "synesis.namespace" (dict "root" $root "key" $ingress.namespace) -}}
+      {{- $originScheme := default "http" $ingressCloudflared.scheme -}}
+      {{- $serviceUrl = printf "%s://%s.%s.svc.cluster.local:%v" $originScheme $ingress.service $originNs $originPort -}}
+      {{- end }}
+      - hostname: {{ $ingress.host | quote }}
+        service: {{ $serviceUrl | quote }}
+        {{- if and $ingress.path (ne $ingress.path "/") }}
+        path: {{ $ingress.path | quote }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- range $rule := $cloudflared.ingress.items }}
+{{ toYaml (list $rule) | indent 6 }}
+      {{- end }}
+      - service: {{ $cloudflared.ingress.defaultService | quote }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $cloudflared.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+spec:
+  replicas: {{ $cloudflared.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $cloudflared.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $cloudflared.name }}
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: ingress
+        {{- with $cloudflared.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ toYaml $cloudflared | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $cloudflared.metricsPort | quote }}
+        prometheus.io/path: /metrics
+        {{- with $cloudflared.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $saName }}
+      {{- include "synesis.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          image: {{ $cloudflared.image.repository }}:{{ $cloudflared.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy $cloudflared.image.pullPolicy }}
+          args:
+            - tunnel
+            {{- if $credentialsMode }}
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            {{- end }}
+            - --no-autoupdate
+            - --loglevel
+            - {{ $cloudflared.logLevel | quote }}
+            - --metrics
+            - {{ $cloudflared.metrics | quote }}
+            {{- with $cloudflared.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - run
+          ports:
+            - name: metrics
+              containerPort: {{ $cloudflared.metricsPort }}
+          {{- if $tokenMode }}
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $credentialsSecretName }}
+                  key: {{ $tokenSecretKey }}
+            {{- with $cloudflared.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- else }}
+          {{- with $cloudflared.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if $credentialsMode }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: credentials
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          {{- with $cloudflared.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      {{- if $credentialsMode }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $cloudflared.name }}-config
+        - name: credentials
+          secret:
+            secretName: {{ $credentialsSecretName }}
+      {{- end }}
+      {{- with $cloudflared.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cloudflared.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cloudflared.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cloudflared.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $cloudflared.name }}-metrics
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+    app.kubernetes.io/component: ingress
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $cloudflared.name }}
+  ports:
+    - name: metrics
+      port: {{ $cloudflared.metricsPort }}
+      targetPort: metrics
+{{- end }}

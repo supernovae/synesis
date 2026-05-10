@@ -43,7 +43,8 @@ KV:
 
 - `kv.mode=external` uses a managed Redis-compatible or Valkey service.
 - `kv.mode=redkey` creates a configurable Valkey/RedKey-style custom resource
-  and stores the Redis-compatible URL in Secret `synesis-redis`.
+  and stores the Redis-compatible URL in namespace-local `synesis-redis`
+  Secrets for RAG, planner, and Yarn.
 - `kv.mode=azureRedis` generates a TLS `rediss://` URL for Azure Cache for
   Redis.
 
@@ -70,8 +71,11 @@ chart applies their custom resources:
 
 The chart can render OLM `Subscription` resources for those operators, but a
 single first-time Helm install cannot depend on CRDs created later in that same
-release. For a new cluster, either preinstall the operators or run a two-pass
-install.
+release. By default `operators.customResources.create=auto` defers those
+custom resources until Helm discovery can see the CRDs, so a new cluster can
+create subscriptions first and then create CRs on the next upgrade. For a clean
+bootstrap with no dependent workloads starting early, preinstall the operators
+or run the operators-only two-pass flow below.
 
 ## Create values
 
@@ -111,6 +115,8 @@ global:
 
 operators:
   installWithOLM: false
+  customResources:
+    create: auto
   cloudnativepg:
     enabled: false
   redkey:
@@ -252,7 +258,12 @@ helm upgrade --install synesis ./charts/synesis \
 ## Two-pass operator bootstrap
 
 For a brand-new OpenShift cluster where you want this chart to create OLM
-subscriptions, run operators first, wait for CRDs, then install Synesis.
+subscriptions, run operators first, wait for CRDs, then install Synesis. This
+keeps application workloads from starting before their databases and Keycloak
+custom resources exist. If you skip this operators-only pass, the default
+`operators.customResources.create=auto` still prevents Helm from failing on
+missing CRDs. Keycloak can also complete in that first install through the
+deferred bootstrap hook described below.
 
 Create `operators-only-values.yaml`:
 
@@ -264,6 +275,10 @@ kv:
   mode: external
   redkey:
     createCustomResource: false
+
+operators:
+  customResources:
+    create: never
 
 keycloak:
   enabled: false
@@ -323,6 +338,46 @@ Then upgrade the same release to the full stack:
 helm upgrade --install synesis ./charts/synesis \
   -f my-synesis-values.yaml
 ```
+
+If the operators are installed outside this chart and Helm discovery already
+sees the CRDs, the default `auto` mode renders the custom resources. For
+offline `helm template` output, pass the CR APIs with `--api-versions` or set
+`operators.customResources.create=always`.
+
+## Single-pass Keycloak bootstrap
+
+Helm cannot render `Keycloak` or `KeycloakRealmImport` normally until the
+operator CRDs exist. With the default `keycloak.deferredBootstrap.enabled=true`,
+the chart renders a post-install/post-upgrade Job when those CRDs are missing.
+The Job waits for OLM, applies the CloudNativePG database resources when
+`postgres.mode=cloudnativepg`, applies the Keycloak resources, then waits for
+Keycloak and the realm import to report ready.
+
+Use a first-install timeout long enough for OLM, database startup, and Keycloak:
+
+```bash
+helm upgrade --install synesis ./charts/synesis \
+  -f my-synesis-values.yaml \
+  --timeout 30m
+```
+
+For a seeded first login account in realm `synesis`, provide an explicit
+temporary password:
+
+```yaml
+keycloak:
+  realmImport:
+    bootstrapAdmin:
+      enabled: true
+      username: synesis-admin
+      email: admin@example.com
+      password: replace-me-temporary-password
+      temporaryPassword: true
+```
+
+Helm notes print the username and a `kubectl get secret` command for retrieving
+the bootstrap password. Rotate or replace this account after first login; the
+password is necessarily present in the one-time `KeycloakRealmImport` spec.
 
 ## Validate before applying
 

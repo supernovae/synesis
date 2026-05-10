@@ -1,0 +1,343 @@
+{{- if and .Values.workloads.openfga.enabled .Values.openfga.bootstrap.enabled }}
+{{- $root := . -}}
+{{- $authzNs := include "synesis.namespace" (dict "root" . "key" .Values.workloads.openfga.namespace) -}}
+{{- $consumerNamespaces := list -}}
+{{- range $key := .Values.openfga.bootstrap.consumerNamespaces }}
+{{- $consumerNamespaces = append $consumerNamespaces (include "synesis.namespace" (dict "root" $root "key" $key)) -}}
+{{- end }}
+{{- $restartTargets := list -}}
+{{- range $target := .Values.openfga.bootstrap.restartDeployments }}
+{{- $restartTargets = append $restartTargets (dict "namespace" (include "synesis.namespace" (dict "root" $root "key" $target.namespace)) "name" $target.name) -}}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openfga-bootstrap
+  namespace: {{ $authzNs }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openfga-bootstrap
+    app.kubernetes.io/component: authz-bootstrap
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "synesis.fullname" . }}-openfga-bootstrap
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openfga-bootstrap
+    app.kubernetes.io/component: authz-bootstrap
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "synesis.fullname" . }}-openfga-bootstrap
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openfga-bootstrap
+    app.kubernetes.io/component: authz-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "synesis.fullname" . }}-openfga-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: openfga-bootstrap
+    namespace: {{ $authzNs }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openfga-bootstrap
+  namespace: {{ $authzNs }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openfga-bootstrap
+    app.kubernetes.io/component: authz-bootstrap
+data:
+  schema.json: |-
+{{ .Files.Get "files/openfga/schema.json" | nindent 4 }}
+  bootstrap.py: |-
+    import base64
+    import json
+    import os
+    import ssl
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+
+    OPENFGA_API_URL = os.environ["OPENFGA_API_URL"].rstrip("/")
+    OPENFGA_AUTH_TOKEN = os.environ["OPENFGA_AUTH_TOKEN"]
+    STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "synesis")
+    DESIRED_STORE_ID = os.environ.get("OPENFGA_CLIENT_STORE_ID", "").strip()
+    DESIRED_MODEL_ID = os.environ.get("OPENFGA_CLIENT_MODEL_ID", "").strip()
+    WRITE_MODEL = os.environ.get("OPENFGA_WRITE_MODEL", "true").lower() == "true"
+    WRITE_BASELINE_TUPLES = os.environ.get("OPENFGA_WRITE_BASELINE_TUPLES", "true").lower() == "true"
+    TIMEOUT_SECONDS = int(os.environ.get("OPENFGA_BOOTSTRAP_TIMEOUT_SECONDS", "300"))
+    CONSUMER_NAMESPACES = json.loads(os.environ["OPENFGA_CONSUMER_NAMESPACES"])
+    RESTART_TARGETS = json.loads(os.environ["OPENFGA_RESTART_TARGETS"])
+    SECRET_NAME = os.environ.get("OPENFGA_CLIENT_SECRET_NAME", "openfga-client-config")
+
+    K8S_HOST = os.environ["KUBERNETES_SERVICE_HOST"]
+    K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+    K8S_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    K8S_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    K8S_API = f"https://{K8S_HOST}:{K8S_PORT}"
+
+    with open(K8S_TOKEN_PATH, "r", encoding="utf-8") as f:
+      K8S_TOKEN = f.read().strip()
+    K8S_SSL = ssl.create_default_context(cafile=K8S_CA_PATH)
+
+    def request_json(method, url, body=None, headers=None, timeout=20):
+      data = None
+      req_headers = headers or {}
+      if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        req_headers = {"Content-Type": "application/json", **req_headers}
+      req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
+      with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    def openfga_request(method, path, body=None):
+      return request_json(
+        method,
+        f"{OPENFGA_API_URL}{path}",
+        body,
+        headers={"Authorization": f"Bearer {OPENFGA_AUTH_TOKEN}"},
+      )
+
+    def wait_for_openfga():
+      deadline = time.time() + TIMEOUT_SECONDS
+      while time.time() < deadline:
+        try:
+          openfga_request("GET", "/stores")
+          return
+        except Exception as exc:
+          print(f"waiting for OpenFGA: {exc}", flush=True)
+          time.sleep(5)
+      raise RuntimeError(f"OpenFGA was not reachable within {TIMEOUT_SECONDS}s")
+
+    def ensure_store():
+      if DESIRED_STORE_ID:
+        print(f"using configured OpenFGA store: {DESIRED_STORE_ID}", flush=True)
+        return DESIRED_STORE_ID
+      stores = openfga_request("GET", "/stores").get("stores", [])
+      for store in stores:
+        if store.get("name") == STORE_NAME:
+          store_id = store["id"]
+          print(f"found OpenFGA store {STORE_NAME}: {store_id}", flush=True)
+          return store_id
+      created = openfga_request("POST", "/stores", {"name": STORE_NAME})
+      store_id = created["id"]
+      print(f"created OpenFGA store {STORE_NAME}: {store_id}", flush=True)
+      return store_id
+
+    def ensure_model(store_id):
+      if WRITE_MODEL:
+        with open("/bootstrap/schema.json", "r", encoding="utf-8") as f:
+          schema = json.load(f)
+        created = openfga_request("POST", f"/stores/{store_id}/authorization-models", schema)
+        model_id = created.get("authorization_model_id", "")
+        if model_id:
+          print(f"wrote OpenFGA authorization model: {model_id}", flush=True)
+          return model_id
+      if DESIRED_MODEL_ID:
+        print(f"using configured OpenFGA model: {DESIRED_MODEL_ID}", flush=True)
+        return DESIRED_MODEL_ID
+      models = openfga_request("GET", f"/stores/{store_id}/authorization-models?page_size=1").get("authorization_models", [])
+      model_id = models[0].get("id", "") if models else ""
+      print(f"using latest OpenFGA authorization model: {model_id}", flush=True)
+      return model_id
+
+    def write_baseline_tuples(store_id, model_id):
+      if not WRITE_BASELINE_TUPLES or not model_id:
+        return
+      tuples = [
+        {"user": "user:*", "relation": "can_read_public", "object": "rag_catalog:default"},
+        {"user": "user:*", "relation": "can_invoke", "object": "planner_endpoint:chat_completions"},
+        {"user": "user:*", "relation": "can_invoke", "object": "yarn_endpoint:completions"},
+        {"user": "user:*", "relation": "can_invoke", "object": "yarn_endpoint:messages"},
+        {"user": "user:*", "relation": "can_read", "object": "admin_endpoint:tokens"},
+        {"user": "user:*", "relation": "can_read", "object": "admin_endpoint:profile"},
+      ]
+      try:
+        openfga_request(
+          "POST",
+          f"/stores/{store_id}/write",
+          {"writes": {"tuple_keys": tuples}, "authorization_model_id": model_id},
+        )
+        print("wrote baseline OpenFGA tuples", flush=True)
+      except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        print(f"baseline tuple write warning: HTTP {exc.code}: {body}", flush=True)
+
+    def k8s_request(method, path, body=None, content_type="application/json"):
+      data = None
+      headers = {"Authorization": f"Bearer {K8S_TOKEN}"}
+      if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = content_type
+      req = urllib.request.Request(f"{K8S_API}{path}", data=data, headers=headers, method=method)
+      with urllib.request.urlopen(req, context=K8S_SSL, timeout=20) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    def b64(value):
+      return base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+    def upsert_client_secret(namespace, store_id, model_id):
+      data = {
+        "store-id": b64(store_id),
+        "model-id": b64(model_id or ""),
+        "auth-token": b64(OPENFGA_AUTH_TOKEN),
+      }
+      metadata = {
+        "name": SECRET_NAME,
+        "namespace": namespace,
+        "labels": {
+          "app.kubernetes.io/part-of": "synesis",
+          "app.kubernetes.io/name": "openfga-client-config",
+          "app.kubernetes.io/component": "authz-bootstrap",
+        },
+      }
+      try:
+        k8s_request("GET", f"/api/v1/namespaces/{namespace}/secrets/{SECRET_NAME}")
+        k8s_request(
+          "PATCH",
+          f"/api/v1/namespaces/{namespace}/secrets/{SECRET_NAME}",
+          {"metadata": {"labels": metadata["labels"]}, "data": data},
+          content_type="application/merge-patch+json",
+        )
+        print(f"patched {namespace}/{SECRET_NAME}", flush=True)
+      except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+          raise
+        k8s_request(
+          "POST",
+          f"/api/v1/namespaces/{namespace}/secrets",
+          {"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": metadata, "data": data},
+        )
+        print(f"created {namespace}/{SECRET_NAME}", flush=True)
+
+    def restart_deployment(namespace, name, store_id, model_id):
+      stamp = f"{int(time.time())}-{store_id}-{model_id or 'none'}"
+      try:
+        k8s_request(
+          "PATCH",
+          f"/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+          {"spec": {"template": {"metadata": {"annotations": {"synesis/openfga-bootstrap": stamp}}}}},
+          content_type="application/merge-patch+json",
+        )
+        print(f"restarted {namespace}/{name} for OpenFGA config", flush=True)
+      except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+          print(f"restart skipped; deployment not found: {namespace}/{name}", flush=True)
+          return
+        raise
+
+    def main():
+      wait_for_openfga()
+      store_id = ensure_store()
+      model_id = ensure_model(store_id)
+      write_baseline_tuples(store_id, model_id)
+      for namespace in CONSUMER_NAMESPACES:
+        upsert_client_secret(namespace, store_id, model_id)
+      for target in RESTART_TARGETS:
+        restart_deployment(target["namespace"], target["name"], store_id, model_id)
+      print(f"OpenFGA bootstrap complete store_id={store_id} model_id={model_id}", flush=True)
+
+    if __name__ == "__main__":
+      try:
+        main()
+      except Exception as exc:
+        print(f"OpenFGA bootstrap failed: {exc}", file=sys.stderr, flush=True)
+        raise
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openfga-bootstrap
+  namespace: {{ $authzNs }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openfga-bootstrap
+    app.kubernetes.io/component: authz-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "20"
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openfga-bootstrap
+        app.kubernetes.io/component: authz-bootstrap
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: openfga-bootstrap
+      {{- include "synesis.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: {{ .Values.openfga.bootstrap.image.repository }}:{{ .Values.openfga.bootstrap.image.tag }}
+          imagePullPolicy: {{ .Values.openfga.bootstrap.image.pullPolicy }}
+          command:
+            - python
+            - /bootstrap/bootstrap.py
+          env:
+            - name: OPENFGA_API_URL
+              value: http://{{ .Values.workloads.openfga.name }}.{{ $authzNs }}.svc.cluster.local:8080
+            - name: OPENFGA_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-config
+                  key: OPENFGA_AUTHN_PRESHARED_KEYS
+            - name: OPENFGA_STORE_NAME
+              value: {{ .Values.openfga.bootstrap.storeName | quote }}
+            - name: OPENFGA_CLIENT_STORE_ID
+              value: {{ .Values.openfga.client.storeId | default "" | quote }}
+            - name: OPENFGA_CLIENT_MODEL_ID
+              value: {{ .Values.openfga.client.modelId | default "" | quote }}
+            - name: OPENFGA_WRITE_MODEL
+              value: {{ .Values.openfga.bootstrap.writeModel | quote }}
+            - name: OPENFGA_WRITE_BASELINE_TUPLES
+              value: {{ .Values.openfga.bootstrap.writeBaselineTuples | quote }}
+            - name: OPENFGA_BOOTSTRAP_TIMEOUT_SECONDS
+              value: {{ .Values.openfga.bootstrap.timeoutSeconds | quote }}
+            - name: OPENFGA_CONSUMER_NAMESPACES
+              value: {{ $consumerNamespaces | toJson | quote }}
+            - name: OPENFGA_RESTART_TARGETS
+              value: {{ $restartTargets | toJson | quote }}
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: openfga-bootstrap
+{{- end }}

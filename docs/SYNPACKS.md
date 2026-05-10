@@ -105,7 +105,10 @@ python -m app.cli --mode synpack --synpack-command enrich-language \
 
 python -m app.cli --mode synpack --synpack-command finalize-language \
   --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest \
-  --output dist/synpacks/go-latest.synpack
+  --output dist/synpacks/go-latest.synpack \
+  --embedder-url http://localhost:8082/v1 \
+  --embedder-batch-size 8 \
+  --embedder-timeout 300
 ```
 
 Use `--estimate-cost-only` after prepare/staging when you want a grounded cost

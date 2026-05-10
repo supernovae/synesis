@@ -13,9 +13,7 @@
   ],
   "overrides": {
     "protobufjs": "7.5.5",
-    "@openfga/sdk": {
-      "axios": "1.15.2"
-    },
+    "axios": "1.16.0",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
     "hono": "4.12.18",

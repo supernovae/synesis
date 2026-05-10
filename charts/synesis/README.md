@@ -1,8 +1,10 @@
 # Synesis Helm Chart
 
-This chart bootstraps the Synesis control plane, identity provider, data plane,
-and Redis-compatible KV dependency with values-driven backend choices across
-OpenShift, AKS, EKS, GKE, and generic Kubernetes.
+This chart bootstraps the Synesis API-mode control plane, identity provider,
+RAG data plane, coder services, and Redis-compatible KV dependency with
+values-driven backend choices across OpenShift, AKS, EKS, GKE, and generic
+Kubernetes. API mode means hosted/external model providers through LiteLLM; the
+chart does not render RHOAI, KServe, vLLM, GPU, or model PVC resources.
 
 ## Platform Model
 
@@ -12,8 +14,16 @@ platform-specific behavior through values:
 - `global.provider`: `openshift`, `aks`, `eks`, `gke`, `kubernetes`, or `auto`.
 - `routes.enabled`: OpenShift `Route` resources.
 - `ingress.enabled`: standard Kubernetes `Ingress` resources for AKS/EKS/GKE.
+- `cloudflared.enabled`: optional Cloudflare Tunnel connector that can reuse
+  `ingress.items` as tunnel ingress rules.
 - `platform.storage.*`: provider-aware storage class defaults.
 - `operators.installWithOLM`: controls OpenShift OLM `Subscription` rendering.
+- `operators.customResources.create`: controls rendering for operator-backed
+  custom resources such as CloudNativePG `Cluster`, Keycloak, and Valkey.
+- `registryCredentials`: optional chart-managed GHCR pull secret, replacing
+  the old bootstrap script credential step.
+- `jobs.indexer` and `jobs.qualityRunner`: optional CronJobs, disabled by
+  default so a plain install starts the API services without background jobs.
 
 `global.provider=auto` does best-effort detection from cluster API/version
 metadata. Helm cannot reliably identify every managed Kubernetes distribution,
@@ -33,9 +43,10 @@ Postgres:
 KV:
 
 - `kv.mode=redkey` creates a configurable Valkey/RedKey-style custom resource
-  and writes the Redis-compatible connection URL to the `synesis-redis` Secret.
+  and writes the Redis-compatible connection URL to `synesis-redis` Secrets in
+  the RAG, planner, and Yarn namespaces.
 - `kv.mode=external` writes your managed Redis-compatible/Valkey URL to the
-  same `synesis-redis` Secret.
+  same namespace-local `synesis-redis` Secrets.
 - `kv.mode=azureRedis` builds a TLS `rediss://` URL for Azure Cache for Redis.
 
 The application still uses `redis://` connection strings because Valkey and
@@ -62,6 +73,22 @@ operators:
   redkey:
     enabled: false
 ```
+
+On a brand-new OLM cluster, keep `operators.customResources.create=auto`. Helm
+cannot render custom resources from CRDs that OLM has not registered yet. For
+Keycloak, `keycloak.deferredBootstrap.enabled=true` adds a post-install hook
+that waits for the Keycloak CRDs, applies `Keycloak` and
+`KeycloakRealmImport`, and waits for the realm import before the install
+completes. When `postgres.mode=cloudnativepg`, the same hook also waits for
+CloudNativePG and applies the Keycloak database resources first. Azure and
+external Postgres modes use the configured database connection instead. Use a
+longer first-install timeout, for example `helm upgrade --install ... --timeout
+30m`.
+
+If the deferred hook is disabled, rerun the same `helm upgrade --install`
+command after OLM installs the CRDs. Set `operators.customResources.create=always`
+only when the CRDs are already managed outside this chart or when you
+intentionally want offline rendering.
 
 ## Examples
 
@@ -112,10 +139,93 @@ helm upgrade --install synesis ./charts/synesis \
 
 EKS and GKE examples are available under `charts/synesis/examples/`.
 
+Cloudflare Tunnel instead of cloud-provider ingress, using the token Cloudflare
+shows for Docker/Kubernetes:
+
+```bash
+kubectl -n synesis-gateway create secret generic cloudflared-credentials \
+  --from-literal=token='<token-from-cloudflare>'
+
+helm upgrade --install synesis ./charts/synesis \
+  -f charts/synesis/examples/values-eks-external.yaml \
+  --set ingress.enabled=false \
+  --set cloudflared.enabled=true \
+  --set cloudflared.tunnel.mode=token \
+  --set cloudflared.tunnel.existingSecret=true
+```
+
+Token mode is for remotely-managed tunnels. Configure the tunnel's public
+hostnames and service URLs in Cloudflare, for example
+`http://synesis-admin.synesis-admin.svc.cluster.local:8080`. The chart renders
+`TUNNEL_TOKEN` and runs `cloudflared tunnel ... run`, matching Cloudflare's
+Docker/Kubernetes bootstrap path.
+
+For locally-managed tunnel config, use credentials mode:
+
+```bash
+kubectl -n synesis-gateway create secret generic cloudflared-credentials \
+  --from-file=credentials.json=/path/to/<tunnel-id>.json
+```
+
+```yaml
+cloudflared:
+  enabled: true
+  tunnel:
+    mode: credentials
+    id: <tunnel-id>
+    existingSecret: true
+```
+
+In credentials mode, the chart renders a separate `cloudflared` Deployment and
+maps each `ingress.items.*.host` to its internal Kubernetes service. Keep
+`ingress.items.*.originPort` numeric, or set
+`ingress.items.*.cloudflared.serviceUrl` for custom origins. Tunnel credentials
+must be provided inline or explicitly marked as an existing Secret; otherwise
+Helm fails before creating broken pods.
+
+Inline credentials for credentials mode are safest in a values file:
+
+```yaml
+cloudflared:
+  enabled: true
+  tunnel:
+    mode: credentials
+    id: <tunnel-id>
+    credentials:
+      AccountTag: <account-tag>
+      TunnelSecret: <tunnel-secret>
+      TunnelID: <tunnel-id>
+```
+
+Avoid passing raw JSON with `--set`; Helm can parse JSON-like values as lists or
+maps. Use a values file, or escape the value carefully.
+
 ## Production Notes
 
 Replace every placeholder in `secrets.*` and `postgres.*.password` before
 production use.
+
+LiteLLM's static config only includes service entrypoints such as `Synesis`
+and `Synesis Coder`. Provider-backed role mappings (`synesis-router`,
+`synesis-general`, `synesis-critic`, coder tiers, summarizer, and enrichment
+roles) are seeded into the Admin database on first startup and reconciled from
+the Admin Model Registry. Change role providers/models in Admin rather than
+editing `litellm.config.model_list`.
+
+To enable optional background jobs:
+
+```yaml
+jobs:
+  indexer:
+    enabled: true
+    queue:
+      suspend: false
+  qualityRunner:
+    enabled: true
+```
+
+For `cloudflared`, two replicas provide availability. Avoid autoscaling
+cloudflared pods because downscaling can interrupt active tunnel connections.
 
 If you set an operator `installPlanApproval` to `Manual`, approve the install
 plan before expecting CRs such as `Cluster`, `Keycloak`, or `Valkey` to

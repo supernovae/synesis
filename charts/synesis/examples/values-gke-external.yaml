@@ -27,32 +27,54 @@ ingress:
       namespace: gateway
       service: litellm-proxy
       port: http
+      originPort: 4000
       host: api.synesis.example.com
     synesis-admin:
       namespace: admin
       service: synesis-admin
       port: http
+      originPort: 8080
       host: admin.synesis.example.com
     synesis-webui:
       namespace: webui
       service: open-webui
       port: http
+      originPort: 8080
       host: chat.synesis.example.com
     synesis-yarn:
       namespace: yarn
       service: synesis-yarn
       port: http
+      originPort: 8000
       host: coder.synesis.example.com
     synesis-auth:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth.synesis.example.com
     synesis-auth-admin:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth-admin.synesis.example.com
+
+# Optional Cloudflare Tunnel ingress. To put Synesis behind cloudflared instead
+# of a GCE Ingress, set ingress.enabled=false and cloudflared.enabled=true.
+# For Cloudflare's Docker/Kubernetes token, set tunnel.mode=token and create the
+# referenced secret with key "token". For locally-managed config, keep
+# tunnel.mode=credentials and provide credentials.json plus tunnel.id.
+cloudflared:
+  enabled: false
+  namespace: gateway
+  tunnel:
+    mode: token
+    id: replace-with-cloudflare-tunnel-uuid
+    existingSecret: true
+    credentialsSecretName: cloudflared-credentials
+    credentialsSecretKey: credentials.json
+    tokenSecretKey: token
 
 postgres:
   mode: external
@@ -79,4 +101,3 @@ kv:
   mode: external
   external:
     url: rediss://:replace-me@10.20.0.6:6379/3
-

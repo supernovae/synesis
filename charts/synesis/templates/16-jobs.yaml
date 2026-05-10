@@ -1,0 +1,219 @@
+{{- $root := . -}}
+{{- $ragNs := include "synesis.namespace" (dict "root" . "key" .Values.namespaces.rag) -}}
+{{- if and .Values.jobs.indexer.enabled .Values.jobs.indexer.queue.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-indexer-queue
+  namespace: {{ .Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: synesis-indexer
+    app.kubernetes.io/component: rag-indexer
+    synesis.io/indexer-group: queue
+spec:
+  schedule: {{ .Values.jobs.indexer.queue.schedule | quote }}
+  suspend: {{ .Values.jobs.indexer.queue.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.jobs.indexer.queue.backoffLimit }}
+      ttlSecondsAfterFinished: {{ .Values.jobs.indexer.queue.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synesis-indexer
+            app.kubernetes.io/part-of: synesis
+            synesis.io/indexer-group: queue
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.jobs.indexer.serviceAccountName }}
+          {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          {{- with .Values.jobs.indexer.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: indexer
+              image: {{ .Values.jobs.indexer.image.repository }}:{{ .Values.jobs.indexer.image.tag }}
+              imagePullPolicy: {{ .Values.jobs.indexer.image.pullPolicy }}
+              args:
+                - --mode
+                - queue
+              env:
+                - name: SYNESIS_ADMIN_URL
+                  value: {{ .Values.jobs.indexer.adminUrl | quote }}
+                - name: SYNESIS_ADMIN_SERVICE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: synesis-internal-service-auth
+                      key: token
+                      optional: true
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.jobs.indexer.githubTokenSecretName }}
+                      key: token
+                      optional: true
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.jobs.indexer.hfTokenSecretName }}
+                      key: HF_TOKEN
+                      optional: true
+                {{- with .Values.jobs.indexer.queue.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              {{- with .Values.jobs.indexer.queue.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .Values.jobs.indexer.containerSecurityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+{{- end }}
+{{- if and .Values.jobs.indexer.enabled .Values.jobs.indexer.staged.enabled }}
+{{- range $name, $phase := dict "fetch" .Values.jobs.indexer.staged.fetch "normalize" .Values.jobs.indexer.staged.normalize "enrich" .Values.jobs.indexer.staged.enrich }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-indexer-staged-{{ $name }}
+  namespace: {{ $root.Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: synesis-indexer
+    app.kubernetes.io/component: rag-indexer
+    synesis.io/indexer-group: staged-{{ $name }}
+spec:
+  schedule: {{ $phase.schedule | quote }}
+  suspend: {{ $phase.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: {{ ternary 1 2 (eq $name "enrich") }}
+      ttlSecondsAfterFinished: {{ ternary 14400 7200 (eq $name "enrich") }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synesis-indexer
+            app.kubernetes.io/part-of: synesis
+            synesis.io/indexer-group: staged-{{ $name }}
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ $root.Values.jobs.indexer.serviceAccountName }}
+          {{- include "synesis.imagePullSecrets" $root | nindent 10 }}
+          {{- with $root.Values.jobs.indexer.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: indexer
+              image: {{ $root.Values.jobs.indexer.image.repository }}:{{ $root.Values.jobs.indexer.image.tag }}
+              imagePullPolicy: {{ $root.Values.jobs.indexer.image.pullPolicy }}
+              args:
+                - --mode
+                - staged-{{ $name }}
+                {{- if ne $name "fetch" }}
+                - --staged-batch-limit
+                - {{ $phase.batchLimit | quote }}
+                {{- end }}
+              env:
+                - name: SYNESIS_ADMIN_URL
+                  value: {{ $root.Values.jobs.indexer.adminUrl | quote }}
+                - name: SYNESIS_ADMIN_SERVICE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: synesis-internal-service-auth
+                      key: token
+                      optional: true
+                - name: SYNESIS_INGESTION_S3_BUCKET
+                  value: {{ $root.Values.jobs.indexer.staged.s3Bucket | quote }}
+                {{- if $root.Values.jobs.indexer.staged.s3Prefix }}
+                - name: SYNESIS_INGESTION_S3_PREFIX
+                  value: {{ $root.Values.jobs.indexer.staged.s3Prefix | quote }}
+                {{- end }}
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $root.Values.jobs.indexer.githubTokenSecretName }}
+                      key: token
+                      optional: true
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $root.Values.jobs.indexer.hfTokenSecretName }}
+                      key: HF_TOKEN
+                      optional: true
+              {{- with $phase.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with $root.Values.jobs.indexer.containerSecurityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.jobs.qualityRunner.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-quality-runner
+  namespace: {{ .Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: quality-runner
+    app.kubernetes.io/component: quality
+spec:
+  schedule: {{ .Values.jobs.qualityRunner.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.jobs.qualityRunner.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.jobs.qualityRunner.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: quality-runner
+            app.kubernetes.io/part-of: synesis
+        spec:
+          restartPolicy: Never
+          {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: runner
+              image: {{ .Values.jobs.qualityRunner.image.repository }}:{{ .Values.jobs.qualityRunner.image.tag }}
+              imagePullPolicy: {{ .Values.jobs.qualityRunner.image.pullPolicy }}
+              command:
+                {{- toYaml .Values.jobs.qualityRunner.command | nindent 16 }}
+              env:
+                {{- toYaml .Values.jobs.qualityRunner.env | nindent 16 }}
+                - name: SYNESIS_RUN_CURATOR
+                  value: {{ .Values.jobs.qualityRunner.runCurator | quote }}
+              {{- with .Values.jobs.qualityRunner.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              securityContext:
+                runAsUser: 1001
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+{{- end }}

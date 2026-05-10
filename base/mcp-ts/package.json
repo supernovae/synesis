@@ -34,9 +34,7 @@
     "vitest": "^4.1.5"
   },
   "overrides": {
-    "@openfga/sdk": {
-      "axios": "1.15.2"
-    },
+    "axios": "1.16.0",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
     "ip-address": "10.2.0"

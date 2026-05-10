@@ -6,6 +6,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 USER 0
 RUN microdnf install -y git && microdnf clean all
+RUN if ! grep -qE '^[^:]+:[^:]+:1001:' /etc/passwd; then \
+      echo 'synesis:x:1001:0:Synesis runtime user:/opt/app-root:/sbin/nologin' >> /etc/passwd; \
+    fi \
+    && mkdir -p /opt/app-root \
+    && chgrp -R 0 /opt/app-root \
+    && chmod -R g=u /opt/app-root
 
 RUN uv venv --python /opt/app-root/bin/python /opt/app-root/venv
 

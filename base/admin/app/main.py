@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
     from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
+    from app.services.model_registry import seed_default_role_assignments
     from app.services.prompt_library import seed_default_prompt_profiles
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
@@ -57,6 +58,13 @@ async def lifespan(app: FastAPI):
             logger.info("prompt_profile_seed_complete count=%d", prompt_seeded)
     except Exception:
         logger.warning("prompt_profile_seed_failed", exc_info=True)
+
+    try:
+        role_seeded = await seed_default_role_assignments()
+        if role_seeded:
+            logger.info("model_role_seed_complete count=%d", role_seeded)
+    except Exception:
+        logger.warning("model_role_seed_failed", exc_info=True)
 
     try:
         boot = await reconcile()

@@ -1,9 +1,12 @@
 Synesis chart rendered for release {{ .Release.Name }}.
 
 Backends:
+  Mode: {{ .Values.global.mode }}
   Provider: {{ include "synesis.provider" . }}
   Postgres mode: {{ .Values.postgres.mode }}
   KV mode: {{ .Values.kv.mode }}
+  Indexer CronJobs: {{ .Values.jobs.indexer.enabled }}
+  Quality CronJob: {{ .Values.jobs.qualityRunner.enabled }}
   OpenShift routes: {{ and (eq (include "synesis.isOpenShift" .) "true") .Values.routes.enabled }}
   Kubernetes ingress: {{ and (ne (include "synesis.isOpenShift" .) "true") .Values.ingress.enabled }}
 
@@ -11,5 +14,53 @@ Important:
   - Replace default placeholder secrets before production use.
   - If OLM installPlanApproval is Manual, approve install plans before applying
     Keycloak, CloudNativePG, or RedKey/Valkey custom resources.
+  - operators.customResources.create={{ .Values.operators.customResources.create }} controls whether
+    operator-backed custom resources are rendered before their CRDs are visible.
   - For kv.mode=redkey, set kv.redkey.url to the service name produced by your
     selected Valkey/RedKey operator.
+  - Default mode is API mode. Model-serving/RHOAI resources are intentionally
+    not rendered by this chart.
+{{- $cnpgReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "postgresql.cnpg.io/v1/Cluster")) "true" }}
+{{- $keycloakReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/Keycloak")) "true" }}
+{{- $realmImportReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/KeycloakRealmImport")) "true" }}
+{{- $customResourceMode := lower (toString (default "auto" .Values.operators.customResources.create)) }}
+{{- $keycloakValues := default dict .Values.keycloak }}
+{{- $realmImport := mergeOverwrite (dict "enabled" true "bootstrapAdmin" (dict "enabled" false)) (default dict $keycloakValues.realmImport) }}
+{{- $deferredBootstrap := mergeOverwrite (dict "enabled" true "timeoutSeconds" 1200) (default dict $keycloakValues.deferredBootstrap) }}
+{{- $keycloakDeferredHook := and $keycloakValues.enabled $deferredBootstrap.enabled (eq $customResourceMode "auto") (or (and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady)) (not $keycloakReady) (and $realmImport.enabled (not $realmImportReady))) }}
+{{- if or (and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady)) (and $keycloakValues.enabled (not $keycloakReady)) (and $keycloakValues.enabled $realmImport.enabled (not $realmImportReady)) }}
+
+Deferred custom resources:
+{{- if and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady) }}
+  - CloudNativePG Cluster resources were skipped until clusters.postgresql.cnpg.io exists.
+{{- end }}
+{{- if and $keycloakValues.enabled (not $keycloakReady) }}
+  - Keycloak was skipped until keycloaks.k8s.keycloak.org exists.
+{{- end }}
+{{- if and $keycloakValues.enabled $realmImport.enabled (not $realmImportReady) }}
+  - KeycloakRealmImport was skipped until keycloakrealmimports.k8s.keycloak.org exists.
+{{- end }}
+{{- if $keycloakDeferredHook }}
+  A Helm hook will wait for the missing Keycloak CRDs,
+{{- if and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady) }}
+  wait for CloudNativePG, apply the database resources,
+{{- else }}
+  use the configured {{ .Values.postgres.mode }} Keycloak database,
+{{- end }}
+  apply the Keycloak resources, and wait for the realm import. Use a Helm
+  timeout longer than {{ $deferredBootstrap.timeoutSeconds }}s
+  on first install.
+{{- else }}
+  Wait for OLM to install the CRDs, then rerun:
+    helm upgrade --install {{ .Release.Name }} <chart> -f <values>
+{{- end }}
+{{- end }}
+{{- if and $keycloakValues.enabled $realmImport.enabled $realmImport.bootstrapAdmin.enabled }}
+
+First Synesis realm admin:
+  Username: {{ $realmImport.bootstrapAdmin.username }}
+  Password secret:
+    kubectl get secret synesis-keycloak-bootstrap-admin -n {{ .Values.namespaces.auth }} -o jsonpath='{.data.password}' | base64 -d; echo
+  This account is created in realm {{ .Values.keycloak.realm }} with roles
+  synesis-user and synesis-admin. Rotate or replace it after first login.
+{{- end }}

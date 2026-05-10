@@ -29,6 +29,7 @@ ingress:
       namespace: gateway
       service: litellm-proxy
       port: http
+      originPort: 4000
       host: api.synesis.example.com
       path: /
       pathType: Prefix
@@ -36,6 +37,7 @@ ingress:
       namespace: admin
       service: synesis-admin
       port: http
+      originPort: 8080
       host: admin.synesis.example.com
       path: /
       pathType: Prefix
@@ -43,6 +45,7 @@ ingress:
       namespace: webui
       service: open-webui
       port: http
+      originPort: 8080
       host: chat.synesis.example.com
       path: /
       pathType: Prefix
@@ -50,6 +53,7 @@ ingress:
       namespace: yarn
       service: synesis-yarn
       port: http
+      originPort: 8000
       host: coder.synesis.example.com
       path: /
       pathType: Prefix
@@ -57,6 +61,7 @@ ingress:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth.synesis.example.com
       path: /
       pathType: Prefix
@@ -64,9 +69,40 @@ ingress:
       namespace: auth
       service: synesis-keycloak-service
       port: http
+      originPort: 8080
       host: auth-admin.synesis.example.com
       path: /
       pathType: Prefix
+
+# Optional Cloudflare Tunnel ingress. To put Synesis behind cloudflared instead
+# of Azure Web App Routing, set ingress.enabled=false and
+# cloudflared.enabled=true. For Cloudflare's Docker/Kubernetes token, set
+# tunnel.mode=token and create the referenced secret with key "token".
+# For locally-managed config, keep tunnel.mode=credentials and provide
+# credentials.json plus tunnel.id.
+cloudflared:
+  enabled: false
+  namespace: gateway
+  tunnel:
+    mode: token
+    id: replace-with-cloudflare-tunnel-uuid
+    existingSecret: true
+    credentialsSecretName: cloudflared-credentials
+    credentialsSecretKey: credentials.json
+    tokenSecretKey: token
+
+litellm:
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
 
 postgres:
   mode: azureFlexible
@@ -118,6 +154,20 @@ keycloak:
 
 workloads:
   webui:
+    podSecurityContext:
+      fsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
     env:
       - name: OPENAI_API_BASE_URL
         value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
@@ -153,3 +203,133 @@ workloads:
         value: "false"
       - name: WEBUI_NAME
         value: Synesis
+    volumeMounts:
+      - name: data
+        mountPath: /app/backend/data
+      - name: tmp-home
+        mountPath: /tmp/home
+      - name: cache
+        mountPath: /app/backend/.cache
+    volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: open-webui-data
+      - name: tmp-home
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+  search:
+    podSecurityContext:
+      fsGroup: 977
+      runAsNonRoot: true
+      runAsUser: 977
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 977
+      seccompProfile:
+        type: RuntimeDefault
+    env:
+      - name: SEARXNG_BASE_URL
+        value: http://searxng.synesis-search.svc.cluster.local:8080/
+      - name: SEARXNG_PORT
+        value: "8080"
+      - name: GRANIAN_PORT
+        value: "8080"
+      - name: SEARXNG_SETTINGS_PATH
+        value: /etc/searxng/settings.yml
+    volumeMounts:
+      - name: cache
+        mountPath: /var/cache/searxng
+      - name: tmp-etc
+        mountPath: /etc/searxng
+    volumes:
+      - name: cache
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: tmp-etc
+        emptyDir:
+          sizeLimit: 10Mi
+  nornicdb:
+    podSecurityContext:
+      fsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+  embedder:
+    podSecurityContext:
+      fsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    env:
+      - name: HOME
+        value: /tmp
+      - name: XDG_CACHE_HOME
+        value: /tmp/.cache
+      - name: HF_HOME
+        value: /data/hf
+      - name: HUGGINGFACE_HUB_CACHE
+        value: /data
+    volumeMounts:
+      - name: model-cache
+        mountPath: /data
+      - name: tmp
+        mountPath: /tmp
+    volumes:
+      - name: model-cache
+        emptyDir:
+          sizeLimit: 8Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 100Mi
+  spamService:
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+  glinerService:
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsUser: 1001
+      seccompProfile:
+        type: RuntimeDefault

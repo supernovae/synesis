@@ -1,0 +1,231 @@
+{{- $mode := lower (toString (default "auto" .Values.operators.customResources.create)) -}}
+{{- $cnpgReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "postgresql.cnpg.io/v1/Cluster")) "true" -}}
+{{- $keycloakReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/Keycloak")) "true" -}}
+{{- $realmImportReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/KeycloakRealmImport")) "true" -}}
+{{- $keycloakValues := default dict .Values.keycloak -}}
+{{- $realmImport := mergeOverwrite (dict "enabled" true "bootstrapAdmin" (dict "enabled" false)) (default dict $keycloakValues.realmImport) -}}
+{{- $deferredBootstrap := mergeOverwrite (dict "enabled" true "timeoutSeconds" 1200 "keycloakReadyTimeoutSeconds" 900 "postgresReadyTimeoutSeconds" 900 "realmImportTimeoutSeconds" 600 "image" (dict "repository" "bitnami/kubectl" "tag" "1.31.3" "pullPolicy" "IfNotPresent")) (default dict $keycloakValues.deferredBootstrap) -}}
+{{- $needsCnpg := and (eq .Values.postgres.mode "cloudnativepg") (not $cnpgReady) -}}
+{{- $needsKeycloak := or (not $keycloakReady) (and $realmImport.enabled (not $realmImportReady)) -}}
+{{- if and $keycloakValues.enabled $deferredBootstrap.enabled (eq $mode "auto") (or $needsCnpg $needsKeycloak) }}
+{{- $values := deepCopy .Values -}}
+{{- $_ := set $values.operators.customResources "create" "always" -}}
+{{- $_ := set $values.operators.customResources "failOnMissingCRDs" false -}}
+{{- $_ := set $values.keycloak "realmImport" $realmImport -}}
+{{- $_ := set $values.keycloak "deferredBootstrap" $deferredBootstrap -}}
+{{- $hookRoot := dict "Values" $values "Release" .Release "Chart" .Chart "Capabilities" .Capabilities "Template" .Template "Files" .Files -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: synesis-keycloak-deferred-bootstrap
+  namespace: {{ .Values.namespaces.auth }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-synesis-keycloak-deferred-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+rules:
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - postgresql.cnpg.io
+    resources:
+      - clusters
+      - clusters/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - k8s.keycloak.org
+    resources:
+      - keycloaks
+      - keycloaks/status
+      - keycloakrealmimports
+      - keycloakrealmimports/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-synesis-keycloak-deferred-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-synesis-keycloak-deferred-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: synesis-keycloak-deferred-bootstrap
+    namespace: {{ .Values.namespaces.auth }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synesis-keycloak-deferred-bootstrap
+  namespace: {{ .Values.namespaces.auth }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+data:
+  {{- if eq .Values.postgres.mode "cloudnativepg" }}
+  postgres.yaml: |-
+{{ include (print $.Template.BasePath "/02-postgres.yaml") $hookRoot | nindent 4 }}
+  {{- end }}
+  keycloak.yaml: |-
+{{ include (print $.Template.BasePath "/05-keycloak.yaml") $hookRoot | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: synesis-keycloak-deferred-bootstrap
+  namespace: {{ .Values.namespaces.auth }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "30"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+spec:
+  activeDeadlineSeconds: {{ $deferredBootstrap.timeoutSeconds }}
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-keycloak-deferred-bootstrap
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: identity-provider
+    spec:
+      restartPolicy: Never
+      serviceAccountName: synesis-keycloak-deferred-bootstrap
+      {{- include "synesis.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: {{ $deferredBootstrap.image.repository }}:{{ $deferredBootstrap.image.tag }}
+          imagePullPolicy: {{ $deferredBootstrap.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              wait_crd() {
+                crd="$1"
+                timeout="$2"
+                deadline=$(( $(date +%s) + timeout ))
+                echo "Waiting for CRD ${crd}"
+                until kubectl get crd "${crd}" >/dev/null 2>&1; do
+                  if [ "$(date +%s)" -ge "${deadline}" ]; then
+                    echo "Timed out waiting for CRD ${crd}" >&2
+                    return 1
+                  fi
+                  sleep 10
+                done
+              }
+
+              wait_jsonpath_true() {
+                resource="$1"
+                namespace="$2"
+                jsonpath="$3"
+                timeout="$4"
+                label="$5"
+                deadline=$(( $(date +%s) + timeout ))
+                echo "Waiting for ${label}"
+                while true; do
+                  value="$(kubectl get ${resource} -n "${namespace}" -o "jsonpath=${jsonpath}" 2>/dev/null || true)"
+                  if [ "${value}" = "True" ]; then
+                    return 0
+                  fi
+                  if [ "$(date +%s)" -ge "${deadline}" ]; then
+                    echo "Timed out waiting for ${label}" >&2
+                    return 1
+                  fi
+                  sleep 10
+                done
+              }
+
+              {{- if eq .Values.postgres.mode "cloudnativepg" }}
+              wait_crd clusters.postgresql.cnpg.io {{ $deferredBootstrap.timeoutSeconds }}
+              kubectl apply -f /bootstrap/postgres.yaml
+              wait_jsonpath_true "clusters.postgresql.cnpg.io/{{ .Values.postgres.cloudnativepg.keycloak.name }}" "{{ .Values.namespaces.auth }}" "{.status.conditions[?(@.type=='Ready')].status}" {{ $deferredBootstrap.postgresReadyTimeoutSeconds }} "CloudNativePG cluster {{ .Values.namespaces.auth }}/{{ .Values.postgres.cloudnativepg.keycloak.name }}"
+              {{- end }}
+
+              wait_crd keycloaks.k8s.keycloak.org {{ $deferredBootstrap.timeoutSeconds }}
+              {{- if $realmImport.enabled }}
+              wait_crd keycloakrealmimports.k8s.keycloak.org {{ $deferredBootstrap.timeoutSeconds }}
+              {{- end }}
+              kubectl apply -f /bootstrap/keycloak.yaml
+              wait_jsonpath_true "keycloaks.k8s.keycloak.org/{{ .Values.keycloak.name }}" "{{ .Values.namespaces.auth }}" "{.status.conditions[?(@.type=='Ready')].status}" {{ $deferredBootstrap.keycloakReadyTimeoutSeconds }} "Keycloak {{ .Values.namespaces.auth }}/{{ .Values.keycloak.name }}"
+
+              {{- if $realmImport.enabled }}
+              wait_jsonpath_true "keycloakrealmimports.k8s.keycloak.org/synesis-realm-import" "{{ .Values.namespaces.auth }}" "{.status.conditions[?(@.type=='Complete')].status}" {{ $deferredBootstrap.realmImportTimeoutSeconds }} "KeycloakRealmImport {{ .Values.namespaces.auth }}/synesis-realm-import"
+              {{- end }}
+          volumeMounts:
+            - name: manifests
+              mountPath: /bootstrap
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: manifests
+          configMap:
+            name: synesis-keycloak-deferred-bootstrap
+{{- end }}

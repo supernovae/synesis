@@ -28,17 +28,24 @@ spec:
         app.kubernetes.io/component: {{ $workload.component | default $key }}
       {{- if $workload.annotations }}
       annotations:
+        checksum/synesis-secrets: {{ include (print $.Template.BasePath "/04-secrets.yaml") $ | sha256sum }}
+        checksum/synesis-configmaps: {{ include (print $.Template.BasePath "/06-configmaps.yaml") $ | sha256sum }}
         {{- toYaml $workload.annotations | nindent 8 }}
+      {{- else }}
+      annotations:
+        checksum/synesis-secrets: {{ include (print $.Template.BasePath "/04-secrets.yaml") $ | sha256sum }}
+        checksum/synesis-configmaps: {{ include (print $.Template.BasePath "/06-configmaps.yaml") $ | sha256sum }}
       {{- end }}
     spec:
-      {{- with $.Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "synesis.imagePullSecrets" $ | nindent 6 }}
       securityContext:
+        {{- if $workload.podSecurityContext }}
+        {{- toYaml $workload.podSecurityContext | nindent 8 }}
+        {{- else }}
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+        {{- end }}
       containers:
         - name: {{ $workload.containerName | default $workload.name }}
           image: {{ $workload.image.repository }}:{{ default $.Values.global.imageTag $workload.image.tag }}
@@ -98,12 +105,16 @@ spec:
           {{- end }}
           {{- end }}
           securityContext:
+            {{- if $workload.containerSecurityContext }}
+            {{- toYaml $workload.containerSecurityContext | nindent 12 }}
+            {{- else }}
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+            {{- end }}
       {{- if $workload.volumes }}
       volumes:
         {{- toYaml $workload.volumes | nindent 8 }}

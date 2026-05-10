@@ -31,6 +31,118 @@ from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_esti
 logger = logging.getLogger("synesis.admin.models")
 
 
+DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
+    {
+        "role": "router",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "description": "Default fast routing and planning model",
+    },
+    {
+        "role": "summarizer",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 2048,
+        "temperature": 0.1,
+        "description": "Default compact summarization model",
+    },
+    {
+        "role": "general",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 32768,
+        "temperature": 0.3,
+        "description": "Default general synthesis model",
+    },
+    {
+        "role": "general-pulse",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 8192,
+        "temperature": 0.3,
+        "description": "Default fast general tier",
+    },
+    {
+        "role": "general-core",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 16384,
+        "temperature": 0.3,
+        "description": "Default balanced general tier",
+    },
+    {
+        "role": "general-horizon",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 32768,
+        "temperature": 0.3,
+        "description": "Default deep general tier",
+    },
+    {
+        "role": "critic",
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-r1-distill-qwen-32b",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "description": "Default critique and verification model",
+    },
+    {
+        "role": "coder-pulse",
+        "provider": "openrouter",
+        "model": "qwen/qwen-2.5-coder-32b-instruct",
+        "max_tokens": 8192,
+        "temperature": 0.2,
+        "description": "Default fast coder tier",
+    },
+    {
+        "role": "coder-core",
+        "provider": "openrouter",
+        "model": "qwen/qwen-2.5-coder-32b-instruct",
+        "max_tokens": 16384,
+        "temperature": 0.2,
+        "description": "Default balanced coder tier",
+    },
+    {
+        "role": "coder-horizon",
+        "provider": "openrouter",
+        "model": "qwen/qwen-2.5-coder-32b-instruct",
+        "max_tokens": 32768,
+        "temperature": 0.2,
+        "description": "Default deep coder tier",
+    },
+    {
+        "role": "coder-compaction",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "description": "Default coder context compaction model",
+    },
+    {
+        "role": "coder-normalizer",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "description": "Default validation normalization model",
+    },
+    {
+        "role": "indexer-enrich",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "description": "Default indexer enrichment model",
+    },
+)
+
+
+def _source_for_provider(provider: str) -> str:
+    return provider if provider in ("vllm", "kserve", "openrouter") else "external"
+
+
 def _normalize_fallbacks(raw: Any, served_name: str = "") -> list[str] | None:
     """Normalize fallback route names from API/UI payloads."""
     if raw is None:
@@ -276,6 +388,61 @@ async def get_active_deployments() -> list[ModelDeployment]:
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         return list(result.scalars().all())
+
+
+async def seed_default_role_assignments() -> int:
+    """Create default active role assignments for empty installs.
+
+    This is intentionally non-destructive: existing active role assignments are
+    never changed here. After seeding, normal reconciliation pushes these DB rows
+    to LiteLLM, making the Admin registry the source of truth for model routes.
+    """
+    maps = await load_provider_governance_maps()
+    async with async_session() as session:
+        result = await session.execute(select(ModelDeployment.role).where(ModelDeployment.is_active == True))
+        active_roles = {str(row[0]) for row in result.all()}
+
+        created = 0
+        for seed in DEFAULT_ROLE_ASSIGNMENTS:
+            role = str(seed["role"])
+            if role in active_roles:
+                continue
+
+            provider = str(seed["provider"])
+            model = str(seed["model"])
+            served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
+            routing = resolve_deployment_routing_for_parts(
+                provider=provider,
+                model=model,
+                endpoint_field="",
+                api_key_env_field="",
+                stored_litellm_params=None,
+                maps=maps,
+                max_tokens=int(seed["max_tokens"]),
+                temperature=float(seed["temperature"]),
+            )
+            session.add(
+                ModelDeployment(
+                    role=role,
+                    model=model,
+                    endpoint=routing.resolved_endpoint,
+                    served_name=served_name,
+                    status="activating",
+                    source=_source_for_provider(provider),
+                    provider=provider,
+                    api_key_env=routing.effective_api_key_env,
+                    litellm_params=routing.litellm_params,
+                    is_active=True,
+                    description=str(seed.get("description") or "Seeded default role assignment"),
+                    notes="Seeded by Synesis Admin startup; change this role in Model Registry.",
+                )
+            )
+            active_roles.add(role)
+            created += 1
+
+        if created:
+            await session.commit()
+    return created
 
 
 async def get_deployment_by_id(deployment_id: int) -> ModelDeployment | None:
@@ -529,7 +696,7 @@ async def assign_role(
             endpoint=resolved_endpoint,
             served_name=served_name,
             status="activating",
-            source=provider if provider in ("vllm", "kserve", "openrouter") else "external",
+            source=_source_for_provider(provider),
             provider=provider,
             api_key_env=effective_api_key_env,
             litellm_params=lp,

@@ -8,14 +8,10 @@ metadata:
     app.kubernetes.io/component: gateway
 data:
   config.yaml: |
-    # Synesis V3 Model Endpoints
-    # Runtime role assignments are managed in Synesis Admin Model Registry.
-    #
-    # Synesis / Synesis Thinking: Open WebUI — same planner; Thinking enables writer thinking param
-    # synesis-coder: IDE direct vLLM — bypasses planner
-    # synesis-thinking: Optional R1 thinking model (separate from Synesis Thinking pipeline mode)
+    # Synesis service entrypoints.
+    # Provider-backed role aliases are managed by Synesis Admin Model Registry
+    # and reconciled into LiteLLM from the Admin DB.
     model_list:
-      # Primary pipeline (display name "Synesis")
       - model_name: Synesis
         litellm_params:
           model: openai/Synesis
@@ -24,80 +20,6 @@ data:
           max_tokens: 32768
           temperature: 0.2
 
-      # Pipeline + general-model thinking (Qwen3 enable_thinking / DeepSeek thinking param)
-      - model_name: Synesis Thinking
-        litellm_params:
-          model: openai/Synesis Thinking
-          api_base: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 32768
-          temperature: 0.2
-
-      # Router (Qwen2.5-14B-Instruct FP8) — supervisor, planner, advisor roles
-      # Temperature 0.1: classification/routing needs deterministic consistency
-      - model_name: synesis-router
-        litellm_params:
-          model: openai/synesis-router
-          api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 4096
-          temperature: 0.1
-
-      # Critic — routes to synesis-critic Service.
-      # Small profile: resolves to Qwen2.5-14B-Instruct (router pod, prompt-based CoT).
-      # Medium/large: resolves to R1-Distill (critic pod) when deployed.
-      # The critic Service selector is profile-aware via Kustomize overlays.
-      - model_name: synesis-critic
-        litellm_params:
-          model: openai/synesis-critic
-          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 4096
-          temperature: 0.1
-
-      # General (Qwen3.5-35B-A3B FP8) — worker/writer response generation
-      # max_tokens raised for OpenRouter — models support 128K+ context
-      - model_name: synesis-general
-        litellm_params:
-          model: openai/synesis-general
-          api_base: http://synesis-general.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 32768
-          temperature: 0.3
-
-      # Coder (Qwen3-Coder-Next-FP8) — direct IDE endpoint, agentic coding
-      - model_name: synesis-coder
-        litellm_params:
-          model: openai/synesis-coder
-          api_base: http://synesis-coder.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 16384
-          temperature: 0.2
-
-      # Summarizer — pivot history summarization (micro model)
-      # Static fallback routes to router pod (serves synesis-router).
-      # When dedicated InferenceService (Qwen2.5-0.5B CPU) is deployed,
-      # update api_base to synesis-summarizer.synesis-models and model to
-      # openai/synesis-summarizer. Admin UI can reassign to any provider.
-      - model_name: synesis-summarizer
-        litellm_params:
-          model: openai/synesis-router
-          api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 2048
-          temperature: 0.1
-
-      # Thinking model — Open WebUI optional "think out loud" model.
-      # Small: uses Qwen2.5-14B-Instruct (router pod); medium/large: uses R1 via critic.
-      - model_name: synesis-thinking
-        litellm_params:
-          model: openai/synesis-critic
-          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 16384
-          temperature: 0.2
-
-      # Yarn runtime — also exposed as "Synesis Coder" for IDE clients
       - model_name: synesis-yarn
         litellm_params:
           model: openai/synesis-yarn

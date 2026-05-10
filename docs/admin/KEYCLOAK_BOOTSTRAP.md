@@ -20,6 +20,12 @@ Use your platform’s documented Keycloak admin credentials (often a Kubernetes 
 
 ### 3. Create a real user in realm `synesis` and grant platform admin
 
+If Helm was installed with `keycloak.realmImport.bootstrapAdmin.enabled=true`,
+the chart has already seeded a temporary realm user with `synesis-admin` and
+`synesis-user`. Retrieve its password from the Secret named
+`synesis-keycloak-bootstrap-admin` in namespace `synesis-auth`, sign in, then
+rotate or replace that account.
+
 Still in the Keycloak Admin Console:
 
 1. Switch the realm dropdown from **`master`** to **`synesis`**.

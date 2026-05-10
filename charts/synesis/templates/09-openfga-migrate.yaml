@@ -35,10 +35,15 @@ spec:
                   name: openfga-config
                   key: OPENFGA_DATASTORE_URI
           securityContext:
+            {{- if .Values.workloads.openfga.containerSecurityContext }}
+            {{- toYaml .Values.workloads.openfga.containerSecurityContext | nindent 12 }}
+            {{- else }}
+            runAsUser: 10001
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+            {{- end }}
 {{- end }}

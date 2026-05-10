@@ -27,20 +27,16 @@ logger = logging.getLogger("synesis.admin.model_reconciler")
 
 # LiteLLM routes defined in base/gateway/litellm-config.yaml but not represented as
 # admin ModelDeployment rows (KNOWN_ROLES). Reconcile must not DELETE these via API —
-# config-backed routes return 500 on /model/delete and should stay for Open WebUI / Yarn.
+# config-backed public entrypoint routes return 400/500 on /model/delete and
+# should stay for Open WebUI / IDE clients. Role model aliases are DB-managed.
 PROTECTED_MODELS = frozenset(
     {
         "synesis-agent",
         "Synesis",
         "Synesis Thinking",
         "synesis-thinking",
-        "synesis-general-pulse",
-        "synesis-general-core",
-        "synesis-general-horizon",
-        "synesis-pulse",
-        "synesis-core",
-        "synesis-horizon",
-        "synesis-compaction",
+        "Synesis Coder",
+        "synesis-yarn",
     }
 )
 
@@ -325,6 +321,9 @@ async def reconcile_single(deployment_id: int) -> bool:
 
         served_name = row.served_name
         if served_name in PROTECTED_MODELS:
+            if row.is_active and row.status != "active":
+                row.status = "active"
+                await session.commit()
             return True
 
         if row.is_active:

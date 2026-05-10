@@ -43,5 +43,5 @@ spec:
                 name: {{ $ingress.service }}
                 port:
                   name: {{ $ingress.port | default "http" }}
-{{- end }}
-{{- end }}
+{{ end }}
+{{ end }}

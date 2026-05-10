@@ -759,9 +759,11 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
         encoding="utf-8",
     )
 
+    captured_embedder_kwargs = {}
+
     class FakeEmbedClient:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            captured_embedder_kwargs.update(kwargs)
 
         def embed_texts(self, texts):
             return [[0.0] * EMBEDDING_DIM for _ in texts]
@@ -796,6 +798,7 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     assert all("source_quality" in json.loads(row["agent_enrichment_json"]) for row in rows)
     assert all(json.loads(row["agent_enrichment_json"])["doc_language"] == "en" for row in rows)
     assert all("doc-language:en" in row["tags"] for row in rows)
+    assert captured_embedder_kwargs == {"batch_size": 8, "timeout": 300.0}
 
 
 def test_staged_language_pack_resume_and_finalize(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -813,9 +816,11 @@ def test_staged_language_pack_resume_and_finalize(monkeypatch: pytest.MonkeyPatc
         encoding="utf-8",
     )
 
+    captured_embedder_kwargs = {}
+
     class FakeEmbedClient:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            captured_embedder_kwargs.update(kwargs)
 
         def embed_texts(self, texts):
             return [[0.0] * EMBEDDING_DIM for _ in texts]
@@ -841,8 +846,19 @@ def test_staged_language_pack_resume_and_finalize(monkeypatch: pytest.MonkeyPatc
     assert len(completed_lines) == prepared["chunks"]
 
     out = tmp_path / "go-staged.synpack"
-    finalized = finalize_staged_language_pack(work_dir=work, output_path=out)
+    finalized = finalize_staged_language_pack(
+        work_dir=work,
+        output_path=out,
+        embedder_url="http://embedder.local/v1",
+        embedder_batch_size=3,
+        embedder_timeout=123.0,
+    )
     assert finalized["ok"] is True
+    assert captured_embedder_kwargs == {
+        "url": "http://embedder.local/v1",
+        "batch_size": 3,
+        "timeout": 123.0,
+    }
     manifest = validate_synpack(out)
     assert manifest["row_count"] == prepared["chunks"]
     with zipfile.ZipFile(out) as zf:

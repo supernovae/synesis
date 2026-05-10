@@ -65,6 +65,18 @@ def main() -> None:
     parser.add_argument("--nornic-uri", default="", help="Override NornicDB URI")
     parser.add_argument("--embedder-url", default="", help="Override embedder URL")
     parser.add_argument(
+        "--embedder-batch-size",
+        type=int,
+        default=8,
+        help="Max texts per embedder request for SynPack build/finalize",
+    )
+    parser.add_argument(
+        "--embedder-timeout",
+        type=float,
+        default=300.0,
+        help="HTTP timeout per embedder request for SynPack build/finalize",
+    )
+    parser.add_argument(
         "--staged-batch-limit",
         type=int,
         default=8,
@@ -394,7 +406,11 @@ def _run_synpack(args: argparse.Namespace) -> None:
         print(
             json_dump(
                 finalize_staged_language_pack(
-                    work_dir=args.work_dir, output_path=output, embedder_url=args.embedder_url
+                    work_dir=args.work_dir,
+                    output_path=output,
+                    embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                 )
             )
         )
@@ -428,6 +444,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     doc_language=args.doc_language,
@@ -464,6 +482,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     doc_language=args.doc_language,
@@ -500,6 +520,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     doc_language=args.doc_language,
@@ -536,6 +558,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     doc_language=args.doc_language,
@@ -572,6 +596,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     doc_language=args.doc_language,
@@ -608,6 +634,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
@@ -645,6 +673,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
@@ -683,6 +713,8 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     estimate_cost_only=args.estimate_cost_only,
                     skip_enrichment=args.skip_enrichment,
                     embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
                     source_dir=args.source_dir,
                     max_chunks=max(0, args.max_chunks),
                     provider_schema=args.provider_schema,

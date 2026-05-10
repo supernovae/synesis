@@ -4,7 +4,7 @@ Synesis includes a built-in **Open WebUI** instance that provides a polished cha
 
 **Upstream from planner-ts** (separate concern): the pipeline calls **LiteLLM** when using hosted OpenAI-compatible API providers (for example OpenRouter via the gateway), and **vLLM** (or other InferenceService endpoints) when using self-hosted models. So the full path is **Open WebUI → planner → LiteLLM** for those API routes, or **Open WebUI → planner → vLLM** when models are served in-cluster. External clients that target **`synesis-api`** hit LiteLLM **before** planner; that is a different entry path than the browser → planner hop above.
 
-Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.12`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
+Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.9.4`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
 ## Zero-Configuration Setup
 

@@ -1,4 +1,15 @@
 {{- if .Values.keycloak.enabled }}
+{{- $keycloakReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/Keycloak")) "true" -}}
+{{- $realmImportReady := eq (include "synesis.operatorCustomResourceReady" (dict "root" . "apiVersion" "k8s.keycloak.org/v2alpha1/KeycloakRealmImport")) "true" -}}
+{{- if and (not $keycloakReady) .Values.operators.customResources.failOnMissingCRDs -}}
+{{- fail "keycloak.enabled=true requires the Keycloak CRD keycloaks.k8s.keycloak.org. Install the Red Hat build of Keycloak operator first, or keep operators.customResources.create=auto and rerun helm upgrade after OLM installs the CRD." -}}
+{{- end -}}
+{{- if and .Values.keycloak.realmImport.enabled (not $realmImportReady) .Values.operators.customResources.failOnMissingCRDs -}}
+{{- fail "keycloak.realmImport.enabled=true requires the KeycloakRealmImport CRD keycloakrealmimports.k8s.keycloak.org. Install the Red Hat build of Keycloak operator first, or keep operators.customResources.create=auto and rerun helm upgrade after OLM installs the CRD." -}}
+{{- end -}}
+{{- if and .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.bootstrapAdmin.enabled (not .Values.keycloak.realmImport.bootstrapAdmin.password) -}}
+{{- fail "keycloak.realmImport.bootstrapAdmin.enabled=true requires keycloak.realmImport.bootstrapAdmin.password. The password is embedded in the KeycloakRealmImport spec; rotate it after first login." -}}
+{{- end -}}
 {{- if ne .Values.postgres.mode "cloudnativepg" }}
 ---
 apiVersion: v1
@@ -13,12 +24,31 @@ stringData:
   username: {{ include "synesis.postgres.username" (dict "root" . "key" "keycloak") | quote }}
   password: {{ include "synesis.postgres.keycloakPassword" . | quote }}
 {{- end }}
+{{- if and .Values.keycloak.realmImport.enabled .Values.keycloak.realmImport.bootstrapAdmin.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: synesis-keycloak-bootstrap-admin
+  namespace: {{ .Values.namespaces.auth }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity-provider
+type: Opaque
+stringData:
+  username: {{ .Values.keycloak.realmImport.bootstrapAdmin.username | quote }}
+  password: {{ .Values.keycloak.realmImport.bootstrapAdmin.password | quote }}
+{{- end }}
+{{- if $keycloakReady }}
 ---
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: Keycloak
 metadata:
   name: {{ .Values.keycloak.name }}
   namespace: {{ .Values.namespaces.auth }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "synesis.labels" . | nindent 4 }}
     app.kubernetes.io/name: {{ .Values.keycloak.name }}
@@ -53,13 +83,17 @@ spec:
     headers: xforwarded
   resources:
     {{- toYaml .Values.keycloak.resources | nindent 4 }}
-{{- if .Values.keycloak.realmImport.enabled }}
+{{- end }}
+{{- if and .Values.keycloak.realmImport.enabled $realmImportReady }}
 ---
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: KeycloakRealmImport
 metadata:
   name: synesis-realm-import
   namespace: {{ .Values.namespaces.auth }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "synesis.labels" . | nindent 4 }}
     app.kubernetes.io/component: identity-provider
@@ -88,7 +122,92 @@ spec:
           description: Synesis organization administrator
     defaultRoles:
       - synesis-user
+    {{- if .Values.keycloak.realmImport.bootstrapAdmin.enabled }}
+    users:
+      - username: {{ .Values.keycloak.realmImport.bootstrapAdmin.username | quote }}
+        email: {{ .Values.keycloak.realmImport.bootstrapAdmin.email | quote }}
+        firstName: {{ .Values.keycloak.realmImport.bootstrapAdmin.firstName | quote }}
+        lastName: {{ .Values.keycloak.realmImport.bootstrapAdmin.lastName | quote }}
+        enabled: true
+        emailVerified: true
+        credentials:
+          - type: password
+            value: {{ .Values.keycloak.realmImport.bootstrapAdmin.password | quote }}
+            temporary: {{ .Values.keycloak.realmImport.bootstrapAdmin.temporaryPassword }}
+        realmRoles:
+          - synesis-user
+          - synesis-admin
+    {{- end }}
     clientScopes:
+      - name: openid
+        description: OpenID Connect scope for subject identifier
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: sub
+            protocol: openid-connect
+            protocolMapper: oidc-sub-mapper
+            consentRequired: false
+            config:
+              access.token.claim: "true"
+              id.token.claim: "true"
+      - name: profile
+        description: "OpenID Connect built-in scope: profile"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: username
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: username
+              claim.name: preferred_username
+              jsonType.label: String
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+          - name: full-name
+            protocol: openid-connect
+            protocolMapper: oidc-full-name-mapper
+            consentRequired: false
+            config:
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+      - name: email
+        description: "OpenID Connect built-in scope: email"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: email
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: email
+              claim.name: email
+              jsonType.label: String
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+          - name: email-verified
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: emailVerified
+              claim.name: email_verified
+              jsonType.label: boolean
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
       - name: synesis-roles
         protocol: openid-connect
         attributes:
