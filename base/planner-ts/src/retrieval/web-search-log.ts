@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { buildPgPoolConfig } from "../db/pg-pool-config.js";
 import type { SearchResult, WebSearchAttribution } from "./types.js";
 
 export interface WebSearchLogSinkDeps {
@@ -45,7 +46,7 @@ function getPool(deps: WebSearchLogSinkDeps): Pool | null {
   const dsn = deps.adminDbUrl.trim();
   if (!dsn) return null;
   if (!pool || poolDsn !== dsn) {
-    pool = new Pool({ connectionString: dsn, max: 5 });
+    pool = new Pool(buildPgPoolConfig(dsn, 5));
     poolDsn = dsn;
   }
   return pool;
@@ -148,4 +149,3 @@ export async function persistWebSearchLog(
     );
   }
 }
-

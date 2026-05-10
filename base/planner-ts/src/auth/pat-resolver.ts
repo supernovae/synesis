@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Pool } from "pg";
 import type { AppConfig } from "../config.js";
+import { buildPgPoolConfig } from "../db/pg-pool-config.js";
 
 export interface PatRecord {
   userId: string;
@@ -15,7 +16,7 @@ let pool: Pool | null = null;
 export function initPatPool(config: AppConfig): void {
   const dsn = config.SYNESIS_PLANNER_TS_ADMIN_DB_URL;
   if (!dsn) return;
-  pool = new Pool({ connectionString: dsn, max: 5 });
+  pool = new Pool(buildPgPoolConfig(dsn, 5));
 }
 
 export async function closePatPool(): Promise<void> {

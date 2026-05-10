@@ -156,7 +156,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: synesis-admin-db-url
-                  key: admin-url
+                  key: trace-url
                   optional: true
             - name: SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER
               value: "0.1"

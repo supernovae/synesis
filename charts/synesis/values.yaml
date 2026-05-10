@@ -784,7 +784,7 @@ workloads:
         valueFrom:
           secretKeyRef:
             name: synesis-admin-db-url
-            key: admin-url
+            key: trace-url
       - name: SYNESIS_ADMIN_INTERNAL_TOKEN
         valueFrom:
           secretKeyRef:
@@ -879,7 +879,7 @@ workloads:
         valueFrom:
           secretKeyRef:
             name: synesis-admin-db-url
-            key: admin-url
+            key: trace-url
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
         valueFrom:
           secretKeyRef:
@@ -1129,7 +1129,7 @@ workloads:
         valueFrom:
           secretKeyRef:
             name: synesis-admin-db-url
-            key: admin-url
+            key: trace-url
             optional: true
   adminMcpTs:
     enabled: true
