@@ -248,7 +248,7 @@ kv:
     port: 6380
     username: ""
     password: changeme
-    database: 3
+    database: 0
     tls: true
   redkey:
     # Set this to the service DNS name created by your Valkey/RedKey operator.

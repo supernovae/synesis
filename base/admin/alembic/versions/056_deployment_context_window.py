@@ -17,12 +17,18 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    return any(c["name"] == column for c in sa.inspect(op.get_bind()).get_columns(table))
+
+
 def upgrade() -> None:
-    op.add_column(
-        "model_deployments",
-        sa.Column("context_window", sa.Integer(), nullable=True),
-    )
+    if not _has_column("model_deployments", "context_window"):
+        op.add_column(
+            "model_deployments",
+            sa.Column("context_window", sa.Integer(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("model_deployments", "context_window")
+    if _has_column("model_deployments", "context_window"):
+        op.drop_column("model_deployments", "context_window")

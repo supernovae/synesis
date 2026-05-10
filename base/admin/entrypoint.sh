@@ -2,7 +2,7 @@
 set -e
 
 # Run pending Alembic migrations before starting the app.
-# `upgrade head` is idempotent — it checks the alembic_version table
+# `upgrade heads` is idempotent — it checks the alembic_version table
 # and only applies migrations that haven't run yet.
 # Migrations themselves check table existence before CREATE, so even
 # partially-stamped databases are handled correctly.
@@ -11,7 +11,7 @@ if [ -f alembic.ini ]; then
 
     # If tables already exist (from a prior create_all) but alembic_version
     # doesn't exist, create it and stamp to the EARLIEST migration so that
-    # `alembic upgrade head` runs all migrations (each one checks table
+    # `alembic upgrade heads` runs all migrations (each one checks table
     # existence before CREATE, so re-runs are safe).
     python -c "
 import asyncio, os
@@ -60,7 +60,7 @@ asyncio.run(check())
     attempt=1
     success=0
     while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
-      if python -m alembic upgrade head; then
+      if python -m alembic upgrade heads; then
         echo "[entrypoint] Migrations complete."
         success=1
         break
@@ -70,7 +70,7 @@ asyncio.run(check())
       sleep "$SLEEP_SEC"
     done
     if [ "$success" != 1 ]; then
-      echo "[entrypoint] FATAL: alembic upgrade head failed after $MAX_ATTEMPTS attempts"
+      echo "[entrypoint] FATAL: alembic upgrade heads failed after $MAX_ATTEMPTS attempts"
       exit 1
     fi
 fi
