@@ -1,6 +1,6 @@
 """Add generation params to public offerings.
 
-Revision ID: 058_public_offering_generation_params
+Revision ID: 058_public_gen_params
 Revises: 057_nornic_content_graph
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "058_public_offering_generation_params"
+revision: str = "058_public_gen_params"
 down_revision: str | None = "057_nornic_content_graph"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
