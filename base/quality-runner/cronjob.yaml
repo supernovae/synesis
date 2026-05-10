@@ -32,7 +32,7 @@ spec:
                 - name: SYNESIS_ADMIN_API_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
                 - name: SYNESIS_LLM_URL
-                  value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1"
                 - name: SYNESIS_LLM_MODEL
                   value: "synesis-general"
                 - name: SYNESIS_TAXONOMY_PATH

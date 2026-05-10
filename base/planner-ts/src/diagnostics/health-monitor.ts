@@ -1,5 +1,6 @@
 import type { AppConfig } from "../config.js";
 import type { SessionStore } from "../context/session-store.js";
+import { hasLlmRoutes } from "../public-model-catalog.js";
 
 export interface DependencyCheck {
   name: string;
@@ -50,7 +51,7 @@ export class DependencyHealthMonitor {
     const timeoutMs = this.config.SYNESIS_PLANNER_TS_HEALTH_MONITOR_TIMEOUT_MS;
     const checks: DependencyCheck[] = [];
 
-    checks.push(await this.httpCheck("litellm", this.config.SYNESIS_PLANNER_TS_LLM_BASE_URL, "/health", timeoutMs, this.config.SYNESIS_PLANNER_TS_LLM_API_KEY));
+    checks.push(this.llmRouteCheck());
     checks.push(await this.redisCheck(timeoutMs));
     checks.push(await this.httpCheck("openfga", this.config.SYNESIS_OPENFGA_API_URL, "/healthz", timeoutMs));
     checks.push(await this.httpCheck("admin", this.config.SYNESIS_ADMIN_URL, "/health", timeoutMs, this.config.SYNESIS_ADMIN_INTERNAL_TOKEN));
@@ -66,6 +67,20 @@ export class DependencyHealthMonitor {
       checks,
     };
     return this.latest;
+  }
+
+  private llmRouteCheck(): DependencyCheck {
+    const checkedAt = Date.now();
+    const configured = Boolean(this.config.SYNESIS_PLANNER_TS_LLM_ENABLED);
+    const hasFallback = Boolean(this.config.SYNESIS_PLANNER_TS_LLM_BASE_URL);
+    const hasAdminRoutes = hasLlmRoutes();
+    return {
+      name: "llm_routes",
+      configured,
+      ok: !configured || hasAdminRoutes || hasFallback,
+      detail: hasAdminRoutes ? "admin_routes_loaded" : hasFallback ? "fallback_base_url_configured" : "no_routes_loaded",
+      checkedAt,
+    };
   }
 
   private async redisCheck(timeoutMs: number): Promise<DependencyCheck> {

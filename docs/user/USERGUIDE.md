@@ -29,7 +29,7 @@ Synesis classifies your request before any LLM runs. The canonical graph flow is
 | **Complex** | Same as normal, but with deeper planning and stricter critic | Matches: deploy, architecture, design, migrate, security, credentials, whole repo |
 
 > **Note:** Code generation and editing is handled by the **Coder front door**
-> (Qwen Coder via LiteLLM → IDE coding agents). The planner pipeline focuses on
+> (Qwen Coder via the configured IDE coding endpoint). The planner pipeline focuses on
 > knowledge synthesis and can include code snippets in fenced markdown blocks.
 
 **Trivial** skips retrieval. **Normal** and **Complex** pass through the planner and router for evidence gathering. The plan gate validates the plan and can retry the planner with repair feedback or short-circuit to clarification.

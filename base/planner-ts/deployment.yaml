@@ -58,8 +58,6 @@ spec:
               value: "Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon"
             - name: SYNESIS_PLANNER_TS_LLM_ENABLED
               value: "true"
-            - name: SYNESIS_PLANNER_TS_LLM_BASE_URL
-              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_PLANNER_TS_PLANNER_MODEL
               value: "synesis-planner"
             - name: SYNESIS_PLANNER_TS_WRITER_MODEL
@@ -92,12 +90,6 @@ spec:
               value: "100"
             - name: SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS
               value: "30000"
-            - name: SYNESIS_PLANNER_TS_LLM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-secrets
-                  key: master-key
-                  optional: true
             - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
               value: "true"
             - name: SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS

@@ -1,4 +1,5 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
+import type { LlmRoute } from "../public-model-catalog.js";
 import type { CohesionLockData } from "../retrieval/types.js";
 import type { SpanCollector } from "../tracing/span-collector.js";
 
@@ -43,8 +44,10 @@ export interface GraphState {
   registry_writer_role?: string;
   /** Legacy alias retained for older traces/tests. */
   registry_general_role?: string;
-  /** Resolved LiteLLM / gateway model id for the writer when using a public offering. */
+  /** Resolved upstream model id for the writer when using a public offering. */
   resolved_writer_model?: string;
+  /** Direct upstream route for writer calls resolved from the Admin registry. */
+  resolved_writer_route?: LlmRoute;
   /** Public-offering writer generation overrides from the Admin registry. */
   writer_generation_params?: GenerationParams;
   model_tier?: "auto" | "pulse" | "core" | "horizon";

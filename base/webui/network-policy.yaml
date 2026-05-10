@@ -20,6 +20,6 @@ spec:
     - {}
 # Open WebUI needs full egress for:
 #   - Planner API (default: synesis-planner-ts:8080) if not using a public route
-#   - Optional: LiteLLM gateway only if OPENAI_API_BASE_URL is repointed there
+#   - Optional: external provider endpoints are reached by planner, not WebUI
 #   - HuggingFace Hub (embedding model download on first boot), plugins, avatars, etc.
 # The pod still runs as non-root with restricted SCC.

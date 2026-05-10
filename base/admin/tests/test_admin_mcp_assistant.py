@@ -33,8 +33,8 @@ def test_openai_tools_respects_role_hierarchy():
     assert "usage_summary" in names_org_admin
     assert "list_traces" not in names_readonly
     assert "yarn_transition_watch" not in names_readonly
-    assert "reconcile_litellm" in names_platform
-    assert "reconcile_litellm" not in names_user
+    assert "refresh_model_routes" in names_platform
+    assert "refresh_model_routes" not in names_user
 
 
 def test_openai_tools_support_allowlist_restricts_outputs():

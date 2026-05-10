@@ -35,7 +35,7 @@ const SOURCE_BADGE_STYLES: Record<string, string> = {
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: "Manual",
-  litellm: "LiteLLM",
+  litellm: "Legacy",
   bundled: "API Pricing",
   infra_calc: "Infra Calc",
   unknown: "Unknown",

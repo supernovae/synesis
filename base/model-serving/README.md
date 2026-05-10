@@ -1,6 +1,6 @@
 # Model Serving
 
-Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (`synesis-models-efs`). Model/provider routing is configured in Admin Model Registry; role endpoints are then reconciled to LiteLLM.
+Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (`synesis-models-efs`). Model/provider routing is configured in Admin Model Registry; runtime services read those routes directly.
 
 ## Model Roles
 

@@ -283,9 +283,6 @@ operators:
 keycloak:
   enabled: false
 
-litellm:
-  enabled: false
-
 routes:
   enabled: false
 

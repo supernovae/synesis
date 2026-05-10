@@ -3,7 +3,7 @@ import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import {
   useSetProviderKey,
   useDeleteProviderKey,
-  useLitellmRestartStatus,
+  useProviderConsumerRestartStatus,
   useReconcileProviderSpend,
 } from "../../api/hooks";
 import type { ProviderConfigInfo, ProviderGovernanceResponse, ProviderSecretKeyRow } from "../../types";
@@ -29,7 +29,7 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
     () => governance?.providers ?? [],
     [governance?.providers],
   );
-  const { data: restartStatus } = useLitellmRestartStatus();
+  const { data: restartStatus } = useProviderConsumerRestartStatus();
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();
   const reconcileSpendMut = useReconcileProviderSpend();
@@ -103,8 +103,8 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="space-y-1 text-sm text-amber-800 dark:text-amber-300">
             <p>
-              Adding or rotating a key syncs the provider secret to LiteLLM, Yarn, and Planner, then
-              triggers brief rollout restarts (~30s). Active requests may be interrupted.
+              Adding or rotating a key syncs the provider secret to Yarn and Planner, then triggers
+              brief rollout restarts (~30s). Active requests may be interrupted.
             </p>
             <p className="text-amber-900/90 dark:text-amber-200/90">
               Keys are stored in the cluster secret and injected into the model runtime services. The
@@ -153,35 +153,32 @@ export default function ProviderKeysPanel({ governance, isLoading }: ProviderKey
         )}
       </div>
 
-      {restartStatus && (
+      {restartStatus && restartStatus.consumers.length > 0 && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1 text-sm">
-              <p className="font-medium text-gray-800 dark:text-gray-100">LiteLLM rollout status</p>
-              <p className="text-gray-600 dark:text-gray-300">
-                {restartStatus.namespace}/{restartStatus.deployment}
-              </p>
-              <p className="text-gray-600 dark:text-gray-300">
-                Last restart trigger:{" "}
-                {restartStatus.restart_trigger_at
-                  ? new Date(restartStatus.restart_trigger_at).toLocaleString()
-                  : "not triggered yet"}
-              </p>
-              <p className="text-gray-600 dark:text-gray-300">
-                Replicas ready {restartStatus.ready_replicas}/{restartStatus.desired_replicas},
-                updated {restartStatus.updated_replicas}
-              </p>
+              <p className="font-medium text-gray-800 dark:text-gray-100">Runtime consumer rollout status</p>
+              {restartStatus.consumers.map((consumer) => (
+                <p key={`${consumer.namespace}/${consumer.deployment}`} className="text-gray-600 dark:text-gray-300">
+                  {consumer.namespace}/{consumer.deployment}: replicas ready {consumer.ready_replicas}/
+                  {consumer.desired_replicas}, updated {consumer.updated_replicas}
+                </p>
+              ))}
             </div>
             <span
               className={
-                restartStatus.rollout_observed &&
-                restartStatus.ready_replicas >= restartStatus.desired_replicas
+                restartStatus.consumers.every(
+                  (consumer) =>
+                    consumer.rollout_observed && consumer.ready_replicas >= consumer.desired_replicas,
+                )
                   ? "rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400"
                   : "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
               }
             >
-              {restartStatus.rollout_observed &&
-              restartStatus.ready_replicas >= restartStatus.desired_replicas
+              {restartStatus.consumers.every(
+                (consumer) =>
+                  consumer.rollout_observed && consumer.ready_replicas >= consumer.desired_replicas,
+              )
                 ? "Rollout healthy"
                 : "Rollout in progress"}
             </span>

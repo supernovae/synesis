@@ -11,11 +11,8 @@ configMapGenerator:
 
 resources:
   - namespace.yaml
-  # webui-api-key: managed only by deploy.sh — applying sk-synesis-change-me
-  # from git on every deploy overwrote the real key synced from litellm-secrets.
   - pvc.yaml
   - deployment.yaml
   - service.yaml
   - route.yaml
   - network-policy.yaml
-  - secret-copy-job.yaml

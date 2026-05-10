@@ -513,7 +513,7 @@ function ExtraPublicOfferingCard({
       </label>
 
       <label className="mt-2 block text-[11px] text-gray-500 dark:text-gray-400">
-        Wire model / LiteLLM id
+        Upstream model id
         <input
           className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
           value={wire}
@@ -739,7 +739,7 @@ export default function ModelRegistry() {
       if (editing.provider === "custom") {
         if (
           !window.confirm(
-            "This API key env var is not set under Models → Providers → Provider API keys. LiteLLM will fail until the key exists in the cluster secret. Continue saving?",
+            "This API key env var is not set under Models → Providers → Provider API keys. Direct provider calls will fail until the key exists in the cluster secret. Continue saving?",
           )
         ) {
           return;
@@ -941,7 +941,7 @@ export default function ModelRegistry() {
                 <div>
                   <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Canonical mapping</h2>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Each role is how Yarn, Planner, and LiteLLM identify a slot. Assign the same upstream model to several
+                    Each role is how Yarn and Planner identify a runtime slot. Assign the same upstream model to several
                     roles when it should serve more than one slot.
                   </p>
                 </div>
@@ -1247,7 +1247,7 @@ function NewPublicOfferingModal({
           </div>
 
           <label className="block text-xs text-gray-600 dark:text-gray-400">
-            Wire model / LiteLLM model id (optional)
+            Upstream model id (optional)
             <input
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
               value={draft.backend_model_override}
@@ -1338,7 +1338,7 @@ function NewPublicOfferingModal({
                 />
               </label>
               <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-                Planner continues to use its global LiteLLM gateway; standalone provider/endpoint/key apply to Yarn.
+                Standalone provider, endpoint, and key apply directly to Planner and Yarn runtime calls.
               </p>
             </div>
           ) : (
@@ -1509,7 +1509,7 @@ function NewPublicOfferingModal({
 
 const PRICING_SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   manual: { bg: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", label: "set" },
-  litellm: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "litellm" },
+  litellm: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "legacy" },
   bundled: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "bundled" },
   infra_calc: { bg: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400", label: "infra" },
   fallback_base: { bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", label: "fallback" },
@@ -1910,7 +1910,7 @@ function EditModal({
                 onChange={(v) => setEditing({ ...editing, max_tokens: v })}
                 onBlur={() => { if (!editing.max_tokens.trim() || Number(editing.max_tokens) <= 0) setEditing({ ...editing, max_tokens: "8192" }); }}
                 type="number"
-                hint="LiteLLM default — Chat service may still enforce per-request budget caps"
+                hint="Runtime default — Chat service may still enforce per-request budget caps"
               />
               <Field
                 label="Temperature"

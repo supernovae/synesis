@@ -2,6 +2,8 @@ import type { AppConfig } from "./config.js";
 import {
   getPlannerPublicOfferings,
   getRoleBackendModel,
+  getLlmRoute,
+  type LlmRoute,
   type PublicPlannerOffering,
 } from "./public-model-catalog.js";
 import type { GenerationParams } from "./state/types.js";
@@ -21,6 +23,8 @@ export interface TierSettings {
   registry_general_role?: string;
   /** When set, writer LLM uses this model id against the planner LLM gateway. */
   resolved_writer_model?: string;
+  /** Direct upstream route for writer calls when admin exposes a standalone public offering. */
+  resolved_writer_route?: LlmRoute;
   /** Optional Admin-defined generation overrides for public offering writer calls. */
   writer_generation_params?: GenerationParams;
 }
@@ -136,6 +140,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     const registryModel = mode === "standalone"
       ? ((o.backend_model_override ?? "").trim() || o.client_model_id.trim() || requestedModel)
       : ((o.backend_model_override ?? "").trim() || getWriterRoleBackendModel(writerRole));
+    const writerRoute = mode === "standalone" ? getLlmRoute(o.client_model_id) : getLlmRoute(writerRole);
     const writerGenerationParams = generationParamsFromOffering(o);
     if (tier === "pulse") {
       return {
@@ -148,6 +153,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         registry_writer_role: writerRole,
         registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
       };
     }
@@ -162,6 +168,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         registry_writer_role: writerRole,
         registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
       };
     }
@@ -176,6 +183,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         registry_writer_role: writerRole,
         registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
       };
     }
@@ -189,6 +197,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       registry_writer_role: "writer",
       registry_general_role: "general",
       resolved_writer_model: registryModel,
+      resolved_writer_route: writerRoute,
       writer_generation_params: writerGenerationParams,
     };
   }

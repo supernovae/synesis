@@ -44,7 +44,7 @@ class DiscoveredModel:
 
 @dataclass(slots=True)
 class ProviderDefaults:
-    """Recommended LiteLLM parameters for a provider + model pair."""
+    """Recommended route parameters for a provider + model pair."""
 
     max_tokens: int = 8192
     temperature: float = 0.1
@@ -402,7 +402,7 @@ def get_defaults_for_model(
     model_id: str,
     context_window: int | None = None,
 ) -> ProviderDefaults:
-    """Return recommended LiteLLM defaults for a provider + model pair."""
+    """Return recommended route defaults for a provider + model pair."""
     info = PROVIDER_CATALOG.get(provider_key)
     if not info:
         return ProviderDefaults()
@@ -453,7 +453,7 @@ def validate_model_id(provider_key: str, model_id: str) -> dict:
     if prefix and model_id.startswith(prefix):
         return {
             "valid": False,
-            "reason": f"Do not include the LiteLLM prefix '{prefix}' — it is added automatically",
+            "reason": f"Do not include the provider prefix '{prefix}' — it is added automatically",
             "suggestion": model_id[len(prefix) :],
         }
 

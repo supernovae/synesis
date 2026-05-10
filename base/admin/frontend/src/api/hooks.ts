@@ -468,10 +468,10 @@ export function useReconcileProviderSpend() {
   });
 }
 
-export function useLitellmRestartStatus() {
-  return useQuery<import("../types").LiteLLMRestartStatus>({
-    queryKey: ["providers", "litellm", "restart-status"],
-    queryFn: () => client.get("/providers/litellm/restart-status").then((r) => r.data),
+export function useProviderConsumerRestartStatus() {
+  return useQuery<import("../types").ProviderConsumersRestartStatus>({
+    queryKey: ["providers", "consumers", "restart-status"],
+    queryFn: () => client.get("/providers/consumers/restart-status").then((r) => r.data),
     refetchInterval: 10_000,
     staleTime: 5_000,
   });

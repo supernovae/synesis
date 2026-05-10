@@ -323,6 +323,7 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
         state.resolved_writer_model?.trim()
         || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
         || "synesis-writer",
+      route: state.resolved_writer_route,
       temperature: generation.temperature ?? 0.2,
       top_p: generation.top_p,
       top_k: generation.top_k,
@@ -392,6 +393,7 @@ export async function composeWriterDraftStream(
           state.resolved_writer_model?.trim()
           || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
           || "synesis-writer",
+        route: state.resolved_writer_route,
         temperature: generation.temperature ?? 0.2,
         top_p: generation.top_p,
         top_k: generation.top_k,

@@ -1,15 +1,8 @@
-"""Pricing lookup — resolve per-token costs for API providers.
-
-Tries the running LiteLLM proxy first (/model/info contains cost data when
-available), then falls back to a bundled snapshot of common model prices.
-"""
+"""Pricing lookup — resolve per-token costs for direct API provider routes."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
-
-logger = logging.getLogger("synesis.admin.pricing")
 
 # ---------------------------------------------------------------------------
 # Bundled pricing snapshot ($/million tokens).
@@ -93,8 +86,8 @@ for _key, _val in _BUNDLED_PRICES.items():
         _BARE_NAME_INDEX[_bare] = _val
 
 
-def _litellm_prefixed_key(provider: str, model: str) -> str:
-    """Build the LiteLLM-style key for bundled lookup."""
+def _provider_prefixed_key(provider: str, model: str) -> str:
+    """Build the provider-prefixed key used by the bundled lookup."""
     from .provider_catalog import PROVIDER_CATALOG
 
     info = PROVIDER_CATALOG.get(provider)
@@ -108,7 +101,7 @@ def lookup_bundled_pricing(provider: str, model: str) -> tuple[float, float] | N
 
     Returns (input_per_million, output_per_million) or None.
     """
-    key = _litellm_prefixed_key(provider, model)
+    key = _provider_prefixed_key(provider, model)
     if key in _BUNDLED_PRICES:
         return _BUNDLED_PRICES[key]
     # Try bare model name.
@@ -128,28 +121,6 @@ def lookup_bundled_pricing(provider: str, model: str) -> tuple[float, float] | N
     return None
 
 
-async def lookup_litellm_pricing(model_name: str) -> tuple[float, float] | None:
-    """Query the running LiteLLM proxy for pricing on a served model name.
-
-    LiteLLM's /model/info response includes model_info.input_cost_per_token
-    and model_info.output_cost_per_token when pricing is known.
-    """
-    try:
-        from . import litellm_client
-
-        models = await litellm_client.list_models(timeout=5.0)
-        for m in models:
-            info = m.get("model_info", {}) or {}
-            if m.get("model_name") == model_name or info.get("id") == model_name:
-                inp = info.get("input_cost_per_token", 0)
-                out = info.get("output_cost_per_token", 0)
-                if inp or out:
-                    return (float(inp) * 1_000_000, float(out) * 1_000_000)
-    except Exception:
-        logger.debug("litellm_pricing_lookup_failed", exc_info=True)
-    return None
-
-
 async def resolve_pricing(
     provider: str,
     model: str,
@@ -158,15 +129,8 @@ async def resolve_pricing(
     """Resolve pricing for a provider + model combination.
 
     Returns ((input_per_million, output_per_million), source) or None.
-    source is one of: "litellm", "bundled", or None on miss.
+    source is "bundled" or None on miss.
     """
-    # 1. Try LiteLLM proxy (it may have actual pricing from the provider).
-    if served_name:
-        result = await lookup_litellm_pricing(served_name)
-        if result:
-            return result, "litellm"
-
-    # 2. Bundled snapshot.
     result = lookup_bundled_pricing(provider, model)
     if result:
         return result, "bundled"

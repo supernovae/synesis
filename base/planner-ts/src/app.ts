@@ -41,7 +41,7 @@ import { buildMetadataFilter, extractTagMetadata } from "./retrieval/metadata-fi
 import { evaluateCritic } from "./nodes/critic-evaluator.js";
 import { buildDomainProfile } from "./nodes/domain-profile.js";
 import { listModelIds, resolveTierSettings } from "./model-tiers.js";
-import { startPublicModelCatalogPolling } from "./public-model-catalog.js";
+import { hasLlmRoutes, startPublicModelCatalogPolling } from "./public-model-catalog.js";
 import { optimizeContext } from "./optimization/context-optimizer.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
@@ -744,6 +744,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       registry_general_role: tierSettings.registry_general_role,
       registry_writer_role: tierSettings.registry_writer_role,
       resolved_writer_model: tierSettings.resolved_writer_model,
+      resolved_writer_route: tierSettings.resolved_writer_route,
       writer_generation_params: tierSettings.writer_generation_params,
       pricing_rates_by_role: {
         router: pricingRegistry.getRates("router"),
@@ -816,25 +817,12 @@ export function buildApp(config: AppConfig): FastifyInstance {
       redis: { configured: boolean; ok: boolean; detail?: string };
     };
   }> {
-    const llmConfigured = Boolean(config.SYNESIS_PLANNER_TS_LLM_ENABLED && config.SYNESIS_PLANNER_TS_LLM_BASE_URL);
+    const llmConfigured = Boolean(config.SYNESIS_PLANNER_TS_LLM_ENABLED);
     let llmOk = true;
     let llmDetail = "disabled_or_not_configured";
     if (llmConfigured) {
-      try {
-        const origin = new URL(config.SYNESIS_PLANNER_TS_LLM_BASE_URL).origin;
-        const resp = await fetch(`${origin}/health/liveliness`, {
-          method: "GET",
-          signal: AbortSignal.timeout(2_000),
-          headers: config.SYNESIS_PLANNER_TS_LLM_API_KEY
-            ? { Authorization: `Bearer ${config.SYNESIS_PLANNER_TS_LLM_API_KEY}` }
-            : undefined,
-        });
-        llmOk = resp.ok;
-        llmDetail = `status_${resp.status}`;
-      } catch (error) {
-        llmOk = false;
-        llmDetail = error instanceof Error ? error.message : String(error);
-      }
+      llmOk = hasLlmRoutes() || Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL);
+      llmDetail = hasLlmRoutes() ? "admin_routes_loaded" : llmOk ? "fallback_base_url_configured" : "no_routes_loaded";
     }
 
     const redisConfigured = Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL);
@@ -862,6 +850,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     llm: {
       enabled: config.SYNESIS_PLANNER_TS_LLM_ENABLED,
       baseUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL),
+      adminRoutesLoaded: hasLlmRoutes(),
       prefixCacheMode: config.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
     },
     redis: {

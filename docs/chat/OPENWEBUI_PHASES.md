@@ -12,8 +12,8 @@ How Synesis sends "Analyzing request," "Gathering evidence," "Composing response
 | **Planner-ts** | OpenAI-compatible `/v1` for WebUI; runs LangGraph; streams SSE + final content |
 
 **Request path (Synesis manifests):**
-- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`). The browser does not call LiteLLM; **planner-ts** does for hosted API routes (e.g. OpenRouter), or talks **vLLM** directly for self-hosted models.
-- **Planner-ts → upstream models** uses LiteLLM and/or vLLM per deployment — separate from the WebUI → planner hop.
+- **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`).
+- **Planner-ts → upstream models** uses the active admin Model Registry route for hosted providers or self-hosted vLLM endpoints.
 
 ---
 
@@ -204,7 +204,7 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 **Production behavior:** Use Open WebUI's **native** status display only; do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
 
 **Why statuses might not appear:**
-- **LiteLLM/proxy**: Status events are sent as JSON `"event"` keys inside `data:` lines (not SSE named `event:` lines). Some proxies may still buffer or drop small `data:` lines. Try calling the Planner directly (no LiteLLM) to verify.
+- **Proxy buffering**: Status events are sent as JSON `"event"` keys inside `data:` lines (not SSE named `event:` lines). Edge proxies may buffer or drop small `data:` lines. Try calling planner directly in-cluster to verify.
 - **Open WebUI version**: SSE status routing may require a recent release.
 - **Buffering**: `X-Accel-Buffering: no` is set; upstream proxies (HAProxy, nginx) may still buffer—add `haproxy.router.openshift.io/disable_buffer: "true"` on the route.
 - **Planner restarts**: If the planner pod OOMs or crashes, the stream stops and the UI can sit on "Gathering evidence" or similar. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. Ensure `search_sources.yaml` is mounted (apply planner via kustomize so the `synesis-search-sources` ConfigMap exists); otherwise logs show `search_sources_file_not_found` and the router uses in-memory defaults, but the file mount avoids path confusion and matches production config. For memory debugging and instrumentation, see [OBSERVABILITY.md](OBSERVABILITY.md).
@@ -240,9 +240,8 @@ chunk regardless.
      2>/dev/null | head -50
    ```
 
-3. **Direct vs LiteLLM**
-   - **Direct (dev):** `OPENAI_API_BASE_URL` → planner. Fewer hops.
-   - **LiteLLM:** Request goes through gateway. Confirm LiteLLM doesn't drop or transform SSE lines.
+3. **Direct planner path**
+   - `OPENAI_API_BASE_URL` should point to planner. Confirm no edge proxy is buffering or transforming SSE lines.
 
 4. **SSE test endpoint**
    `GET /debug/sse-test` (requires `stream_debug_chatter=true`) emits sample status events for verification.
@@ -258,5 +257,4 @@ chunk regardless.
 - **planner-ts closing follow-up:** `base/planner-ts/src/pipeline.ts` — `buildClosingFollowup()`, `finalScrubberNode()`
 - **Legacy Python planner path:** retired; planner-ts is the maintained runtime.
 - Open WebUI Events: https://docs.openwebui.com/features/plugin/events/
-- LiteLLM config: `base/gateway/litellm-config.yaml`
 - Open WebUI deployment base: `base/webui/deployment.yaml`

@@ -406,7 +406,7 @@ export default function ProviderManagement() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                      LiteLLM Prefix
+                      Provider Prefix
                     </label>
                     <input
                       type="text"
@@ -550,8 +550,8 @@ export default function ProviderManagement() {
                     </div>
                     <p className="mb-2 text-[10px] leading-snug text-gray-600 dark:text-gray-400">
                       Writes <code className="rounded bg-white/80 px-1 font-mono dark:bg-gray-900/60">{ke}</code> in
-                      the <code className="font-mono">provider-api-keys</code> secret (LiteLLM gateway namespace).
-                      Saving a key triggers a short LiteLLM restart.{" "}
+                      the <code className="font-mono">provider-api-keys</code> secret for direct runtime consumers.
+                      Saving a key restarts Planner and Yarn.{" "}
                       <a
                         href="#provider-api-keys"
                         className="text-indigo-700 underline dark:text-indigo-400"
@@ -703,7 +703,7 @@ export default function ProviderManagement() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  LiteLLM Prefix
+                  Provider Prefix
                 </label>
                 <input
                   type="text"

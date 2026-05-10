@@ -157,20 +157,12 @@ All first-party Dockerfiles use non-root `USER 1001` at runtime.
 ## 7. Supply-Chain Guardrails
 
 CI runs a `supply-chain-guard` job that fails on compromised dependency
-indicators (LiteLLM PyPI v1.82.7/v1.82.8 IOCs, mutable image tags, and
-unpinned CI action refs). To run the same checks locally:
+indicators, mutable image tags, and unpinned CI action refs. To run the same
+checks locally:
 
 ```bash
-# Check for compromised LiteLLM versions in lockfiles/requirements
-grep -rn --include='*.txt' --include='*.lock' --include='*.toml' \
-  -E 'litellm==1\.82\.(7|8)|litellm_init\.pth|models\.litellm\.cloud' .
-
-# Check for floating LiteLLM image tags
-grep -n 'main-stable\|:latest' base/gateway/helm/values-synesis.yaml
-
 # Check for residual Trivy references (should return nothing)
 grep -rn 'aquasecurity/trivy' .github/workflows/
 ```
 
-All commands should return no matches. See `docs/LITELLM.md` for the
-version pinning policy and incident response checklist.
+All commands should return no matches.

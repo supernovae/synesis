@@ -14,8 +14,8 @@ fullnameOverride: ""
 createNamespaces: true
 
 global:
-  # The chart default is API mode: external/provider LLMs through LiteLLM,
-  # no RHOAI/KServe/model-serving resources.
+  # The chart default is API mode: external/provider LLMs are called directly
+  # from Planner using routes configured in the Admin model registry.
   mode: api
   imageRegistry: ghcr.io/supernovae/synesis
   imageTag: latest
@@ -142,22 +142,6 @@ postgres:
         limits:
           cpu: "1"
           memory: 1Gi
-    litellm:
-      name: synesis-litellm-db
-      database: litellm
-      owner: app
-      password: changeme
-      instances: 1
-      storage:
-        size: 2Gi
-        storageClass: ""
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
     keycloak:
       name: synesis-auth-db
       database: keycloak
@@ -200,7 +184,6 @@ postgres:
       sslmode: require
       adminUrl: ""
       traceUrl: ""
-      litellmUrl: ""
     keycloak:
       host: ""
       port: 5432
@@ -225,7 +208,6 @@ postgres:
       password: changeme
       adminUrl: ""
       traceUrl: ""
-      litellmUrl: ""
     keycloak:
       database: keycloak
       username: app
@@ -268,8 +250,6 @@ kv:
 
 secrets:
   internalServiceToken: synesis-internal-change-me
-  litellmMasterKey: sk-synesis-change-me
-  litellmSaltKey: sk-salt-change-me
   webuiSecretKey: sk-synesis-change-me
   providerApiKeys:
     OPENROUTER_API_KEY: sk-or-v1-REPLACE_ME
@@ -366,76 +346,12 @@ keycloak:
     postgresReadyTimeoutSeconds: 900
     realmImportTimeoutSeconds: 600
 
-litellm:
-  enabled: true
-  image:
-    repository: ghcr.io/berriai/litellm-non_root
-    tag: main-v1.82.3-stable
-    pullPolicy: IfNotPresent
-  replicas: 1
-  numWorkers: 1
-  podSecurityContext:
-    runAsNonRoot: true
-  containerSecurityContext:
-    runAsUser: 65534
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-    seccompProfile:
-      type: RuntimeDefault
-  resources:
-    requests:
-      cpu: 250m
-      memory: 1Gi
-    limits:
-      cpu: "1"
-      memory: 2Gi
-  config:
-    # Static LiteLLM routes are only service entrypoints. Provider-backed role
-    # aliases (synesis-router, synesis-planner, synesis-writer,
-    # synesis-ambiguity-scorer, synesis-critic, coder tiers, summarizer, indexer,
-    # etc.) are seeded into the Admin DB and reconciled from
-    # the Admin Model Registry.
-    model_list:
-      - model_name: Synesis
-        litellm_params:
-          model: openai/Synesis
-          api_base: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
-          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
-          max_tokens: 65536
-          temperature: 0.2
-      - model_name: Synesis Coder
-        litellm_params:
-          model: openai/synesis-yarn
-          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
-          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
-          max_tokens: 32768
-          temperature: 0.2
-      - model_name: synesis-yarn
-        litellm_params:
-          model: openai/synesis-yarn
-          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
-          api_key: os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN
-          max_tokens: 32768
-          temperature: 0.2
-    litellm_settings:
-      drop_params: true
-      set_verbose: false
-      num_retries: 2
-      request_timeout: 300
-    general_settings:
-      master_key: os.environ/PROXY_MASTER_KEY
-      forward_client_headers_to_llm_api: false
-      background_health_checks: false
-      allow_requests_on_db_unavailable: true
-
 routes:
   enabled: true
   items:
     synesis-api:
-      namespace: gateway
-      service: litellm-proxy
+      namespace: planner
+      service: synesis-planner-ts
       port: http
       host: ""
       timeout: 300s
@@ -482,10 +398,10 @@ ingress:
     secretName: ""
   items:
     synesis-api:
-      namespace: gateway
-      service: litellm-proxy
+      namespace: planner
+      service: synesis-planner-ts
       port: http
-      originPort: 4000
+      originPort: 8080
       host: api.example.com
       path: /
       pathType: Prefix
@@ -650,13 +566,6 @@ workloads:
         value: synesis-admin
       - name: SYNESIS_PLANNER_URL
         value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
-      - name: SYNESIS_LITELLM_URL
-        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
-      - name: SYNESIS_LITELLM_MASTER_KEY
-        valueFrom:
-          secretKeyRef:
-            name: litellm-secrets
-            key: master-key
       - name: SYNESIS_ADMIN_ASSISTANT_MODEL
         value: synesis-writer
       - name: SYNESIS_MCP_URL
@@ -730,13 +639,6 @@ workloads:
         value: "8080"
       - name: HOST
         value: 0.0.0.0
-      - name: SYNESIS_PLANNER_TS_LLM_BASE_URL
-        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
-      - name: SYNESIS_PLANNER_TS_LLM_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: litellm-secrets
-            key: master-key
       - name: SYNESIS_PLANNER_TS_LLM_ENABLED
         value: "true"
       - name: SYNESIS_PLANNER_TS_MODEL_ID
@@ -1577,7 +1479,7 @@ jobs:
       - name: SYNESIS_ADMIN_API_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - name: SYNESIS_LLM_URL
-        value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
+        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
       - name: SYNESIS_LLM_MODEL
         value: synesis-writer
       - name: SYNESIS_TAXONOMY_PATH

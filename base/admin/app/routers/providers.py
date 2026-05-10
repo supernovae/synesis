@@ -31,7 +31,6 @@ router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
 
 _SECRET_NAME = "provider-api-keys"
 _SECRET_NAMESPACE = os.environ.get("SYNESIS_GATEWAY_NAMESPACE", "synesis-gateway")
-_LITELLM_DEPLOYMENT = "litellm-proxy"
 _PROVIDER_KEY_CONSUMERS = (
     ("synesis-yarn", "synesis-yarn"),
     ("synesis-planner", "synesis-planner-ts"),
@@ -273,9 +272,8 @@ async def _restart_deployment(namespace: str, deployment: str) -> None:
 
 
 async def _restart_provider_key_consumers() -> list[str]:
-    targets = [(_SECRET_NAMESPACE, _LITELLM_DEPLOYMENT), *_PROVIDER_KEY_CONSUMERS]
     restarted: list[str] = []
-    for namespace, deployment in targets:
+    for namespace, deployment in _PROVIDER_KEY_CONSUMERS:
         await _restart_deployment(namespace, deployment)
         restarted.append(f"{namespace}/{deployment}")
     return restarted
@@ -299,16 +297,16 @@ async def _assert_key_state(name: str, *, should_exist: bool) -> None:
         )
 
 
-async def _get_litellm_deployment() -> dict:
-    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}/deployments/{_LITELLM_DEPLOYMENT}"
+async def _get_deployment(namespace: str, deployment: str) -> dict:
+    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{namespace}/deployments/{deployment}"
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
             resp = await client.get(url, headers=_k8s_headers(), timeout=_HTTP_TIMEOUT_SECONDS)
             resp.raise_for_status()
             return resp.json()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("k8s_get_litellm_deployment_failed", exc_info=True)
-        raise HTTPException(502, _k8s_error_detail("Reading LiteLLM deployment status", exc))
+        logger.warning("k8s_get_provider_consumer_deployment_failed", exc_info=True)
+        raise HTTPException(502, _k8s_error_detail(f"Reading {namespace}/{deployment} deployment status", exc))
 
 
 def _coerce_int(value: object) -> int | None:
@@ -393,7 +391,7 @@ async def discovery_defaults(
     context_window: int | None = None,
     _user=Depends(get_current_user),
 ):
-    """Get recommended LiteLLM defaults for a provider + model pair."""
+    """Get recommended route defaults for a provider + model pair."""
     defaults = get_defaults_for_model(provider_key, model_id, context_window)
     return defaults.to_dict()
 
@@ -430,9 +428,7 @@ async def list_keys(_user=Depends(get_current_user)):
     return {"keys": keys}
 
 
-@router.get("/litellm/restart-status")
-async def litellm_restart_status(_user=Depends(get_current_user)):
-    dep = await _get_litellm_deployment()
+def _deployment_rollout_status(namespace: str, deployment: str, dep: dict) -> dict:
     md = dep.get("metadata", {})
     spec = dep.get("spec", {})
     status = dep.get("status", {})
@@ -449,8 +445,8 @@ async def litellm_restart_status(_user=Depends(get_current_user)):
     available = _coerce_int(status.get("availableReplicas")) or 0
 
     return {
-        "deployment": _LITELLM_DEPLOYMENT,
-        "namespace": _SECRET_NAMESPACE,
+        "deployment": deployment,
+        "namespace": namespace,
         "restart_trigger_epoch": restart_epoch,
         "restart_trigger_at": restart_at,
         "generation": generation,
@@ -463,13 +459,22 @@ async def litellm_restart_status(_user=Depends(get_current_user)):
     }
 
 
+@router.get("/consumers/restart-status")
+async def provider_key_consumer_restart_status(_user=Depends(get_current_user)):
+    consumers = []
+    for namespace, deployment in _PROVIDER_KEY_CONSUMERS:
+        dep = await _get_deployment(namespace, deployment)
+        consumers.append(_deployment_rollout_status(namespace, deployment, dep))
+    return {"consumers": consumers}
+
+
 class SetKeyRequest(BaseModel):
     value: str
 
 
 @router.put("/keys/{name}")
 async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(require_admin)):
-    """Set or rotate a provider API key. Triggers LiteLLM restart."""
+    """Set or rotate a provider API key and refresh direct model runtime consumers."""
     name = name.upper()
     if not body.value.strip():
         raise HTTPException(400, "Key value cannot be empty")
@@ -515,7 +520,7 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
 
 @router.delete("/keys/{name}")
 async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
-    """Remove a provider API key. Triggers LiteLLM restart."""
+    """Remove a provider API key and refresh direct model runtime consumers."""
     name = name.upper()
     from ..routers.provider_governance import _get_custom_rows as _custom
 

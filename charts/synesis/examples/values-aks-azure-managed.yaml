@@ -26,10 +26,10 @@ ingress:
     secretName: synesis-tls
   items:
     synesis-api:
-      namespace: gateway
-      service: litellm-proxy
+      namespace: planner
+      service: synesis-planner-ts
       port: http
-      originPort: 4000
+      originPort: 8080
       host: api.synesis.example.com
       path: /
       pathType: Prefix
@@ -90,19 +90,6 @@ cloudflared:
     credentialsSecretName: cloudflared-credentials
     credentialsSecretKey: credentials.json
     tokenSecretKey: token
-
-litellm:
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 65534
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-    runAsUser: 65534
-    seccompProfile:
-      type: RuntimeDefault
 
 postgres:
   mode: azureFlexible

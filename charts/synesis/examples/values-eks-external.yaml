@@ -26,10 +26,10 @@ ingress:
     enabled: true
   items:
     synesis-api:
-      namespace: gateway
-      service: litellm-proxy
+      namespace: planner
+      service: synesis-planner-ts
       port: http
-      originPort: 4000
+      originPort: 8080
       host: api.synesis.example.com
     synesis-admin:
       namespace: admin

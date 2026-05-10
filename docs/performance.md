@@ -1,6 +1,6 @@
 # Synesis Performance Notes
 
-Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD). Model roles are managed in admin Model Registry and reconciled to LiteLLM. **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
+Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD). Model roles are managed in admin Model Registry and resolved directly by runtime consumers. **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
 
 ---
 

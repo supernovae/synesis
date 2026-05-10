@@ -54,13 +54,8 @@ logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
-def _reconcile_audit_status(rec_sum: dict | None, rec_err: str | None) -> tuple[str, str]:
-    if rec_err:
-        return "partial", "failed"
-    failed = int((rec_sum or {}).get("failed") or 0)
-    if failed > 0:
-        return "partial", f"completed_with_{failed}_failures"
-    return "success", "completed"
+def _registry_runtime_summary() -> dict[str, Any]:
+    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "reconcile_required": False}
 
 
 # ---------------------------------------------------------------------------
@@ -428,8 +423,6 @@ async def assign_model_to_role(
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Assign a provider + model to a role.  Deactivates the previous assignment."""
-    from ..services.model_reconciler import reconcile
-
     if role not in KNOWN_ROLES:
         raise HTTPException(400, f"Unknown role: {role}. Valid: {', '.join(KNOWN_ROLES)}")
     if not data.get("provider") or not data.get("model"):
@@ -460,34 +453,17 @@ async def assign_model_to_role(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 
-    rec_err: str | None = None
-    rec_sum: dict | None = None
-    try:
-        rec_sum = await reconcile()
-    except Exception as exc:
-        rec_err = repr(exc)
-        logger.warning("reconcile_after_role_assign_failed role=%s", role, exc_info=True)
-    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
-
     await record_admin_audit(
         user=_user,
         action="models.role_assign",
-        status=audit_status,
-        summary=(
-            f"Assigned {role} → {data['provider']}/{data['model']}"
-            + (
-                "; LiteLLM reconcile failed"
-                if reconcile_state == "failed"
-                else f"; LiteLLM reconcile {reconcile_state}"
-            )
-        ),
+        status="success",
+        summary=f"Assigned {role} → {data['provider']}/{data['model']}; direct routes update from admin registry",
         detail={
             "role": role,
             "provider": data["provider"],
             "model": data["model"],
             "assignment": result,
-            "reconcile": rec_sum,
-            "reconcile_error": rec_err,
+            "runtime": _registry_runtime_summary(),
         },
     )
     return result
@@ -499,34 +475,17 @@ async def remove_role_assignment(
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Deactivate the model assignment for a role."""
-    from ..services.model_reconciler import reconcile
-
     if role not in KNOWN_ROLES:
         raise HTTPException(400, f"Unknown role: {role}")
     result = await deactivate_role(role)
     if result is None:
         raise HTTPException(404, f"No active assignment for role: {role}")
-    rec_err: str | None = None
-    rec_sum: dict | None = None
-    try:
-        rec_sum = await reconcile()
-    except Exception as exc:
-        rec_err = repr(exc)
-        logger.warning("reconcile_after_role_deactivate_failed role=%s", role, exc_info=True)
-    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.role_deactivate",
-        status=audit_status,
-        summary=(
-            f"Deactivated assignment for {role}"
-            + (
-                "; LiteLLM reconcile failed"
-                if reconcile_state == "failed"
-                else f"; LiteLLM reconcile {reconcile_state}"
-            )
-        ),
-        detail={"role": role, "previous": result, "reconcile": rec_sum, "reconcile_error": rec_err},
+        status="success",
+        summary=f"Deactivated assignment for {role}; direct routes update from admin registry",
+        detail={"role": role, "previous": result, "runtime": _registry_runtime_summary()},
     )
     return result
 
@@ -576,41 +535,18 @@ async def update_model_deployment(
     data: dict = Body(...),
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    from ..services.model_reconciler import reconcile
-
     result = await update_deployment(deployment_id, data)
     if result is None:
         raise HTTPException(404, "deployment not found")
-    rec_err: str | None = None
-    rec_sum: dict | None = None
-    if any(k in data for k in ("litellm_params", "is_active", "served_name", "fallbacks")):
-        try:
-            rec_sum = await reconcile()
-        except Exception as exc:
-            rec_err = repr(exc)
-            logger.warning("reconcile_after_deployment_update_failed id=%d", deployment_id, exc_info=True)
-    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.deployment_update",
-        status=audit_status,
-        summary=(
-            f"Updated deployment id={deployment_id}"
-            + (
-                ""
-                if rec_sum is None and rec_err is None
-                else (
-                    "; LiteLLM reconcile failed"
-                    if reconcile_state == "failed"
-                    else f"; LiteLLM reconcile {reconcile_state}"
-                )
-            )
-        ),
+        status="success",
+        summary=f"Updated deployment id={deployment_id}; direct routes update from admin registry",
         detail={
             "deployment_id": deployment_id,
             "patch_keys": list(data.keys()),
-            "reconcile": rec_sum,
-            "reconcile_error": rec_err,
+            "runtime": _registry_runtime_summary(),
         },
     )
     return result
@@ -640,28 +576,15 @@ async def activate_deployment(
     deployment_id: int,
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    from ..services.model_reconciler import reconcile_single
-
     result = await set_deployment_active(deployment_id, True)
     if result is None:
         raise HTTPException(404, "deployment not found")
-    rec_ok = True
-    rec_err: str | None = None
-    try:
-        rec_ok = await reconcile_single(deployment_id)
-    except Exception as exc:
-        rec_err = repr(exc)
-        rec_ok = False
-        logger.warning("reconcile_after_activate_failed id=%d", deployment_id, exc_info=True)
     await record_admin_audit(
         user=_user,
         action="models.deployment_activate",
-        status="success" if rec_ok and not rec_err else "partial",
-        summary=(
-            f"Activated deployment {deployment_id} ({result.get('served_name', '')})"
-            + ("; reconcile_single failed" if rec_err or not rec_ok else "; LiteLLM sync ok")
-        ),
-        detail={"deployment_id": deployment_id, "deployment": result, "reconcile_ok": rec_ok, "error": rec_err},
+        status="success",
+        summary=f"Activated deployment {deployment_id} ({result.get('served_name', '')}); direct routes update from admin registry",
+        detail={"deployment_id": deployment_id, "deployment": result, "runtime": _registry_runtime_summary()},
     )
     return result
 
@@ -671,59 +594,29 @@ async def deactivate_deployment(
     deployment_id: int,
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    from ..services.model_reconciler import reconcile_single
-
     result = await set_deployment_active(deployment_id, False)
     if result is None:
         raise HTTPException(404, "deployment not found")
-    rec_ok = True
-    rec_err: str | None = None
-    try:
-        rec_ok = await reconcile_single(deployment_id)
-    except Exception as exc:
-        rec_err = repr(exc)
-        rec_ok = False
-        logger.warning("reconcile_after_deactivate_failed id=%d", deployment_id, exc_info=True)
     await record_admin_audit(
         user=_user,
         action="models.deployment_deactivate",
-        status="success" if rec_ok and not rec_err else "partial",
-        summary=(
-            f"Deactivated deployment {deployment_id}"
-            + ("; reconcile_single failed" if rec_err or not rec_ok else "; LiteLLM sync ok")
-        ),
-        detail={"deployment_id": deployment_id, "deployment": result, "reconcile_ok": rec_ok, "error": rec_err},
+        status="success",
+        summary=f"Deactivated deployment {deployment_id}; direct routes update from admin registry",
+        detail={"deployment_id": deployment_id, "deployment": result, "runtime": _registry_runtime_summary()},
     )
     return result
 
 
 @router.post("/reconcile")
 async def trigger_reconcile(_user: UserInfo = Depends(require_platform_admin)):
-    from ..services.model_reconciler import reconcile
-
-    err: str | None = None
-    summary: dict | None = None
-    try:
-        summary = await reconcile()
-    except Exception as exc:
-        err = repr(exc)
-        logger.warning("manual_reconcile_failed", exc_info=True)
-    audit_status, reconcile_state = _reconcile_audit_status(summary, err)
+    summary = _registry_runtime_summary()
     await record_admin_audit(
         user=_user,
         action="models.reconcile.manual",
-        status="error" if err is not None else audit_status,
-        summary=(
-            "Manual LiteLLM reconcile"
-            if err is None and reconcile_state == "completed"
-            else (
-                "Manual LiteLLM reconcile failed" if err is not None else f"Manual LiteLLM reconcile {reconcile_state}"
-            )
-        ),
-        detail={"reconcile": summary, "error": err},
+        status="success",
+        summary="Manual model route refresh requested; admin DB is the runtime source of truth",
+        detail={"runtime": summary},
     )
-    if err is not None:
-        raise HTTPException(502, f"Reconcile failed: {err}")
     return summary
 
 
@@ -738,33 +631,15 @@ async def set_fallbacks(
     result = await update_deployment(deployment_id, {"fallbacks": fallbacks if fallbacks else None})
     if result is None:
         raise HTTPException(404, "deployment not found")
-    from ..services.model_reconciler import reconcile
-
-    rec_err: str | None = None
-    rec_sum: dict | None = None
-    try:
-        rec_sum = await reconcile()
-    except Exception as exc:
-        rec_err = repr(exc)
-        logger.warning("reconcile_after_fallback_update_failed id=%d", deployment_id, exc_info=True)
-    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.fallbacks_update",
-        status=audit_status,
-        summary=(
-            f"Updated fallbacks for deployment {deployment_id}"
-            + (
-                "; LiteLLM reconcile failed"
-                if reconcile_state == "failed"
-                else f"; LiteLLM reconcile {reconcile_state}"
-            )
-        ),
+        status="success",
+        summary=f"Updated fallbacks for deployment {deployment_id}; direct routes update from admin registry",
         detail={
             "deployment_id": deployment_id,
             "fallbacks": fallbacks,
-            "reconcile": rec_sum,
-            "reconcile_error": rec_err,
+            "runtime": _registry_runtime_summary(),
         },
     )
     return result

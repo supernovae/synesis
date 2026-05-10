@@ -1,7 +1,7 @@
 {{- if .Values.workloads.admin.enabled }}
 {{- $adminNs := include "synesis.namespace" (dict "root" . "key" .Values.workloads.admin.namespace) -}}
 {{- $targets := list
-  (dict "namespace" .Values.namespaces.gateway "deployment" "litellm-proxy")
+  (dict "namespace" .Values.namespaces.gateway "deployment" "")
   (dict "namespace" .Values.namespaces.planner "deployment" .Values.workloads.plannerTs.name)
   (dict "namespace" .Values.namespaces.yarn "deployment" .Values.workloads.yarn.name)
 -}}
@@ -23,10 +23,12 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
+  {{- if $target.deployment }}
   - apiGroups: ["apps"]
     resources: ["deployments"]
     resourceNames: [{{ $target.deployment | quote }}]
     verbs: ["get", "patch"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

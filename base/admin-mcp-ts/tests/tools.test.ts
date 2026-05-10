@@ -19,8 +19,8 @@ describe("admin MCP tool catalog", () => {
   it("keeps platform-admin tools restricted", () => {
     const orgNames = new Set(visibleToolDescriptorsForRole("org_admin").map((t) => t.name));
     const platformNames = new Set(visibleToolDescriptorsForRole("platform_admin").map((t) => t.name));
-    expect(orgNames.has("reconcile_litellm")).toBe(false);
-    expect(platformNames.has("reconcile_litellm")).toBe(true);
+    expect(orgNames.has("refresh_model_routes")).toBe(false);
+    expect(platformNames.has("refresh_model_routes")).toBe(true);
   });
 
   it("treats admin aliases as admin", () => {
@@ -29,4 +29,3 @@ describe("admin MCP tool catalog", () => {
     expect(isOrgAdminOrHigher("user")).toBe(false);
   });
 });
-

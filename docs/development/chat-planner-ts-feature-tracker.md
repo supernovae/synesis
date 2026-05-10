@@ -31,7 +31,7 @@ Engineering working document for **chat** — the TypeScript planner pipeline in
 
 - Status: `parity` — implemented in TS
 - Implementation:
-  - LLM client extracts real `cached_prompt_tokens` from provider responses (OpenAI `prompt_tokens_details.cached_tokens`, vLLM `cached_tokens`, LiteLLM passthrough).
+  - LLM client extracts real `cached_prompt_tokens` from provider responses (OpenAI `prompt_tokens_details.cached_tokens`, vLLM `cached_tokens`, provider passthrough).
   - Usage telemetry is surfaced in both stream and non-stream responses.
   - Config flag `SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE` controls policy (`auto`/`strict`/`disabled`).
   - Writer and critic accumulate `llm_usage` into `GraphState` across the pipeline.
@@ -183,7 +183,7 @@ Files:
   - runtime telemetry surfaces real `cached_prompt_tokens` per response.
   - config: `SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE` (auto/strict/disabled).
 - Implementation:
-  - `base/planner-ts/src/llm/client.ts`: extracts cached token counts from OpenAI/vLLM/LiteLLM response formats.
+  - `base/planner-ts/src/llm/client.ts`: extracts cached token counts from OpenAI/vLLM/provider response formats.
   - `base/planner-ts/src/pipeline.ts`: accumulates `llm_usage` through writer and critic.
   - `base/planner-ts/src/app.ts`: surfaces accumulated usage in API responses.
 

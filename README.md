@@ -45,7 +45,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 
 ## Architecture
 
-Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through the **planner-ts** pipeline (`base/planner-ts/`, Fastify + TypeScript), while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. Runtime model routing is configured in the admin Model Registry (Postgres) and reconciled to LiteLLM.
+Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through the **planner-ts** pipeline (`base/planner-ts/`, Fastify + TypeScript), while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. Runtime model routing is configured in the admin Model Registry (Postgres), and planner resolves those registry routes directly at request time.
 
 ```mermaid
 flowchart TD
@@ -55,7 +55,7 @@ flowchart TD
     end
 
     subgraph gateway [API layer]
-        LiteLLM[LiteLLM gateway]
+        API[synesis-api\nplanner-compatible API]
         MCP[MCP server]
     end
 
@@ -78,8 +78,8 @@ flowchart TD
     WebUI --> EP
     IDE --> MCP
     IDE -.->|optional: direct coder endpoint| CoderEP[synesis-coder vLLM]
-    MCP --> LiteLLM
-    LiteLLM --> EP
+    API --> EP
+    MCP --> API
     EP --> PL --> PG
     PG -->|validation fail, retries left| PL
     PG -->|clarification or plan approval| RS
@@ -99,7 +99,7 @@ flowchart TD
 
 Canonical order: **entry → planner → plan gate → router → writer → (critic or scrubber) → respond**. Clarification and plan-approval prompts return from **respond**; the user's next message resumes via conversation memory. Code execution / patch workflows are **not** on this graph; IDE coding uses the **coder** front door and optional MCP tools.
 
-**Where LiteLLM sits:** Open WebUI talks **only** to planner-ts (left side of the diagram). **Planner-ts** then reaches upstream models through **LiteLLM** when using hosted API providers, or **directly to vLLM** (InferenceService) for self-hosted models — that hop is not shown inside the LangGraph box. Some clients use **synesis-api** (LiteLLM) as their entry to the same pipeline instead of calling planner directly.
+Open WebUI talks **only** to planner-ts (left side of the diagram). **Planner-ts** then reaches upstream hosted providers or self-hosted vLLM/InferenceService endpoints using the route assigned in the admin Model Registry. External clients can use **synesis-api** as an OpenAI-compatible entry to the same planner pipeline.
 
 ### Key Design Decisions
 
@@ -114,7 +114,7 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 
 ## Model Roles
 
-Model/provider routing is managed through the admin Model Registry and synced to LiteLLM.
+Model/provider routing is managed through the admin Model Registry. Runtime consumers resolve those role assignments directly from the admin database.
 
 | Role | Default Model | Purpose |
 |------|--------------|---------|
@@ -213,14 +213,14 @@ Or use `./scripts/load-bootstrap.sh` with `SYNESIS_ADMIN_TOKEN` set.
 
 | Endpoint | URL Pattern | Use Case |
 |----------|------------|----------|
-| **synesis-api** | `https://synesis-api.<cluster>/v1` | LiteLLM gateway (external API clients and tools that target the gateway) |
+| **synesis-api** | `https://synesis-api.<cluster>/v1` | Planner-compatible OpenAI API for external clients and tools |
 | **synesis-coder** | `https://synesis-coder.<cluster>/v1` | Direct vLLM coder for Cursor / Claude Code |
-| **synesis-planner-ts** | `https://synesis-planner-ts.<cluster>/v1` | Planner pipeline — **Open WebUI** uses this URL directly (not via LiteLLM) |
+| **synesis-planner-ts** | `https://synesis-planner-ts.<cluster>/v1` | Planner pipeline — **Open WebUI** uses this URL directly |
 | **synesis-admin** | `https://synesis-admin.<cluster>/` | Model Registry, Provider Management, traces, RAG review, security console |
 
 The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs`; OpenAPI JSON at `/api/openapi.json`. Key admin surfaces:
 
-- **Model Registry** — assign models to pipeline roles; reconcile to LiteLLM
+- **Model Registry** — assign models to pipeline roles and provider routes
 - **Provider Management** — enable/disable providers, set defaults, governance policies
 - **Security Console** — guardrail event dashboard, severity triage, containment actions
 - **RAG Pipeline** — ingestion queue, corpus review, quality benchmarks, trust attribution, freshness scoring
@@ -261,7 +261,7 @@ synesis/
 │   │   ├── src/security/       # Scanner, normalizer, trust prompts, step sanitizer
 │   │   └── src/tracing/        # SpanCollector — pipeline-level span tracing
 │   ├── model-serving/          # vLLM deployments + InferenceService manifests
-│   ├── gateway/                # LiteLLM proxy (OpenAI-compatible API)
+│   ├── gateway/                # Provider API key namespace and edge gateway resources
 │   ├── mcp/                    # MCP server for IDE tool integration
 │   ├── rag/                    # NornicDB + embedder + content graph + indexers
 │   ├── sandbox/                # Isolated code execution (warm pool + Jobs)
@@ -315,7 +315,7 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 | [docs/chat/OPENWEBUI.md](docs/chat/OPENWEBUI.md) | Open WebUI setup, troubleshooting, available models |
 | [docs/development/README.md](docs/development/README.md) | **Engineering hub:** CI/test inventory (**TESTING**), milestone M1–M11 archive, GitHub validation secrets, parity trackers |
 | [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
-| [docs/chat/PLANNER_PREFIX_KV_CACHE.md](docs/chat/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations, LiteLLM usage |
+| [docs/chat/PLANNER_PREFIX_KV_CACHE.md](docs/chat/PLANNER_PREFIX_KV_CACHE.md) | Prefix / KV cache expectations and provider cache accounting |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
 
 ## Changing Models
@@ -323,7 +323,7 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 **For a running cluster** (typical day-to-day):
 
 1. Open the **admin Model Registry** and update role → model assignments
-2. Run **Reconcile** to sync changes to LiteLLM
+2. Save the assignment so planner/Yarn can resolve the updated route from the registry
 3. Deploy the model through your cluster serving runtime if it is not already running
 
 **To deploy/refresh a local runtime model**:

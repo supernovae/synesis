@@ -1,7 +1,7 @@
 # Provider API keys — all LLM provider credentials in one secret.
 #
 # NOT listed in kustomization.yaml: applying an empty Secret would clear
-# existing keys on every `oc apply`. LiteLLM, Yarn, and Planner consume synced
+# existing keys on every `oc apply`. Yarn and Planner consume synced
 # copies with envFrom optional: true.
 #
 # Create/update via:
@@ -11,7 +11,7 @@
 #     --from-literal=OPENROUTER_API_KEY=sk-or-v1-... \
 #     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
 #
-# Model configs reference keys as "os.environ/OPENROUTER_API_KEY", etc.
+# Model configs reference keys by environment variable name.
 apiVersion: v1
 kind: Secret
 metadata:

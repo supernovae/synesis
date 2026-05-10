@@ -2,7 +2,7 @@
 #
 # Direct vLLM endpoint for IDE clients (Cursor, Claude Code, Windsurf).
 # NOT routed through the Synesis planner pipeline — IDEs connect here
-# directly or via LiteLLM for key management.
+# directly by runtime services for key management and routing.
 #
 # Profile-dependent model:
 #   small:  Qwen3-Coder-30B-A3B-FP8 (~15 GB), single L40S, TP=1, 65K ctx

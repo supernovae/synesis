@@ -50,7 +50,7 @@ Live deployment had **`SYNESIS_YARN_OTEL_ENABLED=false`** (OTLP endpoint not wir
 
 1. **Context:** Reduce **turn size** (compaction, fewer tool outputs in history, session reset) so input tokens stay well **below ~65k** when possible — largest lever on prefill latency.
 2. **Tools:** Prefer **narrow** lint/test commands and **cache** results in the workspace; avoid repeated full `golangci-lint ./...` / `make` when a scoped path suffices.
-3. **Inference:** Validate **GPU sizing, queueing, and `max-model-len`** on the actual **synesis-core** backend; watch vLLM/LiteLLM logs for queue delays.
+3. **Inference:** Validate **GPU sizing, queueing, and `max-model-len`** on the actual **synesis-core** backend; watch vLLM and provider logs for queue delays.
 4. **Parser:** Reconcile **`tool-call-parser`** with the **exact** Qwen3-Coder checkpoint on self-hosted coder to avoid repair loops.
 5. **Tracing:** Enable **OTel** temporarily if you need span-level proof of enrichment vs upstream time.
 

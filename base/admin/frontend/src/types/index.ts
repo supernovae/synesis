@@ -175,7 +175,7 @@ export interface RoleInfo {
   description: string;
 }
 
-export interface LiteLLMRestartStatus {
+export interface ProviderConsumerRestartStatus {
   deployment: string;
   namespace: string;
   restart_trigger_epoch: number | null;
@@ -187,6 +187,10 @@ export interface LiteLLMRestartStatus {
   updated_replicas: number;
   ready_replicas: number;
   available_replicas: number;
+}
+
+export interface ProviderConsumersRestartStatus {
+  consumers: ProviderConsumerRestartStatus[];
 }
 
 export interface ProviderConfig {

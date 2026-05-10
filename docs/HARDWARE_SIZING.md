@@ -47,7 +47,6 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 | Component | CPU Request | Memory | Notes |
 |-----------|------------|--------|-------|
 | Planner (FastAPI + LangGraph) | 2 cores | 6Gi req / 12Gi limit | One worker per pod by default; scale via replicas for multi-user. See Scaling Guidance. |
-| LiteLLM Gateway | 500m | 512Mi | Lightweight proxy |
 | NornicDB | 2 cores | 8Gi | Graph/vector database |
 | Embedder | 1 core | 2Gi | Sentence transformer |
 | SearXNG | 250m | 256Mi | Meta-search engine |

@@ -698,7 +698,7 @@ class PersonalAccessToken(Base):
 
 
 class AdminAuditEvent(Base):
-    """Append-only log of admin UI actions and propagation (e.g. LiteLLM reconcile)."""
+    """Append-only log of admin UI actions and runtime propagation."""
 
     __tablename__ = "admin_audit_events"
 

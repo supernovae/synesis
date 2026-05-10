@@ -345,7 +345,7 @@ function RoleCard({ role }: { role: string }) {
                     type="text"
                     value={rule.model}
                     onChange={(e) => updateRule(rule.key, { model: e.target.value })}
-                    placeholder="LiteLLM model name"
+                    placeholder="Upstream model name"
                     className="text-sm border border-zinc-300 dark:border-zinc-600 rounded px-2 py-1 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200"
                   />
 

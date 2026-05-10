@@ -23,4 +23,3 @@ resources:
   # Coder: Qwen3-Coder — direct IDE endpoint for agentic coding. 1 GPU.
   - deployment-vllm-coder.yaml
   # Route for direct Coder/IDE access
-  - route-coder.yaml

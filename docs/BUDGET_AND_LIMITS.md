@@ -80,7 +80,7 @@ Additionally, `entry_pipeline` records `writer_max_tokens`, `critic_max_tokens`,
 
 Use `budget_utilization` to detect under-use (wasted headroom) or near-saturation (possible truncation). Filter spans with `jq '.metadata.budget_utilization > 0.9'` to find truncation-risk calls.
 
-**LiteLLM:** Each request’s effective generation limit is the minimum of the **LiteLLM route** `max_tokens` (from admin Model Registry / static gateway config) and the **provider** limit. Planner-ts still sends `max_tokens` on each node; the gateway may clamp further.
+**Provider routes:** Each request’s effective generation limit is the minimum of the planner node budget, the role assignment's configured `max_tokens`, and the upstream provider limit.
 
 **`base/planner/`:** YAML ontology and taxonomy assets for **chat** (planner-ts), not a separate Python API runtime. This doc’s *intent* and formulas align with planner-ts behavior; some historical file references below may still cite old filenames — prefer `base/planner-ts/src/` when in doubt.
 
@@ -131,40 +131,24 @@ to prevent evidence from starving the output budget.
 
 ---
 
-## LiteLLM Gateway — max_tokens
+## Role Route Defaults — max_tokens
 
-These cap the output tokens LiteLLM will request from the backend model.
-If the planner requests more, LiteLLM silently clamps.
+Model role assignments in the admin Model Registry can include route-level defaults. These defaults are merged into planner/Yarn requests unless a node supplies a more specific value.
 
-### Base config (`base/gateway/litellm-config.yaml`)
-
-| Model | max_tokens | Role |
-|---|---|---|
-| `synesis-agent` | 32,768 | Pipeline entry (Open WebUI → planner) |
-| `synesis-router` | 4,096 | Classification, planning, advisor |
-| `synesis-critic` | 4,096 | Evaluation, scoring |
-| `synesis-general` | 32,768 | Writer, synthesis |
-| `synesis-coder` | 16,384 | IDE direct (agentic coding) |
-| `synesis-thinking` | 16,384 | R1 thinking model (Open WebUI) |
-
-### OpenRouter overlay (`overlays/openrouter/litellm-config-openrouter.yaml`)
-
-| Model | max_tokens | OpenRouter Model |
-|---|---|---|
-| `synesis-agent` | 32,768 | (planner, not via OpenRouter) |
-| `synesis-router` | 4,096 | `x-ai/grok-4-fast` |
-| `synesis-general` | 32,768 | `deepseek/deepseek-v3.2` |
-| `synesis-critic` | 4,096 | `deepseek/deepseek-r1-distill-qwen-32b` |
-| `synesis-coder` | 16,384 | `qwen/qwen-2.5-coder-32b-instruct` |
-| `synesis-thinking` | 16,384 | `deepseek/deepseek-r1-distill-qwen-32b` |
-| `synesis-summarizer` | 2,048 | `x-ai/grok-4-fast` |
+| Role | Typical max_tokens | Role |
+|---|---:|---|
+| `router` | 4,096 | Classification, planning, advisor |
+| `planner` | 4,096 | Structured planning |
+| `critic` | 4,096 | Evaluation, scoring |
+| `writer` / `general` | 32,768 | Writer, synthesis |
+| `coder` | 16,384 | IDE direct agentic coding |
+| `summarizer` | 2,048 | History compression |
 
 ---
 
 ## Temperature Settings
 
-Temperatures are set at **two levels**: the LiteLLM gateway config (default for
-direct API calls) and the planner code (overrides the gateway for pipeline calls).
+Temperatures are set at **two levels**: role route defaults in the admin Model Registry and planner node overrides for pipeline calls.
 
 ### Planner code — per-node temperatures
 
@@ -187,9 +171,9 @@ direct API calls) and the planner code (overrides the gateway for pipeline calls
 | `final_answer_compiler.py` — compile | General | 0.3 | Section synthesis |
 | `history_summarizer.py` | Summarizer | 0.1 | Faithful compression |
 
-### LiteLLM gateway — default temperatures
+### Role route defaults — temperatures
 
-These apply when clients call models directly (not through the planner pipeline).
+These apply when a role assignment provides a default and the caller does not supply a node-specific override.
 
 | Model | Temperature | Role | Notes |
 |---|---|---|---|
@@ -262,10 +246,9 @@ Quick lookup for where to change each type of limit:
 | Writer/evidence/section budgets | `base/planner/app/config.py` | — |
 | Writer / critic / planner budgets (TS) | `base/planner-ts/src/config.ts` | `base/planner-ts/src/budgets.ts`, `model-tiers.ts` |
 | Executor token budget curve | `base/planner/app/nodes/writer.py` | — |
-| LiteLLM max_tokens (self-hosted) | `base/gateway/litellm-config.yaml` | — |
-| LiteLLM max_tokens (OpenRouter) | `overlays/openrouter/litellm-config-openrouter.yaml` | — |
+| Role route `max_tokens` | Admin Model Registry | — |
 | Temperature (pipeline nodes) | Each node file in `base/planner/app/nodes/` | `base/planner/app/graph.py` |
-| Temperature (gateway default) | `base/gateway/litellm-config.yaml` | `overlays/openrouter/litellm-config-openrouter.yaml` |
+| Temperature (role default) | Admin Model Registry | — |
 | Context window | `base/planner/app/config.py` (`compiler_model_context`) | — |
 | HTTP timeouts | `base/planner/app/config.py` | — |
 

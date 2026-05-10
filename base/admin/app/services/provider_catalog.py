@@ -2,19 +2,19 @@
 
 Canonical routing for a role merges, in order:
 
-1. **This module** — built-in defaults: ``litellm_prefix``, ``api_key_env``,
+1. **This module** — built-in defaults: provider prefix, ``api_key_env``,
    ``needs_endpoint``, default base URLs in ``PROVIDER_DEFAULT_ENDPOINTS``.
 2. **ProviderConfig** (Postgres) — per-provider overrides: ``default_endpoint``,
-   ``api_key_env``, ``litellm_prefix`` (required for custom providers), enablement,
+   ``api_key_env``, provider prefix (required for custom providers), enablement,
    policies. Loaded via ``load_provider_governance_maps()`` in ``model_registry``.
 3. **ModelDeployment** — per-role binding: ``provider``, ``model``, optional
-   ``endpoint`` / ``api_key_env`` overrides, and ``litellm_params`` used for
+   ``endpoint`` / ``api_key_env`` overrides, and route parameters used for
    generation defaults (for example ``max_tokens``, ``temperature``, ``top_p``)
    when not supplied on assign.
 
-LiteLLM reconciliation and JSON APIs both use
-``resolve_deployment_routing_for_deployment()`` so stored ``litellm_params`` cannot
-drift from governance after a provider key or prefix change.
+Runtime routing and JSON APIs both use ``resolve_deployment_routing_for_deployment()``
+so stored route parameters cannot drift from governance after a provider key or
+prefix change.
 
 The admin SPA merges catalog + governance in ``GET /api/v1/provider-governance``.
 """

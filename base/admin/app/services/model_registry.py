@@ -2,9 +2,9 @@
 
 Role assignments (``ModelDeployment``) inherit provider identity from
 ``ProviderConfig`` + static ``provider_catalog`` via
-``resolve_deployment_routing_for_deployment``. API responses and LiteLLM
-reconciliation both use that resolver so ``litellm_params`` in the DB cannot
-silently drift from provider governance (API key env name, prefix, default base).
+``resolve_deployment_routing_for_deployment``. API responses and runtime routing
+both use that resolver so route parameters in the DB cannot silently drift from
+provider governance (API key env name, prefix, default base).
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ class ProviderGovernanceMaps:
 
 
 class ResolvedDeploymentRouting(NamedTuple):
-    """Canonical LiteLLM routing for one deployment row (merged with governance)."""
+    """Canonical runtime routing for one deployment row (merged with governance)."""
 
     litellm_params: dict[str, Any]
     effective_api_key_env: str
@@ -375,7 +375,7 @@ def resolve_deployment_routing_for_parts(
     enable_thinking: bool | None = None,
     reasoning_effort: str | None = None,
 ) -> ResolvedDeploymentRouting:
-    """Merge catalog + governance + assignment fields into LiteLLM params (single reconciliation path)."""
+    """Merge catalog + governance + assignment fields into route params."""
     p = (provider or "").strip()
     prov_info = PROVIDER_CATALOG.get(p, PROVIDER_CATALOG["custom"])
     lp_stored = dict(stored_litellm_params or {})
@@ -462,8 +462,8 @@ async def seed_default_role_assignments() -> int:
     """Create default active role assignments for empty installs.
 
     This is intentionally non-destructive: existing active role assignments are
-    never changed here. After seeding, normal reconciliation pushes these DB rows
-    to LiteLLM, making the Admin registry the source of truth for model routes.
+    never changed here. The Admin registry is the source of truth for direct
+    model runtime routes.
     """
     maps = await load_provider_governance_maps()
     async with async_session() as session:
@@ -496,7 +496,7 @@ async def seed_default_role_assignments() -> int:
                     model=model,
                     endpoint=routing.resolved_endpoint,
                     served_name=served_name,
-                    status="activating",
+                    status="active",
                     source=_source_for_provider(provider),
                     provider=provider,
                     api_key_env=routing.effective_api_key_env,
@@ -592,7 +592,7 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
             return None
         row.is_active = active
         if active:
-            row.status = "activating"
+            row.status = "active"
         else:
             row.status = "configured"
             row.litellm_model_id = None
@@ -704,7 +704,7 @@ async def assign_role(
     Deactivates the previous assignment (writing history), then creates or
     updates the active deployment for this role.  Returns the new assignment dict.
 
-    NOTE: Role defaults are persisted in ``litellm_params`` and can include
+    NOTE: Role defaults are persisted in the deployment route parameters and can include
     provider-specific generation controls (temperature/top_p/top_k/min_p/
     presence_penalty/repetition_penalty/enable_thinking/reasoning_effort). Runtime request
     payloads may override these at call-time.
@@ -766,7 +766,7 @@ async def assign_role(
             model=model,
             endpoint=resolved_endpoint,
             served_name=served_name,
-            status="activating",
+            status="active",
             source=_source_for_provider(provider),
             provider=provider,
             api_key_env=effective_api_key_env,

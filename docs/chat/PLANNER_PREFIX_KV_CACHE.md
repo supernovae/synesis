@@ -40,23 +40,20 @@ Cache behavior is **provider- and deployment-specific** (vLLM, OpenShift AI, Ope
 
 ---
 
-## LiteLLM spend logs vs Synesis traces
+## Provider usage vs Synesis traces
 
-**LiteLLM** (proxy spend tracking / DB logging): When enabled, LiteLLM can persist the
-**full usage payload** returned by the upstream API. Providers that support prompt caching
-often report **`prompt_tokens_details.cached_tokens`** (OpenAI-style) or analogous fields;
-those appear in spend logs **if** LiteLLM forwards them for your provider version. Use
-LiteLLM’s spend UI or SQL against its tables to measure cache hit rates and discounted
-input tokens. **vLLM** behind LiteLLM may not emit the same shape — validate in your stack.
+Providers that support prompt caching often report **`prompt_tokens_details.cached_tokens`**
+(OpenAI-style) or analogous fields. Use the provider dashboard, model-server metrics, or
+raw response usage payloads to measure cache hit rates and discounted input tokens.
 
 **Synesis** does **not** currently copy cached-token breakdowns into Postgres `traces`:
 each `LLMCallRecord` stores aggregate `prompt_tokens` / `completion_tokens` / `total_tokens`
 (see `base/planner/app/synesis_tracer.py`). Extending the tracer to persist
 `usage.prompt_tokens_details` (or provider equivalents) would be the path to **admin-native**
-cache dashboards. Until then, rely on **LiteLLM spend logs** or **model-server metrics**
-for cache verification.
+cache dashboards. Until then, rely on provider dashboards or **model-server metrics** for
+cache verification.
 
-See [WORKFLOW_PLANNER.MD — LiteLLM, spend logs, and prompt-cache tokens](./WORKFLOW_PLANNER.MD#litellm-spend-logs-and-prompt-cache-tokens).
+See [WORKFLOW_PLANNER.MD](./WORKFLOW_PLANNER.MD) for planner graph flow and routing details.
 
 ## References
 

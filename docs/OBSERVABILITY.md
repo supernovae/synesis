@@ -64,7 +64,7 @@ Admin API note:
 
 - `/api/v1/observability/circuit-breakers` combines:
   - health-monitor infrastructure/web breaker metrics (`synesis_circuit_breaker_*`)
-  - LiteLLM model endpoint health (`/health`) + `litellm_deployment_failure_total` for the LLM category
+  - direct model route availability for the LLM category
 
 ### Sandbox
 
@@ -99,7 +99,7 @@ across planner, yarn, and MCP request paths.
   - always attach/propagate `x-request-id`,
   - preserve `x-synesis-authz-trace-id` for policy lineage.
 - Egress propagation:
-  - planner -> LiteLLM / downstream HTTP calls include W3C trace headers,
+  - planner -> downstream model/provider HTTP calls include W3C trace headers,
   - yarn -> model provider and MCP proxy calls include W3C trace headers,
   - yarn MCP routes include request correlation fields in logs/events.
 - Service identity:
@@ -169,7 +169,6 @@ This triggers a rolling restart. To revert, redeploy the overlay.
 | synesis-planner-ts | synesis-planner | Planner-ts API `/metrics` | 15s |
 | synesis-yarn | synesis-yarn | Yarn-ts API `/metrics` | 15s |
 | synesis-health-monitor | synesis-planner | Health monitor `/metrics` | 15s |
-| synesis-gateway | synesis-gateway | LiteLLM proxy `/metrics` | 15s |
 | synesis-models | synesis-models | All vLLM model pods `/metrics` | 30s |
 
 ## Capacity Behavior

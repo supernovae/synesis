@@ -37,14 +37,6 @@ spec:
           protocol: TCP
         - port: 8080
           protocol: TCP
-    # LiteLLM gateway — assistant chat, model reconciliation
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-gateway
-      ports:
-        - port: 4000
-          protocol: TCP
     # NornicDB (synesis-rag namespace) — content graph stats, knowledge gap validation
     - to:
         - namespaceSelector:

@@ -1,18 +1,3 @@
-{{- if .Values.litellm.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: litellm-config
-  namespace: {{ .Values.namespaces.gateway }}
-  labels:
-    {{- include "synesis.labels" . | nindent 4 }}
-    app.kubernetes.io/component: gateway
-data:
-  config.yaml: |
-    {{- toYaml .Values.litellm.config | nindent 4 }}
-{{- end }}
----
 {{- if .Values.workloads.admin.enabled }}
 apiVersion: v1
 kind: ConfigMap

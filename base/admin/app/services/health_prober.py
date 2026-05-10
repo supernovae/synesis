@@ -8,8 +8,6 @@ import time
 
 import httpx
 
-from ..deps import LITELLM_URL
-
 logger = logging.getLogger("synesis.admin.health_prober")
 
 CORE_SERVICES = [
@@ -17,7 +15,6 @@ CORE_SERVICES = [
     {"name": "nornicdb", "url": "http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474"},
     {"name": "embedder", "url": "http://embedder.synesis-rag.svc.cluster.local:8080/health"},
     {"name": "keyword-service", "url": "http://keyword-service.synesis-rag.svc.cluster.local:8080/health"},
-    {"name": "litellm-proxy", "url": "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/health"},
     {"name": "synesis-mcp-ts", "url": "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100/health"},
     {"name": "synesis-yarn", "url": "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/health"},
 ]
@@ -59,53 +56,9 @@ async def probe_service(
         }
 
 
-async def probe_litellm_models(client: httpx.AsyncClient) -> list[dict] | None:
-    """Probe LiteLLM /health for model endpoint status. Returns None on error or empty."""
-    url = f"{LITELLM_URL.rstrip('/')}/health"
-    try:
-        resp = await client.get(url, timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        return None
-
-    healthy = data.get("healthy_endpoints") or []
-    unhealthy = data.get("unhealthy_endpoints") or []
-    if not healthy and not unhealthy:
-        return None
-
-    results: list[dict] = []
-    for ep in healthy:
-        model = ep.get("model", "unknown")
-        results.append(
-            {
-                "name": model,
-                "status": "ok",
-                "status_code": 200,
-                "latency_ms": None,
-                "error": None,
-                "category": "model-gateway",
-            }
-        )
-    for ep in unhealthy:
-        model = ep.get("model", "unknown")
-        error_msg = ep.get("error", "unhealthy")
-        results.append(
-            {
-                "name": model,
-                "status": "error",
-                "status_code": None,
-                "latency_ms": None,
-                "error": str(error_msg)[:80],
-                "category": "model-gateway",
-            }
-        )
-    return results
-
-
 async def _get_active_vllm_probes() -> list[dict]:
     """Build model probe list from DB active deployments. Only vLLM-sourced models
-    get direct health probes; OpenRouter/external models are covered by LiteLLM /health."""
+    get direct health probes; remote API providers do not expose a shared local health endpoint."""
     try:
         from .model_registry import get_active_deployments
 
@@ -175,12 +128,9 @@ async def probe_all() -> list[dict]:
         core_results = await asyncio.gather(*core_tasks)
 
         model_results: list[dict] = []
-        litellm_models = await probe_litellm_models(client)
         vllm_probes = await _get_active_vllm_probes()
 
-        if litellm_models:
-            model_results = litellm_models
-        elif vllm_probes:
+        if vllm_probes:
             model_tasks = [probe_service(client, svc, category="model") for svc in vllm_probes]
             model_results = list(await asyncio.gather(*model_tasks))
 

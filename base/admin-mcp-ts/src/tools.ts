@@ -819,8 +819,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/observability/knowledge-gaps/stats"),
   },
   {
-    name: "reconcile_litellm",
-    description: "Trigger LiteLLM model reconciliation. Platform admin only.",
+    name: "refresh_model_routes",
+    description: "Report the direct model route source of truth. Platform admin only.",
     min_role: "platform_admin",
     inputSchema: { type: "object", properties: {} },
     invoke: async (ctx) => apiRequest(ctx, "POST", "/api/v1/models/reconcile"),
@@ -1006,4 +1006,3 @@ export async function invokeTool(
   }
   return tool.invoke(ctx, args);
 }
-

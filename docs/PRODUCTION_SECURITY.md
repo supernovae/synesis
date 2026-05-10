@@ -31,12 +31,12 @@ Synesis uses a layered trust model for identifying callers on the planner's `/v1
 | Token Type | Environment Variable | Purpose | Grants Identity Trust |
 |---|---|---|---|
 | **Internal service token** | `SYNESIS_INTERNAL_SERVICE_TOKEN` | Service-to-service auth (Open WebUI, Yarn, admin workers) | Yes |
-| **Model API key** | `SYNESIS_MODEL_API_KEY` | Outbound auth to LiteLLM gateway / model endpoints | **No** (production default) |
+| **Model API key** | `SYNESIS_MODEL_API_KEY` | Outbound auth to upstream model endpoints | **No** (production default) |
 | **PAT** (`syn-…`) | N/A (per-user, stored in admin DB) | End-user personal access token | No — identity from DB row |
 
 ### Critical Principle
 
-**Never use the model API key for identity trust.** The model API key is the LiteLLM master key — it is shared across services and known to any consumer of the gateway. Using it for identity trust means any client with the gateway key can spoof user/org identity, leading to:
+**Never use the model API key for identity trust.** Model API keys are shared service credentials for upstream model calls. Using them for identity trust means any client with a model key can spoof user/org identity, leading to:
 
 - Wrong user/org on traces and billing
 - Memory cross-contamination between users
@@ -110,12 +110,6 @@ env:
 ```
 
 This ensures the planner trusts the `x-openwebui-user-id` and `x-openwebui-user-email` headers from Open WebUI.
-
-### LiteLLM Gateway
-
-The gateway's `forward_client_headers_to_llm_api: false` setting is already correct and must remain so. This prevents client Authorization headers from being forwarded to upstream model APIs.
-
----
 
 ## 3. Internal Service Token Management
 
@@ -235,7 +229,7 @@ Before deploying to production, verify:
 - [ ] `SYNESIS_INTERNAL_SERVICE_TOKEN` set from `synesis-internal-service-auth` secret on planner, yarn, and admin
 - [ ] `SYNESIS_PAT_PEPPER` set on planner, yarn, and admin
 - [ ] Open WebUI uses internal service token (not model API key) as `OPENAI_API_KEY`
-- [ ] LiteLLM `forward_client_headers_to_llm_api: false` in gateway config
+- [ ] Upstream model calls do not forward end-user Authorization headers
 - [ ] Network policies applied for planner, warm pool, sandbox, and NornicDB
 - [ ] Planner startup logs show `identity_trust_config_ok` (no security WARNINGs)
 - [ ] `synesis-internal-service-auth` secret synced to all namespaces

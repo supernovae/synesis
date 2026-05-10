@@ -13,7 +13,7 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 | **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (dedicated) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
 | **Qwen2.5-0.5B-Instruct** | Summarizer | none (CPU) | 0 | KServe InferenceService |
 
-Runtime model routing is managed through the admin Model Registry and synced to LiteLLM.
+Runtime model routing is managed through the admin Model Registry and resolved directly by model runtime consumers.
 
 ## General: Qwen3-32B FP8-dynamic
 

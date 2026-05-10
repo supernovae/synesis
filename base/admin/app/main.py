@@ -26,14 +26,13 @@ configure_logging(service="synesis-admin")
 logger = logging.getLogger("synesis.admin")
 
 
-_reconciler_task: asyncio.Task | None = None
+_background_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
-    from app.services.model_reconciler import reconcile
     from app.services.model_registry import seed_default_role_assignments
     from app.services.prompt_library import seed_default_prompt_profiles
 
@@ -66,48 +65,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("model_role_seed_failed", exc_info=True)
 
-    try:
-        boot = await reconcile()
-        logger.info("model_reconcile_bootstrap %s", boot)
-    except Exception:
-        logger.warning("model_reconcile_bootstrap_failed", exc_info=True)
-
     _snapshot_counter = 0
 
-    async def _background_reconciler():
+    async def _background_maintenance():
         nonlocal _snapshot_counter
-        from app.services.admin_audit import record_admin_audit
 
         await asyncio.sleep(15)
         while True:
-            try:
-                summary = await reconcile()
-                if summary and (
-                    summary.get("added") or summary.get("removed") or summary.get("updated") or summary.get("failed")
-                ):
-                    failed = int(summary.get("failed", 0) or 0)
-                    await record_admin_audit(
-                        user=None,
-                        source="system",
-                        action="models.reconcile.scheduled",
-                        status="partial" if failed > 0 else "success",
-                        summary=(
-                            f"Scheduled LiteLLM reconcile: +{summary.get('added', 0)} added, "
-                            f"~{summary.get('updated', 0)} updated, "
-                            f"-{summary.get('removed', 0)} removed" + (f", !{failed} failed" if failed > 0 else "")
-                        ),
-                        detail=summary,
-                    )
-            except Exception as exc:
-                logger.debug("background_reconcile_error", exc_info=True)
-                await record_admin_audit(
-                    user=None,
-                    source="system",
-                    action="models.reconcile.scheduled",
-                    status="error",
-                    summary="Scheduled LiteLLM reconcile raised an exception",
-                    detail={"error": repr(exc)},
-                )
             _snapshot_counter += 1
             if _snapshot_counter % 5 == 0:  # every ~5 min
                 try:
@@ -118,13 +82,13 @@ async def lifespan(app: FastAPI):
                     logger.debug("telemetry_scrape_error", exc_info=True)
             await asyncio.sleep(60)
 
-    global _reconciler_task
-    _reconciler_task = asyncio.create_task(_background_reconciler())
+    global _background_task
+    _background_task = asyncio.create_task(_background_maintenance())
 
     yield
 
-    if _reconciler_task and not _reconciler_task.done():
-        _reconciler_task.cancel()
+    if _background_task and not _background_task.done():
+        _background_task.cancel()
     await engine.dispose()
 
 

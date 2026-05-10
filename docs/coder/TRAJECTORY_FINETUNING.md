@@ -322,8 +322,8 @@ python -m trl dpo \
 
 1. Deploy the LoRA adapter alongside the base model using
    `--lora-modules` in vLLM (see `docs/LORA_TRAINING_GUIDE.md`)
-2. Route a percentage of traffic to the adapted model via LiteLLM
-   model aliasing
+2. Route a percentage of traffic to the adapted model via admin registry
+   model assignment
 3. Run the eval gym stability suites against both base and adapted
 4. Compare governor intervention rates, completion rates, and
    tokens-per-success

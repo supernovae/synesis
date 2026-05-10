@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..auth import UserInfo, get_current_user
-from ..deps import ASSISTANT_MODEL, LITELLM_MASTER_KEY, LITELLM_URL
+from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
 from ..rbac import Role, can_access_trace, resolve_role
 from ..services import trace_store
 from ..services.admin_mcp_ts_client import (
@@ -102,10 +102,16 @@ def _trace_context_text(trace: dict, span_index: int | None = None) -> str:
     return "\n".join(parts)
 
 
-def _litellm_headers() -> dict[str, str]:
+def _planner_headers(auth_header: str = "", org_headers: dict[str, str] | None = None) -> dict[str, str]:
     h: dict[str, str] = {"Content-Type": "application/json"}
-    if LITELLM_MASTER_KEY:
-        h["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
+    if auth_header:
+        h["Authorization"] = auth_header
+    elif INTERNAL_SERVICE_TOKEN:
+        h["Authorization"] = f"Bearer {INTERNAL_SERVICE_TOKEN}"
+        h["x-synesis-service-token"] = INTERNAL_SERVICE_TOKEN
+        h["x-synesis-service-name"] = "synesis-admin"
+    if org_headers:
+        h.update(org_headers)
     return h
 
 
@@ -207,9 +213,9 @@ async def _assistant_chat_impl(
                     payload["tool_choice"] = "auto"
 
                 resp = await client.post(
-                    f"{LITELLM_URL.rstrip('/')}/chat/completions",
+                    f"{PLANNER_URL.rstrip('/')}/v1/chat/completions",
                     json=payload,
-                    headers=_litellm_headers(),
+                    headers=_planner_headers(auth_header, org_headers),
                 )
                 resp.raise_for_status()
                 result = resp.json()

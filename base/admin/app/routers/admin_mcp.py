@@ -265,8 +265,8 @@ _TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "reconcile_litellm",
-        "description": "Trigger LiteLLM model reconciliation. Admin only.",
+        "name": "refresh_model_routes",
+        "description": "Report the direct model route source of truth. Admin only.",
         "min_role": Role.platform_admin,
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -436,7 +436,7 @@ def openai_function_tools_for_role(
     *,
     allowed_tool_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """OpenAI/LiteLLM ``tools`` entries (function calling) for the given role.
+    """OpenAI-compatible ``tools`` entries (function calling) for the given role.
 
     ``allowed_tool_names`` can be used to enforce a stricter profile (e.g. support
     assistant) while still honoring role-based minimums.
@@ -1169,10 +1169,8 @@ async def _knowledge_gap_stats(user: UserInfo, args: dict) -> Any:
     return {"total_gaps": total, "open": open_count, "resolved": total - open_count}
 
 
-async def _reconcile_litellm(user: UserInfo, args: dict) -> Any:
-    from ..services.model_reconciler import reconcile
-
-    return await reconcile()
+async def _refresh_model_routes(user: UserInfo, args: dict) -> Any:
+    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "reconcile_required": False}
 
 
 async def _purge_trivial_traces(user: UserInfo, args: dict) -> Any:
@@ -1368,7 +1366,7 @@ _HANDLERS: dict[str, Any] = {
     "cache_metrics": _cache_metrics,
     "circuit_breakers": _circuit_breakers,
     "knowledge_gap_stats": _knowledge_gap_stats,
-    "reconcile_litellm": _reconcile_litellm,
+    "refresh_model_routes": _refresh_model_routes,
     "purge_trivial_traces": _purge_trivial_traces,
     "ingestion_list_items": _ingestion_list_items,
     "ingestion_patch_item": _ingestion_patch_item,

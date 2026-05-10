@@ -82,7 +82,7 @@ export default function AuditLog() {
             Admin audit
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-            Rolling history of model registry changes, LiteLLM reconcile runs, provider key updates, and
+            Rolling history of model registry changes, direct route updates, provider key updates, and
             cost settings. Expand a row for JSON detail (reconcile counts, assignment payloads). Secrets are
             never stored here.
           </p>

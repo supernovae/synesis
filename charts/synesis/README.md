@@ -3,7 +3,8 @@
 This chart bootstraps the Synesis API-mode control plane, identity provider,
 RAG data plane, coder services, and Redis-compatible KV dependency with
 values-driven backend choices across OpenShift, AKS, EKS, GKE, and generic
-Kubernetes. API mode means hosted/external model providers through LiteLLM; the
+Kubernetes. API mode means hosted/external model providers are called directly
+from Planner using Admin registry routes; the
 chart does not render RHOAI, KServe, vLLM, GPU, or model PVC resources.
 
 ## Platform Model
@@ -205,13 +206,11 @@ maps. Use a values file, or escape the value carefully.
 Replace every placeholder in `secrets.*` and `postgres.*.password` before
 production use.
 
-LiteLLM's static config only includes service entrypoints such as `Synesis`
-and `Synesis Coder`. Provider-backed role mappings (`synesis-router`,
-`synesis-planner`, `synesis-writer`, `synesis-ambiguity-scorer`,
-`synesis-critic`, coder tiers, summarizer, and enrichment roles) are seeded
-into the Admin database on first startup and reconciled from the Admin Model
-Registry. Change role providers/models in Admin rather than editing
-`litellm.config.model_list`.
+Provider-backed role mappings (`synesis-router`, `synesis-planner`,
+`synesis-writer`, `synesis-ambiguity-scorer`, `synesis-critic`, coder tiers,
+summarizer, and enrichment roles) are seeded into the Admin database on first
+startup. Planner and Yarn read those Admin registry routes directly. Change role
+providers/models in Admin rather than editing Helm model lists.
 
 To enable optional background jobs:
 

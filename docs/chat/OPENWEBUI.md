@@ -1,8 +1,8 @@
 # Open WebUI
 
-Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Manifests set** Open WebUI’s `OPENAI_API_BASE_URL` to **planner-ts** (`synesis-planner-ts:8080/v1`) — the browser talks **only** to the planner on that hop; LiteLLM is **not** between Open WebUI and planner.
+Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. **Manifests set** Open WebUI’s `OPENAI_API_BASE_URL` to **planner-ts** (`synesis-planner-ts:8080/v1`) — the browser talks **only** to the planner on that hop.
 
-**Upstream from planner-ts** (separate concern): the pipeline calls **LiteLLM** when using hosted OpenAI-compatible API providers (for example OpenRouter via the gateway), and **vLLM** (or other InferenceService endpoints) when using self-hosted models. So the full path is **Open WebUI → planner → LiteLLM** for those API routes, or **Open WebUI → planner → vLLM** when models are served in-cluster. External clients that target **`synesis-api`** hit LiteLLM **before** planner; that is a different entry path than the browser → planner hop above.
+**Upstream from planner-ts** (separate concern): the pipeline calls hosted OpenAI-compatible API providers or self-hosted vLLM/InferenceService endpoints according to the active admin Model Registry role assignment.
 
 Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.9.4`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
@@ -10,7 +10,7 @@ Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on u
 
 The deploy script automatically:
 
-1. Generates the LiteLLM API key (or reuses an existing one)
+1. Generates the planner client API key (or reuses an existing one)
 2. Copies the key into the `synesis-webui` namespace as a Secret
 3. Deploys Open WebUI with the API URL and key pre-injected as environment variables
 4. Exposes Open WebUI through your cluster edge (Ingress/Route/Gateway) with your configured hostname
@@ -79,7 +79,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `ENABLE_PERSISTENT_CONFIG` | `false` | Use Deployment env for defaults; otherwise Open WebUI stores first-boot config in SQLite and ignores later env changes (same class of issue as OAuth) |
 | `ENABLE_FOLLOW_UP_GENERATION` | `false` | Disables task-model follow-up “chips” after each assistant message (avoids extra LLM calls and trace noise); default upstream is on |
 | `ENABLE_TITLE_GENERATION` | `false` | Disables task-model chat title generation (avoids an extra LLM call); Open WebUI falls back to its default heading from the first message text |
-| `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per its own config (often LiteLLM or direct vLLM) |
+| `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per admin registry routes |
 
 ### Keycloak realm roles (SSO)
 
@@ -100,7 +100,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). The WebUI pod does not call LiteLLM — **planner-ts** calls LiteLLM (or vLLM) for upstream model traffic. WebUI has no access to NornicDB, sandbox, or the rest of the data plane unless you add routes.
+Open WebUI egress is open by policy; it only needs the **planner-ts** API (`synesis-planner-ts:8080`). Planner-ts handles upstream model traffic. WebUI has no access to NornicDB, sandbox, or the rest of the data plane unless you add routes.
 
 ## Theme
 
@@ -166,7 +166,7 @@ oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=100
      curl -s http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1/models
    ```
 
-3. **Switch to LiteLLM** — if planner path is broken, remove the direct-planner patch and set `OPENAI_API_BASE_URL` to `http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1`.
+3. **Check model routes** — if the planner path is reachable but generation fails, confirm the relevant role assignment and provider key in the admin Model Registry.
 
 ### "Connection error" / "OpenAIException" for synesis-agent
 

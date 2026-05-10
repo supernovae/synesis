@@ -535,7 +535,7 @@ async def discover_url(
     if body.use_llm:
         import httpx
 
-        from ..deps import LITELLM_URL
+        from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_URL
 
         llm_model = body.model_id or os.getenv("SYNESIS_DISCOVER_MODEL", "synesis-general")
         llm_prompt = (
@@ -562,13 +562,22 @@ async def discover_url(
         try:
             async with httpx.AsyncClient(timeout=30.0) as llm_client:
                 llm_resp = await llm_client.post(
-                    f"{LITELLM_URL.rstrip('/')}/chat/completions",
+                    f"{PLANNER_URL.rstrip('/')}/v1/chat/completions",
                     json={
                         "model": llm_model,
                         "messages": [{"role": "user", "content": llm_prompt}],
                         "max_tokens": 512,
                         "temperature": 0.2,
                     },
+                    headers=(
+                        {
+                            "Authorization": f"Bearer {INTERNAL_SERVICE_TOKEN}",
+                            "x-synesis-service-token": INTERNAL_SERVICE_TOKEN,
+                            "x-synesis-service-name": "synesis-admin",
+                        }
+                        if INTERNAL_SERVICE_TOKEN
+                        else None
+                    ),
                 )
                 llm_resp.raise_for_status()
                 llm_text = llm_resp.json()["choices"][0]["message"]["content"]

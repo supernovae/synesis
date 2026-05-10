@@ -27,11 +27,6 @@ INTERNAL_SERVICE_TOKEN = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "")
 # Optional: sync evaluation feedback from Open WebUI (admin export API).
 OPENWEBUI_URL = os.getenv("SYNESIS_OPENWEBUI_URL", "").strip()
 OPENWEBUI_ADMIN_TOKEN = os.getenv("SYNESIS_OPENWEBUI_ADMIN_TOKEN", "").strip()
-LITELLM_URL = os.getenv(
-    "SYNESIS_LITELLM_URL",
-    "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000",
-)
-LITELLM_MASTER_KEY = os.getenv("SYNESIS_LITELLM_MASTER_KEY", "")
 ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-writer")
 MCP_URL = os.getenv(
     "SYNESIS_MCP_URL",

@@ -47,7 +47,7 @@ Use port-forwarding when running tools outside the cluster:
 ```bash
 oc port-forward svc/synesis-nornicdb 7687:7687 -n synesis-rag
 oc port-forward svc/embedder 8082:8080 -n synesis-rag
-oc port-forward svc/litellm-proxy 4000:4000 -n synesis-gateway
+oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
 oc port-forward svc/searxng 8888:8080 -n synesis-search
 ```
 

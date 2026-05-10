@@ -17,7 +17,7 @@ Each offering has one of two routing modes:
      - `standalone_endpoint`
      - `standalone_api_key_env`
    - Still carries an `effort_tier` profile (`pulse` / `core` / `horizon`) for behavior mapping.
-   - Planner still uses its global LiteLLM gateway; planner model id resolves from `backend_model_override` or `client_model_id`.
+   - Planner resolves the offering route directly from the admin registry; planner model id resolves from `backend_model_override` or `client_model_id`.
 
 ## Surfaces
 

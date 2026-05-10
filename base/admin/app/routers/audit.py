@@ -1,4 +1,4 @@
-"""Admin audit log — rolling history of operator actions and LiteLLM propagation."""
+"""Admin audit log — rolling history of operator actions and runtime propagation."""
 
 from __future__ import annotations
 

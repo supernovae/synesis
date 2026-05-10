@@ -114,7 +114,7 @@ function PrefixCacheCard({
       </div>
       {metrics.hit_rate === 0 && metrics.total_prompt_tokens > 0 && (
         <p className="mt-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-          Hit rate is 0% — most OpenAI-compatible providers (LiteLLM, Alibaba, DeepInfra, Groq, xAI,
+          Hit rate is 0% — most OpenAI-compatible providers (Alibaba, DeepInfra, Groq, xAI,
           OpenRouter) do not report <code>prompt_tokens_details.cached_tokens</code> in their API responses
           even when server-side prefix caching is active. vLLM requires <code>--enable-prompt-tokens-details</code>.
           Stable prefix and transcript pruning still reduce actual compute cost upstream.

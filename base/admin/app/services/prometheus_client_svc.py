@@ -1,4 +1,4 @@
-"""Parse Prometheus metrics from planner and LiteLLM endpoints."""
+"""Parse Prometheus metrics from planner and runtime service endpoints."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from ..deps import INTERNAL_SERVICE_TOKEN, LITELLM_URL, PLANNER_TS_URL, PLANNER_URL, YARN_TS_URL
+from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_TS_URL, PLANNER_URL, YARN_TS_URL
 
 logger = logging.getLogger("synesis.admin.prometheus")
 
@@ -23,32 +23,6 @@ async def fetch_planner_metrics() -> dict[str, Any]:
             return parse_prometheus_text(resp.text)
     except Exception as exc:
         logger.warning("planner_metrics_error error=%s", str(exc)[:80])
-        return {}
-
-
-async def fetch_litellm_metrics() -> dict[str, Any]:
-    url = f"{LITELLM_URL.rstrip('/')}/metrics"
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=5.0)
-            resp.raise_for_status()
-            return parse_prometheus_text(resp.text)
-    except Exception as exc:
-        logger.warning("litellm_metrics_error error=%s", str(exc)[:80])
-        return {}
-
-
-async def fetch_litellm_health() -> dict[str, Any]:
-    """Fetch LiteLLM /health payload for per-model endpoint status."""
-    url = f"{LITELLM_URL.rstrip('/')}/health"
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=5.0)
-            resp.raise_for_status()
-            data = resp.json()
-            return data if isinstance(data, dict) else {}
-    except Exception as exc:
-        logger.warning("litellm_health_error error=%s", str(exc)[:80])
         return {}
 
 
@@ -324,7 +298,7 @@ def _get_unlabeled_metric(raw: dict, name: str) -> float:
 
 _REMEDIATION_HINTS: dict[str, dict[str, str]] = {
     "llm": {
-        "open": "Model is unreachable or timing out. Check model deployment health in OpenShift AI, verify vLLM pod status, and consider adding a fallback model in LiteLLM config.",
+        "open": "Model is unreachable or timing out. Check the configured provider route, provider key, model availability, and vLLM pod status for local models.",
         "half_open": "Model recovering — probe requests being sent. If this persists, check model resource limits (GPU memory, max-model-len) in vLLM deployment.",
     },
     "web_search": {
@@ -343,8 +317,6 @@ def _remediation(category: str, state: str) -> str | None:
 
 async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
     raw = await fetch_planner_metrics()
-    litellm_raw = await fetch_litellm_metrics()
-    litellm_health = await fetch_litellm_health()
     breakers: list[dict[str, Any]] = []
 
     # 1. Infrastructure (health-monitor sidecar): synesis_circuit_breaker_state{service="..."}
@@ -369,44 +341,7 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
                 }
             )
 
-    # 2. LLM (gateway-owned): LiteLLM /health endpoint status + failure counters.
-    # State mapping:
-    # - unhealthy endpoint -> open
-    # - no health signal + failures observed -> half_open (degraded/unknown)
-    # - healthy endpoint (or no failures) -> closed
-    failures_by_model = _collect_litellm_failures_by_model(litellm_raw)
-    healthy_models = {
-        str(ep.get("model", "unknown"))
-        for ep in (litellm_health.get("healthy_endpoints") or [])
-        if isinstance(ep, dict)
-    }
-    unhealthy_models = {
-        str(ep.get("model", "unknown"))
-        for ep in (litellm_health.get("unhealthy_endpoints") or [])
-        if isinstance(ep, dict)
-    }
-    llm_models = sorted((healthy_models | unhealthy_models | set(failures_by_model.keys())) - {"unknown"})
-
-    for name in llm_models:
-        trips = int(failures_by_model.get(name, 0))
-        if name in unhealthy_models:
-            state = "open"
-        elif name not in healthy_models and trips > 0:
-            state = "half_open"
-        else:
-            state = "closed"
-        breakers.append(
-            {
-                "name": name,
-                "state": state,
-                "trips": trips,
-                "last_trip": None,
-                "category": "llm",
-                "remediation": _remediation("llm", state),
-            }
-        )
-
-    # 3. Web search: synesis_web_search_breaker_state (unlabeled)
+    # 2. Web search: synesis_web_search_breaker_state (unlabeled)
     # State: 0=closed, 1=open
     state_val = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_state"))
     trips = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_trips_total"))
@@ -502,24 +437,6 @@ def _sum_labeled_metric(
             if label_filter is None or all(labels.get(k) == v for k, v in label_filter.items()):
                 total += float(entry.get("value", 0))
     return total
-
-
-def _collect_litellm_failures_by_model(raw: dict[str, Any]) -> dict[str, float]:
-    """Aggregate litellm_deployment_failure_total by model-ish label."""
-    failures: dict[str, float] = {}
-    for key, entry in raw.items():
-        if "litellm_deployment_failure_total" not in key or not isinstance(entry, dict):
-            continue
-        labels = entry.get("labels", {})
-        model = (
-            labels.get("model")
-            or labels.get("model_group")
-            or labels.get("deployment")
-            or labels.get("litellm_model_name")
-            or "unknown"
-        )
-        failures[model] = failures.get(model, 0.0) + float(entry.get("value", 0.0))
-    return failures
 
 
 _YARN_URL = os.getenv(

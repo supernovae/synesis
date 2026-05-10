@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
 # Planner graph definition (unified knowledge pipeline).
 # model_role: which KNOWN_ROLE (provider_catalog.py) this node uses.
-# model_served_name: the LiteLLM alias the node passes as `model=`.
+# model_served_name: the runtime alias the node passes as `model=`.
 GRAPH_DEFINITION = {
     "nodes": [
         {

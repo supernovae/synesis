@@ -7,6 +7,7 @@ import {
   computeCost,
 } from "@synesis/telemetry";
 import { CircuitBreakerRegistry } from "./circuit-breaker.js";
+import { getLlmRoute, hasLlmRoutes, type LlmRoute } from "../public-model-catalog.js";
 
 export type { LlmUsage };
 export { ZERO_USAGE, mergeUsage };
@@ -15,6 +16,7 @@ export type ChatMessage = { role: "system" | "user" | "assistant"; content: stri
 
 export interface ChatRequest {
   model: string;
+  route?: LlmRoute;
   messages: ChatMessage[];
   temperature?: number;
   top_p?: number;
@@ -105,6 +107,14 @@ interface LlmConfig {
   circuitBreakerHalfOpenMax: number;
 }
 
+interface ResolvedLlmTarget {
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+  provider: string;
+  route?: LlmRoute;
+}
+
 let _breakerConfigKey = "";
 let _breakerRegistry = new CircuitBreakerRegistry();
 
@@ -140,6 +150,85 @@ function getBreakerRegistry(config: LlmConfig): CircuitBreakerRegistry {
     });
   }
   return _breakerRegistry;
+}
+
+function readRouteApiKey(route: LlmRoute | undefined, fallbackApiKey: string): string {
+  const apiKeyEnv = (route?.apiKeyEnv ?? "").trim();
+  if (!apiKeyEnv) return fallbackApiKey;
+  return (process.env[apiKeyEnv] ?? "").trim();
+}
+
+function validateBaseUrl(raw: string, provider: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new Error("LLM route has no base URL");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("LLM route has an invalid base URL");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("LLM route base URL must not contain credentials");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("LLM route base URL must use http or https");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const blockedHosts = new Set(["169.254.169.254", "metadata.google.internal"]);
+  if (blockedHosts.has(host)) {
+    throw new Error(`LLM route for provider ${provider || "unknown"} targets a blocked metadata host`);
+  }
+  return trimmed.replace(/\/$/, "");
+}
+
+function resolvedGenerationParams(route: LlmRoute | undefined): Partial<ChatRequest> {
+  const raw = route?.generationParams;
+  if (!raw || typeof raw !== "object") return {};
+  const out: Partial<ChatRequest> = {};
+  const numberParam = (key: keyof ChatRequest): number | undefined => {
+    const value = raw[key as string];
+    const num = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : undefined;
+    return num != null && Number.isFinite(num) ? num : undefined;
+  };
+  const maxTokens = numberParam("max_tokens");
+  if (maxTokens != null && maxTokens > 0) out.max_tokens = Math.trunc(maxTokens);
+  const temperature = numberParam("temperature");
+  if (temperature != null && temperature >= 0) out.temperature = temperature;
+  const topP = numberParam("top_p");
+  if (topP != null && topP >= 0 && topP <= 1) out.top_p = topP;
+  const topK = numberParam("top_k");
+  if (topK != null && topK >= 0) out.top_k = Math.trunc(topK);
+  const minP = numberParam("min_p");
+  if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
+  const presencePenalty = numberParam("presence_penalty");
+  if (presencePenalty != null) out.presence_penalty = presencePenalty;
+  const repetitionPenalty = numberParam("repetition_penalty");
+  if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
+  if (typeof raw.enable_thinking === "boolean") out.enable_thinking = raw.enable_thinking;
+  if (typeof raw.reasoning_effort === "string" && raw.reasoning_effort.trim()) {
+    out.reasoning_effort = raw.reasoning_effort.trim();
+  }
+  return out;
+}
+
+function mergeRouteDefaults(request: ChatRequest, route: LlmRoute | undefined): ChatRequest {
+  const defaults = resolvedGenerationParams(route);
+  return { ...defaults, ...request };
+}
+
+function resolveLlmTarget(request: ChatRequest, config: LlmConfig): ResolvedLlmTarget {
+  const route = request.route ?? getLlmRoute(request.model);
+  const provider = (route?.provider ?? "").trim();
+  const baseUrl = validateBaseUrl((route?.baseUrl ?? config.baseUrl).trim(), provider);
+  const model = (route?.model ?? request.model).trim();
+  if (!model) throw new Error("LLM route has no model");
+  return {
+    model,
+    baseUrl,
+    apiKey: readRouteApiKey(route, config.apiKey),
+    provider,
+    route,
+  };
 }
 
 class CircuitBreakerOpenError extends Error implements LlmClientError {
@@ -263,12 +352,12 @@ export function getLlmResilienceStats(): {
 
 export function isLlmAvailable(): boolean {
   const { baseUrl } = llmConfig();
-  return llmEnabled() && baseUrl.length > 0;
+  return llmEnabled() && (baseUrl.length > 0 || hasLlmRoutes());
 }
 
-function buildRequestBody(request: ChatRequest, prefixCacheMode: string): Record<string, unknown> {
+function buildRequestBody(request: ChatRequest, prefixCacheMode: string, modelOverride?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    model: request.model,
+    model: modelOverride ?? request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0,
     max_tokens: request.max_tokens,
@@ -330,26 +419,27 @@ function estimateUsage(request: ChatRequest, content: string): LlmUsage {
 }
 
 export async function chatCompletion(request: ChatRequest): Promise<ChatResult> {
+  const config = llmConfig();
   const {
-    baseUrl,
-    apiKey,
     timeoutMs,
     prefixCacheMode,
     retryMaxAttempts,
     retryBaseDelayMs,
     circuitBreakerRecoveryTimeoutMs,
-  } = llmConfig();
-  if (!isLlmAvailable()) {
+  } = config;
+  if (!llmEnabled()) {
     throw new Error("LLM is not enabled");
   }
 
-  const body = buildRequestBody(request, prefixCacheMode);
-  const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const target = resolveLlmTarget(request, config);
+  const effectiveRequest = mergeRouteDefaults({ ...request, model: target.model }, target.route);
+  const body = buildRequestBody(effectiveRequest, prefixCacheMode, target.model);
+  const resp = await resilientFetch(`${target.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: buildHeaders(apiKey, request),
+    headers: buildHeaders(target.apiKey, request),
     body: JSON.stringify(body),
   }, {
-    modelId: request.model,
+    modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
     timeoutMs,
     retryMaxAttempts,
     retryBaseDelayMs,
@@ -361,7 +451,7 @@ export async function chatCompletion(request: ChatRequest): Promise<ChatResult> 
   const usage = extractUsage(data.usage, request.pricingRates);
   return {
     content,
-    usage: usage.total_tokens > 0 ? usage : estimateUsage(request, content),
+    usage: usage.total_tokens > 0 ? usage : estimateUsage(effectiveRequest, content),
   };
 }
 
@@ -376,32 +466,33 @@ export async function chatCompletionStream(
   request: ChatRequest,
   onDelta: (delta: StreamDelta) => void,
 ): Promise<StreamResult> {
+  const config = llmConfig();
   const {
-    baseUrl,
-    apiKey,
     timeoutMs,
     prefixCacheMode,
     retryMaxAttempts,
     retryBaseDelayMs,
     circuitBreakerRecoveryTimeoutMs,
-  } = llmConfig();
-  if (!isLlmAvailable()) {
+  } = config;
+  if (!llmEnabled()) {
     throw new Error("LLM is not enabled");
   }
+  const target = resolveLlmTarget(request, config);
+  const effectiveRequest = mergeRouteDefaults({ ...request, model: target.model }, target.route);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs * 4);
   try {
-    const body = buildRequestBody(request, prefixCacheMode);
+    const body = buildRequestBody(effectiveRequest, prefixCacheMode, target.model);
     body.stream = true;
     body.stream_options = { include_usage: true };
 
-    const resp = await resilientFetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    const resp = await resilientFetch(`${target.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: buildHeaders(apiKey, request),
+      headers: buildHeaders(target.apiKey, request),
       body: JSON.stringify(body),
     }, {
-      modelId: request.model,
+      modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
       timeoutMs,
       retryMaxAttempts,
       retryBaseDelayMs,
@@ -469,7 +560,7 @@ export async function chatCompletionStream(
 
     return {
       content: fullContent,
-      usage: finalUsage.total_tokens > 0 ? finalUsage : estimateUsage(request, fullContent),
+      usage: finalUsage.total_tokens > 0 ? finalUsage : estimateUsage(effectiveRequest, fullContent),
     };
   } finally {
     clearTimeout(timer);
