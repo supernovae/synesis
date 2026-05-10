@@ -118,7 +118,7 @@ scale_up() {
             warn "  Rollout timeout for $deploy — model may still be loading"
         }
     else
-        warn "  Deployment $deploy not found — apply manifests with deploy.sh"
+        warn "  Deployment $deploy not found — apply the Synesis Helm release with model-serving enabled"
     fi
 }
 

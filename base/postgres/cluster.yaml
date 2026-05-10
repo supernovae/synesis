@@ -14,8 +14,6 @@
 # Admin connects via:
 #   postgresql://app:${password}@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin
 #
-# LiteLLM Prisma should use a separate database on this same cluster (e.g. `litellm`), not
-# `synesis_admin`. scripts/deploy.sh creates it idempotently; see base/gateway/litellm-deployment.yaml.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster

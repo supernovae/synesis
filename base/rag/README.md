@@ -7,12 +7,13 @@ content graph.
 ## Install
 
 ```bash
-./scripts/install-rag-stack.sh
-./scripts/install-rag-stack.sh --wait
+helm upgrade --install synesis ./charts/synesis \
+  -f my-synesis-values.yaml
 ```
 
-The full `./scripts/deploy.sh dev` applies the RAG stack as part of the
-overlay and waits for `synesis-nornicdb`.
+The Helm chart applies the RAG stack as part of the Synesis release. Enable
+indexer CronJobs under `jobs.indexer` in Helm values when you want queue
+processing managed by the release.
 
 ## Components
 

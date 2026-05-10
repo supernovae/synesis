@@ -29,12 +29,11 @@ Plan model serving by explicit resource requests, replicas, and GPU availability
 
 ## Deploying
 
-`./scripts/deploy.sh dev` applies everything. Or manually:
+Model serving is managed through Helm values. Enable or tune model-serving
+workloads in your values file, then apply:
 
 ```bash
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-router.yaml
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-general.yaml
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-coder.yaml
+helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 ```
 
 Verify:

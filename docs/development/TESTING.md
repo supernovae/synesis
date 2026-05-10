@@ -185,8 +185,11 @@ CI regression tests that need a running Synesis cluster execute inside an isolat
 # Apply validation ring
 oc apply -k base/validation-ring/
 
-# Sync auth secret to validation namespace (automatic via deploy.sh)
-./scripts/deploy.sh api
+# Ensure synesis-internal-service-auth exists in the validation namespace
+kubectl create secret generic synesis-internal-service-auth \
+  -n synesis-validation \
+  --from-literal=token="$SYNESIS_INTERNAL_SERVICE_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 ---

@@ -17,7 +17,7 @@ Two modes: **simulated** (deterministic, no cluster required) and **live** (real
 Deploy the network policies that allow Yarn to reach the sandbox warm pool directly via cluster DNS (no `kubectl port-forward` needed):
 
 ```bash
-./scripts/deploy.sh
+helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 ```
 
 Or apply only the new policies:
@@ -27,7 +27,7 @@ oc apply -f base/sandbox/warm-pool-allow-yarn.yaml
 oc apply -f base/yarn-ts/network-policy.yaml
 ```
 
-This is a one-time step. After deploy, `synesis-yarn` pods can reach `http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080/execute` directly.
+This is a one-time step. After the Helm release is applied, `synesis-yarn` pods can reach `http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080/execute` directly.
 
 ### Environment variables
 
@@ -145,7 +145,7 @@ npm run governor:worker -- --scenario go-cli-exit-code-loop --mode live --out /t
 ## Typical workflow
 
 1. **Smoke test** with `--mode simulated --all` from your laptop to confirm the pipeline is wired up
-2. After `deploy.sh`, run one **live** scenario to verify sandbox connectivity: `--scenario go-cli-happy-path --mode live`
+2. After the Helm release is applied, run one **live** scenario to verify sandbox connectivity: `--scenario go-cli-happy-path --mode live`
 3. Run a **full live loop** with `--iterations 3 --write-fixtures` to generate authentic telemetry
 4. Review `governor-analysis.json` for threshold suggestions and rule ideas
 5. If fixtures were written, run `npm run test:governor:unit` — the replay fixture tests pick them up automatically

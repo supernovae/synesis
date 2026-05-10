@@ -5,7 +5,7 @@
 # copies with envFrom optional: true.
 #
 # Create/update via:
-#   ./scripts/deploy.sh api   (prompts for OPENROUTER_API_KEY)
+#   Helm values under secrets.providerApiKeys
 #   Admin UI → Settings → Provider Keys
 #   oc create secret generic provider-api-keys \
 #     --from-literal=OPENROUTER_API_KEY=sk-or-v1-... \

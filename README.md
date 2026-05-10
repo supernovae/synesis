@@ -148,66 +148,76 @@ See [docs/HARDWARE_SIZING.md](docs/HARDWARE_SIZING.md) for GPU memory and bandwi
 
 ### Prerequisites
 
-- Kubernetes cluster (OpenShift supported)
-- NVIDIA GPU Operator
-- `oc`, `kubectl`, `kustomize` CLI tools
+- Kubernetes cluster (OpenShift, AKS, EKS, GKE, or generic Kubernetes)
+- `helm` and `kubectl` or `oc`
+- Container registry access for Synesis images
+- Postgres and Redis/Valkey backends, either cloud-managed or operator-managed by the chart
+- Provider API keys for hosted model providers, or model-serving endpoints for self-hosted models
 
-### 1. Bootstrap the cluster
-
-```bash
-./scripts/bootstrap.sh --ghcr-creds --hf-token   # Namespaces, PVCs, secrets
-```
-
-### 2. Deploy models
-
-Deploy models through your serving runtime (OpenShift AI dashboard, KServe, or vLLM) and/or use the pipeline script:
+### 1. Create Helm values
 
 ```bash
-./scripts/run-model-pipeline.sh --role=router --model-repo=Qwen/Qwen2.5-14B-Instruct
+cp charts/synesis/values.yaml my-synesis-values.yaml
 ```
 
-### 3. Build and push images
+At minimum, configure provider/platform, hostnames, image tags, secrets, Postgres, KV, and model provider keys. For managed Kubernetes, start from one of the examples in `charts/synesis/examples/`.
+
+Full install guide: [docs/HELM_INSTALL.md](docs/HELM_INSTALL.md).
+
+### 2. Build and push images
 
 ```bash
-./scripts/build-images.sh --push              # All 17 images to GHCR (3 base + 14 service)
-./scripts/build-images.sh --push --tag v1.0   # With version tag
-./scripts/build-images.sh --only planner,admin --push  # Subset
+./scripts/build-images.sh --push                    # push all images to GHCR
+./scripts/build-images.sh --push --tag v1.0         # versioned tag
+./scripts/build-images.sh --only planner,admin --push
 ```
 
-### 4. Deploy services
+Set the matching image tags in Helm values, for example:
+
+```yaml
+global:
+  imageTag: v1.0
+```
+
+### 3. Install or upgrade with Helm
 
 ```bash
-./scripts/deploy.sh dev       # Development (debug logging, RAG infra, all services)
-./scripts/deploy.sh staging   # Staging
-./scripts/deploy.sh prod      # Production (HA, PDBs)
+helm upgrade --install synesis ./charts/synesis \
+  -f my-synesis-values.yaml \
+  --namespace default \
+  --create-namespace \
+  --timeout 20m
 ```
 
-### 4b. First Synesis Admin login (Keycloak)
+For first-time clusters that let the chart install operators, follow the two-pass operator bootstrap in [docs/HELM_INSTALL.md](docs/HELM_INSTALL.md#two-pass-operator-bootstrap).
+
+### 4. First Synesis Admin login (Keycloak)
 
 There is **no** built-in Synesis username/password. After Keycloak and realm **`synesis`** are up, create at least one user **in realm `synesis`**, assign the **`synesis-admin`** realm role, align **`synesis-admin`** client redirect URIs with your admin URL, and set **`SYNESIS_KEYCLOAK_ISSUER_URL`** on the admin deployment. Then open the admin SPA and sign in via OIDC.
 
 Step-by-step: **[docs/admin/KEYCLOAK_BOOTSTRAP.md](docs/admin/KEYCLOAK_BOOTSTRAP.md)**.
 
-### 5. Deploy the indexer
+### 5. Enable jobs
 
-Run after `deploy.sh` so NornicDB and the embedder are healthy first. A single queue-driven CronJob processes all pending items from the admin database:
+Indexer and quality jobs are Helm-managed CronJobs. Enable them in values when the admin API and RAG services are ready:
 
-```bash
-./scripts/deploy-indexer.sh            # Deploy the queue CronJob
-./scripts/deploy-indexer.sh --run      # Also trigger a one-shot run now
+```yaml
+jobs:
+  indexer:
+    enabled: true
+    queue:
+      enabled: true
+  qualityRunner:
+    enabled: true
 ```
 
-Add content via the admin UI (RAG Pipeline > Ingestion Queue) or import bootstrap data:
+Apply the updated values with `helm upgrade`. To trigger a one-shot indexer run from the CronJob:
 
 ```bash
-# TOKEN = Personal Access Token (syn-...) or Keycloak access token — see KEYCLOAK_BOOTSTRAP.md
-for f in bootstrap/corpus/*.yaml; do
-  curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
-    -F "file=@$f" -H "Authorization: Bearer $TOKEN"
-done
+kubectl create job --from=cronjob/synesis-indexer-queue synesis-indexer-queue-manual -n synesis-rag
 ```
 
-Or use `./scripts/load-bootstrap.sh` with `SYNESIS_ADMIN_TOKEN` set.
+Add content via the admin UI (RAG Pipeline > Ingestion Queue) or import bootstrap data with `./scripts/load-bootstrap.sh` and `SYNESIS_ADMIN_TOKEN` set.
 
 ### 6. Connect your tools
 
@@ -281,7 +291,7 @@ synesis/
 │   ├── staging/                # Mirrors prod topology
 │   └── prod/                   # HA, NetworkPolicies, PDBs
 ├── pipelines/                  # KFP model download pipelines (role-driven CLI parameters)
-├── scripts/                    # Bootstrap, deploy, build, pipeline runners
+├── scripts/                    # Build, model pipeline, corpus, and maintenance helpers
 └── .github/workflows/          # CI: lint, test, build images, guardrails, security scan, quality pipeline
 ```
 
@@ -330,7 +340,7 @@ Start at **[docs/README.md](docs/README.md)** for how the tree is organized (**c
 
 1. Run `./scripts/run-model-pipeline.sh --role=<role> --model-repo=<hf-repo>` to download model weights
 2. Confirm or update the serving deployment (vLLM/KServe) for that role
-3. Redeploy services if config changed: `./scripts/deploy.sh dev`
+3. Apply any runtime/service config changes through Helm: `helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml`
 
 ## Contributing
 

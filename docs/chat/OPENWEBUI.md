@@ -6,12 +6,12 @@ Synesis includes a built-in **Open WebUI** instance that provides a polished cha
 
 Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.9.4`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
-## Zero-Configuration Setup
+## Helm Setup
 
-The deploy script automatically:
+The Helm chart:
 
-1. Generates the planner client API key (or reuses an existing one)
-2. Copies the key into the `synesis-webui` namespace as a Secret
+1. Creates or uses the planner client API key from chart values
+2. Writes the key into the `synesis-webui` namespace as a Secret
 3. Deploys Open WebUI with the API URL and key pre-injected as environment variables
 4. Exposes Open WebUI through your cluster edge (Ingress/Route/Gateway) with your configured hostname
 
@@ -52,10 +52,10 @@ The dev overlay configures Open WebUI to talk to the **planner-ts** endpoint (`s
 - **Through the planner**: Thinking tokens are properly handled — router/planner use `enable_thinking=False` for fast classification, critic uses `enable_thinking=True` for reasoning. vLLM's `--enable-reasoning` parser separates thinking into `reasoning_content` (invisible to the user).
 - **Directly to vLLM**: The Qwen3 chat template defaults to `enable_thinking=True`. Every response will include thinking tokens, adding latency and potentially showing raw `<think>` blocks in the UI.
 
-If you accidentally set the API URL to a vLLM endpoint in **Admin → Settings → Connections**, reset it by redeploying:
+If you accidentally set the API URL to a vLLM endpoint in **Admin → Settings → Connections**, reset the Helm values and upgrade:
 
 ```bash
-./scripts/deploy.sh dev
+helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 oc rollout restart deployment/open-webui -n synesis-webui
 ```
 
@@ -129,7 +129,7 @@ Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) s
 
 **OIDC not registering (blank `/auth`, redirect churn):** Open WebUI only enables the OIDC client when **`OAUTH_CLIENT_SECRET` is set *or* `OAUTH_CODE_CHALLENGE_METHOD=S256`** (public Keycloak clients need PKCE). Also set **`OPENID_REDIRECT_URI`** to the public callback URL (e.g. `https://<webui-host>/oauth/oidc/callback`) so the redirect URI is not derived as `http://` from in-cluster request URLs behind edge proxies.
 
-**“Email or password is incorrect” during Keycloak SSO:** Open WebUI maps **`invalid_scope`** (and other OAuth errors) to that generic message. The usual cause is Keycloak missing **`openid` / `profile` / `email`** client scopes on the `synesis` realm. Run **`./scripts/ensure-keycloak-oidc-scopes.sh`** (or redeploy with `./scripts/deploy.sh`, which runs it after Keycloak is ready).
+**“Email or password is incorrect” during Keycloak SSO:** Open WebUI maps **`invalid_scope`** (and other OAuth errors) to that generic message. The usual cause is Keycloak missing **`openid` / `profile` / `email`** client scopes on the `synesis` realm. Run **`./scripts/ensure-keycloak-oidc-scopes.sh`** or reapply the Helm release after updating the realm import values.
 
 **“This email is already registered” after Keycloak:** An Open WebUI local user already exists for that email. Set **`OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true`** (in `base/webui/deployment.yaml`) so OIDC sign-in attaches to the existing account instead of failing.
 

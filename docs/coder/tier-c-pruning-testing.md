@@ -17,22 +17,24 @@ This document is the operator runbook for validating:
 
 ### Full-mode deploy
 
-`scripts/deploy.sh` supports full mode and patches Tier C/pruning env vars automatically:
+Enable full-mode Tier C/pruning flags in Helm values under `workloads.yarn.env`:
 
-```bash
-SYNESIS_YARN_FULL_FEATURES=true ./scripts/deploy.sh
+```yaml
+workloads:
+  yarn:
+    env:
+      SYNESIS_YARN_FULL_FEATURES: "true"
+      SYNESIS_YARN_VALIDATION_TIER_C_ROLE: coder-normalizer
+      SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS: "1500"
+      SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS: "8000"
+      SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS: "8"
+      SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE: "0"
 ```
 
-### Optional explicit overrides
+Apply the updated release:
 
 ```bash
-SYNESIS_YARN_FULL_FEATURES=true \
-SYNESIS_YARN_VALIDATION_TIER_C_ROLE=coder-normalizer \
-SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS=1500 \
-SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS=8000 \
-SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS=8 \
-SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE=0 \
-./scripts/deploy.sh
+helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 ```
 
 ## Baseline verification

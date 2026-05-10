@@ -24,14 +24,14 @@ If you do **not** implement synthetics, keep rewrite off and use the **plan API*
 ## Enablement (cluster)
 
 - **Manifest default:** [`base/yarn-ts/deployment.yaml`](../base/yarn-ts/deployment.yaml) sets `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED=true` so the plan route is available after apply.
-- **`deploy.sh`:** Calls `patch_yarn_tool_collapse_envs` after stream/debug patches. Overrides (optional):
+- **Helm values:** set these in `workloads.yarn.env` when you need explicit overrides:
 
   - `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED` (default **true** when patching)
   - `SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM` (default **false**)
   - `SYNESIS_YARN_TOOL_COLLAPSE_DEBOUNCE_MS` (default **100**)
-  - `SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST` — only patched if you set it in the environment (otherwise the image/config default applies)
+  - `SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST`
 
-- **`SYNESIS_YARN_FULL_FEATURES=true`:** Also sets collapse flags via `patch_yarn_feature_flags` (collapse **on**, rewrite stays **false** unless you export the rewrite var).
+- **Full feature profiles:** keep the desired flags in your environment-specific Helm values file.
 
 ## Non-stream response rewrite (optional)
 

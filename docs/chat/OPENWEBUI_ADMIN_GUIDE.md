@@ -91,7 +91,7 @@ oc port-forward svc/synesis-admin 8080:8080 -n synesis-admin
 - **Not the same as Keycloak “admin”:** The Keycloak **master** realm `admin` user is only for the Keycloak Admin Console. Synesis uses the **`synesis`** realm. Open WebUI admin features use **`OAUTH_ADMIN_ROLES`** (default `synesis-admin`) — assign that **realm role** in the `synesis` realm to users who should manage Open WebUI as admins.
 - **Issuer empty / dev without Keycloak:** unset `SYNESIS_KEYCLOAK_ISSUER_URL` on the deployment to fall back to legacy JWT users only (`admin`, `viewer` from env passwords).
 
-If you use `./scripts/deploy.sh`, it also patches the issuer from the Keycloak Route; a plain `kustomize | oc apply` used to wipe that patch — the issuer is now in Git so re-applies stay on Keycloak.
+Manage the issuer through Helm values so `SYNESIS_KEYCLOAK_ISSUER_URL` and related OIDC settings stay stable across upgrades.
 
 **OIDC details:** The dashboard exchanges the authorization code via **`POST /api/v1/auth/oauth/token`** on the admin API (server-side), so the browser does not call Keycloak’s token endpoint (avoids CORS). Token exchange uses **`SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL`** when set (cluster Service URL) so the admin pod does not depend on hairpin access to the public Route.
 
@@ -104,7 +104,7 @@ oc logs -n synesis-admin -l app.kubernetes.io/name=synesis-admin --tail=150
 # Look for identity_provider_http_error — wrong internal URL/port if connection errors.
 ```
 
-**Keycloak “Invalid scopes: openid profile email”:** The live `synesis` realm must have **Client scopes** named `openid`, `profile`, and `email`, and `synesis-admin` / `synesis-webui` must include them as **default** scopes. The one-shot realm import job does not reliably patch an existing realm. **Repair (idempotent):** run **`./scripts/ensure-keycloak-oidc-scopes.sh`** with `oc` logged in, or **`./scripts/deploy.sh …`** (it runs that script after Keycloak is ready). Git manifests (`realm-import.yaml`) include the same definitions for new clusters.
+**Keycloak “Invalid scopes: openid profile email”:** The live `synesis` realm must have **Client scopes** named `openid`, `profile`, and `email`, and `synesis-admin` / `synesis-webui` must include them as **default** scopes. The one-shot realm import job does not reliably patch an existing realm. **Repair (idempotent):** run **`./scripts/ensure-keycloak-oidc-scopes.sh`** with `oc` logged in, or update the realm import values and run `helm upgrade`. Git manifests include the same definitions for new clusters.
 
 ### Pages
 

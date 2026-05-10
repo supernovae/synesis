@@ -28,11 +28,11 @@ The **Settings → Admin audit** page and `admin_audit_events` table cover model
 - **Broader instrumentation** — Call `record_admin_audit` from taxonomy, ingestion, integrations, and other routers for a single operator timeline.
 - **Retention / prune** — Scheduled job or CNPG policy to trim old `admin_audit_events` rows so the table does not grow unbounded.
 
-## Database URL and `oc apply`
+## Database URL and Helm
 
-`SYNESIS_ADMIN_DATABASE_URL` in the Deployment manifest uses a **dev placeholder** password. **CloudNativePG** puts the real password in secret `synesis-admin-db-app`. **`scripts/deploy.sh`** (`ensure_admin_db`) patches the deployment with a URL-encoded connection string after the cluster is healthy.
+`SYNESIS_ADMIN_DATABASE_URL` is chart-managed. Configure Postgres through `postgres.mode` and the matching `postgres.*` values in `charts/synesis`; Helm writes `synesis-admin-db-url` and mounts it into the admin deployment.
 
-If you run **`oc apply -k base/admin`** without going through deploy, the live DB URL can be reset to the placeholder → **migration auth failures** and restarts. Re-run **`./scripts/deploy.sh`** (or patch the env from the secret as in deploy.sh).
+Do not use `oc apply -k base/admin` as the deployment source of truth for a Helm-managed cluster. Change values and run `helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml`.
 
 ## Archive storage
 

@@ -128,7 +128,7 @@ After rollout, verify:
 
 - Admin now supports internal service token auth for worker control-plane APIs.
 - Planner supports trusted forwarded identity header handling, plus optional strict mode.
-- `scripts/deploy.sh` now manages `synesis-internal-service-auth` token secret idempotently.
+- Helm manages `synesis-internal-service-auth` token secrets through chart values.
 
 Cloudflare should be treated as the outer guardrail; these service-level controls remain required defense in depth.
 
@@ -137,7 +137,7 @@ Cloudflare should be treated as the outer guardrail; these service-level control
 Use this as a final pre-exposure runbook.
 
 1. **Deploy and reconcile secrets**
-   - Run `./scripts/deploy.sh api` (or `model`).
+   - Run `helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml`.
    - Confirm internal auth secret exists:
      - `oc get secret synesis-internal-service-auth -n synesis-admin`
      - `oc get secret synesis-internal-service-auth -n synesis-planner`
@@ -473,59 +473,32 @@ curl -I https://admin.example.com/api/v1/health
 - Add NetworkPolicy in `synesis-edge` to only allow egress needed for tunnel operation.
 - Add PodDisruptionBudget for HA if using replicas >1.
 
-## Optional: Managed by `deploy.sh`
+## Optional: Managed by Helm
 
-This repo now supports optional cloudflared reconciliation from `scripts/deploy.sh`.
+The Helm chart supports optional cloudflared deployment from values.
 
-Enable with env vars:
+Enable with values:
 
-- `SYNESIS_ENABLE_CLOUDFLARED=true`
-- `SYNESIS_VERIFY_CLOUDFLARED=true` (optional; run post-deploy verification and fail deploy on mismatch)
-- `SYNESIS_CF_TUNNEL_NAME=<your tunnel name>`
-- One of:
-  - `SYNESIS_CF_TUNNEL_TOKEN=<cloudflare-zero-trust-token>`
-  - `SYNESIS_CF_TUNNEL_CREDENTIALS_JSON='{"AccountTag":"...","TunnelSecret":"...","TunnelID":"..."}'`
-  - `SYNESIS_CF_TUNNEL_CREDENTIALS_FILE=/path/to/credentials.json`
+```yaml
+cloudflared:
+  enabled: true
+  tunnel:
+    mode: token
+    credentialsSecretName: cloudflared-credentials
+```
 
 Optional hostname overrides (otherwise derived from existing Routes):
 
-- `SYNESIS_CF_API_HOST`
-- `SYNESIS_CF_ADMIN_HOST`
-- `SYNESIS_CF_CHAT_HOST`
-- `SYNESIS_CF_AUTH_HOST`
-- `SYNESIS_CF_CODER_HOST`
+- `ingress.items.synesis-api.host`
+- `ingress.items.synesis-admin.host`
+- `ingress.items.synesis-webui.host`
+- `ingress.items.synesis-auth.host`
+- `ingress.items.synesis-yarn.host`
 
 Example:
 
 ```bash
-SYNESIS_ENABLE_CLOUDFLARED=true \
-SYNESIS_CF_TUNNEL_NAME=synesis-prod \
-SYNESIS_CF_TUNNEL_TOKEN="<token-from-zero-trust-ui>" \
-./scripts/deploy.sh api
-```
-
-Credentials-file mode (also supported):
-
-```bash
-SYNESIS_ENABLE_CLOUDFLARED=true \
-SYNESIS_CF_TUNNEL_NAME=synesis-prod \
-SYNESIS_CF_TUNNEL_CREDENTIALS_FILE="$HOME/.cloudflared/synesis-prod.json" \
-./scripts/deploy.sh api
-```
-
-Kybern domain cutover with OpenShift route fallback preserved:
-
-```bash
-SYNESIS_ENABLE_CLOUDFLARED=true \
-SYNESIS_VERIFY_CLOUDFLARED=true \
-SYNESIS_CF_TUNNEL_NAME=kybern-prod \
-SYNESIS_CF_TUNNEL_TOKEN="<token-from-zero-trust-ui>" \
-SYNESIS_CF_API_HOST=api.kybern.dev \
-SYNESIS_CF_ADMIN_HOST=admin.kybern.dev \
-SYNESIS_CF_CHAT_HOST=chat.kybern.dev \
-SYNESIS_CF_AUTH_HOST=auth.kybern.dev \
-SYNESIS_CF_CODER_HOST=coder.kybern.dev \
-./scripts/deploy.sh api
+helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 ```
 
 Post-deploy non-breaking verification sequence:
@@ -583,4 +556,3 @@ Verify helper:
 ```bash
 ./scripts/verify-cloudflared.sh --check-hosts
 ```
-

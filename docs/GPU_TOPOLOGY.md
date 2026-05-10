@@ -37,7 +37,7 @@ Adjust `nodeSelector`, `replicas`, and `resources` in `base/model-serving/deploy
 
 1. **Bootstrap pipelines**: `./scripts/bootstrap-pipelines.sh` -- PVCs, hf-hub-secret
 2. **Run pipelines**: `./scripts/run-model-pipeline.sh --role=router --model-repo=<hf-repo>` (repeat per role)
-3. **Deploy**: `./scripts/deploy.sh dev` -- applies model deployments + planner + gateway
+3. **Deploy**: `helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml` with model-serving values enabled
 
 Verify:
 

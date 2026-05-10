@@ -74,7 +74,7 @@ The **Chat Feedback** page calls the planner `GET /v1/feedback` and merges rows 
 
 Open WebUI stores “Submit feedback” / evaluation data in **its own** SQLite database (`POST /api/v1/evaluations/feedback` — see [Open WebUI evaluations API](https://github.com/open-webui/open-webui/blob/main/src/lib/apis/evaluations/index.ts)). That does **not** call Synesis automatically.
 
-**Not the same as `webui-api-key`:** `./scripts/deploy.sh` syncs **`webui-api-key`** so **Open WebUI → planner-ts** chat requests use a shared Bearer key. That key authenticates the **client to the planner**. **`SYNESIS_OPENWEBUI_ADMIN_TOKEN`** is different: it is whatever **Open WebUI’s HTTP API** accepts as an **admin** when **synesis-admin** calls **Open WebUI** at `/api/v1/evaluations/...`. Synesis does not generate or rotate that credential; you supply it (see below).
+**Not the same as `webui-api-key`:** Helm creates **`webui-api-key`** so **Open WebUI → planner-ts** chat requests use a shared Bearer key. That key authenticates the **client to the planner**. **`SYNESIS_OPENWEBUI_ADMIN_TOKEN`** is different: it is whatever **Open WebUI’s HTTP API** accepts as an **admin** when **synesis-admin** calls **Open WebUI** at `/api/v1/evaluations/...`. Synesis does not generate or rotate that credential; you supply it (see below).
 
 To show it in Synesis Admin:
 
@@ -83,13 +83,13 @@ To show it in Synesis Admin:
    - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — **Bearer** value that Open WebUI treats as an **admin** for the evaluations routes. In practice this is usually either:
      - a **session JWT** from an admin browser session (copy from `Authorization` on a request to `/api/v1/...` in devtools), or  
      - a **Personal Access Token** (or equivalent) **issued inside Open WebUI** for API access, *if* your Open WebUI version accepts it on `GET /api/v1/evaluations/feedbacks/all/export`.  
-     It is **not** the planner client API key env that deploy.sh wires into the WebUI pod.
+     It is **not** the planner client API key env that Helm wires into the WebUI pod.
      Optional: create Secret `synesis-openwebui-admin-token` with key `token` (see deployment env); if unset, sync returns a configure error until set.
 2. In Admin → **Chat Feedback**, click **Sync from Open WebUI**. This calls Open WebUI `GET /api/v1/evaluations/feedbacks/all/export` (falls back to `/api/v1/evaluations/feedbacks/all` if export returns 404) and upserts into `openwebui_feedback`.
 
 Re-run sync after bursts of user feedback when you want the admin list updated (manual sync is the default workflow).
 
-#### Obtaining the token (to export before `./scripts/deploy.sh`)
+#### Obtaining the token
 
 You do **not** generate this in Synesis Admin — it comes from **Open WebUI**, because synesis-admin is calling **Open WebUI’s** REST API.
 
@@ -102,7 +102,7 @@ Open WebUI can issue a user **API key** (often prefixed with `sk-`) used as `Aut
 **Option C — Browser session JWT (quick test)**  
 Log in to Open WebUI as an **admin** → browser **DevTools → Network** → trigger any `/api/v1/` request → **Request headers** → copy the value after `Authorization: Bearer `. Session JWTs may expire; prefer Option A for long-lived sync.
 
-Then either `export SYNESIS_OPENWEBUI_ADMIN_TOKEN='…'` and run `./scripts/deploy.sh`, or create the Kubernetes Secret manually (see above).
+Then either set `secrets.openwebuiAdminToken` in Helm values and run `helm upgrade`, or create the Kubernetes Secret manually (see above).
 
 ### Chat Feedback sync returns 502 (Bad Gateway)
 

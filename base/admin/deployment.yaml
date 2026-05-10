@@ -49,10 +49,7 @@ spec:
               value: "/data/quality/proposed_sources.yaml"
             - name: SYNESIS_TAXONOMY_YAML_PATH
               value: "/etc/synesis/taxonomy_prompt_config.yaml"
-            # Placeholder password — CloudNativePG stores the real password in secret
-            # synesis-admin-db-app. scripts/deploy.sh (ensure_admin_db) patches this URL after apply.
-            # DB URL sourced from Secret (deploy.sh creates synesis-admin-db-url
-            # from the CNPG operator password). Immune to kustomize resets.
+            # DB URL sourced from the Helm-managed synesis-admin-db-url Secret.
             - name: SYNESIS_ADMIN_DATABASE_URL
               valueFrom:
                 secretKeyRef:

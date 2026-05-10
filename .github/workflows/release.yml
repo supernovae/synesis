@@ -260,8 +260,9 @@ jobs:
 
           **Deploy:**
           \`\`\`bash
-          # Update kustomize overlay image tags to ${VERSION}, then:
-          ./scripts/deploy.sh dev
+          helm upgrade --install synesis ./charts/synesis \\
+            -f my-synesis-values.yaml \\
+            --set global.imageTag=${VERSION}
           \`\`\`
           MANIFEST
           )

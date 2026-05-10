@@ -21,7 +21,7 @@ body:
       label: Steps to Reproduce
       description: How can we reproduce this?
       placeholder: |
-        1. Deploy with `./scripts/deploy.sh dev`
+        1. Deploy with `helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml`
         2. Send a request to `/v1/chat/completions`
         3. Observe error in planner logs
     validations:
@@ -61,12 +61,11 @@ body:
       label: Component
       options:
         - Planner (LangGraph)
-        - Gateway (LiteLLM)
         - RAG Pipeline
         - Sandbox / Executor
         - Model Serving (vLLM)
         - Web UI (Open WebUI)
         - SearXNG (Search)
         - Knowledge Indexers
-        - Deploy / Bootstrap Scripts
+        - Helm Chart / Deployment
         - Other

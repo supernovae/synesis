@@ -115,11 +115,11 @@ This ensures the planner trusts the `x-openwebui-user-id` and `x-openwebui-user-
 
 ### Generation and Distribution
 
-The `scripts/deploy.sh` script manages the internal service auth secret:
+Helm manages the internal service auth secret:
 
-1. Checks if `synesis-internal-service-auth` exists in any namespace
-2. If not found, generates a new random token: `synesis-internal-$(openssl rand -hex 32)`
-3. Syncs the secret to all Synesis namespaces: `synesis-admin`, `synesis-rag`, `synesis-planner`, `synesis-yarn`, `synesis-gateway`
+1. Set `secrets.internalServiceToken` in your values file.
+2. `helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml`.
+3. The chart writes `synesis-internal-service-auth` to Synesis namespaces that need service-to-service auth.
 
 ### Manual Rotation
 
@@ -243,7 +243,7 @@ Before deploying to production, verify:
 
 If upgrading from a deployment where `trust_model_api_key_for_forwarded_identity=True` and `strict_forwarded_identity_mode=False`:
 
-1. **Ensure the internal service token secret exists** in all namespaces (run `scripts/deploy.sh` or manually create)
+1. **Ensure the internal service token secret exists** in all namespaces through Helm values or a manually managed Secret
 2. **Update Open WebUI** to use the internal service token as `OPENAI_API_KEY` instead of the model API key
 3. **Update Yarn deployment** to mount `synesis-internal-service-auth` secret
 4. **Deploy planner** with the new defaults — strict mode will now reject any requests carrying forwarded headers with non-internal-token bearers
@@ -321,7 +321,7 @@ When `WARM_AUTH_SECRET` is empty, auth is disabled (dev mode). The warm pool log
 2. **Server**: call `verify_bearer()` or `verify_request()` before processing
 3. **Client**: send Bearer header (Tier 1) or call `sign_request()` (Tier 2)
 4. **Secret**: mount `synesis-internal-service-auth` or a dedicated per-service secret
-5. **deploy.sh**: ensure the secret is synced to the service's namespace
+5. **Helm values**: ensure the secret is synced to the service's namespace
 6. **Network policy**: deny-all + allow ingress from authorized callers
 7. **Tests**: verify 401 on invalid/missing credentials
 
@@ -410,7 +410,7 @@ Quality regression tests (H2) that need a running Synesis cluster execute inside
 
 ### Secret Distribution
 
-The `synesis-internal-service-auth` secret is synced to `synesis-validation` by `scripts/deploy.sh`. The validation runner uses it as a Bearer token for planner/admin API calls.
+The `synesis-internal-service-auth` secret must be available in `synesis-validation` when validation jobs run. The validation runner uses it as a Bearer token for planner/admin API calls.
 
 ### GitHub Configuration
 

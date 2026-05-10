@@ -8,7 +8,7 @@ Synesis Admin **does not** ship with hardcoded users, HS256 “dev” JWTs, or `
 
 ## First-time install: recommended operator story
 
-Follow this order after `deploy.sh` (or equivalent) has applied Keycloak and the `synesis` realm. Manifests live under [`base/keycloak/`](../../base/keycloak/); the realm defines roles **`synesis-admin`**, **`synesis-org-admin`**, **`synesis-user`**, and the public OIDC client **`synesis-admin`** for the dashboard.
+Follow this order after Helm has applied Keycloak and the `synesis` realm. The chart renders the realm import from `charts/synesis`; the realm defines roles **`synesis-admin`**, **`synesis-org-admin`**, **`synesis-user`**, and the public OIDC client **`synesis-admin`** for the dashboard.
 
 ### 1. Confirm the `synesis` realm exists
 
@@ -102,7 +102,7 @@ export SYNESIS_ADMIN_TOKEN='syn-...'
 
 ## Injecting secrets (OpenShift / Kubernetes)
 
-Prefer **Secrets** (`secretKeyRef`, `envFrom`) for Keycloak admin credentials, PAT material, and any client secrets. Patch the admin deployment after Keycloak Routes and the issuer URL are stable (see `scripts/deploy.sh` patterns for other services).
+Prefer **Secrets** (`secretKeyRef`, `envFrom`) for Keycloak admin credentials, PAT material, and any client secrets. Manage deployment environment through Helm values after Keycloak Routes or Ingress hosts and the issuer URL are stable.
 
 ---
 

@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Synesis RAG Stack Installer
+# Synesis RAG Stack Installer (deprecated)
 #
-# Applies NornicDB + embedder in synesis-rag.
-#
-# Use this for standalone RAG infra setup. deploy.sh applies this
-# as part of the full stack; deploy-indexer.sh handles the indexer CronJob separately.
+# RAG infrastructure is managed by the Synesis Helm chart. This script is kept
+# only to point older runbooks at the supported install path.
 #
 # Usage: ./scripts/install-rag-stack.sh [--wait]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-RAG_DIR="$PROJECT_ROOT/base/rag"
 WAIT_FOR_READY=false
 
 for arg in "$@"; do
@@ -21,8 +16,12 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--wait]"
             echo ""
-            echo "Applies NornicDB + embedder."
-            echo "  --wait  Wait for NornicDB and embedder to be ready"
+            echo "Deprecated. RAG resources are installed and upgraded through Helm:"
+            echo "  helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml"
+            echo ""
+            echo "Enable indexer jobs in Helm values:"
+            echo "  jobs.indexer.enabled=true"
+            echo "  jobs.indexer.queue.enabled=true"
             exit 0
             ;;
         *)
@@ -35,37 +34,24 @@ done
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 err() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2; }
 
-# Prerequisites
-if ! command -v oc &>/dev/null; then
-    err "oc CLI required. Install OpenShift CLI and run 'oc login'."
-    exit 1
-fi
-if ! oc whoami &>/dev/null; then
-    err "Not logged into a cluster. Run 'oc login' first."
-    exit 1
-fi
-if ! command -v kustomize &>/dev/null; then
-    err "kustomize required. Install kustomize or kubectl with kustomize support."
-    exit 1
-fi
-
-log "=== Installing Synesis RAG Stack ==="
+log "=== Synesis RAG Stack ==="
 log ""
-
-log "Applying base/rag manifests..."
-if ! kustomize build "$RAG_DIR" | oc apply -f -; then
-    err "Failed to apply RAG manifests"
-    exit 1
-fi
-
-log ""
-log "RAG stack applied. Components:"
-log "  - NornicDB graph/vector database (service: synesis-nornicdb:7687)"
-log "  - embedder (TEI for embeddings)"
-log ""
+err "Direct RAG manifest installation is deprecated."
+err "Install or upgrade Synesis through Helm instead:"
+err "  helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml"
+err ""
+err "Configure RAG and indexer resources in Helm values. For example:"
+err "  jobs.indexer.enabled=true"
+err "  jobs.indexer.queue.enabled=true"
 
 if [[ "$WAIT_FOR_READY" == "true" ]]; then
+    if ! command -v oc &>/dev/null; then
+        err "oc CLI required for --wait."
+        exit 1
+    fi
     ns="synesis-rag"
+    log ""
+    log "Waiting for existing Helm-managed RAG workloads..."
 
     if oc get deployment synesis-nornicdb -n "$ns" &>/dev/null; then
         log "  Waiting for $ns/synesis-nornicdb..."
@@ -82,11 +68,4 @@ if [[ "$WAIT_FOR_READY" == "true" ]]; then
     fi
 fi
 
-log ""
-log "=== RAG stack install complete ==="
-log ""
-log "Next steps:"
-log "  1. Deploy indexer:           ./scripts/deploy-indexer.sh"
-log "  2. Load knowledge:           ./scripts/load-language-pack.sh bash"
-log "  3. Run full deploy:          ./scripts/deploy.sh dev"
-log ""
+exit 1

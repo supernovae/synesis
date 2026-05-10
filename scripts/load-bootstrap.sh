@@ -167,7 +167,7 @@ fi
 echo ""
 echo "Items are now 'pending' in the ingestion queue."
 echo "Run the indexer to process them:"
-echo "  ./scripts/deploy-indexer.sh --run"
+echo "  kubectl create job --from=cronjob/synesis-indexer-queue synesis-indexer-queue-manual -n synesis-rag"
 echo ""
 echo "Or check queue status:"
 echo "  curl -s -H 'Authorization: Bearer ${TOKEN}' ${ADMIN_URL}/api/v1/ingestion/stats | python3 -m json.tool"

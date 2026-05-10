@@ -30,9 +30,8 @@ global:
   routeDomain: apps.example.com
 
 registryCredentials:
-  # Optional replacement for scripts/bootstrap.sh --ghcr-creds. When enabled,
-  # Helm creates a docker-registry pull secret in Synesis namespaces and mounts
-  # it through imagePullSecrets on chart-managed pods.
+  # When enabled, Helm creates a docker-registry pull secret in Synesis
+  # namespaces and mounts it through imagePullSecrets on chart-managed pods.
   enabled: false
   name: ghcr-pull-secret
   registry: ghcr.io

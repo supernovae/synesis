@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy the Synesis RAG Indexer (queue mode).
+# Operate the Synesis RAG Indexer (queue mode).
 #
 # The indexer runs as a single CronJob that claims work from the admin
 # service's ingestion queue (PostgreSQL-backed).  Content is added via
@@ -9,50 +9,40 @@ set -euo pipefail
 # pending — no ConfigMaps or sources.yaml required.
 #
 # Usage:
-#   ./scripts/deploy-indexer.sh            # Apply the CronJob (via Kustomize)
+#   ./scripts/deploy-indexer.sh            # Inspect Helm-managed CronJob
 #   ./scripts/deploy-indexer.sh --run      # One-shot: create a Job now
-#
-# The base manifest uses image name synesis-indexer (placeholder). Kustomize
-# overlays resolve it to a real registry (default: ghcr.io/supernovae/synesis/indexer).
-# Override with:
-#   SYNESIS_INDEXER_OVERLAY=/path/to/overlays/jobs-prod ./scripts/deploy-indexer.sh
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-INDEXER_OVERLAY="${SYNESIS_INDEXER_OVERLAY:-$PROJECT_ROOT/overlays/jobs}"
 
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $*" >&2; }
 
 RUN_NOW=false
-S3_BUCKET="${SYNESIS_INGESTION_S3_BUCKET:-}"
+CRONJOB_NAME="synesis-indexer-queue"
+NAMESPACE="${SYNESIS_RAG_NAMESPACE:-synesis-rag}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --run) RUN_NOW=true; shift ;;
-        --s3-bucket)
-            S3_BUCKET="${2:-}"
-            if [[ -z "$S3_BUCKET" ]]; then echo "ERROR: --s3-bucket requires a value"; exit 1; fi
+        --namespace)
+            NAMESPACE="${2:-}"
+            if [[ -z "$NAMESPACE" ]]; then echo "ERROR: --namespace requires a value"; exit 1; fi
             shift 2
             ;;
         -h|--help)
-            echo "Usage: $0 [--run] [--s3-bucket <name>]"
+            echo "Usage: $0 [--run] [--namespace <name>]"
             echo ""
-            echo "  (no args)  Apply indexer CronJobs (oc apply -k on Kustomize overlay)"
-            echo "  --run      Also create a one-shot Job for the queue CronJob"
-            echo "  --s3-bucket <name>  Set SYNESIS_INGESTION_S3_BUCKET on staged CronJobs"
+            echo "  (no args)  Inspect the Helm-managed indexer CronJob"
+            echo "  --run      Create a one-shot Job from the queue CronJob"
+            echo "  --namespace <name>  RAG namespace (default: synesis-rag)"
             echo ""
-            echo "  SYNESIS_INDEXER_OVERLAY  Kustomize dir (default: overlays/jobs)"
-            echo "  SYNESIS_INGESTION_S3_BUCKET  Same as --s3-bucket if set in environment"
+            echo "CronJob creation and configuration are managed by Helm values:"
+            echo "  jobs.indexer.enabled=true"
+            echo "  jobs.indexer.queue.enabled=true"
             exit 0
             ;;
         *)
             echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
-
-CRONJOB_NAME="synesis-indexer-queue"
-NAMESPACE="synesis-rag"
 
 # ── Pre-flight: verify NornicDB and embedder ─────────────────────────
 log "=== Synesis RAG Indexer (queue mode) ==="
@@ -65,7 +55,7 @@ if [[ "$NORNIC_READY" -gt 0 ]] 2>/dev/null; then
     log "  NornicDB: running ($NORNIC_READY replicas)"
 else
     warn "NornicDB is not running in $NAMESPACE."
-    warn "  Deploy services first: ./scripts/deploy.sh"
+    warn "  Install or upgrade the Synesis Helm release first."
     exit 1
 fi
 
@@ -80,38 +70,20 @@ else
         log "  Embedder: running ($EMBEDDER_PODS pods)"
     else
         warn "Embedder is not running in $NAMESPACE."
-        warn "  Deploy services first: ./scripts/deploy.sh"
+        warn "  Install or upgrade the Synesis Helm release first."
         exit 1
     fi
 fi
 
-# ── Apply CronJob manifest ────────────────────────────────────────────
 log ""
-oc create namespace "$NAMESPACE" 2>/dev/null || true
-
-if [[ ! -f "$INDEXER_OVERLAY/kustomization.yaml" ]]; then
-    warn "Kustomize overlay not found: $INDEXER_OVERLAY"
-    warn "Set SYNESIS_INDEXER_OVERLAY to overlays/jobs, jobs-staging, or jobs-prod."
+if ! oc get cronjob "$CRONJOB_NAME" -n "$NAMESPACE" &>/dev/null; then
+    warn "CronJob $NAMESPACE/$CRONJOB_NAME was not found."
+    warn "Enable the indexer in Helm values and upgrade the release:"
+    warn "  jobs.indexer.enabled=true"
+    warn "  jobs.indexer.queue.enabled=true"
+    warn "  helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml"
     exit 1
 fi
-
-log "Applying indexer CronJobs (overlay: $INDEXER_OVERLAY)..."
-oc apply -k "$INDEXER_OVERLAY"
-
-if [[ -n "$S3_BUCKET" ]]; then
-    log "Patching staged CronJobs with SYNESIS_INGESTION_S3_BUCKET=$S3_BUCKET ..."
-    for cj in synesis-indexer-staged-fetch synesis-indexer-staged-normalize synesis-indexer-staged-enrich; do
-        if oc get cronjob "$cj" -n "$NAMESPACE" &>/dev/null; then
-            oc set env "cronjob/$cj" -n "$NAMESPACE" "SYNESIS_INGESTION_S3_BUCKET=$S3_BUCKET" || true
-            log "  Patched $cj"
-        fi
-    done
-fi
-
-log ""
-log "CronJobs in $NAMESPACE:"
-oc get cronjobs -n "$NAMESPACE" -l 'app.kubernetes.io/part-of=synesis' --no-headers 2>/dev/null || true
-oc get cronjob "$CRONJOB_NAME" -n "$NAMESPACE" --no-headers 2>/dev/null || true
 
 # ── One-shot run ──────────────────────────────────────────────────────
 if $RUN_NOW; then
@@ -124,8 +96,11 @@ if $RUN_NOW; then
     log "  oc logs -n $NAMESPACE -l synesis.io/indexer-group=queue -f"
 else
     log ""
+    log "CronJob in $NAMESPACE:"
+    oc get cronjob "$CRONJOB_NAME" -n "$NAMESPACE"
+    log ""
     log "To process pending items now:"
-    log "  ./scripts/deploy-indexer.sh --run"
+    log "  kubectl create job --from=cronjob/$CRONJOB_NAME ${CRONJOB_NAME}-manual -n $NAMESPACE"
     log ""
     log "To add content to the queue:"
     log "  - Admin UI: RAG Pipeline > Ingestion Queue"

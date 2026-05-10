@@ -16,18 +16,23 @@ The admin Model Registry is the source of truth for role-to-provider mapping. No
 
 ## Quick Start
 
-```bash
-# 1. Get an API key from https://openrouter.ai/keys
+1. Get an API key from <https://openrouter.ai/keys>.
 
-# 2. Deploy (prompts for key on first run)
-./scripts/deploy.sh openrouter
+2. Add it to your Helm values:
+
+```yaml
+secrets:
+  providerApiKeys:
+    OPENROUTER_API_KEY: sk-or-v1-...
 ```
 
-The deploy script:
-- Prompts for your OpenRouter API key, or reads `OPENROUTER_API_KEY` from the environment
-- Stores provider credentials in the `provider-api-keys` Secret
-- Skips GPU/RHOAI/PVC checks for hosted-only deployments
-- Applies the selected deployment overlay
+3. Install or upgrade:
+
+```bash
+helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml
+```
+
+Helm stores provider credentials in the `provider-api-keys` Secret and mounts it into direct model runtime consumers.
 
 ## Model Mapping
 
@@ -49,7 +54,9 @@ Use `https://openrouter.ai/api/v1` as the endpoint and `OPENROUTER_API_KEY` as t
 ### CI / non-interactive
 
 ```bash
-OPENROUTER_API_KEY=sk-or-v1-xxx ./scripts/deploy.sh openrouter
+helm upgrade --install synesis ./charts/synesis \
+  -f my-synesis-values.yaml \
+  --set secrets.providerApiKeys.OPENROUTER_API_KEY=sk-or-v1-xxx
 ```
 
 ### Key rotation
