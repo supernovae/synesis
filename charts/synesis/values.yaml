@@ -744,6 +744,8 @@ workloads:
         value: Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon
       - name: SYNESIS_PLANNER_TS_WRITER_MODEL
         value: synesis-general
+      - name: SYNESIS_PLANNER_TS_PLANNER_MODEL
+        value: synesis-router
       - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
         value: synesis-critic
       - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH

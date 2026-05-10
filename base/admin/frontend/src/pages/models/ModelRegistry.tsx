@@ -135,6 +135,7 @@ interface EditState {
   presence_penalty: string;
   repetition_penalty: string;
   enable_thinking: "inherit" | "enabled" | "disabled";
+  reasoning_effort: string;
   fallbacks: string;
   adapter_hint: string;
 }
@@ -176,6 +177,7 @@ function emptyEdit(role: string): EditState {
     presence_penalty: "",
     repetition_penalty: "",
     enable_thinking: "inherit",
+    reasoning_effort: "",
     fallbacks: "",
     adapter_hint: "",
   };
@@ -186,6 +188,7 @@ function editFromDeployment(d: ModelDeployment): EditState {
   const mt = (lp.max_tokens as number) ?? 8192;
   const temp = (lp.temperature as number) ?? 0.1;
   const enableThinkingRaw = lp.enable_thinking;
+  const reasoningEffortRaw = lp.reasoning_effort;
   return {
     role: d.role,
     provider: d.provider || "custom",
@@ -203,6 +206,7 @@ function editFromDeployment(d: ModelDeployment): EditState {
       typeof enableThinkingRaw === "boolean"
         ? (enableThinkingRaw ? "enabled" : "disabled")
         : "inherit",
+    reasoning_effort: typeof reasoningEffortRaw === "string" ? reasoningEffortRaw : "",
     fallbacks: (d.fallbacks ?? []).join(", "),
     adapter_hint: d.adapter_hint ?? "",
   };
@@ -235,6 +239,7 @@ function resetInheritedGenerationOverrides(state: EditState): EditState {
     presence_penalty: "",
     repetition_penalty: "",
     enable_thinking: "inherit",
+    reasoning_effort: "",
   };
 }
 
@@ -647,6 +652,7 @@ export default function ModelRegistry() {
       editing.enable_thinking === "inherit"
         ? undefined
         : editing.enable_thinking === "enabled";
+    const parsedReasoningEffort = editing.reasoning_effort.trim() || undefined;
     const defEp = (prov?.default_endpoint ?? "").trim();
     const ep = (editing.endpoint ?? "").trim();
     const endpointForApi = defEp && ep === defEp ? "" : ep;
@@ -668,6 +674,7 @@ export default function ModelRegistry() {
             ? parsedRepetitionPenalty
             : undefined,
         enable_thinking: parsedEnableThinking,
+        reasoning_effort: parsedReasoningEffort,
         fallbacks: fbList.length ? fbList : undefined,
         adapter_hint: editing.adapter_hint || null,
       },
@@ -1438,7 +1445,8 @@ function EditModal({
     || editing.min_p.trim()
     || editing.presence_penalty.trim()
     || editing.repetition_penalty.trim()
-    || editing.enable_thinking !== "inherit",
+    || editing.enable_thinking !== "inherit"
+    || editing.reasoning_effort.trim(),
   );
 
   return (
@@ -1699,6 +1707,27 @@ function EditModal({
                 </select>
                 <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
                   Maps to <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-800">enable_thinking</code> for compatible OpenAI-style providers.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Reasoning Effort
+                </label>
+                <select
+                  value={editing.reasoning_effort}
+                  onChange={(e) => setEditing({ ...editing, reasoning_effort: e.target.value })}
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  <option value="">Inherit provider default</option>
+                  <option value="none">None</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">Extra high</option>
+                  <option value="default">Provider default</option>
+                </select>
+                <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                  Maps to <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-800">reasoning_effort</code> for providers that support it, including Grok reasoning models.
                 </p>
               </div>
             </div>

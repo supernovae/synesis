@@ -504,6 +504,7 @@ export function useAssignRole() {
       presence_penalty?: number;
       repetition_penalty?: number;
       enable_thinking?: boolean;
+      reasoning_effort?: string;
       fallbacks?: string[];
       adapter_hint?: string | null;
       description?: string;

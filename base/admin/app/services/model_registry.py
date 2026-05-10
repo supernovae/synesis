@@ -38,6 +38,7 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "model": "grok-4.3",
         "max_tokens": 4096,
         "temperature": 0.1,
+        "reasoning_effort": "low",
         "description": "Default fast routing and planning model",
     },
     {
@@ -46,6 +47,7 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "model": "grok-4.3",
         "max_tokens": 2048,
         "temperature": 0.1,
+        "reasoning_effort": "low",
         "description": "Default compact summarization model",
     },
     {
@@ -118,6 +120,7 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "model": "grok-4.3",
         "max_tokens": 4096,
         "temperature": 0.1,
+        "reasoning_effort": "low",
         "description": "Default coder context compaction model",
     },
     {
@@ -126,6 +129,7 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "model": "grok-4.3",
         "max_tokens": 4096,
         "temperature": 0.0,
+        "reasoning_effort": "low",
         "description": "Default validation normalization model",
     },
     {
@@ -294,6 +298,15 @@ def _coerce_optional_bool(raw: Any) -> bool | None:
     return None
 
 
+def _coerce_reasoning_effort(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if s in {"none", "low", "medium", "high", "xhigh", "default"}:
+        return s
+    return None
+
+
 def resolve_deployment_routing_for_parts(
     *,
     provider: str,
@@ -310,6 +323,7 @@ def resolve_deployment_routing_for_parts(
     presence_penalty: float | None = None,
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
+    reasoning_effort: str | None = None,
 ) -> ResolvedDeploymentRouting:
     """Merge catalog + governance + assignment fields into LiteLLM params (single reconciliation path)."""
     p = (provider or "").strip()
@@ -328,6 +342,9 @@ def resolve_deployment_routing_for_parts(
     )
     eff_enable_thinking = _coerce_optional_bool(
         enable_thinking if enable_thinking is not None else lp_stored.get("enable_thinking")
+    )
+    eff_reasoning_effort = _coerce_reasoning_effort(
+        reasoning_effort if reasoning_effort is not None else lp_stored.get("reasoning_effort")
     )
     resolved_endpoint = _resolve_role_endpoint(
         provider=p,
@@ -351,6 +368,7 @@ def resolve_deployment_routing_for_parts(
         presence_penalty=eff_presence_penalty,
         repetition_penalty=eff_repetition_penalty,
         enable_thinking=eff_enable_thinking,
+        reasoning_effort=eff_reasoning_effort,
         litellm_prefix_override=prefix_ov,
     )
     return ResolvedDeploymentRouting(lp, effective_api_key_env, resolved_endpoint)
@@ -420,6 +438,7 @@ async def seed_default_role_assignments() -> int:
                 maps=maps,
                 max_tokens=int(seed["max_tokens"]),
                 temperature=float(seed["temperature"]),
+                reasoning_effort=seed.get("reasoning_effort"),
             )
             session.add(
                 ModelDeployment(
@@ -623,6 +642,7 @@ async def assign_role(
     presence_penalty: float | None = None,
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
+    reasoning_effort: str | None = None,
     fallbacks: list[str] | None = None,
     adapter_hint: str | None = None,
     context_window: int | None = None,
@@ -636,7 +656,7 @@ async def assign_role(
 
     NOTE: Role defaults are persisted in ``litellm_params`` and can include
     provider-specific generation controls (temperature/top_p/top_k/min_p/
-    presence_penalty/repetition_penalty/enable_thinking). Runtime request
+    presence_penalty/repetition_penalty/enable_thinking/reasoning_effort). Runtime request
     payloads may override these at call-time.
     """
     if role not in KNOWN_ROLES:
@@ -660,6 +680,7 @@ async def assign_role(
         presence_penalty=presence_penalty,
         repetition_penalty=repetition_penalty,
         enable_thinking=enable_thinking,
+        reasoning_effort=reasoning_effort,
     )
     lp = routing.litellm_params
     effective_api_key_env = routing.effective_api_key_env

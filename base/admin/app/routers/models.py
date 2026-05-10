@@ -446,6 +446,7 @@ async def assign_model_to_role(
             presence_penalty=data.get("presence_penalty"),
             repetition_penalty=data.get("repetition_penalty"),
             enable_thinking=data.get("enable_thinking"),
+            reasoning_effort=data.get("reasoning_effort"),
             fallbacks=data.get("fallbacks"),
             adapter_hint=data.get("adapter_hint"),
             context_window=data.get("context_window"),

@@ -18,6 +18,7 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_PLANNER_TS_LLM_BASE_URL: z.string().default(""),
   SYNESIS_PLANNER_TS_LLM_API_KEY: z.string().default(""),
+  SYNESIS_PLANNER_TS_PLANNER_MODEL: z.string().default("synesis-router"),
   SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("Synesis"),
   SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(300000),

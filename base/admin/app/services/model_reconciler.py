@@ -52,6 +52,7 @@ _ROUTING_KEYS = (
     "presence_penalty",
     "repetition_penalty",
     "enable_thinking",
+    "reasoning_effort",
 )
 _SECRET_NAME = "provider-api-keys"
 _SECRET_NAMESPACE = os.environ.get("SYNESIS_GATEWAY_NAMESPACE", "synesis-gateway")

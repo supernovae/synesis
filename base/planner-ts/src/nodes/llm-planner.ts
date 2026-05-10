@@ -392,9 +392,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
 
   let result: { content: string; usage: LlmUsage };
   try {
-    const plannerModel = process.env.SYNESIS_PLANNER_TS_PLANNER_MODEL
-      ?? process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-      ?? "Synesis";
+    const plannerModel = plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MODEL
+      || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+      || "Synesis";
     const plannerSystemPrompt = [
       "You are Synesis Planner. Produce a JSON plan for the user's request.",
       "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",

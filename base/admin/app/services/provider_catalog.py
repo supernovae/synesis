@@ -179,6 +179,7 @@ def build_litellm_params(
     presence_penalty: float | None = None,
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
+    reasoning_effort: str | None = None,
     litellm_prefix_override: str = "",
 ) -> dict:
     """Construct the litellm_params dict for a deployment.
@@ -205,6 +206,8 @@ def build_litellm_params(
         params["repetition_penalty"] = repetition_penalty
     if enable_thinking is not None:
         params["enable_thinking"] = enable_thinking
+    if reasoning_effort:
+        params["reasoning_effort"] = reasoning_effort
     key_env = api_key_env or info.api_key_env
     if key_env:
         params["api_key"] = f"os.environ/{key_env}"
