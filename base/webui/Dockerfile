@@ -10,6 +10,7 @@
 FROM ghcr.io/open-webui/open-webui:v0.9.4
 
 COPY overrides/middleware.py /app/backend/open_webui/utils/middleware.py
+COPY overrides/capability_matrix.py /app/backend/open_webui/utils/capability_matrix.py
 
 COPY synesis-theme.css /app/build/static/custom.css
 
