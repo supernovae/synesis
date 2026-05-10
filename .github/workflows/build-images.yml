@@ -30,8 +30,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'base/quality-runner/**'
-      - 'base/webui/Dockerfile'
-      - 'base/webui/synesis-theme.css'
+      - 'base/webui/**'
       - 'benchmarks/corpus/**'
       - 'tools/curator/**'
       - '.github/workflows/build-images.yml'
@@ -119,8 +118,7 @@ jobs:
               - 'benchmarks/corpus/**'
               - 'tools/curator/**'
             open-webui:
-              - 'base/webui/Dockerfile'
-              - 'base/webui/synesis-theme.css'
+              - 'base/webui/**'
             mcp-ts:
               - 'base/mcp-ts/**'
               - 'packages/synesis-mcp-tools/**'
@@ -552,6 +550,28 @@ jobs:
             echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:latest" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve image tags
+        if: steps.check.outputs.skip != 'true'
+        id: tags
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          PRIMARY_TAG: ${{ needs.determine-tag.outputs.tag }}
+        run: |
+          VERSION_TAG=""
+          if [[ "$IMAGE_NAME" == "open-webui" ]]; then
+            VERSION_TAG="$(sed -nE 's/^FROM ghcr\.io\/open-webui\/open-webui:([^[:space:]]+).*/\1/p' "$DOCKERFILE" | head -n 1)"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${REGISTRY}/${IMAGE_NAME}:${PRIMARY_TAG}"
+            echo "${REGISTRY}/${IMAGE_NAME}:latest"
+            if [[ -n "$VERSION_TAG" ]]; then
+              echo "${REGISTRY}/${IMAGE_NAME}:${VERSION_TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         if: steps.check.outputs.skip != 'true'
         uses: docker/build-push-action@v7
@@ -563,9 +583,7 @@ jobs:
             GIT_SHA=${{ github.sha }}
             BUILD_TIMESTAMP=${{ needs.determine-tag.outputs.timestamp }}
             ${{ steps.base.outputs.arg }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.determine-tag.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ matrix.name }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
