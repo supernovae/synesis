@@ -63,6 +63,9 @@ Thumbs.db
 # Local model cache
 synesis-models/
 
+# Synpack artifacts (large generated bundles)
+synpacks/
+
 # Secrets and credentials
 .env
 .env.*
