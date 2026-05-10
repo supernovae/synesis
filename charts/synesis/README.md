@@ -207,10 +207,11 @@ production use.
 
 LiteLLM's static config only includes service entrypoints such as `Synesis`
 and `Synesis Coder`. Provider-backed role mappings (`synesis-router`,
-`synesis-general`, `synesis-critic`, coder tiers, summarizer, and enrichment
-roles) are seeded into the Admin database on first startup and reconciled from
-the Admin Model Registry. Change role providers/models in Admin rather than
-editing `litellm.config.model_list`.
+`synesis-planner`, `synesis-writer`, `synesis-ambiguity-scorer`,
+`synesis-critic`, coder tiers, summarizer, and enrichment roles) are seeded
+into the Admin database on first startup and reconciled from the Admin Model
+Registry. Change role providers/models in Admin rather than editing
+`litellm.config.model_list`.
 
 To enable optional background jobs:
 

@@ -18,15 +18,15 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_PLANNER_TS_LLM_BASE_URL: z.string().default(""),
   SYNESIS_PLANNER_TS_LLM_API_KEY: z.string().default(""),
-  SYNESIS_PLANNER_TS_PLANNER_MODEL: z.string().default("synesis-router"),
-  SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("Synesis"),
-  SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("Synesis"),
+  SYNESIS_PLANNER_TS_PLANNER_MODEL: z.string().default("synesis-planner"),
+  SYNESIS_PLANNER_TS_WRITER_MODEL: z.string().default("synesis-writer"),
+  SYNESIS_PLANNER_TS_CRITIC_MODEL: z.string().default("synesis-critic"),
   SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS: z.coerce.number().default(300000),
   SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
-  SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL: z.string().default("synesis-general"),
+  SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL: z.string().default("synesis-ambiguity-scorer"),
   SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS: z.coerce.number().default(350),
   SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD: z.coerce.number().default(0.58),
   SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS: z.coerce.number().default(3),

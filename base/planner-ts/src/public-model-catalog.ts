@@ -10,6 +10,7 @@ export interface PublicPlannerOffering {
   standalone_endpoint: string | null;
   standalone_api_key_env: string | null;
   backend_model_override: string | null;
+  generation_params?: Record<string, unknown> | null;
 }
 
 const POLL_MS = 120_000;

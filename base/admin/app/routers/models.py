@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from datetime import date as date_type
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -170,6 +171,7 @@ class PublicOfferingCreate(BaseModel):
     standalone_endpoint: str | None = None
     standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
+    generation_params: dict[str, Any] | None = None
     expose_planner: bool = False
     expose_yarn: bool = False
     is_active: bool = True
@@ -185,6 +187,7 @@ class PublicOfferingPatch(BaseModel):
     standalone_endpoint: str | None = None
     standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
+    generation_params: dict[str, Any] | None = None
     expose_planner: bool | None = None
     expose_yarn: bool | None = None
     is_active: bool | None = None
@@ -227,6 +230,7 @@ async def create_public_offering(
                 standalone_endpoint=body.standalone_endpoint,
                 standalone_api_key_env=body.standalone_api_key_env,
                 backend_model_override=body.backend_model_override,
+                generation_params=body.generation_params,
                 expose_planner=body.expose_planner,
                 expose_yarn=body.expose_yarn,
                 is_active=body.is_active,

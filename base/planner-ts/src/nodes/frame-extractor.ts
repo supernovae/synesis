@@ -83,7 +83,7 @@ async function llmSegment(text: string, pricingRates?: PricingRates): Promise<Fr
 
   try {
     const result = await chatCompletion({
-      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "synesis-writer",
       temperature: 0,
       max_tokens: 1200,
       pricingRates,

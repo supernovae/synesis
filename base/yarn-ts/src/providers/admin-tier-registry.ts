@@ -108,6 +108,7 @@ export interface ModelSamplingDefaults {
   presence_penalty?: number;
   repetition_penalty?: number;
   enable_thinking?: boolean;
+  reasoning_effort?: string;
 }
 
 export type PromptProfile = z.infer<typeof PromptProfileSchema>;
@@ -221,6 +222,8 @@ function parseSamplingDefaults(lp: Record<string, unknown>): ModelSamplingDefaul
   if (repetitionPenalty !== undefined) out.repetition_penalty = repetitionPenalty;
   const enableThinking = asBoolean(lp.enable_thinking);
   if (enableThinking !== undefined) out.enable_thinking = enableThinking;
+  const reasoningEffort = typeof lp.reasoning_effort === "string" ? lp.reasoning_effort.trim() : "";
+  if (reasoningEffort) out.reasoning_effort = reasoningEffort;
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -350,6 +353,7 @@ const PublicOfferingRowSchema = z.object({
   standalone_endpoint: z.string().nullable().optional(),
   standalone_api_key_env: z.string().nullable().optional(),
   backend_model_override: z.string().nullable().optional(),
+  generation_params: z.record(z.string(), z.any()).nullable().optional(),
 });
 
 export type PublicYarnOffering = z.infer<typeof PublicOfferingRowSchema>;
@@ -433,6 +437,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
         backendModel: override || cid,
         baseUrl: endpoint,
         apiKey,
+        samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
       });
       continue;
     }
@@ -440,6 +445,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
       ...base,
       id: cid,
       backendModel: override || base.backendModel,
+      samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
     });
   }
   return [...baseTiers, ...extra];

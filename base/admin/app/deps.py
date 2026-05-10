@@ -32,7 +32,7 @@ LITELLM_URL = os.getenv(
     "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000",
 )
 LITELLM_MASTER_KEY = os.getenv("SYNESIS_LITELLM_MASTER_KEY", "")
-ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-general")
+ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-writer")
 MCP_URL = os.getenv(
     "SYNESIS_MCP_URL",
     "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100",

@@ -393,8 +393,9 @@ litellm:
       memory: 2Gi
   config:
     # Static LiteLLM routes are only service entrypoints. Provider-backed role
-    # aliases (synesis-router, synesis-general, synesis-critic, coder tiers,
-    # summarizer, indexer, etc.) are seeded into the Admin DB and reconciled from
+    # aliases (synesis-router, synesis-planner, synesis-writer,
+    # synesis-ambiguity-scorer, synesis-critic, coder tiers, summarizer, indexer,
+    # etc.) are seeded into the Admin DB and reconciled from
     # the Admin Model Registry.
     model_list:
       - model_name: Synesis
@@ -657,7 +658,7 @@ workloads:
             name: litellm-secrets
             key: master-key
       - name: SYNESIS_ADMIN_ASSISTANT_MODEL
-        value: synesis-general
+        value: synesis-writer
       - name: SYNESIS_MCP_URL
         value: http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100
       - name: SYNESIS_ADMIN_MCP_URL
@@ -743,9 +744,9 @@ workloads:
       - name: SYNESIS_PLANNER_TS_MODEL_IDS
         value: Synesis Auto,Synesis Pulse,Synesis Core,Synesis Horizon
       - name: SYNESIS_PLANNER_TS_WRITER_MODEL
-        value: synesis-general
+        value: synesis-writer
       - name: SYNESIS_PLANNER_TS_PLANNER_MODEL
-        value: synesis-router
+        value: synesis-planner
       - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
         value: synesis-critic
       - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
@@ -807,7 +808,7 @@ workloads:
       - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_ENABLED
         value: "true"
       - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL
-        value: synesis-general
+        value: synesis-ambiguity-scorer
       - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS
         value: "350"
       - name: SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD
@@ -1578,7 +1579,7 @@ jobs:
       - name: SYNESIS_LLM_URL
         value: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
       - name: SYNESIS_LLM_MODEL
-        value: synesis-general
+        value: synesis-writer
       - name: SYNESIS_TAXONOMY_PATH
         value: /app/taxonomy_prompt_config.yaml
     resources:

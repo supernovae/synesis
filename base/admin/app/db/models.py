@@ -261,6 +261,7 @@ class ModelPublicOffering(Base):
     standalone_endpoint: Mapped[str | None] = mapped_column(Text, nullable=True)
     standalone_api_key_env: Mapped[str | None] = mapped_column(String(128), nullable=True)
     backend_model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     expose_planner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expose_yarn: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)

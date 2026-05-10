@@ -42,6 +42,56 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "description": "Default fast routing and planning model",
     },
     {
+        "role": "planner",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "reasoning_effort": "low",
+        "description": "Default structured planning model",
+    },
+    {
+        "role": "writer",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 32768,
+        "temperature": 0.3,
+        "description": "Default final answer writer model",
+    },
+    {
+        "role": "writer-pulse",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 8192,
+        "temperature": 0.3,
+        "description": "Default fast writer tier",
+    },
+    {
+        "role": "writer-core",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 16384,
+        "temperature": 0.3,
+        "description": "Default balanced writer tier",
+    },
+    {
+        "role": "writer-horizon",
+        "provider": "deepinfra",
+        "model": "deepseek-ai/DeepSeek-V3.2",
+        "max_tokens": 32768,
+        "temperature": 0.3,
+        "description": "Default deep writer tier",
+    },
+    {
+        "role": "ambiguity-scorer",
+        "provider": "xai",
+        "model": "grok-4.3",
+        "max_tokens": 512,
+        "temperature": 0.0,
+        "reasoning_effort": "low",
+        "description": "Default clarification ambiguity scorer",
+    },
+    {
         "role": "summarizer",
         "provider": "xai",
         "model": "grok-4.3",
@@ -831,14 +881,16 @@ def _infer_role_for_cost(node_name: str, model_name: str) -> str:
     model_lower = (model_name or "").lower()
     if "summarizer" in node_lower or "summar" in node_lower or "synesis-summarizer" in model_lower:
         return "summarizer"
+    if "planner" in node_lower or "synesis-planner" in model_lower:
+        return "planner"
     if "router" in node_lower or "router" in model_lower:
         return "router"
     if "critic" in node_lower or "critic" in model_lower:
         return "critic"
     if "coder" in node_lower or "coder" in model_lower:
         return "coder"
-    if "writer" in node_lower or "planner" in node_lower:
-        return "general"
+    if "writer" in node_lower or "writer" in model_lower:
+        return "writer"
     if "general" in model_lower:
         return "general"
     return node_name or "unknown"

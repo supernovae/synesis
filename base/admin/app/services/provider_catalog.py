@@ -85,6 +85,12 @@ PROVIDER_DEFAULT_ENDPOINTS: dict[str, str] = {
 
 KNOWN_ROLES = (
     "router",
+    "planner",
+    "writer",
+    "writer-pulse",
+    "writer-core",
+    "writer-horizon",
+    "ambiguity-scorer",
     "general",
     "general-pulse",
     "general-core",
@@ -101,12 +107,18 @@ KNOWN_ROLES = (
 )
 
 ROLE_DESCRIPTIONS = {
-    "router": "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
-    "general": "Writer + final_scrubber — general reasoning & synthesis",
-    "general-pulse": "Front-end fast effort tier — lightweight synthesis and lower-latency responses",
-    "general-core": "Front-end balanced effort tier — default quality/cost trade-off",
-    "general-horizon": "Front-end deep effort tier — broad synthesis and deeper reasoning",
-    "critic": "Deep reasoning — critic node evaluates drafts",
+    "router": "Fast routing classifier — selects path, retrieval need, and effort without drafting the final answer",
+    "planner": "Structured task planner — produces JSON plans/open questions before retrieval and writing",
+    "writer": "Final answer writer — composes user-facing responses from plan, evidence, and conversation context",
+    "writer-pulse": "Writer fast effort tier — lightweight synthesis and lower-latency responses",
+    "writer-core": "Writer balanced effort tier — default quality/cost trade-off",
+    "writer-horizon": "Writer deep effort tier — broad synthesis and deeper reasoning",
+    "ambiguity-scorer": "Clarification scorer — cheap pre-plan ambiguity and follow-up question detection",
+    "general": "Legacy writer alias — kept for older routes; prefer writer for new assignments",
+    "general-pulse": "Legacy writer-pulse alias — kept for older routes; prefer writer-pulse",
+    "general-core": "Legacy writer-core alias — kept for older routes; prefer writer-core",
+    "general-horizon": "Legacy writer-horizon alias — kept for older routes; prefer writer-horizon",
+    "critic": "Critic verifier — evaluates drafts and evidence after writing; should only use the critic route",
     "coder-pulse": "Fast coder tier — lightweight completions, refactors, tab-complete (maps to Claude Haiku class)",
     "coder-core": "Balanced coder tier — multi-step agentic tasks, default for IDE sessions (maps to Claude Sonnet class)",
     "coder-horizon": "Deep reasoning coder tier — architecture decisions, complex debugging (maps to Claude Opus class)",
@@ -118,6 +130,14 @@ ROLE_DESCRIPTIONS = {
 }
 
 ROLE_SERVED_NAMES = {
+    "router": "synesis-router",
+    "planner": "synesis-planner",
+    "writer": "synesis-writer",
+    "writer-pulse": "synesis-writer-pulse",
+    "writer-core": "synesis-writer-core",
+    "writer-horizon": "synesis-writer-horizon",
+    "ambiguity-scorer": "synesis-ambiguity-scorer",
+    "critic": "synesis-critic",
     "general-pulse": "synesis-general-pulse",
     "general-core": "synesis-general-core",
     "general-horizon": "synesis-general-horizon",

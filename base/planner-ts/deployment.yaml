@@ -60,10 +60,14 @@ spec:
               value: "true"
             - name: SYNESIS_PLANNER_TS_LLM_BASE_URL
               value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+            - name: SYNESIS_PLANNER_TS_PLANNER_MODEL
+              value: "synesis-planner"
             - name: SYNESIS_PLANNER_TS_WRITER_MODEL
-              value: "synesis-general"
+              value: "synesis-writer"
             - name: SYNESIS_PLANNER_TS_CRITIC_MODEL
               value: "synesis-critic"
+            - name: SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL
+              value: "synesis-ambiguity-scorer"
             - name: SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS
               value: "300000"
             - name: SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS

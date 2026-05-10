@@ -17,6 +17,13 @@ export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  min_p?: number;
+  presence_penalty?: number;
+  repetition_penalty?: number;
+  enable_thinking?: boolean;
+  reasoning_effort?: string;
   max_tokens?: number;
   pricingRates?: PricingRates;
   response_format?: Record<string, unknown>;
@@ -266,11 +273,18 @@ function buildRequestBody(request: ChatRequest, prefixCacheMode: string): Record
     temperature: request.temperature ?? 0,
     max_tokens: request.max_tokens,
   };
+  if (request.top_p !== undefined) body.top_p = request.top_p;
+  if (request.presence_penalty !== undefined) body.presence_penalty = request.presence_penalty;
+  if (request.reasoning_effort) body.reasoning_effort = request.reasoning_effort;
   if (request.response_format && typeof request.response_format === "object") {
     body.response_format = request.response_format;
   }
 
   const extraBody: Record<string, unknown> = {};
+  if (request.top_k !== undefined) extraBody.top_k = request.top_k;
+  if (request.min_p !== undefined) extraBody.min_p = request.min_p;
+  if (request.repetition_penalty !== undefined) extraBody.repetition_penalty = request.repetition_penalty;
+  if (request.enable_thinking !== undefined) extraBody.enable_thinking = request.enable_thinking;
   if (prefixCacheMode === "strict") {
     extraBody.enable_prefix_caching = true;
   }

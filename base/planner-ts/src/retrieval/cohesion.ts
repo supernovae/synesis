@@ -190,7 +190,7 @@ async function detectFromLlm(results: UnifiedResult[], topN: number): Promise<Co
 
   try {
     const result = await chatCompletion({
-      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "synesis-writer",
       temperature: 0,
       max_tokens: 256,
       messages: [
@@ -300,7 +300,7 @@ function regexFilter(results: UnifiedResult[], lock: CohesionLockData): UnifiedR
 async function microCriticSingle(doc: UnifiedResult, lock: CohesionLockData): Promise<boolean> {
   try {
     const result = await chatCompletion({
-      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "Synesis",
+      model: process.env.SYNESIS_PLANNER_TS_WRITER_MODEL ?? "synesis-writer",
       temperature: 0,
       max_tokens: 128,
       messages: [

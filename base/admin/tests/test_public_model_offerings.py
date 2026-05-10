@@ -6,6 +6,7 @@ import pytest
 from app.services.public_model_offerings_rules import (
     effort_to_coder_role,
     effort_to_general_role,
+    normalize_generation_params,
     normalize_offering_connection,
     validate_client_model_id,
     validate_connection_mode,
@@ -92,3 +93,27 @@ def test_normalize_offering_connection_standalone_ok() -> None:
     assert provider == "openrouter"
     assert endpoint == "https://example.com/v1"
     assert api_key_env == "OPENROUTER_API_KEY"
+
+
+def test_normalize_generation_params() -> None:
+    assert normalize_generation_params(
+        {
+            "max_tokens": "2048",
+            "temperature": "0.1",
+            "top_k": 20,
+            "enable_thinking": False,
+            "reasoning_effort": "low",
+            "ignored": "value",
+        }
+    ) == {
+        "max_tokens": 2048,
+        "temperature": 0.1,
+        "top_k": 20,
+        "enable_thinking": False,
+        "reasoning_effort": "low",
+    }
+
+
+def test_normalize_generation_params_rejects_invalid_boolean() -> None:
+    with pytest.raises(ValueError, match="enable_thinking"):
+        normalize_generation_params({"enable_thinking": "false"})

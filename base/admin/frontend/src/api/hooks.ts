@@ -674,6 +674,7 @@ export interface PublicModelOffering {
   standalone_endpoint: string | null;
   standalone_api_key_env: string | null;
   backend_model_override: string | null;
+  generation_params: Record<string, unknown> | null;
   expose_planner: boolean;
   expose_yarn: boolean;
   is_active: boolean;
@@ -702,6 +703,7 @@ export function useCreatePublicOffering() {
       standalone_endpoint?: string | null;
       standalone_api_key_env?: string | null;
       backend_model_override?: string | null;
+      generation_params?: Record<string, unknown> | null;
       expose_planner?: boolean;
       expose_yarn?: boolean;
       is_active?: boolean;
@@ -728,6 +730,7 @@ export function usePatchPublicOffering() {
       standalone_endpoint: string | null;
       standalone_api_key_env: string | null;
       backend_model_override: string | null;
+      generation_params: Record<string, unknown> | null;
       expose_planner: boolean;
       expose_yarn: boolean;
       is_active: boolean;

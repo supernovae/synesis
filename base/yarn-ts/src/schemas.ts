@@ -38,6 +38,7 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   presence_penalty: z.number().optional(),
   repetition_penalty: z.number().optional(),
   enable_thinking: z.boolean().optional(),
+  reasoning_effort: z.string().optional(),
   max_tokens: z.number().optional(),
   max_completion_tokens: z.number().optional(),
   stream_options: z.object({
@@ -71,6 +72,7 @@ export const ClaudeMessagesRequestSchema = z.object({
   presence_penalty: z.number().optional(),
   repetition_penalty: z.number().optional(),
   enable_thinking: z.boolean().optional(),
+  reasoning_effort: z.string().optional(),
   stop_sequences: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional()
 }).passthrough();

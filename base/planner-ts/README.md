@@ -51,8 +51,10 @@ This service is the TypeScript migration target for the planner runtime.
   - critic decisions now include scores, blocking/nonblocking issues, and repair instructions
 - Optional LLM path (env-gated, deterministic fallback preserved):
   - `SYNESIS_PLANNER_TS_LLM_ENABLED=true` + `SYNESIS_PLANNER_TS_LLM_BASE_URL` enables OpenAI-compatible calls
+  - planner model via `SYNESIS_PLANNER_TS_PLANNER_MODEL`
   - writer model via `SYNESIS_PLANNER_TS_WRITER_MODEL`
   - critic model via `SYNESIS_PLANNER_TS_CRITIC_MODEL`
+  - ambiguity scorer model via `SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL`
   - on LLM errors/timeouts, writer/critic fall back to deterministic logic
 - SSE decoupling and cleanup:
   - centralized SSE writer helpers in `src/streaming/sse.ts`

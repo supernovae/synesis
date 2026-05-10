@@ -281,10 +281,10 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
   const writerModel =
     state.resolved_writer_model?.trim()
     || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-    || "Synesis";
+    || "synesis-writer";
   const composedWriterSystem = composePlannerPrompt(systemParts.join(" "), {
     tier: state.model_tier,
-    role: "general",
+    role: "writer",
     node: "writer",
     model: writerModel,
   }).content;
@@ -317,14 +317,22 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
   if (!isLlmAvailable()) return { content: fallback, usage: ZERO_USAGE };
 
   try {
+    const generation = state.writer_generation_params ?? {};
     const result = await chatCompletion({
       model:
         state.resolved_writer_model?.trim()
         || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-        || "Synesis",
-      temperature: 0.2,
-      max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
-      pricingRates: state.pricing_rates_by_role?.general,
+        || "synesis-writer",
+      temperature: generation.temperature ?? 0.2,
+      top_p: generation.top_p,
+      top_k: generation.top_k,
+      min_p: generation.min_p,
+      presence_penalty: generation.presence_penalty,
+      repetition_penalty: generation.repetition_penalty,
+      enable_thinking: generation.enable_thinking,
+      reasoning_effort: generation.reasoning_effort,
+      max_tokens: generation.max_tokens ?? state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+      pricingRates: state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,
@@ -376,16 +384,24 @@ export async function composeWriterDraftStream(
   try {
     const cfg = loadConfig();
     const mermaidGuardEnabled = cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED && !jsonMode;
+    const generation = state.writer_generation_params ?? {};
 
     const result = await chatCompletionStream(
       {
         model:
           state.resolved_writer_model?.trim()
           || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-          || "Synesis",
-        temperature: 0.2,
-        max_tokens: state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
-        pricingRates: state.pricing_rates_by_role?.general,
+          || "synesis-writer",
+        temperature: generation.temperature ?? 0.2,
+        top_p: generation.top_p,
+        top_k: generation.top_k,
+        min_p: generation.min_p,
+        presence_penalty: generation.presence_penalty,
+        repetition_penalty: generation.repetition_penalty,
+        enable_thinking: generation.enable_thinking,
+        reasoning_effort: generation.reasoning_effort,
+        max_tokens: generation.max_tokens ?? state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
+        pricingRates: state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general,
         request_id: state.run_id,
         authz_trace_id: state.authz_trace_id,
         traceparent: state.traceparent,

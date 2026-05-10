@@ -224,7 +224,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
     .filter(Boolean)
     .join("\n\n");
 
-  const criticModel = process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "Synesis";
+  const criticModel = process.env.SYNESIS_PLANNER_TS_CRITIC_MODEL ?? "synesis-critic";
   const criticSystemPrompt = composePlannerPrompt(
     `You are Synesis Critic. Output only valid JSON matching keys: approved, need_more_evidence, continue_reason, blocking_issues, nonblocking, repair_instructions, scores.\n\n${TRUST_POLICY_COMPACT}`,
     {

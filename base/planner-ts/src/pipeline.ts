@@ -481,7 +481,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
     need_more_evidence: needMoreEvidence,
     critic_should_continue: shouldContinue
   });
-  const model = state.response_model ?? state.requested_model ?? "unknown";
+  const model = loadConfig().SYNESIS_PLANNER_TS_CRITIC_MODEL || "synesis-critic";
   const llmCall = usageToLlmCall("critic", model, criticResult.usage, 0);
   collector.endSpan("critic", {
     outcome: approved ? "approved" : "rejected",
@@ -498,6 +498,7 @@ async function criticNodeCore(state: GraphState): Promise<GraphState> {
       violations: allViolations.length,
       routed_to: routed,
       iteration,
+      execution_mode: criticResult.usage?.total_tokens ? "llm" : "deterministic",
       ...budgetSpanMetadata(
         state.critic_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE,
         criticResult.usage,

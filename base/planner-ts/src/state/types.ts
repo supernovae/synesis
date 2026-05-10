@@ -14,6 +14,18 @@ export type GraphNodeName =
 
 export type CynefinDomain = "clear" | "complicated" | "complex" | "chaotic";
 
+export interface GenerationParams {
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  min_p?: number;
+  presence_penalty?: number;
+  repetition_penalty?: number;
+  enable_thinking?: boolean;
+  reasoning_effort?: string;
+}
+
 export interface GraphState {
   messages?: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
   user_id?: string;
@@ -27,10 +39,14 @@ export interface GraphState {
   authz_rules?: string[];
   requested_model?: string;
   response_model?: string;
-  /** Admin registry role for pricing (e.g. general-core) when using public offerings or tiered general roles. */
+  /** Admin registry writer role for pricing (e.g. writer-core) when using public offerings or tiered writer roles. */
+  registry_writer_role?: string;
+  /** Legacy alias retained for older traces/tests. */
   registry_general_role?: string;
   /** Resolved LiteLLM / gateway model id for the writer when using a public offering. */
   resolved_writer_model?: string;
+  /** Public-offering writer generation overrides from the Admin registry. */
+  writer_generation_params?: GenerationParams;
   model_tier?: "auto" | "pulse" | "core" | "horizon";
   task_size?: "easy" | "medium" | "hard";
   difficulty?: number;
@@ -84,7 +100,10 @@ export interface GraphState {
   llm_usage?: import("@synesis/telemetry").LlmUsage;
   pricing_rates_by_role?: {
     router: import("@synesis/telemetry").PricingRates;
-    general: import("@synesis/telemetry").PricingRates;
+    planner: import("@synesis/telemetry").PricingRates;
+    writer: import("@synesis/telemetry").PricingRates;
+    ambiguity: import("@synesis/telemetry").PricingRates;
+    general?: import("@synesis/telemetry").PricingRates;
     critic: import("@synesis/telemetry").PricingRates;
   };
   error?: string;

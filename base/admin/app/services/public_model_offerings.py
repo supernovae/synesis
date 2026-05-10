@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ModelPublicOffering
 from .public_model_offerings_rules import (
+    normalize_generation_params,
     normalize_offering_connection,
     validate_client_model_id,
 )
@@ -35,6 +36,7 @@ def row_to_api(row: ModelPublicOffering) -> dict[str, Any]:
         "standalone_endpoint": row.standalone_endpoint,
         "standalone_api_key_env": row.standalone_api_key_env,
         "backend_model_override": row.backend_model_override,
+        "generation_params": row.generation_params,
         "expose_planner": row.expose_planner,
         "expose_yarn": row.expose_yarn,
         "is_active": row.is_active,
@@ -84,6 +86,7 @@ async def create_offering(
     backend_model_override: str | None,
     expose_planner: bool,
     expose_yarn: bool,
+    generation_params: dict[str, Any] | None = None,
     is_active: bool = True,
 ) -> dict[str, Any]:
     cid = validate_client_model_id(client_model_id)
@@ -109,6 +112,7 @@ async def create_offering(
         standalone_endpoint=standalone_endpoint_norm,
         standalone_api_key_env=standalone_api_key_env_norm,
         backend_model_override=override,
+        generation_params=normalize_generation_params(generation_params),
         expose_planner=bool(expose_planner),
         expose_yarn=bool(expose_yarn),
         is_active=bool(is_active),
@@ -138,6 +142,8 @@ async def update_offering(
             row.backend_model_override = None
         else:
             row.backend_model_override = str(v).strip() or None
+    if "generation_params" in patch:
+        row.generation_params = normalize_generation_params(patch["generation_params"])
     if "expose_planner" in patch:
         row.expose_planner = bool(patch["expose_planner"])
     if "is_active" in patch:

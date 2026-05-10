@@ -110,8 +110,7 @@ async function runAmbiguityScorer(
     return {};
   }
   const model = cfg.SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL
-    || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-    || "synesis-general";
+    || "synesis-ambiguity-scorer";
   const started = Date.now();
   try {
     const messages = [
@@ -146,7 +145,7 @@ async function runAmbiguityScorer(
       model,
       temperature: 0,
       max_tokens: cfg.SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MAX_TOKENS,
-      pricingRates: state.pricing_rates_by_role?.router,
+      pricingRates: state.pricing_rates_by_role?.ambiguity ?? state.pricing_rates_by_role?.planner,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,
@@ -393,8 +392,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   let result: { content: string; usage: LlmUsage };
   try {
     const plannerModel = plannerCfg.SYNESIS_PLANNER_TS_PLANNER_MODEL
-      || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
-      || "Synesis";
+      || "synesis-planner";
     const plannerSystemPrompt = [
       "You are Synesis Planner. Produce a JSON plan for the user's request.",
       "Output ONLY valid JSON matching this schema: { steps: [{ id, action, dependencies }], open_questions: string[], assumptions: string[], confidence: number, reasoning: string }.",
@@ -414,7 +412,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     ].filter(Boolean).join("\n");
     const composed = composePlannerPrompt(plannerSystemPrompt, {
       tier: state.model_tier,
-      role: "router",
+      role: "planner",
       node: "planner",
       model: plannerModel,
     });
@@ -434,7 +432,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       model: plannerModel,
       temperature: 0,
       max_tokens: effectiveMaxTokens,
-      pricingRates: state.pricing_rates_by_role?.router,
+      pricingRates: state.pricing_rates_by_role?.planner ?? state.pricing_rates_by_role?.router,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,

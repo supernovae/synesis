@@ -80,17 +80,23 @@ function routeViaLabel(role: string | null | undefined, effortFallback: string):
 
 /** Display order for the canonical mapping table (remaining roles sort alphabetically after). */
 const CANONICAL_ROLE_ORDER = [
+  "router",
+  "planner",
+  "ambiguity-scorer",
+  "writer",
+  "writer-pulse",
+  "writer-core",
+  "writer-horizon",
+  "critic",
   "coder-pulse",
   "coder-core",
   "coder-horizon",
+  "coder-compaction",
+  "summarizer",
   "general-pulse",
   "general-core",
   "general-horizon",
-  "router",
   "general",
-  "critic",
-  "coder-compaction",
-  "summarizer",
 ] as const;
 
 const ROLE_ROW_TITLE: Partial<Record<string, string>> = {
@@ -100,6 +106,7 @@ const ROLE_ROW_TITLE: Partial<Record<string, string>> = {
   "general-pulse": "Chat — fast effort tier",
   "general-core": "Chat — default effort tier",
   "general-horizon": "Chat — deep effort tier",
+  general: "Legacy writer alias",
 };
 
 function sortRolesForCanonicalTable(a: ModelDeployment, b: ModelDeployment): number {
@@ -258,6 +265,58 @@ function parseOptionalInt(value: string): number | undefined {
   return parsed;
 }
 
+function generationParamsFromDraft(draft: NewOfferingDraft): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  const maxTokens = parseOptionalInt(draft.max_tokens);
+  const temperature = parseOptionalFloat(draft.temperature);
+  const topP = parseOptionalFloat(draft.top_p);
+  const topK = parseOptionalInt(draft.top_k);
+  const minP = parseOptionalFloat(draft.min_p);
+  const presencePenalty = parseOptionalFloat(draft.presence_penalty);
+  const repetitionPenalty = parseOptionalFloat(draft.repetition_penalty);
+  if (maxTokens != null && maxTokens > 0) out.max_tokens = maxTokens;
+  if (temperature != null && temperature >= 0) out.temperature = temperature;
+  if (topP != null && topP >= 0 && topP <= 1) out.top_p = topP;
+  if (topK != null && topK >= 0) out.top_k = topK;
+  if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
+  if (presencePenalty != null) out.presence_penalty = presencePenalty;
+  if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
+  if (draft.enable_thinking !== "inherit") out.enable_thinking = draft.enable_thinking === "enabled";
+  if (draft.reasoning_effort.trim()) out.reasoning_effort = draft.reasoning_effort.trim();
+  return Object.keys(out).length ? out : null;
+}
+
+function draftFromOffering(o: PublicModelOffering): NewOfferingDraft {
+  const gp = (o.generation_params ?? {}) as Record<string, unknown>;
+  return {
+    client_model_id: o.client_model_id,
+    label: o.label ?? "",
+    effort_tier: (["pulse", "core", "horizon"].includes(o.effort_tier)
+      ? o.effort_tier
+      : "core") as NewOfferingDraft["effort_tier"],
+    connection_mode: normalizeConnectionMode(o.connection_mode),
+    route_via_role: (ROUTE_VIA_OPTIONS.some((opt) => opt.value === o.route_via_role)
+      ? o.route_via_role
+      : `coder-${o.effort_tier}`) as NewOfferingDraft["route_via_role"],
+    standalone_provider: o.standalone_provider ?? "",
+    standalone_endpoint: o.standalone_endpoint ?? "",
+    standalone_api_key_env: o.standalone_api_key_env ?? "",
+    backend_model_override: o.backend_model_override ?? "",
+    max_tokens: gp.max_tokens != null ? String(gp.max_tokens) : "",
+    temperature: gp.temperature != null ? String(gp.temperature) : "",
+    top_p: gp.top_p != null ? String(gp.top_p) : "",
+    top_k: gp.top_k != null ? String(gp.top_k) : "",
+    min_p: gp.min_p != null ? String(gp.min_p) : "",
+    presence_penalty: gp.presence_penalty != null ? String(gp.presence_penalty) : "",
+    repetition_penalty: gp.repetition_penalty != null ? String(gp.repetition_penalty) : "",
+    enable_thinking: typeof gp.enable_thinking === "boolean" ? (gp.enable_thinking ? "enabled" : "disabled") : "inherit",
+    reasoning_effort: typeof gp.reasoning_effort === "string" ? gp.reasoning_effort : "",
+    expose_planner: o.expose_planner,
+    expose_yarn: o.expose_yarn,
+    is_active: o.is_active,
+  };
+}
+
 type OfferingConnectionMode = (typeof CONNECTION_MODE_OPTIONS)[number]["value"];
 
 function normalizeConnectionMode(v: string | null | undefined): OfferingConnectionMode {
@@ -282,6 +341,7 @@ type PublicOfferingPatch = {
   standalone_endpoint: string | null;
   standalone_api_key_env: string | null;
   backend_model_override: string | null;
+  generation_params: Record<string, unknown> | null;
   expose_planner: boolean;
   expose_yarn: boolean;
   is_active: boolean;
@@ -297,19 +357,31 @@ interface NewOfferingDraft {
   standalone_endpoint: string;
   standalone_api_key_env: string;
   backend_model_override: string;
+  max_tokens: string;
+  temperature: string;
+  top_p: string;
+  top_k: string;
+  min_p: string;
+  presence_penalty: string;
+  repetition_penalty: string;
+  enable_thinking: "inherit" | "enabled" | "disabled";
+  reasoning_effort: string;
   expose_planner: boolean;
   expose_yarn: boolean;
+  is_active: boolean;
 }
 
 function ExtraPublicOfferingCard({
   o,
   roles,
   onPatch,
+  onEdit,
   onDelete,
 }: {
   o: PublicModelOffering;
   roles: ModelDeployment[];
   onPatch: (patch: PublicOfferingPatch) => void;
+  onEdit: (offering: PublicModelOffering) => void;
   onDelete: (id: number) => void;
 }) {
   const [label, setLabel] = useState(() => o.label ?? "");
@@ -385,17 +457,27 @@ function ExtraPublicOfferingCard({
             <h3 className="font-mono text-sm font-semibold text-gray-900 dark:text-white">{o.client_model_id}</h3>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm(`Remove model “${o.client_model_id}”?`)) {
-              onDelete(o.id);
-            }
-          }}
-          className="shrink-0 text-xs text-red-600 hover:underline dark:text-red-400"
-        >
-          Remove
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onEdit(o)}
+            className="inline-flex rounded p-1 text-gray-500 hover:bg-violet-100 hover:text-violet-700 dark:hover:bg-violet-900/30 dark:hover:text-violet-300"
+            title="Edit model name, connection, and generation parameters"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Remove model “${o.client_model_id}”?`)) {
+                onDelete(o.id);
+              }
+            }}
+            className="text-xs text-red-600 hover:underline dark:text-red-400"
+          >
+            Remove
+          </button>
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
         <span className="rounded bg-violet-100 px-1.5 py-0.5 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
@@ -446,6 +528,14 @@ function ExtraPublicOfferingCard({
       <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
         Effective wire: <span className="font-mono text-gray-700 dark:text-gray-300">{effectiveWire}</span>
       </p>
+      {o.generation_params && Object.keys(o.generation_params).length > 0 && (
+        <p className="mt-1 truncate text-[10px] text-gray-500 dark:text-gray-400" title={JSON.stringify(o.generation_params)}>
+          Generation overrides:{" "}
+          <span className="font-mono text-gray-700 dark:text-gray-300">
+            {Object.keys(o.generation_params).join(", ")}
+          </span>
+        </p>
+      )}
 
       {mode === "standalone" ? (
         <>
@@ -566,6 +656,13 @@ export default function ModelRegistry() {
     () => (govData ? buildCatalogFromGovernance(govData) : undefined),
     [govData],
   );
+  const roleInfoByKey = useMemo(() => {
+    const m = new Map<string, { served_name: string; description: string }>();
+    for (const r of catalogData?.roles ?? []) {
+      m.set(r.key, { served_name: r.served_name, description: r.description });
+    }
+    return m;
+  }, [catalogData?.roles]);
   const configuredKeys = useMemo(
     () =>
       new Set(
@@ -580,6 +677,7 @@ export default function ModelRegistry() {
   const patchOfferingMut = usePatchPublicOffering();
   const deleteOfferingMut = useDeletePublicOffering();
   const [newModelOpen, setNewModelOpen] = useState(false);
+  const [editingOfferingId, setEditingOfferingId] = useState<number | null>(null);
   const [newModelError, setNewModelError] = useState<string | null>(null);
   const [newOffering, setNewOffering] = useState<NewOfferingDraft>({
     client_model_id: "",
@@ -591,8 +689,18 @@ export default function ModelRegistry() {
     standalone_endpoint: "",
     standalone_api_key_env: "",
     backend_model_override: "",
+    max_tokens: "",
+    temperature: "",
+    top_p: "",
+    top_k: "",
+    min_p: "",
+    presence_penalty: "",
+    repetition_penalty: "",
+    enable_thinking: "inherit",
+    reasoning_effort: "",
     expose_planner: true,
     expose_yarn: true,
+    is_active: true,
   });
 
   const [editing, setEditing] = useState<EditState | null>(null);
@@ -693,8 +801,18 @@ export default function ModelRegistry() {
       standalone_endpoint: "",
       standalone_api_key_env: "",
       backend_model_override: "",
+      max_tokens: "",
+      temperature: "",
+      top_p: "",
+      top_k: "",
+      min_p: "",
+      presence_penalty: "",
+      repetition_penalty: "",
+      enable_thinking: "inherit",
+      reasoning_effort: "",
       expose_planner: true,
       expose_yarn: true,
+      is_active: true,
     });
   };
 
@@ -702,13 +820,25 @@ export default function ModelRegistry() {
     setNewModelError(null);
     createOfferingMut.reset();
     resetNewOffering();
+    setEditingOfferingId(null);
     setNewModelOpen(true);
   };
 
   const closeNewModelModal = () => {
     setNewModelOpen(false);
+    setEditingOfferingId(null);
     setNewModelError(null);
     createOfferingMut.reset();
+    patchOfferingMut.reset();
+  };
+
+  const openEditOfferingModal = (offering: PublicModelOffering) => {
+    setNewModelError(null);
+    createOfferingMut.reset();
+    patchOfferingMut.reset();
+    setNewOffering(draftFromOffering(offering));
+    setEditingOfferingId(offering.id);
+    setNewModelOpen(true);
   };
 
   const handleCreateNewModel = () => {
@@ -733,20 +863,38 @@ export default function ModelRegistry() {
       }
     }
     setNewModelError(null);
+    const payload = {
+      client_model_id: clientModelId,
+      label: newOffering.label.trim() || null,
+      effort_tier: newOffering.effort_tier,
+      connection_mode: mode,
+      route_via_role: mode === "role_clone" ? newOffering.route_via_role : null,
+      standalone_provider: mode === "standalone" ? (newOffering.standalone_provider.trim() || null) : null,
+      standalone_endpoint: mode === "standalone" ? (newOffering.standalone_endpoint.trim() || null) : null,
+      standalone_api_key_env: mode === "standalone" ? (newOffering.standalone_api_key_env.trim() || null) : null,
+      backend_model_override: newOffering.backend_model_override.trim() || null,
+      generation_params: generationParamsFromDraft(newOffering),
+      expose_planner: newOffering.expose_planner,
+      expose_yarn: newOffering.expose_yarn,
+      is_active: newOffering.is_active,
+    };
+    if (editingOfferingId != null) {
+      patchOfferingMut.mutate(
+        { id: editingOfferingId, ...payload },
+        {
+          onSuccess: () => {
+            closeNewModelModal();
+            resetNewOffering();
+          },
+          onError: (err) => {
+            setNewModelError((err as Error)?.message || "Update failed");
+          },
+        },
+      );
+      return;
+    }
     createOfferingMut.mutate(
-      {
-        client_model_id: clientModelId,
-        label: newOffering.label.trim() || null,
-        effort_tier: newOffering.effort_tier,
-        connection_mode: mode,
-        route_via_role: mode === "role_clone" ? newOffering.route_via_role : null,
-        standalone_provider: mode === "standalone" ? (newOffering.standalone_provider.trim() || null) : null,
-        standalone_endpoint: mode === "standalone" ? (newOffering.standalone_endpoint.trim() || null) : null,
-        standalone_api_key_env: mode === "standalone" ? (newOffering.standalone_api_key_env.trim() || null) : null,
-        backend_model_override: newOffering.backend_model_override.trim() || null,
-        expose_planner: newOffering.expose_planner,
-        expose_yarn: newOffering.expose_yarn,
-      },
+      payload,
       {
         onSuccess: () => {
           closeNewModelModal();
@@ -765,7 +913,7 @@ export default function ModelRegistry() {
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Model Registry</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           The <strong>canonical mapping</strong> table is one row per internal role (e.g.{" "}
-          <span className="font-mono text-xs">general-core</span>, <span className="font-mono text-xs">coder-pulse</span>
+          <span className="font-mono text-xs">writer-core</span>, <span className="font-mono text-xs">planner</span>
           ). Multiple roles can point at the same provider/model — you do not need a separate physical deployment per
           role. Extra client-visible model names below can either clone canonical role routing or use standalone Yarn
           connection details, without renaming those roles.
@@ -825,7 +973,8 @@ export default function ModelRegistry() {
                     const shareKey = r.assigned ? `${r.provider}|${r.model}|${r.endpoint}` : "";
                     const sharedRoles = shareKey ? sharedMap.get(shareKey) ?? [] : [];
                     const coRoles = sharedRoles.filter((x) => x !== r.role);
-                    const hint = ROLE_ROW_TITLE[r.role];
+                    const roleInfo = roleInfoByKey.get(r.role);
+                    const hint = roleInfo?.description ?? ROLE_ROW_TITLE[r.role];
                     return (
                       <tr
                         key={r.role}
@@ -836,10 +985,15 @@ export default function ModelRegistry() {
                         <td className="max-w-[140px] px-3 py-2 align-top">
                           <span
                             className="font-mono text-[11px] font-semibold text-gray-900 dark:text-white"
-                            title={hint ?? r.role}
+                            title={hint ? `${r.role} (${roleInfo?.served_name ?? `synesis-${r.role}`}): ${hint}` : r.role}
                           >
                             {r.role}
                           </span>
+                          {roleInfo?.served_name && (
+                            <span className="mt-0.5 block font-mono text-[10px] text-gray-400">
+                              {roleInfo.served_name}
+                            </span>
+                          )}
                           {hint && (
                             <span className="mt-0.5 block text-[10px] leading-snug text-gray-500 dark:text-gray-400">
                               {hint}
@@ -960,6 +1114,7 @@ export default function ModelRegistry() {
                 o={o}
                 roles={roles}
                 onPatch={(patch) => patchOfferingMut.mutate(patch)}
+                onEdit={openEditOfferingModal}
                 onDelete={(id) => deleteOfferingMut.mutate(id)}
               />
             ))}
@@ -972,8 +1127,9 @@ export default function ModelRegistry() {
           draft={newOffering}
           setDraft={setNewOffering}
           providers={providers}
-          isSaving={createOfferingMut.isPending}
-          error={newModelError || (createOfferingMut.isError ? ((createOfferingMut.error as Error)?.message ?? "Create failed") : null)}
+          mode={editingOfferingId == null ? "create" : "edit"}
+          isSaving={createOfferingMut.isPending || patchOfferingMut.isPending}
+          error={newModelError || (createOfferingMut.isError ? ((createOfferingMut.error as Error)?.message ?? "Create failed") : null) || (patchOfferingMut.isError ? ((patchOfferingMut.error as Error)?.message ?? "Update failed") : null)}
           onClose={closeNewModelModal}
           onSubmit={handleCreateNewModel}
         />
@@ -1003,6 +1159,7 @@ function NewPublicOfferingModal({
   draft,
   setDraft,
   providers,
+  mode,
   isSaving,
   error,
   onClose,
@@ -1011,6 +1168,7 @@ function NewPublicOfferingModal({
   draft: NewOfferingDraft;
   setDraft: (next: NewOfferingDraft) => void;
   providers: Record<string, ProviderInfo>;
+  mode: "create" | "edit";
   isSaving: boolean;
   error: string | null;
   onClose: () => void;
@@ -1054,11 +1212,15 @@ function NewPublicOfferingModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
         <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">New Model</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+            {mode === "edit" ? "Edit Model" : "New Model"}
+          </h2>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Add a client-selectable model name without changing canonical pulse/core/horizon roles.
+            {mode === "edit"
+              ? "Update this client-selectable model name, connection, and generation overrides."
+              : "Add a client-selectable model name without changing canonical pulse/core/horizon roles."}
           </p>
         </div>
         <div className="space-y-3 px-5 py-4">
@@ -1218,6 +1380,107 @@ function NewPublicOfferingModal({
               />
               Expose in Planner / Chat
             </label>
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={draft.is_active}
+                onChange={(e) => setDraft({ ...draft, is_active: e.target.checked })}
+              />
+              Active
+            </label>
+          </div>
+
+          <div className="rounded border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+            <p className="text-xs font-medium text-gray-800 dark:text-gray-200">Generation overrides</p>
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Leave fields empty to inherit from the attached canonical role or provider defaults.
+            </p>
+            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Max tokens
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.max_tokens}
+                  onChange={(e) => setDraft({ ...draft, max_tokens: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Temperature
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.temperature}
+                  onChange={(e) => setDraft({ ...draft, temperature: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Top P
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.top_p}
+                  onChange={(e) => setDraft({ ...draft, top_p: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Top K
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.top_k}
+                  onChange={(e) => setDraft({ ...draft, top_k: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Min P
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.min_p}
+                  onChange={(e) => setDraft({ ...draft, min_p: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Reasoning effort
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.reasoning_effort}
+                  onChange={(e) => setDraft({ ...draft, reasoning_effort: e.target.value })}
+                  placeholder="low / medium / high"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Presence penalty
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.presence_penalty}
+                  onChange={(e) => setDraft({ ...draft, presence_penalty: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Repetition penalty
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.repetition_penalty}
+                  onChange={(e) => setDraft({ ...draft, repetition_penalty: e.target.value })}
+                  placeholder="inherit"
+                />
+              </label>
+              <label className="block text-xs text-gray-600 dark:text-gray-400">
+                Thinking
+                <select
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  value={draft.enable_thinking}
+                  onChange={(e) => setDraft({ ...draft, enable_thinking: e.target.value as NewOfferingDraft["enable_thinking"] })}
+                >
+                  <option value="inherit">Inherit</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
@@ -1236,7 +1499,7 @@ function NewPublicOfferingModal({
             onClick={onSubmit}
             className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {isSaving ? "Creating..." : "Create model"}
+            {isSaving ? (mode === "edit" ? "Saving..." : "Creating...") : (mode === "edit" ? "Save changes" : "Create model")}
           </button>
         </div>
       </div>

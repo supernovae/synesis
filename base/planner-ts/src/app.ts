@@ -518,8 +518,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
           },
           "background critic completed",
         );
-        const model = state.response_model ?? state.requested_model ?? "unknown";
+        const model = config.SYNESIS_PLANNER_TS_CRITIC_MODEL || "synesis-critic";
         const criticRates = state.pricing_rates_by_role?.critic ?? pricingRegistry.getRates("critic");
+        const criticExecutionMode = result.usage?.total_tokens ? "llm" : "deterministic";
         const bgCriticData: Record<string, unknown> = {
           approved: result.approved,
           need_more_evidence: result.need_more_evidence,
@@ -528,6 +529,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           nonblocking: result.nonblocking ?? [],
           latency_ms: criticLatencyMs,
           is_background: true,
+          execution_mode: criticExecutionMode,
         };
         const syntheticSpan: import("@synesis/telemetry").TraceSpanRecord = {
           node_name: "background_critic",
@@ -610,7 +612,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     );
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestedEffortMode = tierSettings.tier;
-    const generalPricingRole = tierSettings.registry_general_role ?? "general";
+    const writerPricingRole = tierSettings.registry_writer_role ?? tierSettings.registry_general_role ?? "writer";
     const plannerMatrixModelId = String(tierSettings.responseModel || tierSettings.requestedModel || requestBody.model || "");
     const plannerMatrixModelPath = plannerMatrixModelId;
     const plannerMatrixFamily = inferPlannerModelFamily(plannerMatrixModelId);
@@ -740,10 +742,15 @@ export function buildApp(config: AppConfig): FastifyInstance {
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
       registry_general_role: tierSettings.registry_general_role,
+      registry_writer_role: tierSettings.registry_writer_role,
       resolved_writer_model: tierSettings.resolved_writer_model,
+      writer_generation_params: tierSettings.writer_generation_params,
       pricing_rates_by_role: {
         router: pricingRegistry.getRates("router"),
-        general: pricingRegistry.getRates(generalPricingRole),
+        planner: pricingRegistry.getRates("planner"),
+        writer: pricingRegistry.getRates(writerPricingRole),
+        general: pricingRegistry.getRates(writerPricingRole),
+        ambiguity: pricingRegistry.getRates("ambiguity-scorer"),
         critic: pricingRegistry.getRates("critic"),
       },
       requested_effort_mode: requestedEffortMode,
@@ -1615,6 +1622,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       ctx.capability_matrix_family = matrix.family;
       ctx.capability_matrix_matched_override_ids = matrix.matched_override_ids;
     }
+    if (state.registry_writer_role) ctx.registry_writer_role = state.registry_writer_role;
     if (state.registry_general_role) ctx.registry_general_role = state.registry_general_role;
     if (state.resolved_writer_model) {
       ctx.resolved_backend_model = state.resolved_writer_model;
@@ -1631,8 +1639,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
     const model = state.requested_model ?? state.response_model ?? "unknown";
-    const generalRole = state.registry_general_role ?? "general";
-    const rates = state.pricing_rates_by_role?.general ?? pricingRegistry.getRates(generalRole);
+    const writerRole = state.registry_writer_role ?? state.registry_general_role ?? "writer";
+    const rates = state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general ?? pricingRegistry.getRates(writerRole);
     const collector = state._span_collector;
     const spans = collector?.getSpans() ?? [];
     const phaseTimings = collector?.getPhaseTimings() ?? {};

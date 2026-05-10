@@ -9264,6 +9264,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiEffectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
   const oaiEffectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
   const oaiEffectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
+  const oaiEffectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
   const oaiSamplingOptions = {
     ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
     ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
@@ -9274,6 +9275,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ...(oaiEffectiveMinP !== undefined ? { min_p: oaiEffectiveMinP } : {}),
     ...(oaiEffectiveRepetitionPenalty !== undefined ? { repetition_penalty: oaiEffectiveRepetitionPenalty } : {}),
     ...(oaiEffectiveEnableThinking !== undefined ? { enable_thinking: oaiEffectiveEnableThinking } : {}),
+    ...(oaiEffectiveReasoningEffort !== undefined ? { reasoning_effort: oaiEffectiveReasoningEffort } : {}),
   };
   let oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
     ? {
@@ -12732,6 +12734,8 @@ app.post("/v1/messages", async (req, reply) => {
     body.repetition_penalty ?? claudeTierSamplingDefaults?.repetition_penalty;
   const claudeEffectiveEnableThinking =
     body.enable_thinking ?? claudeTierSamplingDefaults?.enable_thinking;
+  const claudeEffectiveReasoningEffort =
+    body.reasoning_effort ?? claudeTierSamplingDefaults?.reasoning_effort;
   const claudeProviderOpenAiOverrides = {
     ...(body.thinking !== undefined ? { thinking: body.thinking } : {}),
     ...(claudeEffectiveMinP !== undefined ? { min_p: claudeEffectiveMinP } : {}),
@@ -12740,6 +12744,9 @@ app.post("/v1/messages", async (req, reply) => {
       : {}),
     ...(claudeEffectiveEnableThinking !== undefined
       ? { enable_thinking: claudeEffectiveEnableThinking }
+      : {}),
+    ...(claudeEffectiveReasoningEffort !== undefined
+      ? { reasoning_effort: claudeEffectiveReasoningEffort }
       : {}),
   };
   let providerOptions = Object.keys(claudeProviderOpenAiOverrides).length

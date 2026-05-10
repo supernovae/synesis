@@ -3,12 +3,25 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 VALID_EFFORT_TIERS = frozenset({"pulse", "core", "horizon"})
 
 ROUTE_VIA_CODER_ROLES = frozenset({"coder-pulse", "coder-core", "coder-horizon"})
 
 VALID_CONNECTION_MODES = frozenset({"role_clone", "standalone"})
+
+GENERATION_PARAM_KEYS = {
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "presence_penalty",
+    "repetition_penalty",
+    "enable_thinking",
+    "reasoning_effort",
+}
 
 RESERVED_CLIENT_MODEL_IDS = frozenset(
     {
@@ -22,13 +35,22 @@ RESERVED_CLIENT_MODEL_IDS = frozenset(
         "synesis-core",
         "synesis-horizon",
         "synesis-compaction",
+        "synesis-planner",
+        "synesis-writer",
+        "synesis-writer-pulse",
+        "synesis-writer-core",
+        "synesis-writer-horizon",
+        "synesis-ambiguity-scorer",
         "synesis-general-pulse",
         "synesis-general-core",
         "synesis-general-horizon",
         "synesis-auto",
         "router",
+        "planner",
+        "writer",
         "general",
         "critic",
+        "ambiguity-scorer",
         "coder-pulse",
         "coder-core",
         "coder-horizon",
@@ -82,6 +104,42 @@ def validate_connection_mode(mode: str) -> str:
     if m not in VALID_CONNECTION_MODES:
         raise ValueError("connection_mode must be one of: role_clone, standalone")
     return m
+
+
+def normalize_generation_params(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("generation_params must be an object")
+    out: dict[str, Any] = {}
+    for key, raw in value.items():
+        if key not in GENERATION_PARAM_KEYS:
+            continue
+        if raw is None or raw == "":
+            continue
+        if key == "enable_thinking":
+            if not isinstance(raw, bool):
+                raise ValueError("generation_params.enable_thinking must be boolean")
+            out[key] = raw
+            continue
+        if key == "reasoning_effort":
+            effort = str(raw).strip()
+            if effort:
+                out[key] = effort
+            continue
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"generation_params.{key} must be finite") from None
+        if not (num == num and num not in (float("inf"), float("-inf"))):
+            raise ValueError(f"generation_params.{key} must be finite")
+        if key in {"max_tokens", "top_k"}:
+            if num < 0 or int(num) != num:
+                raise ValueError(f"generation_params.{key} must be a non-negative integer")
+            out[key] = int(num)
+        else:
+            out[key] = num
+    return out or None
 
 
 def normalize_route_and_effort(

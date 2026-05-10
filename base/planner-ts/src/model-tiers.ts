@@ -4,6 +4,7 @@ import {
   getRoleBackendModel,
   type PublicPlannerOffering,
 } from "./public-model-catalog.js";
+import type { GenerationParams } from "./state/types.js";
 
 export type ModelTier = "auto" | "pulse" | "core" | "horizon";
 
@@ -14,10 +15,14 @@ export interface TierSettings {
   critiquePasses: number;
   writerMaxTokens: number;
   criticMaxTokens: number;
-  /** When set, use this role key for admin pricing (e.g. general-core). */
+  /** When set, use this writer role key for admin pricing (e.g. writer-core). */
+  registry_writer_role?: string;
+  /** Legacy alias retained for compatibility with older trace code. */
   registry_general_role?: string;
   /** When set, writer LLM uses this model id against the planner LLM gateway. */
   resolved_writer_model?: string;
+  /** Optional Admin-defined generation overrides for public offering writer calls. */
+  writer_generation_params?: GenerationParams;
 }
 
 const TIER_ALIAS: Record<string, ModelTier> = {
@@ -68,20 +73,55 @@ function normalizeTier(model: string): ModelTier {
   return TIER_ALIAS[key] ?? "auto";
 }
 
-function generalRoleFromOffering(o: PublicPlannerOffering): string {
+function writerRoleFromOffering(o: PublicPlannerOffering): string {
   const mode = (o.connection_mode ?? "").trim().toLowerCase();
   if (mode === "standalone") {
     const effort = (o.effort_tier ?? "").trim().toLowerCase();
     if (effort === "pulse" || effort === "core" || effort === "horizon") {
-      return `general-${effort}`;
+      return `writer-${effort}`;
     }
-    return "general";
+    return "writer";
   }
   const rv = (o.route_via_role ?? "").trim().toLowerCase();
-  if (rv === "coder-pulse") return "general-pulse";
-  if (rv === "coder-core") return "general-core";
-  if (rv === "coder-horizon") return "general-horizon";
-  return `general-${o.effort_tier.trim().toLowerCase()}`;
+  if (rv === "coder-pulse") return "writer-pulse";
+  if (rv === "coder-core") return "writer-core";
+  if (rv === "coder-horizon") return "writer-horizon";
+  return `writer-${o.effort_tier.trim().toLowerCase()}`;
+}
+
+function getWriterRoleBackendModel(role: string): string | undefined {
+  return getRoleBackendModel(role) || getRoleBackendModel(role.replace(/^writer/, "general"));
+}
+
+function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParams | undefined {
+  const raw = o.generation_params;
+  if (!raw || typeof raw !== "object") return undefined;
+  const params = raw as Record<string, unknown>;
+  const out: GenerationParams = {};
+  const numberParam = (key: keyof GenerationParams): number | undefined => {
+    const value = params[key];
+    const num = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : undefined;
+    return num != null && Number.isFinite(num) ? num : undefined;
+  };
+  const maxTokens = numberParam("max_tokens");
+  if (maxTokens != null && maxTokens > 0) out.max_tokens = Math.trunc(maxTokens);
+  const temperature = numberParam("temperature");
+  if (temperature != null && temperature >= 0) out.temperature = temperature;
+  const topP = numberParam("top_p");
+  if (topP != null && topP >= 0 && topP <= 1) out.top_p = topP;
+  const topK = numberParam("top_k");
+  if (topK != null && topK >= 0) out.top_k = Math.trunc(topK);
+  const minP = numberParam("min_p");
+  if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
+  const presencePenalty = numberParam("presence_penalty");
+  if (presencePenalty != null) out.presence_penalty = presencePenalty;
+  const repetitionPenalty = numberParam("repetition_penalty");
+  if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
+  if (typeof params.enable_thinking === "boolean") out.enable_thinking = params.enable_thinking;
+  if (typeof params.reasoning_effort === "string" && params.reasoning_effort.trim()) {
+    out.reasoning_effort = params.reasoning_effort.trim();
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function resolveTierSettings(requestModel: string | null | undefined): TierSettings {
@@ -91,11 +131,12 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
   for (const o of getPlannerPublicOfferings()) {
     if (o.client_model_id.trim().toLowerCase() !== reqLow) continue;
     const tier = effortToTier(o.effort_tier);
-    const generalRole = generalRoleFromOffering(o);
+    const writerRole = writerRoleFromOffering(o);
     const mode = (o.connection_mode ?? "").trim().toLowerCase();
     const registryModel = mode === "standalone"
       ? ((o.backend_model_override ?? "").trim() || o.client_model_id.trim() || requestedModel)
-      : ((o.backend_model_override ?? "").trim() || getRoleBackendModel(generalRole));
+      : ((o.backend_model_override ?? "").trim() || getWriterRoleBackendModel(writerRole));
+    const writerGenerationParams = generationParamsFromOffering(o);
     if (tier === "pulse") {
       return {
         requestedModel,
@@ -104,8 +145,10 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         critiquePasses: 1,
         writerMaxTokens: 8192,
         criticMaxTokens: 4096,
-        registry_general_role: generalRole,
+        registry_writer_role: writerRole,
+        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        writer_generation_params: writerGenerationParams,
       };
     }
     if (tier === "horizon") {
@@ -116,8 +159,10 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         critiquePasses: 3,
         writerMaxTokens: 32768,
         criticMaxTokens: 4096,
-        registry_general_role: generalRole,
+        registry_writer_role: writerRole,
+        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        writer_generation_params: writerGenerationParams,
       };
     }
     if (tier === "core") {
@@ -128,8 +173,10 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         critiquePasses: 2,
         writerMaxTokens: 16384,
         criticMaxTokens: 4096,
-        registry_general_role: generalRole,
+        registry_writer_role: writerRole,
+        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
+        writer_generation_params: writerGenerationParams,
       };
     }
     return {
@@ -139,8 +186,10 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       critiquePasses: 2,
       writerMaxTokens: 32768,
       criticMaxTokens: 4096,
+      registry_writer_role: "writer",
       registry_general_role: "general",
       resolved_writer_model: registryModel,
+      writer_generation_params: writerGenerationParams,
     };
   }
 
@@ -154,6 +203,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       critiquePasses: 1,
       writerMaxTokens: 8192,
       criticMaxTokens: 4096,
+      registry_writer_role: "writer-pulse",
       registry_general_role: "general-pulse",
     };
   }
@@ -166,6 +216,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       critiquePasses: 3,
       writerMaxTokens: 32768,
       criticMaxTokens: 4096,
+      registry_writer_role: "writer-horizon",
       registry_general_role: "general-horizon",
     };
   }
@@ -178,6 +229,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       critiquePasses: 2,
       writerMaxTokens: 16384,
       criticMaxTokens: 4096,
+      registry_writer_role: "writer-core",
       registry_general_role: "general-core",
     };
   }
@@ -189,6 +241,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     critiquePasses: 2,
     writerMaxTokens: 32768,
     criticMaxTokens: 4096,
+    registry_writer_role: "writer",
     registry_general_role: "general",
   };
 }

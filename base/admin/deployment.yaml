@@ -46,7 +46,7 @@ spec:
                   key: master-key
                   optional: true
             - name: SYNESIS_ADMIN_ASSISTANT_MODEL
-              value: "synesis-general"
+              value: "synesis-writer"
             - name: SYNESIS_MCP_URL
               value: "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100"
             - name: SYNESIS_ADMIN_MCP_URL
