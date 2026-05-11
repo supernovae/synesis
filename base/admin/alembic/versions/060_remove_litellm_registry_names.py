@@ -1,6 +1,6 @@
 """Rename legacy LiteLLM registry columns to direct route terms.
 
-Revision ID: 060_remove_litellm_registry_names
+Revision ID: 060_remove_litellm_routes
 Revises: 059_content_pack_installs
 """
 
@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "060_remove_litellm_registry_names"
+revision: str = "060_remove_litellm_routes"
 down_revision: str | None = "059_content_pack_installs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
