@@ -367,7 +367,7 @@ export default function ProviderManagement() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Provider API keys</h2>
         <p className="text-sm text-gray-500">
           Keys live in the Kubernetes secret <code className="text-xs">provider-api-keys</code> in
-          the gateway namespace. This panel uses the same read path as the provider table
+          the provider key namespace. This panel uses the same read path as the provider table
           (GET /api/v1/provider-governance).
         </p>
         <ProviderKeysPanel governance={data} isLoading={isLoading} />

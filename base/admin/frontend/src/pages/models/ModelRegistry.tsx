@@ -621,7 +621,7 @@ function ExtraPublicOfferingCard({
             </label>
           </div>
           <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
-            Planner still uses the global gateway; standalone connection fields are used by Yarn.
+            Planner uses Admin registry routes directly; standalone connection fields are used by Yarn.
           </p>
         </>
       ) : (
@@ -1132,7 +1132,7 @@ export default function ModelRegistry() {
               Add additional <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">model</code> strings clients can
               select (e.g. <span className="font-mono">kimi</span>, <span className="font-mono">minimax</span>). Choose
               whether each entry clones a canonical role connection or has standalone Yarn connection details. Planner
-              uses its global gateway and optional wire-model override.
+              uses Admin registry routes directly and can apply an optional wire-model override.
             </p>
           </div>
         </div>

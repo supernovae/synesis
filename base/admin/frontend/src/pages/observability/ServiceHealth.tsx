@@ -80,11 +80,6 @@ export default function ServiceHealth() {
                 services: services.filter((s) => s.category === "infrastructure" || !s.category),
               },
               {
-                category: "model-gateway" as const,
-                title: "Model Gateway",
-                services: services.filter((s) => s.category === "model-gateway"),
-              },
-              {
                 category: "model" as const,
                 title: "Models",
                 services: services.filter((s) => s.category === "model"),

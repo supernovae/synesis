@@ -1033,6 +1033,16 @@ workloads:
             name: synesis-admin-db-url
             key: trace-url
             optional: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    probes:
+      readiness: /health/readiness
+      liveness: /health
   adminMcpTs:
     enabled: true
     namespace: admin

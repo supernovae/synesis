@@ -17,7 +17,7 @@ from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import Failure, KnowledgeGap
 from ..services import prometheus_client_svc as prom
-from ..services.health_prober import probe_all
+from ..services.health_prober import filter_removed_litellm_proxy_services, probe_all
 
 logger = logging.getLogger("synesis.admin.observability")
 
@@ -33,7 +33,7 @@ _health_cache: dict[str, object] = {
 
 
 async def _refresh_health_snapshot() -> None:
-    services = await probe_all()
+    services = filter_removed_litellm_proxy_services(await probe_all())
     async with _health_cache_lock:
         _health_cache["services"] = services
         _health_cache["captured_at_epoch"] = time.time()
@@ -44,7 +44,7 @@ async def _refresh_health_snapshot() -> None:
 async def service_health(_user: UserInfo = Depends(get_current_user)):
     now = time.time()
     async with _health_cache_lock:
-        cached_services = list(_health_cache.get("services") or [])
+        cached_services = filter_removed_litellm_proxy_services(list(_health_cache.get("services") or []))
         captured_at = float(_health_cache.get("captured_at_epoch") or 0.0)
         refreshing = bool(_health_cache.get("refreshing"))
         stale = (now - captured_at) > _HEALTH_CACHE_TTL_SECONDS

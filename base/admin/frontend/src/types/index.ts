@@ -48,7 +48,7 @@ export interface ServiceStatus {
   status_code: number | null;
   error: string | null;
   latency_ms?: number;
-  category?: "infrastructure" | "model" | "model-gateway";
+  category?: "infrastructure" | "model";
 }
 
 export interface ServiceHealthSnapshot {

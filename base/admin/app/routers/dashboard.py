@@ -9,14 +9,13 @@ from sqlalchemy import func, select
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..db.models import BenchmarkResult, KnowledgeGap, QualitySnapshot, Trace
+from ..db.models import BenchmarkResult, KnowledgeGap, ModelDeployment, QualitySnapshot, Trace
 from ..deps import CURATOR_PROPOSALS_PATH, QUALITY_REPORT_PATH
 from ..rbac import Role, resolve_role, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services import trace_store, yarn_service
 from ..services.cost_estimator import get_cost_summary
 from ..services.health_prober import probe_all
-from ..services.model_registry import get_role_assignments
 from ..services.planner_usage_service import aggregate_planner_usage_24h_for_dashboard
 
 logger = logging.getLogger("synesis.admin.dashboard")
@@ -31,6 +30,14 @@ async def _safe(coro, label: str, default=None):
     except Exception as exc:
         logger.warning("dashboard_partial_error section=%s error=%s", label, str(exc)[:120])
         return default
+
+
+async def _active_model_count() -> int:
+    async with async_session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(ModelDeployment).where(ModelDeployment.is_active == True)
+        )
+        return int(result.scalar_one() or 0)
 
 
 @router.get("/summary")
@@ -65,7 +72,7 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             raw,
             ts,
             cost_estimate,
-            roles,
+            active_models,
             pl_24,
             yarn_24,
         ) = await asyncio.gather(
@@ -74,12 +81,12 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             _safe(prom.fetch_planner_metrics(), "planner_metrics", {}),
             _safe(ts_coro, "trace_stats", {}) if ts_coro is not None else {},
             _safe(get_cost_summary(), "cost_summary", {}),
-            _safe(get_role_assignments(), "role_assignments", []),
+            _safe(_active_model_count(), "active_model_count", 0),
             _safe(pl_coro, "planner_usage_24h", {}),
             _safe(_yarn_24h(), "yarn_24h", None),
         )
     else:
-        services, cache, raw, cost_estimate, roles = [], {}, {}, {}, []
+        services, cache, raw, cost_estimate, active_models = [], {}, {}, {}, 0
         if ts_coro is not None:
             ts, pl_24, yarn_24 = await asyncio.gather(
                 _safe(ts_coro, "trace_stats", {}),
@@ -93,7 +100,6 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             )
             ts = {}
 
-    assigned = sum(1 for r in (roles or []) if r.get("assigned"))
     healthy = sum(1 for s in (services or []) if isinstance(s, dict) and s.get("status") == "ok")
     total_requests = prom._find_metric(raw or {}, "synesis_chat_requests_total")
 
@@ -109,7 +115,7 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             "error_rate": (ts or {}).get("error_rate", 0) if can_view_traces else 0,
             "avg_latency_ms": (ts or {}).get("avg_duration_ms", 0) if can_view_traces else 0,
             "cache_hit_rate": (cache or {}).get("hit_rate", 0),
-            "active_models": assigned,
+            "active_models": int(active_models or 0),
             "traces_24h": (ts or {}).get("total_traces_24h", 0) if can_view_traces else 0,
             # Pipeline metering (planner_usage_log), not provider invoice
             "pipeline_usage_estimated_spend_24h_usd": round(pipe_spend, 4),
