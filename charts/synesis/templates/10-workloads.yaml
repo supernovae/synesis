@@ -38,6 +38,22 @@ spec:
       {{- end }}
     spec:
       {{- include "synesis.imagePullSecrets" $ | nindent 6 }}
+      {{- if $workload.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $workload.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if $workload.affinity }}
+      affinity:
+        {{- toYaml $workload.affinity | nindent 8 }}
+      {{- end }}
+      {{- if $workload.tolerations }}
+      tolerations:
+        {{- toYaml $workload.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if $workload.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml $workload.topologySpreadConstraints | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- if $workload.podSecurityContext }}
         {{- toYaml $workload.podSecurityContext | nindent 8 }}

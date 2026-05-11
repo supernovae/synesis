@@ -1056,6 +1056,9 @@ workloads:
     namespace: webui
     name: open-webui
     component: webui
+    annotations:
+      karpenter.sh/do-not-disrupt: "true"
+      cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     image:
       repository: ghcr.io/supernovae/synesis/open-webui
       tag: v0.9.4
@@ -1111,11 +1114,11 @@ workloads:
         emptyDir: {}
     resources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: "2"
+        memory: 2Gi
       limits:
-        cpu: "1"
-        memory: 1Gi
+        cpu: "2"
+        memory: 3Gi
     podSecurityContext:
       runAsNonRoot: false
       seccompProfile:
@@ -1347,6 +1350,16 @@ workloads:
     namespace: authz
     name: openfga
     component: authz
+    annotations:
+      karpenter.sh/do-not-disrupt: "true"
+      cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: openfga
+            topologyKey: kubernetes.io/hostname
     image:
       repository: openfga/openfga
       tag: v1.8.5
@@ -1383,6 +1396,13 @@ workloads:
           secretKeyRef:
             name: openfga-config
             key: OPENFGA_AUTHN_PRESHARED_KEYS
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
 
 jobs:
   indexer:
