@@ -25,6 +25,7 @@ platform-specific behavior through values:
   the old bootstrap script credential step.
 - `jobs.indexer` and `jobs.qualityRunner`: optional CronJobs, disabled by
   default so a plain install starts the API services without background jobs.
+  `jobs.indexer.contentPacks` installs admin-queued Synesis RAG content packs.
 
 `global.provider=auto` does best-effort detection from cluster API/version
 metadata. Helm cannot reliably identify every managed Kubernetes distribution,
@@ -219,6 +220,8 @@ jobs:
   indexer:
     enabled: true
     queue:
+      suspend: false
+    contentPacks:
       suspend: false
   qualityRunner:
     enabled: true

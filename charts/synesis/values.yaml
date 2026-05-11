@@ -1478,6 +1478,20 @@ jobs:
           cpu: "4"
           memory: 8Gi
       extraEnv: []
+    contentPacks:
+      enabled: true
+      suspend: true
+      schedule: "*/15 * * * *"
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 7200
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 6Gi
+      extraEnv: []
     staged:
       enabled: false
       s3Bucket: ""

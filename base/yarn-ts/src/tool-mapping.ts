@@ -74,7 +74,7 @@ function extractAssistantText(content: unknown): string {
 /**
  * Ensure all system messages are grouped at the beginning of the transcript.
  *
- * Some OpenAI-compatible gateways (including LiteLLM-backed providers) reject
+ * Some OpenAI-compatible gateways reject
  * requests when a system message appears after user/assistant/tool messages.
  * We preserve relative order within both groups:
  *   - system messages keep their original order

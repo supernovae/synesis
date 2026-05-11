@@ -340,7 +340,7 @@ async def provider_catalog(_user=Depends(get_current_user)):
             providers[r.provider_key] = {
                 "key": r.provider_key,
                 "label": r.label or r.provider_key,
-                "litellm_prefix": r.litellm_prefix or "openai/",
+                "route_prefix": r.route_prefix or "openai/",
                 "api_key_env": r.api_key_env or "",
                 "needs_endpoint": r.needs_endpoint if r.needs_endpoint is not None else True,
                 "placeholder": r.placeholder or "model-name",

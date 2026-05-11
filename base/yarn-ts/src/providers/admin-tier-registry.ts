@@ -14,7 +14,7 @@ const RoleSchema = z.object({
   endpoint: z.string().optional(),
   provider: z.string().optional(),
   api_key_env: z.string().optional(),
-  litellm_params: z.record(z.string(), z.any()).nullable().optional(),
+  route_params: z.record(z.string(), z.any()).nullable().optional(),
   adapter_hint: z.string().nullable().optional(),
   context_window: z.number().nullable().optional(),
 });
@@ -285,7 +285,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       continue;
     }
     const provider = (row.provider ?? "").toLowerCase();
-    const lp = (row.litellm_params ?? {}) as Record<string, unknown>;
+    const lp = (row.route_params ?? {}) as Record<string, unknown>;
     const samplingDefaults = parseSamplingDefaults(lp);
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();

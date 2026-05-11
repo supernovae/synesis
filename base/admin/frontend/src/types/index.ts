@@ -106,13 +106,13 @@ export interface ModelDeployment {
   provider: string;
   source: string;
   api_key_env: string;
-  litellm_params: Record<string, unknown> | null;
+  route_params: Record<string, unknown> | null;
   is_active: boolean;
   assigned: boolean;
   description: string;
   notes: string;
   gpu_config: Record<string, unknown> | null;
-  litellm_model_id: string | null;
+  route_model_id: string | null;
   fallbacks: string[] | null;
   adapter_hint: string | null;
   updated_at: string | null;
@@ -121,7 +121,7 @@ export interface ModelDeployment {
 export interface ProviderInfo {
   key: string;
   label: string;
-  litellm_prefix: string;
+  route_prefix: string;
   api_key_env: string;
   needs_endpoint: boolean;
   placeholder: string;
@@ -207,7 +207,7 @@ export interface ProviderConfig {
   default_endpoint?: string | null;
   /** From Postgres; null means inherit static catalog (built-ins) or top-level custom fields. */
   api_key_env?: string | null;
-  litellm_prefix?: string | null;
+  route_prefix?: string | null;
 }
 
 export interface ProviderConfigInfo extends ProviderInfo {
@@ -308,7 +308,7 @@ export interface ActiveCostEntry {
   monthly_fixed_cost: number;
   cost_formula: string;
   notes: string;
-  pricing_source: "manual" | "litellm" | "bundled" | "infra_calc" | "fallback_base" | "unknown";
+  pricing_source: "manual" | "legacy" | "bundled" | "infra_calc" | "fallback_base" | "unknown";
 }
 
 export interface InfraInstanceType {

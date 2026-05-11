@@ -50,7 +50,7 @@ spec:
                 # - --enrich
                 # - full
                 # - --llm-url
-                # - http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
+                # - http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1
               env:
                 - name: SYNESIS_ADMIN_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"

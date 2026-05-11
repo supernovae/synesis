@@ -21,7 +21,7 @@ commit 70123456789abcdef0123456789abcdef0123456
 Author: Jordan Lee <jordan@synesis.dev>
 Date:   Mon Mar 24 11:40:00 2025 -0700
 
-    chore: bump litellm pin and refresh lockfile
+    chore: bump provider gateway pin and refresh lockfile
 
 commit 6123456789abcdef0123456789abcdef01234567
 Merge: 5012345 4abcdef

@@ -449,7 +449,7 @@ def validate_model_id(provider_key: str, model_id: str) -> dict:
     if not info:
         return {"valid": True}
 
-    prefix = info.litellm_prefix
+    prefix = info.route_prefix
     if prefix and model_id.startswith(prefix):
         return {
             "valid": False,

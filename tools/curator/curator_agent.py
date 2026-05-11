@@ -13,7 +13,7 @@ Usage:
 
 Prerequisites:
     - Port-forward to SearXNG: oc port-forward svc/searxng 8888:8080 -n synesis-search
-    - Port-forward to LiteLLM: oc port-forward svc/litellm-proxy 4000:4000 -n synesis-gateway
+    - Provide an OpenAI-compatible LLM endpoint (for example planner-ts /v1)
     - Run audit_corpus.py first to generate the audit report
 """
 

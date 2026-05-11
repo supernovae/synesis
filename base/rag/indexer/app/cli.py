@@ -41,11 +41,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich", "synpack"],
+        choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich", "synpack", "content-packs"],
         default="yaml",
         help=(
             "yaml: read sources from file (default). queue: direct NornicDB path via admin API. "
-            "staged-*: S3 staged pipeline (see docs/INDEXERS.md). synpack: build/load managed doc packs."
+            "staged-*: S3 staged pipeline (see docs/INDEXERS.md). synpack: build/load managed doc packs. "
+            "content-packs: install admin-queued SynPack downloads."
         ),
     )
     parser.add_argument("--sources", help="Path to unified sources.yaml (yaml mode only)")
@@ -191,6 +192,8 @@ def main() -> None:
         _run_staged_enrich(args)
     elif args.mode == "synpack":
         _run_synpack(args)
+    elif args.mode == "content-packs":
+        _run_content_pack_mode(args)
     else:
         _run_yaml_mode(args)
 
@@ -247,6 +250,18 @@ def _run_queue_mode(args: argparse.Namespace) -> None:
         nornic_uri=args.nornic_uri,
         embedder_url=args.embedder_url,
         trigger=args.trigger,
+    )
+
+
+def _run_content_pack_mode(args: argparse.Namespace) -> None:
+    """Claim admin-queued SynPack install jobs and load them into NornicDB."""
+    from .content_pack_runner import run_content_pack_installs
+
+    logger.info("indexer_mode_content_packs", extra={"admin_url": args.admin_url or "(default)"})
+    run_content_pack_installs(
+        admin_url=args.admin_url,
+        nornic_uri=args.nornic_uri,
+        dry_run=args.dry_run,
     )
 
 

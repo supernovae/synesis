@@ -129,14 +129,14 @@ describe("fetchTierConfigs", () => {
     expect(tiers).toHaveLength(0);
   });
 
-  it("uses litellm_params.api_base when endpoint is empty", async () => {
+  it("uses route_params.api_base when endpoint is empty", async () => {
     stubFetch(
-      { roles: [{ role: "coder-core", assigned: true, provider: "", model: "m", endpoint: "", litellm_params: { api_base: "https://litellm-base/v1" } }] },
+      { roles: [{ role: "coder-core", assigned: true, provider: "", model: "m", endpoint: "", route_params: { api_base: "https://route-base/v1" } }] },
       { costs: [] }
     );
 
     const tiers = await fetchTierConfigs(makeConfig());
-    expect(tiers[0].baseUrl).toBe("https://litellm-base/v1");
+    expect(tiers[0].baseUrl).toBe("https://route-base/v1");
   });
 
   it("maps coder-compaction role to synesis-compaction tier", async () => {
@@ -177,7 +177,7 @@ describe("fetchTierConfigs", () => {
             provider: "openrouter",
             model: "qwen/qwen3.6-35b-a3b",
             endpoint: "",
-            litellm_params: {
+            route_params: {
               temperature: 0.6,
               top_p: 0.95,
               top_k: 20,

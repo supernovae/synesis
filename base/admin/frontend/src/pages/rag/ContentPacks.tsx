@@ -1,0 +1,235 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  useContentPacks,
+  useInstallContentPack,
+  useRetryContentPackInstallJob,
+  useUpdateContentPackCatalog,
+  type ContentPackEntry,
+} from "../../api/hooks";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import EmptyState from "../../components/common/EmptyState";
+import { Download, RefreshCw, RotateCcw, Save } from "lucide-react";
+
+function formatBytes(value: number) {
+  if (!value) return "Unknown";
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
+}
+
+function statusTone(status: string) {
+  if (status === "installed") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200";
+  if (status === "update_available") return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200";
+  if (status === "failed" || status === "dead_letter") return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200";
+  if (status === "running") return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200";
+  return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200";
+}
+
+function PackStatus({ pack }: { pack: ContentPackEntry }) {
+  const status = pack.install_status || "not_installed";
+  const label = status === "update_available" ? "Update available" : status.replace("_", " ");
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-medium capitalize ${statusTone(status)}`}>
+      {label}
+    </span>
+  );
+}
+
+export default function ContentPacks() {
+  const { data, isLoading, error, refetch, isFetching } = useContentPacks();
+  const updateCatalog = useUpdateContentPackCatalog();
+  const installPack = useInstallContentPack();
+  const retryJob = useRetryContentPackInstallJob();
+  const [catalogUrl, setCatalogUrl] = useState("");
+  const [replaceByPack, setReplaceByPack] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setCatalogUrl(data?.config?.catalog_url ?? "");
+  }, [data?.config?.catalog_url]);
+
+  const latestJobByPack = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const job of data?.jobs ?? []) {
+      if (!out[job.pack_id]) out[job.pack_id] = job.status;
+    }
+    return out;
+  }, [data?.jobs]);
+
+  const saveCatalog = () => {
+    updateCatalog.mutate(catalogUrl.trim());
+  };
+
+  const queueInstall = (pack: ContentPackEntry) => {
+    installPack.mutate({
+      pack_id: pack.pack_id,
+      version: pack.version,
+      replace: Boolean(replaceByPack[pack.pack_id]),
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Content Packs</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Install hosted Synesis RAG packs into the NornicDB content graph.
+          </p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+
+      <ApiErrorBanner error={error || updateCatalog.error || installPack.error || retryJob.error} />
+
+      <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Catalog</h2>
+        <div className="mt-3 flex flex-col gap-3 md:flex-row">
+          <input
+            value={catalogUrl}
+            onChange={(e) => setCatalogUrl(e.target.value)}
+            placeholder="https://bucket.example.com/synesis-pack-catalog.json"
+            className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+          />
+          <button
+            onClick={saveCatalog}
+            disabled={updateCatalog.isPending}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" /> Save
+          </button>
+        </div>
+        {(data?.catalog?.errors ?? []).length > 0 && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            {data?.catalog.errors.join("; ")}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Available Packs</h2>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{data?.catalog?.packs?.length ?? 0} listed</span>
+        </div>
+        {isLoading ? (
+          <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+        ) : (data?.catalog?.packs ?? []).length === 0 ? (
+          <EmptyState title="No content packs available" description="Configure a catalog URL to show hosted packs." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {data?.catalog.packs.map((pack) => {
+              const latestStatus = latestJobByPack[pack.pack_id];
+              const busy = latestStatus === "pending" || latestStatus === "running" || installPack.isPending;
+              return (
+                <div
+                  key={`${pack.pack_id}:${pack.version}`}
+                  className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">{pack.name}</h3>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {pack.pack_id}@{pack.version || "unversioned"} - {formatBytes(pack.size_bytes)}
+                      </p>
+                    </div>
+                    <PackStatus pack={pack} />
+                  </div>
+                  <p className="mt-3 line-clamp-3 text-sm text-gray-600 dark:text-gray-300">
+                    {pack.description || "No description provided."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[pack.domain, pack.language, ...(pack.tags ?? [])].filter(Boolean).slice(0, 6).map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(replaceByPack[pack.pack_id])}
+                        onChange={(e) => setReplaceByPack({ ...replaceByPack, [pack.pack_id]: e.target.checked })}
+                      />
+                      Replace installed pack
+                    </label>
+                    <button
+                      onClick={() => queueInstall(pack)}
+                      disabled={busy}
+                      className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      <Download className="h-4 w-4" /> Install
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Install Jobs</h2>
+        </div>
+        {(data?.jobs ?? []).length === 0 ? (
+          <div className="p-5">
+            <EmptyState title="No install jobs yet" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800/80">
+                <tr>
+                  {["Pack", "Status", "Attempts", "Requested", "Error", ""].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {data?.jobs.map((job) => (
+                  <tr key={job.id}>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                      {job.pack_id}@{job.pack_version || "unversioned"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium capitalize ${statusTone(job.status)}`}>
+                        {job.status.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {job.attempt_count}/{job.max_attempts}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{job.requested_by || "system"}</td>
+                    <td className="max-w-md truncate px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                      {job.error_message}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {job.status !== "running" && (
+                        <button
+                          onClick={() => retryJob.mutate(job.id)}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900 dark:text-blue-300"
+                        >
+                          <RotateCcw className="h-4 w-4" /> Retry
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

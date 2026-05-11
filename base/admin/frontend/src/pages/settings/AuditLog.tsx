@@ -83,7 +83,7 @@ export default function AuditLog() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
             Rolling history of model registry changes, direct route updates, provider key updates, and
-            cost settings. Expand a row for JSON detail (reconcile counts, assignment payloads). Secrets are
+            cost settings. Expand a row for JSON detail such as assignment payloads and sync results. Secrets are
             never stored here.
           </p>
         </div>
@@ -103,7 +103,7 @@ export default function AuditLog() {
       ) : events.length === 0 ? (
         <EmptyState
           title="No audit events yet"
-          description="Actions from the admin API will appear here after you change models, run reconcile, or update provider keys."
+          description="Actions from the admin API will appear here after you change models, refresh routes, or update provider keys."
         />
       ) : (
         <div className="space-y-2">

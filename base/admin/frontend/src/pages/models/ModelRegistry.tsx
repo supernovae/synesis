@@ -177,7 +177,7 @@ function roleReadiness(
     label: "ready",
     title:
       role.status && role.status !== "active"
-        ? `Direct provider route is ready. Stored deployment status is '${role.status}', likely from the old reconciler path.`
+        ? `Direct provider route is ready. Stored deployment status is '${role.status}'.`
         : "Direct provider route is ready.",
   };
 }
@@ -245,7 +245,7 @@ function emptyEdit(role: string): EditState {
 }
 
 function editFromDeployment(d: ModelDeployment): EditState {
-  const lp = d.litellm_params ?? {};
+  const lp = d.route_params ?? {};
   const mt = (lp.max_tokens as number) ?? 8192;
   const temp = (lp.temperature as number) ?? 0.1;
   const enableThinkingRaw = lp.enable_thinking;
@@ -1550,7 +1550,7 @@ function NewPublicOfferingModal({
 
 const PRICING_SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   manual: { bg: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", label: "set" },
-  litellm: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "legacy" },
+  legacy: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "legacy" },
   bundled: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", label: "bundled" },
   infra_calc: { bg: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400", label: "infra" },
   fallback_base: { bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", label: "fallback" },

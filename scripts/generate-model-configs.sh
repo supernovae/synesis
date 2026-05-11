@@ -8,7 +8,7 @@ Synesis .1 removed models.yaml-driven profile generation.
 Model routing is now DB-first through Synesis Admin:
   - Seed providers at startup (no API keys by default)
   - Assign role -> provider/model in Model Registry
-  - Reconcile to sync LiteLLM
+  - Runtime routes read directly from the admin registry
 
 For model downloads use:
   ./scripts/run-model-pipeline.sh --role=<role> --model-repo=<hf-repo>

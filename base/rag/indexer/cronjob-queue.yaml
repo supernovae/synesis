@@ -57,14 +57,14 @@ spec:
                 # - name: SYNESIS_INDEXER_GATEKEEPER_ENABLE
                 #   value: "true"
                 # - name: SYNESIS_INDEXER_GATEKEEPER_URL
-                #   value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                #   value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1"
                 # - name: SYNESIS_INDEXER_GATEKEEPER_MODEL
-                #   value: "synesis-general"
+                #   value: "synesis-writer"
                 # - name: SYNESIS_INDEXER_GATEKEEPER_API_KEY
                 #   valueFrom:
                 #     secretKeyRef:
-                #       name: litellm-secrets
-                #       key: master-key
+                #       name: synesis-internal-service-auth
+                #       key: token
                 #       optional: true
                 # Preprocess (simhash; optional jusText clean for html_document) — see docs/INDEXERS.md
                 # - name: SYNESIS_INDEXER_PREPROCESS_URL

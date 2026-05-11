@@ -30,7 +30,7 @@ interface InternalRoleAssignment {
   endpoint?: string;
   provider?: string;
   api_key_env?: string;
-  litellm_params?: Record<string, unknown> | null;
+  route_params?: Record<string, unknown> | null;
 }
 
 const POLL_MS = 120_000;
@@ -87,7 +87,7 @@ function routeFromRole(role: InternalRoleAssignment): LlmRoute | null {
   const model = (role.model ?? "").trim();
   const baseUrl =
     (role.endpoint ?? "").trim()
-    || (typeof role.litellm_params?.api_base === "string" ? role.litellm_params.api_base.trim() : "");
+    || (typeof role.route_params?.api_base === "string" ? role.route_params.api_base.trim() : "");
   if (!role.assigned || !model || !baseUrl) return null;
   return {
     model,
@@ -95,7 +95,7 @@ function routeFromRole(role: InternalRoleAssignment): LlmRoute | null {
     apiKeyEnv: (role.api_key_env ?? "").trim() || null,
     provider: (role.provider ?? "").trim() || null,
     role: role.role,
-    generationParams: generationParamsFromRecord(role.litellm_params),
+    generationParams: generationParamsFromRecord(role.route_params),
   };
 }
 

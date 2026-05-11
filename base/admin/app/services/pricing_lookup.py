@@ -92,7 +92,7 @@ def _provider_prefixed_key(provider: str, model: str) -> str:
 
     info = PROVIDER_CATALOG.get(provider)
     if info:
-        return f"{info.litellm_prefix}{model}"
+        return f"{info.route_prefix}{model}"
     return model
 
 

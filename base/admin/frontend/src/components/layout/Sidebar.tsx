@@ -108,6 +108,7 @@ const navigation: NavItem[] = [
       { label: "Review Queue", path: "/rag/review" },
       { label: "Ingestion Queue", path: "/rag/ingestion" },
       { label: "Ingestion Sources", path: "/rag/ingestion/sources" },
+      { label: "Content Packs", path: "/rag/content-packs" },
       { label: "Retrieval Gaps", path: "/rag/retrieval-gaps" },
       { label: "Curator", path: "/rag/curator" },
       { label: "Testing Labs", path: "/rag/testing-labs" },

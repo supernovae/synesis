@@ -1170,7 +1170,7 @@ async def _knowledge_gap_stats(user: UserInfo, args: dict) -> Any:
 
 
 async def _refresh_model_routes(user: UserInfo, args: dict) -> Any:
-    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "reconcile_required": False}
+    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "route_refresh_required": False}
 
 
 async def _purge_trivial_traces(user: UserInfo, args: dict) -> Any:

@@ -172,9 +172,7 @@ def main():
     parser = argparse.ArgumentParser(description="LLM-as-judge relevance labeling")
     parser.add_argument("--milvus-uri", default="http://localhost:19530")
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
-    parser.add_argument(
-        "--llm-url", default="http://localhost:4000/v1", help="OpenAI-compatible endpoint (LiteLLM gateway or direct)"
-    )
+    parser.add_argument("--llm-url", default="http://localhost:8080/v1", help="OpenAI-compatible endpoint")
     parser.add_argument("--model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--pool-k", type=int, default=30, help="Top-K results to pool per query for judging")
     parser.add_argument("--threshold", type=int, default=2, help="Min LLM score to count as relevant (0-3)")

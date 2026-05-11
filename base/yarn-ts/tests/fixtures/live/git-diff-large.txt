@@ -18,12 +18,12 @@ index 1111111..2222222 100644
 +  reducersEnabled: true,
    logLevel: "info",
  };
-diff --git a/base/gateway/litellm-config.yaml b/base/gateway/litellm-config.yaml
---- a/base/gateway/litellm-config.yaml
-+++ b/base/gateway/litellm-config.yaml
+diff --git a/base/gateway/model-route-config.yaml b/base/gateway/model-route-config.yaml
+--- a/base/gateway/model-route-config.yaml
++++ b/base/gateway/model-route-config.yaml
 @@ -40,3 +40,5 @@ model_list:
    - model_name: synesis-router
-     litellm_params:
+     route_params:
        model: openai/synesis-router
 +      timeout: 180
 +      max_retries: 2

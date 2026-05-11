@@ -18,6 +18,7 @@ const breadcrumbLabels: Record<string, string> = {
   review: "Review Queue",
   ingestion: "Ingestion Queue",
   sources: "Ingestion Sources",
+  "content-packs": "Content Packs",
   "retrieval-gaps": "Retrieval Gaps",
   curator: "Curator",
   "testing-labs": "Testing Labs",

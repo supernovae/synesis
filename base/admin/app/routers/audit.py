@@ -18,7 +18,7 @@ async def list_audit_events(
     limit: int = Query(100, ge=1, le=500),
     before_id: int | None = Query(None, description="Pagination: return rows with id < before_id"),
 ):
-    """Newest-first audit stream (model changes, reconcile, provider keys, etc.)."""
+    """Newest-first audit stream (model changes, provider keys, route refreshes, etc.)."""
     async with async_session() as session:
         q = select(AdminAuditEvent)
         if before_id is not None:

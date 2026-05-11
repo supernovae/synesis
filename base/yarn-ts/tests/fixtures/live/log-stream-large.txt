@@ -2,7 +2,7 @@ Mar 26 10:14:01 w03 synesis-router[284910]: INFO rid=8c21a4 GET /v1/models 200 l
 Mar 26 10:14:02 w03 synesis-router[284910]: DEBUG upstream synesis-writer.synesis-llm.svc:8080 ok=true
 Mar 26 10:14:03 w03 synesis-router[284910]: WARN slow_body /v1/chat/completions bytes=1048576 ms=980
 Mar 26 10:14:04 w03 synesis-router[284910]: INFO token_bucket refill=2400/s burst=4800
-Mar 26 10:14:05 w03 synesis-router[284910]: ERROR litellm_proxy 502 err=upstream_timeout
+Mar 26 10:14:05 w03 synesis-router[284910]: ERROR provider_gateway 502 err=upstream_timeout
 Mar 26 10:14:06 w03 synesis-router[284910]: INFO circuit synesis-critic half_open ok=true
 Mar 26 10:14:07 w03 synesis-router[284910]: DEBUG tls sni=yarn.apps.ocp.prod.example.com cipher=AES256GCM
 Mar 26 10:14:08 w03 synesis-router[284910]: INFO rid=9d32b5 POST /v1/chat/completions 200 lat=8420ms

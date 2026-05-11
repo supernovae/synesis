@@ -28,6 +28,7 @@ const Benchmarks = lazy(() => import("./pages/rag/Benchmarks"));
 const ReviewQueue = lazy(() => import("./pages/rag/ReviewQueue"));
 const IngestionQueue = lazy(() => import("./pages/rag/IngestionQueue"));
 const IngestionSources = lazy(() => import("./pages/rag/IngestionSources"));
+const ContentPacks = lazy(() => import("./pages/rag/ContentPacks"));
 const RetrievalGaps = lazy(() => import("./pages/rag/RetrievalGaps"));
 const CuratorProposals = lazy(() => import("./pages/rag/CuratorProposals"));
 const TestingLabs = lazy(() => import("./pages/rag/TestingLabs"));
@@ -183,6 +184,7 @@ export const router = createBrowserRouter([
       { path: "rag/review", element: <ReviewQueue /> },
       { path: "rag/ingestion", element: <IngestionQueue /> },
       { path: "rag/ingestion/sources", element: <IngestionSources /> },
+      { path: "rag/content-packs", element: <ContentPacks /> },
       { path: "rag/retrieval-gaps", element: <RetrievalGaps /> },
       { path: "rag/curator", element: <CuratorProposals /> },
       { path: "rag/testing-labs", element: <TestingLabs /> },

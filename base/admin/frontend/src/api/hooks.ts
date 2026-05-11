@@ -241,24 +241,6 @@ export function useDeactivateModel() {
   });
 }
 
-export interface ReconcileModelsResult {
-  added: number;
-  removed: number;
-  unchanged: number;
-}
-
-export function useReconcileModels() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      client.post<ReconcileModelsResult>("/models/reconcile").then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["models"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
-
 export function usePromptProfiles(service?: "yarn" | "planner") {
   return useQuery<{ profiles: import("../types").PromptProfile[] }>({
     queryKey: ["models", "prompts", "profiles", service ?? "all"],
@@ -375,7 +357,7 @@ export function buildCatalogFromGovernance(data: import("../types").ProviderGove
     providers[p.key] = {
       key: p.key,
       label: p.label,
-      litellm_prefix: p.litellm_prefix,
+      route_prefix: p.route_prefix,
       api_key_env: p.api_key_env,
       needs_endpoint: p.needs_endpoint,
       placeholder: p.placeholder,
@@ -614,7 +596,7 @@ export function useCreateProvider() {
     mutationFn: (data: {
       key: string;
       label: string;
-      litellm_prefix?: string;
+      route_prefix?: string;
       api_key_env?: string;
       needs_endpoint?: boolean;
       default_endpoint?: string;
@@ -956,6 +938,106 @@ export function useBenchmarks() {
     queryKey: ["rag", "benchmarks"],
     queryFn: () => client.get("/rag/benchmarks").then((r) => r.data),
     staleTime: 5 * 60_000,
+  });
+}
+
+export interface ContentPackEntry {
+  pack_id: string;
+  name: string;
+  description: string;
+  version: string;
+  download_url: string;
+  sha256: string;
+  size_bytes: number;
+  domain: string;
+  language: string;
+  tags: string[];
+  created_at?: string;
+  install_status?: "installed" | "update_available" | "not_installed";
+  installed?: InstalledContentPack | null;
+}
+
+export interface InstalledContentPack {
+  pack_id: string;
+  pack_version: string;
+  pack_source_version: string;
+  language: string;
+  domain: string;
+  pack_artifact_hash: string;
+  row_count: number;
+}
+
+export interface ContentPackInstallJob {
+  id: number;
+  pack_id: string;
+  pack_version: string;
+  download_url: string;
+  sha256: string;
+  size_bytes: number;
+  replace_existing: boolean;
+  status: string;
+  requested_by: string;
+  claimed_by: string;
+  result?: Record<string, unknown> | null;
+  error_message: string;
+  attempt_count: number;
+  max_attempts: number;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ContentPacksOverview {
+  config: {
+    catalog_url: string;
+    updated_by?: string;
+    updated_at?: string | null;
+  };
+  catalog: {
+    catalog_url: string;
+    name?: string;
+    version?: string;
+    packs: ContentPackEntry[];
+    errors: string[];
+    ok: boolean;
+  };
+  installed: InstalledContentPack[];
+  jobs: ContentPackInstallJob[];
+}
+
+export function useContentPacks() {
+  return useQuery<ContentPacksOverview>({
+    queryKey: ["rag", "content-packs"],
+    queryFn: () => client.get("/rag/content-packs").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useUpdateContentPackCatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (catalog_url: string) =>
+      client.put("/rag/content-packs/config", { catalog_url }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
+  });
+}
+
+export function useInstallContentPack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { pack_id: string; version?: string; replace?: boolean }) =>
+      client.post("/rag/content-packs/install", data).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
+  });
+}
+
+export function useRetryContentPackInstallJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: number) =>
+      client.post(`/rag/content-packs/install-jobs/${jobId}/retry`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
   });
 }
 

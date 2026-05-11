@@ -18,14 +18,14 @@ describe("resolveTierSettings with public offerings", () => {
         standalone_provider: null,
         standalone_endpoint: null,
         standalone_api_key_env: null,
-        backend_model_override: "litellm/demo",
+        backend_model_override: "route/demo",
       },
     ]);
     vi.spyOn(catalog, "getRoleBackendModel").mockReturnValue(undefined);
     const t = resolveTierSettings("exp-demo");
     expect(t.tier).toBe("pulse");
     expect(t.registry_writer_role).toBe("writer-pulse");
-    expect(t.resolved_writer_model).toBe("litellm/demo");
+    expect(t.resolved_writer_model).toBe("route/demo");
     expect(t.responseModel).toBe("Demo");
   });
 

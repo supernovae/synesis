@@ -23,7 +23,7 @@ from .provider_catalog import (
     KNOWN_ROLES,
     PROVIDER_CATALOG,
     ROLE_SERVED_NAMES,
-    build_litellm_params,
+    build_route_params,
     default_endpoint_for_provider,
 )
 from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
@@ -210,13 +210,13 @@ class ProviderGovernanceMaps:
 
     default_endpoints: dict[str, str]
     api_key_envs: dict[str, str]
-    litellm_prefixes: dict[str, str]
+    route_prefixes: dict[str, str]
 
 
 class ResolvedDeploymentRouting(NamedTuple):
     """Canonical runtime routing for one deployment row (merged with governance)."""
 
-    litellm_params: dict[str, Any]
+    route_params: dict[str, Any]
     effective_api_key_env: str
     resolved_endpoint: str
 
@@ -229,7 +229,7 @@ async def load_provider_governance_maps() -> ProviderGovernanceMaps:
                 ProviderConfig.provider_key,
                 ProviderConfig.default_endpoint,
                 ProviderConfig.api_key_env,
-                ProviderConfig.litellm_prefix,
+                ProviderConfig.route_prefix,
             )
         )
         endpoints: dict[str, str] = {}
@@ -269,7 +269,7 @@ def _merged_governance_key_env(provider: str, overrides: dict[str, str] | None) 
     return v.strip() if isinstance(v, str) else ""
 
 
-def _merged_governance_litellm_prefix(provider: str, overrides: dict[str, str] | None) -> str:
+def _merged_governance_route_prefix(provider: str, overrides: dict[str, str] | None) -> str:
     p = (provider or "").strip()
     if not overrides or not p:
         return ""
@@ -281,12 +281,12 @@ def _resolve_role_endpoint(
     *,
     provider: str,
     endpoint_field: str,
-    stored_litellm_params: dict | None,
+    stored_route_params: dict | None,
     maps: ProviderGovernanceMaps,
 ) -> str:
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
     catalog_eff = _merged_catalog_endpoint(provider, maps.default_endpoints)
-    lp_stored = dict(stored_litellm_params or {})
+    lp_stored = dict(stored_route_params or {})
     if prov_info.needs_endpoint:
         return (endpoint_field or "").strip() or str(lp_stored.get("api_base") or "").strip() or catalog_eff
     return catalog_eff or (endpoint_field or "").strip() or str(lp_stored.get("api_base") or "").strip()
@@ -340,7 +340,7 @@ def resolve_deployment_routing_for_parts(
     model: str,
     endpoint_field: str,
     api_key_env_field: str,
-    stored_litellm_params: dict | None,
+    stored_route_params: dict | None,
     maps: ProviderGovernanceMaps,
     max_tokens: int | None = None,
     temperature: float | None = None,
@@ -355,7 +355,7 @@ def resolve_deployment_routing_for_parts(
     """Merge catalog + governance + assignment fields into route params."""
     p = (provider or "").strip()
     prov_info = PROVIDER_CATALOG.get(p, PROVIDER_CATALOG["custom"])
-    lp_stored = dict(stored_litellm_params or {})
+    lp_stored = dict(stored_route_params or {})
     mt = int(max_tokens if max_tokens is not None else lp_stored.get("max_tokens") or 8192)
     temp = float(temperature if temperature is not None else lp_stored.get("temperature") or 0.3)
     eff_top_p = _coerce_optional_float(top_p if top_p is not None else lp_stored.get("top_p"))
@@ -376,13 +376,13 @@ def resolve_deployment_routing_for_parts(
     resolved_endpoint = _resolve_role_endpoint(
         provider=p,
         endpoint_field=endpoint_field,
-        stored_litellm_params=stored_litellm_params,
+        stored_route_params=stored_route_params,
         maps=maps,
     )
     gov_key = _merged_governance_key_env(p, maps.api_key_envs)
     effective_api_key_env = (api_key_env_field or "").strip() or gov_key or (prov_info.api_key_env or "")
-    prefix_ov = _merged_governance_litellm_prefix(p, maps.litellm_prefixes)
-    lp = build_litellm_params(
+    prefix_ov = _merged_governance_route_prefix(p, maps.route_prefixes)
+    lp = build_route_params(
         p,
         model,
         endpoint=resolved_endpoint,
@@ -396,7 +396,7 @@ def resolve_deployment_routing_for_parts(
         repetition_penalty=eff_repetition_penalty,
         enable_thinking=eff_enable_thinking,
         reasoning_effort=eff_reasoning_effort,
-        litellm_prefix_override=prefix_ov,
+        route_prefix_override=prefix_ov,
     )
     return ResolvedDeploymentRouting(lp, effective_api_key_env, resolved_endpoint)
 
@@ -405,14 +405,14 @@ def resolve_deployment_routing_for_deployment(
     row: ModelDeployment,
     maps: ProviderGovernanceMaps,
 ) -> ResolvedDeploymentRouting:
-    """Canonical routing for an existing ORM row (API + reconciler)."""
+    """Canonical routing for an existing ORM row."""
     p = (row.provider or row.source or "").strip()
     return resolve_deployment_routing_for_parts(
         provider=p,
         model=row.model,
         endpoint_field=(row.endpoint or "").strip(),
         api_key_env_field=(row.api_key_env or "").strip(),
-        stored_litellm_params=row.litellm_params,
+        stored_route_params=row.route_params,
         maps=maps,
         max_tokens=None,
         temperature=None,
@@ -480,7 +480,7 @@ async def seed_default_role_assignments() -> int:
                 model=model,
                 endpoint_field="",
                 api_key_env_field="",
-                stored_litellm_params=None,
+                stored_route_params=None,
                 maps=maps,
                 max_tokens=int(seed["max_tokens"]),
                 temperature=float(seed["temperature"]),
@@ -496,7 +496,7 @@ async def seed_default_role_assignments() -> int:
                     source=_source_for_provider(provider),
                     provider=provider,
                     api_key_env=routing.effective_api_key_env,
-                    litellm_params=routing.litellm_params,
+                    route_params=routing.route_params,
                     is_active=True,
                     description=str(seed.get("description") or "Seeded default role assignment"),
                     notes="Seeded by Synesis Admin startup; change this role in Model Registry.",
@@ -526,7 +526,7 @@ async def create_deployment(data: dict) -> dict:
             status="configured",
             profile=data.get("profile", ""),
             source=data.get("source", "local"),
-            litellm_params=data.get("litellm_params"),
+            route_params=data.get("route_params"),
             is_active=data.get("is_active", False),
             description=data.get("description", ""),
             notes=data.get("notes", ""),
@@ -551,7 +551,7 @@ async def update_deployment(deployment_id: int, data: dict) -> dict | None:
             "status",
             "profile",
             "source",
-            "litellm_params",
+            "route_params",
             "is_active",
             "description",
             "notes",
@@ -591,7 +591,7 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
             row.status = "active"
         else:
             row.status = "configured"
-            row.litellm_model_id = None
+            row.route_model_id = None
         await session.commit()
         await session.refresh(row)
         maps = await load_provider_governance_maps()
@@ -613,12 +613,12 @@ def _deployment_to_dict(row: ModelDeployment, maps: ProviderGovernanceMaps) -> d
         "provider": provider,
         "source": row.source,
         "api_key_env": routing.effective_api_key_env,
-        "litellm_params": routing.litellm_params,
+        "route_params": routing.route_params,
         "is_active": row.is_active,
         "description": row.description,
         "notes": row.notes,
         "gpu_config": row.gpu_config,
-        "litellm_model_id": row.litellm_model_id,
+        "route_model_id": row.route_model_id,
         "fallbacks": row.fallbacks,
         "adapter_hint": row.adapter_hint,
         "context_window": row.context_window,
@@ -654,11 +654,11 @@ async def get_role_assignments() -> list[dict]:
                 "status": "unassigned",
                 "provider": "",
                 "api_key_env": "",
-                "litellm_params": None,
+                "route_params": None,
                 "is_active": False,
                 "description": "",
                 "notes": "",
-                "litellm_model_id": None,
+                "route_model_id": None,
                 "fallbacks": None,
                 "updated_at": None,
                 "assigned": False,
@@ -716,7 +716,7 @@ async def assign_role(
         model=model,
         endpoint_field=(endpoint or "").strip(),
         api_key_env_field=(api_key_env or "").strip(),
-        stored_litellm_params=None,
+        stored_route_params=None,
         maps=maps,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -728,7 +728,7 @@ async def assign_role(
         enable_thinking=enable_thinking,
         reasoning_effort=reasoning_effort,
     )
-    lp = routing.litellm_params
+    lp = routing.route_params
     effective_api_key_env = routing.effective_api_key_env
     resolved_endpoint = routing.resolved_endpoint
 
@@ -744,7 +744,7 @@ async def assign_role(
         if old_row is not None:
             old_row.is_active = False
             old_row.status = "replaced"
-            old_row.litellm_model_id = None
+            old_row.route_model_id = None
             # Write history record for the departing assignment.
             session.add(
                 ModelRoleHistory(
@@ -766,7 +766,7 @@ async def assign_role(
             source=_source_for_provider(provider),
             provider=provider,
             api_key_env=effective_api_key_env,
-            litellm_params=lp,
+            route_params=lp,
             is_active=True,
             description=description,
             notes=notes,
@@ -797,7 +797,7 @@ async def deactivate_role(role: str) -> dict | None:
             return None
         row.is_active = False
         row.status = "deactivated"
-        row.litellm_model_id = None
+        row.route_model_id = None
         session.add(
             ModelRoleHistory(
                 role=role,

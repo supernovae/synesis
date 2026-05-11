@@ -227,11 +227,11 @@ class ModelDeployment(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     api_key_env: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    litellm_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    route_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    litellm_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    route_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fallbacks: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     adapter_hint: Mapped[str | None] = mapped_column(String(32), nullable=True)
     context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -525,6 +525,48 @@ class IngestionRun(Base):
     )
 
 
+class ContentPackConfig(Base):
+    __tablename__ = "content_pack_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    catalog_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ContentPackInstallJob(Base):
+    __tablename__ = "content_pack_install_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pack_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    pack_version: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    catalog_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    download_url: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    replace_existing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    requested_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    claimed_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_content_pack_install_jobs_status", "status"),
+        Index("ix_content_pack_install_jobs_pack", "pack_id", "pack_version"),
+    )
+
+
 class YarnSession(Base):
     __tablename__ = "yarn_sessions"
 
@@ -742,7 +784,7 @@ class ProviderConfig(Base):
 
     Catalog providers are seeded on startup (is_custom=False).
     User-defined providers set is_custom=True and carry their own
-    label/litellm_prefix/api_key_env metadata.
+    label/route_prefix/api_key_env metadata.
     """
 
     __tablename__ = "provider_configs"
@@ -761,7 +803,7 @@ class ProviderConfig(Base):
 
     is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     label: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    litellm_prefix: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    route_prefix: Mapped[str | None] = mapped_column(String(64), nullable=True)
     api_key_env: Mapped[str | None] = mapped_column(String(128), nullable=True)
     needs_endpoint: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     placeholder: Mapped[str | None] = mapped_column(String(256), nullable=True)

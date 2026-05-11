@@ -2,7 +2,7 @@
 
 Canonical routing for a role merges, in order:
 
-1. **This module** — built-in defaults: provider prefix, ``api_key_env``,
+1. **This module** — built-in defaults: route prefix, ``api_key_env``,
    ``needs_endpoint``, default base URLs in ``PROVIDER_DEFAULT_ENDPOINTS``.
 2. **ProviderConfig** (Postgres) — per-provider overrides: ``default_endpoint``,
    ``api_key_env``, provider prefix (required for custom providers), enablement,
@@ -28,7 +28,7 @@ from dataclasses import asdict, dataclass
 class ProviderInfo:
     key: str
     label: str
-    litellm_prefix: str
+    route_prefix: str
     api_key_env: str
     needs_endpoint: bool
     placeholder: str
@@ -174,7 +174,7 @@ def get_catalog() -> dict:
     }
 
 
-def build_litellm_params(
+def build_route_params(
     provider: str,
     model: str,
     endpoint: str = "",
@@ -189,15 +189,15 @@ def build_litellm_params(
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
     reasoning_effort: str | None = None,
-    litellm_prefix_override: str = "",
+    route_prefix_override: str = "",
 ) -> dict:
-    """Construct the litellm_params dict for a deployment.
+    """Construct the direct-provider route params dict for a deployment.
 
-    ``litellm_prefix_override`` comes from ProviderConfig (custom providers);
+    ``route_prefix_override`` comes from ProviderConfig (custom providers);
     when empty, the static catalog prefix is used.
     """
     info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
-    prefix = (litellm_prefix_override or "").strip() or info.litellm_prefix
+    prefix = (route_prefix_override or "").strip() or info.route_prefix
     params: dict = {
         "model": f"{prefix}{model}",
         "max_tokens": max_tokens,

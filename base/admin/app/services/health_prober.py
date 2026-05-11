@@ -25,20 +25,6 @@ STATIC_MODEL_SERVICES = [
     {"name": "synesis-critic", "url": "http://synesis-critic.synesis-models.svc.cluster.local:8080/health"},
 ]
 
-REMOVED_LITELLM_PROXY_SERVICE_NAMES = {"llm-gateway", "model-gateway", "synesis-litellm", "litellm-proxy"}
-
-
-def is_removed_litellm_proxy_service(service: object) -> bool:
-    if not isinstance(service, dict):
-        return False
-    name = str(service.get("name") or "").strip().lower()
-    category = str(service.get("category") or "").strip().lower()
-    return category == "model-gateway" or "litellm" in name or name in REMOVED_LITELLM_PROXY_SERVICE_NAMES
-
-
-def filter_removed_litellm_proxy_services[T](services: list[T]) -> list[T]:
-    return [service for service in services if not is_removed_litellm_proxy_service(service)]
-
 
 async def probe_service(
     client: httpx.AsyncClient,
@@ -157,4 +143,4 @@ async def probe_all() -> list[dict]:
                 if cm:
                     result["prefix_cache"] = cm
 
-        return filter_removed_litellm_proxy_services(list(core_results) + model_results)
+        return list(core_results) + model_results

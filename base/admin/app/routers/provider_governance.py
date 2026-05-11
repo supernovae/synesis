@@ -1,7 +1,7 @@
 """Provider Governance API — provider enablement, defaults, and policies.
 
 ProviderConfig rows are the database source for: ``default_endpoint``,
-``api_key_env``, ``litellm_prefix`` (custom providers), enablement, and policies.
+``api_key_env``, ``route_prefix`` (custom providers), enablement, and policies.
 Model Registry assignments inherit these via ``resolve_deployment_routing_*`` in
 ``model_registry`` (see ``provider_catalog`` module docstring).
 """
@@ -72,7 +72,7 @@ def _row_to_config_dict(r: ProviderConfig) -> dict:
         "default_endpoint": (r.default_endpoint or "").strip() or None,
         # DB-stored routing metadata (custom providers); built-ins often null → use catalog top-level.
         "api_key_env": (r.api_key_env or "").strip() or None,
-        "litellm_prefix": (r.litellm_prefix or "").strip() or None,
+        "route_prefix": (r.route_prefix or "").strip() or None,
     }
 
 
@@ -88,9 +88,7 @@ def _effective_provider_fields(info: dict, row: ProviderConfig | None) -> dict:
     return {
         **info,
         "label": (row.label or info.get("label", "")) if row else info.get("label", ""),
-        "litellm_prefix": (row.litellm_prefix or info.get("litellm_prefix", ""))
-        if row
-        else info.get("litellm_prefix", ""),
+        "route_prefix": (row.route_prefix or info.get("route_prefix", "")) if row else info.get("route_prefix", ""),
         "api_key_env": (row.api_key_env or info.get("api_key_env", "")) if row else info.get("api_key_env", ""),
         "needs_endpoint": row.needs_endpoint
         if (row and row.needs_endpoint is not None)
@@ -127,7 +125,7 @@ def _custom_row_to_provider(r: ProviderConfig) -> dict:
     return {
         "key": r.provider_key,
         "label": r.label or r.provider_key,
-        "litellm_prefix": r.litellm_prefix or "openai/",
+        "route_prefix": r.route_prefix or "openai/",
         "api_key_env": r.api_key_env or "",
         "needs_endpoint": r.needs_endpoint if r.needs_endpoint is not None else True,
         "placeholder": r.placeholder or "model-name",
@@ -297,7 +295,7 @@ async def create_provider(
             provider_key=key,
             is_custom=True,
             label=data.get("label", key),
-            litellm_prefix=data.get("litellm_prefix", "openai/"),
+            route_prefix=data.get("route_prefix", "openai/"),
             api_key_env=data.get("api_key_env", ""),
             needs_endpoint=data.get("needs_endpoint", True),
             placeholder=data.get("placeholder", "model-name"),
@@ -360,8 +358,8 @@ async def update_provider_config(
 
         if "label" in data:
             row.label = data["label"]
-        if "litellm_prefix" in data:
-            row.litellm_prefix = data["litellm_prefix"]
+        if "route_prefix" in data:
+            row.route_prefix = data["route_prefix"]
         if "api_key_env" in data:
             row.api_key_env = data["api_key_env"]
         if "needs_endpoint" in data:
@@ -411,7 +409,7 @@ async def delete_or_reset_provider(
             row.notes = ""
             row.default_endpoint = None
             row.label = None
-            row.litellm_prefix = None
+            row.route_prefix = None
             row.api_key_env = None
             row.needs_endpoint = None
             row.placeholder = None

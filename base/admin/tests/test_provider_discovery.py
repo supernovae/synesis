@@ -25,7 +25,7 @@ class TestValidateModelId:
         result = validate_model_id("openrouter", "meta-llama/llama-3-70b")
         assert result["valid"] is True
 
-    def test_model_with_litellm_prefix_rejected(self):
+    def test_model_with_provider_prefix_rejected(self):
         from app.services.provider_discovery import validate_model_id
 
         result = validate_model_id("openrouter", "openrouter/meta-llama/llama-3-70b")

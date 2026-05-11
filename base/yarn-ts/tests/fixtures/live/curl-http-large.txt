@@ -1,14 +1,14 @@
-* Host litellm.synesis-gateway.svc.cluster.local:8080 was resolved.
+* Host old-gateway.synesis-gateway.svc.cluster.local:8080 was resolved.
 * IPv6: (none)
 * IPv4: 172.30.142.18
 *   Trying 172.30.142.18:8080...
-* Connected to litellm.synesis-gateway.svc.cluster.local (172.30.142.18) port 8080
+* Connected to old-gateway.synesis-gateway.svc.cluster.local (172.30.142.18) port 8080
 * using HTTP/1.x
 * ALPN: curl offers http/1.1
 * SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / x25519 / id-ecPublicKey
 *  SSL certificate verify ok.
 > GET /v1/models HTTP/1.1
-> Host: litellm.synesis-gateway.svc.cluster.local:8080
+> Host: old-gateway.synesis-gateway.svc.cluster.local:8080
 > User-Agent: curl/8.7.1
 > Accept: */*
 > Authorization: Bearer sk-redacted-8f3a2c1e

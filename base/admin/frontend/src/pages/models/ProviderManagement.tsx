@@ -30,7 +30,7 @@ import {
 interface CreateForm {
   key: string;
   label: string;
-  litellm_prefix: string;
+  route_prefix: string;
   api_key_env: string;
   needs_endpoint: boolean;
   default_endpoint: string;
@@ -41,7 +41,7 @@ interface CreateForm {
 const EMPTY_CREATE: CreateForm = {
   key: "",
   label: "",
-  litellm_prefix: "openai/",
+  route_prefix: "openai/",
   api_key_env: "",
   needs_endpoint: true,
   default_endpoint: "",
@@ -57,7 +57,7 @@ interface EditForm {
   /** Stored DB override; empty uses catalog default for built-in providers. */
   default_endpoint: string;
   label?: string;
-  litellm_prefix?: string;
+  route_prefix?: string;
   api_key_env?: string;
   needs_endpoint?: boolean;
   placeholder?: string;
@@ -115,7 +115,7 @@ export default function ProviderManagement() {
       notes: v.notes,
       default_endpoint: v.config?.default_endpoint ?? v.default_endpoint ?? "",
       label: v.label,
-      litellm_prefix: v.litellm_prefix,
+      route_prefix: v.route_prefix,
       api_key_env: v.api_key_env,
       needs_endpoint: v.needs_endpoint,
       placeholder: v.placeholder,
@@ -140,7 +140,7 @@ export default function ProviderManagement() {
       notes: editForm.notes,
     };
     payload.label = editForm.label;
-    payload.litellm_prefix = editForm.litellm_prefix;
+    payload.route_prefix = editForm.route_prefix;
     payload.api_key_env = editForm.api_key_env;
     payload.needs_endpoint = editForm.needs_endpoint;
     payload.placeholder = editForm.placeholder;
@@ -175,7 +175,7 @@ export default function ProviderManagement() {
       {
         key: createForm.key.trim().toLowerCase(),
         label: createForm.label.trim(),
-        litellm_prefix: createForm.litellm_prefix,
+        route_prefix: createForm.route_prefix,
         api_key_env: createForm.api_key_env,
         needs_endpoint: createForm.needs_endpoint,
         default_endpoint: createForm.needs_endpoint ? createForm.default_endpoint : "",
@@ -410,8 +410,8 @@ export default function ProviderManagement() {
                     </label>
                     <input
                       type="text"
-                      value={editForm.litellm_prefix ?? ""}
-                      onChange={(e) => setEditForm({ ...editForm, litellm_prefix: e.target.value })}
+                      value={editForm.route_prefix ?? ""}
+                      onChange={(e) => setEditForm({ ...editForm, route_prefix: e.target.value })}
                       placeholder="openai/"
                       className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                     />
@@ -707,8 +707,8 @@ export default function ProviderManagement() {
                 </label>
                 <input
                   type="text"
-                  value={createForm.litellm_prefix}
-                  onChange={(e) => setCreateForm({ ...createForm, litellm_prefix: e.target.value })}
+                  value={createForm.route_prefix}
+                  onChange={(e) => setCreateForm({ ...createForm, route_prefix: e.target.value })}
                   placeholder="openai/"
                   className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                 />

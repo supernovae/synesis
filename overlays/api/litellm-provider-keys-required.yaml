@@ -1,8 +1,0 @@
-# API mode: require provider-api-keys at pod schedule time. With optional: true,
-# if the Secret was missing when the pod started, Kubernetes never injects
-# OPENROUTER_API_KEY when the Secret appears later — LiteLLM calls OpenRouter
-# without a Bearer token (401 "No cookie auth credentials found") until the pod
-# is recreated. deploy.sh creates provider-api-keys before apply.
-- op: replace
-  path: /spec/template/spec/containers/0/envFrom/0/secretRef/optional
-  value: false

@@ -5,16 +5,24 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from datetime import UTC
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select, text
 
 from ..auth import UserInfo, get_current_user
+from ..db.engine import async_session
+from ..db.models import ContentPackConfig, ContentPackInstallJob
 from ..deps import CATALOG_COLLECTION, QUALITY_REPORT_PATH
+from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import RouteGroup, can_access_route_group
+from ..services.admin_audit import record_admin_audit
 from ..services.nornic_service import (
     collection_domain_hierarchy,
     collection_schema_info,
@@ -76,6 +84,188 @@ def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
         "edge_types": edge_types if isinstance(edge_types, list) else [],
         "vector_indexes": vector_indexes if isinstance(vector_indexes, list) else [],
     }
+
+
+_SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
+_CATALOG_TIMEOUT_SECONDS = 20.0
+_CATALOG_MAX_BYTES = 2 * 1024 * 1024
+
+
+class ContentPackCatalogConfigBody(BaseModel):
+    catalog_url: str = Field("", max_length=2048)
+
+
+class ContentPackInstallBody(BaseModel):
+    pack_id: str = Field(..., min_length=1, max_length=96)
+    version: str = Field("", max_length=64)
+    replace: bool = False
+
+
+class ContentPackJobStatusBody(BaseModel):
+    status: str = Field(..., pattern="^(installed|failed)$")
+    result: dict[str, Any] | None = None
+    error_message: str = ""
+
+
+def _validate_https_url(value: str, *, field_name: str = "url") -> str:
+    url = value.strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an https URL")
+    return url
+
+
+def _content_pack_config_dict(config: ContentPackConfig | None) -> dict[str, Any]:
+    return {
+        "catalog_url": config.catalog_url if config else "",
+        "updated_by": config.updated_by if config else "",
+        "updated_at": config.updated_at.isoformat() if config and config.updated_at else None,
+    }
+
+
+def _content_pack_job_dict(job: ContentPackInstallJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "pack_id": job.pack_id,
+        "pack_version": job.pack_version,
+        "catalog_url": job.catalog_url,
+        "download_url": job.download_url,
+        "sha256": job.sha256,
+        "size_bytes": job.size_bytes,
+        "replace_existing": job.replace_existing,
+        "status": job.status,
+        "requested_by": job.requested_by,
+        "claimed_by": job.claimed_by,
+        "result": job.result,
+        "error_message": job.error_message,
+        "attempt_count": job.attempt_count,
+        "max_attempts": job.max_attempts,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+
+
+def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(raw, dict):
+        return None, f"packs[{index}] must be an object"
+    pack_id = str(raw.get("pack_id") or raw.get("id") or "").strip().lower()
+    pack_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in pack_id).strip("-_")[:96]
+    if not pack_id:
+        return None, f"packs[{index}] missing pack_id"
+    version = str(raw.get("version") or raw.get("pack_version") or "").strip()[:64]
+    download_url = str(raw.get("download_url") or raw.get("url") or "").strip()
+    try:
+        download_url = _validate_https_url(download_url, field_name=f"packs[{index}].download_url")
+    except HTTPException as exc:
+        return None, str(exc.detail)
+    sha256 = str(raw.get("sha256") or raw.get("artifact_sha256") or "").strip().lower()
+    if not _SHA256_RE.match(sha256):
+        return None, f"packs[{index}] must include a sha256 checksum"
+    try:
+        size_bytes = max(0, int(raw.get("size_bytes", 0) or 0))
+    except Exception:
+        return None, f"packs[{index}].size_bytes must be an integer"
+    tags = raw.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    entry = {
+        "pack_id": pack_id,
+        "name": str(raw.get("name") or pack_id)[:256],
+        "description": str(raw.get("description") or "")[:4000],
+        "version": version,
+        "download_url": download_url,
+        "sha256": sha256,
+        "size_bytes": size_bytes,
+        "domain": str(raw.get("domain") or "")[:128],
+        "language": str(raw.get("language") or "")[:64],
+        "tags": [str(t).strip()[:64] for t in tags if str(t).strip()][:32],
+        "created_at": raw.get("created_at") or "",
+        "requires_synesis_version": str(raw.get("requires_synesis_version") or "")[:64],
+        "schema_version": raw.get("schema_version") or raw.get("content_graph_schema_version"),
+    }
+    return entry, None
+
+
+async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
+    url = _validate_https_url(catalog_url, field_name="catalog_url")
+    try:
+        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            if resp.url.scheme != "https":
+                raise HTTPException(status_code=400, detail="Content pack catalog redirected to a non-https URL")
+            content = resp.content
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch content pack catalog: {exc}") from exc
+    if len(content) > _CATALOG_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Content pack catalog is too large")
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Content pack catalog is not valid JSON: {exc}") from exc
+    raw_packs = data.get("packs") if isinstance(data, dict) else data
+    if not isinstance(raw_packs, list):
+        raise HTTPException(status_code=400, detail="Content pack catalog must contain a packs array")
+    packs: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for idx, raw in enumerate(raw_packs):
+        entry, error = _normalize_catalog_entry(raw, idx)
+        if error:
+            errors.append(error)
+            continue
+        assert entry is not None
+        key = (entry["pack_id"], entry["version"])
+        if key in seen:
+            errors.append(f"duplicate pack entry: {entry['pack_id']}@{entry['version']}")
+            continue
+        seen.add(key)
+        packs.append(entry)
+    return {
+        "catalog_url": url,
+        "name": data.get("name", "") if isinstance(data, dict) else "",
+        "version": data.get("version", "") if isinstance(data, dict) else "",
+        "packs": packs,
+        "errors": errors,
+        "ok": not errors,
+    }
+
+
+def _installed_doc_packs() -> list[dict[str, Any]]:
+    rows = safe_query(
+        CATALOG_COLLECTION,
+        filter_expr='pack_id != ""',
+        output_fields=[
+            "pack_id",
+            "pack_version",
+            "pack_source_version",
+            "language",
+            "domain",
+            "pack_artifact_hash",
+        ],
+        limit=16384,
+    )
+    packs: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        pack_id = str(row.get("pack_id") or "global")
+        entry = packs.setdefault(
+            pack_id,
+            {
+                "pack_id": pack_id,
+                "pack_version": row.get("pack_version", ""),
+                "pack_source_version": row.get("pack_source_version", ""),
+                "language": row.get("language", ""),
+                "domain": row.get("domain", ""),
+                "pack_artifact_hash": row.get("pack_artifact_hash", ""),
+                "row_count": 0,
+            },
+        )
+        entry["row_count"] += 1
+    return sorted(packs.values(), key=lambda item: str(item["pack_id"]))
 
 
 @router.get("/corpus")
@@ -153,40 +343,262 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
         return {"collection": CATALOG_COLLECTION, "schema": {"exists": False}, "hierarchy": []}
 
 
+@router.get("/content-packs/config")
+async def content_pack_config(_user: UserInfo = Depends(get_current_user)):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        row = await session.get(ContentPackConfig, 1)
+    return _content_pack_config_dict(row)
+
+
+@router.put("/content-packs/config")
+async def update_content_pack_config(
+    body: ContentPackCatalogConfigBody,
+    _user: UserInfo = Depends(get_current_user),
+):
+    _ensure_org_content_admin(_user)
+    catalog_url = _validate_https_url(body.catalog_url, field_name="catalog_url") if body.catalog_url.strip() else ""
+    async with async_session() as session:
+        row = await session.get(ContentPackConfig, 1)
+        if row is None:
+            row = ContentPackConfig(id=1)
+            session.add(row)
+        row.catalog_url = catalog_url
+        row.updated_by = _user.email or _user.username or _user.user_id
+        await session.commit()
+        await session.refresh(row)
+    await record_admin_audit(
+        user=_user,
+        action="rag.content_pack_config.update",
+        status="success",
+        summary="Updated RAG content pack catalog URL",
+        detail={"catalog_url": catalog_url},
+    )
+    return _content_pack_config_dict(row)
+
+
+@router.get("/content-packs/catalog")
+async def content_pack_catalog(_user: UserInfo = Depends(get_current_user)):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        config = await session.get(ContentPackConfig, 1)
+    catalog_url = config.catalog_url if config else ""
+    if not catalog_url:
+        return {"catalog_url": "", "packs": [], "errors": ["No content pack catalog URL configured"], "ok": False}
+    return await _fetch_catalog(catalog_url)
+
+
+@router.get("/content-packs")
+async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        config = await session.get(ContentPackConfig, 1)
+        jobs = (
+            (await session.execute(select(ContentPackInstallJob).order_by(ContentPackInstallJob.id.desc()).limit(50)))
+            .scalars()
+            .all()
+        )
+
+    catalog_url = config.catalog_url if config else ""
+    catalog: dict[str, Any] = {"catalog_url": catalog_url, "packs": [], "errors": [], "ok": False}
+    if catalog_url:
+        try:
+            catalog = await _fetch_catalog(catalog_url)
+        except HTTPException as exc:
+            catalog["errors"] = [str(exc.detail)]
+
+    installed = _installed_doc_packs()
+    installed_by_id = {str(p["pack_id"]): p for p in installed}
+    available = []
+    for pack in catalog.get("packs", []):
+        installed_pack = installed_by_id.get(str(pack["pack_id"]))
+        installed_version = str((installed_pack or {}).get("pack_version") or "")
+        status = "not_installed"
+        if installed_pack and installed_version == str(pack.get("version") or ""):
+            status = "installed"
+        elif installed_pack:
+            status = "update_available"
+        available.append({**pack, "install_status": status, "installed": installed_pack})
+    return {
+        "config": _content_pack_config_dict(config),
+        "catalog": {**catalog, "packs": available},
+        "installed": installed,
+        "jobs": [_content_pack_job_dict(job) for job in jobs],
+    }
+
+
+@router.post("/content-packs/install")
+async def install_content_pack(
+    body: ContentPackInstallBody,
+    _user: UserInfo = Depends(get_current_user),
+):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        config = await session.get(ContentPackConfig, 1)
+    if not config or not config.catalog_url:
+        raise HTTPException(status_code=400, detail="No content pack catalog URL configured")
+    catalog = await _fetch_catalog(config.catalog_url)
+    candidates = [
+        p
+        for p in catalog.get("packs", [])
+        if p["pack_id"] == body.pack_id.strip().lower()
+        and (not body.version.strip() or p["version"] == body.version.strip())
+    ]
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Pack not found in configured catalog")
+    selected = candidates[0]
+    now = datetime.now(UTC)
+    async with async_session() as session:
+        job = ContentPackInstallJob(
+            pack_id=selected["pack_id"],
+            pack_version=selected["version"],
+            catalog_url=config.catalog_url,
+            download_url=selected["download_url"],
+            sha256=selected["sha256"],
+            size_bytes=selected["size_bytes"],
+            replace_existing=body.replace,
+            status="pending",
+            requested_by=_user.email or _user.username or _user.user_id,
+            created_at=now,
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+    await record_admin_audit(
+        user=_user,
+        action="rag.content_pack.install",
+        status="success",
+        summary=f"Queued RAG content pack install for {selected['pack_id']}@{selected['version']}",
+        detail={"pack_id": selected["pack_id"], "version": selected["version"], "replace": body.replace},
+    )
+    return {"ok": True, "job": _content_pack_job_dict(job)}
+
+
+@router.get("/content-packs/install-jobs")
+async def content_pack_install_jobs(
+    limit: int = Query(50, ge=1, le=200),
+    _user: UserInfo = Depends(get_current_user),
+):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(ContentPackInstallJob).order_by(ContentPackInstallJob.id.desc()).limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return {"jobs": [_content_pack_job_dict(job) for job in rows]}
+
+
+@router.post("/content-packs/install-jobs/{job_id}/retry")
+async def retry_content_pack_install_job(
+    job_id: int,
+    _user: UserInfo = Depends(get_current_user),
+):
+    _ensure_org_content_admin(_user)
+    async with async_session() as session:
+        job = await session.get(ContentPackInstallJob, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Content pack install job not found")
+        if job.status == "running":
+            raise HTTPException(status_code=409, detail="Cannot retry a running content pack install")
+        job.status = "pending"
+        job.error_message = ""
+        job.claimed_by = ""
+        job.started_at = None
+        job.completed_at = None
+        job.attempt_count = 0
+        await session.commit()
+        await session.refresh(job)
+    await record_admin_audit(
+        user=_user,
+        action="rag.content_pack.retry",
+        status="success",
+        summary=f"Retried RAG content pack install job {job_id}",
+        detail={"job_id": job_id},
+    )
+    return {"ok": True, "job": _content_pack_job_dict(job)}
+
+
+@router.post("/content-packs/install-jobs/claim")
+async def claim_content_pack_install_job(
+    response: Response,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    status_clause = or_(
+        ContentPackInstallJob.status == "pending",
+        (
+            (ContentPackInstallJob.status == "failed")
+            & (ContentPackInstallJob.attempt_count < ContentPackInstallJob.max_attempts)
+            & (
+                ContentPackInstallJob.completed_at
+                <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(attempt_count, 0))")
+            )
+        ),
+    )
+    async with async_session() as session:
+        job = (
+            (
+                await session.execute(
+                    select(ContentPackInstallJob)
+                    .where(status_clause)
+                    .order_by(
+                        (ContentPackInstallJob.status == "pending").desc(),
+                        ContentPackInstallJob.created_at,
+                    )
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if job is None:
+            response.status_code = 204
+            return None
+        job.status = "running"
+        job.started_at = datetime.now(UTC)
+        job.completed_at = None
+        job.error_message = ""
+        job.claimed_by = getattr(_principal, "service", "") or getattr(_principal, "username", "admin")
+        await session.commit()
+        await session.refresh(job)
+    return _content_pack_job_dict(job)
+
+
+@router.patch("/content-packs/install-jobs/{job_id}/status")
+async def update_content_pack_install_job_status(
+    job_id: int,
+    body: ContentPackJobStatusBody,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    del _principal
+    async with async_session() as session:
+        job = await session.get(ContentPackInstallJob, job_id)
+        if not job:
+            return {"ok": False, "error": "not_found"}
+        job.completed_at = datetime.now(UTC)
+        if body.status == "installed":
+            job.status = "installed"
+            job.result = body.result or {}
+            job.error_message = ""
+        else:
+            job.attempt_count = (job.attempt_count or 0) + 1
+            job.error_message = body.error_message[:2000] or "content pack install failed"
+            job.status = "dead_letter" if job.attempt_count >= job.max_attempts else "failed"
+        await session.commit()
+        await session.refresh(job)
+    return {"ok": True, "job": _content_pack_job_dict(job)}
+
+
 @router.get("/packs")
 async def list_doc_packs(_user: UserInfo = Depends(get_current_user)):
     """List installed SynPack partitions from Content graph catalog metadata."""
     _ensure_org_observability(_user)
-    rows = safe_query(
-        CATALOG_COLLECTION,
-        filter_expr='pack_id != ""',
-        output_fields=[
-            "pack_id",
-            "pack_version",
-            "pack_source_version",
-            "language",
-            "domain",
-            "pack_artifact_hash",
-        ],
-        limit=16384,
-    )
-    packs: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        pack_id = str(row.get("pack_id") or "global")
-        entry = packs.setdefault(
-            pack_id,
-            {
-                "pack_id": pack_id,
-                "pack_version": row.get("pack_version", ""),
-                "pack_source_version": row.get("pack_source_version", ""),
-                "language": row.get("language", ""),
-                "domain": row.get("domain", ""),
-                "pack_artifact_hash": row.get("pack_artifact_hash", ""),
-                "row_count": 0,
-            },
-        )
-        entry["row_count"] += 1
-    return {"packs": sorted(packs.values(), key=lambda item: str(item["pack_id"]))}
+    return {"packs": _installed_doc_packs()}
 
 
 @router.get("/quality")

@@ -27,7 +27,7 @@ import { Link } from "react-router-dom";
 
 const SOURCE_BADGE_STYLES: Record<string, string> = {
   manual: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  litellm: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  legacy: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   bundled: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
   infra_calc: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   unknown: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
@@ -35,7 +35,7 @@ const SOURCE_BADGE_STYLES: Record<string, string> = {
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: "Manual",
-  litellm: "Legacy",
+  legacy: "Legacy",
   bundled: "API Pricing",
   infra_calc: "Infra Calc",
   unknown: "Unknown",

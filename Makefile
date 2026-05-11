@@ -34,8 +34,8 @@ bench-retrieval-llm:
 	python benchmarks/retrieval/bench_hybrid.py --use-llm-labels
 
 # ── Corpus Quality Tools ─────────────────────────────────────────────────────
-# Also requires port-forward to LiteLLM gateway for LLM calls:
-#   oc port-forward svc/litellm-proxy 4000:4000 -n synesis-gateway
+# Also requires an OpenAI-compatible endpoint for LLM calls:
+#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
 
 # Generate LLM-judged relevance labels (replaces naive overlap heuristic)
 bench-llm-judge:
@@ -47,7 +47,7 @@ bench-corpus-audit:
 
 # Corpus audit with LLM-generated queries (richer coverage but costs more)
 bench-corpus-audit-llm:
-	python benchmarks/corpus/audit_corpus.py --llm-url http://localhost:4000/v1
+	python benchmarks/corpus/audit_corpus.py --llm-url http://localhost:8080/v1
 
 # Chunk size parameter sweep (one-time diagnostic)
 bench-chunking:
@@ -79,12 +79,12 @@ help:
 	@echo "  bench-retrieval       - Hybrid retrieval regression test"
 	@echo "  bench-retrieval-llm   - Same with LLM-judged relevance labels"
 	@echo ""
-	@echo "── Corpus Quality (requires Milvus + embedder + LiteLLM port-forward) ──"
+	@echo "── Corpus Quality (requires Milvus + embedder + OpenAI-compatible endpoint) ──"
 	@echo "  bench-llm-judge       - Generate LLM-judged relevance labels"
 	@echo "  bench-corpus-audit    - Per-domain coverage audit"
 	@echo "  bench-corpus-audit-llm - Audit with LLM-generated queries"
 	@echo "  bench-chunking        - Chunk size parameter sweep (diagnostic)"
 	@echo ""
-	@echo "── Auto-Curation (requires SearXNG + LiteLLM port-forward) ──"
+	@echo "── Auto-Curation (requires SearXNG + OpenAI-compatible endpoint) ──"
 	@echo "  curator-discover      - Find sources for weak domains"
 	@echo "  curator-report        - Show audit report summary"

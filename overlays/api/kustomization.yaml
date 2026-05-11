@@ -12,24 +12,20 @@ kind: Kustomization
 
 resources:
   - ../../base/core
-  # MCP-TS agent + Yarn IDE path (LiteLLM route synesis-yarn); depend on planner/redis from core.
+  # MCP-TS agent + Yarn IDE path; depend on planner/redis from core.
   - ../../base/mcp-ts
   - ../../base/yarn-ts
   - ../../base/ast-mcp
   - ../../base/vision-worker
 
 patches:
-  # LiteLLM is now managed by Helm (base/gateway/helm/values-synesis.yaml).
-  # ConfigMap, Deployment, Service, and Route are all in the Helm release.
-
-  # Supervisor: redirect model health checks through LiteLLM
+  # Supervisor: API mode uses planner-ts health instead of local model pods.
   - target:
       kind: ConfigMap
       name: synesis-supervisor-config
     path: supervisor-config-patch.yaml
 
-  # WebUI: point directly at planner-ts so SSE status events pass through
-  # without being stripped by LiteLLM's response normalizer.
+  # WebUI: point directly at planner-ts so SSE status events pass through.
   # Auth: use the internal service token so the planner trusts forwarded
   # X-OpenWebUI-* identity headers (strict_forwarded_identity_mode).
   - target:

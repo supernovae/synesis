@@ -76,6 +76,70 @@ spec:
                 {{- toYaml . | nindent 16 }}
               {{- end }}
 {{- end }}
+{{- if and .Values.jobs.indexer.enabled .Values.jobs.indexer.contentPacks.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-indexer-content-packs
+  namespace: {{ .Values.namespaces.rag }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: synesis-indexer
+    app.kubernetes.io/component: rag-indexer
+    synesis.io/indexer-group: content-packs
+spec:
+  schedule: {{ .Values.jobs.indexer.contentPacks.schedule | quote }}
+  suspend: {{ .Values.jobs.indexer.contentPacks.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.jobs.indexer.contentPacks.backoffLimit }}
+      ttlSecondsAfterFinished: {{ .Values.jobs.indexer.contentPacks.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synesis-indexer
+            app.kubernetes.io/part-of: synesis
+            synesis.io/indexer-group: content-packs
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.jobs.indexer.serviceAccountName }}
+          {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          {{- with .Values.jobs.indexer.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: indexer
+              image: {{ .Values.jobs.indexer.image.repository }}:{{ .Values.jobs.indexer.image.tag }}
+              imagePullPolicy: {{ .Values.jobs.indexer.image.pullPolicy }}
+              args:
+                - --mode
+                - content-packs
+              env:
+                - name: SYNESIS_ADMIN_URL
+                  value: {{ .Values.jobs.indexer.adminUrl | quote }}
+                - name: SYNESIS_ADMIN_SERVICE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: synesis-internal-service-auth
+                      key: token
+                      optional: true
+                {{- with .Values.jobs.indexer.contentPacks.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              {{- with .Values.jobs.indexer.contentPacks.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- with .Values.jobs.indexer.containerSecurityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+{{- end }}
 {{- if and .Values.jobs.indexer.enabled .Values.jobs.indexer.staged.enabled }}
 {{- range $name, $phase := dict "fetch" .Values.jobs.indexer.staged.fetch "normalize" .Values.jobs.indexer.staged.normalize "enrich" .Values.jobs.indexer.staged.enrich }}
 ---

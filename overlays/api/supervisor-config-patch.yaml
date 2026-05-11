@@ -1,5 +1,5 @@
-# Supervisor health checks — redirect model endpoints through LiteLLM
-# (no direct vLLM services when using OpenRouter backend).
+# Supervisor health checks for API mode.
+# No direct local model pods are expected, so model-adjacent checks target planner-ts.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,8 +9,8 @@ data:
   supervisor.yaml: |
     services:
       synesis-router:
-        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
-        health_path: "/health/liveliness"
+        endpoint: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
+        health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
           reset_timeout_seconds: 60
@@ -22,8 +22,8 @@ data:
         timeout_seconds: 30
 
       synesis-general:
-        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
-        health_path: "/health/liveliness"
+        endpoint: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
+        health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
           reset_timeout_seconds: 60
@@ -35,8 +35,8 @@ data:
         timeout_seconds: 60
 
       synesis-critic:
-        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
-        health_path: "/health/liveliness"
+        endpoint: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
+        health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
           reset_timeout_seconds: 60

@@ -1,6 +1,6 @@
 """Non-blocking telemetry scraper for planner-ts and yarn-ts /metrics and /health endpoints.
 
-Called from the background reconciler loop in main.py every 5 minutes.
+Called from the background maintenance loop in main.py every 5 minutes.
 Persists prefix cache and compaction snapshots to the database.
 """
 

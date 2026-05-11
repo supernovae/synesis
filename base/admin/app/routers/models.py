@@ -55,7 +55,7 @@ router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
 def _registry_runtime_summary() -> dict[str, Any]:
-    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "reconcile_required": False}
+    return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "route_refresh_required": False}
 
 
 # ---------------------------------------------------------------------------
@@ -607,12 +607,12 @@ async def deactivate_deployment(
     return result
 
 
-@router.post("/reconcile")
-async def trigger_reconcile(_user: UserInfo = Depends(require_platform_admin)):
+@router.post("/refresh-routes")
+async def refresh_routes(_user: UserInfo = Depends(require_platform_admin)):
     summary = _registry_runtime_summary()
     await record_admin_audit(
         user=_user,
-        action="models.reconcile.manual",
+        action="models.routes_refresh",
         status="success",
         summary="Manual model route refresh requested; admin DB is the runtime source of truth",
         detail={"runtime": summary},
