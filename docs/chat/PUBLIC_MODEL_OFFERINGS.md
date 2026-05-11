@@ -2,7 +2,7 @@
 
 Admin operators can define **public model offerings**: stable client-facing `model` strings (for example `qwen3.6-pro`) that appear in `/v1/models` and can be selected by Open WebUI, CLI clients, and Coder Harness.
 
-Offerings do not replace canonical role names (`coder-pulse`, `coder-core`, `coder-horizon`, `general-*`). They are additional selectable model names.
+Offerings do not replace canonical role names (`coder-pulse`, `coder-core`, `coder-horizon`, `writer-*`). They are additional selectable model names.
 
 ## Connection modes
 
@@ -38,7 +38,7 @@ Reserved names like `pulse`, `core`, `horizon`, `auto`, internal role ids, and o
 ## Traces
 
 - **Yarn**: trace `model` prefers client-requested id; `trace_context` includes `client_requested_model`, `resolved_backend_model`, and `registry_tier_id`.
-- **Planner**: traces prefer `requested_model`; `trace_context` can include `registry_general_role`, `resolved_backend_model`, and `client_requested_model`.
+- **Planner**: traces prefer `requested_model`; `trace_context` can include `registry_writer_role`, `resolved_backend_model`, and `client_requested_model`.
 
 ## Requirements
 

@@ -39,7 +39,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 | **Multi-axis critic review** | 6-axis scoring, evidence-gated, anti-oscillation | None built in | None | None | None |
 | **Admin operations UI** | Model registry, security console, RAG review, traces | None | Basic UI | None | Dashboard |
 | **Trust & attribution** | TrustPacketV1 envelopes, HITL review, scan + freshness | None | None | None | Source links |
-| **Multi-model architecture** | Router, General, Coder, Critic, Summarizer — each provisioned for its role | Single model | Single model | Single model | Proprietary |
+| **Multi-model architecture** | Router, Writer, Coder, Critic, Summarizer — each provisioned for its role | Single model | Single model | Single model | Proprietary |
 
 ---
 
@@ -119,7 +119,7 @@ Model/provider routing is managed through the admin Model Registry. Runtime cons
 | Role | Default Model | Purpose |
 |------|--------------|---------|
 | **Router** | Qwen2.5-14B-Instruct | Fast routing, query generation, evidence summarization, planner |
-| **General** | Qwen3-32B FP8 | Executor (code), Writer (knowledge synthesis), Open WebUI default |
+| **Writer** | Qwen3-32B FP8 | Final answer synthesis and Open WebUI default |
 | **Coder** | Qwen3-Coder-30B-A3B FP8 | Agentic coding for IDE clients (direct vLLM endpoint) |
 | **Critic** | DeepSeek R1-Distill-Qwen-32B FP8 | Score-based quality review with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
@@ -132,7 +132,7 @@ Synesis scales from single-GPU role deployments to multi-node production cluster
 
 | Dimension | Example | Why it matters |
 |-----------|---------|----------------|
-| **GPU allocation** | 1 GPU each for router/general/coder/critic | Prevents cross-role contention |
+| **GPU allocation** | 1 GPU each for router/writer/coder/critic | Prevents cross-role contention |
 | **Tensor parallelism** | TP=2 for larger coder models | Enables larger checkpoints |
 | **Replica policy** | 1-2 replicas per latency-critical role | Improves availability and tail latency |
 | **Storage layout** | Shared PVC with role `subPath` mounts | Speeds restarts and model rollouts |

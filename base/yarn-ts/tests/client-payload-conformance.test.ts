@@ -100,6 +100,37 @@ describe("client payload conformance fixtures", () => {
     expect(jsonSchema.success).toBe(true);
   });
 
+  it("accepts modern OpenAI Chat Completions options used by tool clients", () => {
+    const parsed = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [
+        { role: "developer", content: "Follow the project conventions." },
+        { role: "user", content: "Implement the change." },
+      ],
+      frequency_penalty: 0.1,
+      stop: ["</done>"],
+      seed: 42,
+      logit_bias: { "123": -1 },
+      logprobs: true,
+      top_logprobs: 2,
+      n: 1,
+      parallel_tool_calls: false,
+      metadata: { trace_id: "trace-1" },
+      store: false,
+      modalities: ["text"],
+      service_tier: "auto",
+      prompt_cache_key: "repo:synesis",
+      prompt_cache_retention: "24h",
+      safety_identifier: "user_hash",
+      verbosity: "low",
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.messages[0]?.role).toBe("system");
+    expect(parsed.data.stop).toEqual(["</done>"]);
+    expect(parsed.data.parallel_tool_calls).toBe(false);
+  });
+
   it("codex-cli fixture sanitizes malformed tool IDs and maps tool_choice", () => {
     const body = loadFixture("codex-cli", "openai_malformed_tool_payload.json");
     const parsed = OpenAIChatCompletionRequestSchema.safeParse(body);

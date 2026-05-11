@@ -1,5 +1,5 @@
 Mar 26 10:14:01 w03 synesis-router[284910]: INFO rid=8c21a4 GET /v1/models 200 lat=6ms cli=10.131.4.88
-Mar 26 10:14:02 w03 synesis-router[284910]: DEBUG upstream synesis-general.synesis-llm.svc:8080 ok=true
+Mar 26 10:14:02 w03 synesis-router[284910]: DEBUG upstream synesis-writer.synesis-llm.svc:8080 ok=true
 Mar 26 10:14:03 w03 synesis-router[284910]: WARN slow_body /v1/chat/completions bytes=1048576 ms=980
 Mar 26 10:14:04 w03 synesis-router[284910]: INFO token_bucket refill=2400/s burst=4800
 Mar 26 10:14:05 w03 synesis-router[284910]: ERROR litellm_proxy 502 err=upstream_timeout

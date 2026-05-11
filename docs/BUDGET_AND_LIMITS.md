@@ -140,7 +140,7 @@ Model role assignments in the admin Model Registry can include route-level defau
 | `router` | 4,096 | Classification, planning, advisor |
 | `planner` | 4,096 | Structured planning |
 | `critic` | 4,096 | Evaluation, scoring |
-| `writer` / `general` | 32,768 | Writer, synthesis |
+| `writer` | 32,768 | Writer, synthesis |
 | `coder` | 16,384 | IDE direct agentic coding |
 | `summarizer` | 2,048 | History compression |
 
@@ -161,14 +161,14 @@ Temperatures are set at **two levels**: role route defaults in the admin Model R
 | `strategic_advisor.py` — proceed/skip | Router | 0.0 | Binary yes/no |
 | `planner_node.py` — plan decomposition | Router | 0.1 | Plans need reproducibility |
 | `critic.py` — evaluation & scoring | Critic | 0.1 | Consistent quality assessments |
-| `writer.py` — default LLM init | General | 0.2 | Safe default for varied tasks |
-| `writer.py` — thinking mode (complex) | General | 0.6 | Qwen3 recommended for thinking |
-| `writer.py` — direct stream (no plan) | General | 0.2 | Straightforward answers |
-| `writer.py` — direct stream (planned) | General | 0.3 | Planned synthesis |
-| `writer.py` — trivial fast-stream | General | 0.4 | Casual, conversational |
-| `writer.py` — writer synthesis | General | 0.3 | Balanced fluency + grounding |
-| `graph.py` — _writer_pass | General | 0.3 | Pre-writer formatting |
-| `final_answer_compiler.py` — compile | General | 0.3 | Section synthesis |
+| `writer.py` — default LLM init | Writer | 0.2 | Safe default for varied tasks |
+| `writer.py` — thinking mode (complex) | Writer | 0.6 | Qwen3 recommended for thinking |
+| `writer.py` — direct stream (no plan) | Writer | 0.2 | Straightforward answers |
+| `writer.py` — direct stream (planned) | Writer | 0.3 | Planned synthesis |
+| `writer.py` — trivial fast-stream | Writer | 0.4 | Casual, conversational |
+| `writer.py` — writer synthesis | Writer | 0.3 | Balanced fluency + grounding |
+| `graph.py` — _writer_pass | Writer | 0.3 | Pre-writer formatting |
+| `final_answer_compiler.py` — compile | Writer | 0.3 | Section synthesis |
 | `history_summarizer.py` | Summarizer | 0.1 | Faithful compression |
 
 ### Role route defaults — temperatures
@@ -180,7 +180,7 @@ These apply when a role assignment provides a default and the caller does not su
 | `synesis-agent` | 0.2 | Pipeline entry | Planner manages internal temps |
 | `synesis-router` | 0.1 | Classification | Low for deterministic routing |
 | `synesis-critic` | 0.1 | Evaluation | Consistent scoring |
-| `synesis-general` | 0.3 | Writer | Balanced for synthesis |
+| `synesis-writer` | 0.3 | Writer | Balanced for synthesis |
 | `synesis-coder` | 0.2 | Code generation | Precision for code |
 | `synesis-thinking` | 0.2 | R1 thinking | R1-Distill's CoT adds its own diversity |
 | `synesis-summarizer` | 0.1 | Compression | Faithful to source |

@@ -19,8 +19,6 @@ export interface TierSettings {
   criticMaxTokens: number;
   /** When set, use this writer role key for admin pricing (e.g. writer-core). */
   registry_writer_role?: string;
-  /** Legacy alias retained for compatibility with older trace code. */
-  registry_general_role?: string;
   /** When set, writer LLM uses this model id against the planner LLM gateway. */
   resolved_writer_model?: string;
   /** Direct upstream route for writer calls when admin exposes a standalone public offering. */
@@ -93,10 +91,6 @@ function writerRoleFromOffering(o: PublicPlannerOffering): string {
   return `writer-${o.effort_tier.trim().toLowerCase()}`;
 }
 
-function getWriterRoleBackendModel(role: string): string | undefined {
-  return getRoleBackendModel(role) || getRoleBackendModel(role.replace(/^writer/, "general"));
-}
-
 function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParams | undefined {
   const raw = o.generation_params;
   if (!raw || typeof raw !== "object") return undefined;
@@ -165,7 +159,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     const mode = (o.connection_mode ?? "").trim().toLowerCase();
     const registryModel = mode === "standalone"
       ? ((o.backend_model_override ?? "").trim() || o.client_model_id.trim() || requestedModel)
-      : ((o.backend_model_override ?? "").trim() || getWriterRoleBackendModel(writerRole));
+      : ((o.backend_model_override ?? "").trim() || getRoleBackendModel(writerRole));
     const writerRoute = mode === "standalone" ? getLlmRoute(o.client_model_id) : getLlmRoute(writerRole);
     const writerGenerationParams = generationParamsFromOffering(o);
     if (tier === "pulse") {
@@ -177,7 +171,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         writerMaxTokens: 8192,
         criticMaxTokens: 4096,
         registry_writer_role: writerRole,
-        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
@@ -192,7 +185,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         writerMaxTokens: 32768,
         criticMaxTokens: 4096,
         registry_writer_role: writerRole,
-        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
@@ -207,7 +199,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         writerMaxTokens: 16384,
         criticMaxTokens: 4096,
         registry_writer_role: writerRole,
-        registry_general_role: writerRole.replace(/^writer/, "general"),
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
@@ -221,7 +212,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       writerMaxTokens: 32768,
       criticMaxTokens: 4096,
       registry_writer_role: "writer",
-      registry_general_role: "general",
       resolved_writer_model: registryModel,
       resolved_writer_route: writerRoute,
       writer_generation_params: writerGenerationParams,
@@ -239,7 +229,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       writerMaxTokens: 8192,
       criticMaxTokens: 4096,
       registry_writer_role: "writer-pulse",
-      registry_general_role: "general-pulse",
     };
   }
 
@@ -252,7 +241,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       writerMaxTokens: 32768,
       criticMaxTokens: 4096,
       registry_writer_role: "writer-horizon",
-      registry_general_role: "general-horizon",
     };
   }
 
@@ -265,7 +253,6 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       writerMaxTokens: 16384,
       criticMaxTokens: 4096,
       registry_writer_role: "writer-core",
-      registry_general_role: "general-core",
     };
   }
 
@@ -277,6 +264,5 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
     writerMaxTokens: 32768,
     criticMaxTokens: 4096,
     registry_writer_role: "writer",
-    registry_general_role: "general",
   };
 }

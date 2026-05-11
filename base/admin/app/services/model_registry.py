@@ -101,38 +101,6 @@ DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
         "description": "Default compact summarization model",
     },
     {
-        "role": "general",
-        "provider": "deepinfra",
-        "model": "deepseek-ai/DeepSeek-V3.2",
-        "max_tokens": 32768,
-        "temperature": 0.3,
-        "description": "Default general synthesis model",
-    },
-    {
-        "role": "general-pulse",
-        "provider": "deepinfra",
-        "model": "deepseek-ai/DeepSeek-V3.2",
-        "max_tokens": 8192,
-        "temperature": 0.3,
-        "description": "Default fast general tier",
-    },
-    {
-        "role": "general-core",
-        "provider": "deepinfra",
-        "model": "deepseek-ai/DeepSeek-V3.2",
-        "max_tokens": 16384,
-        "temperature": 0.3,
-        "description": "Default balanced general tier",
-    },
-    {
-        "role": "general-horizon",
-        "provider": "deepinfra",
-        "model": "deepseek-ai/DeepSeek-V3.2",
-        "max_tokens": 32768,
-        "temperature": 0.3,
-        "description": "Default deep general tier",
-    },
-    {
         "role": "critic",
         "provider": "openrouter",
         "model": "deepseek/deepseek-r1-distill-qwen-32b",
@@ -891,8 +859,6 @@ def _infer_role_for_cost(node_name: str, model_name: str) -> str:
         return "coder"
     if "writer" in node_lower or "writer" in model_lower:
         return "writer"
-    if "general" in model_lower:
-        return "general"
     return node_name or "unknown"
 
 

@@ -24,7 +24,7 @@ describe("resolveTierSettings with public offerings", () => {
     vi.spyOn(catalog, "getRoleBackendModel").mockReturnValue(undefined);
     const t = resolveTierSettings("exp-demo");
     expect(t.tier).toBe("pulse");
-    expect(t.registry_general_role).toBe("general-pulse");
+    expect(t.registry_writer_role).toBe("writer-pulse");
     expect(t.resolved_writer_model).toBe("litellm/demo");
     expect(t.responseModel).toBe("Demo");
   });
@@ -46,7 +46,7 @@ describe("resolveTierSettings with public offerings", () => {
     vi.spyOn(catalog, "getRoleBackendModel").mockReturnValue("should-not-be-used");
     const t = resolveTierSettings("xiaomi-2.5");
     expect(t.tier).toBe("core");
-    expect(t.registry_general_role).toBe("general-core");
+    expect(t.registry_writer_role).toBe("writer-core");
     expect(t.resolved_writer_model).toBe("xiaomi-2.5");
   });
 });

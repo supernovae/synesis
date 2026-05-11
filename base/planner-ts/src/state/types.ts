@@ -53,8 +53,6 @@ export interface GraphState {
   response_model?: string;
   /** Admin registry writer role for pricing (e.g. writer-core) when using public offerings or tiered writer roles. */
   registry_writer_role?: string;
-  /** Legacy alias retained for older traces/tests. */
-  registry_general_role?: string;
   /** Resolved upstream model id for the writer when using a public offering. */
   resolved_writer_model?: string;
   /** Direct upstream route for writer calls resolved from the Admin registry. */
@@ -117,7 +115,6 @@ export interface GraphState {
     planner: import("@synesis/telemetry").PricingRates;
     writer: import("@synesis/telemetry").PricingRates;
     ambiguity: import("@synesis/telemetry").PricingRates;
-    general?: import("@synesis/telemetry").PricingRates;
     critic: import("@synesis/telemetry").PricingRates;
   };
   error?: string;

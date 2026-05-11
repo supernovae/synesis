@@ -1,6 +1,6 @@
 # GPU Topology
 
-How Synesis model serving uses GPU nodes for router, general, critic, and coder.
+How Synesis model serving uses GPU nodes for router, writer, critic, and coder.
 
 ## Current: 3x L40S (3x g6e.2xlarge)
 
@@ -9,7 +9,7 @@ How Synesis model serving uses GPU nodes for router, general, critic, and coder.
 | Deployment      | Model                                    | Roles                              | GPU | Notes                                   |
 |----------------|------------------------------------------|-------------------------------------|-----|-----------------------------------------|
 | synesis-router | Qwen2.5-14B-Instruct FP8                | Router, Planner, Advisor, Critic   | 0   | Shared model; prompt-based CoT for critic |
-| synesis-general| Qwen3-32B FP8-dynamic                    | General, Writer                    | 1   | Dedicated executor/response generation    |
+| synesis-writer | Qwen3-32B FP8-dynamic                    | Writer                             | 1   | Dedicated executor/response generation    |
 | synesis-coder  | Qwen3-Coder-30B-A3B FP8                  | Coder                              | 2   | Direct IDE endpoint                     |
 
 Summarizer (Qwen2.5-0.5B) runs on CPU via KServe -- no GPU needed.
@@ -19,7 +19,7 @@ All GPU deployments use `nodeSelector: node-role.autonode/gpu: ""` to target Kar
 ## Model Architecture
 
 - **Router** (synesis-router): One Qwen2.5-14B-Instruct FP8 instance, multiple logical roles. Different `ChatOpenAI` instances with role-specific prompts, temperature, and `max_completion_tokens`. In compact deployments it can also serve the critic role via `--served-model-name=synesis-router,synesis-critic`.
-- **General** (synesis-general): Qwen3-32B FP8-dynamic dense transformer. Dedicated executor/writer model for response generation.
+- **Writer** (synesis-writer): Qwen3-32B FP8-dynamic dense transformer. Dedicated executor/writer model for response generation.
 - **Critic** (synesis-critic): DeepSeek R1-Distill-Qwen-32B FP8-dynamic. Can run dedicated or be consolidated with router depending on GPU footprint. FP8 KV cache (`--kv-cache-dtype=fp8_e4m3`). Always produces `<think>...</think>` reasoning before content.
 - **Summarizer**: Qwen2.5-0.5B on CPU (KServe InferenceService). Used for pivot history summarization.
 
@@ -43,7 +43,7 @@ Verify:
 
 ```bash
 oc get pods -n synesis-models
-oc get deployment synesis-router synesis-general synesis-coder -n synesis-models
+oc get deployment synesis-router synesis-writer synesis-coder -n synesis-models
 ```
 
 ## UDS (low-latency, no OVN)

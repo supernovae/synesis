@@ -135,7 +135,7 @@ function CreateRunModal({ onClose, onCreated }: { onClose: () => void; onCreated
                 value={baselineModel}
                 onChange={(e) => setBaselineModel(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                placeholder="synesis-general"
+                placeholder="synesis-writer"
               />
             </div>
             <div>
@@ -144,7 +144,7 @@ function CreateRunModal({ onClose, onCreated }: { onClose: () => void; onCreated
                 value={candidateModel}
                 onChange={(e) => setCandidateModel(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                placeholder="synesis-general-v2"
+                placeholder="synesis-writer-v2"
               />
             </div>
           </div>

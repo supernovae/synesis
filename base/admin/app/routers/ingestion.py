@@ -537,7 +537,7 @@ async def discover_url(
 
         from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_URL
 
-        llm_model = body.model_id or os.getenv("SYNESIS_DISCOVER_MODEL", "synesis-general")
+        llm_model = body.model_id or os.getenv("SYNESIS_DISCOVER_MODEL", "synesis-writer")
         llm_prompt = (
             "You are a content classification assistant for a RAG ingestion system.\n"
             "Given the following URL and heuristic analysis, return a JSON object with:\n"

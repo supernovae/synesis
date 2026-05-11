@@ -27,10 +27,12 @@ import { EffortRoutingPreviewPanel } from "../../components/models/EffortRouting
 
 const KNOWN_ROLES = [
   "router",
-  "general",
-  "general-pulse",
-  "general-core",
-  "general-horizon",
+  "planner",
+  "writer",
+  "writer-pulse",
+  "writer-core",
+  "writer-horizon",
+  "ambiguity-scorer",
   "critic",
   "coder-pulse",
   "coder-core",
@@ -41,10 +43,12 @@ const KNOWN_ROLES = [
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   router: "Fast LLM — entry_pipeline, planner (Chat), plan_gate, router nodes",
-  general: "Writer + final_scrubber — general reasoning & synthesis",
-  "general-pulse": "Front-end fast effort tier — lightweight synthesis, lower-latency responses",
-  "general-core": "Front-end balanced effort tier — default quality/cost trade-off",
-  "general-horizon": "Front-end deep effort tier — broad synthesis and deeper reasoning",
+  planner: "Structured task planner — produces JSON plans/open questions before retrieval and writing",
+  writer: "Writer + final_scrubber — final answer synthesis",
+  "writer-pulse": "Front-end fast effort tier — lightweight synthesis, lower-latency responses",
+  "writer-core": "Front-end balanced effort tier — default quality/cost trade-off",
+  "writer-horizon": "Front-end deep effort tier — broad synthesis and deeper reasoning",
+  "ambiguity-scorer": "Clarification scorer — cheap pre-plan ambiguity and follow-up question detection",
   critic: "Deep reasoning — critic node evaluates drafts",
   "coder-pulse": "Fast coder tier — lightweight completions, tab-complete (Claude Haiku class)",
   "coder-core": "Balanced coder tier — agentic tasks, IDE default (Claude Sonnet class)",

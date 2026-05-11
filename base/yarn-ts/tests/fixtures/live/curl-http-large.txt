@@ -22,4 +22,4 @@
 < x-request-id: 9c4e7b1a-2d8f-4a6c-9e1b-0f3d8a7c2e5b
 < 
 
-{"object":"list","data":[{"id":"synesis-router","object":"model","created":1711459200,"owned_by":"synesis"},{"id":"synesis-general","object":"model","created":1711459201,"owned_by":"synesis"},{"id":"synesis-critic","object":"model","created":1711459202,"owned_by":"synesis"}]}
+{"object":"list","data":[{"id":"synesis-router","object":"model","created":1711459200,"owned_by":"synesis"},{"id":"synesis-writer","object":"model","created":1711459201,"owned_by":"synesis"},{"id":"synesis-critic","object":"model","created":1711459202,"owned_by":"synesis"}]}

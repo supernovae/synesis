@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from app.services.public_model_offerings_rules import (
     effort_to_coder_role,
-    effort_to_general_role,
+    effort_to_writer_role,
     normalize_generation_params,
     normalize_offering_connection,
     validate_client_model_id,
@@ -36,7 +36,7 @@ def test_effort_tier() -> None:
 
 def test_effort_roles() -> None:
     assert effort_to_coder_role("pulse") == "coder-pulse"
-    assert effort_to_general_role("horizon") == "general-horizon"
+    assert effort_to_writer_role("horizon") == "writer-horizon"
 
 
 def test_connection_mode_validation() -> None:

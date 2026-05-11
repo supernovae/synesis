@@ -77,8 +77,8 @@ GRAPH_DEFINITION = {
             "id": "writer",
             "label": "Writer",
             "type": "generation",
-            "model_role": "general",
-            "model_served_name": "synesis-general",
+            "model_role": "writer",
+            "model_served_name": "synesis-writer",
         },
         {
             "id": "critic",
@@ -91,8 +91,8 @@ GRAPH_DEFINITION = {
             "id": "final_scrubber",
             "label": "Final Scrubber",
             "type": "post",
-            "model_role": "general",
-            "model_served_name": "synesis-general",
+            "model_role": "writer",
+            "model_served_name": "synesis-writer",
         },
         {
             "id": "respond",

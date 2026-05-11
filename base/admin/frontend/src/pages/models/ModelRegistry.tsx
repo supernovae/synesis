@@ -93,20 +93,12 @@ const CANONICAL_ROLE_ORDER = [
   "coder-horizon",
   "coder-compaction",
   "summarizer",
-  "general-pulse",
-  "general-core",
-  "general-horizon",
-  "general",
 ] as const;
 
 const ROLE_ROW_TITLE: Partial<Record<string, string>> = {
   "coder-pulse": "Yarn / IDE — fast tier",
   "coder-core": "Yarn / IDE — default tier",
   "coder-horizon": "Yarn / IDE — deep tier",
-  "general-pulse": "Chat — fast effort tier",
-  "general-core": "Chat — default effort tier",
-  "general-horizon": "Chat — deep effort tier",
-  general: "Legacy writer alias",
 };
 
 function sortRolesForCanonicalTable(a: ModelDeployment, b: ModelDeployment): number {

@@ -28,7 +28,7 @@ describe("llm client request shaping", () => {
       );
 
     await chatCompletion({
-      model: "synesis-general",
+      model: "synesis-writer",
       messages: [{ role: "user", content: "plan this" }],
       response_format: { type: "json_object" },
     });
@@ -57,7 +57,7 @@ describe("llm client request shaping", () => {
       );
 
     await chatCompletion({
-      model: "synesis-general",
+      model: "synesis-writer",
       messages: [{ role: "user", content: "plan this" }],
       temperature: 0.3,
       top_p: 0.7,

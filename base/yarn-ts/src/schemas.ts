@@ -1,13 +1,17 @@
 import { z } from "zod";
 
-export const RoleSchema = z.enum(["system", "user", "assistant", "tool"]);
+export const RoleSchema = z.enum(["system", "developer", "user", "assistant", "tool"]);
 
 export const ChatMessageSchema = z.object({
   role: RoleSchema,
-  content: z.union([z.string(), z.array(z.any())]),
+  content: z.union([z.string(), z.array(z.any()), z.null()]).optional(),
   name: z.string().optional(),
-  tool_call_id: z.string().optional()
-});
+  tool_call_id: z.string().optional(),
+  tool_calls: z.array(z.any()).optional(),
+}).passthrough().transform((message) => ({
+  ...message,
+  role: message.role === "developer" ? "system" as const : message.role,
+}));
 
 export const OpenAIResponseFormatSchema = z.union([
   z.object({
@@ -36,19 +40,38 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   top_k: z.number().optional(),
   min_p: z.number().optional(),
   presence_penalty: z.number().optional(),
+  frequency_penalty: z.number().optional(),
   repetition_penalty: z.number().optional(),
   enable_thinking: z.boolean().optional(),
   reasoning_effort: z.string().optional(),
   max_tokens: z.number().optional(),
   max_completion_tokens: z.number().optional(),
+  stop: z.union([z.string(), z.array(z.string())]).optional(),
+  seed: z.number().int().optional(),
+  logit_bias: z.record(z.string(), z.number()).optional(),
+  logprobs: z.boolean().optional(),
+  top_logprobs: z.number().int().optional(),
+  n: z.number().int().optional(),
   stream_options: z.object({
     include_usage: z.boolean().optional(),
   }).passthrough().optional(),
   tools: z.array(z.any()).optional(),
   tool_choice: z.any().optional(),
+  parallel_tool_calls: z.boolean().optional(),
   response_format: OpenAIResponseFormatSchema.optional(),
-  user: z.string().optional(),
-  conversation_id: z.string().optional()
+  extra_body: z.record(z.string(), z.unknown()).optional(),
+  user: z.string().optional().nullable(),
+  conversation_id: z.string().optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  store: z.boolean().optional(),
+  modalities: z.array(z.string()).optional(),
+  prediction: z.unknown().optional(),
+  audio: z.unknown().optional(),
+  service_tier: z.string().optional(),
+  prompt_cache_key: z.string().optional(),
+  prompt_cache_retention: z.string().optional(),
+  safety_identifier: z.string().optional(),
+  verbosity: z.string().optional(),
 }).passthrough();
 
 export const ClaudeMessageSchema = z.object({

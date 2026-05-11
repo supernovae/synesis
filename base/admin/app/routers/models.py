@@ -1014,10 +1014,10 @@ def _infer_role(node_name: str, model_name: str) -> str:
         return "critic"
     if "coder" in node_lower or "coder" in model_lower:
         return "coder"
-    if "writer" in node_lower or "planner" in node_lower:
-        return "general"
-    if "general" in model_lower:
-        return "general"
+    if "writer" in node_lower or "writer" in model_lower:
+        return "writer"
+    if "planner" in node_lower or "planner" in model_lower:
+        return "planner"
     return node_name or "unknown"
 
 

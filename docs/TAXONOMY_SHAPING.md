@@ -34,7 +34,7 @@ intent_weights.yaml      ──→  (deterministic)            (no LLM)
                                     ▼
 taxonomy_prompt_config   ──→  TaxonomyPromptFactory ──→  Router (Qwen2.5-14B)
 intent_prompts.yaml      ──→  (deterministic lookup)     Planner (router model)
-vertical_*.yaml plugins  ──→                             Executor (general model)
+vertical_*.yaml plugins  ──→                             Writer
                                                          Critic (R1)
 ```
 

@@ -21,7 +21,7 @@ CORE_SERVICES = [
 
 STATIC_MODEL_SERVICES = [
     {"name": "synesis-router", "url": "http://synesis-router.synesis-models.svc.cluster.local:8080/health"},
-    {"name": "synesis-general", "url": "http://synesis-general.synesis-models.svc.cluster.local:8080/health"},
+    {"name": "synesis-writer", "url": "http://synesis-writer.synesis-models.svc.cluster.local:8080/health"},
     {"name": "synesis-critic", "url": "http://synesis-critic.synesis-models.svc.cluster.local:8080/health"},
 ]
 

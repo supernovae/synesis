@@ -1,4 +1,4 @@
-# Effort Modes for General Front-End Flows
+# Effort Modes for Writer Front-End Flows
 
 This document defines the effort-mode abstraction for user-facing planner flows.
 
@@ -31,19 +31,16 @@ These are capability contracts, not fixed provider/model identifiers.
 
 4. Model/provider layer
    - Admin roles now include:
-     - `general-pulse`
-     - `general-core`
-     - `general-horizon`
-   - Planner model resolution maps `general` calls to effort-specific roles when selected.
-   - If effort-specific mapping is unavailable, planner falls back to static defaults while preserving effort-mode contract.
+     - `writer-pulse`
+     - `writer-core`
+     - `writer-horizon`
+   - Planner model resolution maps user-facing effort modes to writer roles.
+   - If effort-specific mapping is unavailable, planner uses the base `writer` role while preserving the effort-mode contract.
 
-## Backward Compatibility
+## Public Model IDs
 
-- Legacy IDs `Synesis` and `Synesis Thinking` remain available.
-- New IDs are also exposed:
+- Exposed planner IDs:
   - `Synesis Auto`
   - `Synesis Pulse`
   - `Synesis Core`
   - `Synesis Horizon`
-- Existing clients keep working while newer clients can adopt effort modes directly.
-

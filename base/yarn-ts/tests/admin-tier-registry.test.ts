@@ -108,7 +108,7 @@ describe("fetchTierConfigs", () => {
   it("skips unrecognized roles without error", async () => {
     stubFetch(
       { roles: [
-        { role: "general-pulse", assigned: true, provider: "openrouter", model: "some-model", endpoint: "" },
+        { role: "legacy-pulse", assigned: true, provider: "openrouter", model: "some-model", endpoint: "" },
         { role: "coder-core", assigned: true, provider: "openrouter", model: "core-model", endpoint: "" }
       ] },
       { costs: [] }

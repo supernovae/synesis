@@ -11,11 +11,11 @@ Node (GPU)
 ├── synesis-router
 │   ├── vllm-router (port 8080)
 │   └── uds-proxy (socat) → listens on /var/lib/synesis/vllm-sockets/router.sock → forwards to 127.0.0.1:8080
-├── synesis-general
-│   ├── vllm-general (port 8080)
-│   └── uds-proxy (socat) → listens on /var/lib/synesis/vllm-sockets/general.sock → forwards to 127.0.0.1:8080
+├── synesis-writer
+│   ├── vllm-writer (port 8080)
+│   └── uds-proxy (socat) → listens on /var/lib/synesis/vllm-sockets/writer.sock → forwards to 127.0.0.1:8080
 └── synesis-planner
-    └── connects via UDS to router.sock and general.sock (no IP/OVN)
+    └── connects via UDS to router.sock and writer.sock (no IP/OVN)
 ```
 
 **LangChain** uses `httpx.HTTPTransport(uds=path)` when `*_MODEL_UDS` is set. All nodes (router, planner, critic, advisor, executor) use the socket for model calls.
@@ -36,7 +36,7 @@ UDS is enabled by default in the base manifests. The planner deployment sets:
 - `SYNESIS_PLANNER_MODEL_UDS=/var/lib/synesis/vllm-sockets/router.sock`
 - `SYNESIS_CRITIC_MODEL_UDS=/var/lib/synesis/vllm-sockets/router.sock`
 - `SYNESIS_ADVISOR_MODEL_UDS=/var/lib/synesis/vllm-sockets/router.sock`
-- `SYNESIS_GENERAL_MODEL_UDS=/var/lib/synesis/vllm-sockets/general.sock`
+- `SYNESIS_WRITER_MODEL_UDS=/var/lib/synesis/vllm-sockets/writer.sock`
 
 When `*_MODEL_UDS` is set, the planner uses the Unix socket; when empty, it falls back to HTTP (e.g. for local dev without hostPath).
 

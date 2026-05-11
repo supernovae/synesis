@@ -34,6 +34,12 @@ import {
   type AiSdkJsonResponseFormat,
 } from "./openai-compat.js";
 import {
+  chatCompletionToResponseObject,
+  OpenAIResponsesRequestSchema,
+  responseObjectToSseEvents,
+  responsesRequestToChatCompletion,
+} from "./responses-compat.js";
+import {
   buildClaudeBootstrapTemplate,
   executeClaudeCompatCommand,
   resolveClaudeModelSelection,
@@ -5194,6 +5200,15 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
   };
 }
 
+function openAiMetadataProviderOptions(metadata: Record<string, unknown> | undefined): Record<string, string> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata)
+    .filter(([key]) => key.length <= 64)
+    .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)] as const)
+    .filter(([, value]) => typeof value === "string" && value.length <= 512);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function resolveClaudeConversationId(
   metadata: Record<string, unknown> | undefined,
   headers: Record<string, unknown>,
@@ -6756,6 +6771,24 @@ function resolveRequestId(headers: Record<string, unknown>): string {
   return `req-${crypto.randomUUID()}`;
 }
 
+function selectedOpenAiCompatHeaders(headers: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = { "content-type": "application/json" };
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase();
+    if (
+      lower === "authorization"
+      || lower === "user-agent"
+      || lower === "x-request-id"
+      || lower === "openai-organization"
+      || lower === "openai-project"
+      || lower.startsWith("x-synesis-")
+    ) {
+      out[lower] = Array.isArray(value) ? value.join(",") : String(value);
+    }
+  }
+  return out;
+}
+
 function debugProtocolLog(
   logger: { info(obj: Record<string, unknown>, msg: string): void },
   reqId: string,
@@ -7019,13 +7052,70 @@ app.get("/v1", async () => ({
   status: "ok",
   service: "synesis-yarn-ts",
   version: "0.2.0",
-  endpoints: ["/v1/models", "/v1/chat/completions", "/v1/messages"]
+  endpoints: ["/v1/models", "/v1/models/{model}", "/v1/chat/completions", "/v1/responses", "/v1/messages"]
 }));
 
 app.get("/v1/models", async () => ({
   object: "list",
   data: tierRegistry.getAvailableModels()
 }));
+
+app.get("/v1/models/:model", async (req, reply) => {
+  const { model } = req.params as { model: string };
+  const found = tierRegistry.getAvailableModels().find((entry) => entry.id === model);
+  if (!found) {
+    return reply.code(404).send({ error: { type: "invalid_request_error", message: `Model '${model}' was not found.` } });
+  }
+  return found;
+});
+
+app.post("/v1/responses", async (req, reply) => {
+  const parsed = OpenAIResponsesRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsed.error.message } });
+  }
+  const responseRequest = parsed.data;
+  const chatRequest = responsesRequestToChatCompletion(responseRequest);
+  const injected = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: selectedOpenAiCompatHeaders(req.headers as Record<string, unknown>),
+    payload: JSON.stringify({ ...chatRequest, stream: false }),
+  });
+
+  let chatPayload: Record<string, unknown>;
+  try {
+    chatPayload = JSON.parse(injected.body) as Record<string, unknown>;
+  } catch {
+    chatPayload = {
+      error: {
+        type: "api_error",
+        message: injected.body || "Unable to parse upstream chat completion response.",
+      },
+    };
+  }
+  if (injected.statusCode >= 400) {
+    return reply.code(injected.statusCode).send(chatPayload);
+  }
+
+  const response = chatCompletionToResponseObject(chatPayload, responseRequest);
+  if (!responseRequest.stream) {
+    return reply.send(response);
+  }
+
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  for (const evt of responseObjectToSseEvents(response)) {
+    if (!safeWrite(reply.raw, `event: ${evt.event}\ndata: ${JSON.stringify(evt.data)}\n\n`)) break;
+  }
+  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeEnd(reply.raw);
+  return reply;
+});
 
 app.get("/v1/claude/bootstrap", async (req, reply) => {
   let authUser: import("./auth.js").AuthUser;
@@ -9262,20 +9352,53 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiEffectiveTopK = oaiSupportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
   const oaiEffectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
   const oaiEffectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
+  const oaiEffectiveFrequencyPenalty = request.frequency_penalty;
   const oaiEffectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
   const oaiEffectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
   const oaiEffectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
+  const oaiEffectiveMaxCompletionTokens = request.max_completion_tokens ?? request.max_tokens;
+  const oaiEffectiveLogprobs = typeof request.top_logprobs === "number"
+    ? request.top_logprobs
+    : request.logprobs;
+  const oaiMetadataProviderOptions = openAiMetadataProviderOptions(request.metadata);
+  const oaiStopSequences = typeof request.stop === "string"
+    ? [request.stop]
+    : (Array.isArray(request.stop) ? request.stop : undefined);
   const oaiSamplingOptions = {
     ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
     ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
     ...(oaiEffectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(oaiEffectiveTopK)) } : {}),
     ...(oaiEffectivePresencePenalty !== undefined ? { presencePenalty: oaiEffectivePresencePenalty } : {}),
+    ...(oaiEffectiveFrequencyPenalty !== undefined ? { frequencyPenalty: oaiEffectiveFrequencyPenalty } : {}),
+    ...(oaiStopSequences && oaiStopSequences.length > 0 ? { stopSequences: oaiStopSequences } : {}),
+    ...(request.seed !== undefined ? { seed: request.seed } : {}),
   };
   const oaiProviderOpenAiOverrides = {
     ...(oaiEffectiveMinP !== undefined ? { min_p: oaiEffectiveMinP } : {}),
     ...(oaiEffectiveRepetitionPenalty !== undefined ? { repetition_penalty: oaiEffectiveRepetitionPenalty } : {}),
     ...(oaiEffectiveEnableThinking !== undefined ? { enable_thinking: oaiEffectiveEnableThinking } : {}),
-    ...(oaiEffectiveReasoningEffort !== undefined ? { reasoning_effort: oaiEffectiveReasoningEffort } : {}),
+    ...(oaiEffectiveReasoningEffort !== undefined ? { reasoningEffort: oaiEffectiveReasoningEffort } : {}),
+    ...(oaiEffectiveMaxCompletionTokens !== undefined ? { maxCompletionTokens: oaiEffectiveMaxCompletionTokens } : {}),
+    ...(request.logit_bias !== undefined ? { logitBias: request.logit_bias } : {}),
+    ...(oaiEffectiveLogprobs !== undefined ? { logprobs: oaiEffectiveLogprobs } : {}),
+    ...(request.parallel_tool_calls !== undefined ? { parallelToolCalls: request.parallel_tool_calls } : {}),
+    ...(request.user ? { user: request.user } : {}),
+    ...(request.store !== undefined ? { store: request.store } : {}),
+    ...(oaiMetadataProviderOptions ? { metadata: oaiMetadataProviderOptions } : {}),
+    ...(request.prediction && typeof request.prediction === "object" && !Array.isArray(request.prediction)
+      ? { prediction: request.prediction as Record<string, unknown> }
+      : {}),
+    ...(request.service_tier === "auto" || request.service_tier === "flex" || request.service_tier === "priority" || request.service_tier === "default"
+      ? { serviceTier: request.service_tier }
+      : {}),
+    ...(request.prompt_cache_key ? { promptCacheKey: request.prompt_cache_key } : {}),
+    ...(request.prompt_cache_retention === "in_memory" || request.prompt_cache_retention === "24h"
+      ? { promptCacheRetention: request.prompt_cache_retention }
+      : {}),
+    ...(request.safety_identifier ? { safetyIdentifier: request.safety_identifier } : {}),
+    ...(request.verbosity === "low" || request.verbosity === "medium" || request.verbosity === "high"
+      ? { textVerbosity: request.verbosity }
+      : {}),
   };
   let oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
     ? {

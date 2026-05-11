@@ -639,7 +639,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestGeneration = requestGenerationParams(requestBody);
     const requestedEffortMode = tierSettings.tier;
-    const writerPricingRole = tierSettings.registry_writer_role ?? tierSettings.registry_general_role ?? "writer";
+    const writerPricingRole = tierSettings.registry_writer_role ?? "writer";
     const plannerMatrixModelId = String(tierSettings.responseModel || tierSettings.requestedModel || requestBody.model || "");
     const plannerMatrixModelPath = plannerMatrixModelId;
     const plannerMatrixFamily = inferPlannerModelFamily(plannerMatrixModelId);
@@ -768,7 +768,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requested_model: tierSettings.requestedModel || requestBody.model,
       response_model: tierSettings.responseModel,
       model_tier: tierSettings.tier,
-      registry_general_role: tierSettings.registry_general_role,
       registry_writer_role: tierSettings.registry_writer_role,
       resolved_writer_model: tierSettings.resolved_writer_model,
       resolved_writer_route: tierSettings.resolved_writer_route,
@@ -777,7 +776,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
         router: pricingRegistry.getRates("router"),
         planner: pricingRegistry.getRates("planner"),
         writer: pricingRegistry.getRates(writerPricingRole),
-        general: pricingRegistry.getRates(writerPricingRole),
         ambiguity: pricingRegistry.getRates("ambiguity-scorer"),
         critic: pricingRegistry.getRates("critic"),
       },
@@ -1639,7 +1637,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
       ctx.capability_matrix_matched_override_ids = matrix.matched_override_ids;
     }
     if (state.registry_writer_role) ctx.registry_writer_role = state.registry_writer_role;
-    if (state.registry_general_role) ctx.registry_general_role = state.registry_general_role;
     if (state.resolved_writer_model) {
       ctx.resolved_backend_model = state.resolved_writer_model;
       ctx.client_requested_model = state.requested_model;
@@ -1655,8 +1652,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     streamingCtx?: { mode: "streaming" | "non-streaming"; timeToFirstTokenMs?: number },
   ): void {
     const model = state.requested_model ?? state.response_model ?? "unknown";
-    const writerRole = state.registry_writer_role ?? state.registry_general_role ?? "writer";
-    const rates = state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general ?? pricingRegistry.getRates(writerRole);
+    const writerRole = state.registry_writer_role ?? "writer";
+    const rates = state.pricing_rates_by_role?.writer ?? pricingRegistry.getRates(writerRole);
     const collector = state._span_collector;
     const spans = collector?.getSpans() ?? [];
     const phaseTimings = collector?.getPhaseTimings() ?? {};

@@ -41,14 +41,10 @@ RESERVED_CLIENT_MODEL_IDS = frozenset(
         "synesis-writer-core",
         "synesis-writer-horizon",
         "synesis-ambiguity-scorer",
-        "synesis-general-pulse",
-        "synesis-general-core",
-        "synesis-general-horizon",
         "synesis-auto",
         "router",
         "planner",
         "writer",
-        "general",
         "critic",
         "ambiguity-scorer",
         "coder-pulse",
@@ -58,9 +54,6 @@ RESERVED_CLIENT_MODEL_IDS = frozenset(
         "coder-normalizer",
         "summarizer",
         "indexer-enrich",
-        "general-pulse",
-        "general-core",
-        "general-horizon",
     }
 )
 
@@ -217,5 +210,5 @@ def effort_to_coder_role(effort: str) -> str:
     return f"coder-{validate_effort_tier(effort)}"
 
 
-def effort_to_general_role(effort: str) -> str:
-    return f"general-{validate_effort_tier(effort)}"
+def effort_to_writer_role(effort: str) -> str:
+    return f"writer-{validate_effort_tier(effort)}"

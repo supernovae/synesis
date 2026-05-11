@@ -7,7 +7,7 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 | Model | Role | Quantization | VRAM | Deployment |
 |-------|------|-------------|------|------------|
 | **Qwen2.5-14B-Instruct** | Router, Planner, Critic | FP8 (on-the-fly via `--quantization=fp8`) | ~14 GB | `deployment-vllm-router.yaml` |
-| **Qwen3-32B FP8-dynamic** | General, Writer | FP8 (dynamic quant) | ~32 GB | `deployment-vllm-general.yaml` |
+| **Qwen3-32B FP8-dynamic** | Writer | FP8 (dynamic quant) | ~32 GB | `deployment-vllm-writer.yaml` |
 | **Qwen3-Coder-30B-A3B-FP8** | Coder (single GPU) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
 | **Qwen3-Coder-Next-FP8** | Coder (TP=2) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
 | **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (dedicated) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
@@ -15,9 +15,9 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 
 Runtime model routing is managed through the admin Model Registry and resolved directly by model runtime consumers.
 
-## General: Qwen3-32B FP8-dynamic
+## Writer: Qwen3-32B FP8-dynamic
 
-Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
+Key vLLM args (from `base/model-serving/deployment-vllm-writer.yaml`):
 
 ```
 --max-model-len=16384
@@ -31,13 +31,13 @@ Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
 - **Architecture**: Dense 32B transformer. Qwen3 series.
 - **FP8 weights ~32GB** — fits on a single L40S with careful memory budgeting.
 - **Dense model trade-off**: Unlike the MoE variant, every parameter is active on every token. This gives higher quality per-param but limits throughput to ~20-25 tok/s on a single L40S.
-- **Executor role**: Generates responses for Open WebUI users and the planner executor node.
+- **Writer role**: Generates final responses for Open WebUI users and planner writer calls.
 - **Prefix caching**: Enabled — caches system prompts and repeated context across concurrent users.
 - **FP8 KV cache**: `--kv-cache-dtype=fp8_e4m3` halves KV memory, allowing 16K context to fit alongside the 32GB model.
-- **No thinking flags**: The general deployment does not enable `--enable-reasoning`. Executor explicitly disables Qwen3's default thinking mode via `chat_template_kwargs: {"enable_thinking": false}`.
+- **No thinking flags**: The writer deployment does not enable `--enable-reasoning`. Writer calls explicitly disable Qwen3's default thinking mode via `chat_template_kwargs: {"enable_thinking": false}` when needed.
 - **Speculative decoding (future)**: The 8B draft model won't fit alongside the 32B on one GPU. However, ngram-based speculation (`--speculative-model=[ngram] --num-speculative-tokens=5 --ngram-prompt-lookup-max=4`) requires zero extra VRAM and can improve throughput 1.3-1.8x for predictable content.
 
-### General VRAM budget (single L40S)
+### Writer VRAM budget (single L40S)
 
 | Component | Estimate |
 |-----------|----------|
@@ -358,7 +358,7 @@ take precedence.
 | 404 on `/v1/health` | Health endpoint is at `/health` (no `/v1` prefix) |
 | Slow TTFT | Enable `--enable-chunked-prefill`; check `--gpu-memory-utilization` |
 | No reasoning content (R1) | Ensure `--reasoning-parser=deepseek_r1` for R1-Distill models |
-| No reasoning content (Qwen3 general) | Ensure `--enable-reasoning --reasoning-parser=qwen3` on the general model |
+| No reasoning content (Qwen3 writer) | Ensure `--enable-reasoning --reasoning-parser=qwen3` on the writer model |
 | FP8 KV cache + prefix caching | These are mutually exclusive in current vLLM. Choose one. |
 | Router returning `<think>` tags | Router uses Qwen2.5-14B (no native thinking). Remove `--reasoning-parser` if present. |
 | Coder infinite `!!!` stream | Switch `--tool-call-parser=qwen3_coder` to `qwen3_xml` |

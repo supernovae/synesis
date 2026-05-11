@@ -86,7 +86,7 @@ export function ensureSystemMessagesAtBeginning(messages: OpenAIChatMessage[]): 
   let sawNonSystem = false;
   let hasLateSystem = false;
   for (const msg of messages) {
-    if (msg.role === "system") {
+    if (msg.role === "system" || msg.role === "developer") {
       if (sawNonSystem) {
         hasLateSystem = true;
         break;
@@ -101,7 +101,7 @@ export function ensureSystemMessagesAtBeginning(messages: OpenAIChatMessage[]): 
   const systemMessages: OpenAIChatMessage[] = [];
   const nonSystemMessages: OpenAIChatMessage[] = [];
   for (const msg of messages) {
-    if (msg.role === "system") systemMessages.push(msg);
+    if (msg.role === "system" || msg.role === "developer") systemMessages.push({ ...msg, role: "system" });
     else nonSystemMessages.push(msg);
   }
   return [...systemMessages, ...nonSystemMessages];
@@ -333,6 +333,7 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
   for (const m of messages) {
     switch (m.role) {
       case "system":
+      case "developer":
         out.push({ role: "system", content: normalizeContentToText(m.content) });
         break;
       case "user":
