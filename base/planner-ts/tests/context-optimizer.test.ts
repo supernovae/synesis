@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { optimizeContext } from "../src/optimization/context-optimizer.js";
 
 describe("context optimizer", () => {
-  it("keeps latest user message near front after system", () => {
+  it("preserves chronological conversation order after system messages", () => {
     const result = optimizeContext(
       [
         { role: "system", content: "policy" },
@@ -14,7 +14,8 @@ describe("context optimizer", () => {
     );
     expect(result.messages[0]?.role).toBe("system");
     expect(result.messages[1]?.role).toBe("user");
-    expect(result.messages[1]?.content).toBe("latest user");
+    expect(result.messages[1]?.content).toBe("first user");
+    expect(result.messages.at(-1)?.content).toBe("latest user");
   });
 
   it("reduces oversized messages with envelope", () => {

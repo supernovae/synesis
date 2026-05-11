@@ -75,6 +75,13 @@ describe("trust envelope in writer messages", () => {
     expect(sysMsg!.content).toContain('"trust_level":"untrusted"');
   });
 
+  it("instructs writer to answer the latest turn without repeating prior topics", () => {
+    const msgs = buildWriterMessages(stateWithEvidence());
+    const sysMsg = msgs.find((m) => m.role === "system");
+    expect(sysMsg?.content).toContain("Answer the latest user message as the primary task.");
+    expect(sysMsg?.content).toContain("Do not re-answer earlier topics");
+  });
+
   it("preserves citation format for downstream validators", () => {
     const msgs = buildWriterMessages(stateWithEvidence());
     const userMsg = msgs.find((m) => m.role === "user")!;

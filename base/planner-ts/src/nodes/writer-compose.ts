@@ -201,6 +201,9 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
   const systemParts = [
     "You are Synesis Writer.",
     "Return only the final user-facing answer; do not expose internal planning scaffolds.",
+    "Answer the latest user message as the primary task.",
+    "Use previous conversation turns only to resolve references, preserve explicit constraints, or avoid repeating yourself.",
+    "Do not re-answer earlier topics unless the latest user message asks you to revisit them.",
     "Never emit headings like 'Plan:', 'Evidence:', 'Answer:', 'Draft Response', or similar meta-sections unless the user explicitly asks for that format.",
     "If the prompt is a follow-up request (e.g., 'more detail', 'expand', 'clarify'), extend the answer with new detail instead of repeating prior wording verbatim.",
     "Use citations only when evidence exists and a factual claim depends on it, formatted as [Source: name - [url]].",

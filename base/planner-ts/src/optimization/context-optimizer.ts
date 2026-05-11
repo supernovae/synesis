@@ -35,7 +35,8 @@ function reduceOversizedContent(content: string, maxChars: number): { content: s
 /**
  * Deterministic admission optimization inspired by yarn-ts:
  * - keep system messages at front
- * - keep latest user message near front (LITM-inspired recency anchoring)
+ * - preserve chronological conversation order so downstream prompt composers can
+ *   reliably treat the final user message as the current task
  * - cap historical message count
  * - reduce oversized payloads before model admission
  */
@@ -56,10 +57,8 @@ export function optimizeContext(
 
   const system = normalized.filter((message) => message.role === "system");
   const nonSystem = normalized.filter((message) => message.role !== "system");
-  const latestUser = [...nonSystem].reverse().find((message) => message.role === "user");
   const recent = nonSystem.slice(-options.recentMessageLimit);
-  const withoutLatest = latestUser ? recent.filter((message) => message !== latestUser) : recent;
 
-  const ordered = latestUser ? [...system, latestUser, ...withoutLatest] : [...system, ...recent];
+  const ordered = [...system, ...recent];
   return { messages: ordered, stats };
 }

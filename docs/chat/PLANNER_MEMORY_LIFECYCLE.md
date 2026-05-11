@@ -29,7 +29,7 @@ When `SYNESIS_PLANNER_TS_REDIS_URL` is set, planner-ts uses Redis as the session
 
 ## Session scoping
 
-Sessions are keyed by `conversation_id` (from the OpenAI chat completions request body) or `user` field, falling back to `"anon"`. Redis keys follow the pattern:
+Sessions are keyed by `conversation_id` (from the OpenAI chat completions request body, metadata, or trusted OpenWebUI chat headers). Requests without a conversation id use a per-request ephemeral key, so cross-turn memory is disabled instead of being shared across chats. Redis keys follow the pattern:
 
 ```
 {prefix}{conversation_id}
@@ -48,10 +48,13 @@ synesis:planner:session:chat-abc123
 | `SYNESIS_PLANNER_TS_SESSION_ENABLED` | `true` | Enable session memory |
 | `SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY` | `60` | Max turns kept per session |
 | `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES` | `12` | Trigger checkpoint/summarize after N messages |
+| `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_INCLUDE_RECENT` | `false` | Include verbatim recent exchanges in checkpoint blocks; off by default because OpenAI-style clients already send transcript history |
 | `SYNESIS_PLANNER_TS_SESSION_TTL_MS` | `14400000` | In-memory TTL (4h) |
 | `SYNESIS_PLANNER_TS_REDIS_URL` | (empty) | Redis connection URL; empty = in-memory only |
 | `SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX` | `synesis:planner:session:` | Redis key prefix |
 | `SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S` | `14400` | Redis key TTL in seconds (4h) |
+| `SYNESIS_PLANNER_TS_CONTEXT_SELECTION_ENABLED` | `true` | Trim chat history before model admission so the latest user turn remains primary |
+| `SYNESIS_PLANNER_TS_CONTEXT_RECENT_TURNS` | `2` | Number of recent user/assistant turns to keep for balanced continuity |
 
 ## Memory purge API
 
@@ -118,7 +121,7 @@ Planner-ts is designed to maximize provider-level prefix caching (KV cache reuse
 ### How prefix caching works
 
 1. System prompts are stable and identical across calls within the same role (writer, critic)
-2. Conversation history is prepended in consistent order before the current turn
+2. Focused recent conversation history is kept in chronological order before the current turn
 3. The provider (vLLM, OpenAI) automatically caches the KV state for matching prefixes
 4. Planner-ts extracts `cached_prompt_tokens` from provider responses and surfaces them in usage telemetry
 

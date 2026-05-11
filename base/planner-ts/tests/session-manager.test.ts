@@ -77,8 +77,26 @@ describe("SessionManager", () => {
     expect(checkpoint).toContain("Conversation arc: tutoring");
     expect(checkpoint).toContain("Active domains:");
     expect(checkpoint).toContain("coherence:");
-    expect(checkpoint).toContain("Recent exchanges:");
+    expect(checkpoint).not.toContain("Recent exchanges:");
     expect(checkpoint).toContain("</SESSION_STATE>");
+  });
+
+  it("can include recent exchanges in checkpoints when explicitly enabled", async () => {
+    const manager = new SessionManager({
+      enabled: true,
+      maxHistory: 40,
+      checkpointEveryMessages: 4,
+      ttlMs: 100000,
+      checkpointIncludeRecentExchanges: true,
+    });
+    await manager.recordTurn("c5b", "Help me study vocabulary and quiz me", "Sure! Fill in the blank: The ______ was impressive. A) elation B) hesitation");
+    await manager.recordTurn("c5b", "B) hesitation", "Correct! Hesitation means a pause before action.");
+
+    const enriched = await manager.enrichIncomingMessages("c5b", [{ role: "user", content: "next question" }]);
+    const checkpoint = enriched[0]?.content ?? "";
+
+    expect(checkpoint).toContain("Recent exchanges:");
+    expect(checkpoint).toContain("B) hesitation");
   });
 
   it("extracts user facts/preferences into checkpoint", async () => {

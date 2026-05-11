@@ -171,6 +171,7 @@ export class SessionManager {
       checkpointEveryMessages: number;
       ttlMs: number;
       store?: SessionStore;
+      checkpointIncludeRecentExchanges?: boolean;
     }
   ) {
     this.store = opts.store ?? new MemorySessionStore();
@@ -186,7 +187,10 @@ export class SessionManager {
 
   private summarize(history: ChatMessage[], recentTail: ChatMessage[]): string {
     const checkpoint = buildStructuredCheckpoint(history);
-    return renderCheckpoint(checkpoint, recentTail);
+    return renderCheckpoint(
+      checkpoint,
+      this.opts.checkpointIncludeRecentExchanges ? recentTail : [],
+    );
   }
 
   private async ensureSession(key: string): Promise<SessionData> {

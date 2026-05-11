@@ -29,6 +29,7 @@ import { assertCapabilityLock } from "./capability-lock.js";
 import type { AppConfig } from "./config.js";
 import { loadConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
+import { selectConversationContext } from "./context/context-selector.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
 import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
@@ -489,6 +490,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     maxHistory: config.SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY,
     checkpointEveryMessages: config.SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES,
     ttlMs: config.SYNESIS_PLANNER_TS_SESSION_TTL_MS,
+    checkpointIncludeRecentExchanges: config.SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_INCLUDE_RECENT,
     store: sessionStore
   });
   const authzPolicyEngine = createAuthorizationPolicyEngine(config);
@@ -636,6 +638,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
       sessionKey,
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
     );
+    const selectedContext = selectConversationContext(incomingWithSession, {
+      enabled: config.SYNESIS_PLANNER_TS_CONTEXT_SELECTION_ENABLED,
+      recentTurns: config.SYNESIS_PLANNER_TS_CONTEXT_RECENT_TURNS,
+    });
     const tierSettings = resolveTierSettings(requestBody.model);
     const requestGeneration = requestGenerationParams(requestBody);
     const requestedEffortMode = tierSettings.tier;
@@ -651,14 +657,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const plannerContextOptimizerEnabled =
       plannerCapabilityResolution.mode !== "enforced"
       || plannerCapabilityResolution.resolved_capabilities["planner.context_optimizer_enabled"] === true;
-    const rawCharsTotal = incomingWithSession.reduce((sum, message) => sum + (message.content ?? "").length, 0);
+    const rawCharsTotal = selectedContext.messages.reduce((sum, message) => sum + (message.content ?? "").length, 0);
     const optimized = plannerContextOptimizerEnabled
-      ? optimizeContext(incomingWithSession, {
+      ? optimizeContext(selectedContext.messages, {
           maxCharsPerMessage: config.SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS,
           recentMessageLimit: config.SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT
         })
       : {
-          messages: incomingWithSession,
+          messages: selectedContext.messages,
           stats: {
             reducedCount: 0,
             reducedCharsTotal: rawCharsTotal,
@@ -668,6 +674,15 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.reducedCount += optimized.stats.reducedCount;
     optimizationCounters.reducedCharsTotal += optimized.stats.reducedCharsTotal;
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
+    app.log.info(
+      {
+        authzTraceId,
+        sessionKey,
+        conversationId: requestBody.conversation_id ?? undefined,
+        contextSelection: selectedContext.metadata,
+      },
+      "planner_context_selection_v1",
+    );
     const plannerCapabilityHash = crypto
       .createHash("sha256")
       .update(
@@ -807,6 +822,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       traceparent,
       requested_response_format: requestBody.response_format,
       stream_include_usage: requestBody.stream_options?.include_usage,
+      context_selection: selectedContext.metadata,
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
       injection_scan_result: injectionScanResult,

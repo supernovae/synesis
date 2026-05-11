@@ -71,12 +71,21 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_CRITIC_LENIENT_BELOW_DIFFICULTY: z.coerce.number().default(0.4),
   SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS: z.coerce.number().default(240000),
   SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT: z.coerce.number().default(24),
+  SYNESIS_PLANNER_TS_CONTEXT_SELECTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_PLANNER_TS_CONTEXT_RECENT_TURNS: z.coerce.number().default(2),
   SYNESIS_PLANNER_TS_SESSION_ENABLED: z
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY: z.coerce.number().default(60),
   SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES: z.coerce.number().default(12),
+  SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_INCLUDE_RECENT: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_PLANNER_TS_SESSION_TTL_MS: z.coerce.number().default(14400000),
   SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS: z.coerce.number().default(5000),
   SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES: z.coerce.number().default(5),

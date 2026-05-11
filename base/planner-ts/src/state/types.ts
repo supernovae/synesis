@@ -1,4 +1,5 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
+import type { ContextSelectionMetadata } from "../context/context-selector.js";
 import type { LlmRoute } from "../public-model-catalog.js";
 import type { CohesionLockData } from "../retrieval/types.js";
 import type { SpanCollector } from "../tracing/span-collector.js";
@@ -122,6 +123,7 @@ export interface GraphState {
   traceparent?: string;
   requested_response_format?: Record<string, unknown>;
   stream_include_usage?: boolean;
+  context_selection?: ContextSelectionMetadata;
 
   cynefin_domain?: CynefinDomain;
   domain_profile?: {

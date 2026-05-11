@@ -12,7 +12,7 @@ Before:
 
 After:
 - Compaction produces a structured checkpoint containing domain profile, topic threads, user facts, and conversation arc
-- The LLM receives a machine-readable `<SESSION_STATE>` block that preserves what matters
+- The LLM receives a machine-readable `<SESSION_STATE>` block that preserves durable context without restating recent answers by default
 - Zero LLM cost: the compaction is entirely deterministic, using the domain profiler already in the codebase
 
 ## What was implemented
@@ -24,7 +24,7 @@ After:
   - `extractTopics(history)` — scans history in 4-message windows, detecting dominant domain shifts to produce topic threads with `active`/`resolved` status and turn ranges
   - `extractUserFacts(userMessages)` — pulls declarative statements containing personal context (e.g., "I'm using React", "I prefer functional components") into a deduplicated list (up to 12 facts)
   - `detectConversationArc(allText)` — classifies the session as `tutoring`, `debugging`, `coding`, `exploration`, `analysis`, or `general`
-  - `renderCheckpoint(checkpoint, recentHistory)` — produces the `<SESSION_STATE>` block consumed by planner and writer
+  - `renderCheckpoint(checkpoint, recentHistory)` — produces the `<SESSION_STATE>` block consumed by planner and writer; recent exchanges are opt-in
 
 ### Domain profiling (reused, not new)
 
@@ -66,7 +66,7 @@ Recent exchanges:
 | Active domains | `buildDomainProfile` over full history | Weighted domain context so the LLM knows the subject area |
 | Topic threads | 4-message window domain shift detection | Structured map of what was discussed and what's still live |
 | User facts | Declarative statement extraction from user messages | Preferences and constraints that survive compaction |
-| Recent exchanges | Last 6 messages, lightly truncated | Verbatim context for immediate continuity |
+| Recent exchanges | Last 6 messages, lightly truncated | Opt-in verbatim context for clients that do not already send chat history |
 
 ## Theoretical basis
 
@@ -81,7 +81,7 @@ Recent exchanges:
 | Reuse `buildDomainProfile` | Already proven in entry-classifier and sensemaking; single source of truth for domain detection |
 | 4-message topic windows | Balances granularity vs. noise; matches typical user-assistant exchange pairs |
 | Cap at 12 user facts | Prevents checkpoint bloat in very long sessions while retaining the most recent preferences |
-| 6 recent verbatim exchanges | Enough for immediate context without duplicating the full history that `state.messages` already carries |
+| Recent verbatim exchanges disabled by default | OpenAI-style clients such as OpenWebUI already send chat history; duplicating answers in the checkpoint can make older turns too salient |
 
 ## Expansion paths
 

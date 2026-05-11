@@ -1,6 +1,6 @@
 # Conversation Memory (L1 / L2)
 
-Synesis keeps **per-scope** state in the **planner** so the agent can resolve references (“fix that script”, “the previous one”), resume **plan approval** and **needs_input** flows, and apply **context pivots** (language / code-vs-text / domain) without losing safety. This page describes **what is implemented today** (L1 vs L2), how keys are formed, and **gaps vs typical user expectations** for “saved” conversations.
+Synesis keeps **per-conversation** state in the **planner** so the agent can resolve references (“fix that script”, “the previous one”) and resume pending clarification flows without mixing chats. This page describes **what is implemented today** in `planner-ts`, how keys are formed, and **gaps vs typical user expectations** for “saved” conversations.
 
 **Code (planner-ts):** `base/planner-ts/src/context/session-store.ts`, `session-manager.ts`, and request handling in `app.ts` (scope keys, pending flows, Redis-backed session store when configured).  
 **Workflow:** [WORKFLOW_PLANNER.MD](./WORKFLOW_PLANNER.MD) (plan approval, needs_input).  
@@ -12,8 +12,8 @@ Synesis keeps **per-scope** state in the **planner** so the agent can resolve re
 
 | Layer | Storage | What it holds | Survives planner pod restart? |
 |-------|---------|----------------|------------------------------|
-| **L1** | In-process (`ConversationMemory`) | Recent turns, `pending_*` maps, last language / last routing context (`is_code_task`, domain refs), unified **pending question** snapshot | **No** — all L1 data is lost on rollout/restart |
-| **L2 (Redis)** | Optional, same Redis URL as pivot archive when configured | (a) **Pending question** write-through: `store_pending_question` mirrors to Redis so a reply can resume after L1 loss; (b) **Pivot archive**: raw history strings archived on context pivot | **Yes**, within TTL — but only for those two mechanisms, not general chat |
+| **L1** | In-process `MemorySessionStore` | Recent turns, deterministic checkpoint, pending clarification snapshot | **No** — all L1 data is lost on rollout/restart |
+| **L2 (Redis)** | Optional `RedisSessionStore` | Same session payload as L1, stored with TTL and compare-and-swap updates | **Yes**, within TTL |
 
 **Not implemented yet:** The `_on_evict` hook on L1 turn eviction is still a **stub** (debug log only). A future design could summarize evicted turns and upsert session-scoped memory into NornicDB (`conversation_memory_v1` or similar) for long-horizon memory — see [Future work](#future-work-user-expectations-and-recommended-changes).
 
@@ -21,14 +21,14 @@ Synesis keeps **per-scope** state in the **planner** so the agent can resolve re
 
 ## Memory scope key (`memory_scope`)
 
-All L1 operations (history, pivot state, pending questions) use a single string key:
+Current `planner-ts` session state uses a single key:
 
-- **`user_id` only** — if no conversation id is provided.
-- **`{user_id}:{conversation_id}`** — if `conversation_id` is present (body or header).
+- **`conversation:{conversation_id}`** — if a conversation id is present.
+- **`ephemeral:{request_id}`** — if no conversation id is present.
 
-So **multi-chat clients must send a stable `conversation_id` per chat**; otherwise every chat shares one history bucket for that user.
+So **multi-chat clients must send a stable `conversation_id` per chat** for cross-turn continuity. Without it, planner memory and pending clarification state are intentionally per-request and do not bleed across chats.
 
-**User id resolution order** (first match wins):
+**User id resolution order** (first match wins, for auth/attribution rather than session keying):
 
 1. Header **`X-OpenWebUI-User-Id`** (trimmed, max 128 chars)
 2. Request body **`user`** (OpenAI standard)
@@ -38,46 +38,31 @@ So **multi-chat clients must send a stable `conversation_id` per chat**; otherwi
 **Conversation id resolution order:**
 
 1. Body **`conversation_id`**
-2. **`X-OpenWebUI-Chat-Id`**
-3. **`X-Conversation-Id`** or **`X-Chat-Id`**
+2. Body **`session_id`** or **`chat_id`**
+3. Body **`metadata.conversation_id`**, **`metadata.synesis_conversation_id`**, **`metadata.session_id`**, or **`metadata.chat_id`**
+4. **`X-Synesis-Conversation-Id`**, **`X-OpenWebUI-Conversation-Id`**, **`X-OpenWebUI-Chat-Id`**, **`X-Chat-Id`**, or **`X-Session-Id`**
 
 ---
 
 ## L1: What is stored
 
-1. **Turn deque** (default **20** turns per scope, content truncated for storage/display caps). Injected into the router as **recent history** when memory is enabled.
-2. **Last active language** — for language-change pivot detection.
-3. **Last context** — `(is_code_task, active_domain_refs)` for deliverable/domain pivot detection.
-4. **Pending plan / pending needs_input** — legacy dicts (still on the object); the graph primarily uses the **unified** `pending_questions` path for plan approval, clarification, and needs_input.
-5. **Unified pending question** — written in `respond` when the user must answer (plan, clarification, needs_input). Includes `pending_question_id`, `run_id`, `turn_id`, `expires_at` (TTL from `pending_question_ttl_seconds`, default 24h).
+1. **Recent turn history** — user/assistant turns recorded after each response, capped by `SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY`.
+2. **Structured checkpoint** — deterministic `<SESSION_STATE>` with conversation arc, active domains, topic threads, and user facts/preferences after compaction.
+3. **Pending clarification** — original task, clarification prompt/options, assumptions, and timestamps so a short follow-up can be merged back into the original request.
 
 **Eviction / caps:**
 
-- Per-scope turn deque maxlen → oldest turn dropped; `_on_evict` called (stub).
-- Global **max users/scopes** (default **5000**) → LRU entire scope evicted.
-- **TTL** (default **4h** inactivity) → lazy cleanup; expired scope removed and evicted turns passed to `_on_evict`.
+- Session history is compacted into a checkpoint after `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES`.
+- Global **max sessions** (default **5000**) → LRU entire session evicted in the in-memory backend.
+- **TTL** (default **4h** inactivity) → lazy cleanup in memory and Redis key expiry when Redis is configured.
 
 ---
 
-## L2: Redis (when `L2_ARCHIVE_REDIS_URL` is set)
+## L2: Redis (when `SYNESIS_PLANNER_TS_REDIS_URL` is set)
 
 Configured via **`SYNESIS_PLANNER_TS_REDIS_URL`** (and related Redis env vars in `base/planner-ts/src/config.ts`) when using the Redis session backend (e.g. `redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2`).
 
-### A) Pending question checkpoint
-
-- **Write:** On `store_pending_question`, L1 is updated and, if Redis is configured, a JSON snapshot is stored under **`synesis:pending:{memory_scope}`** with TTL (default 86400s).
-- **Read:** `get_and_clear_pending_question` reads L1 first; on miss, **GETDEL** from Redis and restores `_full` payload if present.
-
-This is the **only** path that makes “reply to the plan after a pod restart” possible without L1.
-
-### B) Pivot archive (`archive_to_l2`)
-
-On **language or context pivot**, the planner:
-
-1. Optionally summarizes the pre-pivot era (`summarize_pivot_history` — needs **`summarizer_model_url`** for real summaries; otherwise stub text).
-2. Calls **`archive_to_l2(run_id, user_id, conversation_history)`** which, if Redis is set, does **`SETEX synesis:l2:{user_id}:{run_id}`** with TTL **`l2_archive_ttl_seconds`** (default **7 days**).
-
-**Important quirk:** the archive key uses **`user_id` only**, not **`memory_scope`**. Two different `conversation_id`s for the same user could theoretically collide only on `run_id` (UUID — practically rare), but **browsing or replay APIs keyed by user_id** would not separate chats. Prefer scoping archive keys by **`memory_scope`** in a future change (see below).
+Redis stores the same `SessionData` payload as the in-memory backend under `SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX + session_key`, with TTL from `SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S`. This makes checkpointed continuity and pending clarification survive planner pod restarts within the configured TTL.
 
 ---
 
@@ -85,25 +70,23 @@ On **language or context pivot**, the planner:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMORY_ENABLED` | `true` | Master switch for L1 history injection and turn storage |
-| `MEMORY_MAX_TURNS_PER_USER` | `20` | Max turns per **scope** |
-| `MEMORY_MAX_USERS` | `5000` | Max distinct scopes (LRU eviction) |
-| `MEMORY_TTL_SECONDS` | `14400` | Inactivity TTL (4h) for a scope |
-| `L2_ARCHIVE_REDIS_URL` | `""` | If set, enables **pending checkpoint** write-through + **pivot** `archive_to_l2` |
-| `L2_ARCHIVE_TTL_SECONDS` | `604800` | Redis TTL for pivot archives (7 days) |
-| `PENDING_QUESTION_TTL_SECONDS` | `86400` | `expires_at` on pending snapshots; stale detection |
-| `PIVOT_SUMMARY_ENABLED` | `true` | Call summarizer on pivot when history exists |
-| `SUMMARIZER_MODEL_URL` / `SUMMARIZER_MODEL_NAME` | `""` / `synesis-summarizer` | Small LLM for pivot summaries; empty → stub summary |
-
-Planner deployment env vars follow the same names with appropriate prefixing in your overlay (see [`base/planner/deployment.yaml`](../base/planner/deployment.yaml)).
+| `SYNESIS_PLANNER_TS_SESSION_ENABLED` | `true` | Master switch for session checkpoint and pending clarification state |
+| `SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY` | `60` | Max stored messages per session before compaction |
+| `SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS` | `5000` | Max in-memory sessions when Redis is not configured |
+| `SYNESIS_PLANNER_TS_SESSION_TTL_MS` | `14400000` | Inactivity TTL (4h) |
+| `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_MESSAGES` | `12` | Messages before deterministic checkpoint compaction |
+| `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_INCLUDE_RECENT` | `false` | Include verbatim recent exchanges in checkpoints; off by default for OpenWebUI-style clients |
+| `SYNESIS_PLANNER_TS_CONTEXT_SELECTION_ENABLED` | `true` | Trim input transcript so the latest user turn remains primary |
+| `SYNESIS_PLANNER_TS_CONTEXT_RECENT_TURNS` | `2` | Recent user/assistant turns retained for normal continuity |
+| `SYNESIS_PLANNER_TS_REDIS_URL` | `""` | Redis session backend; empty means in-memory only |
 
 ---
 
 ## Client guidance
 
-**Open WebUI / multi-chat:** Send **`conversation_id`** (or **`X-OpenWebUI-Chat-Id`**) so each chat is isolated. Without it, history and pending state **bleed across chats** for the same user id.
+**Open WebUI / multi-chat:** Send **`conversation_id`** (or **`X-OpenWebUI-Chat-Id`**) so each chat has cross-turn continuity. Without it, planner uses ephemeral per-request state, so prior turns are available only if the client includes them in the OpenAI `messages` transcript.
 
-**Plan / needs_input resume:** For reliability across pod restarts, set **`L2_ARCHIVE_REDIS_URL`** to the same Redis the cluster already uses for planner/session workloads if applicable.
+**Pending clarification resume:** For reliability across pod restarts, set **`SYNESIS_PLANNER_TS_REDIS_URL`** to the same Redis the cluster already uses for planner/session workloads if applicable.
 
 **API compatibility:** Standard OpenAI clients can pass **`user`**. Synesis-specific headers are optional.
 
@@ -127,19 +110,18 @@ curl -X POST https://synesis-api.example/v1/chat/completions \
 
 Users often expect **saved conversations** to:
 
-1. **Survive restarts** — Full turn history today is **L1-only**; after a deploy they see an empty memory unless Redis pending or a new product-level store restores it.
+1. **Survive restarts** — Set `SYNESIS_PLANNER_TS_REDIS_URL` for TTL-bound session continuity; longer saved-chat history still needs product-level durable turn storage.
 2. **Stay isolated per chat** — Handled when `conversation_id` is wired end-to-end from the UI/proxy.
-3. **Resume exactly where they left off** — Pending checkpoint + L2 Redis helps for **interrupted plan/question** flows; general “scroll back through last week” needs **durable turn storage**.
-4. **Not lose “old” context when the window slides** — Today, turns beyond maxlen or TTL are dropped with **no retrieval** (eviction hook is a stub).
+3. **Resume exactly where they left off** — Redis helps for active session checkpoints and pending clarification; general “scroll back through last week” needs **durable turn storage**.
+4. **Not lose “old” context when the window slides** — Today, turns beyond max history or TTL are dropped after deterministic checkpointing, with no semantic retrieval.
 
 **Recommended directions (engineering):**
 
 | Change | Why |
 |--------|-----|
-| **Durable L2 for turns** (Postgres per `memory_scope`, or append-only object store) | Matches “saved chat” semantics; optional compaction/summarization |
-| **Implement `_on_evict`** → summary + optional vector store | Long-horizon recall without unbounded L1 |
-| **Scope `archive_to_l2` with `memory_scope`** | Align pivot archives with multi-chat isolation |
-| **Expose `pending_question_id` in API responses** (e.g. response extension) so clients must echo it | Already generated server-side; tighter multi-tab safety if clients cooperate |
+| **Durable store for turns** (Postgres per `conversation_id`, or append-only object store) | Matches “saved chat” semantics; optional compaction/summarization |
+| **Summarize evicted history** → summary + optional vector store | Long-horizon recall without unbounded active session state |
+| **Expose pending clarification ids in API responses** so clients can echo them | Tighter multi-tab safety if clients cooperate |
 | **Reload path** (optional): hydrate L1 from durable store on first message of a session | Bridges “open saved chat” UX |
 | **Product integration** — if Admin/WebUI stores conversations, define whether planner memory is source of truth or a cache of that store | Avoid two divergent histories |
 
