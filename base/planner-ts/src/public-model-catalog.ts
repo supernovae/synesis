@@ -125,13 +125,19 @@ export async function refreshPublicModelCatalog(config: AppConfig): Promise<void
     "x-synesis-service-name": "synesis-planner-ts",
     authorization: `Bearer ${token}`,
   };
-  const [offRes, rolesRes] = await Promise.all([
-    fetch(`${base}/api/v1/models/public-offerings/internal?for=planner`, {
-      headers,
-      signal: AbortSignal.timeout(8_000),
-    }),
-    fetch(`${base}/api/v1/models/roles/internal`, { headers, signal: AbortSignal.timeout(8_000) }),
-  ]);
+  let offRes: Response;
+  let rolesRes: Response;
+  try {
+    [offRes, rolesRes] = await Promise.all([
+      fetch(`${base}/api/v1/models/public-offerings/internal?for=planner`, {
+        headers,
+        signal: AbortSignal.timeout(8_000),
+      }),
+      fetch(`${base}/api/v1/models/roles/internal`, { headers, signal: AbortSignal.timeout(8_000) }),
+    ]);
+  } catch {
+    return;
+  }
   if (offRes.ok) {
     try {
       const j = (await offRes.json()) as { offerings?: PublicPlannerOffering[] };
@@ -180,8 +186,12 @@ export async function refreshPublicModelCatalog(config: AppConfig): Promise<void
 }
 
 export function startPublicModelCatalogPolling(config: AppConfig): void {
-  void refreshPublicModelCatalog(config);
+  void refreshPublicModelCatalog(config).catch(() => {
+    /* keep previous catalog */
+  });
   setInterval(() => {
-    void refreshPublicModelCatalog(config);
+    void refreshPublicModelCatalog(config).catch(() => {
+      /* keep previous catalog */
+    });
   }, POLL_MS);
 }

@@ -19,7 +19,7 @@ global:
   mode: api
   imageRegistry: ghcr.io/supernovae/synesis
   imageTag: latest
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   imagePullSecrets: []
   clusterDomain: cluster.local
   # Provider controls cloud-specific defaults. Use "auto" for best-effort
@@ -1071,7 +1071,7 @@ workloads:
       cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     image:
       repository: ghcr.io/supernovae/synesis/open-webui
-      tag: v0.9.4
+      tag: latest
     strategy: Recreate
     ports:
       - name: http
@@ -1447,7 +1447,7 @@ jobs:
     image:
       repository: ghcr.io/supernovae/synesis/indexer
       tag: latest
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     serviceAccountName: default
     githubTokenSecretName: synesis-github-token
     hfTokenSecretName: synesis-hf-token
@@ -1534,7 +1534,7 @@ jobs:
     image:
       repository: ghcr.io/supernovae/synesis/quality-runner
       tag: latest
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     command:
       - python
       - entrypoint.py
