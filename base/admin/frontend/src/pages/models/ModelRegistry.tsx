@@ -121,12 +121,74 @@ function sortRolesForCanonicalTable(a: ModelDeployment, b: ModelDeployment): num
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  ready: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  checking: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   activating: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
   configured: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   unassigned: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
   unknown: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
+
+interface RoleReadiness {
+  status: string;
+  label: string;
+  title: string;
+}
+
+function roleReadiness(
+  role: ModelDeployment,
+  providers: Record<string, ProviderInfo>,
+  configuredKeys: Set<string>,
+  governanceLoaded: boolean,
+): RoleReadiness {
+  if (!role.assigned) {
+    return { status: "unassigned", label: "unassigned", title: "No active model assignment for this role." };
+  }
+  if (!role.is_active) {
+    return { status: "configured", label: "inactive", title: `Stored status: ${role.status || "unknown"}` };
+  }
+  if (!role.model.trim()) {
+    return { status: "error", label: "missing model", title: "This active role has no upstream model id." };
+  }
+
+  const provider = providers[role.provider];
+  const endpointRequired = showEndpointUrlField(role.provider, provider);
+  if (endpointRequired && !role.endpoint.trim()) {
+    return {
+      status: "error",
+      label: "missing endpoint",
+      title: "This provider needs an OpenAI-compatible base URL before the direct route can be used.",
+    };
+  }
+
+  const keyEnv = (role.api_key_env || provider?.api_key_env || "").trim();
+  if (keyEnv) {
+    if (!governanceLoaded) {
+      return {
+        status: "checking",
+        label: "checking key",
+        title: `Waiting for provider key status for ${keyEnv}. Stored status: ${role.status || "unknown"}.`,
+      };
+    }
+    if (!configuredKeys.has(keyEnv)) {
+      return {
+        status: "error",
+        label: "key missing",
+        title: `${keyEnv} is not configured under Models -> Providers -> API keys.`,
+      };
+    }
+  }
+
+  return {
+    status: "ready",
+    label: "ready",
+    title:
+      role.status && role.status !== "active"
+        ? `Direct provider route is ready. Stored deployment status is '${role.status}', likely from the old reconciler path.`
+        : "Direct provider route is ready.",
+  };
+}
 
 interface EditState {
   role: string;
@@ -390,22 +452,6 @@ function ExtraPublicOfferingCard({
   const [standaloneEndpoint, setStandaloneEndpoint] = useState(() => o.standalone_endpoint ?? "");
   const [standaloneApiKeyEnv, setStandaloneApiKeyEnv] = useState(() => o.standalone_api_key_env ?? "");
 
-  useEffect(() => {
-    setLabel(o.label ?? "");
-    setWire(o.backend_model_override ?? "");
-    setStandaloneProvider(o.standalone_provider ?? "");
-    setStandaloneEndpoint(o.standalone_endpoint ?? "");
-    setStandaloneApiKeyEnv(o.standalone_api_key_env ?? "");
-  }, [
-    o.id,
-    o.label,
-    o.backend_model_override,
-    o.standalone_provider,
-    o.standalone_endpoint,
-    o.standalone_api_key_env,
-    o.updated_at,
-  ]);
-
   const mode = normalizeConnectionMode(o.connection_mode);
   const routeKey = (o.route_via_role ?? `coder-${o.effort_tier}`).trim();
   const dep = roles.find((r) => r.role === routeKey);
@@ -652,6 +698,7 @@ export default function ModelRegistry() {
   }, [costsData]);
 
   const { data: govData } = useProviderGovernance();
+  const governanceLoaded = Boolean(govData);
   const catalogData = useMemo(
     () => (govData ? buildCatalogFromGovernance(govData) : undefined),
     [govData],
@@ -707,7 +754,7 @@ export default function ModelRegistry() {
 
   const providers = catalogData?.providers ?? {};
 
-  const roles: ModelDeployment[] = data?.roles ?? [];
+  const roles: ModelDeployment[] = useMemo(() => data?.roles ?? [], [data?.roles]);
   const assigned = roles.filter((r) => r.assigned);
   const unassigned = roles.filter((r) => !r.assigned);
 
@@ -975,6 +1022,7 @@ export default function ModelRegistry() {
                     const coRoles = sharedRoles.filter((x) => x !== r.role);
                     const roleInfo = roleInfoByKey.get(r.role);
                     const hint = roleInfo?.description ?? ROLE_ROW_TITLE[r.role];
+                    const readiness = roleReadiness(r, providers, configuredKeys, governanceLoaded);
                     return (
                       <tr
                         key={r.role}
@@ -1028,9 +1076,10 @@ export default function ModelRegistry() {
                         <td className="px-3 py-2 align-top">
                           {r.assigned ? (
                             <span
-                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[r.status] || STATUS_COLORS.unknown}`}
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[readiness.status] || STATUS_COLORS.unknown}`}
+                              title={readiness.title}
                             >
-                              {r.status}
+                              {readiness.label}
                             </span>
                           ) : (
                             <span className="text-[10px] text-gray-400">—</span>
@@ -1110,7 +1159,7 @@ export default function ModelRegistry() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {(publicOfferingsData?.offerings ?? []).map((o: PublicModelOffering) => (
               <ExtraPublicOfferingCard
-                key={o.id}
+                key={`${o.id}:${o.updated_at ?? ""}`}
                 o={o}
                 roles={roles}
                 onPatch={(patch) => patchOfferingMut.mutate(patch)}

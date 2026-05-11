@@ -122,9 +122,12 @@ export default function FeedbackLoop(): React.ReactElement {
   useEffect(() => {
     if (!runId.trim()) return;
     activeRunRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setHighlightActiveRun(true);
+    const start = window.setTimeout(() => setHighlightActiveRun(true), 0);
     const t = window.setTimeout(() => setHighlightActiveRun(false), 1600);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(start);
+      window.clearTimeout(t);
+    };
   }, [runId]);
 
   return (

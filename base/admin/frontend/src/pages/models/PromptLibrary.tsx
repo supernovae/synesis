@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { PROMPT_MODEL_FAMILY_OPTIONS, PROMPT_MODEL_FAMILY_VALUE_SET } from "../../constants/promptModelFamilies";
 import {
@@ -63,13 +63,6 @@ export default function PromptLibrary() {
     setAssignTargetValue("*");
     setAssignProfileId(0);
   };
-
-  useEffect(() => {
-    if (assignTargetType !== "model_family") return;
-    if (!PROMPT_MODEL_FAMILY_VALUE_SET.has(assignTargetValue)) {
-      setAssignTargetValue("generic");
-    }
-  }, [assignTargetType, assignTargetValue]);
 
   const isEditorDirty = useCallback(() => {
     if (editId) {

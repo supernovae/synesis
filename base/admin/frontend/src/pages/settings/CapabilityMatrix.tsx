@@ -590,7 +590,7 @@ export default function CapabilityMatrixPage() {
           modelPath,
         });
         const providerState = providerStatusByKey.get(row.provider);
-        const providerNeedsKey = Boolean(providerState?.apiKeyEnv) && !Boolean(providerState?.isLocal);
+        const providerNeedsKey = Boolean(providerState?.apiKeyEnv) && !providerState?.isLocal;
         return {
           role: row.role,
           provider: row.provider,
@@ -673,72 +673,105 @@ export default function CapabilityMatrixPage() {
 
   useEffect(() => {
     if (!data) return;
-    setGlobalMode(data.mode);
-    setGlobalEnabled(data.global_optimizations_enabled);
+    const t = window.setTimeout(() => {
+      setGlobalMode(data.mode);
+      setGlobalEnabled(data.global_optimizations_enabled);
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [data]);
 
   useEffect(() => {
     if (!data) return;
-    if (Object.keys(formCapabilities).length > 0) return;
     const initial: Record<string, boolean> = {};
     for (const key of data.supported_capabilities) initial[key] = false;
-    setFormCapabilities(initial);
-  }, [data, formCapabilities]);
+    const t = window.setTimeout(() => {
+      setFormCapabilities((prev) => (Object.keys(prev).length > 0 ? prev : initial));
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [data]);
 
   useEffect(() => {
+    let next = formSelector;
     if (formSelectorChoices.length === 0) {
-      if (formSelector !== "") setFormSelector("");
-      return;
+      next = "";
+    } else if (!formSelectorChoices.some((choice) => choice.value === formSelector.trim())) {
+      next = formSelectorChoices[0].value;
     }
-    if (!formSelectorChoices.some((choice) => choice.value === formSelector.trim())) {
-      setFormSelector(formSelectorChoices[0].value);
-    }
+    if (next === formSelector) return;
+    const t = window.setTimeout(() => setFormSelector(next), 0);
+    return () => window.clearTimeout(t);
   }, [formSelectorChoices, formSelector]);
 
   useEffect(() => {
+    let next = presetSelector;
     if (presetSelectorChoices.length === 0) {
-      if (presetSelector !== "") setPresetSelector("");
-      return;
+      next = "";
+    } else if (!presetSelectorChoices.some((choice) => choice.value === presetSelector.trim())) {
+      next = presetSelectorChoices[0].value;
     }
-    if (!presetSelectorChoices.some((choice) => choice.value === presetSelector.trim())) {
-      setPresetSelector(presetSelectorChoices[0].value);
-    }
+    if (next === presetSelector) return;
+    const t = window.setTimeout(() => setPresetSelector(next), 0);
+    return () => window.clearTimeout(t);
   }, [presetSelectorChoices, presetSelector]);
 
   useEffect(() => {
+    let next = previewModelId;
     if (previewModelChoices.length === 0) {
-      if (previewModelId !== "") setPreviewModelId("");
+      next = "";
     } else if (!previewModelChoices.some((choice) => choice.value === previewModelId.trim())) {
-      setPreviewModelId(previewModelChoices[0].value);
+      next = previewModelChoices[0].value;
     }
+    if (next === previewModelId) return;
+    const t = window.setTimeout(() => setPreviewModelId(next), 0);
+    return () => window.clearTimeout(t);
   }, [previewModelChoices, previewModelId]);
 
   useEffect(() => {
+    let next = previewFamily;
     if (previewFamilyChoices.length === 0) {
-      if (previewFamily !== "") setPreviewFamily("");
+      next = "";
     } else if (!previewFamilyChoices.some((choice) => choice.value === previewFamily.trim())) {
-      setPreviewFamily(previewFamilyChoices[0].value);
+      next = previewFamilyChoices[0].value;
     }
+    if (next === previewFamily) return;
+    const t = window.setTimeout(() => setPreviewFamily(next), 0);
+    return () => window.clearTimeout(t);
   }, [previewFamilyChoices, previewFamily]);
 
   useEffect(() => {
+    let next = previewPath;
     if (previewPathChoices.length === 0) {
-      if (previewPath !== "") setPreviewPath("");
+      next = "";
     } else if (!previewPathChoices.some((choice) => choice.value === previewPath.trim())) {
-      setPreviewPath(previewPathChoices[0].value);
+      next = previewPathChoices[0].value;
     }
+    if (next === previewPath) return;
+    const t = window.setTimeout(() => setPreviewPath(next), 0);
+    return () => window.clearTimeout(t);
   }, [previewPathChoices, previewPath]);
 
   useEffect(() => {
-    if (legacySelectorCandidates.length === 0) {
-      if (Object.keys(legacyFixSelections).length > 0) setLegacyFixSelections({});
-      return;
-    }
-    const next: Record<string, string> = {};
-    for (const candidate of legacySelectorCandidates) {
-      next[candidate.row.id] = candidate.suggestedSelector ?? "";
-    }
-    setLegacyFixSelections(next);
+    const t = window.setTimeout(() => {
+      setLegacyFixSelections((prev) => {
+        if (legacySelectorCandidates.length === 0) {
+          return Object.keys(prev).length > 0 ? {} : prev;
+        }
+        const next: Record<string, string> = {};
+        for (const candidate of legacySelectorCandidates) {
+          next[candidate.row.id] = candidate.suggestedSelector ?? "";
+        }
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
+        if (
+          prevKeys.length === nextKeys.length
+          && nextKeys.every((key) => prev[key] === next[key])
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [legacySelectorCandidates]);
 
   function resetForm(keys: string[]) {
