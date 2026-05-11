@@ -120,6 +120,10 @@ spec:
             periodSeconds: 30
           {{- end }}
           {{- end }}
+          {{- if $workload.lifecycle }}
+          lifecycle:
+            {{- toYaml $workload.lifecycle | nindent 12 }}
+          {{- end }}
           securityContext:
             {{- if $workload.containerSecurityContext }}
             {{- toYaml $workload.containerSecurityContext | nindent 12 }}

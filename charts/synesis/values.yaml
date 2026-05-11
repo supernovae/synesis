@@ -1101,6 +1101,25 @@ workloads:
         value: "false"
       - name: WEBUI_NAME
         value: Synesis
+      - name: ENABLE_FOLLOW_UP_GENERATION
+        value: "false"
+      - name: ENABLE_TITLE_GENERATION
+        value: "false"
+      - name: TITLE_GENERATION_PROMPT_TEMPLATE
+        value: |-
+          ### Task:
+          Generate a concise, 3-5 word plain-text title summarizing the chat history.
+          ### Guidelines:
+          - Do not use emoji, icons, markdown, quotation marks, or decorative formatting.
+          - The title should clearly represent the main theme or subject of the conversation.
+          - Write the title in the chat's primary language; default to English if multilingual.
+          - Your entire response must consist solely of the JSON object.
+          ### Output:
+          JSON format: { "title": "your concise title here" }
+          ### Chat History:
+          <chat_history>
+          {{ "{{" }}MESSAGES:END:2{{ "}}" }}
+          </chat_history>
     volumeMounts:
       - name: data
         mountPath: /app/backend/data
@@ -1127,6 +1146,14 @@ workloads:
       readiness: /health
       liveness: /health
       startup: /health
+    lifecycle:
+      postStart:
+        exec:
+          command:
+            - /bin/bash
+            - -c
+            - |
+              nohup python3 /opt/synesis/synesis-fix-user-models.py >> /tmp/synesis-fix-user-models.log 2>&1 &
   search:
     enabled: true
     namespace: search

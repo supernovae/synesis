@@ -39,9 +39,15 @@ const WRITER_EVIDENCE_SNIPPET_MAX_CHARS = 500;
 
 function writerPrefersJsonMode(state: GraphState): boolean {
   const explicitType = String((state.requested_response_format ?? {}).type ?? "").toLowerCase();
-  if (explicitType === "json_object") return true;
+  if (explicitType === "json_object" || explicitType === "json_schema") return true;
   const inferred = String((state.task_frame ?? {}).requested_format ?? "").toLowerCase();
   return inferred === "json" || inferred === "json_object" || inferred === "structured_json";
+}
+
+function writerResponseFormat(state: GraphState): Record<string, unknown> | undefined {
+  const requested = state.requested_response_format;
+  if (requested && typeof requested === "object") return requested;
+  return writerPrefersJsonMode(state) ? { type: "json_object" } : undefined;
 }
 
 function deterministicJsonDraft(state: GraphState): string {
@@ -329,15 +335,26 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
       top_k: generation.top_k,
       min_p: generation.min_p,
       presence_penalty: generation.presence_penalty,
+      frequency_penalty: generation.frequency_penalty,
       repetition_penalty: generation.repetition_penalty,
       enable_thinking: generation.enable_thinking,
       reasoning_effort: generation.reasoning_effort,
+      stop: generation.stop,
+      seed: generation.seed,
+      logit_bias: generation.logit_bias,
+      logprobs: generation.logprobs,
+      top_logprobs: generation.top_logprobs,
+      n: generation.n,
+      tools: generation.tools,
+      tool_choice: generation.tool_choice,
+      parallel_tool_calls: generation.parallel_tool_calls,
+      extra_body: generation.extra_body,
       max_tokens: generation.max_tokens ?? state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
       pricingRates: state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general,
       request_id: state.run_id,
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,
-      response_format: jsonMode ? { type: "json_object" } : undefined,
+      response_format: writerResponseFormat(state),
       messages: buildWriterMessages(state),
     });
     const cfg = loadConfig();
@@ -399,15 +416,26 @@ export async function composeWriterDraftStream(
         top_k: generation.top_k,
         min_p: generation.min_p,
         presence_penalty: generation.presence_penalty,
+        frequency_penalty: generation.frequency_penalty,
         repetition_penalty: generation.repetition_penalty,
         enable_thinking: generation.enable_thinking,
         reasoning_effort: generation.reasoning_effort,
+        stop: generation.stop,
+        seed: generation.seed,
+        logit_bias: generation.logit_bias,
+        logprobs: generation.logprobs,
+        top_logprobs: generation.top_logprobs,
+        n: generation.n,
+        tools: generation.tools,
+        tool_choice: generation.tool_choice,
+        parallel_tool_calls: generation.parallel_tool_calls,
+        extra_body: generation.extra_body,
         max_tokens: generation.max_tokens ?? state.writer_max_tokens ?? loadConfig().SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE,
         pricingRates: state.pricing_rates_by_role?.writer ?? state.pricing_rates_by_role?.general,
         request_id: state.run_id,
         authz_trace_id: state.authz_trace_id,
         traceparent: state.traceparent,
-        response_format: jsonMode ? { type: "json_object" } : undefined,
+        response_format: writerResponseFormat(state),
         messages: buildWriterMessages(state),
       },
       (delta) => {

@@ -56,7 +56,7 @@ import {
   writeStatusEvent,
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
-import type { GraphState } from "./state/types.js";
+import type { GenerationParams, GraphState } from "./state/types.js";
 import { shouldApplyUserInjectionMitigation } from "@synesis/context-trust";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
 import { FailureStore } from "./diagnostics/failure-store.js";
@@ -239,6 +239,32 @@ async function isSearchRouteAuthorized(
 }
 
 type ParsedChatRequest = ReturnType<typeof ChatCompletionRequestSchema.parse>;
+
+function requestGenerationParams(body: ParsedChatRequest): GenerationParams {
+  const out: GenerationParams = {};
+  const maxTokens = body.max_completion_tokens ?? body.max_tokens;
+  if (typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0) out.max_tokens = Math.trunc(maxTokens);
+  if (typeof body.temperature === "number" && Number.isFinite(body.temperature) && body.temperature >= 0) out.temperature = body.temperature;
+  if (typeof body.top_p === "number" && Number.isFinite(body.top_p) && body.top_p >= 0 && body.top_p <= 1) out.top_p = body.top_p;
+  if (typeof body.top_k === "number" && Number.isFinite(body.top_k) && body.top_k >= 0) out.top_k = Math.trunc(body.top_k);
+  if (typeof body.min_p === "number" && Number.isFinite(body.min_p) && body.min_p >= 0 && body.min_p <= 1) out.min_p = body.min_p;
+  if (typeof body.presence_penalty === "number" && Number.isFinite(body.presence_penalty)) out.presence_penalty = body.presence_penalty;
+  if (typeof body.frequency_penalty === "number" && Number.isFinite(body.frequency_penalty)) out.frequency_penalty = body.frequency_penalty;
+  if (typeof body.repetition_penalty === "number" && Number.isFinite(body.repetition_penalty) && body.repetition_penalty >= 0) out.repetition_penalty = body.repetition_penalty;
+  if (typeof body.enable_thinking === "boolean") out.enable_thinking = body.enable_thinking;
+  if (typeof body.reasoning_effort === "string" && body.reasoning_effort.trim()) out.reasoning_effort = body.reasoning_effort.trim();
+  if (typeof body.stop === "string" || Array.isArray(body.stop)) out.stop = body.stop;
+  if (typeof body.seed === "number" && Number.isFinite(body.seed)) out.seed = Math.trunc(body.seed);
+  if (body.logit_bias && typeof body.logit_bias === "object") out.logit_bias = body.logit_bias;
+  if (typeof body.logprobs === "boolean") out.logprobs = body.logprobs;
+  if (typeof body.top_logprobs === "number" && Number.isFinite(body.top_logprobs) && body.top_logprobs >= 0) out.top_logprobs = Math.trunc(body.top_logprobs);
+  if (typeof body.n === "number" && Number.isFinite(body.n) && body.n > 0) out.n = Math.trunc(body.n);
+  if (Array.isArray(body.tools)) out.tools = body.tools;
+  if (body.tool_choice !== undefined) out.tool_choice = body.tool_choice;
+  if (typeof body.parallel_tool_calls === "boolean") out.parallel_tool_calls = body.parallel_tool_calls;
+  if (body.extra_body && typeof body.extra_body === "object") out.extra_body = body.extra_body;
+  return out;
+}
 
 export function resolvePlannerSessionKey(
   requestBody: ParsedChatRequest,
@@ -611,6 +637,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
     );
     const tierSettings = resolveTierSettings(requestBody.model);
+    const requestGeneration = requestGenerationParams(requestBody);
     const requestedEffortMode = tierSettings.tier;
     const writerPricingRole = tierSettings.registry_writer_role ?? tierSettings.registry_general_role ?? "writer";
     const plannerMatrixModelId = String(tierSettings.responseModel || tierSettings.requestedModel || requestBody.model || "");
@@ -745,7 +772,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       registry_writer_role: tierSettings.registry_writer_role,
       resolved_writer_model: tierSettings.resolved_writer_model,
       resolved_writer_route: tierSettings.resolved_writer_route,
-      writer_generation_params: tierSettings.writer_generation_params,
+      writer_generation_params: { ...(tierSettings.writer_generation_params ?? {}), ...requestGeneration },
       pricing_rates_by_role: {
         router: pricingRegistry.getRates("router"),
         planner: pricingRegistry.getRates("planner"),
@@ -761,7 +788,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       critique_register: {},
       draft_fingerprints: [],
       patch_ops: [],
-      writer_max_tokens: tierSettings.writerMaxTokens,
+      writer_max_tokens: requestGeneration.max_tokens ?? tierSettings.writerMaxTokens,
       critic_max_tokens: tierSettings.criticMaxTokens,
       execution_policy: {
         critique_passes: tierSettings.critiquePasses,

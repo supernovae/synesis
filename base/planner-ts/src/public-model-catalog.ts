@@ -61,9 +61,20 @@ function generationParamsFromRecord(raw: Record<string, unknown> | null | undefi
     "top_k",
     "min_p",
     "presence_penalty",
+    "frequency_penalty",
     "repetition_penalty",
     "enable_thinking",
     "reasoning_effort",
+    "stop",
+    "seed",
+    "logit_bias",
+    "logprobs",
+    "top_logprobs",
+    "n",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "extra_body",
   ];
   const out: Record<string, unknown> = {};
   for (const key of allowed) {

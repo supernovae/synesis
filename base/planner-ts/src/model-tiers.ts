@@ -119,11 +119,37 @@ function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParam
   if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
   const presencePenalty = numberParam("presence_penalty");
   if (presencePenalty != null) out.presence_penalty = presencePenalty;
+  const frequencyPenalty = numberParam("frequency_penalty");
+  if (frequencyPenalty != null) out.frequency_penalty = frequencyPenalty;
   const repetitionPenalty = numberParam("repetition_penalty");
   if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
   if (typeof params.enable_thinking === "boolean") out.enable_thinking = params.enable_thinking;
   if (typeof params.reasoning_effort === "string" && params.reasoning_effort.trim()) {
     out.reasoning_effort = params.reasoning_effort.trim();
+  }
+  if (typeof params.stop === "string" || Array.isArray(params.stop)) out.stop = params.stop as string | string[];
+  const seed = numberParam("seed");
+  if (seed != null) out.seed = Math.trunc(seed);
+  if (typeof params.logprobs === "boolean") out.logprobs = params.logprobs;
+  const topLogprobs = numberParam("top_logprobs");
+  if (topLogprobs != null && topLogprobs >= 0) out.top_logprobs = Math.trunc(topLogprobs);
+  const n = numberParam("n");
+  if (n != null && n > 0) out.n = Math.trunc(n);
+  if (params.logit_bias && typeof params.logit_bias === "object" && !Array.isArray(params.logit_bias)) {
+    out.logit_bias = params.logit_bias as Record<string, number>;
+  }
+  if (Array.isArray(params.tools)) out.tools = params.tools;
+  if (
+    params.tool_choice === "none"
+    || params.tool_choice === "auto"
+    || params.tool_choice === "required"
+    || (params.tool_choice && typeof params.tool_choice === "object" && !Array.isArray(params.tool_choice))
+  ) {
+    out.tool_choice = params.tool_choice as GenerationParams["tool_choice"];
+  }
+  if (typeof params.parallel_tool_calls === "boolean") out.parallel_tool_calls = params.parallel_tool_calls;
+  if (params.extra_body && typeof params.extra_body === "object" && !Array.isArray(params.extra_body)) {
+    out.extra_body = params.extra_body as Record<string, unknown>;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

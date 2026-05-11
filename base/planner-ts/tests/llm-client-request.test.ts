@@ -39,6 +39,61 @@ describe("llm client request shaping", () => {
     expect(body.response_format).toEqual({ type: "json_object" });
   });
 
+  it("passes common OpenAI chat parameters through to provider request body", async () => {
+    process.env.SYNESIS_PLANNER_TS_LLM_ENABLED = "true";
+    process.env.SYNESIS_PLANNER_TS_LLM_BASE_URL = "http://example.invalid/v1";
+    process.env.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE = "disabled";
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "ok" } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    await chatCompletion({
+      model: "synesis-general",
+      messages: [{ role: "user", content: "plan this" }],
+      temperature: 0.3,
+      top_p: 0.7,
+      presence_penalty: 0.1,
+      frequency_penalty: 0.2,
+      stop: ["END"],
+      seed: 42,
+      logit_bias: { "123": -1 },
+      logprobs: true,
+      top_logprobs: 3,
+      n: 1,
+      tools: [{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }],
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      extra_body: { custom_provider_option: "x" },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.temperature).toBe(0.3);
+    expect(body.top_p).toBe(0.7);
+    expect(body.presence_penalty).toBe(0.1);
+    expect(body.frequency_penalty).toBe(0.2);
+    expect(body.stop).toEqual(["END"]);
+    expect(body.seed).toBe(42);
+    expect(body.logit_bias).toEqual({ "123": -1 });
+    expect(body.logprobs).toBe(true);
+    expect(body.top_logprobs).toBe(3);
+    expect(body.n).toBe(1);
+    expect(body.tools).toEqual([{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }]);
+    expect(body.tool_choice).toBe("auto");
+    expect(body.parallel_tool_calls).toBe(false);
+    expect(body.extra_body.custom_provider_option).toBe("x");
+  });
+
   it("uses a direct admin route for base URL, API key env, model, and generation defaults", async () => {
     process.env.SYNESIS_PLANNER_TS_LLM_ENABLED = "true";
     process.env.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE = "disabled";
@@ -64,7 +119,14 @@ describe("llm client request shaping", () => {
         apiKeyEnv: "XAI_API_KEY",
         provider: "xai",
         role: "planner",
-        generationParams: { reasoning_effort: "low", top_k: 20 },
+        generationParams: {
+          reasoning_effort: "low",
+          top_k: 20,
+          frequency_penalty: 0.2,
+          stop: ["END"],
+          parallel_tool_calls: false,
+          extra_body: { custom_provider_option: "x" },
+        },
       },
       messages: [{ role: "user", content: "plan this" }],
     });
@@ -76,6 +138,10 @@ describe("llm client request shaping", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("grok-4-fast");
     expect(body.reasoning_effort).toBe("low");
+    expect(body.frequency_penalty).toBe(0.2);
+    expect(body.stop).toEqual(["END"]);
+    expect(body.parallel_tool_calls).toBe(false);
     expect(body.extra_body.top_k).toBe(20);
+    expect(body.extra_body.custom_provider_option).toBe("x");
   });
 });

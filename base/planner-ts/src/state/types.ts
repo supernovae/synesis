@@ -22,9 +22,20 @@ export interface GenerationParams {
   top_k?: number;
   min_p?: number;
   presence_penalty?: number;
+  frequency_penalty?: number;
   repetition_penalty?: number;
   enable_thinking?: boolean;
   reasoning_effort?: string;
+  stop?: string | string[];
+  seed?: number;
+  logit_bias?: Record<string, number>;
+  logprobs?: boolean;
+  top_logprobs?: number;
+  n?: number;
+  tools?: unknown[];
+  tool_choice?: "none" | "auto" | "required" | Record<string, unknown>;
+  parallel_tool_calls?: boolean;
+  extra_body?: Record<string, unknown>;
 }
 
 export interface GraphState {

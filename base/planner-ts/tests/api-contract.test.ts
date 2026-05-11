@@ -212,6 +212,61 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("supports json_schema response_format and common chat client parameters", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_LLM_ENABLED: "false",
+      }),
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [
+          { role: "developer", content: "Keep output compact." },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Return a JSON object with an answer field." },
+            ],
+          },
+        ],
+        stream: false,
+        max_completion_tokens: 256,
+        temperature: 0.2,
+        top_p: 0.9,
+        frequency_penalty: 0,
+        presence_penalty: 0,
+        stop: ["END"],
+        seed: 7,
+        logprobs: false,
+        n: 1,
+        tool_choice: "none",
+        parallel_tool_calls: false,
+        extra_body: { custom_provider_option: "x" },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "writer_answer",
+            schema: {
+              type: "object",
+              properties: {
+                answer: { type: "string" },
+              },
+              required: ["answer"],
+            },
+          },
+        },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const content = String(body.choices?.[0]?.message?.content ?? "");
+    expect(() => JSON.parse(content)).not.toThrow();
+    await app.close();
+  });
+
   it("uses the latest user message for task framing", async () => {
     const app = buildApp(
       makeConfig({

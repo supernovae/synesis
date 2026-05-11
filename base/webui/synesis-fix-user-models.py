@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Backfill Open WebUI per-user ui.models / ui.pinnedModels when missing or empty.
+"""Backfill Synesis Open WebUI defaults on the SQLite PVC.
 
 Open WebUI stores chat default in user.settings JSON (SQLite on PVC). If the UI
 validates selected IDs against an empty /models list, it can persist [''].
 This runs after pod start (postStart) and waits for webui.db to exist.
+
+It also normalizes noisy task-generation defaults that otherwise create extra
+planner calls and trace rows for every chat turn.
 """
 
 from __future__ import annotations
@@ -16,6 +19,20 @@ import time
 DB_PATH = "/app/backend/data/webui.db"
 WAIT_SECONDS = 90
 SLEEP_INTERVAL = 0.5
+
+NO_EMOJI_TITLE_TEMPLATE = """### Task:
+Generate a concise, 3-5 word plain-text title summarizing the chat history.
+### Guidelines:
+- Do not use emoji, icons, markdown, quotation marks, or decorative formatting.
+- The title should clearly represent the main theme or subject of the conversation.
+- Write the title in the chat's primary language; default to English if multilingual.
+- Your entire response must consist solely of the JSON object.
+### Output:
+JSON format: { "title": "your concise title here" }
+### Chat History:
+<chat_history>
+{{MESSAGES:END:2}}
+</chat_history>"""
 
 
 def _default_chat_models() -> list[str]:
@@ -63,6 +80,55 @@ def _parse_settings(raw: object) -> dict:
     return {}
 
 
+def _configured_title_template() -> str:
+    return (os.environ.get("TITLE_GENERATION_PROMPT_TEMPLATE") or NO_EMOJI_TITLE_TEMPLATE).strip()
+
+
+def _ensure_path(root: dict, path: tuple[str, ...]) -> dict:
+    cur = root
+    for key in path:
+        val = cur.get(key)
+        if not isinstance(val, dict):
+            val = {}
+            cur[key] = val
+        cur = val
+    return cur
+
+
+def _upsert_global_task_config(conn: sqlite3.Connection) -> bool:
+    cur = conn.execute("SELECT id, data FROM config ORDER BY id DESC LIMIT 1")
+    row = cur.fetchone()
+    config_id = row[0] if row else None
+    data = _parse_settings(row[1]) if row else {"version": 0, "ui": {}}
+
+    task = _ensure_path(data, ("task",))
+    follow_up = _ensure_path(task, ("follow_up",))
+    title = _ensure_path(task, ("title",))
+
+    changed = False
+    if follow_up.get("enable") is not False:
+        follow_up["enable"] = False
+        changed = True
+    if title.get("enable") is not False:
+        title["enable"] = False
+        changed = True
+
+    title_template = _configured_title_template()
+    if title.get("prompt_template") != title_template:
+        title["prompt_template"] = title_template
+        changed = True
+
+    if not changed:
+        return False
+
+    encoded = json.dumps(data)
+    if config_id is None:
+        conn.execute("INSERT INTO config (data, version) VALUES (?, ?)", (encoded, int(data.get("version", 0) or 0)))
+    else:
+        conn.execute("UPDATE config SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (encoded, config_id))
+    return True
+
+
 def main() -> None:
     deadline = time.time() + WAIT_SECONDS
     while not os.path.isfile(DB_PATH) and time.time() < deadline:
@@ -79,6 +145,7 @@ def main() -> None:
     except sqlite3.OperationalError:
         return
 
+    updated_config = _upsert_global_task_config(conn)
     chat_defaults = _default_chat_models()
     pins = _pinned_models()
     primary = chat_defaults[0] if chat_defaults else "Synesis Auto"
@@ -108,7 +175,7 @@ def main() -> None:
             )
             updated += 1
 
-    if updated:
+    if updated or updated_config:
         conn.commit()
     conn.close()
 

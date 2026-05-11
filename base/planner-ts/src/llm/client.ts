@@ -23,9 +23,19 @@ export interface ChatRequest {
   top_k?: number;
   min_p?: number;
   presence_penalty?: number;
+  frequency_penalty?: number;
   repetition_penalty?: number;
   enable_thinking?: boolean;
   reasoning_effort?: string;
+  stop?: string | string[];
+  seed?: number;
+  logit_bias?: Record<string, number>;
+  logprobs?: boolean;
+  top_logprobs?: number;
+  n?: number;
+  tools?: unknown[];
+  tool_choice?: "none" | "auto" | "required" | Record<string, unknown>;
+  parallel_tool_calls?: boolean;
   max_tokens?: number;
   pricingRates?: PricingRates;
   response_format?: Record<string, unknown>;
@@ -202,11 +212,39 @@ function resolvedGenerationParams(route: LlmRoute | undefined): Partial<ChatRequ
   if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
   const presencePenalty = numberParam("presence_penalty");
   if (presencePenalty != null) out.presence_penalty = presencePenalty;
+  const frequencyPenalty = numberParam("frequency_penalty");
+  if (frequencyPenalty != null) out.frequency_penalty = frequencyPenalty;
   const repetitionPenalty = numberParam("repetition_penalty");
   if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
   if (typeof raw.enable_thinking === "boolean") out.enable_thinking = raw.enable_thinking;
   if (typeof raw.reasoning_effort === "string" && raw.reasoning_effort.trim()) {
     out.reasoning_effort = raw.reasoning_effort.trim();
+  }
+  if (typeof raw.stop === "string" || (Array.isArray(raw.stop) && raw.stop.every((item) => typeof item === "string"))) {
+    out.stop = raw.stop;
+  }
+  const seed = numberParam("seed");
+  if (seed != null) out.seed = Math.trunc(seed);
+  if (raw.logit_bias && typeof raw.logit_bias === "object" && !Array.isArray(raw.logit_bias)) {
+    out.logit_bias = raw.logit_bias as Record<string, number>;
+  }
+  if (typeof raw.logprobs === "boolean") out.logprobs = raw.logprobs;
+  const topLogprobs = numberParam("top_logprobs");
+  if (topLogprobs != null && topLogprobs >= 0) out.top_logprobs = Math.trunc(topLogprobs);
+  const n = numberParam("n");
+  if (n != null && n > 0) out.n = Math.trunc(n);
+  if (Array.isArray(raw.tools)) out.tools = raw.tools;
+  if (
+    raw.tool_choice === "none"
+    || raw.tool_choice === "auto"
+    || raw.tool_choice === "required"
+    || (raw.tool_choice && typeof raw.tool_choice === "object" && !Array.isArray(raw.tool_choice))
+  ) {
+    out.tool_choice = raw.tool_choice as ChatRequest["tool_choice"];
+  }
+  if (typeof raw.parallel_tool_calls === "boolean") out.parallel_tool_calls = raw.parallel_tool_calls;
+  if (raw.extra_body && typeof raw.extra_body === "object" && !Array.isArray(raw.extra_body)) {
+    out.extra_body = raw.extra_body as Record<string, unknown>;
   }
   return out;
 }
@@ -364,7 +402,17 @@ function buildRequestBody(request: ChatRequest, prefixCacheMode: string, modelOv
   };
   if (request.top_p !== undefined) body.top_p = request.top_p;
   if (request.presence_penalty !== undefined) body.presence_penalty = request.presence_penalty;
+  if (request.frequency_penalty !== undefined) body.frequency_penalty = request.frequency_penalty;
   if (request.reasoning_effort) body.reasoning_effort = request.reasoning_effort;
+  if (request.stop !== undefined) body.stop = request.stop;
+  if (request.seed !== undefined) body.seed = request.seed;
+  if (request.logit_bias !== undefined) body.logit_bias = request.logit_bias;
+  if (request.logprobs !== undefined) body.logprobs = request.logprobs;
+  if (request.top_logprobs !== undefined) body.top_logprobs = request.top_logprobs;
+  if (request.n !== undefined) body.n = request.n;
+  if (request.tools !== undefined) body.tools = request.tools;
+  if (request.tool_choice !== undefined) body.tool_choice = request.tool_choice;
+  if (request.parallel_tool_calls !== undefined) body.parallel_tool_calls = request.parallel_tool_calls;
   if (request.response_format && typeof request.response_format === "object") {
     body.response_format = request.response_format;
   }

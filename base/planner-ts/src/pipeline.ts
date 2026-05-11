@@ -114,7 +114,8 @@ function scrubInternalScaffolding(output: string): string {
 }
 
 function isJsonOutputRequested(state: GraphState): boolean {
-  return String((state.requested_response_format ?? {}).type ?? "").toLowerCase() === "json_object";
+  const type = String((state.requested_response_format ?? {}).type ?? "").toLowerCase();
+  return type === "json_object" || type === "json_schema";
 }
 
 export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
