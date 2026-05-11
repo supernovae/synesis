@@ -33,7 +33,7 @@ _background_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
-    from app.services.model_registry import seed_default_role_assignments
+    from app.services.model_registry import cleanup_legacy_general_roles, seed_default_role_assignments
     from app.services.prompt_library import seed_default_prompt_profiles
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
@@ -57,6 +57,17 @@ async def lifespan(app: FastAPI):
             logger.info("prompt_profile_seed_complete count=%d", prompt_seeded)
     except Exception:
         logger.warning("prompt_profile_seed_failed", exc_info=True)
+
+    try:
+        legacy_cleaned = await cleanup_legacy_general_roles()
+        if legacy_cleaned["deployments"] or legacy_cleaned["costs"]:
+            logger.info(
+                "legacy_general_roles_removed deployments=%d costs=%d",
+                legacy_cleaned["deployments"],
+                legacy_cleaned["costs"],
+            )
+    except Exception:
+        logger.warning("legacy_general_role_cleanup_failed", exc_info=True)
 
     try:
         role_seeded = await seed_default_role_assignments()

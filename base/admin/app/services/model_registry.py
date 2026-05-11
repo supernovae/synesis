@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ..db.engine import async_session
 from ..db.models import ModelCost as ModelCostRow
@@ -29,6 +29,15 @@ from .provider_catalog import (
 from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
 
 logger = logging.getLogger("synesis.admin.models")
+
+LEGACY_GENERAL_ROLES = frozenset(
+    {
+        "general",
+        "general-pulse",
+        "general-core",
+        "general-horizon",
+    }
+)
 
 
 DEFAULT_ROLE_ASSIGNMENTS: tuple[dict[str, Any], ...] = (
@@ -424,6 +433,25 @@ async def get_active_deployments() -> list[ModelDeployment]:
     async with async_session() as session:
         result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         return list(result.scalars().all())
+
+
+async def cleanup_legacy_general_roles() -> dict[str, int]:
+    """Remove obsolete general-role registry rows from older installs.
+
+    The writer roles are now the canonical planner/front-end synthesis roles.
+    Keeping legacy general rows in existing databases makes the admin registry
+    show duplicate assignments, so cleanup is intentionally hard-delete.
+    """
+    async with async_session() as session:
+        deployments = await session.execute(
+            delete(ModelDeployment).where(ModelDeployment.role.in_(LEGACY_GENERAL_ROLES))
+        )
+        costs = await session.execute(delete(ModelCostRow).where(ModelCostRow.role.in_(LEGACY_GENERAL_ROLES)))
+        await session.commit()
+        return {
+            "deployments": int(deployments.rowcount or 0),
+            "costs": int(costs.rowcount or 0),
+        }
 
 
 async def seed_default_role_assignments() -> int:
