@@ -272,7 +272,7 @@ openfga:
     image:
       repository: python
       tag: 3.12-alpine
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     timeoutSeconds: 300
     writeModel: true
     writeBaselineTuples: true
@@ -339,7 +339,7 @@ keycloak:
     image:
       repository: bitnami/kubectl
       tag: 1.31.3
-      pullPolicy: IfNotPresent
+      pullPolicy: Always
     timeoutSeconds: 1200
     keycloakReadyTimeoutSeconds: 900
     postgresReadyTimeoutSeconds: 900
@@ -456,7 +456,7 @@ cloudflared:
   image:
     repository: cloudflare/cloudflared
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   tunnel:
     # "credentials" runs a locally-managed tunnel with credentials.json and
     # chart-rendered ingress rules. "token" runs a remotely-managed tunnel using
