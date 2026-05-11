@@ -1,0 +1,70 @@
+apiVersion: karpenter.azure.com/v1beta1
+kind: AKSNodeClass
+metadata:
+  name: core-reserved
+  annotations:
+    kubernetes.io/description: Reserved on-demand baseline capacity for core Synesis workloads
+spec:
+  imageFamily: Ubuntu
+  maxPods: 80
+  osDiskSizeGB: 128
+  tags:
+    environment: prod
+    managed-by: gitops
+    project: kybern
+    workload-cost-profile: reserved-core
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: core-reserved
+spec:
+  replicas: 2
+  disruption:
+    budgets:
+      - nodes: "1"
+    consolidateAfter: Never
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  template:
+    metadata:
+      labels:
+        intent: core
+        workload-cost-profile: reserved-core
+        terraform-managed-pool: core-reserved
+    spec:
+      expireAfter: Never
+      nodeClassRef:
+        group: karpenter.azure.com
+        kind: AKSNodeClass
+        name: core-reserved
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+        - key: kubernetes.io/os
+          operator: In
+          values:
+            - linux
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - on-demand
+        - key: karpenter.azure.com/sku-family
+          operator: In
+          values:
+            - D
+            - E
+        - key: karpenter.azure.com/sku-cpu
+          operator: In
+          values:
+            - "4"
+            - "8"
+        - key: karpenter.azure.com/sku-memory
+          operator: Gte
+          values:
+            - "16384"
+        - key: karpenter.azure.com/sku-storage-premium-capable
+          operator: In
+          values:
+            - "true"

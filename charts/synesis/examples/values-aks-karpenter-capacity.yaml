@@ -1,0 +1,122 @@
+# AKS/Karpenter sizing overrides for the Synesis production cluster.
+#
+# Use this with the live release while iterating:
+#
+#   helm upgrade synesis charts/synesis \
+#     --namespace default \
+#     --reuse-values \
+#     -f charts/synesis/examples/values-aks-karpenter-capacity.yaml
+#
+# These overrides are intentionally focused on scheduling signals. They do not
+# carry secrets or environment-specific host/database settings.
+x-coreNodeSelector: &coreNodeSelector
+  workload-cost-profile: reserved-core
+
+cloudflared:
+  nodeSelector: *coreNodeSelector
+
+workloads:
+  admin:
+    nodeSelector: *coreNodeSelector
+
+  adminMcpTs:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+
+  nornicdb:
+    nodeSelector: *coreNodeSelector
+    strategy: Recreate
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+  embedder:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 500m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+  keywordService:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  preprocessService:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  spamService:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+  glinerService:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 500m
+        memory: 4Gi
+      limits:
+        cpu: "2"
+        memory: 6Gi
+
+  mcpTs:
+    nodeSelector: *coreNodeSelector
+
+  openfga:
+    nodeSelector: *coreNodeSelector
+
+  plannerTs:
+    nodeSelector: *coreNodeSelector
+
+  search:
+    nodeSelector: *coreNodeSelector
+
+  webui:
+    nodeSelector: *coreNodeSelector
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1536Mi
+      limits:
+        cpu: "2"
+        memory: 3Gi
+
+  yarn:
+    nodeSelector: *coreNodeSelector
+
+  astMcp:
+    nodeSelector: *coreNodeSelector
+
+  visionWorker:
+    nodeSelector: *coreNodeSelector
