@@ -13,6 +13,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,7 @@ CSRF_COOKIE_NAME = "synesis_admin_csrf"
 CSRF_HEADER_NAME = "x-synesis-csrf"
 SESSION_TTL_SECONDS = int(os.getenv("SYNESIS_ADMIN_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
 COOKIE_SECURE = os.getenv("SYNESIS_ADMIN_COOKIE_SECURE", "true").lower() not in {"0", "false", "no"}
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 
 _jwks_client: jwt.PyJWKClient | None = None
 
@@ -215,6 +217,14 @@ def _hash_session_id(session_id: str) -> str:
     return sha256(session_id.encode()).hexdigest()
 
 
+def _new_session_id() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _is_valid_session_id(session_id: str) -> bool:
+    return bool(_SESSION_ID_RE.fullmatch(session_id))
+
+
 def _client_ip(request: Request) -> str:
     forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
     if forwarded:
@@ -273,7 +283,7 @@ async def create_admin_session(request: Request, response, token_data: dict) -> 
     user = _verify_keycloak_token(access)
     refresh = str(token_data.get("refresh_token") or "")
     id_token = str(token_data.get("id_token") or "")
-    session_id = secrets.token_urlsafe(32)
+    session_id = _new_session_id()
     csrf_token = secrets.token_hex(32)
     ttl = max(300, min(SESSION_TTL_SECONDS, 7 * 24 * 60 * 60))
     expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
@@ -312,7 +322,7 @@ async def refresh_admin_session(request: Request, response, token_data: dict) ->
     from .db.models import AdminSession
 
     session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if not session_id:
+    if not session_id or not _is_valid_session_id(session_id):
         raise HTTPException(status_code=401, detail="Not authenticated")
     async with async_session() as session:
         row = (
@@ -330,6 +340,10 @@ async def refresh_admin_session(request: Request, response, token_data: dict) ->
             raise HTTPException(status_code=400, detail="Invalid refresh response")
         user = _verify_keycloak_token(access)
         ttl = max(300, min(SESSION_TTL_SECONDS, 7 * 24 * 60 * 60))
+        new_session_id = _new_session_id()
+        new_csrf_token = secrets.token_hex(32)
+        row.session_hash = _hash_session_id(new_session_id)
+        row.csrf_token = new_csrf_token
         row.access_token = access
         if token_data.get("refresh_token"):
             row.refresh_token = str(token_data["refresh_token"])
@@ -345,8 +359,8 @@ async def refresh_admin_session(request: Request, response, token_data: dict) ->
         row.expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
         row.last_seen_at = datetime.now(UTC)
         await session.commit()
-    response.set_cookie(SESSION_COOKIE_NAME, session_id, **_session_cookie_kwargs(ttl))
-    response.set_cookie(CSRF_COOKIE_NAME, row.csrf_token, **_csrf_cookie_kwargs(ttl))
+    response.set_cookie(SESSION_COOKIE_NAME, new_session_id, **_session_cookie_kwargs(ttl))
+    response.set_cookie(CSRF_COOKIE_NAME, new_csrf_token, **_csrf_cookie_kwargs(ttl))
     return user
 
 
@@ -357,7 +371,7 @@ async def revoke_current_admin_session(request: Request, response) -> None:
     from .db.models import AdminSession
 
     session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if session_id:
+    if session_id and _is_valid_session_id(session_id):
         async with async_session() as session:
             row = (
                 await session.execute(
@@ -392,7 +406,7 @@ async def _verify_session_cookie(request: Request) -> UserInfo | None:
     from .db.models import AdminSession
 
     session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if not session_id:
+    if not session_id or not _is_valid_session_id(session_id):
         return None
     async with async_session() as session:
         row = (

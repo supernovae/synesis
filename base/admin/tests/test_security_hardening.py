@@ -65,3 +65,15 @@ def test_public_https_url_enforces_allowlist(monkeypatch):
 
     assert exc.value.status_code == 400
     assert "allowlisted" in str(exc.value.detail)
+
+
+def test_admin_session_ids_are_strictly_opaque_cookie_values():
+    from app.auth import _is_valid_session_id, _new_session_id
+
+    generated = _new_session_id()
+
+    assert _is_valid_session_id(generated)
+    assert not _is_valid_session_id("")
+    assert not _is_valid_session_id("short")
+    assert not _is_valid_session_id("session-id; SameSite=None")
+    assert not _is_valid_session_id("session-id\r\nSet-Cookie: injected=1")

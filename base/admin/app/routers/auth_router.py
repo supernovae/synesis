@@ -114,12 +114,12 @@ async def oauth_refresh(request: Request, response: Response, req: OidcRefreshRe
     if not refresh_token:
         from sqlalchemy import select
 
-        from ..auth import SESSION_COOKIE_NAME, _hash_session_id
+        from ..auth import SESSION_COOKIE_NAME, _hash_session_id, _is_valid_session_id
         from ..db.engine import async_session
         from ..db.models import AdminSession
 
         session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
-        if not session_id:
+        if not session_id or not _is_valid_session_id(session_id):
             raise HTTPException(status_code=401, detail="Not authenticated")
         async with async_session() as session:
             row = (
