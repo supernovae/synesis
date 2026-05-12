@@ -2992,14 +2992,10 @@ const artifactRetrieval = new ArtifactRetrievalService(artifactStore, {
 });
 const knowledgeSearch = new KnowledgeSearchService({
   plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
-  criticUrl: config.SYNESIS_YARN_CRITIC_URL,
-  criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
   internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
 });
 const webSearch = new WebSearchService({
   plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
-  criticUrl: config.SYNESIS_YARN_CRITIC_URL,
-  criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
   internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
 });
 
@@ -7302,8 +7298,6 @@ await registerMcpRoutes(app, {
   openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
   synesisMcpDeps: {
     plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
-    criticUrl: config.SYNESIS_YARN_CRITIC_URL,
-    criticModel: config.SYNESIS_YARN_CRITIC_MODEL,
     internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
   },
 });

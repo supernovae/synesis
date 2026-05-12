@@ -12,7 +12,6 @@
     "base/admin-mcp-ts"
   ],
   "overrides": {
-    "protobufjs": "7.5.5",
     "axios": "1.16.0",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
@@ -23,7 +22,7 @@
     "@opentelemetry/resources": "^2.6.1",
     "@opentelemetry/sdk-trace-base": "^2.6.1",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.215.0",
     "ip-address": "10.2.0"
   }
 }
