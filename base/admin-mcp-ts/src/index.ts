@@ -1,8 +1,9 @@
 /**
  * Synesis Admin MCP — Streamable HTTP (@modelcontextprotocol/sdk).
- * Authenticates against Admin API (JWT / PAT), owns Admin MCP tool catalog/execution,
- * and serves Streamable HTTP plus a lightweight JSON tool API for the Admin Assistant.
+ * Internal-only service authenticated by Admin API with a service token. The
+ * Admin API delegates the already-validated admin session for catalog and tool execution.
  */
+import crypto from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -10,6 +11,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import * as z from "zod/v4";
 import { loadConfig, type AdminMcpConfig } from "./config.js";
 import {
+  AdminMcpToolError,
   invokeTool,
   isOrgAdminOrHigher,
   type SessionUser,
@@ -18,14 +20,18 @@ import {
 
 const FlexibleArgs = z.object({}).passthrough();
 
+const DELEGATED_AUTH_HEADER = "x-synesis-delegated-authorization";
+const DELEGATED_COOKIE_HEADER = "x-synesis-delegated-cookie";
+const DELEGATED_CSRF_HEADER = "x-synesis-delegated-csrf";
+
 type RateLimitOptions = { max: number; timeWindow: string | number };
 
 function timeWindowMs(timeWindow: string | number): number {
   if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
   const match = String(timeWindow).trim().match(/^(\d+)\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?)$/i);
   if (!match) return 60000;
-  const amount = Number(match[1]);
-  const unit = match[2].toLowerCase();
+  const amount = Number(match[1] ?? "0");
+  const unit = (match[2] ?? "m").toLowerCase();
   if (unit === "ms" || unit.startsWith("millisecond")) return amount;
   if (unit === "s" || unit.startsWith("second")) return amount * 1000;
   if (unit === "m" || unit.startsWith("minute")) return amount * 60_000;
@@ -59,10 +65,21 @@ function createRouteRateLimit(options: RateLimitOptions) {
   };
 }
 
-function extractBearer(req: FastifyRequest): string {
-  const raw = req.headers.authorization ?? "";
-  if (!raw.toLowerCase().startsWith("bearer ")) return "";
-  return raw.slice(7).trim();
+function timingSafeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requireInternalServiceToken(cfg: AdminMcpConfig, req: FastifyRequest): void {
+  const expected = cfg.SYNESIS_INTERNAL_SERVICE_TOKEN.trim();
+  if (!expected) {
+    throw new Error("service_token_unconfigured");
+  }
+  const provided = String(req.headers["x-synesis-service-token"] ?? "").trim();
+  if (!provided || !timingSafeEqual(provided, expected)) {
+    throw new Error("invalid_service_token");
+  }
 }
 
 function forwardOrgHeaders(req: FastifyRequest): Record<string, string> {
@@ -74,15 +91,47 @@ function forwardOrgHeaders(req: FastifyRequest): Record<string, string> {
   return h;
 }
 
+function delegatedAdminHeaders(req: FastifyRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const delegatedAuth = req.headers[DELEGATED_AUTH_HEADER];
+  const delegatedCookie = req.headers[DELEGATED_COOKIE_HEADER];
+  const delegatedCsrf = req.headers[DELEGATED_CSRF_HEADER];
+  if (typeof delegatedAuth === "string" && delegatedAuth.toLowerCase().startsWith("bearer ")) {
+    headers.Authorization = delegatedAuth.trim();
+  }
+  if (typeof delegatedCookie === "string" && delegatedCookie.trim()) {
+    headers.Cookie = delegatedCookie.trim();
+  }
+  if (typeof delegatedCsrf === "string" && delegatedCsrf.trim()) {
+    headers["x-synesis-csrf"] = delegatedCsrf.trim();
+  }
+  return headers;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function validateSession(
   cfg: AdminMcpConfig,
-  authHeader: string,
+  delegatedHeaders: Record<string, string>,
   orgHeaders: Record<string, string>,
 ): Promise<SessionUser> {
   const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
-  const r = await fetch(`${base}/api/v1/auth/me`, {
-    headers: { Authorization: authHeader, ...orgHeaders },
-  });
+  if (!delegatedHeaders.Authorization && !delegatedHeaders.Cookie) {
+    throw new Error("missing_delegated_admin_session");
+  }
+  const r = await fetchWithTimeout(
+    `${base}/api/v1/auth/me`,
+    { headers: { ...delegatedHeaders, ...orgHeaders } },
+    cfg.SYNESIS_ADMIN_MCP_AUTH_TIMEOUT_MS,
+  );
   if (r.status === 401 || r.status === 403) {
     throw new Error("unauthorized");
   }
@@ -115,7 +164,7 @@ function parseInvokeBody(body: unknown): { name: string; args: Record<string, un
 }
 
 interface AuthenticatedRequestContext {
-  authHeader: string;
+  delegatedHeaders: Record<string, string>;
   orgHeaders: Record<string, string>;
   user: SessionUser;
 }
@@ -124,15 +173,14 @@ async function authenticateAdminRequest(
   cfg: AdminMcpConfig,
   req: FastifyRequest,
 ): Promise<AuthenticatedRequestContext> {
-  const bearer = extractBearer(req);
-  if (!bearer) throw new Error("missing_bearer");
-  const authHeader = `Bearer ${bearer}`;
+  requireInternalServiceToken(cfg, req);
+  const delegatedHeaders = delegatedAdminHeaders(req);
   const orgHeaders = forwardOrgHeaders(req);
-  const user = await validateSession(cfg, authHeader, orgHeaders);
+  const user = await validateSession(cfg, delegatedHeaders, orgHeaders);
   if (!isOrgAdminOrHigher(user.role)) {
     throw new Error("forbidden");
   }
-  return { authHeader, orgHeaders, user };
+  return { delegatedHeaders, orgHeaders, user };
 }
 
 export function buildAdminMcpServer(
@@ -147,8 +195,10 @@ export function buildAdminMcpServer(
   const tools = visibleToolDescriptorsForRole(authCtx.user.role);
   const toolContext = {
     cfg,
-    authHeader: authCtx.authHeader,
+    delegatedHeaders: authCtx.delegatedHeaders,
     orgHeaders: authCtx.orgHeaders,
+    userId: authCtx.user.user_id ?? authCtx.user.username ?? "unknown",
+    role: authCtx.user.role ?? "",
   };
 
   for (const tool of tools) {
@@ -165,8 +215,8 @@ export function buildAdminMcpServer(
           const result = await invokeTool(toolContext, authCtx.user.role, tool.name, record);
           return jsonResult(result);
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          return jsonResult({ error: "tool_failed", tool: tool.name, message: msg });
+          const err = toSafeToolError(e, tool.name);
+          return jsonResult(err);
         }
       },
     );
@@ -175,7 +225,7 @@ export function buildAdminMcpServer(
   return server;
 }
 
-function createApp(cfg: AdminMcpConfig) {
+export function createApp(cfg: AdminMcpConfig) {
   let mcpRequests = 0;
   let mcpAuthFailures = 0;
   let directToolInvocations = 0;
@@ -194,18 +244,21 @@ function createApp(cfg: AdminMcpConfig) {
   app.get("/health", async () => ({
     status: "ok",
     service: "synesis-admin-mcp-ts",
-    protocol: "mcp-streamable-http",
-    path: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
-    admin_api: cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, ""),
   }));
 
-  app.get("/health/telemetry", async () => ({
-    service: "synesis-admin-mcp-ts",
-    mcp_http_requests: mcpRequests,
-    mcp_auth_failures: mcpAuthFailures,
-    direct_tool_invocations: directToolInvocations,
-    otel: { configured: Boolean(cfg.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
-  }));
+  app.get("/ready", async (_req, reply) => {
+    if (!cfg.SYNESIS_INTERNAL_SERVICE_TOKEN.trim()) {
+      return reply.code(503).send({ status: "not_ready", service: "synesis-admin-mcp-ts" });
+    }
+    try {
+      const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
+      const response = await fetchWithTimeout(`${base}/api/v1/health`, {}, cfg.SYNESIS_ADMIN_MCP_AUTH_TIMEOUT_MS);
+      if (!response.ok) throw new Error(`admin_health_${response.status}`);
+      return reply.code(200).send({ status: "ready", service: "synesis-admin-mcp-ts" });
+    } catch {
+      return reply.code(503).send({ status: "not_ready", service: "synesis-admin-mcp-ts" });
+    }
+  });
 
   app.get(
     "/v1/admin-tools",
@@ -224,9 +277,13 @@ function createApp(cfg: AdminMcpConfig) {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "missing_bearer" || msg === "unauthorized") {
+      if (msg === "service_token_unconfigured") {
         mcpAuthFailures++;
-        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+        return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
+      }
+      if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
+        mcpAuthFailures++;
+        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
       if (msg === "forbidden") {
         return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
@@ -250,9 +307,13 @@ function createApp(cfg: AdminMcpConfig) {
       authCtx = await authenticateAdminRequest(cfg, req);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "missing_bearer" || msg === "unauthorized") {
+      if (msg === "service_token_unconfigured") {
         mcpAuthFailures++;
-        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+        return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
+      }
+      if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
+        mcpAuthFailures++;
+        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
       if (msg === "forbidden") {
         return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
@@ -279,8 +340,10 @@ function createApp(cfg: AdminMcpConfig) {
       const result = await invokeTool(
         {
           cfg,
-          authHeader: authCtx.authHeader,
+          delegatedHeaders: authCtx.delegatedHeaders,
           orgHeaders: authCtx.orgHeaders,
+          userId: authCtx.user.user_id ?? authCtx.user.username ?? "unknown",
+          role: authCtx.user.role ?? "",
         },
         authCtx.user.role,
         parsed.name,
@@ -289,15 +352,19 @@ function createApp(cfg: AdminMcpConfig) {
       directToolInvocations++;
       return reply.code(200).send({ result });
     } catch (e) {
+      const safe = toSafeToolError(e, parsed.name);
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.startsWith("Unknown tool:")) {
-        return reply.code(404).send({ error: "tool_not_found", detail: msg });
+        return reply.code(404).send({ error: "tool_not_found", tool: parsed.name });
       }
       if (msg.includes("requires")) {
-        return reply.code(403).send({ error: "forbidden", detail: msg });
+        return reply.code(403).send({ error: "forbidden", tool: parsed.name });
       }
-      app.log.error({ err: msg, tool: parsed.name }, "admin_tools_invoke_failed");
-      return reply.code(500).send({ error: "tool_failed", detail: msg });
+      if (e instanceof AdminMcpToolError && e.code === "invalid_arguments") {
+        return reply.code(400).send(safe);
+      }
+      app.log.error({ err: e, tool: parsed.name }, "admin_tools_invoke_failed");
+      return reply.code(e instanceof AdminMcpToolError && e.statusCode ? e.statusCode : 500).send(safe);
     }
     },
   );
@@ -315,9 +382,13 @@ function createApp(cfg: AdminMcpConfig) {
         authCtx = await authenticateAdminRequest(cfg, req);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg === "missing_bearer" || msg === "unauthorized") {
+        if (msg === "service_token_unconfigured") {
           mcpAuthFailures++;
-          return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing bearer token" });
+          return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
+        }
+        if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
+          mcpAuthFailures++;
+          return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
         }
         if (msg === "forbidden") {
           return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
@@ -328,24 +399,39 @@ function createApp(cfg: AdminMcpConfig) {
       reply.hijack();
 
       const server = buildAdminMcpServer(cfg, authCtx);
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      await server.connect(transport);
-      const parsedBody = req.method === "POST" ? (req.body as unknown) : undefined;
-      await transport.handleRequest(req.raw, reply.raw, parsedBody);
-      await transport.close();
-      await server.close();
+      const transport = new StreamableHTTPServerTransport({});
+      let connected = false;
+      try {
+        await server.connect(transport as never);
+        connected = true;
+        const parsedBody = req.method === "POST" ? (req.body as unknown) : undefined;
+        await transport.handleRequest(req.raw, reply.raw, parsedBody);
+      } catch (e) {
+        req.log.warn({ err: e }, "admin_mcp_transport_failed");
+        if (!reply.raw.headersSent) {
+          reply.raw.statusCode = 500;
+          reply.raw.end(JSON.stringify({ error: "mcp_transport_failed" }));
+        }
+      } finally {
+        if (connected) await transport.close().catch(() => undefined);
+        await server.close().catch(() => undefined);
+      }
     },
   });
 
   return app;
 }
 
-const config = loadConfig();
-const app = createApp(config);
+function toSafeToolError(error: unknown, tool: string): Record<string, unknown> {
+  if (error instanceof AdminMcpToolError) {
+    return { error: error.code, tool, status_code: error.statusCode };
+  }
+  return { error: "tool_failed", tool };
+}
 
 async function main() {
+  const config = loadConfig();
+  const app = createApp(config);
   await app.listen({ port: config.PORT, host: config.HOST });
   app.log.info(
     {
@@ -356,14 +442,16 @@ async function main() {
     },
     "synesis-admin-mcp-ts listening",
   );
+
+  process.on("SIGTERM", async () => {
+    await app.close();
+    process.exit(0);
+  });
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
-
-process.on("SIGTERM", async () => {
-  await app.close();
-  process.exit(0);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

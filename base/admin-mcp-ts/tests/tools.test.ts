@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOrgAdminOrHigher, visibleToolDescriptorsForRole } from "../src/tools.js";
+import { AdminMcpToolError, invokeTool, isOrgAdminOrHigher, visibleToolDescriptorsForRole } from "../src/tools.js";
 
 describe("admin MCP tool catalog", () => {
   it("requires org_admin+ for visibility", () => {
@@ -27,5 +27,49 @@ describe("admin MCP tool catalog", () => {
     expect(isOrgAdminOrHigher("admin")).toBe(true);
     expect(isOrgAdminOrHigher("platform_admin")).toBe(true);
     expect(isOrgAdminOrHigher("user")).toBe(false);
+  });
+
+  it("rejects extra tool arguments before forwarding to Admin API", async () => {
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        { item_id: 1, unexpected: true },
+      ),
+    ).rejects.toBeInstanceOf(AdminMcpToolError);
+  });
+
+  it("rejects overly long transition watches", async () => {
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "yarn_transition_watch",
+        { polls: 2, interval_seconds: 2 },
+      ),
+    ).rejects.toMatchObject({ code: "watch_duration_exceeded" });
   });
 });

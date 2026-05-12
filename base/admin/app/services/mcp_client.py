@@ -7,7 +7,8 @@ import time
 
 import httpx
 
-from ..deps import ADMIN_MCP_URL, MCP_URL
+from ..deps import ADMIN_MCP_URL, INTERNAL_SERVICE_TOKEN, MCP_URL
+from .admin_mcp_ts_client import build_delegated_cookie_header
 
 logger = logging.getLogger("synesis.admin.mcp")
 
@@ -62,8 +63,8 @@ async def probe_mcp_health() -> dict:
 
 
 async def probe_admin_mcp_health() -> dict:
-    """GET synesis-admin-mcp-ts /health — Admin MCP (Streamable HTTP) reachability."""
-    url = f"{ADMIN_MCP_URL.rstrip('/')}/health"
+    """GET synesis-admin-mcp-ts /ready — Admin MCP dependency readiness."""
+    url = f"{ADMIN_MCP_URL.rstrip('/')}/ready"
     t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient() as client:
@@ -89,11 +90,28 @@ async def probe_admin_mcp_health() -> dict:
         }
 
 
-async def get_admin_mcp_tools(auth_header: str, org_headers: dict[str, str] | None = None) -> list[dict]:
-    """Catalog from synesis-admin-mcp-ts (`GET /v1/admin-tools`) for the caller token."""
-    if not auth_header.strip():
+async def get_admin_mcp_tools(
+    auth_header: str,
+    org_headers: dict[str, str] | None = None,
+    *,
+    session_cookie: str = "",
+    csrf_cookie: str = "",
+    csrf_token: str = "",
+) -> list[dict]:
+    """Catalog from synesis-admin-mcp-ts through the Admin API internal service gate."""
+    cookie_header = build_delegated_cookie_header(session_cookie, csrf_cookie)
+    if not INTERNAL_SERVICE_TOKEN or not (auth_header.strip() or cookie_header):
         return []
-    headers: dict[str, str] = {"Authorization": auth_header}
+    headers: dict[str, str] = {
+        "x-synesis-service-token": INTERNAL_SERVICE_TOKEN,
+        "x-synesis-service-name": "synesis-admin",
+    }
+    if auth_header.strip():
+        headers["x-synesis-delegated-authorization"] = auth_header.strip()
+    if cookie_header:
+        headers["x-synesis-delegated-cookie"] = cookie_header
+    if csrf_token.strip():
+        headers["x-synesis-delegated-csrf"] = csrf_token.strip()
     if org_headers:
         for key in ("x-synesis-org-id", "x-active-org-id"):
             value = str(org_headers.get(key, "") or "").strip()

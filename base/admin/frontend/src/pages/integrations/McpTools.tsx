@@ -17,8 +17,8 @@ export default function McpTools() {
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">MCP integrations</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Two services: <strong>synesis-mcp-ts</strong> (Coder API agent tools — Streamable HTTP, PAT + FGA) and{" "}
-          <strong>synesis-admin-mcp-ts</strong> (Admin console tools — Streamable HTTP, same JWT/PAT and RBAC as the
-          Admin REST API).
+          <strong>synesis-admin-mcp-ts</strong> (Admin console tools — internal Streamable HTTP mediated by the Admin
+          API).
         </p>
       </div>
 
@@ -86,7 +86,7 @@ export default function McpTools() {
           )}
         </div>
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-          MCP Streamable HTTP for operators and IDE clients. Probe URL: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_ADMIN_MCP_URL</code> (port <strong>8102</strong>). Authenticate with the same Bearer token as the Admin API. The server validates the session against{" "}
+          Internal MCP Streamable HTTP for the Admin Assistant. Probe URL: <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_ADMIN_MCP_URL</code> (port <strong>8102</strong>). The Admin API mediates access with an internal service token and a delegated admin session. The server validates the session against{" "}
           <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /api/v1/auth/me</code>, serves its TS-owned catalog at{" "}
           <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">GET /v1/admin-tools</code>, and executes via{" "}
           <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">POST /v1/admin-tools/invoke</code> (audited in admin).

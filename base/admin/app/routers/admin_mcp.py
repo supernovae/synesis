@@ -487,6 +487,28 @@ def _http_exception_detail(exc: HTTPException) -> str:
         return str(d)
 
 
+_SENSITIVE_ARG_PARTS = ("token", "secret", "password", "authorization", "cookie", "session", "key")
+
+
+def _redact_tool_arguments(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return "<redacted:nested>"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if any(part in key_text.lower() for part in _SENSITIVE_ARG_PARTS):
+                out[key_text] = "<redacted>"
+            else:
+                out[key_text] = _redact_tool_arguments(item, depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_redact_tool_arguments(item, depth + 1) for item in value[:25]]
+    if isinstance(value, str):
+        return value[:500]
+    return value
+
+
 def _resolve_tool(user: UserInfo, tool_name: str) -> tuple[dict[str, Any], Any]:
     role = resolve_role(user)
     tool_def = next((t for t in _TOOLS if t["name"] == tool_name), None)
@@ -526,7 +548,7 @@ async def invoke_mcp_tool_for_chat(
             action=f"mcp.tool.{tool_name}",
             status="success",
             summary=f"MCP tool call: {tool_name}",
-            detail={"arguments": arguments},
+            detail={"arguments": _redact_tool_arguments(arguments)},
             user=user,
             source=audit_source,
         )
@@ -538,7 +560,7 @@ async def invoke_mcp_tool_for_chat(
             action=f"mcp.tool.{tool_name}",
             status="error",
             summary=f"MCP tool call failed: {tool_name} — {_http_exception_detail(e)}",
-            detail={"arguments": arguments, "error": _http_exception_detail(e)},
+            detail={"arguments": _redact_tool_arguments(arguments), "error": _http_exception_detail(e)[:500]},
             user=user,
             source=audit_source,
         )
@@ -549,11 +571,11 @@ async def invoke_mcp_tool_for_chat(
             action=f"mcp.tool.{tool_name}",
             status="error",
             summary=f"MCP tool call failed: {tool_name} — {type(exc).__name__}",
-            detail={"arguments": arguments, "error": str(exc)[:500]},
+            detail={"arguments": _redact_tool_arguments(arguments), "error": type(exc).__name__},
             user=user,
             source=audit_source,
         )
-        return json.dumps({"error": str(exc), "tool": tool_name})
+        return json.dumps({"error": "tool_failed", "tool": tool_name})
 
 
 # ── Tool handlers ────────────────────────────────────────────────────────────
@@ -1403,7 +1425,7 @@ async def internal_invoke(body: dict = Body(...), user: UserInfo = Depends(get_c
             action=f"mcp.tool.{tool_name}",
             status="success",
             summary=f"MCP tool call: {tool_name}",
-            detail={"arguments": arguments},
+            detail={"arguments": _redact_tool_arguments(arguments)},
             user=user,
             source="admin-mcp-ts",
         )
@@ -1416,7 +1438,7 @@ async def internal_invoke(body: dict = Body(...), user: UserInfo = Depends(get_c
             action=f"mcp.tool.{tool_name}",
             status="error",
             summary=f"MCP tool call failed: {tool_name} — {type(exc).__name__}",
-            detail={"arguments": arguments, "error": str(exc)[:500]},
+            detail={"arguments": _redact_tool_arguments(arguments), "error": type(exc).__name__},
             user=user,
             source="admin-mcp-ts",
         )

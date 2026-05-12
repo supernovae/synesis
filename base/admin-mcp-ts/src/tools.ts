@@ -27,18 +27,39 @@ export interface AdminToolDescriptor {
 
 interface ToolContext {
   cfg: AdminMcpConfig;
-  authHeader: string;
+  delegatedHeaders: Record<string, string>;
   orgHeaders: Record<string, string>;
+  userId: string;
+  role: string;
 }
 
 interface AdminToolDefinition extends AdminToolDescriptor {
   invoke: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
 }
 
+export class AdminMcpToolError extends Error {
+  readonly code: string;
+  readonly statusCode: number;
+  readonly privateDetail?: unknown;
+
+  constructor(code: string, statusCode = 500, privateDetail?: unknown) {
+    super(code);
+    this.code = code;
+    this.statusCode = statusCode;
+    this.privateDetail = privateDetail;
+  }
+}
+
+const activeWatchByUser = new Map<string, number>();
+
 function asString(v: unknown): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   return "";
+}
+
+function boundedString(v: unknown, maxLength: number): string {
+  return asString(v).trim().slice(0, maxLength);
 }
 
 function asBool(v: unknown, defaultValue = false): boolean {
@@ -77,13 +98,15 @@ function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   const out: string[] = [];
   for (const item of v) {
-    const text = asString(item).trim();
+    const text = boundedString(item, 128);
     if (text) out.push(text);
+    if (out.length >= 50) break;
   }
   return out;
 }
 
 function isHttpNotFoundError(error: unknown): boolean {
+  if (error instanceof AdminMcpToolError) return error.statusCode === 404;
   const message = error instanceof Error ? error.message : String(error);
   return /\(404\)/.test(message);
 }
@@ -222,6 +245,21 @@ function buildApiUrl(ctx: ToolContext, path: string, params?: Record<string, unk
   return `${base}${path}${queryString(params ?? {})}`;
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new AdminMcpToolError("upstream_timeout", 504, { url });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function apiRequest(
   ctx: ToolContext,
   method: "GET" | "POST" | "PATCH" | "DELETE",
@@ -231,15 +269,19 @@ async function apiRequest(
 ): Promise<unknown> {
   const url = buildApiUrl(ctx, path, params);
   const headers: Record<string, string> = {
-    Authorization: ctx.authHeader,
+    ...ctx.delegatedHeaders,
     ...ctx.orgHeaders,
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method,
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+    ctx.cfg.SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS,
+  );
   const text = await response.text();
   let parsed: unknown = {};
   if (text) {
@@ -254,10 +296,35 @@ async function apiRequest(
       typeof parsed === "object" && parsed !== null && "detail" in parsed
         ? (parsed as { detail: unknown }).detail
         : parsed;
-    const msg = typeof detail === "string" ? detail : JSON.stringify(detail);
-    throw new Error(`${method} ${path} failed (${response.status}): ${msg}`);
+    throw new AdminMcpToolError("upstream_request_failed", response.status, {
+      method,
+      path,
+      status: response.status,
+      detail,
+    });
   }
   return parsed;
+}
+
+function validateToolArgs(tool: AdminToolDefinition, args: Record<string, unknown>): Record<string, unknown> {
+  const properties = tool.inputSchema.properties;
+  const allowed = properties && typeof properties === "object" && !Array.isArray(properties)
+    ? new Set(Object.keys(properties as Record<string, unknown>))
+    : new Set<string>();
+  const required = Array.isArray(tool.inputSchema.required)
+    ? (tool.inputSchema.required as unknown[]).map((v) => asString(v)).filter(Boolean)
+    : [];
+  for (const key of Object.keys(args)) {
+    if (!allowed.has(key)) {
+      throw new AdminMcpToolError("invalid_arguments", 400, { reason: "unknown_argument", key, tool: tool.name });
+    }
+  }
+  for (const key of required) {
+    if (args[key] === undefined || args[key] === null || asString(args[key]).trim() === "") {
+      throw new AdminMcpToolError("invalid_arguments", 400, { reason: "missing_required", key, tool: tool.name });
+    }
+  }
+  return args;
 }
 
 async function getTransitionQuality(
@@ -327,13 +394,13 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         limit: asInt(args.limit, 20, 1, 100),
         offset: asInt(args.offset, 0, 0, 100_000),
         has_error: typeof args.has_error === "boolean" ? args.has_error : undefined,
-        task_type: asString(args.task_type),
-        trace_service: asString(args.trace_service),
-        conversation_id: asString(args.conversation_id),
-        decision_path: asString(args.decision_path),
-        tenant_id: asString(args.tenant_id),
-        user_id: asString(args.user_id),
-        org_id: asString(args.org_id),
+        task_type: boundedString(args.task_type, 128),
+        trace_service: boundedString(args.trace_service, 32),
+        conversation_id: boundedString(args.conversation_id, 256),
+        decision_path: boundedString(args.decision_path, 128),
+        tenant_id: boundedString(args.tenant_id, 64),
+        user_id: boundedString(args.user_id, 128),
+        org_id: boundedString(args.org_id, 128),
         since: sinceHours > 0 ? nowUnixSeconds() - sinceHours * 3600 : undefined,
       });
     },
@@ -348,7 +415,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       required: ["trace_id"],
     },
     invoke: async (ctx, args) => {
-      const traceId = asString(args.trace_id).trim();
+      const traceId = boundedString(args.trace_id, 256);
       if (!traceId) throw new Error("trace_id required");
       return apiRequest(ctx, "GET", `/api/v1/traces/${encodeURIComponent(traceId)}`);
     },
@@ -376,7 +443,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       const sinceHours = asInt(args.since_hours, 24, 1, 720);
       return apiRequest(ctx, "GET", "/api/v1/traces/analytics", {
         since: nowUnixSeconds() - sinceHours * 3600,
-        org_id: asString(args.org_id),
+        org_id: boundedString(args.org_id, 128),
       });
     },
   },
@@ -471,7 +538,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       if (candidates.length === 0) throw new Error("session_key required");
 
       let lastNotFound: Error | null = null;
-      for (const key of candidates) {
+      const exactCandidates = ctx.role === "platform_admin" || ctx.role === "admin"
+        ? candidates.filter((candidate) => candidate.length >= 16)
+        : candidates.slice(0, 1);
+      for (const key of exactCandidates) {
         try {
           return await apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(key)}`);
         } catch (error) {
@@ -480,16 +550,17 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         }
       }
 
-      const resolvedKey = await resolveSessionKeyFromRecentSessions(ctx, candidates);
+      const resolvedKey =
+        (ctx.role === "platform_admin" || ctx.role === "admin")
+          ? await resolveSessionKeyFromRecentSessions(ctx, exactCandidates)
+          : null;
       if (resolvedKey) {
         return apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(resolvedKey)}`);
       }
       if (lastNotFound) {
-        throw new Error(
-          `${lastNotFound.message} (tried normalized keys: ${candidates.join(", ")})`,
-        );
+        throw new AdminMcpToolError("session_not_found", 404, { attempted: exactCandidates.length });
       }
-      throw new Error("Session not found");
+      throw new AdminMcpToolError("session_not_found", 404);
     },
   },
   {
@@ -600,6 +671,20 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     invoke: async (ctx, args) => {
       const polls = asInt(args.polls, 4, 1, 12);
       const intervalSeconds = asNumber(args.interval_seconds, 5, 1, 30);
+      const totalWatchMs = Math.max(0, (polls - 1) * intervalSeconds * 1000);
+      if (totalWatchMs > ctx.cfg.SYNESIS_ADMIN_MCP_WATCH_MAX_MS) {
+        throw new AdminMcpToolError("watch_duration_exceeded", 400, {
+          requested_ms: totalWatchMs,
+          max_ms: ctx.cfg.SYNESIS_ADMIN_MCP_WATCH_MAX_MS,
+        });
+      }
+      const watchKey = `${ctx.userId}:yarn_transition_watch`;
+      const active = activeWatchByUser.get(watchKey) ?? 0;
+      if (active >= ctx.cfg.SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER) {
+        throw new AdminMcpToolError("watch_concurrency_exceeded", 429, { user: ctx.userId });
+      }
+      activeWatchByUser.set(watchKey, active + 1);
+      try {
       const sinceHours = asInt(args.since_hours, 24, 1, 720);
       const bucketMinutes = asInt(args.bucket_minutes, 15, 5, 60);
       const eventsSinceMinutes = asInt(args.events_since_minutes, 30, 1, 1440);
@@ -689,6 +774,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         frames,
         events: collectedEvents.slice(-200),
       };
+      } finally {
+        const next = (activeWatchByUser.get(watchKey) ?? 1) - 1;
+        if (next <= 0) activeWatchByUser.delete(watchKey);
+        else activeWatchByUser.set(watchKey, next);
+      }
     },
   },
   {
@@ -856,8 +946,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     },
     invoke: async (ctx, args) =>
       apiRequest(ctx, "GET", "/api/v1/ingestion/items", {
-        status: asString(args.status),
-        handler: asString(args.handler),
+        status: boundedString(args.status, 64),
+        handler: boundedString(args.handler, 64),
         page: 1,
         page_size: asInt(args.limit, 20, 1, 100),
       }),
@@ -883,8 +973,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     invoke: async (ctx, args) => {
       const itemId = asInt(args.item_id, 0, 1, Number.MAX_SAFE_INTEGER);
       if (itemId <= 0) throw new Error("item_id required");
-      const patch = { ...args };
-      delete patch.item_id;
+      const patch: Record<string, unknown> = {};
+      for (const key of ["title", "handler", "domain", "tags", "priority", "status", "config"]) {
+        if (args[key] !== undefined) patch[key] = args[key];
+      }
       return apiRequest(ctx, "PATCH", `/api/v1/ingestion/items/${itemId}`, undefined, patch);
     },
   },
@@ -902,11 +994,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       required: ["url"],
     },
     invoke: async (ctx, args) => {
-      const url = asString(args.url).trim();
+      const url = boundedString(args.url, 2048);
       if (!url) throw new Error("url required");
       return apiRequest(ctx, "POST", "/api/v1/ingestion/discover", undefined, {
         url,
-        hints: asString(args.hints),
+        hints: boundedString(args.hints, 2000),
         use_llm: asBool(args.use_llm, false),
       });
     },
@@ -1004,5 +1096,5 @@ export async function invokeTool(
   if (roleRank(role) < roleRank(tool.min_role)) {
     throw new Error(`Tool '${name}' requires ${tool.min_role} role`);
   }
-  return tool.invoke(ctx, args);
+  return tool.invoke(ctx, validateToolArgs(tool, args));
 }

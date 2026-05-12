@@ -77,3 +77,40 @@ def test_admin_session_ids_are_strictly_opaque_cookie_values():
     assert not _is_valid_session_id("short")
     assert not _is_valid_session_id("session-id; SameSite=None")
     assert not _is_valid_session_id("session-id\r\nSet-Cookie: injected=1")
+
+
+def test_admin_mcp_client_uses_internal_token_and_delegated_cookie(monkeypatch):
+    from app.services import admin_mcp_ts_client
+
+    monkeypatch.setattr(admin_mcp_ts_client, "INTERNAL_SERVICE_TOKEN", "internal-secret")
+    headers = admin_mcp_ts_client._base_headers(
+        "",
+        {"x-active-org-id": "org-1"},
+        session_cookie="a" * 43,
+        csrf_cookie="b" * 64,
+        csrf_token="b" * 64,
+    )
+
+    assert headers["x-synesis-service-token"] == "internal-secret"
+    assert headers["x-synesis-service-name"] == "synesis-admin"
+    assert headers["x-synesis-delegated-cookie"] == (f"synesis_admin_session={'a' * 43}; synesis_admin_csrf={'b' * 64}")
+    assert headers["x-synesis-delegated-csrf"] == "b" * 64
+    assert headers["x-active-org-id"] == "org-1"
+    assert "Authorization" not in headers
+
+
+def test_admin_mcp_audit_argument_redaction():
+    from app.routers.admin_mcp import _redact_tool_arguments
+
+    redacted = _redact_tool_arguments(
+        {
+            "session_key": "secret-session",
+            "url": "https://example.com",
+            "nested": {"authorization": "Bearer secret", "safe": "value"},
+        }
+    )
+
+    assert redacted["session_key"] == "<redacted>"
+    assert redacted["url"] == "https://example.com"
+    assert redacted["nested"]["authorization"] == "<redacted>"
+    assert redacted["nested"]["safe"] == "value"

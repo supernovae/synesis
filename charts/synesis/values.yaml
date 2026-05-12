@@ -1085,6 +1085,11 @@ workloads:
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - name: SYNESIS_ADMIN_API_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
     resources:
       requests:
         cpu: 50m
@@ -1092,6 +1097,9 @@ workloads:
       limits:
         cpu: 250m
         memory: 256Mi
+    probes:
+      readiness: /ready
+      liveness: /health
   webui:
     enabled: true
     namespace: webui

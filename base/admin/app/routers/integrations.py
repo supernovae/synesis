@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import case, delete, func, select
 
-from ..auth import UserInfo, get_current_user
+from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
@@ -62,11 +62,20 @@ async def admin_mcp_streamable_health(_user: UserInfo = Depends(get_current_user
 async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_current_user)):
     """Admin MCP tools (executed in admin API; MCP transport is synesis-admin-mcp-ts)."""
     auth_header = (request.headers.get("authorization") or "").strip()
+    session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) or "").strip()
+    csrf_token = (request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "").strip()
     org_headers = {
         "x-synesis-org-id": (request.headers.get("x-synesis-org-id") or "").strip(),
         "x-active-org-id": (request.headers.get("x-active-org-id") or "").strip(),
     }
-    ts_tools = await get_admin_mcp_tools(auth_header, org_headers)
+    ts_tools = await get_admin_mcp_tools(
+        auth_header,
+        org_headers,
+        session_cookie=session_cookie,
+        csrf_cookie=csrf_cookie,
+        csrf_token=csrf_token,
+    )
     if ts_tools:
         return {"tools": ts_tools, "scope": "synesis-admin-mcp-ts"}
 

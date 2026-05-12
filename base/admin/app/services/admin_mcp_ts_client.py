@@ -4,13 +4,30 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
 
-from ..deps import ADMIN_MCP_URL
+from ..auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
+from ..deps import ADMIN_MCP_URL, INTERNAL_SERVICE_TOKEN
 
 logger = logging.getLogger("synesis.admin.mcp.ts_client")
+
+_SESSION_COOKIE_VALUE_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
+_CSRF_COOKIE_VALUE_RE = re.compile(r"^[A-Fa-f0-9]{32,128}$")
+
+
+def build_delegated_cookie_header(session_cookie: str = "", csrf_cookie: str = "") -> str:
+    """Return a minimal internal Cookie header for Admin API session validation."""
+    session_value = session_cookie.strip()
+    csrf_value = csrf_cookie.strip()
+    parts: list[str] = []
+    if _SESSION_COOKIE_VALUE_RE.fullmatch(session_value):
+        parts.append(f"{SESSION_COOKIE_NAME}={session_value}")
+    if _CSRF_COOKIE_VALUE_RE.fullmatch(csrf_value):
+        parts.append(f"{CSRF_COOKIE_NAME}={csrf_value}")
+    return "; ".join(parts)
 
 
 def _clean_org_headers(org_headers: dict[str, str] | None) -> dict[str, str]:
@@ -24,19 +41,53 @@ def _clean_org_headers(org_headers: dict[str, str] | None) -> dict[str, str]:
     return out
 
 
-def _base_headers(auth_header: str, org_headers: dict[str, str] | None = None) -> dict[str, str]:
-    headers: dict[str, str] = {"Authorization": auth_header}
+def _base_headers(
+    auth_header: str = "",
+    org_headers: dict[str, str] | None = None,
+    *,
+    session_cookie: str = "",
+    csrf_cookie: str = "",
+    csrf_token: str = "",
+) -> dict[str, str]:
+    headers: dict[str, str] = {
+        "x-synesis-service-name": "synesis-admin",
+    }
+    if INTERNAL_SERVICE_TOKEN:
+        headers["x-synesis-service-token"] = INTERNAL_SERVICE_TOKEN
+    if auth_header.strip():
+        headers["x-synesis-delegated-authorization"] = auth_header.strip()
+    cookie_header = build_delegated_cookie_header(session_cookie, csrf_cookie)
+    if cookie_header.strip():
+        headers["x-synesis-delegated-cookie"] = cookie_header
+    if csrf_token.strip():
+        headers["x-synesis-delegated-csrf"] = csrf_token.strip()
     headers.update(_clean_org_headers(org_headers))
     return headers
 
 
 async def list_admin_mcp_tools(
-    auth_header: str,
+    auth_header: str = "",
     org_headers: dict[str, str] | None = None,
+    *,
+    session_cookie: str = "",
+    csrf_cookie: str = "",
+    csrf_token: str = "",
 ) -> list[dict[str, Any]]:
+    if not INTERNAL_SERVICE_TOKEN:
+        logger.warning("admin_mcp_internal_token_missing")
+        return []
     url = f"{ADMIN_MCP_URL.rstrip('/')}/v1/admin-tools"
     async with httpx.AsyncClient(timeout=20.0) as client:
-        resp = await client.get(url, headers=_base_headers(auth_header, org_headers))
+        resp = await client.get(
+            url,
+            headers=_base_headers(
+                auth_header,
+                org_headers,
+                session_cookie=session_cookie,
+                csrf_cookie=csrf_cookie,
+                csrf_token=csrf_token,
+            ),
+        )
     if resp.status_code in (401, 403):
         raise PermissionError(f"admin_mcp_catalog_{resp.status_code}")
     resp.raise_for_status()
@@ -96,10 +147,22 @@ async def invoke_admin_mcp_tool(
     org_headers: dict[str, str] | None,
     tool_name: str,
     arguments: dict[str, Any],
+    *,
+    session_cookie: str = "",
+    csrf_cookie: str = "",
+    csrf_token: str = "",
 ) -> str:
+    if not INTERNAL_SERVICE_TOKEN:
+        return json.dumps({"error": "admin_mcp_not_configured", "tool": tool_name})
     url = f"{ADMIN_MCP_URL.rstrip('/')}/v1/admin-tools/invoke"
     body = {"name": tool_name, "arguments": arguments}
-    headers = _base_headers(auth_header, org_headers)
+    headers = _base_headers(
+        auth_header,
+        org_headers,
+        session_cookie=session_cookie,
+        csrf_cookie=csrf_cookie,
+        csrf_token=csrf_token,
+    )
     headers["Content-Type"] = "application/json"
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -110,11 +173,11 @@ async def invoke_admin_mcp_tool(
         if resp.status_code == 404:
             return json.dumps({"error": "tool_not_found", "tool": tool_name})
         if resp.status_code >= 400:
-            detail = payload.get("detail") if isinstance(payload, dict) else payload
-            return json.dumps({"error": str(detail), "tool": tool_name, "status_code": resp.status_code})
+            code = payload.get("error") if isinstance(payload, dict) else "tool_failed"
+            return json.dumps({"error": str(code or "tool_failed"), "tool": tool_name, "status_code": resp.status_code})
         if isinstance(payload, dict) and "result" in payload:
             return json.dumps(payload["result"], default=str)
         return json.dumps(payload, default=str)
-    except Exception as exc:
+    except Exception:
         logger.warning("admin_mcp_ts_invoke_failed tool=%s", tool_name, exc_info=True)
-        return json.dumps({"error": str(exc), "tool": tool_name})
+        return json.dumps({"error": "admin_mcp_request_failed", "tool": tool_name})
