@@ -7,8 +7,8 @@ import RichContent from "../../components/common/RichContent";
 interface Message {
   role: "user" | "assistant";
   content: string;
-  tokens?: number;
-  toolRounds?: number;
+  tokens?: number | undefined;
+  toolRounds?: number | undefined;
 }
 
 export default function SupportAssistant() {
@@ -29,7 +29,7 @@ export default function SupportAssistant() {
     setInput("");
 
     chatMutation.mutate(
-      { message: userMsg, context: context || undefined },
+      { message: userMsg, ...(context ? { context } : {}) },
       {
         onSuccess: (data) => {
           setMessages((prev) => [

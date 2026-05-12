@@ -138,7 +138,7 @@ export default function Benchmarks() {
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b">
-                  {Object.keys(data.per_query[0]).map((k) => (
+                  {Object.keys(data.per_query[0] ?? {}).map((k) => (
                     <th key={k} className="px-2 py-1 text-left font-medium text-gray-500">{k}</th>
                   ))}
                 </tr>

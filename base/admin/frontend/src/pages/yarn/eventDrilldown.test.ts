@@ -90,7 +90,9 @@ describe("event drilldown helpers", () => {
   });
 
   it("extracts trajectory highlights for metadata rendering", () => {
-    const highlights = trajectoryHighlights(events[0]);
+    const firstEvent = events[0];
+    expect(firstEvent).toBeDefined();
+    const highlights = trajectoryHighlights(firstEvent!);
     expect(highlights).toEqual(
       expect.arrayContaining([
         { label: "Bucket", value: "go_app", tone: "neutral" },

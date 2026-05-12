@@ -1,17 +1,17 @@
 import axios from "axios";
-import { resolveAccessTokenExpiresAtMs } from "./jwtExpiry";
+import type { User } from "../types";
 
 export const TOKEN_KEY = "synesis_token";
 export const REFRESH_KEY = "synesis_refresh_token";
 export const EXPIRES_KEY = "synesis_token_expires_at";
 export const USER_KEY = "synesis_user";
 export const ID_TOKEN_KEY = "synesis_id_token";
+export const CSRF_COOKIE_KEY = "synesis_admin_csrf";
+export const CSRF_HEADER_KEY = "X-Synesis-CSRF";
 
-interface OidcRefreshResponse {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-  id_token?: string;
+interface SessionResponse {
+  status: "ok";
+  user: User;
 }
 
 interface RefreshOptions {
@@ -19,7 +19,7 @@ interface RefreshOptions {
   retryDelayMs?: number;
 }
 
-let refreshInFlight: Promise<string | null> | null = null;
+let refreshInFlight: Promise<User | null> | null = null;
 
 function shouldRetryRefresh(error: unknown): boolean {
   if (!axios.isAxiosError(error)) return false;
@@ -34,6 +34,17 @@ function wait(ms: number): Promise<void> {
   });
 }
 
+export function getCookie(name: string): string {
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const item = part.trim();
+    if (item.startsWith(prefix)) {
+      return decodeURIComponent(item.slice(prefix.length));
+    }
+  }
+  return "";
+}
+
 export function clearPersistedAuth(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
@@ -42,24 +53,11 @@ export function clearPersistedAuth(): void {
   localStorage.removeItem(ID_TOKEN_KEY);
 }
 
-export function persistTokens(
-  access: string,
-  refresh?: string,
-  expiresIn?: number,
-  idToken?: string | null,
-): void {
-  localStorage.setItem(TOKEN_KEY, access);
-  if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
-  const expiresAt = resolveAccessTokenExpiresAtMs(access, expiresIn);
-  if (expiresAt) {
-    localStorage.setItem(EXPIRES_KEY, String(expiresAt));
-  }
-  if (idToken) {
-    localStorage.setItem(ID_TOKEN_KEY, idToken);
-  }
+export function persistUser(user: User): void {
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-export async function refreshAccessToken(options: RefreshOptions = {}): Promise<string | null> {
+export async function refreshSession(options: RefreshOptions = {}): Promise<User | null> {
   if (refreshInFlight) {
     return refreshInFlight;
   }
@@ -69,17 +67,15 @@ export async function refreshAccessToken(options: RefreshOptions = {}): Promise<
 
   refreshInFlight = (async () => {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
-      const refreshToken = localStorage.getItem(REFRESH_KEY);
-      if (!refreshToken) return null;
-
       try {
-        const { data } = await axios.post<OidcRefreshResponse>("/api/v1/auth/oauth/refresh", {
-          refresh_token: refreshToken,
-        });
-        if (!data?.access_token) return null;
-
-        persistTokens(data.access_token, data.refresh_token, data.expires_in, data.id_token);
-        return data.access_token;
+        const { data } = await axios.post<SessionResponse>(
+          "/api/v1/auth/oauth/refresh",
+          undefined,
+          { headers: { [CSRF_HEADER_KEY]: getCookie(CSRF_COOKIE_KEY) }, withCredentials: true },
+        );
+        if (!data?.user) return null;
+        persistUser(data.user);
+        return data.user;
       } catch (error) {
         const canRetry = attempt < retries && shouldRetryRefresh(error);
         if (!canRetry) break;

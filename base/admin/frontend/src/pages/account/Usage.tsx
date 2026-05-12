@@ -32,7 +32,7 @@ type UsageSummarySectionProps = {
   tokens: number;
   costUsd: number;
   avgLatencyMs: number;
-  details?: string;
+  details?: string | undefined;
 };
 
 function UsageSummarySection({

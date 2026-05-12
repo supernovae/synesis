@@ -8,17 +8,25 @@ const CATEGORY_LABELS: Record<string, string> = {
   web_search: "Web Search",
   infrastructure: "Infrastructure",
 };
+type CircuitBreakerCategory = "llm" | "web_search" | "infrastructure";
 
 function groupByCategory(breakers: CircuitBreakerState[]) {
-  const groups: Record<string, CircuitBreakerState[]> = {
+  const groups: Record<CircuitBreakerCategory, CircuitBreakerState[]> = {
     llm: [],
     web_search: [],
     infrastructure: [],
   };
   for (const b of breakers) {
     const cat = b.category ?? "infrastructure";
-    if (cat in groups) groups[cat].push(b);
-    else groups.infrastructure.push(b);
+    const target =
+      cat === "llm"
+        ? groups.llm
+        : cat === "web_search"
+          ? groups.web_search
+          : cat === "infrastructure"
+            ? groups.infrastructure
+        : groups.infrastructure;
+    target.push(b);
   }
   return groups;
 }
@@ -55,7 +63,7 @@ export default function CircuitBreakers() {
       ) : (
         <div className="space-y-6">
           {categoryOrder.map((cat) => {
-            const items = grouped[cat];
+            const items = grouped[cat] ?? [];
             if (!items.length) return null;
             return (
               <div key={cat}>

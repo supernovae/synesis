@@ -10,14 +10,18 @@ for scripts and automation.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
-from datetime import UTC, datetime
+import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("synesis.auth")
 
@@ -31,6 +35,11 @@ KEYCLOAK_INTERNAL_ISSUER = os.getenv("SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL", "")
 # Leave empty to skip aud verification; use SYNESIS_KEYCLOAK_EXPECTED_AZP instead.
 KEYCLOAK_AUDIENCE = os.getenv("SYNESIS_KEYCLOAK_AUDIENCE", "")
 KEYCLOAK_EXPECTED_AZP = os.getenv("SYNESIS_KEYCLOAK_EXPECTED_AZP", "synesis-admin")
+SESSION_COOKIE_NAME = "synesis_admin_session"
+CSRF_COOKIE_NAME = "synesis_admin_csrf"
+CSRF_HEADER_NAME = "x-synesis-csrf"
+SESSION_TTL_SECONDS = int(os.getenv("SYNESIS_ADMIN_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
+COOKIE_SECURE = os.getenv("SYNESIS_ADMIN_COOKIE_SECURE", "true").lower() not in {"0", "false", "no"}
 
 _jwks_client: jwt.PyJWKClient | None = None
 
@@ -55,9 +64,9 @@ class UserInfo(BaseModel):
     email: str = ""  # Keycloak email claim (empty for PATs); used for audit / prompt_library.updated_by
     org_id: str = ""  # primary Keycloak organization ID
     org_name: str = ""  # primary organization display name
-    org_roles: list[str] = []  # roles within the organization
-    tenant_ids: list[str] = []  # PAT tenant scopes (JWT usually empty)
-    token_scopes: list[str] = []  # PAT scopes (empty for JWT sessions)
+    org_roles: list[str] = Field(default_factory=list)  # roles within the organization
+    tenant_ids: list[str] = Field(default_factory=list)  # PAT tenant scopes (JWT usually empty)
+    token_scopes: list[str] = Field(default_factory=list)  # PAT scopes (empty for JWT sessions)
 
 
 # ── Token verification ───────────────────────────────────────────────────────
@@ -202,6 +211,209 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         )
 
 
+def _hash_session_id(session_id: str) -> str:
+    return sha256(session_id.encode()).hexdigest()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    if forwarded:
+        return forwarded[:128]
+    return (request.client.host if request.client else "")[:128]
+
+
+def _is_unsafe_method(request: Request) -> bool:
+    return request.method.upper() not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+def _session_cookie_kwargs(max_age: int | None = None) -> dict:
+    kwargs = {
+        "httponly": True,
+        "secure": COOKIE_SECURE,
+        "samesite": "lax",
+        "path": "/",
+    }
+    if max_age is not None:
+        kwargs["max_age"] = max_age
+    return kwargs
+
+
+def _csrf_cookie_kwargs(max_age: int | None = None) -> dict:
+    kwargs = {
+        "httponly": False,
+        "secure": COOKIE_SECURE,
+        "samesite": "lax",
+        "path": "/",
+    }
+    if max_age is not None:
+        kwargs["max_age"] = max_age
+    return kwargs
+
+
+def _user_from_session_row(row) -> UserInfo:
+    return UserInfo(
+        username=row.username,
+        role=row.role,
+        user_id=row.user_id,
+        email=row.email,
+        org_id=row.org_id,
+        org_name=row.org_name,
+        org_roles=list(row.org_roles or []),
+    )
+
+
+async def create_admin_session(request: Request, response, token_data: dict) -> UserInfo:
+    """Persist OIDC tokens server-side and set only opaque browser cookies."""
+    from .db.engine import async_session
+    from .db.models import AdminSession
+
+    access = token_data.get("access_token")
+    if not access or not isinstance(access, str):
+        raise HTTPException(status_code=400, detail="Invalid token response")
+    user = _verify_keycloak_token(access)
+    refresh = str(token_data.get("refresh_token") or "")
+    id_token = str(token_data.get("id_token") or "")
+    session_id = secrets.token_urlsafe(32)
+    csrf_token = secrets.token_hex(32)
+    ttl = max(300, min(SESSION_TTL_SECONDS, 7 * 24 * 60 * 60))
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+    row = AdminSession(
+        id=str(uuid.uuid4()),
+        session_hash=_hash_session_id(session_id),
+        csrf_token=csrf_token,
+        username=user.username,
+        role=user.role,
+        user_id=user.user_id,
+        email=user.email,
+        org_id=user.org_id,
+        org_name=user.org_name,
+        org_roles=user.org_roles,
+        access_token=access,
+        refresh_token=refresh,
+        id_token=id_token,
+        user_agent=(request.headers.get("user-agent") or "")[:512],
+        ip_address=_client_ip(request),
+        expires_at=expires_at,
+        last_seen_at=datetime.now(UTC),
+    )
+    async with async_session() as session:
+        session.add(row)
+        await session.commit()
+    response.set_cookie(SESSION_COOKIE_NAME, session_id, **_session_cookie_kwargs(ttl))
+    response.set_cookie(CSRF_COOKIE_NAME, csrf_token, **_csrf_cookie_kwargs(ttl))
+    return user
+
+
+async def refresh_admin_session(request: Request, response, token_data: dict) -> UserInfo:
+    """Update a browser session after OIDC refresh."""
+    from sqlalchemy import select
+
+    from .db.engine import async_session
+    from .db.models import AdminSession
+
+    session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(AdminSession).where(
+                    AdminSession.session_hash == _hash_session_id(session_id),
+                    AdminSession.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        access = token_data.get("access_token")
+        if not access or not isinstance(access, str):
+            raise HTTPException(status_code=400, detail="Invalid refresh response")
+        user = _verify_keycloak_token(access)
+        ttl = max(300, min(SESSION_TTL_SECONDS, 7 * 24 * 60 * 60))
+        row.access_token = access
+        if token_data.get("refresh_token"):
+            row.refresh_token = str(token_data["refresh_token"])
+        if token_data.get("id_token"):
+            row.id_token = str(token_data["id_token"])
+        row.username = user.username
+        row.role = user.role
+        row.user_id = user.user_id
+        row.email = user.email
+        row.org_id = user.org_id
+        row.org_name = user.org_name
+        row.org_roles = user.org_roles
+        row.expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+        row.last_seen_at = datetime.now(UTC)
+        await session.commit()
+    response.set_cookie(SESSION_COOKIE_NAME, session_id, **_session_cookie_kwargs(ttl))
+    response.set_cookie(CSRF_COOKIE_NAME, row.csrf_token, **_csrf_cookie_kwargs(ttl))
+    return user
+
+
+async def revoke_current_admin_session(request: Request, response) -> None:
+    from sqlalchemy import select
+
+    from .db.engine import async_session
+    from .db.models import AdminSession
+
+    session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if session_id:
+        async with async_session() as session:
+            row = (
+                await session.execute(
+                    select(AdminSession).where(AdminSession.session_hash == _hash_session_id(session_id))
+                )
+            ).scalar_one_or_none()
+            if row:
+                row.revoked_at = datetime.now(UTC)
+                await session.commit()
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+
+
+def validate_session_csrf(request: Request, csrf_token: str) -> None:
+    if not _is_unsafe_method(request):
+        return
+    header = (request.headers.get(CSRF_HEADER_NAME) or "").strip()
+    cookie = (request.cookies.get(CSRF_COOKIE_NAME) or "").strip()
+    if (
+        not header
+        or not cookie
+        or not hmac.compare_digest(header, cookie)
+        or not hmac.compare_digest(header, csrf_token)
+    ):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+
+async def _verify_session_cookie(request: Request) -> UserInfo | None:
+    from sqlalchemy import select
+
+    from .db.engine import async_session
+    from .db.models import AdminSession
+
+    session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if not session_id:
+        return None
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(AdminSession).where(
+                    AdminSession.session_hash == _hash_session_id(session_id),
+                    AdminSession.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        if row.expires_at < datetime.now(UTC):
+            return None
+        validate_session_csrf(request, row.csrf_token)
+        row.last_seen_at = datetime.now(UTC)
+        await session.commit()
+        request.state.auth_kind = "session"
+        return _user_from_session_row(row)
+
+
 # ── FastAPI dependencies ─────────────────────────────────────────────────────
 
 _bearer = HTTPBearer(auto_error=False)
@@ -212,6 +424,9 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> UserInfo:
     if not credentials:
+        session_user = await _verify_session_cookie(request)
+        if session_user is not None:
+            return session_user
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     token = credentials.credentials

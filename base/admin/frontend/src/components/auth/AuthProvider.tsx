@@ -1,14 +1,14 @@
-import { useState, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import axios from "axios";
-import type { User, OidcConfig } from "../../types";
+import type { OidcConfig, User } from "../../types";
 import { resolveKeycloakRealmIssuer } from "../../utils/keycloakUrls";
 import {
-  TOKEN_KEY,
-  REFRESH_KEY,
-  EXPIRES_KEY,
-  USER_KEY,
+  CSRF_COOKIE_KEY,
+  CSRF_HEADER_KEY,
   clearPersistedAuth,
-  refreshAccessToken,
+  getCookie,
+  persistUser,
+  USER_KEY,
 } from "../../utils/oidcSession";
 import { AuthContext } from "./authContext";
 
@@ -18,17 +18,13 @@ const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
 const OIDC_ISSUER_CACHE_KEY = "synesis_oidc_issuer";
 const OIDC_CLIENT_ID_CACHE_KEY = "synesis_oidc_client_id";
 
-function loadPersistedAuth(): { user: User | null; token: string | null } {
+function loadPersistedUser(): User | null {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
     const raw = localStorage.getItem(USER_KEY);
-    if (token && raw) {
-      return { token, user: JSON.parse(raw) };
-    }
+    return raw ? (JSON.parse(raw) as User) : null;
   } catch {
-    /* corrupted storage */
+    return null;
   }
-  return { user: null, token: null };
 }
 
 function generateCodeVerifier(): string {
@@ -51,88 +47,56 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState(loadPersistedAuth);
+  const [user, setUser] = useState<User | null>(loadPersistedUser);
   const [oidcConfig, setOidcConfig] = useState<OidcConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Breaks self-reference cycle for `scheduleRefresh` inside the refresh callback (react-hooks/immutability). */
-  const scheduleRefreshRef = useRef<() => void>(() => {});
-
-  // Proactively refresh the access token before it expires.
-  // If the token is already nearly expired (< 60s), refresh immediately.
-  // Otherwise refresh at 75% of remaining lifetime.
-  const scheduleRefresh = useCallback(() => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-
-    const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || "0");
-    const refreshToken = localStorage.getItem(REFRESH_KEY);
-    if (!expiresAt || !refreshToken) return;
-
-    const remaining = expiresAt - Date.now();
-    // If less than 60 seconds remain, refresh now; otherwise at 75% of remaining
-    const delay = remaining < 60_000 ? 0 : remaining * 0.75;
-
-    const doRefresh = async () => {
-      const refreshed = await refreshAccessToken({ retries: 2, retryDelayMs: 1_500 });
-      if (!refreshed) return;
-      setAuth((prev) => ({ ...prev, token: refreshed }));
-      scheduleRefreshRef.current();
-    };
-
-    if (delay === 0) {
-      void doRefresh();
-    } else {
-      refreshTimerRef.current = setTimeout(() => {
-        void doRefresh();
-      }, delay);
-    }
-  }, []);
-
-  useLayoutEffect(() => {
-    scheduleRefreshRef.current = scheduleRefresh;
-  }, [scheduleRefresh]);
 
   useEffect(() => {
-    return () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    };
-  }, []);
-
-  // On mount: start refresh timer if we have a refresh token.
-  useEffect(() => {
-    if (auth.token && localStorage.getItem(REFRESH_KEY)) {
-      scheduleRefresh();
-    }
-  }, [auth.token, scheduleRefresh]);
-
-  useEffect(() => {
-    axios
-      .get<OidcConfig>("/api/v1/auth/oidc-config")
-      .then(({ data }) => {
-        setOidcConfig(data);
-        if (data?.enabled && data.issuer && data.client_id) {
-          const realmIssuer = resolveKeycloakRealmIssuer(data.issuer);
-          if (realmIssuer) {
-            sessionStorage.setItem(OIDC_ISSUER_CACHE_KEY, realmIssuer);
-          }
-          sessionStorage.setItem(OIDC_CLIENT_ID_CACHE_KEY, data.client_id);
+    let cancelled = false;
+    async function loadAuth() {
+      try {
+        const [{ data: config }, { data: currentUser }] = await Promise.all([
+          axios.get<OidcConfig>("/api/v1/auth/oidc-config", { withCredentials: true }),
+          axios.get<User>("/api/v1/auth/me", { withCredentials: true }),
+        ]);
+        if (cancelled) return;
+        setOidcConfig(config);
+        if (config?.enabled && config.issuer && config.client_id) {
+          const realmIssuer = resolveKeycloakRealmIssuer(config.issuer);
+          if (realmIssuer) sessionStorage.setItem(OIDC_ISSUER_CACHE_KEY, realmIssuer);
+          sessionStorage.setItem(OIDC_CLIENT_ID_CACHE_KEY, config.client_id);
         }
-      })
-      .catch(() => setOidcConfig({ enabled: false }))
-      .finally(() => setLoading(false));
+        setUser(currentUser);
+        persistUser(currentUser);
+      } catch {
+        if (!cancelled) {
+          clearPersistedAuth();
+          setUser(null);
+          try {
+            const { data } = await axios.get<OidcConfig>("/api/v1/auth/oidc-config", { withCredentials: true });
+            if (!cancelled) setOidcConfig(data);
+          } catch {
+            if (!cancelled) setOidcConfig({ enabled: false });
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadAuth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     void username;
     void password;
-    throw new Error(
-      "Local login was removed. Configure Keycloak (SYNESIS_KEYCLOAK_ISSUER_URL) or use a PAT.",
-    );
+    throw new Error("Local login was removed. Configure Keycloak (SYNESIS_KEYCLOAK_ISSUER_URL) or use a PAT.");
   }, []);
 
   const loginWithOidc = useCallback(async () => {
-    if (!oidcConfig?.enabled || !oidcConfig.client_id)
-      return;
+    if (!oidcConfig?.enabled || !oidcConfig.client_id) return;
     const realmIssuer = resolveKeycloakRealmIssuer(oidcConfig.issuer);
     if (!realmIssuer) return;
 
@@ -162,35 +126,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resolveKeycloakRealmIssuer(oidcConfig?.issuer) ||
       resolveKeycloakRealmIssuer(sessionStorage.getItem(OIDC_ISSUER_CACHE_KEY) || undefined) ||
       "";
-    const clientId =
-      oidcConfig?.client_id || sessionStorage.getItem(OIDC_CLIENT_ID_CACHE_KEY) || "";
+    const clientId = oidcConfig?.client_id || sessionStorage.getItem(OIDC_CLIENT_ID_CACHE_KEY) || "";
     const oidcConfigured =
       !loading &&
-      (oidcConfig !== null
-        ? Boolean(oidcConfig.enabled)
-        : Boolean(sessionStorage.getItem(OIDC_ISSUER_CACHE_KEY)));
+      (oidcConfig !== null ? Boolean(oidcConfig.enabled) : Boolean(sessionStorage.getItem(OIDC_ISSUER_CACHE_KEY)));
     const oidcEnabled = Boolean(oidcConfigured && issuer && clientId);
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
-    const idToken = localStorage.getItem("synesis_id_token");
-    // Always require manual OIDC re-entry after logout to prevent SSO loops.
     sessionStorage.setItem(POST_LOGOUT_FLAG, "1");
     sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
+    void axios
+      .post("/api/v1/auth/logout", {}, { headers: { [CSRF_HEADER_KEY]: getCookie(CSRF_COOKIE_KEY) }, withCredentials: true })
+      .catch(() => undefined);
     clearPersistedAuth();
-    setAuth({ user: null, token: null });
+    setUser(null);
 
     const loginUrl = `${window.location.origin}/login`;
     if (oidcEnabled) {
       const params = new URLSearchParams({
         post_logout_redirect_uri: loginUrl,
+        client_id: clientId,
       });
-      if (idToken) {
-        params.set("id_token_hint", idToken);
-      } else {
-        params.set("client_id", clientId);
-      }
-      const logoutUrl = `${issuer}/protocol/openid-connect/logout?${params.toString()}`;
-      window.location.assign(logoutUrl);
+      window.location.assign(`${issuer}/protocol/openid-connect/logout?${params.toString()}`);
       return;
     }
     window.location.replace(loginUrl);
@@ -199,16 +155,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user: auth.user,
-        token: auth.token,
+        user,
+        token: null,
         login,
         loginWithOidc,
         logout,
-        isAdmin:
-          auth.user?.role === "admin" ||
-          auth.user?.role === "platform_admin" ||
-          auth.user?.role === "org_admin",
-        isAuthenticated: !!auth.token,
+        isAdmin: user?.role === "admin" || user?.role === "platform_admin" || user?.role === "org_admin",
+        isAuthenticated: !!user,
         oidcConfig,
         loading,
       }}

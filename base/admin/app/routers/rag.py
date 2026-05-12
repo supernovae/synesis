@@ -9,7 +9,6 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -31,6 +30,7 @@ from ..services.nornic_service import (
     reported_graph_schema_version,
     safe_query,
 )
+from ..services.outbound_security import validate_public_https_url
 
 logger = logging.getLogger("synesis.admin.rag")
 
@@ -108,13 +108,7 @@ class ContentPackJobStatusBody(BaseModel):
 
 
 def _validate_https_url(value: str, *, field_name: str = "url") -> str:
-    url = value.strip()
-    if not url:
-        return ""
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.netloc:
-        raise HTTPException(status_code=400, detail=f"{field_name} must be an https URL")
-    return url
+    return validate_public_https_url(value, field_name=field_name)
 
 
 def _content_pack_config_dict(config: ContentPackConfig | None) -> dict[str, Any]:
@@ -200,7 +194,8 @@ async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
                 raise HTTPException(status_code=400, detail="Content pack catalog redirected to a non-https URL")
             content = resp.content
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Could not fetch content pack catalog: {exc}") from exc
+        logger.warning("content_pack_catalog_fetch_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Could not fetch content pack catalog") from exc
     if len(content) > _CATALOG_MAX_BYTES:
         raise HTTPException(status_code=400, detail="Content pack catalog is too large")
     try:
@@ -218,7 +213,9 @@ async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
         if error:
             errors.append(error)
             continue
-        assert entry is not None
+        if entry is None:
+            errors.append(f"pack entry {idx} could not be parsed")
+            continue
         key = (entry["pack_id"], entry["version"])
         if key in seen:
             errors.append(f"duplicate pack entry: {entry['pack_id']}@{entry['version']}")
@@ -285,7 +282,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             if row:
                 schema_version = row.schema_version
     except Exception:
-        pass
+        logger.debug("corpus_overview_schema_version_read_failed", exc_info=True)
     if schema_version <= 0:
         schema_version = reported_graph_schema_version()
 

@@ -152,7 +152,7 @@ function EditCostModal({
 
 function shortModel(name: string): string {
   const parts = name.split("/");
-  return parts[parts.length - 1].substring(0, 30);
+  return (parts.at(-1) ?? name).substring(0, 30);
 }
 
 export default function CostTracker() {

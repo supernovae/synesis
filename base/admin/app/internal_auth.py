@@ -51,6 +51,21 @@ def _matches_service_token(candidate: str) -> bool:
     return False
 
 
+def require_internal_service_token_request(request: Request) -> ServicePrincipal:
+    """Require a configured internal service token for ingest-only endpoints."""
+    configured = _configured_service_tokens()
+    if not configured:
+        raise HTTPException(status_code=503, detail="Internal service token is not configured")
+    token = (
+        request.headers.get("x-synesis-service-token", "")
+        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    ).strip()
+    for expected in configured:
+        if hmac.compare_digest(token, expected):
+            return ServicePrincipal(service=_service_name_from_request(request))
+    raise HTTPException(status_code=401, detail="Invalid service token")
+
+
 def _service_name_from_request(request: Request) -> str:
     return (request.headers.get("x-synesis-service-name") or "internal").strip()[:128]
 

@@ -110,7 +110,7 @@ function DifficultyPreview({ preview }: { preview: Record<string, string> }) {
     "bg-violet-500",
   ];
   models.forEach((m, i) => {
-    colorMap[m] = palette[i % palette.length];
+    colorMap[m] = palette[i % palette.length] ?? "bg-zinc-500";
   });
 
   return (
@@ -121,7 +121,7 @@ function DifficultyPreview({ preview }: { preview: Record<string, string> }) {
       </div>
       <div className="flex h-5 rounded overflow-hidden border border-zinc-200 dark:border-zinc-700">
         {entries.map(([d, model], i) => {
-          const next = i < entries.length - 1 ? entries[i + 1][0] : 1.0;
+          const next = i < entries.length - 1 ? (entries[i + 1]?.[0] ?? 1.0) : 1.0;
           const width = ((next - d) / 1.0) * 100;
           return (
             <div
@@ -216,7 +216,10 @@ function RoleCard({ role }: { role: string }) {
         if (idx < 0) return arr;
         const target = idx + dir;
         if (target < 0 || target >= arr.length) return arr;
-        [arr[idx], arr[target]] = [arr[target], arr[idx]];
+        const current = arr[idx];
+        const swap = arr[target];
+        if (!current || !swap) return arr;
+        [arr[idx], arr[target]] = [swap, current];
         return arr;
       });
       setDirty(true);
@@ -450,7 +453,7 @@ export default function ModelPolicies() {
   const configuredRoles = useMemo(
     () =>
       allPolicies?.policies
-        ? Object.keys(allPolicies.policies).filter((r) => allPolicies.policies[r].length > 0)
+        ? Object.keys(allPolicies.policies).filter((r) => (allPolicies.policies[r] ?? []).length > 0)
         : [],
     [allPolicies],
   );

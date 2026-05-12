@@ -1079,6 +1079,7 @@ export default function TraceDetail() {
               ["failure_stage", "Failure stage"],
               ["failure_type", "Failure type"],
             ].map(([key, label]) => {
+              if (!key) return null;
               const value = trace.trace_context?.[key];
               if (value === undefined || value === null || value === "") return null;
               return (
@@ -1382,7 +1383,8 @@ export default function TraceDetail() {
               ["char_budget", "Char budget"],
               ["chars_used", "Chars used"],
             ].map(([key, label]) => {
-              const v = trace.context_curation![key];
+              if (!key) return null;
+              const v = trace.context_curation?.[key];
               if (v === undefined || v === null) return null;
               const display =
                 key === "utilization" && typeof v === "number"

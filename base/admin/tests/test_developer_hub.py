@@ -45,6 +45,14 @@ def _patch_lifespan():
     m.app.router.lifespan_context = orig
 
 
+@pytest.fixture(autouse=True)
+def _patch_outbound_dns(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.outbound_security.socket.getaddrinfo",
+        lambda *a, **kw: [(None, None, None, None, ("93.184.216.34", 443))],
+    )
+
+
 @pytest.fixture()
 def admin_client():
     from app.auth import UserInfo, get_current_user
@@ -211,16 +219,41 @@ class TestCatalogClient:
         finally:
             del os.environ["TEST_DEVHUB_TOKEN"]
 
-    def test_resolve_token_bearer_literal(self):
-        from app.services.catalog_client import _resolve_token
+    def test_resolve_token_bearer_literal_rejected(self):
+        from app.services.catalog_client import CatalogClientError, _resolve_token
 
-        assert _resolve_token("bearer", "literal-token-value") == "literal-token-value"
+        with pytest.raises(CatalogClientError):
+            _resolve_token("bearer", "literal-token-value")
 
-    @pytest.mark.asyncio
-    async def test_health_check_reachable(self):
+    def test_connector_to_dict_masks_auth_token_ref(self):
+        from app.db.models import DevHubConnector
+        from app.routers.developer_hub import _connector_to_dict
+
+        row = DevHubConnector(
+            id=1,
+            connector_id="devhub-1",
+            name="Developer Hub",
+            base_url="https://catalog.example.com",
+            auth_type="bearer",
+            auth_token_ref="DEVHUB_TOKEN",
+            org_id="org-1",
+            scope="org",
+            scope_value="org-1",
+        )
+
+        payload = _connector_to_dict(row)
+        assert payload["auth_token_ref"] == ""
+        assert payload["has_auth_token_ref"] is True
+
+    @pytest.mark.anyio
+    async def test_health_check_reachable(self, monkeypatch):
         from app.services.catalog_client import CatalogClient
 
-        client = CatalogClient(base_url="http://localhost:7007")
+        monkeypatch.setattr(
+            "app.services.outbound_security.socket.getaddrinfo",
+            lambda *a, **kw: [(None, None, None, None, ("93.184.216.34", 443))],
+        )
+        client = CatalogClient(base_url="https://catalog.example.com")
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = [{"kind": "Component", "metadata": {"name": "test"}}]
@@ -231,11 +264,15 @@ class TestCatalogClient:
         assert result["reachable"] is True
         assert result["sample_count"] == 1
 
-    @pytest.mark.asyncio
-    async def test_health_check_unreachable(self):
+    @pytest.mark.anyio
+    async def test_health_check_unreachable(self, monkeypatch):
         from app.services.catalog_client import CatalogClient
 
-        client = CatalogClient(base_url="http://localhost:7007")
+        monkeypatch.setattr(
+            "app.services.outbound_security.socket.getaddrinfo",
+            lambda *a, **kw: [(None, None, None, None, ("93.184.216.34", 443))],
+        )
+        client = CatalogClient(base_url="https://catalog.example.com")
         mock_resp = MagicMock()
         mock_resp.status_code = 401
         mock_resp.text = "Unauthorized"
@@ -532,7 +569,8 @@ class TestDeveloperHubAPI:
         row = self._make_connector_row(name="Updated Hub")
         fake_sess = FakeSession()
         fake_sess._execute_results = [
-            FakeResult(items=[row], rowcount=1),
+            FakeResult(items=[row]),
+            FakeResult(rowcount=1),
             FakeResult(items=[row]),
         ]
 
@@ -562,8 +600,9 @@ class TestDeveloperHubAPI:
         assert resp.status_code == 400
 
     def test_delete_connector(self, admin_client):
+        row = self._make_connector_row()
         fake_sess = FakeSession()
-        fake_sess._execute_results = [FakeResult(rowcount=1)]
+        fake_sess._execute_results = [FakeResult(items=[row]), FakeResult(rowcount=1)]
 
         @asynccontextmanager
         async def mock_session():
@@ -576,7 +615,7 @@ class TestDeveloperHubAPI:
 
     def test_delete_connector_not_found(self, admin_client):
         fake_sess = FakeSession()
-        fake_sess._execute_results = [FakeResult(rowcount=0)]
+        fake_sess._execute_results = [FakeResult(items=[])]
 
         @asynccontextmanager
         async def mock_session():

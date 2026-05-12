@@ -64,20 +64,16 @@ def _k8s_headers() -> dict[str, str]:
 def _k8s_verify() -> str | bool:
     if os.path.exists(_SA_CA_PATH):
         return _SA_CA_PATH
-    return False
+    raise HTTPException(503, "Kubernetes service account CA is not available")
 
 
 def _k8s_error_detail(action: str, exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
-        body = (exc.response.text or "").strip()
-        if body:
-            body = body[:300]
-            return f"{action} failed with status {status}: {body}"
         return f"{action} failed with status {status}"
     if isinstance(exc, httpx.RequestError):
-        return f"{action} failed due to cluster connectivity error: {exc}"
-    return f"{action} failed: {exc}"
+        return f"{action} failed due to cluster connectivity error"
+    return f"{action} failed"
 
 
 async def _audit_best_effort(
@@ -497,13 +493,13 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
         await _assert_key_state(name, should_exist=True)
         synced = await _sync_provider_key_secret_to_consumers()
         restarted = await _restart_provider_key_consumers()
-    except HTTPException as exc:
+    except HTTPException:
         await _audit_best_effort(
             user=user,
             action="providers.key_set",
             status="error",
             summary=f"Failed to set provider key {name}",
-            detail={"env_var": name, "error": str(exc.detail)},
+            detail={"env_var": name, "error_code": "provider_key_set_failed"},
         )
         raise
 
@@ -536,13 +532,13 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
         await _assert_key_state(name, should_exist=False)
         synced = await _sync_provider_key_secret_to_consumers()
         restarted = await _restart_provider_key_consumers()
-    except HTTPException as exc:
+    except HTTPException:
         await _audit_best_effort(
             user=user,
             action="providers.key_delete",
             status="error",
             summary=f"Failed to remove provider key {name}",
-            detail={"env_var": name, "error": str(exc.detail)},
+            detail={"env_var": name, "error_code": "provider_key_delete_failed"},
         )
         raise
 
@@ -585,7 +581,7 @@ async def reconcile_provider_spend(
             action="providers.spend_reconcile",
             status="error",
             summary=f"Provider spend reconciliation failed (last {since_hours}h)",
-            detail={"since_hours": since_hours, "error": repr(exc)},
+            detail={"since_hours": since_hours, "error_code": "provider_spend_reconcile_failed"},
         )
         raise HTTPException(502, "Failed to reconcile provider spend") from exc
 

@@ -542,15 +542,9 @@ class KnowledgeGapIngest(BaseModel):
 @router.post("/knowledge-gaps/ingest")
 async def ingest_knowledge_gap(request: Request, body: KnowledgeGapIngest):
     """Accept a knowledge gap from a runtime service (service-token auth)."""
-    from ..deps import INTERNAL_SERVICE_TOKEN
+    from ..internal_auth import require_internal_service_token_request
 
-    if INTERNAL_SERVICE_TOKEN:
-        token = (
-            request.headers.get("x-synesis-service-token", "")
-            or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        )
-        if token != INTERNAL_SERVICE_TOKEN:
-            raise HTTPException(status_code=401, detail="Invalid service token")
+    require_internal_service_token_request(request)
 
     import time
 

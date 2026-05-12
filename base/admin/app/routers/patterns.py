@@ -9,6 +9,7 @@ from typing import Any
 from app.auth import UserInfo, get_current_user
 from app.db.engine import async_session
 from app.db.models import PatternEntry
+from app.rbac import Role, can_manage_visibility_scope, resolve_role
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
@@ -19,8 +20,34 @@ router = APIRouter(prefix="/api/v1/patterns", tags=["patterns"])
 
 
 def _require_admin(user: UserInfo) -> None:
-    if user.role not in ("admin", "platform-admin"):
-        raise HTTPException(403, "Admin role required")
+    if resolve_role(user) < Role.org_admin:
+        raise HTTPException(403, "org_admin role required")
+
+
+def _normalize_scope(user: UserInfo, scope: str, org_id: str) -> tuple[str, str]:
+    requested_scope = (scope or "org").strip().lower()
+    requested_org = (org_id or user.org_id or "").strip()
+    visibility_scope = "global" if requested_scope in {"global", "platform"} else requested_scope
+    if not can_manage_visibility_scope(user, visibility_scope=visibility_scope, org_id=requested_org):
+        raise HTTPException(403, "Not authorized for pattern scope")
+    if resolve_role(user) < Role.platform_admin:
+        return "org", (user.org_id or "").strip()
+    return requested_scope, requested_org
+
+
+def _can_read_pattern(user: UserInfo, row: PatternEntry) -> bool:
+    if resolve_role(user) >= Role.platform_admin:
+        return True
+    return row.scope in {"global", "platform"} or (row.org_id and row.org_id == (user.org_id or ""))
+
+
+def _ensure_pattern_access(user: UserInfo, row: PatternEntry, *, write: bool = False) -> None:
+    if write:
+        scope = "global" if row.scope in {"global", "platform"} else row.scope
+        if not can_manage_visibility_scope(user, visibility_scope=scope, org_id=row.org_id):
+            raise HTTPException(403, "Not authorized for pattern scope")
+    elif not _can_read_pattern(user, row):
+        raise HTTPException(404, "Pattern not found")
 
 
 class PatternCreate(BaseModel):
@@ -85,6 +112,7 @@ def _row_to_dict(p: PatternEntry) -> dict[str, Any]:
 @router.post("/")
 async def create_pattern(body: PatternCreate, user: UserInfo = Depends(get_current_user)):
     _require_admin(user)
+    scope, org_id = _normalize_scope(user, body.scope, body.org_id)
     async with async_session() as session:
         existing = (
             await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == body.pattern_id))
@@ -102,8 +130,8 @@ async def create_pattern(body: PatternCreate, user: UserInfo = Depends(get_curre
             constraints=body.constraints,
             test_snippet=body.test_snippet,
             tags=body.tags,
-            org_id=body.org_id or user.org_id,
-            scope=body.scope,
+            org_id=org_id,
+            scope=scope,
             content_hash=_hash_code(body.code_block),
             created_by=user.username,
         )
@@ -125,6 +153,10 @@ async def list_patterns(
 ):
     async with async_session() as session:
         q = select(PatternEntry)
+        if resolve_role(_user) < Role.platform_admin:
+            q = q.where(
+                (PatternEntry.scope.in_(["global", "platform"])) | (PatternEntry.org_id == (_user.org_id or ""))
+            )
         if language:
             q = q.where(PatternEntry.language == language.lower())
         if skill_family:
@@ -178,6 +210,7 @@ async def get_pattern(pattern_id: str, _user: UserInfo = Depends(get_current_use
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
+        _ensure_pattern_access(_user, row)
         return _row_to_dict(row)
 
 
@@ -190,6 +223,7 @@ async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = 
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
+        _ensure_pattern_access(user, row, write=True)
 
         changed = False
         for field in (
@@ -220,6 +254,12 @@ async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = 
 async def delete_pattern(pattern_id: str, user: UserInfo = Depends(get_current_user)):
     _require_admin(user)
     async with async_session() as session:
+        row = (
+            await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
+        ).scalar_one_or_none()
+        if not row:
+            raise HTTPException(404, "Pattern not found")
+        _ensure_pattern_access(user, row, write=True)
         result = await session.execute(delete(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
         await session.commit()
         if result.rowcount == 0:
@@ -240,6 +280,7 @@ async def bulk_import(patterns: list[PatternCreate], user: UserInfo = Depends(ge
             if existing:
                 skipped += 1
                 continue
+            scope, org_id = _normalize_scope(user, p.scope, p.org_id)
             row = PatternEntry(
                 pattern_id=p.pattern_id,
                 language=p.language.lower(),
@@ -250,8 +291,8 @@ async def bulk_import(patterns: list[PatternCreate], user: UserInfo = Depends(ge
                 constraints=p.constraints,
                 test_snippet=p.test_snippet,
                 tags=p.tags,
-                org_id=p.org_id or user.org_id,
-                scope=p.scope,
+                org_id=org_id,
+                scope=scope,
                 content_hash=_hash_code(p.code_block),
                 created_by=user.username,
             )
@@ -300,6 +341,7 @@ async def record_usage(pattern_id: str, body: PatternUsageFeedback, _user: UserI
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Pattern not found")
+        _ensure_pattern_access(_user, row)
 
         row.usage_count += 1
         if body.outcome == "pass":

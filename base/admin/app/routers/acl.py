@@ -11,7 +11,14 @@ from sqlalchemy import delete, func, select
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import AclGroup, AclGroupMember, AclPolicy
-from ..rbac import Role, RouteGroup, can_access_route_group, require_platform_admin, resolve_role
+from ..rbac import (
+    Role,
+    RouteGroup,
+    can_access_route_group,
+    can_manage_visibility_scope,
+    require_platform_admin,
+    resolve_role,
+)
 from ..services.admin_audit import record_admin_audit
 
 router = APIRouter(prefix="/api/v1/acl", tags=["acl"])
@@ -20,6 +27,20 @@ router = APIRouter(prefix="/api/v1/acl", tags=["acl"])
 def _ensure_org_content_admin(user: UserInfo) -> None:
     if not can_access_route_group(user, RouteGroup.org_content_admin):
         raise HTTPException(status_code=403, detail="Requires route group access: org_content_admin")
+
+
+def _target_org(user: UserInfo, requested: str = "") -> str:
+    org_id = (requested or user.org_id or "").strip()
+    if not can_manage_visibility_scope(user, visibility_scope="org", org_id=org_id):
+        raise HTTPException(status_code=403, detail="Not authorized for org scope")
+    return org_id
+
+
+def _ensure_group_access(user: UserInfo, group: AclGroup) -> None:
+    if resolve_role(user) >= Role.platform_admin:
+        return
+    if not user.org_id or group.org_id != user.org_id:
+        raise HTTPException(status_code=404, detail="Group not found")
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +79,8 @@ async def list_groups(
         if role < Role.platform_admin and caller_org:
             q = q.where((AclGroup.org_id == caller_org) | (AclGroup.org_id == ""))
         if org_id:
+            if role < Role.platform_admin and org_id != caller_org:
+                raise HTTPException(status_code=403, detail="Not authorized for org scope")
             q = q.where(AclGroup.org_id == org_id)
         rows = (await session.execute(q)).scalars().all()
 
@@ -89,13 +112,14 @@ async def create_group(
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    org_id = _target_org(_user, body.org_id)
     group_id = f"grp-{uuid.uuid4().hex[:12]}"
     async with async_session() as session:
         grp = AclGroup(
             group_id=group_id,
             name=body.name,
             description=body.description,
-            org_id=body.org_id or (_user.org_id or ""),
+            org_id=org_id,
             source="admin",
             keycloak_group_path=body.keycloak_group_path,
         )
@@ -105,7 +129,7 @@ async def create_group(
         action="acl.group.create",
         status="success",
         summary=f"Created ACL group {group_id}: {body.name}",
-        detail={"group_id": group_id, "org_id": body.org_id},
+        detail={"group_id": group_id, "org_id": org_id},
         user=_user,
     )
     return {"group_id": group_id, "name": body.name}
@@ -152,6 +176,10 @@ async def list_members(
         rows = (
             (await session.execute(select(AclGroupMember).where(AclGroupMember.group_id == group_id))).scalars().all()
         )
+        grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
+        if not grp:
+            raise HTTPException(status_code=404, detail="Group not found")
+        _ensure_group_access(_user, grp)
     return {
         "members": [
             {"user_id": m.user_id, "granted_by": m.granted_by, "granted_at": m.granted_at.isoformat()} for m in rows
@@ -170,6 +198,7 @@ async def add_member(
         grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not grp:
             raise HTTPException(status_code=404, detail="Group not found")
+        _ensure_group_access(_user, grp)
         existing = (
             await session.execute(
                 select(AclGroupMember).where(
@@ -199,6 +228,10 @@ async def remove_member(
 ):
     _ensure_org_content_admin(_user)
     async with async_session() as session:
+        grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
+        if not grp:
+            raise HTTPException(status_code=404, detail="Group not found")
+        _ensure_group_access(_user, grp)
         result = await session.execute(
             delete(AclGroupMember).where(
                 AclGroupMember.group_id == group_id,
@@ -237,7 +270,12 @@ async def list_policies(
     async with async_session() as session:
         q = select(AclPolicy).order_by(AclPolicy.priority.desc(), AclPolicy.name)
         if org_id:
+            role = resolve_role(_user)
+            if role < Role.platform_admin and org_id != (_user.org_id or "").strip():
+                raise HTTPException(status_code=403, detail="Not authorized for org scope")
             q = q.where(AclPolicy.org_id == org_id)
+        elif resolve_role(_user) < Role.platform_admin:
+            q = q.where(AclPolicy.org_id == (_user.org_id or "").strip())
         rows = (await session.execute(q)).scalars().all()
     return {
         "policies": [
@@ -265,12 +303,16 @@ async def create_policy(
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    scope = (body.scope or "org").strip().lower()
+    org_id = _target_org(_user, body.org_id)
+    if scope == "platform" and resolve_role(_user) < Role.platform_admin:
+        raise HTTPException(status_code=403, detail="Platform policies require platform_admin")
     async with async_session() as session:
         pol = AclPolicy(
             name=body.name,
             description=body.description,
-            org_id=body.org_id or (_user.org_id or ""),
-            scope=body.scope,
+            org_id=org_id,
+            scope=scope,
             target_type=body.target_type,
             acl_groups=body.acl_groups,
             route_groups=body.route_groups,
@@ -285,7 +327,7 @@ async def create_policy(
         action="acl.policy.create",
         status="success",
         summary=f"Created ACL policy: {body.name}",
-        detail={"policy_id": pol.id, "org_id": body.org_id},
+        detail={"policy_id": pol.id, "org_id": org_id},
         user=_user,
     )
     return {"ok": True, "id": pol.id, "name": body.name}
@@ -332,9 +374,16 @@ async def effective_permissions(
 
         groups = []
         if group_ids:
-            groups = (await session.execute(select(AclGroup).where(AclGroup.group_id.in_(group_ids)))).scalars().all()
+            gq = select(AclGroup).where(AclGroup.group_id.in_(group_ids))
+            if resolve_role(_user) < Role.platform_admin:
+                gq = gq.where(AclGroup.org_id == (_user.org_id or "").strip())
+            groups = (await session.execute(gq)).scalars().all()
+            group_ids = [g.group_id for g in groups]
 
-        policies = (await session.execute(select(AclPolicy).order_by(AclPolicy.priority.desc()))).scalars().all()
+        pq = select(AclPolicy).order_by(AclPolicy.priority.desc())
+        if resolve_role(_user) < Role.platform_admin:
+            pq = pq.where(AclPolicy.org_id == (_user.org_id or "").strip())
+        policies = (await session.execute(pq)).scalars().all()
 
         applicable = []
         for p in policies:

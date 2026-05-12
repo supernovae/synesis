@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useContentPacks,
   useInstallContentPack,
@@ -25,6 +25,35 @@ function statusTone(status: string) {
   return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200";
 }
 
+function CatalogEditor({
+  initialUrl,
+  isPending,
+  onSave,
+}: {
+  initialUrl: string;
+  isPending: boolean;
+  onSave: (url: string) => void;
+}) {
+  const [catalogUrl, setCatalogUrl] = useState(initialUrl);
+  return (
+    <div className="mt-3 flex flex-col gap-3 md:flex-row">
+      <input
+        value={catalogUrl}
+        onChange={(e) => setCatalogUrl(e.target.value)}
+        placeholder="https://bucket.example.com/synesis-pack-catalog.json"
+        className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+      />
+      <button
+        onClick={() => onSave(catalogUrl.trim())}
+        disabled={isPending}
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        <Save className="h-4 w-4" /> Save
+      </button>
+    </div>
+  );
+}
+
 function PackStatus({ pack }: { pack: ContentPackEntry }) {
   const status = pack.install_status || "not_installed";
   const label = status === "update_available" ? "Update available" : status.replace("_", " ");
@@ -40,12 +69,7 @@ export default function ContentPacks() {
   const updateCatalog = useUpdateContentPackCatalog();
   const installPack = useInstallContentPack();
   const retryJob = useRetryContentPackInstallJob();
-  const [catalogUrl, setCatalogUrl] = useState("");
   const [replaceByPack, setReplaceByPack] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    setCatalogUrl(data?.config?.catalog_url ?? "");
-  }, [data?.config?.catalog_url]);
 
   const latestJobByPack = useMemo(() => {
     const out: Record<string, string> = {};
@@ -54,10 +78,6 @@ export default function ContentPacks() {
     }
     return out;
   }, [data?.jobs]);
-
-  const saveCatalog = () => {
-    updateCatalog.mutate(catalogUrl.trim());
-  };
 
   const queueInstall = (pack: ContentPackEntry) => {
     installPack.mutate({
@@ -88,21 +108,12 @@ export default function ContentPacks() {
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Catalog</h2>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row">
-          <input
-            value={catalogUrl}
-            onChange={(e) => setCatalogUrl(e.target.value)}
-            placeholder="https://bucket.example.com/synesis-pack-catalog.json"
-            className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-          />
-          <button
-            onClick={saveCatalog}
-            disabled={updateCatalog.isPending}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Save className="h-4 w-4" /> Save
-          </button>
-        </div>
+        <CatalogEditor
+          key={data?.config?.catalog_url ?? ""}
+          initialUrl={data?.config?.catalog_url ?? ""}
+          isPending={updateCatalog.isPending}
+          onSave={(url) => updateCatalog.mutate(url)}
+        />
         {(data?.catalog?.errors ?? []).length > 0 && (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
             {data?.catalog.errors.join("; ")}

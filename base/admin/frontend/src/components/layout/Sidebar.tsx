@@ -250,7 +250,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       if (!item.children) continue;
       const label = item.label;
       out[label] =
-        label in manualExpanded ? manualExpanded[label] : (autoExpanded[label] ?? false);
+        label in manualExpanded ? (manualExpanded[label] ?? false) : (autoExpanded[label] ?? false);
     }
     return out;
   }, [allowedNavigation, autoExpanded, manualExpanded]);

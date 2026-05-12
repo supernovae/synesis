@@ -1,6 +1,12 @@
 import { usePipelineGraph } from "../../api/hooks";
 import EmptyState from "../../components/common/EmptyState";
 
+interface PipelineGraphNode {
+  id: string;
+  label?: string;
+  type?: string;
+}
+
 const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   entry: { bg: "bg-slate-100 dark:bg-slate-800", border: "border-slate-300 dark:border-slate-600", text: "text-slate-800 dark:text-slate-200" },
   retrieval: { bg: "bg-blue-50 dark:bg-blue-900/30", border: "border-blue-300 dark:border-blue-700", text: "text-blue-900 dark:text-blue-200" },
@@ -12,6 +18,7 @@ const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> 
   post: { bg: "bg-teal-50 dark:bg-teal-900/30", border: "border-teal-300 dark:border-teal-700", text: "text-teal-900 dark:text-teal-200" },
   terminal: { bg: "bg-gray-100 dark:bg-gray-800", border: "border-gray-400 dark:border-gray-600", text: "text-gray-800 dark:text-gray-200" },
 };
+const DEFAULT_NODE_COLORS = NODE_COLORS.entry!;
 
 const ROWS: string[][] = [
   ["entry_pipeline"],
@@ -50,7 +57,7 @@ export default function GraphVisualization() {
             {ROWS.map((rowIds, ri) => {
               const rowNodes = rowIds
                 .map((id) => nodeMap[id])
-                .filter(Boolean);
+                .filter((node): node is PipelineGraphNode => Boolean(node));
               if (rowNodes.length === 0) return null;
               return (
                 <div key={ri} className="flex items-center gap-6">
@@ -62,7 +69,7 @@ export default function GraphVisualization() {
                     </div>
                   )}
                   {rowNodes.map((node) => {
-                    const colors = NODE_COLORS[node.type ?? ""] ?? NODE_COLORS.entry;
+                    const colors = NODE_COLORS[node.type ?? ""] ?? DEFAULT_NODE_COLORS;
                     return (
                       <div
                         key={node.id}

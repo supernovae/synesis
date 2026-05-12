@@ -6,7 +6,9 @@ export function readJwtExpMs(accessToken: string): number | null {
   const parts = accessToken.split(".");
   if (parts.length < 2) return null;
   try {
-    const json = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const body = parts[1];
+    if (!body) return null;
+    const json = body.replace(/-/g, "+").replace(/_/g, "/");
     const padded = json + "===".slice((json.length + 3) % 4);
     const payload = JSON.parse(atob(padded)) as { exp?: number };
     if (typeof payload.exp !== "number") return null;

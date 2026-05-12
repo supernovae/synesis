@@ -739,6 +739,42 @@ class PersonalAccessToken(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class AdminSession(Base):
+    """Server-side browser session for the Admin UI.
+
+    The browser receives only an opaque session cookie. OIDC tokens stay in the
+    admin database so an XSS cannot steal refresh or ID tokens from localStorage.
+    """
+
+    __tablename__ = "admin_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    csrf_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    username: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="user")
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    email: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    org_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_roles: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    refresh_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    id_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    ip_address: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_admin_sessions_hash", "session_hash"),
+        Index("ix_admin_sessions_user", "user_id"),
+        Index("ix_admin_sessions_expires", "expires_at"),
+    )
+
+
 class AdminAuditEvent(Base):
     """Append-only log of admin UI actions and runtime propagation."""
 

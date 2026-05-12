@@ -163,7 +163,7 @@ export default function CorpusOverview() {
                 label={({ name, value }) => `${name}: ${value}`}
               >
                 {healthData.map((_, i) => (
-                  <Cell key={i} fill={HEALTH_COLORS[i % HEALTH_COLORS.length]} />
+                  <Cell key={i} fill={HEALTH_COLORS[i % HEALTH_COLORS.length] ?? "#64748b"} />
                 ))}
               </Pie>
               <Tooltip />

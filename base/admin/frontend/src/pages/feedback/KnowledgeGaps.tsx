@@ -149,7 +149,7 @@ export default function KnowledgeGaps() {
               sortable: true,
               render: (row) => {
                 const s = (row.status as string) || "open";
-                const badge = STATUS_BADGES[s] || STATUS_BADGES.open;
+                const badge = STATUS_BADGES[s] ?? STATUS_BADGES.open!;
                 return (
                   <span
                     className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}

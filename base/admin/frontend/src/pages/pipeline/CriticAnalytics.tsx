@@ -193,7 +193,7 @@ export default function CriticAnalytics() {
                   }
                 >
                   {pieData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    <Cell key={i} fill={COLORS[i % COLORS.length] ?? "#64748b"} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -377,7 +377,7 @@ function EvaluationsTable({ days }: { days: number }) {
           <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
             <div>
               <span className="font-medium">Score:</span>{" "}
-              <span className={runResult.scores?.weighted_overall >= 7 ? "text-green-600" : "text-red-600"}>
+              <span className={(runResult.scores?.weighted_overall ?? 0) >= 7 ? "text-green-600" : "text-red-600"}>
                 {runResult.scores?.weighted_overall?.toFixed(1) ?? "N/A"}
               </span>
             </div>

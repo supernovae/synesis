@@ -84,7 +84,7 @@ export default function ModelPerformance() {
     for (const t of scopedTrend) {
       if (!byDate[t.date]) byDate[t.date] = { date: t.date } as never;
       const parts = t.model.split("/");
-      const short = parts[parts.length - 1].substring(0, 28);
+      const short = (parts.at(-1) ?? t.model).substring(0, 28);
       (byDate[t.date] as Record<string, number>)[short] = t.avg_latency_ms;
     }
     return Object.values(byDate);
@@ -193,13 +193,13 @@ export default function ModelPerformance() {
                   <Legend />
                   {trendModels.map((m, i) => {
                     const parts = m.split("/");
-                    const short = parts[parts.length - 1].substring(0, 28);
+                    const short = (parts.at(-1) ?? m).substring(0, 28);
                     return (
                       <Line
                         key={m}
                         type="monotone"
                         dataKey={short}
-                        stroke={COLORS[i % COLORS.length]}
+                        stroke={COLORS[i % COLORS.length] ?? "#64748b"}
                         strokeWidth={2}
                         dot={false}
                       />

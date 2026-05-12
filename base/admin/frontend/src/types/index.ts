@@ -128,11 +128,11 @@ export interface ProviderInfo {
   is_local: boolean;
   supports_discovery: boolean;
   /** Effective default OpenAI-compatible base URL (DB override or catalog default). */
-  default_endpoint?: string;
+  default_endpoint?: string | undefined;
   /** Present on custom providers merged into GET /providers/catalog */
   is_custom?: boolean;
   /** From GET /provider-governance: whether cluster secret contains api_key_env (null = no key required). */
-  api_key_configured?: boolean | null;
+  api_key_configured?: boolean | null | undefined;
 }
 
 export interface DiscoveredModel {

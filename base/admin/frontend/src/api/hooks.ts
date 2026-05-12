@@ -476,21 +476,21 @@ export function useAssignRole() {
       role: string;
       provider: string;
       model: string;
-      endpoint?: string;
-      api_key_env?: string;
+      endpoint?: string | undefined;
+      api_key_env?: string | undefined;
       max_tokens?: number;
       temperature?: number;
-      top_p?: number;
-      top_k?: number;
-      min_p?: number;
-      presence_penalty?: number;
-      repetition_penalty?: number;
-      enable_thinking?: boolean;
-      reasoning_effort?: string;
-      fallbacks?: string[];
+      top_p?: number | undefined;
+      top_k?: number | undefined;
+      min_p?: number | undefined;
+      presence_penalty?: number | undefined;
+      repetition_penalty?: number | undefined;
+      enable_thinking?: boolean | undefined;
+      reasoning_effort?: string | undefined;
+      fallbacks?: string[] | undefined;
       adapter_hint?: string | null;
-      description?: string;
-      notes?: string;
+      description?: string | undefined;
+      notes?: string | undefined;
     }) =>
       client.put(`/models/roles/${role}`, data).then((r) => r.data),
     onSuccess: () => {
@@ -1356,17 +1356,17 @@ interface WebSearchLogEntry {
 }
 
 export function useWebSearchLog(params?: {
-  domain?: string;
-  outcome?: string;
-  source_surface?: string;
-  org_id?: string;
-  user_id?: string;
-  session_key?: string;
-  request_id?: string;
-  trace_id?: string;
-  tool_name?: string;
-  engine?: string;
-  q?: string;
+  domain?: string | undefined;
+  outcome?: string | undefined;
+  source_surface?: string | undefined;
+  org_id?: string | undefined;
+  user_id?: string | undefined;
+  session_key?: string | undefined;
+  request_id?: string | undefined;
+  trace_id?: string | undefined;
+  tool_name?: string | undefined;
+  engine?: string | undefined;
+  q?: string | undefined;
   page?: number;
   page_size?: number;
 }) {
@@ -1451,10 +1451,10 @@ export function useIngestWebUrl() {
 // --- Feedback ---
 
 export function useFeedback(params?: {
-  vote?: string;
+  vote?: string | undefined;
   limit?: number;
-  source?: string;
-  review_status?: string;
+  source?: string | undefined;
+  review_status?: string | undefined;
   offset?: number;
 }) {
   return useQuery<{ entries: FeedbackEntry[]; total: number }>({
@@ -1591,8 +1591,8 @@ export function useCircuitBreakers() {
 }
 
 export function useFailures(params?: {
-  language?: string;
-  error_type?: string;
+  language?: string | undefined;
+  error_type?: string | undefined;
   page?: number;
   page_size?: number;
 }) {
@@ -1664,7 +1664,7 @@ export function useFailureStats() {
 export function useObservabilityKnowledgeGaps(params?: {
   page?: number;
   page_size?: number;
-  status?: string;
+  status?: string | undefined;
 }) {
   return useQuery<{ gaps: KnowledgeGap[]; total: number }>({
     queryKey: ["observability", "knowledge-gaps", params],
@@ -1763,13 +1763,13 @@ export function useKnowledgeGapStats() {
 export function useTraces(params?: {
   offset?: number;
   limit?: number;
-  has_error?: boolean;
-  user_id?: string;
-  org_id?: string;
-  task_type?: string;
-  domain_tag?: string;
-  max_tokens?: number;
-  min_hallucinated_urls?: number;
+  has_error?: boolean | undefined;
+  user_id?: string | undefined;
+  org_id?: string | undefined;
+  task_type?: string | undefined;
+  domain_tag?: string | undefined;
+  max_tokens?: number | undefined;
+  min_hallucinated_urls?: number | undefined;
   /** planner | yarn | all */
   trace_service?: string;
 }) {
@@ -1978,16 +1978,16 @@ export function useCreateIngestionSource() {
     mutationFn: (data: {
       name: string;
       handler: string;
-      domain?: string;
-      authority?: string;
-      origin_type?: string;
+      domain?: string | undefined;
+      authority?: string | undefined;
+      origin_type?: string | undefined;
       config?: Record<string, unknown>;
-      tags?: string[];
+      tags?: string[] | undefined;
       visibility_scope?: string;
-      org_id?: string;
-      tenant_id?: string;
+      org_id?: string | undefined;
+      tenant_id?: string | undefined;
       acl_mode?: string;
-      acl_groups?: string;
+      acl_groups?: string | undefined;
     }) => client.post("/ingestion/sources", data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
@@ -1996,9 +1996,9 @@ export function useCreateIngestionSource() {
 }
 
 export function useIngestionItems(params?: {
-  status?: string;
-  handler?: string;
-  domain?: string;
+  status?: string | undefined;
+  handler?: string | undefined;
+  domain?: string | undefined;
   source_id?: number;
   page?: number;
   page_size?: number;
@@ -2015,12 +2015,12 @@ export function useAddIngestionItem() {
   return useMutation({
     mutationFn: (data: {
       uri: string;
-      handler?: string;
+      handler?: string | undefined;
       title?: string;
-      domain?: string;
+      domain?: string | undefined;
       authority?: string;
       origin_type?: string;
-      tags?: string[];
+      tags?: string[] | undefined;
       priority?: number;
       config?: Record<string, unknown>;
     }) => client.post("/ingestion/items", data).then((r) => r.data),
@@ -2079,15 +2079,15 @@ export function usePatchIngestionItem() {
     mutationFn: (data: {
       itemId: number;
       title?: string;
-      handler?: string;
-      domain?: string;
+      handler?: string | undefined;
+      domain?: string | undefined;
       authority?: string;
       origin_type?: string;
-      tags?: string[];
+      tags?: string[] | undefined;
       priority?: number;
       config?: Record<string, unknown>;
       source_id?: number;
-      status?: string;
+      status?: string | undefined;
     }) => {
       const { itemId, ...body } = data;
       return client.patch(`/ingestion/items/${itemId}`, body).then((r) => r.data);
@@ -2290,7 +2290,7 @@ export function useDeleteIngestionRun() {
 export function usePurgeIngestionRuns() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { status?: string; keep_latest?: number }) =>
+    mutationFn: (data: { status?: string | undefined; keep_latest?: number }) =>
       client
         .delete("/ingestion/runs", {
           params: {
@@ -3012,10 +3012,10 @@ export interface SecuritySummary {
 export function useSecurityEvents(params: {
   limit?: number;
   before_id?: number;
-  severity?: string;
-  event_type?: string;
-  service?: string;
-  resolved?: boolean;
+  severity?: string | undefined;
+  event_type?: string | undefined;
+  service?: string | undefined;
+  resolved?: boolean | undefined;
   since_hours?: number;
 }) {
   return useQuery<{ events: SecurityEventRow[] }>({

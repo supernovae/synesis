@@ -4,7 +4,7 @@ import { clsx } from "clsx";
 interface Props {
   label: string;
   value: string | number;
-  subtitle?: string;
+  subtitle?: string | undefined;
   icon?: LucideIcon;
   trend?: "up" | "down" | "neutral";
   trendValue?: string;

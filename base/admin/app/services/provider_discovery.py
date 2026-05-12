@@ -98,7 +98,10 @@ async def _read_api_key(env_name: str) -> str | None:
         with open(token_path) as f:
             token = f.read().strip()
         url = f"https://{_K8S_HOST}:{_K8S_PORT}/api/v1/namespaces/{_SECRET_NAMESPACE}/secrets/{_SECRET_NAME}"
-        verify: str | bool = _SA_CA_PATH if os.path.exists(_SA_CA_PATH) else False
+        if not os.path.exists(_SA_CA_PATH):
+            logger.debug("k8s_api_env_lookup_skipped reason=missing_service_account_ca")
+            return None
+        verify: str | bool = _SA_CA_PATH
         async with httpx.AsyncClient(verify=verify) as client:
             resp = await client.get(
                 url,

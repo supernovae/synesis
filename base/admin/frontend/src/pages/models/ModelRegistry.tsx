@@ -1689,7 +1689,7 @@ function EditModal({
   deactivateMut: ReturnType<typeof useDeactivateRole>;
   onClose: () => void;
   onSave: () => void;
-  cost?: ActiveCostEntry;
+  cost?: ActiveCostEntry | undefined;
 }) {
   const [showExplorer, setShowExplorer] = useState(false);
   const updateCostMut = useUpdateModelCost();
@@ -2047,8 +2047,8 @@ function EditModal({
                 <span className="text-[10px] text-gray-400">(USD per 1M tokens)</span>
               </div>
               {cost && (
-                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown).bg}`}>
-                  {(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown).label}
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown!).bg}`}>
+                  {(PRICING_SOURCE_STYLES[cost.pricing_source ?? "unknown"] ?? PRICING_SOURCE_STYLES.unknown!).label}
                 </span>
               )}
             </div>

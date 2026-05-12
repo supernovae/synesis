@@ -10,15 +10,19 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
+from .outbound_security import validate_public_https_url
+
 logger = logging.getLogger("synesis.admin.catalog_client")
 
 DEFAULT_TIMEOUT_S = 10
 DEFAULT_RETRIES = 2
+_ENV_REF_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,255}$")
 
 
 class CatalogClientError(Exception):
@@ -98,7 +102,14 @@ def _resolve_token(auth_type: str, auth_token_ref: str) -> str | None:
     """Resolve an auth token from environment or reference."""
     if auth_type == "none" or not auth_token_ref:
         return None
-    return os.environ.get(auth_token_ref, auth_token_ref)
+    if auth_type == "bearer":
+        if not _ENV_REF_RE.fullmatch(auth_token_ref):
+            raise CatalogClientError("Bearer auth_token_ref must be an environment variable name")
+        token = os.environ.get(auth_token_ref, "")
+        if not token:
+            raise CatalogClientError("Bearer auth token environment variable is not configured")
+        return token
+    return None
 
 
 class CatalogClient:
@@ -112,7 +123,7 @@ class CatalogClient:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         retries: int = DEFAULT_RETRIES,
     ):
-        self._base_url = base_url.rstrip("/")
+        self._base_url = validate_public_https_url(base_url, field_name="base_url")
         self._timeout_s = timeout_s
         self._retries = retries
 
@@ -136,8 +147,15 @@ class CatalogClient:
             try:
                 resp = await self._client.request(method, path, **kwargs)
                 if resp.status_code >= 400:
+                    logger.warning(
+                        "catalog_http_error method=%s path=%s status=%s response_snippet=%s",
+                        method,
+                        path,
+                        resp.status_code,
+                        resp.text[:500],
+                    )
                     raise CatalogClientError(
-                        f"Catalog API {method} {path} returned {resp.status_code}: {resp.text[:500]}",
+                        f"Catalog API returned {resp.status_code}",
                         status_code=resp.status_code,
                     )
                 return resp.json()
@@ -150,10 +168,8 @@ class CatalogClient:
                 last_err = exc
                 logger.warning("catalog_request_error attempt=%d path=%s error=%s", attempt + 1, path, exc)
 
-        raise CatalogClientError(
-            f"Catalog API request failed after {self._retries + 1} attempts: {last_err}",
-            status_code=None,
-        )
+        logger.warning("catalog_request_failed attempts=%d error=%s", self._retries + 1, last_err)
+        raise CatalogClientError("Catalog API request failed after retries", status_code=None)
 
     async def list_entities(
         self,

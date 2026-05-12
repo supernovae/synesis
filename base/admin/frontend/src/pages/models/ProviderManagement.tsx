@@ -139,9 +139,9 @@ export default function ProviderManagement() {
       default_temperature: Number(editForm.default_temperature) || 0.1,
       notes: editForm.notes,
     };
-    payload.label = editForm.label;
-    payload.route_prefix = editForm.route_prefix;
-    payload.api_key_env = editForm.api_key_env;
+    payload.label = editForm.label ?? "";
+    payload.route_prefix = editForm.route_prefix ?? "";
+    payload.api_key_env = editForm.api_key_env ?? "";
     payload.needs_endpoint = editForm.needs_endpoint;
     payload.placeholder = editForm.placeholder;
     payload.is_local = editForm.is_local;

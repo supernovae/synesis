@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -13,6 +14,8 @@ from sqlalchemy import func, select, update
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import AdminAuditEvent, DevHubConnector
+from ..rbac import Role, RouteGroup, can_access_route_group, can_manage_visibility_scope, resolve_role
+from ..services.outbound_security import validate_public_https_url
 
 logger = logging.getLogger("synesis.admin.developer_hub")
 
@@ -21,6 +24,8 @@ router = APIRouter(prefix="/api/v1/developer-hub", tags=["developer-hub"])
 VALID_AUTH_TYPES = {"none", "bearer", "oauth"}
 VALID_ENTITY_KINDS = {"Template", "Component", "API", "System", "Domain", "Resource", "Group", "User"}
 DEFAULT_ENTITY_KINDS = ["Template", "Component", "API", "System"]
+VALID_SCOPES = {"global", "org", "tenant", "platform"}
+_ENV_REF_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,255}$")
 
 
 def _audit(user: UserInfo, action: str, status: str, summary: str, detail: dict | None = None) -> AdminAuditEvent:
@@ -44,7 +49,8 @@ def _connector_to_dict(c: DevHubConnector) -> dict:
         "description": c.description,
         "base_url": c.base_url,
         "auth_type": c.auth_type,
-        "auth_token_ref": c.auth_token_ref,
+        "auth_token_ref": "",
+        "has_auth_token_ref": bool(c.auth_token_ref),
         "entity_kinds": c.entity_kinds or DEFAULT_ENTITY_KINDS,
         "sync_interval_minutes": c.sync_interval_minutes,
         "last_sync_at": c.last_sync_at.isoformat() if c.last_sync_at else None,
@@ -58,6 +64,59 @@ def _connector_to_dict(c: DevHubConnector) -> dict:
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
+
+
+def _ensure_connector_admin(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_content_admin):
+        raise HTTPException(403, "Requires org content admin access")
+
+
+def _scope_for_rbac(scope: str) -> str:
+    return "global" if scope in {"global", "platform"} else scope
+
+
+def _normalize_connector_scope(user: UserInfo, scope: str, org_id: str, scope_value: str) -> tuple[str, str, str]:
+    normalized_scope = (scope or "org").strip().lower()
+    if normalized_scope not in VALID_SCOPES:
+        raise HTTPException(400, f"scope must be one of {sorted(VALID_SCOPES)}")
+    target_org = (org_id or scope_value or user.org_id or "").strip()
+    if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
+        raise HTTPException(403, "Not authorized for connector scope")
+    if resolve_role(user) < Role.platform_admin:
+        target_org = (user.org_id or "").strip()
+        normalized_scope = "org"
+        scope_value = target_org
+    elif normalized_scope == "org" and not target_org:
+        raise HTTPException(400, "org_id is required for org-scoped connectors")
+    return normalized_scope, target_org, (scope_value or target_org).strip()
+
+
+def _validate_auth_config(auth_type: str, auth_token_ref: str) -> str:
+    if auth_type not in VALID_AUTH_TYPES:
+        raise HTTPException(400, f"auth_type must be one of {VALID_AUTH_TYPES}")
+    token_ref = auth_token_ref.strip()
+    if auth_type == "none":
+        return ""
+    if auth_type == "bearer" and not _ENV_REF_RE.fullmatch(token_ref):
+        raise HTTPException(400, "auth_token_ref must be an environment variable name for bearer auth")
+    return token_ref
+
+
+def _can_read_connector(user: UserInfo, row: DevHubConnector) -> bool:
+    if resolve_role(user) >= Role.platform_admin:
+        return True
+    caller_org = (user.org_id or "").strip()
+    return bool(caller_org and row.org_id == caller_org)
+
+
+def _ensure_can_read_connector(user: UserInfo, row: DevHubConnector) -> None:
+    if not _can_read_connector(user, row):
+        raise HTTPException(404, "Connector not found")
+
+
+def _ensure_can_manage_connector(user: UserInfo, row: DevHubConnector) -> None:
+    if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(row.scope), org_id=row.org_id):
+        raise HTTPException(403, "Not authorized for connector scope")
 
 
 # ---------------------------------------------------------------------------
@@ -99,14 +158,15 @@ async def create_connector(
     body: ConnectorCreate,
     user: UserInfo = Depends(get_current_user),
 ):
-    if body.auth_type not in VALID_AUTH_TYPES:
-        raise HTTPException(400, f"auth_type must be one of {VALID_AUTH_TYPES}")
+    _ensure_connector_admin(user)
+    auth_token_ref = _validate_auth_config(body.auth_type, body.auth_token_ref)
     entity_kinds = body.entity_kinds or list(DEFAULT_ENTITY_KINDS)
     for k in entity_kinds:
         if k not in VALID_ENTITY_KINDS:
             raise HTTPException(400, f"Invalid entity kind: {k}")
 
-    url = body.base_url.rstrip("/")
+    url = validate_public_https_url(body.base_url, field_name="base_url")
+    scope, org_id, scope_value = _normalize_connector_scope(user, body.scope, body.org_id, body.scope_value)
     connector_id = f"devhub-{uuid.uuid4().hex[:12]}"
 
     async with async_session() as session:
@@ -116,12 +176,12 @@ async def create_connector(
             description=body.description,
             base_url=url,
             auth_type=body.auth_type,
-            auth_token_ref=body.auth_token_ref,
+            auth_token_ref=auth_token_ref,
             entity_kinds=entity_kinds,
             sync_interval_minutes=body.sync_interval_minutes,
-            org_id=body.org_id,
-            scope=body.scope,
-            scope_value=body.scope_value,
+            org_id=org_id,
+            scope=scope,
+            scope_value=scope_value,
         )
         session.add(row)
         session.add(_audit(user, "devhub.connector.create", "ok", f"Created connector {connector_id}"))
@@ -138,9 +198,16 @@ async def list_connectors(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    _ensure_connector_admin(user)
     async with async_session() as session:
         q = select(DevHubConnector)
+        role = resolve_role(user)
+        if role < Role.platform_admin:
+            caller_org = (user.org_id or "").strip()
+            q = q.where(DevHubConnector.org_id == caller_org)
         if org_id is not None:
+            if role < Role.platform_admin and org_id != (user.org_id or "").strip():
+                raise HTTPException(403, "Not authorized for connector org")
             q = q.where(DevHubConnector.org_id == org_id)
         if enabled is not None:
             q = q.where(DevHubConnector.enabled == enabled)
@@ -149,6 +216,8 @@ async def list_connectors(
         rows = result.scalars().all()
 
         count_q = select(func.count(DevHubConnector.id))
+        if role < Role.platform_admin:
+            count_q = count_q.where(DevHubConnector.org_id == (user.org_id or "").strip())
         if org_id is not None:
             count_q = count_q.where(DevHubConnector.org_id == org_id)
         if enabled is not None:
@@ -163,12 +232,14 @@ async def get_connector(
     connector_id: str,
     user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_read_connector(user, row)
         return _connector_to_dict(row)
 
 
@@ -178,19 +249,40 @@ async def update_connector(
     body: ConnectorUpdate,
     user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_connector_admin(user)
     updates: dict = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.description is not None:
         updates["description"] = body.description
     if body.base_url is not None:
-        updates["base_url"] = body.base_url.rstrip("/")
+        updates["base_url"] = validate_public_https_url(body.base_url, field_name="base_url")
     if body.auth_type is not None:
-        if body.auth_type not in VALID_AUTH_TYPES:
-            raise HTTPException(400, f"auth_type must be one of {VALID_AUTH_TYPES}")
+        token_ref = body.auth_token_ref or ""
+        if body.auth_token_ref is None:
+            async with async_session() as session:
+                existing = (
+                    await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
+                ).scalar_one_or_none()
+                if not existing:
+                    raise HTTPException(404, "Connector not found")
+                _ensure_can_manage_connector(user, existing)
+                token_ref = existing.auth_token_ref
+        token_ref = _validate_auth_config(body.auth_type, token_ref)
         updates["auth_type"] = body.auth_type
+        updates["auth_token_ref"] = token_ref
     if body.auth_token_ref is not None:
-        updates["auth_token_ref"] = body.auth_token_ref
+        auth_type = body.auth_type
+        if auth_type is None:
+            async with async_session() as session:
+                existing = (
+                    await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
+                ).scalar_one_or_none()
+                if not existing:
+                    raise HTTPException(404, "Connector not found")
+                _ensure_can_manage_connector(user, existing)
+                auth_type = existing.auth_type
+        updates["auth_token_ref"] = _validate_auth_config(auth_type, body.auth_token_ref)
     if body.entity_kinds is not None:
         for k in body.entity_kinds:
             if k not in VALID_ENTITY_KINDS:
@@ -207,6 +299,12 @@ async def update_connector(
     updates["updated_at"] = datetime.now(UTC)
 
     async with async_session() as session:
+        existing = (
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
+        ).scalar_one_or_none()
+        if not existing:
+            raise HTTPException(404, "Connector not found")
+        _ensure_can_manage_connector(user, existing)
         result = await session.execute(
             update(DevHubConnector)
             .where(DevHubConnector.connector_id == connector_id)
@@ -231,7 +329,14 @@ async def delete_connector(
 ):
     from sqlalchemy import delete as sa_delete
 
+    _ensure_connector_admin(user)
     async with async_session() as session:
+        row = (
+            await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
+        ).scalar_one_or_none()
+        if not row:
+            raise HTTPException(404, "Connector not found")
+        _ensure_can_manage_connector(user, row)
         result = await session.execute(sa_delete(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         if result.rowcount == 0:
             raise HTTPException(404, "Connector not found")
@@ -248,12 +353,14 @@ async def trigger_sync(
     """Trigger a sync from the configured Developer Hub instance."""
     from ..services.devhub_sync import sync_connector
 
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_manage_connector(user, row)
 
     try:
         result = await sync_connector(connector_id)
@@ -282,12 +389,14 @@ async def preview_sync(
     """Dry-run sync showing what would be created/updated."""
     from ..services.devhub_sync import sync_connector
 
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_manage_connector(user, row)
 
     try:
         preview = await sync_connector(connector_id, dry_run=True)
@@ -312,12 +421,14 @@ async def get_connector_cache(
     user: UserInfo = Depends(get_current_user),
 ):
     """Inspect the cached entity snapshot for a connector."""
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_read_connector(user, row)
 
     snapshot = row.cached_entity_snapshot
     if not snapshot:
@@ -341,12 +452,14 @@ async def test_connector(
     """Test connection to a Backstage/Developer Hub instance."""
     from ..services.catalog_client import CatalogClient, CatalogClientError
 
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_manage_connector(user, row)
 
     client = CatalogClient(
         base_url=row.base_url,
@@ -370,12 +483,14 @@ async def connector_health(
     """Combined health status: connectivity + sync freshness."""
     from ..services.catalog_client import CatalogClient, CatalogClientError
 
+    _ensure_connector_admin(user)
     async with async_session() as session:
         row = (
             await session.execute(select(DevHubConnector).where(DevHubConnector.connector_id == connector_id))
         ).scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Connector not found")
+        _ensure_can_read_connector(user, row)
 
     health: dict = {
         "connector_id": connector_id,

@@ -228,7 +228,7 @@ export default function KnowledgeGaps() {
                 sortable: true,
                 render: (row) => {
                   const s = (row.status as string) || "open";
-                  const badge = STATUS_BADGES[s] || STATUS_BADGES.open;
+                  const badge = STATUS_BADGES[s] ?? STATUS_BADGES.open!;
                   const webFallback = row.web_search_fallback === true;
                   return (
                     <span className="inline-flex items-center gap-1">

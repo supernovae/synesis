@@ -23,6 +23,7 @@ from ..db.models import (
     ModelDeployment,
 )
 from ..internal_auth import ServicePrincipal, require_service_or_authenticated_user
+from ..rbac import Role, can_manage_visibility_scope, resolve_role
 
 logger = logging.getLogger("synesis.admin.governance")
 
@@ -71,8 +72,51 @@ def _audit(user: UserInfo, action: str, status: str, summary: str, detail: dict 
 
 
 def _require_platform_admin(user: UserInfo) -> None:
-    if user.role != "platform_admin":
+    if resolve_role(user) < Role.platform_admin:
         raise HTTPException(403, "Requires platform_admin role")
+
+
+def _require_governance_admin(user: UserInfo) -> None:
+    if resolve_role(user) < Role.org_admin:
+        raise HTTPException(403, "Requires org_admin or higher")
+
+
+def _scope_for_rbac(scope: str) -> str:
+    return "global" if scope == "platform" else scope
+
+
+def _normalize_governance_scope(
+    user: UserInfo, scope: str, scope_value: str = "", org_id: str = ""
+) -> tuple[str, str, str]:
+    normalized_scope = (scope or "org").strip().lower()
+    if normalized_scope not in VALID_SCOPES:
+        raise HTTPException(400, f"Invalid scope: {normalized_scope}")
+    target_org = (org_id or scope_value or user.org_id or "").strip()
+    if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
+        raise HTTPException(403, "Not authorized for governance scope")
+    if resolve_role(user) < Role.platform_admin:
+        normalized_scope = "org"
+        target_org = (user.org_id or "").strip()
+        scope_value = target_org
+    elif normalized_scope == "org" and not target_org:
+        raise HTTPException(400, "org_id or scope_value is required for org scope")
+    return normalized_scope, (scope_value or target_org).strip(), target_org
+
+
+def _ensure_constitution_access(user: UserInfo, row: GovernanceConstitution, *, write: bool = False) -> None:
+    if resolve_role(user) >= Role.platform_admin:
+        return
+    caller_org = (user.org_id or "").strip()
+    if row.scope != "org" or row.scope_value != caller_org:
+        raise HTTPException(404 if not write else 403, "Constitution not found" if not write else "Not authorized")
+
+
+def _ensure_policy_access(user: UserInfo, row: GovernancePolicyDef, *, write: bool = False) -> None:
+    if resolve_role(user) >= Role.platform_admin:
+        return
+    caller_org = (user.org_id or "").strip()
+    if row.scope != "org" or row.org_id != caller_org:
+        raise HTTPException(404 if not write else 403, "Policy not found" if not write else "Not authorized")
 
 
 def _normalize_capability_key_map(raw: Any) -> dict[str, bool]:
@@ -363,6 +407,10 @@ async def list_constitutions(
 ):
     async with async_session() as session:
         q = select(GovernanceConstitution)
+        if resolve_role(user) < Role.platform_admin:
+            q = q.where(
+                GovernanceConstitution.scope == "org", GovernanceConstitution.scope_value == (user.org_id or "")
+            )
         if scope:
             q = q.where(GovernanceConstitution.scope == scope)
         if status:
@@ -377,10 +425,8 @@ async def list_constitutions(
 
 @router.post("/constitutions", status_code=201)
 async def create_constitution(body: ConstitutionCreate, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
-    if body.scope not in VALID_SCOPES:
-        raise HTTPException(400, f"Invalid scope: {body.scope}")
+    _require_governance_admin(user)
+    scope, scope_value, _org_id = _normalize_governance_scope(user, body.scope, body.scope_value)
     if body.maturity_mode not in VALID_MATURITY_MODES:
         raise HTTPException(400, f"Invalid maturity_mode: {body.maturity_mode}")
 
@@ -390,8 +436,8 @@ async def create_constitution(body: ConstitutionCreate, user: UserInfo = Depends
         name=body.name,
         version=1,
         status="draft",
-        scope=body.scope,
-        scope_value=body.scope_value,
+        scope=scope,
+        scope_value=scope_value,
         precedence=body.precedence,
         description=body.description,
         provenance_source=body.provenance_source,
@@ -426,6 +472,7 @@ async def get_constitution(constitution_id: str, user: UserInfo = Depends(get_cu
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, row)
 
         cq = (
             select(GovernanceClause)
@@ -445,8 +492,7 @@ async def get_constitution(constitution_id: str, user: UserInfo = Depends(get_cu
 async def update_constitution(
     constitution_id: str, body: ConstitutionUpdate, user: UserInfo = Depends(get_current_user)
 ):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = (
@@ -461,6 +507,7 @@ async def update_constitution(
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, row, write=True)
         if row.status != "draft":
             raise HTTPException(409, "Only draft constitutions can be edited")
 
@@ -498,8 +545,7 @@ async def update_constitution(
 async def activate_constitution(
     constitution_id: str, user: UserInfo = Depends(get_current_user), dry_run: bool = Query(False)
 ):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = (
@@ -514,6 +560,7 @@ async def activate_constitution(
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, row, write=True)
         if row.status not in ("draft", "deprecated"):
             raise HTTPException(409, f"Cannot activate constitution in status '{row.status}'")
 
@@ -564,8 +611,7 @@ async def activate_constitution(
 
 @router.post("/constitutions/{constitution_id}/deprecate")
 async def deprecate_constitution(constitution_id: str, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = (
@@ -580,6 +626,7 @@ async def deprecate_constitution(constitution_id: str, user: UserInfo = Depends(
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, row, write=True)
         if row.status != "active":
             raise HTTPException(409, "Only active constitutions can be deprecated")
 
@@ -611,13 +658,13 @@ async def list_constitution_versions(constitution_id: str, user: UserInfo = Depe
         rows = result.scalars().all()
     if not rows:
         raise HTTPException(404, "Constitution not found")
+    _ensure_constitution_access(user, rows[0])
     return {"versions": [_constitution_to_dict(r) for r in rows]}
 
 
 @router.post("/constitutions/{constitution_id}/clone", status_code=201)
 async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = (
@@ -632,6 +679,7 @@ async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_
         src = result.scalar_one_or_none()
         if not src:
             raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, src, write=True)
 
         max_ver_q = select(func.max(GovernanceConstitution.version)).where(
             GovernanceConstitution.constitution_id == constitution_id
@@ -742,6 +790,17 @@ def _clause_to_dict(c: GovernanceClause) -> dict:
 @router.get("/constitutions/{constitution_id}/clauses")
 async def list_clauses(constitution_id: str, user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
+        parent = (
+            await session.execute(
+                select(GovernanceConstitution)
+                .where(GovernanceConstitution.constitution_id == constitution_id)
+                .order_by(GovernanceConstitution.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not parent:
+            raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, parent)
         q = (
             select(GovernanceClause)
             .where(GovernanceClause.constitution_id == constitution_id)
@@ -754,8 +813,7 @@ async def list_clauses(constitution_id: str, user: UserInfo = Depends(get_curren
 
 @router.post("/constitutions/{constitution_id}/clauses", status_code=201)
 async def create_clause(constitution_id: str, body: ClauseCreate, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
     if body.category not in VALID_CATEGORIES:
         raise HTTPException(400, f"Invalid category: {body.category}")
     if body.constraint_kind not in VALID_CONSTRAINT_KINDS:
@@ -777,6 +835,17 @@ async def create_clause(constitution_id: str, body: ClauseCreate, user: UserInfo
         priority=body.priority,
     )
     async with async_session() as session:
+        parent = (
+            await session.execute(
+                select(GovernanceConstitution)
+                .where(GovernanceConstitution.constitution_id == constitution_id)
+                .order_by(GovernanceConstitution.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not parent:
+            raise HTTPException(404, "Constitution not found")
+        _ensure_constitution_access(user, parent, write=True)
         session.add(row)
         session.add(
             _audit(
@@ -794,8 +863,7 @@ async def create_clause(constitution_id: str, body: ClauseCreate, user: UserInfo
 
 @router.put("/clauses/{clause_id}")
 async def update_clause(clause_id: str, body: ClauseUpdate, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = select(GovernanceClause).where(GovernanceClause.clause_id == clause_id)
@@ -803,6 +871,16 @@ async def update_clause(clause_id: str, body: ClauseUpdate, user: UserInfo = Dep
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Clause not found")
+        parent = (
+            await session.execute(
+                select(GovernanceConstitution)
+                .where(GovernanceConstitution.constitution_id == row.constitution_id)
+                .order_by(GovernanceConstitution.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if parent:
+            _ensure_constitution_access(user, parent, write=True)
 
         if body.category is not None:
             if body.category not in VALID_CATEGORIES:
@@ -839,8 +917,7 @@ async def update_clause(clause_id: str, body: ClauseUpdate, user: UserInfo = Dep
 
 @router.delete("/clauses/{clause_id}")
 async def delete_clause(clause_id: str, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = select(GovernanceClause).where(GovernanceClause.clause_id == clause_id)
@@ -848,6 +925,16 @@ async def delete_clause(clause_id: str, user: UserInfo = Depends(get_current_use
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Clause not found")
+        parent = (
+            await session.execute(
+                select(GovernanceConstitution)
+                .where(GovernanceConstitution.constitution_id == row.constitution_id)
+                .order_by(GovernanceConstitution.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if parent:
+            _ensure_constitution_access(user, parent, write=True)
         await session.delete(row)
         session.add(
             _audit(user, "governance.clause.delete", "ok", f"Deleted clause {clause_id}", {"clause_id": clause_id})
@@ -918,6 +1005,8 @@ async def list_policies(
 ):
     async with async_session() as session:
         q = select(GovernancePolicyDef)
+        if resolve_role(user) < Role.platform_admin:
+            q = q.where(GovernancePolicyDef.scope == "org", GovernancePolicyDef.org_id == (user.org_id or ""))
         if scope:
             q = q.where(GovernancePolicyDef.scope == scope)
         if category:
@@ -925,6 +1014,8 @@ async def list_policies(
         if rule_type:
             q = q.where(GovernancePolicyDef.rule_type == rule_type)
         if org_id:
+            if resolve_role(user) < Role.platform_admin and org_id != (user.org_id or "").strip():
+                raise HTTPException(403, "Not authorized for org scope")
             q = q.where(GovernancePolicyDef.org_id == org_id)
         q = q.order_by(GovernancePolicyDef.priority.desc()).limit(limit).offset(offset)
         result = await session.execute(q)
@@ -934,10 +1025,8 @@ async def list_policies(
 
 @router.post("/policies", status_code=201)
 async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
-    if body.scope not in VALID_SCOPES:
-        raise HTTPException(400, f"Invalid scope: {body.scope}")
+    _require_governance_admin(user)
+    scope, scope_value, org_id = _normalize_governance_scope(user, body.scope, body.scope_value, body.org_id)
     if body.category not in VALID_CATEGORIES:
         raise HTTPException(400, f"Invalid category: {body.category}")
     if body.constraint_kind not in VALID_CONSTRAINT_KINDS:
@@ -950,9 +1039,9 @@ async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_curr
         policy_id=pid,
         name=body.name,
         description=body.description,
-        scope=body.scope,
-        scope_value=body.scope_value,
-        org_id=body.org_id,
+        scope=scope,
+        scope_value=scope_value,
+        org_id=org_id if scope == "org" else "",
         category=body.category,
         constraint_kind=body.constraint_kind,
         rule_type=body.rule_type,
@@ -971,8 +1060,7 @@ async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_curr
 
 @router.put("/policies/{policy_id}")
 async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
@@ -980,6 +1068,7 @@ async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = 
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Policy not found")
+        _ensure_policy_access(user, row, write=True)
 
         if body.name is not None:
             row.name = body.name
@@ -1011,8 +1100,7 @@ async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = 
 
 @router.delete("/policies/{policy_id}")
 async def delete_policy(policy_id: str, user: UserInfo = Depends(get_current_user)):
-    if user.role not in ("platform_admin", "org_admin", "admin"):
-        raise HTTPException(403, "Requires org_admin or higher")
+    _require_governance_admin(user)
 
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
@@ -1020,6 +1108,7 @@ async def delete_policy(policy_id: str, user: UserInfo = Depends(get_current_use
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(404, "Policy not found")
+        _ensure_policy_access(user, row, write=True)
         await session.delete(row)
         session.add(
             _audit(user, "governance.policy.delete", "ok", f"Deleted policy '{row.name}'", {"policy_id": policy_id})

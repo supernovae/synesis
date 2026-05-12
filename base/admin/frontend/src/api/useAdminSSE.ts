@@ -5,8 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
  * Subscribes to /api/v1/events (SSE) and invalidates React Query caches
  * when the backend signals new data (e.g. new traces arriving).
  *
- * Uses fetch + ReadableStream (not EventSource) so we can pass the
- * Authorization header — EventSource doesn't support custom headers.
+ * Uses fetch + ReadableStream so same-origin session cookies are included.
  *
  * Mount once in a top-level layout component.
  */
@@ -21,14 +20,11 @@ export function useAdminSSE() {
     async function connect() {
       if (aborted) return;
 
-      const token = localStorage.getItem("synesis_token");
-      if (!token) return;
-
       controller = new AbortController();
 
       try {
         const res = await fetch("/api/v1/events", {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "same-origin",
           signal: controller.signal,
         });
 

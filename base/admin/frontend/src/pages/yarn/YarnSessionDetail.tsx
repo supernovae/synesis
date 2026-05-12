@@ -115,6 +115,7 @@ export default function YarnSessionDetail() {
     if (forensicsSnapshots.length === 0) return null;
     const windowRows = forensicsSnapshots.slice(0, 12);
     const latest = windowRows[0];
+    if (!latest) return null;
     const avgLcpRatio = windowRows.reduce((sum, row) => sum + row.lcpRatio, 0) / windowRows.length;
     const avgToolChars = windowRows.reduce((sum, row) => sum + row.toolChars, 0) / windowRows.length;
     const minCached = Math.min(...windowRows.map((row) => row.tokensCached));

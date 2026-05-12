@@ -184,7 +184,8 @@ function chooseCanonicalSelectorValue(
 ): string | null {
   if (choices.length === 0) return null;
   const raw = selector.trim();
-  if (!raw) return choices[0].value;
+  const fallback = choices[0]?.value ?? null;
+  if (!raw) return fallback;
   const exact = choices.find((choice) => choice.value === raw);
   if (exact) return exact.value;
 
@@ -197,10 +198,10 @@ function chooseCanonicalSelectorValue(
       const normalizedChoice = normalizeSelector(choice.value);
       return normalizedChoice.startsWith(normalizedRaw) || normalizedRaw.startsWith(normalizedChoice);
     });
-    if (prefixMatches.length === 1) return prefixMatches[0].value;
+    if (prefixMatches.length === 1) return prefixMatches[0]?.value ?? fallback;
   }
 
-  return choices[0].value;
+  return fallback;
 }
 
 interface CapabilityPreset {
@@ -626,7 +627,7 @@ export default function CapabilityMatrixPage() {
           return {
             row,
             suggestions: registryChoices,
-            suggestedSelector: normalizedMatches[0].value,
+            suggestedSelector: normalizedMatches[0]?.value ?? selector,
             reason: "Case/format mismatch with a known registry selector.",
           } satisfies LegacySelectorFixCandidate;
         }
@@ -640,7 +641,7 @@ export default function CapabilityMatrixPage() {
             return {
               row,
               suggestions: registryChoices,
-              suggestedSelector: prefixMatches[0].value,
+              suggestedSelector: prefixMatches[0]?.value ?? selector,
               reason: "Prefix mismatch; one canonical registry selector is likely intended.",
             } satisfies LegacySelectorFixCandidate;
           }
@@ -695,7 +696,7 @@ export default function CapabilityMatrixPage() {
     if (formSelectorChoices.length === 0) {
       next = "";
     } else if (!formSelectorChoices.some((choice) => choice.value === formSelector.trim())) {
-      next = formSelectorChoices[0].value;
+      next = formSelectorChoices[0]?.value ?? "";
     }
     if (next === formSelector) return;
     const t = window.setTimeout(() => setFormSelector(next), 0);
@@ -707,7 +708,7 @@ export default function CapabilityMatrixPage() {
     if (presetSelectorChoices.length === 0) {
       next = "";
     } else if (!presetSelectorChoices.some((choice) => choice.value === presetSelector.trim())) {
-      next = presetSelectorChoices[0].value;
+      next = presetSelectorChoices[0]?.value ?? "";
     }
     if (next === presetSelector) return;
     const t = window.setTimeout(() => setPresetSelector(next), 0);
@@ -719,7 +720,7 @@ export default function CapabilityMatrixPage() {
     if (previewModelChoices.length === 0) {
       next = "";
     } else if (!previewModelChoices.some((choice) => choice.value === previewModelId.trim())) {
-      next = previewModelChoices[0].value;
+      next = previewModelChoices[0]?.value ?? "";
     }
     if (next === previewModelId) return;
     const t = window.setTimeout(() => setPreviewModelId(next), 0);
@@ -731,7 +732,7 @@ export default function CapabilityMatrixPage() {
     if (previewFamilyChoices.length === 0) {
       next = "";
     } else if (!previewFamilyChoices.some((choice) => choice.value === previewFamily.trim())) {
-      next = previewFamilyChoices[0].value;
+      next = previewFamilyChoices[0]?.value ?? "";
     }
     if (next === previewFamily) return;
     const t = window.setTimeout(() => setPreviewFamily(next), 0);
@@ -743,7 +744,7 @@ export default function CapabilityMatrixPage() {
     if (previewPathChoices.length === 0) {
       next = "";
     } else if (!previewPathChoices.some((choice) => choice.value === previewPath.trim())) {
-      next = previewPathChoices[0].value;
+      next = previewPathChoices[0]?.value ?? "";
     }
     if (next === previewPath) return;
     const t = window.setTimeout(() => setPreviewPath(next), 0);

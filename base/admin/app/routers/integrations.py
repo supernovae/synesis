@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import case, delete, func, select
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
-from ..rbac import Role, resolve_role
+from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
 from ..routers import admin_mcp
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
+
+
+def _ensure_org_content_admin(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_content_admin):
+        raise HTTPException(status_code=403, detail="Requires org content admin access")
 
 
 def _sanitize_probe_payload(payload: dict) -> dict:
@@ -273,6 +278,7 @@ async def create_or_update_policy(
     body: PolicyCreate,
     user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_org_content_admin(user)
     async with async_session() as session:
         existing = (
             (await session.execute(select(WebUrlPolicy).where(WebUrlPolicy.url_pattern == body.url_pattern)))
@@ -308,6 +314,7 @@ async def delete_policy(
     policy_id: int,
     _user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_org_content_admin(_user)
     async with async_session() as session:
         await session.execute(delete(WebUrlPolicy).where(WebUrlPolicy.id == policy_id))
         await session.commit()
@@ -334,6 +341,8 @@ async def ingest_url(
     dedicated ingest worker can poll for gap_id prefix 'web-ingest-'.
     """
     import hashlib
+
+    _ensure_org_content_admin(user)
 
     gap_id = "web-ingest-" + hashlib.sha256(body.url.encode()).hexdigest()[:12]
     async with async_session() as session:

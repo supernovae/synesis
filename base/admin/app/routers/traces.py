@@ -13,7 +13,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..auth import UserInfo, get_current_user
-from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_URL
+from ..deps import PLANNER_URL
+from ..internal_auth import require_internal_service_token_request
 from ..rbac import RouteGroup, can_access_route_group, can_access_trace, require_platform_admin, trace_scope_filters
 from ..services import trace_store
 from ..services.archive_store import ArchiveConfigError
@@ -193,14 +194,7 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_platform_admin))
 
 def _verify_service_token(request: Request) -> None:
     """Verify the internal service token for service-to-service calls."""
-    if not INTERNAL_SERVICE_TOKEN:
-        return
-    token = (
-        request.headers.get("x-synesis-service-token", "")
-        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    )
-    if token != INTERNAL_SERVICE_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid service token")
+    require_internal_service_token_request(request)
 
 
 @router.post("/ingest")

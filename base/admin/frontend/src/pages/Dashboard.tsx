@@ -134,7 +134,7 @@ export default function Dashboard() {
                   dataKey="value"
                 >
                   {healthPie.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length] ?? "#64748b"} />
                   ))}
                 </Pie>
                 <Tooltip />
