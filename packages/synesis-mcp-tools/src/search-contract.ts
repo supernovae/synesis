@@ -16,12 +16,6 @@ function optionalString(v: unknown): string | undefined {
   return s.length > 0 ? s : undefined;
 }
 
-function optionalStringArray(v: unknown): string[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out = v.map((item) => String(item ?? "").trim()).filter(Boolean);
-  return out.length > 0 ? out : undefined;
-}
-
 export function buildSearchAttributionBody(
   args: Record<string, unknown>,
   auth: SynesisMcpAuth,
@@ -47,15 +41,5 @@ export function buildSearchAttributionBody(
   if (auth.tenantIds?.length) body.caller_tenant_ids = [...auth.tenantIds];
   if (auth.aclGroups?.length) body.caller_acl_groups = [...auth.aclGroups];
 
-  const callerTenantIds = optionalStringArray(args.caller_tenant_ids);
-  if (callerTenantIds) body.caller_tenant_ids = callerTenantIds;
-  const callerAclGroups = optionalStringArray(args.caller_acl_groups);
-  if (callerAclGroups) body.caller_acl_groups = callerAclGroups;
-  const callerOrg = optionalString(args.caller_org_id);
-  if (callerOrg) body.caller_org_id = callerOrg;
-  const callerUser = optionalString(args.caller_user_id);
-  if (callerUser) body.caller_user_id = callerUser;
-
   return body;
 }
-

@@ -15,7 +15,11 @@ spec:
   replicas: {{ $workload.replicas | default 1 }}
   {{- if $workload.strategy }}
   strategy:
+    {{- if kindIs "map" $workload.strategy }}
+    {{- toYaml $workload.strategy | nindent 4 }}
+    {{- else }}
     type: {{ $workload.strategy }}
+    {{- end }}
   {{- end }}
   selector:
     matchLabels:

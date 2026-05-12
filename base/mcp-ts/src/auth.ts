@@ -28,6 +28,16 @@ export class McpAuthResolver {
     this.pepper = config.SYNESIS_PAT_PEPPER;
   }
 
+  async ping(): Promise<boolean> {
+    if (!this.pool) return false;
+    try {
+      await this.pool.query("SELECT 1");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async close(): Promise<void> {
     await this.pool?.end();
   }
@@ -44,9 +54,17 @@ export class McpAuthResolver {
 
   requireCoderScope(user: PatUser): void {
     const scopes = user.tokenScopes;
-    if (!scopes || scopes.length === 0) return;
-    const allowedPrefixes = ["coder", "model:", "chat:"];
-    if (scopes.some((s) => allowedPrefixes.some((p) => s.startsWith(p)))) return;
+    if (!scopes || scopes.length === 0) {
+      throw new Error("Insufficient scope for MCP access");
+    }
+    if (
+      scopes.some((scope) => {
+        const s = scope.trim().toLowerCase();
+        return s === "coder" || s.startsWith("coder:") || s === "mcp:invoke" || s === "mcp:tool:*" || s.startsWith("mcp:tool:");
+      })
+    ) {
+      return;
+    }
     throw new Error("Insufficient scope for MCP access");
   }
 
@@ -84,14 +102,15 @@ export class McpAuthResolver {
       .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
       .catch(() => {});
 
-    return {
+    const patUser: PatUser = {
       userId: row.user_id,
       orgId,
       tenantIds,
       role: row.role ?? "user",
-      tokenScopes: row.scopes ?? ["model:readonly"],
-      displayName: row.username || undefined,
+      tokenScopes: row.scopes ?? [],
     };
+    if (row.username) patUser.displayName = row.username;
+    return patUser;
   }
 
   toSynesisMcpAuth(user: PatUser, bearerToken: string): SynesisMcpAuth {

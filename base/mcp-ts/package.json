@@ -15,7 +15,7 @@
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@openfga/sdk": "0.9.5",
+    "@openfga/sdk": "^0.9.6",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.217.0",
     "@opentelemetry/resources": "^2.7.1",
@@ -28,10 +28,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.1",
+    "@types/node": "^25.7.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.6"
   },
   "overrides": {
     "axios": "1.16.0",

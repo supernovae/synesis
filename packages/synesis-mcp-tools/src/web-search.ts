@@ -2,6 +2,7 @@ import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { authHeaders, bearerForUpstream } from "./deps.js";
 import { buildSearchAttributionBody } from "./search-contract.js";
+import { LIMITS, boundedString, boundedStringArray, clampInt, requestFailure, sanitizeUpstreamError } from "./tool-utils.js";
 
 const SEARCH_TIMEOUT_MS = 30_000;
 
@@ -10,15 +11,7 @@ function plannerBase(deps: SynesisMcpDeps): string {
 }
 
 function optionalString(v: unknown): string | undefined {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length > 0 ? s : undefined;
-}
-
-function optionalNumber(v: unknown): number | undefined {
-  if (v === undefined || v === null || v === "") return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
+  return boundedString(v, LIMITS.shortStringChars);
 }
 
 function optionalBoolean(v: unknown): boolean | undefined {
@@ -37,21 +30,22 @@ function buildWebSearchBody(
   toolName: string,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    query: String(args.query ?? "").trim(),
+    query: String(args.query ?? "").trim().slice(0, LIMITS.queryChars),
   };
-  const topK = optionalNumber(args.top_k);
+  const topK = clampInt(args.top_k, 1, LIMITS.maxTopK);
   if (topK !== undefined) body.top_k = topK;
   const profile = optionalString(args.profile);
   if (profile) body.profile = profile;
   const fetchPages = optionalBoolean(args.fetch_pages);
   if (fetchPages !== undefined) body.fetch_pages = fetchPages;
-  const maxFetchPages = optionalNumber(args.max_fetch_pages);
+  const maxFetchPages = clampInt(args.max_fetch_pages, 0, LIMITS.maxFetchPages);
   if (maxFetchPages !== undefined) body.max_fetch_pages = maxFetchPages;
-  const minRelevance = optionalNumber(args.min_relevance);
+  const minRelevance = typeof args.min_relevance === "number" && Number.isFinite(args.min_relevance)
+    ? Math.min(Math.max(args.min_relevance, 0), 1)
+    : undefined;
   if (minRelevance !== undefined) body.min_relevance = minRelevance;
-  if (Array.isArray(args.preferred_domains) && args.preferred_domains.length > 0) {
-    body.preferred_domains = args.preferred_domains.map((d) => String(d));
-  }
+  const preferredDomains = boundedStringArray(args.preferred_domains);
+  if (preferredDomains) body.preferred_domains = preferredDomains;
   Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", toolName));
   return body;
 }
@@ -66,6 +60,9 @@ export async function runWebSearch(
     const query = String(args.query ?? "").trim();
     if (!query) {
       return { error: "validation_error", message: "query is required" };
+    }
+    if (query.length > LIMITS.queryChars) {
+      return { error: "validation_error", message: `query must be ${LIMITS.queryChars} characters or fewer` };
     }
     const body = buildWebSearchBody(args, auth, toolName);
     const bearer = bearerForUpstream(auth, deps);
@@ -95,20 +92,11 @@ export async function runWebSearch(
       payload = { parse_error: true, status: resp.status };
     }
     if (!resp.ok) {
-      return {
-        error: "web_search_failed",
-        status: resp.status,
-        detail: payload,
-      };
+      void payload;
+      return sanitizeUpstreamError("web_search_failed", resp.status);
     }
     return payload;
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    const aborted = e instanceof Error && e.name === "AbortError";
-    return {
-      error: aborted ? "timeout" : "request_failed",
-      message,
-    };
+    return requestFailure("request_failed", e);
   }
 }
-

@@ -2,8 +2,6 @@ import { z } from "zod";
 
 export const SynesisMcpDepsSchema = z.object({
   plannerBaseUrl: z.string(),
-  criticUrl: z.string(),
-  criticModel: z.string(),
   /** Fallback when no user PAT is present (cluster-internal only). */
   internalServiceToken: z.string().optional(),
 });

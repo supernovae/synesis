@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { runKnowledgeSearch } from "./knowledge.js";
+import { LIMITS, clampInt } from "./tool-utils.js";
 
 type PlanAction = "no-op" | "create" | "read" | "update" | "delete" | string;
 
@@ -22,6 +23,9 @@ function stableId(input: unknown): string {
 
 function parsePlan(raw: unknown): Record<string, unknown> {
   if (typeof raw === "string") {
+    if (raw.length > LIMITS.maxTerraformPlanChars) {
+      throw new Error("terraform_plan_too_large");
+    }
     const parsed = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
   }
@@ -70,7 +74,9 @@ function riskFromActions(actions: string[], metadata: Record<string, unknown>): 
 
 export function analyzeTerraformPlanLocal(args: Record<string, unknown>, fetchedMetadata: Record<string, Record<string, unknown>> = {}): Record<string, unknown> {
   const plan = parsePlan(args.plan_json);
-  const resourceChanges = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
+  const resourceChanges = Array.isArray(plan.resource_changes)
+    ? plan.resource_changes.slice(0, LIMITS.maxTerraformResources)
+    : [];
   const suppliedMetadata = asRecord(args.synpack_metadata);
   const risks: TerraformResourceRisk[] = [];
 
@@ -157,7 +163,9 @@ export async function runTerraformPlanAnalyze(
 ): Promise<unknown> {
   try {
     const plan = parsePlan(args.plan_json);
-    const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
+    const changes = Array.isArray(plan.resource_changes)
+      ? plan.resource_changes.slice(0, LIMITS.maxTerraformResources)
+      : [];
     const resourceTypes = [...new Set(changes.map((c) => String(asRecord(c).type ?? "")).filter(Boolean))].slice(0, 8);
     const fetched: Record<string, Record<string, unknown>> = {};
     for (const type of resourceTypes) {
@@ -168,7 +176,7 @@ export async function runTerraformPlanAnalyze(
           artifact_kind: "provider_schema",
           symbol_fqn: type,
           pack_id: typeof args.pack_id === "string" ? args.pack_id : undefined,
-          top_k: typeof args.top_k === "number" ? args.top_k : 3,
+          top_k: clampInt(args.top_k, 1, LIMITS.maxTopK) ?? 3,
         },
         auth,
         deps,
@@ -181,7 +189,9 @@ export async function runTerraformPlanAnalyze(
     return {
       ok: false,
       error: "terraform_plan_analyze_failed",
-      message: e instanceof Error ? e.message : String(e),
+      message: e instanceof Error && e.message === "terraform_plan_too_large"
+        ? `plan_json must be ${LIMITS.maxTerraformPlanChars} characters or fewer`
+        : "Terraform plan analysis failed",
     };
   }
 }

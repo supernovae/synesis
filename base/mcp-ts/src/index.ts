@@ -28,7 +28,7 @@ function timeWindowMs(timeWindow: string | number): number {
   const match = String(timeWindow).trim().match(/^(\d+)\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?)$/i);
   if (!match) return 60000;
   const amount = Number(match[1]);
-  const unit = match[2].toLowerCase();
+  const unit = (match[2] ?? "m").toLowerCase();
   if (unit === "ms" || unit.startsWith("millisecond")) return amount;
   if (unit === "s" || unit.startsWith("second")) return amount * 1000;
   if (unit === "m" || unit.startsWith("minute")) return amount * 60_000;
@@ -63,12 +63,22 @@ function createRouteRateLimit(options: RateLimitOptions) {
 }
 
 function createDeps(): SynesisMcpDeps {
-  return {
+  const deps: SynesisMcpDeps = {
     plannerBaseUrl: config.SYNESIS_PLANNER_URL,
-    criticUrl: config.SYNESIS_CRITIC_URL,
-    criticModel: config.SYNESIS_CRITIC_MODEL,
-    internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN.trim() || undefined,
   };
+  const internalServiceToken = config.SYNESIS_INTERNAL_SERVICE_TOKEN.trim();
+  if (internalServiceToken) deps.internalServiceToken = internalServiceToken;
+  return deps;
+}
+
+async function checkPlannerReady(): Promise<boolean> {
+  try {
+    const base = config.SYNESIS_PLANNER_URL.replace(/\/$/, "");
+    const response = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function resolvePatAndAuth(
@@ -118,10 +128,22 @@ async function resolvePatAndAuth(
 }
 
 async function enforceFga(patUser: PatUser): Promise<void> {
+  if (config.SYNESIS_MCP_AUTHZ_MODE === "disabled") return;
   if (patUser.userId === "mcp-internal") return;
-  if (!getFgaClient()) return;
+  if (!getFgaClient()) {
+    if (config.SYNESIS_MCP_AUTHZ_MODE === "audit") {
+      app.log.warn({ userId: patUser.userId }, "MCP OpenFGA audit: OpenFGA is not configured");
+      return;
+    }
+    mcpPolicyDenials++;
+    throw new Error("policy_denied");
+  }
   const r = await fgaCheckMcpTools(patUser.userId);
   if (!r.allowed) {
+    if (config.SYNESIS_MCP_AUTHZ_MODE === "audit") {
+      app.log.warn({ userId: patUser.userId, resolution: r.resolution }, "MCP OpenFGA audit: authorization would be denied");
+      return;
+    }
     mcpPolicyDenials++;
     throw new Error("policy_denied");
   }
@@ -212,19 +234,38 @@ app.route({
       async (span) => {
         span.setAttribute("synesis.user_id", patUser.userId);
         span.setAttribute("synesis.org_id", patUser.orgId);
-        const server = new McpServer(
-          { name: "synesis-mcp", version: "0.2.0" },
-          { capabilities: { tools: { listChanged: true } } },
-        );
-        registerSynesisMcpTools(server, mcpAuth, createDeps());
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: undefined,
-        });
-        await server.connect(transport);
-        const parsedBody = req.method === "POST" ? (req.body as unknown) : undefined;
-        await transport.handleRequest(req.raw, reply.raw, parsedBody);
-        await transport.close();
-        await server.close();
+        let server: McpServer | undefined;
+        let transport: StreamableHTTPServerTransport | undefined;
+        try {
+          server = new McpServer(
+            { name: "synesis-mcp", version: "0.2.0" },
+            { capabilities: { tools: { listChanged: true } } },
+          );
+          registerSynesisMcpTools(server, mcpAuth, createDeps());
+          transport = new StreamableHTTPServerTransport({});
+          await server.connect(transport as unknown as Parameters<McpServer["connect"]>[0]);
+          const parsedBody = req.method === "POST" ? (req.body as unknown) : undefined;
+          await transport.handleRequest(req.raw, reply.raw, parsedBody);
+        } catch (error) {
+          req.log.error(
+            {
+              error: error instanceof Error ? error.message : String(error),
+              userId: patUser.userId,
+            },
+            "MCP Streamable HTTP request failed",
+          );
+          if (!reply.raw.headersSent) {
+            reply.raw.statusCode = 500;
+            reply.raw.end(JSON.stringify({ error: "mcp_request_failed", message: "MCP request failed" }));
+          }
+        } finally {
+          await transport?.close().catch((error: unknown) => {
+            req.log.warn({ error: error instanceof Error ? error.message : String(error) }, "MCP transport close failed");
+          });
+          await server?.close().catch((error: unknown) => {
+            req.log.warn({ error: error instanceof Error ? error.message : String(error) }, "MCP server close failed");
+          });
+        }
       },
       { "http.method": req.method ?? "GET" },
     );
@@ -238,9 +279,24 @@ app.get("/health", async () => ({
   path: config.SYNESIS_MCP_HTTP_PATH,
 }));
 
-app.get("/health/readiness", async () => ({
-  status: "ready",
-}));
+app.get("/health/readiness", async (request, reply) => {
+  const adminDbRequired = !config.SYNESIS_MCP_ALLOW_INTERNAL_ONLY;
+  const checks: Record<string, boolean> = {
+    planner_url_configured: Boolean(config.SYNESIS_PLANNER_URL.trim()),
+    planner_reachable: await checkPlannerReady(),
+    admin_db_required: adminDbRequired ? Boolean(config.SYNESIS_ADMIN_DB_URL?.trim()) : true,
+    openfga_configured: config.SYNESIS_MCP_AUTHZ_MODE === "enforce" ? Boolean(getFgaClient()) : true,
+  };
+  if (adminDbRequired && config.SYNESIS_ADMIN_DB_URL?.trim()) {
+    checks.admin_db_reachable = await authResolver.ping();
+  }
+  if (config.SYNESIS_MCP_AUTHZ_MODE === "enforce") {
+    checks.openfga_required = Boolean(checks.openfga_configured);
+  }
+  const ready = Object.values(checks).every(Boolean);
+  if (!ready) return reply.code(503).send({ status: "not_ready", checks });
+  return { status: "ready", checks };
+});
 
 app.get("/health/telemetry", async () => ({
   service: "synesis-mcp-ts",
@@ -248,6 +304,7 @@ app.get("/health/telemetry", async () => ({
   mcp_auth_failures: mcpAuthFailures,
   mcp_policy_denials: mcpPolicyDenials,
   openfga_configured: Boolean(getFgaClient()),
+  authz_mode: config.SYNESIS_MCP_AUTHZ_MODE,
   otel: { configured: Boolean(config.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
 }));
 

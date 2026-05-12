@@ -1,26 +1,27 @@
 import * as z from "zod/v4";
+import { LIMITS } from "./tool-utils.js";
 
 /** Shared search filters (synesis_search and synesis_knowledge_search). */
 export const knowledgeSearchInputSchema = z.object({
-  query: z.string(),
-  top_k: z.number().optional(),
-  pack_id: z.string().optional(),
-  pack_ids: z.array(z.string()).optional(),
-  pack_version: z.string().optional(),
-  pack_partition: z.string().optional(),
-  version: z.string().optional(),
-  commit: z.string().optional(),
-  branch: z.string().optional(),
-  temporal_at: z.string().optional(),
+  query: z.string().min(1).max(LIMITS.queryChars),
+  top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
+  pack_id: z.string().max(LIMITS.shortStringChars).optional(),
+  pack_ids: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxStringArrayItems).optional(),
+  pack_version: z.string().max(LIMITS.shortStringChars).optional(),
+  pack_partition: z.string().max(LIMITS.shortStringChars).optional(),
+  version: z.string().max(LIMITS.shortStringChars).optional(),
+  commit: z.string().max(LIMITS.shortStringChars).optional(),
+  branch: z.string().max(LIMITS.shortStringChars).optional(),
+  temporal_at: z.string().max(LIMITS.shortStringChars).optional(),
   graph_depth: z.number().int().min(0).max(3).optional(),
   edge_types: z
     .array(z.enum(["CONTAINS", "DEFINES", "CALLS", "IMPORTS", "REFERENCES", "OVERRIDES", "IMPLEMENTS", "DOCUMENTS"]))
     .optional(),
-  symbol_kind: z.string().optional(),
-  symbol_fqn: z.string().optional(),
-  package_name: z.string().optional(),
-  perf_tier: z.string().optional(),
-  language: z.string().optional(),
+  symbol_kind: z.string().max(LIMITS.shortStringChars).optional(),
+  symbol_fqn: z.string().max(LIMITS.mediumStringChars).optional(),
+  package_name: z.string().max(LIMITS.shortStringChars).optional(),
+  perf_tier: z.string().max(LIMITS.shortStringChars).optional(),
+  language: z.string().max(LIMITS.shortStringChars).optional(),
   artifact_kind: z
     .enum([
       "code",
@@ -62,20 +63,20 @@ export const knowledgeSearchInputSchema = z.object({
       "package_policy",
     ])
     .optional(),
-  domain: z.string().optional(),
-  corpus_class: z.string().optional(),
-  constraint_kind: z.string().optional(),
-  scope_tags: z.array(z.string()).optional(),
-  tags: z.string().optional(),
-  content_format: z.string().optional(),
-  repo_path: z.string().optional(),
-  module_path: z.string().optional(),
-  symbol_name: z.string().optional(),
+  domain: z.string().max(LIMITS.shortStringChars).optional(),
+  corpus_class: z.string().max(LIMITS.shortStringChars).optional(),
+  constraint_kind: z.string().max(LIMITS.shortStringChars).optional(),
+  scope_tags: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxStringArrayItems).optional(),
+  tags: z.string().max(LIMITS.mediumStringChars).optional(),
+  content_format: z.string().max(LIMITS.shortStringChars).optional(),
+  repo_path: z.string().max(LIMITS.mediumStringChars).optional(),
+  module_path: z.string().max(LIMITS.mediumStringChars).optional(),
+  symbol_name: z.string().max(LIMITS.shortStringChars).optional(),
   has_code: z.boolean().optional(),
-  code_language: z.string().optional(),
-  content_profile: z.string().optional(),
-  constraint_source: z.string().optional(),
-  golden_path_id: z.string().optional(),
+  code_language: z.string().max(LIMITS.shortStringChars).optional(),
+  content_profile: z.string().max(LIMITS.shortStringChars).optional(),
+  constraint_source: z.string().max(LIMITS.shortStringChars).optional(),
+  golden_path_id: z.string().max(LIMITS.shortStringChars).optional(),
 });
 
 export const codeSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
@@ -85,8 +86,8 @@ export const devDocsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifa
 
 export const terraformPlanAnalyzeInputSchema = z.object({
   plan_json: z.unknown(),
-  pack_id: z.string().optional(),
-  top_k: z.number().optional(),
+  pack_id: z.string().max(LIMITS.shortStringChars).optional(),
+  top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
   synpack_metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -95,15 +96,15 @@ export const ecmaEnvironmentCheckInputSchema = z.object({
   tsconfig_json: z.unknown().optional(),
   jsconfig_json: z.unknown().optional(),
   deno_json: z.unknown().optional(),
-  bunfig_toml: z.string().optional(),
-  lockfiles: z.array(z.string()).optional(),
+  bunfig_toml: z.string().max(LIMITS.contextChars).optional(),
+  lockfiles: z.array(z.string().max(LIMITS.mediumStringChars)).max(LIMITS.maxStringArrayItems).optional(),
 });
 
 export const ecmaPackageRiskInputSchema = z.object({
-  dependencies_added: z.array(z.string()).optional(),
-  dependencies_removed: z.array(z.string()).optional(),
-  scripts_added: z.record(z.string(), z.string()).optional(),
-  scripts_changed: z.record(z.string(), z.string()).optional(),
+  dependencies_added: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
+  dependencies_removed: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
+  scripts_added: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
+  scripts_changed: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
   package_json_before: z.unknown().optional(),
   package_json_after: z.unknown().optional(),
 });

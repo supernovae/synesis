@@ -7,6 +7,8 @@
 // Result types
 // ---------------------------------------------------------------------------
 
+import path from "node:path";
+
 export class IntegrityResult {
   constructor(
     public category: string = "path",
@@ -37,12 +39,17 @@ const _SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN\s+[A-Z]+\s+PRIVATE\s+KEY-----/m,
 ];
 
+function maskSecretEvidence(value: string): string {
+  return value.replace(/(=)\s*['"]?[a-zA-Z0-9_\-]{4,}/g, "$1 ***").replace(/-----BEGIN[\s\S]+?PRIVATE KEY-----/g, "-----BEGIN *** PRIVATE KEY-----");
+}
+
 export function checkSecrets(code: string): IntegrityResult | null {
   for (const pat of _SECRET_PATTERNS) {
     const m = code.match(pat);
     if (m) {
       const line = code.slice(0, m.index).split("\n").length;
-      const snippet = m[0].length > 80 ? `${m[0].slice(0, 80)}...` : m[0];
+      const masked = maskSecretEvidence(m[0]);
+      const snippet = masked.length > 80 ? `${masked.slice(0, 80)}...` : masked;
       return new IntegrityResult(
         "secret",
         `Line ~${line}: ${snippet}`,
@@ -400,7 +407,8 @@ export function checkWorkspaceBoundary(
   targetWorkspace: string,
 ): IntegrityResult | null {
   if (!targetWorkspace || !targetWorkspace.trim()) return null;
-  let prefix = targetWorkspace;
+  let prefix = path.posix.normalize(targetWorkspace.replaceAll("\\", "/"));
+  if (!prefix.startsWith("/")) prefix = `/${prefix}`;
   while (prefix.endsWith("/") && prefix.length > 1) {
     prefix = prefix.slice(0, -1);
   }
@@ -418,7 +426,8 @@ export function checkWorkspaceBoundary(
 
   for (const p of paths) {
     if (!p) continue;
-    const norm = p.startsWith("/") ? p : `/${p}`;
+    const normalizedPath = path.posix.normalize(p.replaceAll("\\", "/"));
+    const norm = normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`;
     if (!norm.startsWith(`${prefix}/`) && norm !== prefix) {
       return new IntegrityResult(
         "workspace",

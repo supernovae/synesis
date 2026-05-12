@@ -2,6 +2,7 @@ import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { authHeaders, bearerForUpstream } from "./deps.js";
 import { buildSearchAttributionBody } from "./search-contract.js";
+import { LIMITS, boundedString, boundedStringArray, clampInt, requestFailure, sanitizeUpstreamError } from "./tool-utils.js";
 
 const SEARCH_TIMEOUT_MS = 30_000;
 
@@ -10,15 +11,7 @@ function plannerBase(deps: SynesisMcpDeps): string {
 }
 
 function optionalString(v: unknown): string | undefined {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length > 0 ? s : undefined;
-}
-
-function optionalNumber(v: unknown): number | undefined {
-  if (v === undefined || v === null || v === "") return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
+  return boundedString(v, LIMITS.shortStringChars);
 }
 
 export interface GovernanceSearchDefaults {
@@ -34,17 +27,16 @@ function buildSearchBody(
   governanceDefaults?: GovernanceSearchDefaults,
 ): Record<string, unknown> {
   const query = String(args.query ?? "").trim();
-  const body: Record<string, unknown> = { query };
+  const body: Record<string, unknown> = { query: query.slice(0, LIMITS.queryChars) };
 
-  const topK = optionalNumber(args.top_k);
+  const topK = clampInt(args.top_k, 1, LIMITS.maxTopK);
   if (topK !== undefined) body.top_k = topK;
 
   const packId = optionalString(args.pack_id);
   if (packId !== undefined) body.pack_id = packId;
 
-  if (Array.isArray(args.pack_ids) && args.pack_ids.length > 0) {
-    body.pack_ids = args.pack_ids.map((v) => String(v)).filter((v) => v.trim());
-  }
+  const packIds = boundedStringArray(args.pack_ids);
+  if (packIds) body.pack_ids = packIds;
 
   const packVersion = optionalString(args.pack_version);
   if (packVersion !== undefined) body.pack_version = packVersion;
@@ -64,12 +56,11 @@ function buildSearchBody(
   const temporalAt = optionalString(args.temporal_at);
   if (temporalAt !== undefined) body.temporal_at = temporalAt;
 
-  const graphDepth = optionalNumber(args.graph_depth);
-  if (graphDepth !== undefined) body.graph_depth = Math.min(Math.max(Math.floor(graphDepth), 0), 3);
+  const graphDepth = clampInt(args.graph_depth, 0, LIMITS.maxGraphDepth);
+  if (graphDepth !== undefined) body.graph_depth = graphDepth;
 
-  if (Array.isArray(args.edge_types) && args.edge_types.length > 0) {
-    body.edge_types = args.edge_types.map((v) => String(v).toUpperCase()).filter((v) => v.trim());
-  }
+  const edgeTypes = boundedStringArray(args.edge_types);
+  if (edgeTypes) body.edge_types = edgeTypes.map((v) => v.toUpperCase());
 
   const symbolKind = optionalString(args.symbol_kind);
   if (symbolKind !== undefined) body.symbol_kind = symbolKind;
@@ -98,8 +89,9 @@ function buildSearchBody(
   const constraintKind = optionalString(args.constraint_kind) ?? governanceDefaults?.constraint_kind;
   if (constraintKind !== undefined) body.constraint_kind = constraintKind;
 
-  if (Array.isArray(args.scope_tags) && args.scope_tags.length > 0) {
-    body.scope_tags = args.scope_tags.map((t) => String(t));
+  const scopeTags = boundedStringArray(args.scope_tags);
+  if (scopeTags) {
+    body.scope_tags = scopeTags;
   } else if (governanceDefaults?.scope_tags?.length) {
     body.scope_tags = [...governanceDefaults.scope_tags];
   }
@@ -149,6 +141,9 @@ export async function runKnowledgeSearch(
     if (!query) {
       return { error: "validation_error", message: "query is required" };
     }
+    if (query.length > LIMITS.queryChars) {
+      return { error: "validation_error", message: `query must be ${LIMITS.queryChars} characters or fewer` };
+    }
 
     const body = buildSearchBody(args, auth, fixedArtifactKind);
     const bearer = bearerForUpstream(auth, deps);
@@ -181,20 +176,12 @@ export async function runKnowledgeSearch(
     }
 
     if (!resp.ok) {
-      return {
-        error: "knowledge_search_failed",
-        status: resp.status,
-        detail: payload,
-      };
+      void payload;
+      return sanitizeUpstreamError("knowledge_search_failed", resp.status);
     }
 
     return payload;
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    const aborted = e instanceof Error && e.name === "AbortError";
-    return {
-      error: aborted ? "timeout" : "request_failed",
-      message,
-    };
+    return requestFailure("request_failed", e);
   }
 }

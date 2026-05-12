@@ -29,8 +29,25 @@ spec:
               value: "/mcp"
             - name: SYNESIS_PLANNER_URL
               value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
-            - name: SYNESIS_CRITIC_URL
-              value: "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_MCP_AUTHZ_MODE
+              value: "enforce"
+            - name: SYNESIS_OPENFGA_API_URL
+              value: "http://openfga.synesis-authz.svc.cluster.local:8080"
+            - name: SYNESIS_OPENFGA_STORE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: store-id
+            - name: SYNESIS_OPENFGA_MODEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: model-id
+            - name: SYNESIS_OPENFGA_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-client-config
+                  key: auth-token
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

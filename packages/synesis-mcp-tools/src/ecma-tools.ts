@@ -1,5 +1,6 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
+import { LIMITS } from "./tool-utils.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -54,7 +55,9 @@ export function analyzeEcmaEnvironmentLocal(args: Record<string, unknown>): Json
   const tsconfig = objectFromUnknown(args.tsconfig_json);
   const jsconfig = objectFromUnknown(args.jsconfig_json);
   const deno = objectFromUnknown(args.deno_json);
-  const lockfiles = Array.isArray(args.lockfiles) ? args.lockfiles.map((item) => String(item)) : [];
+  const lockfiles = Array.isArray(args.lockfiles)
+    ? args.lockfiles.slice(0, LIMITS.maxStringArrayItems).map((item) => String(item).slice(0, LIMITS.mediumStringChars))
+    : [];
   const compilerOptions = nestedObject(tsconfig, "compilerOptions");
   const jsCompilerOptions = nestedObject(jsconfig, "compilerOptions");
   const engines = nestedObject(pkg, "engines");
@@ -128,8 +131,10 @@ function changedDepsFromPackageJson(before: unknown, after: unknown): string[] {
 
 export function analyzeEcmaPackageRiskLocal(args: Record<string, unknown>): JsonRecord {
   const dependenciesAdded = new Set<string>([
-    ...(Array.isArray(args.dependencies_added) ? args.dependencies_added.map((item) => String(item)) : []),
-    ...changedDepsFromPackageJson(args.package_json_before, args.package_json_after),
+    ...(Array.isArray(args.dependencies_added)
+      ? args.dependencies_added.slice(0, LIMITS.maxPackageItems).map((item) => String(item).slice(0, LIMITS.shortStringChars))
+      : []),
+    ...changedDepsFromPackageJson(args.package_json_before, args.package_json_after).slice(0, LIMITS.maxPackageItems),
   ]);
   const scriptsAdded = objectFromUnknown(args.scripts_added);
   const scriptsChanged = objectFromUnknown(args.scripts_changed);
@@ -142,13 +147,13 @@ export function analyzeEcmaPackageRiskLocal(args: Record<string, unknown>): Json
     ["underscore", "Legacy utility package; prefer modern standard APIs."],
   ]);
 
-  for (const [name, script] of Object.entries({ ...scriptsAdded, ...scriptsChanged })) {
+  for (const [name, script] of Object.entries({ ...scriptsAdded, ...scriptsChanged }).slice(0, LIMITS.maxStringArrayItems)) {
     if (highRiskScripts.has(name)) {
       risks.push({
         kind: "lifecycle_script",
         name,
         core_safety: 0,
-        message: `Package lifecycle script '${name}' can run code during install/publish: ${String(script)}`,
+        message: `Package lifecycle script '${name}' can run code during install/publish: ${String(script).slice(0, LIMITS.mediumStringChars)}`,
       });
     }
   }

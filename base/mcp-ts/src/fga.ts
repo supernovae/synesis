@@ -15,14 +15,15 @@ export function initFgaClient(config: McpTsConfig): void {
 
   if (!apiUrl || !storeId) return;
 
-  fgaClient = new OpenFgaClient({
+  const clientConfig: ConstructorParameters<typeof OpenFgaClient>[0] = {
     apiUrl,
     storeId,
-    authorizationModelId: modelId || undefined,
-    credentials: authToken
-      ? { method: CredentialsMethod.ApiToken, config: { token: authToken } }
-      : undefined,
-  });
+  };
+  if (modelId) clientConfig.authorizationModelId = modelId;
+  if (authToken) {
+    clientConfig.credentials = { method: CredentialsMethod.ApiToken, config: { token: authToken } };
+  }
+  fgaClient = new OpenFgaClient(clientConfig);
 }
 
 export async function fgaCheckMcpTools(userId: string): Promise<{ allowed: boolean; resolution?: string }> {
@@ -35,10 +36,11 @@ export async function fgaCheckMcpTools(userId: string): Promise<{ allowed: boole
       relation: "can_invoke",
       object: "yarn_endpoint:completions",
     });
-    return {
+    const result: { allowed: boolean; resolution?: string } = {
       allowed: response.allowed ?? false,
-      resolution: response.resolution ?? undefined,
     };
+    if (response.resolution) result.resolution = response.resolution;
+    return result;
   } catch (err) {
     return {
       allowed: false,
