@@ -81,7 +81,6 @@ dev = [
     "vulture>=2.15",
 ]
 
-# Vulture: use explicit paths in scripts/check-dead-code.sh.
 [tool.vulture]
 min_confidence = 100
 
