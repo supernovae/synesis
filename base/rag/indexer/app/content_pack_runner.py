@@ -14,7 +14,7 @@ from synesis_telemetry import get_logger
 
 from .nornic_writer import NORNIC_URI
 from .queue_runner import _DEFAULT_ADMIN_URL
-from .synpack import load_synpack
+from .synpack import load_synpack, validate_synpack
 
 logger = get_logger("synesis.indexer.content_packs")
 
@@ -22,6 +22,13 @@ _MAX_DOWNLOAD_BYTES_RAW = os.getenv("SYNESIS_CONTENT_PACK_MAX_BYTES", "").strip(
 _MAX_DOWNLOAD_BYTES = int(_MAX_DOWNLOAD_BYTES_RAW) if _MAX_DOWNLOAD_BYTES_RAW.isdigit() else 2 * 1024 * 1024 * 1024
 _MAX_JOBS_RAW = os.getenv("SYNESIS_CONTENT_PACK_MAX_JOBS", "").strip()
 _MAX_JOBS = int(_MAX_JOBS_RAW) if _MAX_JOBS_RAW.isdigit() else 0
+_ALLOW_SLOW_BOLT_LARGE_PACKS = os.getenv("SYNESIS_CONTENT_PACK_ALLOW_SLOW_BOLT", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+_LARGE_PACK_NODE_THRESHOLD_RAW = os.getenv("SYNESIS_CONTENT_PACK_LARGE_NODE_THRESHOLD", "").strip()
+_LARGE_PACK_NODE_THRESHOLD = int(_LARGE_PACK_NODE_THRESHOLD_RAW) if _LARGE_PACK_NODE_THRESHOLD_RAW.isdigit() else 1000
 
 
 class ContentPackClient:
@@ -103,6 +110,41 @@ def _download_pack(job: dict[str, Any]) -> Path:
         raise
 
 
+def _catalog_requires_bulk(job: dict[str, Any]) -> bool:
+    result = job.get("result")
+    catalog = result.get("catalog") if isinstance(result, dict) else None
+    if not isinstance(catalog, dict):
+        return False
+    if bool(catalog.get("requires_bulk_import")):
+        return True
+    try:
+        return int(catalog.get("node_count") or 0) >= _LARGE_PACK_NODE_THRESHOLD
+    except (TypeError, ValueError):
+        return False
+
+
+def _manifest_requires_bulk(pack_path: Path) -> bool:
+    manifest = validate_synpack(pack_path)
+    if bool(manifest.get("requires_bulk_import")):
+        return True
+    try:
+        return int(manifest.get("chunk_count") or manifest.get("node_count") or manifest.get("row_count") or 0) >= (
+            _LARGE_PACK_NODE_THRESHOLD
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _ensure_not_slow_large_pack(job: dict[str, Any], pack_path: Path) -> None:
+    if _ALLOW_SLOW_BOLT_LARGE_PACKS:
+        return
+    if _catalog_requires_bulk(job) or _manifest_requires_bulk(pack_path):
+        raise RuntimeError(
+            "content pack requires bulk import; refusing slow Bolt install path "
+            "(set SYNESIS_CONTENT_PACK_ALLOW_SLOW_BOLT=true only for one-off debugging)"
+        )
+
+
 def run_content_pack_installs(
     admin_url: str = "",
     *,
@@ -137,6 +179,7 @@ def run_content_pack_installs(
             if dry_run:
                 result = {"ok": True, "pack_id": pack_id, "dry_run": True}
             else:
+                _ensure_not_slow_large_pack(job, pack_path)
                 result = load_synpack(
                     pack_path,
                     nornic_uri=nornic_uri or NORNIC_URI,

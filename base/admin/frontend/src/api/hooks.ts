@@ -951,6 +951,10 @@ export interface ContentPackEntry {
   size_bytes: number;
   domain: string;
   language: string;
+  install_profile?: string;
+  node_count?: number;
+  edge_count?: number;
+  requires_bulk_import?: boolean;
   tags: string[];
   created_at?: string;
   install_status?: "installed" | "update_available" | "not_installed";

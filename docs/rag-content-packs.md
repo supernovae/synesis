@@ -24,6 +24,10 @@ Synesis defaults to the root catalog on `https://r2.kybern.dev`:
       "size_bytes": 104857600,
       "domain": "go",
       "language": "go",
+      "install_profile": "nornicdb-v2-typed-graph",
+      "node_count": 14533,
+      "edge_count": 115221,
+      "requires_bulk_import": true,
       "tags": ["language-pack", "stdlib"]
     }
   ]
@@ -40,3 +44,14 @@ Admin stores the catalog URL and creates install jobs. The Helm-managed
 `synesis-indexer-content-packs` CronJob claims pending jobs, downloads the
 archive, validates it with the existing SynPack loader, and writes the content
 graph nodes and edges into NornicDB.
+
+SynPack v2 archives keep the legacy `metadata.jsonl` and `edges.jsonl` files
+for compatibility, and also include typed `nodes/`, `edges/`, `vectors/`,
+`enrichment/`, and `quality/` payloads. Large packs should be cataloged with
+`requires_bulk_import: true` so Admin can avoid sending them through the slow
+row-by-row Bolt path.
+
+The content-pack runner refuses large or `requires_bulk_import` packs on the
+legacy Bolt loader unless `SYNESIS_CONTENT_PACK_ALLOW_SLOW_BOLT=true` is set for
+one-off debugging. This prevents accidental multi-hour installs while the bulk
+import backend is being enabled.

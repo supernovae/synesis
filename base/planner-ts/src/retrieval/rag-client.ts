@@ -56,7 +56,22 @@ type GraphRelationshipLike = {
   properties?: Record<string, unknown>;
 };
 
-const DEFAULT_EDGE_TYPES = ["CONTAINS", "DEFINES", "CALLS", "IMPORTS", "REFERENCES", "OVERRIDES", "IMPLEMENTS", "DOCUMENTS"];
+const DEFAULT_EDGE_TYPES = [
+  "CONTAINS",
+  "DEFINES",
+  "CALLS",
+  "IMPORTS",
+  "REFERENCES",
+  "OVERRIDES",
+  "IMPLEMENTS",
+  "DOCUMENTS",
+  "HAS_CONSTRAINT",
+  "HAS_EXAMPLE",
+  "HAS_PATTERN",
+  "APPLIES_TO",
+  "DEPRECATED_BY",
+  "RELATED_TO",
+];
 const MAX_GRAPH_DEPTH = 3;
 
 let cachedDriverKey = "";

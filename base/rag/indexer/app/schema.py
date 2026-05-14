@@ -20,6 +20,7 @@ GRAPH_NODE_LABELS = (
     "Pack",
     "Document",
     "File",
+    "Module",
     "Chunk",
     "Symbol",
     "Function",
@@ -27,6 +28,10 @@ GRAPH_NODE_LABELS = (
     "Method",
     "Resource",
     "Concept",
+    "Pattern",
+    "Constraint",
+    "Example",
+    "ExternalRef",
     "Version",
 )
 
@@ -39,6 +44,12 @@ GRAPH_EDGE_TYPES = (
     "OVERRIDES",
     "IMPLEMENTS",
     "DOCUMENTS",
+    "HAS_CONSTRAINT",
+    "HAS_EXAMPLE",
+    "HAS_PATTERN",
+    "APPLIES_TO",
+    "DEPRECATED_BY",
+    "RELATED_TO",
     "VALID_IN",
     "DERIVED_FROM",
 )

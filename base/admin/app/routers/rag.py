@@ -185,6 +185,11 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
         size_bytes = max(0, int(raw.get("size_bytes", 0) or 0))
     except Exception:
         return None, f"packs[{index}].size_bytes must be an integer"
+    try:
+        node_count = max(0, int(raw.get("node_count", 0) or 0))
+        edge_count = max(0, int(raw.get("edge_count", 0) or 0))
+    except Exception:
+        return None, f"packs[{index}].node_count and edge_count must be integers"
     tags = raw.get("tags")
     if not isinstance(tags, list):
         tags = []
@@ -198,6 +203,10 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
         "size_bytes": size_bytes,
         "domain": str(raw.get("domain") or "")[:128],
         "language": str(raw.get("language") or "")[:64],
+        "install_profile": str(raw.get("install_profile") or "")[:128],
+        "node_count": node_count,
+        "edge_count": edge_count,
+        "requires_bulk_import": bool(raw.get("requires_bulk_import", False)),
         "tags": [str(t).strip()[:64] for t in tags if str(t).strip()][:32],
         "created_at": raw.get("created_at") or "",
         "requires_synesis_version": str(raw.get("requires_synesis_version") or "")[:64],
@@ -444,6 +453,14 @@ async def install_content_pack(
             replace_existing=body.replace,
             status="pending",
             requested_by=_user.email or _user.username or _user.user_id,
+            result={
+                "catalog": {
+                    "install_profile": selected.get("install_profile") or "",
+                    "node_count": selected.get("node_count") or 0,
+                    "edge_count": selected.get("edge_count") or 0,
+                    "requires_bulk_import": bool(selected.get("requires_bulk_import")),
+                }
+            },
             created_at=now,
         )
         session.add(job)

@@ -37,7 +37,14 @@ from .injection_scan import scan_chunk_text_detailed
 from .nornic_writer import chunk_id_hash
 from .pipeline import _code_chunk_metrics
 from .schema import CORPUS_VERSION, EMBEDDING_DIM, EMBEDDING_PROFILE, SCHEMA_VERSION, catalog_entity
-from .synpack import DEFAULT_PACK_MODEL, SYNPACK_FORMAT_VERSION, SynPackError, _sanitize_pack_id, _sha256_file
+from .synpack import (
+    DEFAULT_PACK_MODEL,
+    SYNPACK_FORMAT_VERSION,
+    SynPackError,
+    _sanitize_pack_id,
+    _sha256_file,
+    materialize_synpack_v2,
+)
 
 GO_TAG_RE = re.compile(r"^go(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 RUST_TAG_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
@@ -59,8 +66,23 @@ FRONTIER_ENRICHMENT_SYSTEM_PROMPT = (
     "Analyze the chunk deeply for agentic retrieval, operational hazards, version constraints, lifecycle, "
     "performance, safety, and human-facing implementation guidance. Ground every field in the provided source. "
     "If the chunk is thin, ambiguous, generated, or noisy, say so in warnings instead of inventing facts. "
-    "Return exactly one JSON object matching the requested schema and no surrounding prose."
+    "Return exactly one JSON object matching the requested schema and no surrounding prose. "
+    "Prefer structured arrays and short source-grounded strings that can become graph nodes, retrieval facets, "
+    "and compact MCP/tool guidance for smaller coding models."
 )
+SYNPACK_V2_ENRICHMENT_APPEND = """
+
+SynPack v2 enrichment requirements:
+- Include compact, source-grounded values for these optional fields when evidenced:
+  task_intents, query_aliases, api_contract, version_scope, performance_notes,
+  anti_patterns, canonical_examples, verification_hints, related_symbols,
+  agent_actions, confidence, evidence_spans.
+- task_intents, query_aliases, anti_patterns, canonical_examples,
+  verification_hints, related_symbols, agent_actions, and evidence_spans should be JSON arrays.
+- api_contract, version_scope, performance_notes, confidence may be strings or objects.
+- Use empty arrays or "unknown" when the source does not support a field.
+- Do not invent relationships. Put uncertain relationships in related_symbols with confidence and evidence span.
+"""
 GO_PROMPT_ID = "go_agentic_architect_v1"
 RUST_PROMPT_ID = "rust_agentic_architect_2024_v1"
 QUARKUS_PROMPT_ID = "quarkus_cloud_native_architect_v1"
@@ -74,6 +96,22 @@ REQUIRED_UNIVERSAL_ENRICHMENT_FIELDS = {
     "safety_contract",
     "lifecycle_model",
 }
+SYNPACK_V2_ARRAY_ENRICHMENT_FIELDS = (
+    "task_intents",
+    "query_aliases",
+    "anti_patterns",
+    "canonical_examples",
+    "verification_hints",
+    "related_symbols",
+    "agent_actions",
+    "evidence_spans",
+)
+SYNPACK_V2_SCALAR_ENRICHMENT_FIELDS = (
+    "api_contract",
+    "version_scope",
+    "performance_notes",
+    "confidence",
+)
 DOC_LIKE_FORMATS = {"", "md", "markdown", "html", "htm", "rst", "adoc", "txt", "text"}
 MARKDOWN_FORMATS = {"md", "markdown"}
 HTML_FORMATS = {"html", "htm"}
@@ -2830,10 +2868,10 @@ def _source_quality_metadata(chunk: LanguageChunk) -> dict[str, Any]:
 
 
 def _attach_source_quality(enrichment: dict[str, Any], chunk: LanguageChunk) -> dict[str, Any]:
+    out = _ensure_v2_enrichment_defaults(enrichment)
     quality = _source_quality_metadata(chunk)
     if not quality:
-        return enrichment
-    out = dict(enrichment)
+        return out
     out.setdefault("source_quality", quality)
     if quality.get("source_quality_status") == "warn":
         warnings = out.get("hidden_warnings")
@@ -2843,6 +2881,19 @@ def _attach_source_quality(enrichment: dict[str, Any], chunk: LanguageChunk) -> 
         if reason and reason not in warnings:
             warnings.append(reason)
         out["hidden_warnings"] = warnings
+    return out
+
+
+def _ensure_v2_enrichment_defaults(enrichment: dict[str, Any]) -> dict[str, Any]:
+    out = dict(enrichment)
+    for key in SYNPACK_V2_ARRAY_ENRICHMENT_FIELDS:
+        value = out.get(key)
+        if value is None or value == "":
+            out[key] = []
+        elif not isinstance(value, list):
+            out[key] = [value]
+    for key in SYNPACK_V2_SCALAR_ENRICHMENT_FIELDS:
+        out.setdefault(key, "unknown")
     return out
 
 
@@ -3146,6 +3197,7 @@ class OpenAICompatibleEnrichmentClient:
             "Preserve official terminology, identifiers, APIs, package names, and error strings exactly as written. "
             "Do not translate code identifiers or infer facts from another language edition."
         )
+        prompt = f"{prompt}{SYNPACK_V2_ENRICHMENT_APPEND}"
         return prompt_id, prompt
 
     def _headers(self) -> dict[str, str]:
@@ -3811,6 +3863,20 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
         f.flush()
 
 
+def _write_synpack_archive_payload(zf: zipfile.ZipFile, root: Path) -> None:
+    for name in ("manifest.json", "metadata.jsonl", "nodes.jsonl", "edges.jsonl", "sources.lock.json"):
+        path = root / name
+        if path.exists():
+            zf.write(path, name)
+    for dirname in ("nodes", "edges", "vectors", "enrichment", "quality"):
+        directory = root / dirname
+        if not directory.exists():
+            continue
+        for path in sorted(directory.rglob("*")):
+            if path.is_file():
+                zf.write(path, str(path.relative_to(root)))
+
+
 def _completed_enrichment_map(work_dir: Path) -> dict[str, dict[str, Any]]:
     completed: dict[str, dict[str, Any]] = {}
     for record in _read_jsonl(work_dir / "enrichments" / "completed.jsonl"):
@@ -4181,28 +4247,45 @@ def finalize_staged_language_pack(
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     edges_path = final_dir / "edges.jsonl"
+    edges = derive_graph_edges(rows, include_structural_edges=True)
     with edges_path.open("w", encoding="utf-8") as f:
-        for edge in derive_graph_edges(rows, include_structural_edges=True):
+        for edge in edges:
             f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
     sources_lock_path = work / "sources.lock.json"
+    final_sources_lock_path = final_dir / "sources.lock.json"
+    shutil.copyfile(sources_lock_path, final_sources_lock_path)
     final_manifest = {
         **{key: value for key, value in manifest.items() if key not in {"staged", "pack_config", "prompt_variable"}},
         "enrichment": {**manifest["enrichment"], "usage": enrichment_usage, "skipped": False},
         "created_at": int(time.time()),
         "row_count": len(rows),
-        "sources_lock_sha256": _sha256_file(sources_lock_path),
+        "node_count": len(rows),
+        "edge_count": len(edges),
+        "requires_bulk_import": len(rows) >= 1000,
+        "install_profile": "nornicdb-v2-typed-graph",
+        "sources_lock_sha256": _sha256_file(final_sources_lock_path),
         "metadata_sha256": _sha256_file(rows_path),
         "edges_sha256": _sha256_file(edges_path),
     }
+    quality_report = materialize_synpack_v2(rows, edges, final_manifest, final_dir)
+    final_manifest.update(
+        {
+            "node_count": quality_report["node_count"],
+            "chunk_count": quality_report["chunk_count"],
+            "edge_count": quality_report["edge_count"],
+            "node_counts_by_kind": quality_report["node_counts_by_kind"],
+            "edge_counts_by_type": quality_report["edge_counts_by_type"],
+            "dangling_edge_count": quality_report["dangling_edge_count"],
+            "external_ref_count": quality_report["external_ref_count"],
+            "quality_report_sha256": _sha256_file(final_dir / "quality" / "report.json"),
+        }
+    )
     manifest_path = final_dir / "manifest.json"
     manifest_path.write_text(json.dumps(final_manifest, indent=2, sort_keys=True), encoding="utf-8")
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(manifest_path, "manifest.json")
-        zf.write(rows_path, "metadata.jsonl")
-        zf.write(edges_path, "edges.jsonl")
-        zf.write(sources_lock_path, "sources.lock.json")
+        _write_synpack_archive_payload(zf, final_dir)
     return {
         "ok": True,
         "phase": "finalize",
@@ -4444,8 +4527,9 @@ def build_language_pack(
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
         edges_path = tmp / "edges.jsonl"
+        edges = derive_graph_edges(rows, include_structural_edges=True)
         with edges_path.open("w", encoding="utf-8") as f:
-            for edge in derive_graph_edges(rows, include_structural_edges=True):
+            for edge in edges:
                 f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
 
         sources_lock["row_count"] = len(rows)
@@ -4506,19 +4590,33 @@ def build_language_pack(
             "source_quality": source_quality_report,
             "created_at": int(time.time()),
             "row_count": len(rows),
+            "node_count": len(rows),
+            "edge_count": len(edges),
+            "requires_bulk_import": len(rows) >= 1000,
+            "install_profile": "nornicdb-v2-typed-graph",
             "sources_lock_sha256": _sha256_file(sources_lock_path),
             "metadata_sha256": _sha256_file(rows_path),
             "edges_sha256": _sha256_file(edges_path),
         }
+        quality_report = materialize_synpack_v2(rows, edges, manifest, tmp)
+        manifest.update(
+            {
+                "node_count": quality_report["node_count"],
+                "chunk_count": quality_report["chunk_count"],
+                "edge_count": quality_report["edge_count"],
+                "node_counts_by_kind": quality_report["node_counts_by_kind"],
+                "edge_counts_by_type": quality_report["edge_counts_by_type"],
+                "dangling_edge_count": quality_report["dangling_edge_count"],
+                "external_ref_count": quality_report["external_ref_count"],
+                "quality_report_sha256": _sha256_file(tmp / "quality" / "report.json"),
+            }
+        )
         manifest_path = tmp / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.write(manifest_path, "manifest.json")
-            zf.write(rows_path, "metadata.jsonl")
-            zf.write(edges_path, "edges.jsonl")
-            zf.write(sources_lock_path, "sources.lock.json")
+            _write_synpack_archive_payload(zf, tmp)
         return {
             "ok": True,
             "pack_id": pack_id,

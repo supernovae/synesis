@@ -11,12 +11,17 @@ A pack is a ZIP archive containing:
 
 - `manifest.json` — pack identity, source version, graph schema version,
   embedding model/profile, checksums, build metadata, and language/domain.
-- `nodes.jsonl` — one graph node per line.
-- `edges.jsonl` — deterministic or validated graph relationships.
+- `metadata.jsonl` or `nodes.jsonl` — legacy chunk rows for compatibility.
 - `sources.lock.json` — source repositories, tags, URLs, checksums, and fetch
   settings.
-- optional `vectors.npy` — dense embeddings matching `nodes.jsonl` order.
-- optional `graph.stats.json` and `enrichment.jsonl`.
+- `nodes/*.jsonl` — typed graph nodes for NornicDB-native import.
+- `edges/*.jsonl` — typed deterministic or validated relationships.
+- `vectors/chunks.f32` and `vectors/index.json` — dense chunk embeddings.
+- `enrichment/enrichment.jsonl` — source-grounded enrichment payloads.
+- `quality/report.json` — pack validation and utility metrics.
+
+The legacy flat files are kept so older loaders still work. New importers
+should prefer the typed v2 files.
 
 Required node fields:
 
@@ -54,8 +59,31 @@ Supported edge types:
 - `OVERRIDES`
 - `IMPLEMENTS`
 - `DOCUMENTS`
+- `HAS_CONSTRAINT`
+- `HAS_EXAMPLE`
+- `HAS_PATTERN`
+- `APPLIES_TO`
+- `DEPRECATED_BY`
+- `RELATED_TO`
 - `VALID_IN`
 - `DERIVED_FROM`
+
+Typed node kinds:
+
+- `Document`
+- `Package`
+- `Module`
+- `Chunk`
+- `Symbol`
+- `Concept`
+- `Pattern`
+- `Constraint`
+- `Example`
+- `ExternalRef`
+
+First-class graph edges must not dangle. Unresolved imports, calls, or
+out-of-pack symbols are represented as `ExternalRef` nodes so graph traversal
+stays complete and debuggable.
 
 ## Retrieval Model
 
@@ -73,6 +101,42 @@ Deterministic extractors own authoritative relationships. Enrichment prompts
 may emit summaries, lifecycle notes, usage patterns, safety contracts, and
 candidate edges with confidence/source spans. Candidate edges are stored as
 metadata unless validated by deterministic extraction.
+
+SynPack v2 enrichment also asks for agent-ready fields that can be surfaced to
+small models and MCP callers without shipping large markdown chunks:
+
+- `task_intents`
+- `query_aliases`
+- `api_contract`
+- `version_scope`
+- `performance_notes`
+- `anti_patterns`
+- `canonical_examples`
+- `verification_hints`
+- `related_symbols`
+- `agent_actions`
+- `confidence`
+- `evidence_spans`
+
+The final pack materializer turns these into `Concept`, `Pattern`,
+`Constraint`, and `Example` nodes plus relationship edges. This is the main
+advantage over markdown-only retrieval systems: the pack can return compact
+agent cards, safety contracts, navigation hints, and source-backed graph
+neighbors from the same artifact.
+
+## Quality Gates
+
+Finalized v2 packs include quality metrics in `quality/report.json` and
+manifest summaries:
+
+- node and edge counts by kind/type
+- enrichment coverage and fallback count
+- unresolved edge count
+- external reference count
+- dangling edge count after materialization
+
+Large packs should be imported through a bulk strategy. The manifest marks
+`requires_bulk_import` when the pack exceeds the small-pack threshold.
 
 DeepSeek V4 Pro is the default pack enrichment model. The builder sends
 `X-DeepSeek-Think-Mode: Max`, uses `deepseek-v4-pro`, sets `reasoning_effort`

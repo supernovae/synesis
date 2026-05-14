@@ -16,6 +16,11 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
 }
 
+function formatCount(value?: number) {
+  if (!value) return "0";
+  return new Intl.NumberFormat().format(value);
+}
+
 function statusTone(status: string) {
   if (status === "installed") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200";
   if (status === "update_available") return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200";
@@ -133,6 +138,20 @@ export default function ContentPacks() {
                         {tag}
                       </span>
                     ))}
+                    {pack.install_profile && (
+                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">
+                        {pack.install_profile}
+                      </span>
+                    )}
+                    {pack.requires_bulk_import && (
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+                        bulk import
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <div>{formatCount(pack.node_count)} nodes</div>
+                    <div>{formatCount(pack.edge_count)} edges</div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">

@@ -783,7 +783,20 @@ def test_build_language_pack_from_go_fixture(monkeypatch: pytest.MonkeyPatch, tm
     assert manifest["schema_version"] == SCHEMA_VERSION
     with zipfile.ZipFile(out) as zf:
         assert "edges.jsonl" in zf.namelist()
+        assert "nodes/chunks.jsonl" in zf.namelist()
+        assert "nodes/documents.jsonl" in zf.namelist()
+        assert "nodes/packages.jsonl" in zf.namelist()
+        assert "nodes/modules.jsonl" in zf.namelist()
+        assert "nodes/symbols.jsonl" in zf.namelist()
+        assert "nodes/external_refs.jsonl" in zf.namelist()
+        assert "vectors/chunks.f32" in zf.namelist()
+        assert "vectors/index.json" in zf.namelist()
+        assert "enrichment/enrichment.jsonl" in zf.namelist()
+        assert "quality/report.json" in zf.namelist()
     assert manifest["source_version"] == "go1.26.2"
+    assert manifest["install_profile"] == "nornicdb-v2-typed-graph"
+    assert manifest["node_counts_by_kind"]["Chunk"] == manifest["row_count"]
+    assert manifest["dangling_edge_count"] == 0
     assert manifest["doc_language"] == "en"
     assert manifest["supported_doc_languages"] == ["en"]
     assert manifest["enrichment"]["prompt_id"] == "go_agentic_architect_v1"
@@ -861,8 +874,14 @@ def test_staged_language_pack_resume_and_finalize(monkeypatch: pytest.MonkeyPatc
     }
     manifest = validate_synpack(out)
     assert manifest["row_count"] == prepared["chunks"]
+    assert manifest["install_profile"] == "nornicdb-v2-typed-graph"
+    assert manifest["node_counts_by_kind"]["Chunk"] == prepared["chunks"]
+    assert manifest["dangling_edge_count"] == 0
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+        quality = json.loads(zf.read("quality/report.json"))
+        assert quality["chunk_count"] == prepared["chunks"]
+        assert "nodes/chunks.jsonl" in zf.namelist()
     assert len(rows) == prepared["chunks"]
 
 

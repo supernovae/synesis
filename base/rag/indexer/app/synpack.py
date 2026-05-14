@@ -18,9 +18,11 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import tempfile
 import time
 import zipfile
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -52,6 +54,20 @@ logger = get_logger("synesis.indexer.synpack")
 SYNPACK_FORMAT_VERSION = "2.0"
 DEFAULT_PACK_MODEL = EMBEDDING_MODEL
 DELETE_PARTIAL_IDS = os.getenv("SYNESIS_NORNIC_DELETE_PARTIAL_IDS", "").strip().lower() in {"1", "true", "yes"}
+V2_CHUNKS_PATH = "nodes/chunks.jsonl"
+V2_DOCUMENTS_PATH = "nodes/documents.jsonl"
+V2_PACKAGES_PATH = "nodes/packages.jsonl"
+V2_MODULES_PATH = "nodes/modules.jsonl"
+V2_SYMBOLS_PATH = "nodes/symbols.jsonl"
+V2_CONCEPTS_PATH = "nodes/concepts.jsonl"
+V2_PATTERNS_PATH = "nodes/patterns.jsonl"
+V2_CONSTRAINTS_PATH = "nodes/constraints.jsonl"
+V2_EXAMPLES_PATH = "nodes/examples.jsonl"
+V2_EXTERNAL_REFS_PATH = "nodes/external_refs.jsonl"
+V2_ENRICHMENT_PATH = "enrichment/enrichment.jsonl"
+V2_QUALITY_PATH = "quality/report.json"
+V2_VECTOR_INDEX_PATH = "vectors/index.json"
+V2_VECTOR_BINARY_PATH = "vectors/chunks.f32"
 
 
 class SynPackError(ValueError):
@@ -124,8 +140,8 @@ def validate_synpack(pack_path: str | Path) -> dict[str, Any]:
     manifest = validate_manifest(read_manifest(path))
     with zipfile.ZipFile(path) as zf:
         names = set(zf.namelist())
-    if "nodes.jsonl" not in names and "metadata.jsonl" not in names:
-        raise SynPackError("nodes.jsonl missing from content pack")
+    if "nodes.jsonl" not in names and "metadata.jsonl" not in names and V2_CHUNKS_PATH not in names:
+        raise SynPackError("nodes.jsonl, metadata.jsonl, or nodes/chunks.jsonl missing from content pack")
     return manifest
 
 
@@ -146,16 +162,416 @@ def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
 
 def _load_vectors_if_present(root: Path) -> list[list[float]] | None:
     vectors_path = root / "vectors.npy"
-    if not vectors_path.exists():
+    if vectors_path.exists():
+        try:
+            import numpy as np  # type: ignore
+        except Exception as exc:
+            raise SynPackError("vectors.npy requires numpy to be installed") from exc
+        arr = np.load(vectors_path)
+        if len(arr.shape) != 2 or int(arr.shape[1]) != EMBEDDING_DIM:
+            raise SynPackError(f"vectors.npy must have shape [N,{EMBEDDING_DIM}]")
+        return arr.astype("float32").tolist()
+
+    binary_path = root / V2_VECTOR_BINARY_PATH
+    index_path = root / V2_VECTOR_INDEX_PATH
+    if not binary_path.exists() or not index_path.exists():
         return None
-    try:
-        import numpy as np  # type: ignore
-    except Exception as exc:
-        raise SynPackError("vectors.npy requires numpy to be installed") from exc
-    arr = np.load(vectors_path)
-    if len(arr.shape) != 2 or int(arr.shape[1]) != EMBEDDING_DIM:
-        raise SynPackError(f"vectors.npy must have shape [N,{EMBEDDING_DIM}]")
-    return arr.astype("float32").tolist()
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    count = int(index.get("count", 0) or 0)
+    dims = int(index.get("dimensions", 0) or 0)
+    if dims != EMBEDDING_DIM:
+        raise SynPackError(f"vectors/chunks.f32 dimension mismatch: got {dims}, expected {EMBEDDING_DIM}")
+    raw = binary_path.read_bytes()
+    expected = count * dims * 4
+    if len(raw) != expected:
+        raise SynPackError(f"vectors/chunks.f32 byte size mismatch: got {len(raw)}, expected {expected}")
+    vectors: list[list[float]] = []
+    offset = 0
+    for _ in range(count):
+        end = offset + dims * 4
+        vectors.append(list(struct.unpack(f"<{dims}f", raw[offset:end])))
+        offset = end
+    return vectors
+
+
+def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            count += 1
+    return count
+
+
+def _parse_agent_enrichment(row: dict[str, Any]) -> dict[str, Any]:
+    raw = row.get("agent_enrichment_json")
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _short_hash(*parts: Any) -> str:
+    payload = "|".join(str(part) for part in parts)
+    return hashlib.sha256(payload.encode()).hexdigest()[:24]
+
+
+def _node_base(row: dict[str, Any], *, node_id: str, kind: str, name: str = "") -> dict[str, Any]:
+    return {
+        "id": node_id[:192],
+        "kind": kind,
+        "name": str(name or node_id)[:256],
+        "pack": str(row.get("pack") or row.get("pack_id") or "")[:96],
+        "pack_id": str(row.get("pack_id") or row.get("pack") or "")[:96],
+        "pack_version": str(row.get("pack_version") or "")[:64],
+        "source_version": str(row.get("source_version") or row.get("pack_source_version") or "")[:64],
+        "domain": str(row.get("domain") or "")[:64],
+        "language": str(row.get("language") or "")[:32],
+        "source_url": str(row.get("source_url") or row.get("url") or "")[:512],
+        "path": str(row.get("path") or row.get("module_path") or "")[:512],
+        "authority": str(row.get("authority") or "")[:32],
+        "visibility_scope": str(row.get("visibility_scope") or "global")[:16],
+        "acl_mode": str(row.get("acl_mode") or "open")[:16],
+    }
+
+
+def _compact_chunk_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact = {key: value for key, value in row.items() if key != "embedding"}
+    compact["kind"] = "Chunk"
+    return compact
+
+
+def _add_unique(nodes: dict[str, dict[str, Any]], node: dict[str, Any]) -> None:
+    node_id = str(node.get("id") or "")
+    if node_id:
+        nodes[node_id] = node
+
+
+def _iter_enrichment_texts(enrichment: dict[str, Any], keys: tuple[str, ...]) -> Iterable[tuple[str, str]]:
+    for key in keys:
+        for item in _as_list(enrichment.get(key)):
+            if isinstance(item, dict):
+                text = str(item.get("text") or item.get("title") or item.get("name") or item.get("summary") or "")
+            else:
+                text = str(item)
+            text = text.strip()
+            if text:
+                yield key, text[:2048]
+
+
+def materialize_synpack_v2(
+    rows: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    root: str | Path,
+) -> dict[str, Any]:
+    """Write a NornicDB-native typed SynPack v2 bundle under ``root``.
+
+    Legacy flat files remain the compatibility contract. These typed files give
+    importers a richer, validated graph without forcing them to infer documents,
+    symbols, constraints, examples, and unresolved references from chunk rows.
+    """
+
+    root_path = Path(root)
+    pack_id = str(manifest.get("pack_id") or "")
+    documents: dict[str, dict[str, Any]] = {}
+    packages: dict[str, dict[str, Any]] = {}
+    modules: dict[str, dict[str, Any]] = {}
+    symbols: dict[str, dict[str, Any]] = {}
+    concepts: dict[str, dict[str, Any]] = {}
+    patterns: dict[str, dict[str, Any]] = {}
+    constraints: dict[str, dict[str, Any]] = {}
+    examples: dict[str, dict[str, Any]] = {}
+    external_refs: dict[str, dict[str, Any]] = {}
+    enrichment_rows: list[dict[str, Any]] = []
+    typed_edges: list[dict[str, Any]] = [dict(edge) for edge in edges]
+    node_ids: set[str] = set()
+    fallback_enriched = 0
+    enriched = 0
+
+    for row in rows:
+        chunk_id = str(row.get("id") or row.get("chunk_id") or "")
+        if not chunk_id:
+            continue
+        node_ids.add(chunk_id)
+        doc_id = str(row.get("doc_id") or "")
+        if doc_id:
+            _add_unique(
+                documents,
+                {
+                    **_node_base(row, node_id=doc_id, kind="Document", name=str(row.get("document_name") or doc_id)),
+                    "doc_id": doc_id,
+                    "document_name": str(row.get("document_name") or "")[:256],
+                    "heading_path": str(row.get("heading_path") or "")[:512],
+                    "source_type": str(row.get("source_type") or "")[:32],
+                },
+            )
+        path = str(row.get("path") or row.get("module_path") or "")
+        package_name = str(row.get("package_name") or "")
+        if package_name:
+            package_id = f"{pack_id}:package:{package_name}"
+            _add_unique(
+                packages,
+                {
+                    **_node_base(row, node_id=package_id, kind="Package", name=package_name),
+                    "package_name": package_name[:128],
+                },
+            )
+            typed_edges.append({"type": "CONTAINS", "source_id": package_id, "target_id": chunk_id, "source": "pack"})
+        module_path = str(row.get("module_path") or path or "")
+        if module_path:
+            module_id = f"{pack_id}:module:{module_path}"
+            _add_unique(
+                modules,
+                {
+                    **_node_base(row, node_id=module_id, kind="Module", name=module_path),
+                    "module_path": module_path[:256],
+                    "package_name": package_name[:128],
+                },
+            )
+            typed_edges.append({"type": "CONTAINS", "source_id": module_id, "target_id": chunk_id, "source": "pack"})
+        if path:
+            file_id = f"{pack_id}:file:{path}"
+            _add_unique(
+                documents,
+                {
+                    **_node_base(row, node_id=file_id, kind="Document", name=path),
+                    "doc_id": doc_id or file_id,
+                    "document_name": str(row.get("document_name") or path)[:256],
+                    "source_type": str(row.get("source_type") or "")[:32],
+                },
+            )
+        symbol_fqn = str(row.get("symbol_fqn") or "")
+        if symbol_fqn:
+            _add_unique(
+                symbols,
+                {
+                    **_node_base(
+                        row, node_id=symbol_fqn, kind="Symbol", name=str(row.get("symbol_name") or symbol_fqn)
+                    ),
+                    "symbol_fqn": symbol_fqn[:256],
+                    "symbol_name": str(row.get("symbol_name") or "")[:128],
+                    "symbol_kind": str(row.get("symbol_kind") or row.get("symbol_type") or "")[:64],
+                    "package_name": package_name[:128],
+                },
+            )
+        enrichment = _parse_agent_enrichment(row)
+        if enrichment.get("enrichment_status") == "fallback":
+            fallback_enriched += 1
+        elif enrichment:
+            enriched += 1
+        enrichment_rows.append(
+            {
+                "chunk_id": chunk_id,
+                "doc_id": doc_id,
+                "symbol_fqn": symbol_fqn,
+                "prompt_id": enrichment.get("prompt_id") or row.get("enrichment_profile") or "",
+                "enrichment": enrichment,
+            }
+        )
+        for key, text in _iter_enrichment_texts(
+            enrichment, ("task_intents", "query_aliases", "agent_query_hints", "related_interfaces")
+        ):
+            node_id = f"{pack_id}:concept:{_short_hash(key, text)}"
+            _add_unique(
+                concepts,
+                {
+                    **_node_base(row, node_id=node_id, kind="Concept", name=text[:128]),
+                    "concept_type": key,
+                    "text": text,
+                },
+            )
+            typed_edges.append(
+                {"type": "RELATED_TO", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
+            )
+        for key, text in _iter_enrichment_texts(enrichment, ("anti_patterns", "hidden_warnings")):
+            node_id = f"{pack_id}:pattern:{_short_hash(key, text)}"
+            _add_unique(
+                patterns,
+                {
+                    **_node_base(row, node_id=node_id, kind="Pattern", name=text[:128]),
+                    "pattern_type": key,
+                    "text": text,
+                },
+            )
+            typed_edges.append(
+                {"type": "HAS_PATTERN", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
+            )
+        for key, text in _iter_enrichment_texts(
+            enrichment, ("safety_contract", "api_contract", "verification_hints", "version_scope")
+        ):
+            node_id = f"{pack_id}:constraint:{_short_hash(key, text)}"
+            _add_unique(
+                constraints,
+                {
+                    **_node_base(row, node_id=node_id, kind="Constraint", name=text[:128]),
+                    "constraint_type": key,
+                    "text": text,
+                },
+            )
+            typed_edges.append(
+                {"type": "HAS_CONSTRAINT", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
+            )
+        for key, text in _iter_enrichment_texts(enrichment, ("canonical_examples", "examples")):
+            node_id = f"{pack_id}:example:{_short_hash(key, text)}"
+            _add_unique(
+                examples,
+                {
+                    **_node_base(row, node_id=node_id, kind="Example", name=text[:128]),
+                    "example_type": key,
+                    "text": text,
+                },
+            )
+            typed_edges.append(
+                {"type": "HAS_EXAMPLE", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
+            )
+
+    node_ids.update(documents)
+    node_ids.update(packages)
+    node_ids.update(modules)
+    node_ids.update(symbols)
+    node_ids.update(concepts)
+    node_ids.update(patterns)
+    node_ids.update(constraints)
+    node_ids.update(examples)
+
+    missing_before_external_refs = 0
+    unresolved_edges = 0
+    for edge in typed_edges:
+        source_id = str(edge.get("source_id") or edge.get("from") or "")
+        target_id = str(edge.get("target_id") or edge.get("to") or "")
+        if "unresolved" in str(edge.get("resolution_confidence") or "").lower():
+            unresolved_edges += 1
+        for ref_id, ref_role in ((source_id, "source"), (target_id, "target")):
+            if not ref_id or ref_id in node_ids or ref_id in external_refs:
+                continue
+            missing_before_external_refs += 1
+            ref_kind = (
+                "call" if ref_id.startswith("call:") else "import" if ref_id.startswith("import:") else "external"
+            )
+            external_refs[ref_id] = {
+                "id": ref_id[:192],
+                "kind": "ExternalRef",
+                "name": ref_id[:256],
+                "external_ref_kind": ref_kind,
+                "reference_role": ref_role,
+                "pack": pack_id,
+                "pack_id": pack_id,
+                "pack_version": str(manifest.get("pack_version") or "")[:64],
+                "domain": str(manifest.get("domain") or "")[:64],
+                "language": str(manifest.get("language") or "")[:32],
+                "resolution_confidence": "unresolved",
+            }
+    node_ids.update(external_refs)
+
+    dangling_after_external_refs = 0
+    for edge in typed_edges:
+        source_id = str(edge.get("source_id") or edge.get("from") or "")
+        target_id = str(edge.get("target_id") or edge.get("to") or "")
+        if source_id and source_id not in node_ids:
+            dangling_after_external_refs += 1
+        if target_id and target_id not in node_ids:
+            dangling_after_external_refs += 1
+
+    chunk_rows = [_compact_chunk_row(row) for row in rows]
+    _write_jsonl(root_path / V2_CHUNKS_PATH, chunk_rows)
+    _write_jsonl(root_path / V2_DOCUMENTS_PATH, documents.values())
+    _write_jsonl(root_path / V2_PACKAGES_PATH, packages.values())
+    _write_jsonl(root_path / V2_MODULES_PATH, modules.values())
+    _write_jsonl(root_path / V2_SYMBOLS_PATH, symbols.values())
+    _write_jsonl(root_path / V2_CONCEPTS_PATH, concepts.values())
+    _write_jsonl(root_path / V2_PATTERNS_PATH, patterns.values())
+    _write_jsonl(root_path / V2_CONSTRAINTS_PATH, constraints.values())
+    _write_jsonl(root_path / V2_EXAMPLES_PATH, examples.values())
+    _write_jsonl(root_path / V2_EXTERNAL_REFS_PATH, external_refs.values())
+    _write_jsonl(root_path / V2_ENRICHMENT_PATH, enrichment_rows)
+
+    edge_counts = Counter(str(edge.get("type") or "").upper() for edge in typed_edges)
+    edges_root = root_path / "edges"
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for edge in typed_edges:
+        edge_type = str(edge.get("type") or "related").lower()
+        grouped.setdefault(edge_type, []).append(edge)
+    for edge_type, group in grouped.items():
+        _write_jsonl(edges_root / f"{edge_type}.jsonl", group)
+
+    vector_index_rows: list[dict[str, Any]] = []
+    vector_path = root_path / V2_VECTOR_BINARY_PATH
+    vector_path.parent.mkdir(parents=True, exist_ok=True)
+    with vector_path.open("wb") as f:
+        for idx, row in enumerate(rows):
+            vec = row.get("embedding")
+            if not isinstance(vec, list):
+                raise SynPackError(f"row {idx} missing embedding for v2 vector sidecar")
+            if len(vec) != EMBEDDING_DIM:
+                raise SynPackError(f"row {idx} embedding dimension mismatch: got {len(vec)}, expected {EMBEDDING_DIM}")
+            f.write(struct.pack(f"<{EMBEDDING_DIM}f", *(float(x) for x in vec)))
+            vector_index_rows.append({"chunk_id": str(row.get("id") or row.get("chunk_id") or ""), "offset": idx})
+    vector_index = {
+        "format": "synpack-v2-vectors",
+        "dtype": "float32",
+        "byte_order": "little",
+        "dimensions": EMBEDDING_DIM,
+        "count": len(vector_index_rows),
+        "embedding_model": DEFAULT_PACK_MODEL,
+        "embedding_profile": EMBEDDING_PROFILE,
+        "rows": vector_index_rows,
+    }
+    (root_path / V2_VECTOR_INDEX_PATH).write_text(json.dumps(vector_index, indent=2, sort_keys=True), encoding="utf-8")
+
+    node_counts = {
+        "Chunk": len(rows),
+        "Document": len(documents),
+        "Package": len(packages),
+        "Module": len(modules),
+        "Symbol": len(symbols),
+        "Concept": len(concepts),
+        "Pattern": len(patterns),
+        "Constraint": len(constraints),
+        "Example": len(examples),
+        "ExternalRef": len(external_refs),
+    }
+    total_nodes = sum(node_counts.values())
+    enrichment_coverage = enriched / len(rows) if rows else 1.0
+    graph_resolution = 1.0 - (unresolved_edges / len(typed_edges)) if typed_edges else 1.0
+    quality_report = {
+        "format": "synpack-v2-quality",
+        "pack_id": pack_id,
+        "node_counts_by_kind": node_counts,
+        "edge_counts_by_type": dict(sorted(edge_counts.items())),
+        "node_count": total_nodes,
+        "chunk_count": len(rows),
+        "edge_count": len(typed_edges),
+        "fallback_enriched": fallback_enriched,
+        "enriched": enriched,
+        "enrichment_coverage_score": round(enrichment_coverage, 4),
+        "graph_resolution_score": round(max(0.0, graph_resolution), 4),
+        "dangling_edge_count_before_external_refs": missing_before_external_refs,
+        "dangling_edge_count": dangling_after_external_refs,
+        "external_ref_count": len(external_refs),
+        "unresolved_edge_count": unresolved_edges,
+    }
+    quality_path = root_path / V2_QUALITY_PATH
+    quality_path.parent.mkdir(parents=True, exist_ok=True)
+    quality_path.write_text(json.dumps(quality_report, indent=2, sort_keys=True), encoding="utf-8")
+    return quality_report
 
 
 def _row_to_entity(row: dict[str, Any], manifest: dict[str, Any], embedding: list[float] | None) -> dict[str, Any]:
@@ -267,6 +683,8 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
         rows_file = tmp / "nodes.jsonl"
         if not rows_file.exists():
             rows_file = tmp / "metadata.jsonl"
+        if not rows_file.exists():
+            rows_file = tmp / V2_CHUNKS_PATH
         rows = list(_iter_jsonl(rows_file))
         if vectors is not None and len(vectors) != len(rows):
             raise SynPackError(f"vectors.npy row count {len(vectors)} does not match metadata rows {len(rows)}")
@@ -528,7 +946,8 @@ def build_pack_from_sources(
 
             if max_chunks and total_rows >= max_chunks:
                 break
-        for edge in derive_graph_edges(rows, include_structural_edges=True):
+        edges = derive_graph_edges(rows, include_structural_edges=True)
+        for edge in edges:
             edges_f.write(json.dumps(edge, ensure_ascii=False, sort_keys=True) + "\n")
 
     manifest = {
@@ -559,6 +978,10 @@ def build_pack_from_sources(
         ],
         "created_at": int(time.time()),
         "row_count": total_rows,
+        "node_count": total_rows,
+        "edge_count": len(edges),
+        "requires_bulk_import": total_rows >= 1000,
+        "install_profile": "nornicdb-v2-typed-graph",
         "sources_lock_sha256": "",
         "nodes_sha256": _sha256_file(rows_path),
         "edges_sha256": _sha256_file(edges_path),
@@ -566,14 +989,30 @@ def build_pack_from_sources(
     sources_lock_path = tmp / "sources.lock.json"
     sources_lock_path.write_text(json.dumps(sources_lock, indent=2), encoding="utf-8")
     manifest["sources_lock_sha256"] = _sha256_file(sources_lock_path)
+    quality_report = materialize_synpack_v2(rows, edges, manifest, tmp)
+    manifest.update(
+        {
+            "node_count": quality_report["node_count"],
+            "chunk_count": quality_report["chunk_count"],
+            "edge_count": quality_report["edge_count"],
+            "node_counts_by_kind": quality_report["node_counts_by_kind"],
+            "edge_counts_by_type": quality_report["edge_counts_by_type"],
+            "dangling_edge_count": quality_report["dangling_edge_count"],
+            "external_ref_count": quality_report["external_ref_count"],
+            "quality_report_sha256": _sha256_file(tmp / "quality" / "report.json"),
+        }
+    )
     (tmp / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(tmp / "manifest.json", "manifest.json")
-        zf.write(rows_path, "nodes.jsonl")
-        zf.write(edges_path, "edges.jsonl")
-        zf.write(sources_lock_path, "sources.lock.json")
+        for name in ("manifest.json", "nodes.jsonl", "edges.jsonl", "sources.lock.json"):
+            zf.write(tmp / name, name)
+        for dirname in ("nodes", "edges", "vectors", "enrichment", "quality"):
+            directory = tmp / dirname
+            for path in sorted(directory.rglob("*")):
+                if path.is_file():
+                    zf.write(path, str(path.relative_to(tmp)))
 
     artifact_hash = _sha256_file(out_path)
     shutil.rmtree(tmp, ignore_errors=True)
