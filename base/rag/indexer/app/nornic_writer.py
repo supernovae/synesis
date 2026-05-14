@@ -23,7 +23,6 @@ NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
-NODE_CREATE_STATEMENT_SIZE = 25
 PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
     "1",
     "true",
@@ -39,16 +38,6 @@ FAST_NODE_CREATE = os.getenv("SYNESIS_NORNIC_FAST_NODE_CREATE", "true").strip().
 def chunk_id_hash(text: str, source: str) -> str:
     content = f"{source}:{text[:500]}"
     return hashlib.sha256(content.encode()).hexdigest()[:64]
-
-
-def _alpha_suffix(index: int) -> str:
-    letters = []
-    current = index
-    while True:
-        letters.append(chr(ord("a") + (current % 26)))
-        current = current // 26 - 1
-        if current < 0:
-            return "".join(reversed(letters))
 
 
 class NornicGraphWriter:
@@ -111,7 +100,7 @@ class NornicGraphWriter:
         self.ensure_schema()
         total = 0
         existing_ids = self.existing_chunk_ids() if PREFETCH_EXISTING_IDS else set()
-        batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "100") or "100")
+        batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "250") or "250")
         batch_size = max(1, min(batch_size, 250))
         for i in range(0, len(entities), batch_size):
             batch = entities[i : i + batch_size]
@@ -142,22 +131,15 @@ class NornicGraphWriter:
 
     @staticmethod
     def _create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
-        for offset in range(0, len(rows), NODE_CREATE_STATEMENT_SIZE):
-            statements: list[str] = []
-            params: dict[str, Any] = {}
-            for index, row in enumerate(rows[offset : offset + NODE_CREATE_STATEMENT_SIZE]):
-                entries = [f"id: $id_{index}"]
-                params[f"id_{index}"] = str(row["id"])
-                for key, value in NornicGraphWriter._clean_props(row).items():
-                    if not key.replace("_", "").isalnum():
-                        continue
-                    param_name = f"{key}_{index}"
-                    entries.append(f"{key}: ${param_name}")
-                    params[param_name] = value
-                variable = f"node{_alpha_suffix(index)}"
-                statements.append(f"CREATE ({variable}:ContentNode {{{', '.join(entries)}}})")
-            if statements:
-                tx.run("\n".join(statements), **params)
+        for row in rows:
+            entries = ["id: $id"]
+            params: dict[str, Any] = {"id": str(row["id"])}
+            for key, value in NornicGraphWriter._clean_props(row).items():
+                if not key.replace("_", "").isalnum():
+                    continue
+                entries.append(f"{key}: ${key}")
+                params[key] = value
+            tx.run(f"CREATE (n:ContentNode {{{', '.join(entries)}}})", **params)
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
