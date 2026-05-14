@@ -65,6 +65,7 @@ def test_validate_synpack_rejects_dimension_mismatch(tmp_path: Path):
 
 
 def test_load_synpack_dedupes_duplicate_node_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(synpack, "DELETE_PARTIAL_IDS", True)
     pack = tmp_path / "dupes.synpack"
     row = {
         "id": "same-node",

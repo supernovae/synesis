@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -50,6 +51,7 @@ logger = get_logger("synesis.indexer.synpack")
 
 SYNPACK_FORMAT_VERSION = "2.0"
 DEFAULT_PACK_MODEL = EMBEDDING_MODEL
+DELETE_PARTIAL_IDS = os.getenv("SYNESIS_NORNIC_DELETE_PARTIAL_IDS", "").strip().lower() in {"1", "true", "yes"}
 
 
 class SynPackError(ValueError):
@@ -276,6 +278,7 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
 
         artifact_hash = _sha256_file(Path(pack_path))
         manifest["artifact_hash"] = artifact_hash
+        logger.info("synpack_nodes_parse_start", extra={"pack_id": pack_id, "rows": len(rows)})
         raw_entities = [
             _row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)
         ]
@@ -287,7 +290,13 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
                 duplicate_nodes += 1
             entities_by_id[entity_id] = entity
         entities = list(entities_by_id.values())
-        partial_nodes_deleted = writer.delete_partial_ids([str(entity["id"]) for entity in entities])
+        logger.info(
+            "synpack_nodes_parse_complete",
+            extra={"pack_id": pack_id, "nodes": len(entities), "duplicate_nodes": duplicate_nodes},
+        )
+        partial_nodes_deleted = 0
+        if DELETE_PARTIAL_IDS:
+            partial_nodes_deleted = writer.delete_partial_ids([str(entity["id"]) for entity in entities])
         count = writer.upsert_batch(entities)
         logger.info(
             "synpack_nodes_loaded",
