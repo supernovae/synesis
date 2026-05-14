@@ -132,15 +132,19 @@ class NornicGraphWriter:
     @staticmethod
     def _create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
         packed_rows = [{"id": str(row["id"]), "props": NornicGraphWriter._clean_props(row)} for row in rows]
-        prop_keys = sorted({key for row in packed_rows for key in row["props"] if key.replace("_", "").isalnum()})
-        create_props = ", ".join(["id: row.id", *(f"{key}: row.props.{key}" for key in prop_keys)])
-        tx.run(
-            f"""
-            UNWIND $rows AS row
-            CREATE (n:ContentNode {{{create_props}}})
-            """,
-            rows=packed_rows,
-        )
+        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for row in packed_rows:
+            prop_keys = tuple(sorted(key for key in row["props"] if key.replace("_", "").isalnum()))
+            grouped.setdefault(prop_keys, []).append(row)
+        for prop_keys, group_rows in grouped.items():
+            create_props = ", ".join(["id: row.id", *(f"{key}: row.props.{key}" for key in prop_keys)])
+            tx.run(
+                f"""
+                UNWIND $rows AS row
+                CREATE (n:ContentNode {{{create_props}}})
+                """,
+                rows=group_rows,
+            )
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
