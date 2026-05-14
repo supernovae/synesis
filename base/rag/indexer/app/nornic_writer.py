@@ -23,6 +23,7 @@ NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
+NODE_CREATE_STATEMENT_SIZE = 25
 PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
     "1",
     "true",
@@ -131,20 +132,21 @@ class NornicGraphWriter:
 
     @staticmethod
     def _create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
-        packed_rows = [{"id": str(row["id"]), "props": NornicGraphWriter._clean_props(row)} for row in rows]
-        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = {}
-        for row in packed_rows:
-            prop_keys = tuple(sorted(key for key in row["props"] if key.replace("_", "").isalnum()))
-            grouped.setdefault(prop_keys, []).append(row)
-        for prop_keys, group_rows in grouped.items():
-            create_props = ", ".join(["id: row.id", *(f"{key}: row.props.{key}" for key in prop_keys)])
-            tx.run(
-                f"""
-                UNWIND $rows AS row
-                CREATE (n:ContentNode {{{create_props}}})
-                """,
-                rows=group_rows,
-            )
+        for offset in range(0, len(rows), NODE_CREATE_STATEMENT_SIZE):
+            statements: list[str] = []
+            params: dict[str, Any] = {}
+            for index, row in enumerate(rows[offset : offset + NODE_CREATE_STATEMENT_SIZE]):
+                entries = [f"id: $id_{index}"]
+                params[f"id_{index}"] = str(row["id"])
+                for key, value in NornicGraphWriter._clean_props(row).items():
+                    if not key.replace("_", "").isalnum():
+                        continue
+                    param_name = f"{key}_{index}"
+                    entries.append(f"{key}: ${param_name}")
+                    params[param_name] = value
+                statements.append(f"CREATE (n{index}:ContentNode {{{', '.join(entries)}}})")
+            if statements:
+                tx.run("\n".join(statements), **params)
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
