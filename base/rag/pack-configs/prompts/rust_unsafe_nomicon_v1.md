@@ -9,7 +9,7 @@ Use only the provided source content. If a field is not evidenced, return "unkno
 
 ### OUTPUT
 Return exactly one valid JSON object with these keys:
-- agent_hook: one sentence explaining when an agent should use this unsafe guidance.
+- agent_hook: rich, identifier-heavy guidance explaining when an agent should use this unsafe guidance.
 - perf_tier: one of "zero-cost", "allocating", "dynamic-dispatch", "io-bound", "async-sensitive", "unknown".
 - safety_contract: required invariants and soundness obligations.
 - lifecycle_model: ownership, aliasing, initialization, drop, pinning, or resource model.
@@ -25,4 +25,4 @@ Return exactly one valid JSON object with these keys:
 - feature_gate_or_stability: stable, feature-gated, deprecated, or "unknown".
 - error_context: E0xxx code if directly related, else "".
 - hidden_warnings: JSON array of soundness footguns agents often miss.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

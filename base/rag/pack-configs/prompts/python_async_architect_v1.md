@@ -9,7 +9,7 @@ Use only the provided source content. If a field is not evidenced, return "unkno
 
 ### OUTPUT
 Return exactly one valid JSON object with these keys:
-- agent_hook: strategic advice for async Python usage.
+- agent_hook: rich, identifier-heavy guidance for async Python usage.
 - perf_tier: one of "JIT_FRIENDLY", "BYTECODE", "C_EXT", "REFLECTION_HEAVY", "unknown".
 - safety_contract: async correctness obligations and hazards.
 - lifecycle_model: coroutine, task, TaskGroup, context manager, loop, or resource cleanup model.
@@ -24,4 +24,4 @@ Return exactly one valid JSON object with these keys:
 - t_string_guidance: t-string relevance or "unknown".
 - type_resolution_hint: runtime/static type lookup guidance or "unknown".
 - hidden_warnings: JSON array of async footguns agents often miss.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

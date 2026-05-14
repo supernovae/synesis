@@ -85,6 +85,36 @@ describe("search route authorization", () => {
     await app.close();
   });
 
+  it("requires authorized access for SynPack resolver and bundle routes", async () => {
+    const app = buildApp(makeConfig({ SYNESIS_NORNIC_URI: "" }));
+    const denied = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/resolve-pack",
+      headers: { authorization: "Bearer totally-random" },
+      payload: { query: "go net/http" },
+    });
+    expect(denied.statusCode).toBe(401);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/resolve-pack",
+      headers: { authorization: "Bearer syn-valid" },
+      payload: { query: "go net/http" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json()).toMatchObject({ candidates: [], total: 0 });
+
+    const bundle = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/bundle",
+      headers: { authorization: "Bearer syn-valid" },
+      payload: { query: "go graceful shutdown", language: "go" },
+    });
+    expect(bundle.statusCode).toBe(200);
+    expect(bundle.json()).toMatchObject({ source_chunks: [], context_cards: [] });
+    await app.close();
+  });
+
   it("ignores caller-provided RAG scope hints and returns authz diagnostics", async () => {
     const app = buildApp(makeConfig({
       SYNESIS_NORNIC_URI: "",

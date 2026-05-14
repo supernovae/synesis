@@ -9,7 +9,7 @@ Use only the provided source content. If a field is not evidenced, return "unkno
 
 ### OUTPUT
 Return exactly one valid JSON object with these keys:
-- agent_hook: one sentence explaining when an agent should retrieve this compiler error.
+- agent_hook: rich, identifier-heavy guidance explaining when an agent should retrieve this compiler error.
 - perf_tier: "unknown" unless performance is directly involved.
 - safety_contract: the compiler rule being enforced and the safe repair direction.
 - lifecycle_model: ownership/borrow/lifetime/drop model implicated by the error.
@@ -25,4 +25,4 @@ Return exactly one valid JSON object with these keys:
 - feature_gate_or_stability: stable, edition-specific, feature-gated, deprecated, or "unknown".
 - error_context: the E0xxx code.
 - hidden_warnings: JSON array of common misleading fixes or follow-on errors.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

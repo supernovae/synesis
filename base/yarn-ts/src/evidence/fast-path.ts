@@ -39,6 +39,38 @@ export interface FastPathResult {
   confidence: number;
   constraintKind?: "hard" | "guiding";
   authoritative: boolean;
+  quality?: EvidenceQualityTrace;
+}
+
+export interface EvidenceQualityTrace {
+  source: "rag_prefetch" | "pattern_library";
+  matched: boolean;
+  timedOut: boolean;
+  confidence: number;
+  authoritative?: boolean;
+  pattern?: string;
+  language?: string;
+  constraintKind?: string;
+  resultCount: number;
+  contextCardCount: number;
+  exampleCount: number;
+  antiPatternCount: number;
+  relatedSymbolCount: number;
+  freshnessWarningCount: number;
+  resolvedPack?: Record<string, unknown>;
+  quality?: Record<string, unknown>;
+  topEvidence: Array<{
+    id?: string;
+    kind?: string;
+    name?: string;
+    source_url?: string;
+    score?: number;
+    authority?: string;
+    pack_id?: string;
+    symbol_fqn?: string;
+  }>;
+  authzTraceId?: string;
+  authzMode?: string;
 }
 
 interface PatternRule {
@@ -214,6 +246,80 @@ export function resetEvidencePrefetchStats(): void {
   _prefetchStats.totalLatencyMs = 0;
 }
 
+function evidenceItems(result: KnowledgeSearchResult | undefined): KnowledgeSearchResult["results"] {
+  if (!result) return [];
+  return result.results ?? [];
+}
+
+function qualityTrace(
+  source: EvidenceQualityTrace["source"],
+  result: KnowledgeSearchResult | undefined,
+  opts: {
+    matched: boolean;
+    timedOut: boolean;
+    confidence: number;
+    authoritative?: boolean;
+    pattern?: string;
+    language?: string;
+    constraintKind?: string;
+  },
+): EvidenceQualityTrace {
+  const items = evidenceItems(result);
+  return {
+    source,
+    matched: opts.matched,
+    timedOut: opts.timedOut,
+    confidence: Number(opts.confidence.toFixed(4)),
+    authoritative: opts.authoritative,
+    pattern: opts.pattern,
+    language: opts.language,
+    constraintKind: opts.constraintKind,
+    resultCount: result?.total ?? items.length,
+    contextCardCount: result?.context_cards?.length ?? 0,
+    exampleCount: result?.examples?.length ?? 0,
+    antiPatternCount: result?.anti_patterns?.length ?? 0,
+    relatedSymbolCount: result?.related_symbols?.length ?? 0,
+    freshnessWarningCount: result?.freshness_warnings?.length ?? 0,
+    resolvedPack: result?.resolved_pack,
+    quality: result?.quality,
+    topEvidence: items.slice(0, 5).map((item) => {
+      const record = item as Record<string, unknown>;
+      return {
+        id: String(record.id ?? record.chunk_id ?? ""),
+        kind: String(record.kind ?? "Chunk"),
+        name: String(record.name ?? item.document_name ?? ""),
+        source_url: item.source_url,
+        score: item.score,
+        authority: item.authority,
+        pack_id: item.pack_id,
+        symbol_fqn: item.symbol_fqn,
+      };
+    }),
+    authzTraceId: result?.authz_trace_id,
+    authzMode: result?.authz_mode,
+  };
+}
+
+export function buildEvidenceTraceSummary(
+  prefetch?: FastPathResult,
+  pattern?: PatternPrefetchResult,
+): Record<string, unknown> | undefined {
+  const entries = [prefetch?.quality, pattern?.quality].filter(Boolean) as EvidenceQualityTrace[];
+  if (entries.length === 0) return undefined;
+  const best = entries.reduce((acc, item) => (item.confidence > acc.confidence ? item : acc), entries[0]);
+  return {
+    best_source: best.source,
+    best_confidence: best.confidence,
+    authoritative: entries.some((item) => item.authoritative),
+    result_count: entries.reduce((sum, item) => sum + item.resultCount, 0),
+    context_card_count: entries.reduce((sum, item) => sum + item.contextCardCount, 0),
+    example_count: entries.reduce((sum, item) => sum + item.exampleCount, 0),
+    anti_pattern_count: entries.reduce((sum, item) => sum + item.antiPatternCount, 0),
+    freshness_warning_count: entries.reduce((sum, item) => sum + item.freshnessWarningCount, 0),
+    entries,
+  };
+}
+
 async function raceSearch(
   knowledgeService: KnowledgeSearchService,
   searchArgs: Record<string, unknown>,
@@ -252,9 +358,15 @@ export async function runEvidencePrefetch(
 
     const searchArgs: Record<string, unknown> = {
       query: match.searchQuery,
+      mode: "bundle",
+      topic: match.pattern,
+      task: userText.slice(0, 300),
       scope_tags: match.scope_tags,
       constraint_kind: match.constraint_kind,
       top_k: 3,
+      include_examples: true,
+      include_antipatterns: true,
+      include_context_cards: true,
     };
     if (match.language.trim()) {
       searchArgs.language = match.language;
@@ -273,12 +385,44 @@ export async function runEvidencePrefetch(
 
     if (result === null) {
       _prefetchStats.timeouts++;
-      return { matched: true, pattern: match.pattern, latencyMs, timedOut: true, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
+      return {
+        matched: true,
+        pattern: match.pattern,
+        latencyMs,
+        timedOut: true,
+        confidence: 0,
+        constraintKind: match.constraint_kind,
+        authoritative: false,
+        quality: qualityTrace("rag_prefetch", undefined, {
+          matched: true,
+          timedOut: true,
+          confidence: 0,
+          pattern: match.pattern,
+          language: match.language,
+          constraintKind: match.constraint_kind,
+        }),
+      };
     }
 
     if (result.total === 0) {
       _prefetchStats.misses++;
-      return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence: 0, constraintKind: match.constraint_kind, authoritative: false };
+      return {
+        matched: true,
+        pattern: match.pattern,
+        latencyMs,
+        timedOut: false,
+        confidence: 0,
+        constraintKind: match.constraint_kind,
+        authoritative: false,
+        quality: qualityTrace("rag_prefetch", result, {
+          matched: true,
+          timedOut: false,
+          confidence: 0,
+          pattern: match.pattern,
+          language: match.language,
+          constraintKind: match.constraint_kind,
+        }),
+      };
     }
 
     const confidence = computeEvidenceConfidence(result, match.constraint_kind);
@@ -287,7 +431,23 @@ export async function runEvidencePrefetch(
 
     if (confidence < confidenceMin) {
       _prefetchStats.misses++;
-      return { matched: true, pattern: match.pattern, latencyMs, timedOut: false, confidence, constraintKind: match.constraint_kind, authoritative: false };
+      return {
+        matched: true,
+        pattern: match.pattern,
+        latencyMs,
+        timedOut: false,
+        confidence,
+        constraintKind: match.constraint_kind,
+        authoritative: false,
+        quality: qualityTrace("rag_prefetch", result, {
+          matched: true,
+          timedOut: false,
+          confidence,
+          pattern: match.pattern,
+          language: match.language,
+          constraintKind: match.constraint_kind,
+        }),
+      };
     }
 
     _prefetchStats.hits++;
@@ -300,6 +460,15 @@ export async function runEvidencePrefetch(
       confidence,
       constraintKind: match.constraint_kind,
       authoritative,
+      quality: qualityTrace("rag_prefetch", result, {
+        matched: true,
+        timedOut: false,
+        confidence,
+        authoritative,
+        pattern: match.pattern,
+        language: match.language,
+        constraintKind: match.constraint_kind,
+      }),
     };
   });
 }
@@ -387,6 +556,7 @@ export interface PatternPrefetchResult {
   latencyMs: number;
   timedOut: boolean;
   confidence: number;
+  quality?: EvidenceQualityTrace;
 }
 
 const _patternPrefetchStats = {
@@ -431,17 +601,57 @@ export async function runPatternPrefetch(
 
     if (result === null) {
       _patternPrefetchStats.timeouts++;
-      return { matched: true, intent, latencyMs, timedOut: true, confidence: 0 };
+      return {
+        matched: true,
+        intent,
+        latencyMs,
+        timedOut: true,
+        confidence: 0,
+        quality: qualityTrace("pattern_library", undefined, {
+          matched: true,
+          timedOut: true,
+          confidence: 0,
+          pattern: intent.skillFamily,
+          language: intent.language,
+        }),
+      };
     }
 
     if (result.total === 0) {
       _patternPrefetchStats.misses++;
-      return { matched: true, intent, latencyMs, timedOut: false, confidence: 0 };
+      return {
+        matched: true,
+        intent,
+        latencyMs,
+        timedOut: false,
+        confidence: 0,
+        quality: qualityTrace("pattern_library", result, {
+          matched: true,
+          timedOut: false,
+          confidence: 0,
+          pattern: intent.skillFamily,
+          language: intent.language,
+        }),
+      };
     }
 
     const confidence = computeEvidenceConfidence(result, "guiding");
     _patternPrefetchStats.hits++;
-    return { matched: true, intent, evidence: result, latencyMs, timedOut: false, confidence };
+    return {
+      matched: true,
+      intent,
+      evidence: result,
+      latencyMs,
+      timedOut: false,
+      confidence,
+      quality: qualityTrace("pattern_library", result, {
+        matched: true,
+        timedOut: false,
+        confidence,
+        pattern: intent.skillFamily,
+        language: intent.language,
+      }),
+    };
   });
 }
 

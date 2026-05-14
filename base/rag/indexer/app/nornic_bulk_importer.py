@@ -1,8 +1,8 @@
 """Bulk SynPack v2 importer for NornicDB.
 
-The legacy loader writes chunks through a row-by-row Bolt path. This importer
-uses the graph-native v2 artifact layout and batched Cypher ``UNWIND`` writes so
-large content packs do not spend hours creating nodes one transaction at a time.
+The importer uses the graph-native v2 artifact layout and batched Cypher
+``UNWIND`` writes so large content packs load through deterministic high-volume
+graph writes instead of one node at a time.
 """
 
 from __future__ import annotations
@@ -31,7 +31,9 @@ from .synpack import (
     V2_CHUNKS_PATH,
     V2_CONCEPTS_PATH,
     V2_CONSTRAINTS_PATH,
+    V2_CONTEXT_CARDS_PATH,
     V2_DOCUMENTS_PATH,
+    V2_EVAL_CASES_PATH,
     V2_EXAMPLES_PATH,
     V2_EXTERNAL_REFS_PATH,
     V2_MODULES_PATH,
@@ -61,6 +63,8 @@ _V2_NODE_FILES: tuple[tuple[str, str], ...] = (
     (V2_PATTERNS_PATH, "Pattern"),
     (V2_CONSTRAINTS_PATH, "Constraint"),
     (V2_EXAMPLES_PATH, "Example"),
+    (V2_CONTEXT_CARDS_PATH, "ContextCard"),
+    (V2_EVAL_CASES_PATH, "EvalCase"),
     (V2_EXTERNAL_REFS_PATH, "ExternalRef"),
 )
 
@@ -135,7 +139,15 @@ def _with_manifest_defaults(
     )
     out["pack_artifact_hash"] = str(row.get("pack_artifact_hash") or artifact_hash)
     out["domain"] = str(row.get("domain") or manifest.get("domain") or "")
+    out["content_type"] = str(row.get("content_type") or manifest.get("content_type") or "developer")
     out["language"] = str(row.get("language") or manifest.get("language") or "")
+    out["source_release"] = str(row.get("source_release") or manifest.get("source_release") or "")
+    out["upstream_commit"] = str(
+        row.get("upstream_commit") or manifest.get("upstream_commit") or row.get("commit") or ""
+    )
+    out["upstream_tag"] = str(row.get("upstream_tag") or manifest.get("upstream_tag") or "")
+    out["trust_score"] = row.get("trust_score", manifest.get("trust_score", -1.0))
+    out["freshness_score"] = row.get("freshness_score", manifest.get("freshness_score", -1.0))
     out["visibility_scope"] = str(row.get("visibility_scope") or "global")
     out["acl_mode"] = str(row.get("acl_mode") or "open")
     if kind == "Chunk":

@@ -3,6 +3,8 @@ import type { SynesisMcpDeps } from "./deps.js";
 import { dispatchSynesisTool } from "./dispatch.js";
 import {
   knowledgeSearchInputSchema,
+  resolvePackInputSchema,
+  contextBundleInputSchema,
   codeSearchInputSchema,
   docsSearchInputSchema,
   configSearchInputSchema,
@@ -86,6 +88,30 @@ export function registerSynesisMcpTools(
       description:
         "Graph-native RAG retrieval against the Synesis content graph. Supports pack, symbol, temporal, and graph-expansion filters via planner /v1/knowledge/search with your PAT scope.",
       inputSchema: knowledgeSearchInputSchema,
+    },
+    auth,
+    deps,
+  );
+
+  registerTool(
+    server,
+    "synesis_resolve_pack",
+    {
+      description:
+        "Resolve an installed SynPack v2 from a library, language, package, symbol, topic, or version request. Returns pack ids, source versions, quality/trust/freshness, and node/example/card counts.",
+      inputSchema: resolvePackInputSchema,
+    },
+    auth,
+    deps,
+  );
+
+  registerTool(
+    server,
+    "synesis_context_bundle",
+    {
+      description:
+        "Retrieve an answer-ready SynPack v2 context bundle for a topic/symbol/task/version. Returns context cards, examples, anti-patterns, related symbols, source evidence, freshness warnings, and quality signals.",
+      inputSchema: contextBundleInputSchema,
     },
     auth,
     deps,

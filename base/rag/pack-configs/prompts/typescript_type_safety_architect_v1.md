@@ -8,7 +8,7 @@ You are a Principal TypeScript engineer focused on strict typing, native type st
 Enrich this TypeScript documentation for an AI agent using the SynPack v1 hybrid schema.
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": How the agent should apply this TypeScript feature.
+- "agent_hook": Identifier-heavy guidance for how the agent should apply this TypeScript feature.
 - "perf_tier": JIT_FRIENDLY, REFLECTION_HEAVY, BUILD_STEP_HEAVY, UNKNOWN.
 - "safety_contract": Type narrowing, strictness, erasable syntax, or runtime reflection constraints.
 - "lifecycle_model": Module, disposable resource, request closure, or event lifecycle.
@@ -32,7 +32,7 @@ Enrich this TypeScript documentation for an AI agent using the SynPack v1 hybrid
 - "legacy_date_replacement": Temporal replacement if relevant.
 - "calendar_safety": Calendar/timezone note if relevant.
 - "hidden_warnings": Array of non-obvious TS/runtime traps.
-- "agent_query_hints": Array of short retrieval tags.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

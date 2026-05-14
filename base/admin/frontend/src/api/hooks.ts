@@ -19,6 +19,8 @@ import type {
   CacheMetrics,
   CircuitBreakerState,
   BenchmarkResults,
+  RagEvalResult,
+  RagEvalSuiteInfo,
   IngestionSource,
   IngestionItem,
   IngestionRun,
@@ -941,6 +943,34 @@ export function useBenchmarks() {
   });
 }
 
+export function useRagEvalSuites() {
+  return useQuery<{ suites: RagEvalSuiteInfo[] }>({
+    queryKey: ["evals", "rag", "suites"],
+    queryFn: () => client.get("/evals/rag/suites").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useLatestRagEval() {
+  return useQuery<RagEvalResult>({
+    queryKey: ["evals", "rag", "latest"],
+    queryFn: () => client.get("/evals/rag/latest").then((r) => r.data),
+    staleTime: 60_000,
+  });
+}
+
+export function useRunRagEval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { suite_name: string; top_k?: number }) =>
+      client.post("/evals/rag/run", data).then((r) => r.data as RagEvalResult),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["evals", "rag"] });
+      qc.invalidateQueries({ queryKey: ["rag", "benchmarks"] });
+    },
+  });
+}
+
 export interface ContentPackEntry {
   pack_id: string;
   name: string;
@@ -951,14 +981,24 @@ export interface ContentPackEntry {
   size_bytes: number;
   domain: string;
   language: string;
+  content_type?: string;
+  source_version?: string;
+  source_release?: string;
   install_profile?: string;
   node_count?: number;
   edge_count?: number;
+  example_count?: number;
+  context_card_count?: number;
+  anti_pattern_count?: number;
+  quality_score?: number;
+  trust_score?: number;
+  freshness_score?: number;
   requires_bulk_import?: boolean;
   tags: string[];
   created_at?: string;
   install_status?: "installed" | "update_available" | "not_installed";
   installed?: InstalledContentPack | null;
+  quality?: ContentPackQualityReport | null;
 }
 
 export interface InstalledContentPack {
@@ -969,6 +1009,26 @@ export interface InstalledContentPack {
   domain: string;
   pack_artifact_hash: string;
   row_count: number;
+  quality?: ContentPackQualityReport | null;
+}
+
+export interface ContentPackQualityReport {
+  pack_id: string;
+  node_count: number;
+  chunk_count: number;
+  example_count: number;
+  context_card_count: number;
+  anti_pattern_count: number;
+  constraint_count: number;
+  external_ref_count: number;
+  edge_count: number;
+  source_version?: string;
+  source_release?: string;
+  quality_score?: number;
+  trust_score?: number;
+  freshness_score?: number;
+  node_kind_counts?: Record<string, number>;
+  edge_type_counts?: Record<string, number>;
 }
 
 export interface ContentPackInstallJob {
@@ -1010,6 +1070,7 @@ export interface ContentPacksOverview {
     ok: boolean;
   };
   installed: InstalledContentPack[];
+  quality_reports?: ContentPackQualityReport[];
   jobs: ContentPackInstallJob[];
 }
 

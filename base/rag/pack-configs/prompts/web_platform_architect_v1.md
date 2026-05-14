@@ -8,7 +8,7 @@ You are a Principal Web Platform engineer specializing in MDN APIs, WebStreams, 
 Enrich this web platform documentation for an AI agent using the SynPack v1 hybrid schema.
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": Browser/edge-safe guidance for applying this API.
+- "agent_hook": Browser/edge-safe, identifier-heavy guidance for applying this API.
 - "perf_tier": JIT_FRIENDLY, PROMISE_HEAVY, GC_HEAVY, LAYOUT_HEAVY, UNKNOWN.
 - "safety_contract": Security, permission, origin, lifecycle, or compatibility constraints.
 - "lifecycle_model": Window, worker, request, event listener, stream, or disposable lifecycle.
@@ -32,7 +32,7 @@ Enrich this web platform documentation for an AI agent using the SynPack v1 hybr
 - "legacy_date_replacement": Temporal replacement if relevant.
 - "calendar_safety": Calendar/timezone note if relevant.
 - "hidden_warnings": Array of subtle web-platform traps.
-- "agent_query_hints": Array of short retrieval tags.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

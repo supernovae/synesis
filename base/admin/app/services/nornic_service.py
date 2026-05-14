@@ -11,7 +11,7 @@ from ..deps import CATALOG_COLLECTION, NORNIC_DATABASE, get_nornic_driver
 
 logger = logging.getLogger("synesis.admin.nornic")
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 20
 DELETE_BATCH_SIZE = 500
 
 _FILTER_EQ_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"\s*$')
@@ -78,7 +78,14 @@ def recreate_content_graph(collection: str = CATALOG_COLLECTION) -> dict[str, An
             session.run("CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE")
             session.run("CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)")
             session.run("CREATE INDEX content_node_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)")
+            session.run("CREATE INDEX content_node_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.kind)")
+            session.run("CREATE INDEX content_node_domain IF NOT EXISTS FOR (n:ContentNode) ON (n.domain)")
+            session.run("CREATE INDEX content_node_content_type IF NOT EXISTS FOR (n:ContentNode) ON (n.content_type)")
+            session.run("CREATE INDEX content_node_language IF NOT EXISTS FOR (n:ContentNode) ON (n.language)")
+            session.run("CREATE INDEX content_node_package IF NOT EXISTS FOR (n:ContentNode) ON (n.package_name)")
             session.run("CREATE INDEX content_node_symbol IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)")
+            session.run("CREATE INDEX content_node_artifact IF NOT EXISTS FOR (n:ContentNode) ON (n.artifact_kind)")
+            session.run("CREATE INDEX content_node_deprecated IF NOT EXISTS FOR (n:ContentNode) ON (n.deprecated)")
             session.run("CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)")
             session.run(
                 """
@@ -356,6 +363,105 @@ def collection_installed_packs(collection: str) -> list[dict[str, Any]]:
         return []
 
 
+def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
+    del collection
+    try:
+        driver = get_nornic_driver()
+        with driver.session(database=NORNIC_DATABASE) as session:
+            rows = session.run(
+                """
+                MATCH (n:ContentNode)
+                WITH coalesce(n.pack, n.pack_id, '') AS pack_id, n
+                WHERE pack_id <> ''
+                WITH pack_id,
+                     count(n) AS node_count,
+                     sum(CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1 ELSE 0 END) AS chunk_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'Example' THEN 1 ELSE 0 END) AS example_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'ContextCard' THEN 1 ELSE 0 END) AS context_card_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'Pattern' THEN 1 ELSE 0 END) AS anti_pattern_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'Constraint' THEN 1 ELSE 0 END) AS constraint_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'ExternalRef' THEN 1 ELSE 0 END) AS external_ref_count,
+                     collect(n)[0] AS sample
+                OPTIONAL MATCH (a:ContentNode)-[r]-(b:ContentNode)
+                WHERE (a.pack = pack_id OR a.pack_id = pack_id)
+                  AND (b.pack = pack_id OR b.pack_id = pack_id)
+                WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count,
+                     anti_pattern_count, constraint_count, external_ref_count, count(DISTINCT r) AS edge_count
+                RETURN pack_id,
+                       node_count, chunk_count, example_count, context_card_count, anti_pattern_count,
+                       constraint_count, external_ref_count,
+                       edge_count,
+                       coalesce(sample.source_version, '') AS source_version,
+                       coalesce(sample.source_release, '') AS source_release,
+                       coalesce(sample.quality_score, -1.0) AS quality_score,
+                       coalesce(sample.trust_score, -1.0) AS trust_score,
+                       coalesce(sample.freshness_score, -1.0) AS freshness_score
+                ORDER BY pack_id
+                """
+            )
+            reports = []
+            for row in rows:
+                reports.append(
+                    {
+                        "pack_id": str(row.get("pack_id") or ""),
+                        "node_count": int(row.get("node_count") or 0),
+                        "chunk_count": int(row.get("chunk_count") or 0),
+                        "example_count": int(row.get("example_count") or 0),
+                        "context_card_count": int(row.get("context_card_count") or 0),
+                        "anti_pattern_count": int(row.get("anti_pattern_count") or 0),
+                        "constraint_count": int(row.get("constraint_count") or 0),
+                        "external_ref_count": int(row.get("external_ref_count") or 0),
+                        "edge_count": int(row.get("edge_count") or 0),
+                        "source_version": row.get("source_version", ""),
+                        "source_release": row.get("source_release", ""),
+                        "quality_score": float(row.get("quality_score") or -1),
+                        "trust_score": float(row.get("trust_score") or -1),
+                        "freshness_score": float(row.get("freshness_score") or -1),
+                        "node_kind_counts": {},
+                        "edge_type_counts": {},
+                    }
+                )
+            by_id = {report["pack_id"]: report for report in reports}
+            kind_rows = session.run(
+                """
+                MATCH (n:ContentNode)
+                WITH coalesce(n.pack, n.pack_id, '') AS pack_id, n
+                WHERE pack_id <> ''
+                WITH pack_id, coalesce(n.kind, 'Chunk') AS kind, count(n) AS count
+                RETURN pack_id, collect({kind: kind, count: count}) AS counts
+                """
+            )
+            for row in kind_rows:
+                report = by_id.get(str(row.get("pack_id") or ""))
+                if report is not None:
+                    report["node_kind_counts"] = {
+                        str(item.get("kind") or "unknown"): int(item.get("count") or 0)
+                        for item in (row.get("counts") or [])
+                        if isinstance(item, dict)
+                    }
+            edge_rows = session.run(
+                """
+                MATCH (a:ContentNode)-[r]-(b:ContentNode)
+                WITH coalesce(a.pack, a.pack_id, '') AS pack_id, a, r, b
+                WHERE pack_id <> '' AND (b.pack = pack_id OR b.pack_id = pack_id)
+                WITH pack_id, type(r) AS edge_type, count(DISTINCT r) AS count
+                RETURN pack_id, collect({edge_type: edge_type, count: count}) AS counts
+                """
+            )
+            for row in edge_rows:
+                report = by_id.get(str(row.get("pack_id") or ""))
+                if report is not None:
+                    report["edge_type_counts"] = {
+                        str(item.get("edge_type") or "unknown"): int(item.get("count") or 0)
+                        for item in (row.get("counts") or [])
+                        if isinstance(item, dict)
+                    }
+            return reports
+    except Exception as exc:
+        logger.warning("nornic_pack_quality_report_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:120])
+        return []
+
+
 def collection_schema_info(collection: str) -> dict[str, Any]:
     del collection
     return {
@@ -377,12 +483,26 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             {"name": "pack_id", "type": "string", "is_primary": False},
             {"name": "pack_version", "type": "string", "is_primary": False},
             {"name": "symbol_fqn", "type": "string", "is_primary": False},
+            {"name": "kind", "type": "string", "is_primary": False},
+            {"name": "content_type", "type": "string", "is_primary": False},
+            {"name": "package_name", "type": "string", "is_primary": False},
+            {"name": "retrieval_terms", "type": "text", "is_primary": False},
+            {"name": "query_aliases", "type": "text", "is_primary": False},
+            {"name": "task_intents", "type": "text", "is_primary": False},
+            {"name": "deprecated", "type": "boolean", "is_primary": False},
+            {"name": "replacement_api", "type": "string", "is_primary": False},
         ],
         "indexes": [
             {"name": "content_node_id", "field": "id", "type": "unique_constraint", "metric": "exact"},
             {"name": "content_node_pack", "field": "pack", "type": "range", "metric": "exact"},
             {"name": "content_node_version", "field": "source_version", "type": "range", "metric": "exact"},
+            {"name": "content_node_kind", "field": "kind", "type": "range", "metric": "exact"},
+            {"name": "content_node_domain", "field": "domain", "type": "range", "metric": "exact"},
+            {"name": "content_node_language", "field": "language", "type": "range", "metric": "exact"},
+            {"name": "content_node_package", "field": "package_name", "type": "range", "metric": "exact"},
             {"name": "content_node_symbol", "field": "symbol_fqn", "type": "range", "metric": "exact"},
+            {"name": "content_node_artifact", "field": "artifact_kind", "type": "range", "metric": "exact"},
+            {"name": "content_node_deprecated", "field": "deprecated", "type": "range", "metric": "exact"},
             {"name": "embeddings", "field": "embedding", "type": "vector", "metric": "cosine"},
         ],
         "node_labels": [
@@ -401,7 +521,9 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             "Pattern",
             "Constraint",
             "Example",
+            "ContextCard",
             "ExternalRef",
+            "EvalCase",
         ],
         "edge_types": [
             "CONTAINS",
@@ -415,8 +537,11 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             "HAS_CONSTRAINT",
             "HAS_EXAMPLE",
             "HAS_PATTERN",
+            "HAS_CONTEXT_CARD",
             "APPLIES_TO",
             "DEPRECATED_BY",
+            "REPLACED_BY",
+            "WARNS_ABOUT",
             "RELATED_TO",
             "VALID_IN",
             "DERIVED_FROM",

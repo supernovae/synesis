@@ -1,6 +1,8 @@
 import * as z from "zod/v4";
 import {
   knowledgeSearchInputSchema,
+  resolvePackInputSchema,
+  contextBundleInputSchema,
   codeSearchInputSchema,
   docsSearchInputSchema,
   configSearchInputSchema,
@@ -46,6 +48,18 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
       name: "synesis_search",
       description: knowledgeDesc,
       inputSchema: zodToJsonSchema(knowledgeSearchInputSchema),
+    },
+    {
+      name: "synesis_resolve_pack",
+      description:
+        "Resolve an installed SynPack v2 by library, language, package, symbol, topic, or version. Returns candidate packs with source version, trust/quality/freshness, and graph node/example/card counts.",
+      inputSchema: zodToJsonSchema(resolvePackInputSchema),
+    },
+    {
+      name: "synesis_context_bundle",
+      description:
+        "Preferred SynPack v2 retrieval tool for coding and rich content tasks. Returns answer-ready context cards, examples, anti-patterns, related APIs, source chunks, freshness warnings, and quality signals.",
+      inputSchema: zodToJsonSchema(contextBundleInputSchema),
     },
     {
       name: "synesis_knowledge_search",

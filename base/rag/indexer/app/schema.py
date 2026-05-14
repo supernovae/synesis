@@ -9,7 +9,7 @@ from synesis_telemetry import get_logger
 logger = get_logger("synesis.indexer.schema")
 
 SYNESIS_CATALOG = "content_graph"
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 EMBEDDING_DIM = 1024
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_PROFILE = "bge-m3-1024-cosine-v1"
@@ -18,6 +18,7 @@ CORPUS_VERSION = f"synesis-content-graph-v{SCHEMA_VERSION}-{EMBEDDING_PROFILE}"
 GRAPH_NODE_LABELS = (
     "ContentNode",
     "Pack",
+    "Source",
     "Document",
     "File",
     "Module",
@@ -31,7 +32,9 @@ GRAPH_NODE_LABELS = (
     "Pattern",
     "Constraint",
     "Example",
+    "ContextCard",
     "ExternalRef",
+    "EvalCase",
     "Version",
 )
 
@@ -47,8 +50,11 @@ GRAPH_EDGE_TYPES = (
     "HAS_CONSTRAINT",
     "HAS_EXAMPLE",
     "HAS_PATTERN",
+    "HAS_CONTEXT_CARD",
     "APPLIES_TO",
     "DEPRECATED_BY",
+    "REPLACED_BY",
+    "WARNS_ABOUT",
     "RELATED_TO",
     "VALID_IN",
     "DERIVED_FROM",
@@ -74,6 +80,18 @@ EXPECTED_FIELDS = (
     "safety_contract",
     "lifecycle_model",
     "agent_enrichment_json",
+    "content_type",
+    "source_release",
+    "upstream_commit",
+    "upstream_tag",
+    "retrieval_terms",
+    "query_aliases",
+    "task_intents",
+    "deprecated",
+    "deprecation_status",
+    "replacement_api",
+    "trust_score",
+    "freshness_score",
 )
 
 
@@ -205,6 +223,17 @@ def catalog_entity(
     clean_content_hash: str = "",
     enrichment_profile: str = "",
     source_version: str = "",
+    source_release: str = "",
+    upstream_commit: str = "",
+    upstream_tag: str = "",
+    retrieval_terms: str = "",
+    query_aliases: str = "",
+    task_intents: str = "",
+    deprecated: bool = False,
+    deprecation_status: str = "",
+    replacement_api: str = "",
+    trust_score: float = -1.0,
+    freshness_score: float = -1.0,
     commit: str = "",
     branch: str = "",
     valid_from: str = "",
@@ -241,6 +270,9 @@ def catalog_entity(
         "pack_version": _trunc_bytes(pack_version or "", 64),
         "source_version": _trunc_bytes(source_version or pack_source_version or "", 64),
         "pack_source_version": _trunc_bytes(pack_source_version or source_version or "", 64),
+        "source_release": _trunc_bytes(source_release or "", 64),
+        "upstream_commit": _trunc_bytes(upstream_commit or commit or "", 64),
+        "upstream_tag": _trunc_bytes(upstream_tag or "", 64),
         "pack_artifact_hash": _trunc_bytes(pack_artifact_hash or "", 128),
         "pack_partition": _trunc_bytes(pack_partition or pack, 96),
         "symbol_kind": (symbol_kind or symbol_type or "")[:64],
@@ -255,6 +287,9 @@ def catalog_entity(
         "safety_contract": _trunc_bytes(safety_contract or "", 2048),
         "lifecycle_model": _trunc_bytes(lifecycle_model or "", 2048),
         "agent_enrichment_json": _trunc_bytes(agent_enrichment_json or "", 8192),
+        "retrieval_terms": _trunc_bytes(retrieval_terms or "", 2048),
+        "query_aliases": _trunc_bytes(query_aliases or "", 2048),
+        "task_intents": _trunc_bytes(task_intents or "", 2048),
         "scan_status": (scan_status or "unscanned")[:16],
         "content_format": (content_format or "")[:32],
         "symbol_type": (symbol_type or symbol_kind or "")[:64],
@@ -298,6 +333,8 @@ def catalog_entity(
         "novel_trace_level": (novel_trace_level or "none")[:16],
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
+        "trust_score": float(trust_score),
+        "freshness_score": float(freshness_score),
         "technical_depth": float(technical_depth),
         "domain_relevance": float(domain_relevance),
         "index_decision": (index_decision or "index")[:16],
@@ -312,6 +349,9 @@ def catalog_entity(
         "raw_content_hash": _trunc_bytes(raw_content_hash or "", 64),
         "clean_content_hash": _trunc_bytes(clean_content_hash or "", 64),
         "enrichment_profile": _trunc_bytes(enrichment_profile or "", 64),
+        "deprecated": bool(deprecated),
+        "deprecation_status": _trunc_bytes(deprecation_status or "", 64),
+        "replacement_api": _trunc_bytes(replacement_api or "", 256),
         "embedding": embedding,
         "commit": _trunc_bytes(commit or "", 64),
         "branch": _trunc_bytes(branch or "", 128),

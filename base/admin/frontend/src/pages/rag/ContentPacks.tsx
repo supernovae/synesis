@@ -21,6 +21,11 @@ function formatCount(value?: number) {
   return new Intl.NumberFormat().format(value);
 }
 
+function formatScore(value?: number) {
+  if (value === undefined || value === null || value < 0) return "n/a";
+  return value <= 1 ? `${Math.round(value * 100)}%` : value.toFixed(2);
+}
+
 function statusTone(status: string) {
   if (status === "installed") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200";
   if (status === "update_available") return "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200";
@@ -153,6 +158,44 @@ export default function ContentPacks() {
                     <div>{formatCount(pack.node_count)} nodes</div>
                     <div>{formatCount(pack.edge_count)} edges</div>
                   </div>
+                  {(pack.quality || pack.example_count || pack.context_card_count || pack.anti_pattern_count) && (
+                    <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>{formatCount(pack.quality?.example_count ?? pack.example_count)} examples</div>
+                        <div>{formatCount(pack.quality?.context_card_count ?? pack.context_card_count)} cards</div>
+                        <div>{formatCount(pack.quality?.anti_pattern_count ?? pack.anti_pattern_count)} anti-patterns</div>
+                        <div>{formatCount(pack.quality?.constraint_count)} constraints</div>
+                        <div>{formatScore(pack.quality?.freshness_score ?? pack.freshness_score)} freshness</div>
+                        <div>{formatScore(pack.quality?.quality_score ?? pack.quality_score)} quality</div>
+                        <div>{formatScore(pack.quality?.trust_score ?? pack.trust_score)} trust</div>
+                        <div>{formatCount(pack.quality?.external_ref_count)} refs</div>
+                      </div>
+                      {pack.quality?.node_kind_counts && Object.keys(pack.quality.node_kind_counts).length > 0 && (
+                        <div className="mt-3">
+                          <div className="mb-1 font-medium text-gray-700 dark:text-gray-200">Node mix</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(pack.quality.node_kind_counts).slice(0, 10).map(([kind, count]) => (
+                              <span key={kind} className="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+                                {kind}:{formatCount(count)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {pack.quality?.edge_type_counts && Object.keys(pack.quality.edge_type_counts).length > 0 && (
+                        <div className="mt-3">
+                          <div className="mb-1 font-medium text-gray-700 dark:text-gray-200">Graph edges</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(pack.quality.edge_type_counts).slice(0, 10).map(([kind, count]) => (
+                              <span key={kind} className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+                                {kind}:{formatCount(count)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                       <input

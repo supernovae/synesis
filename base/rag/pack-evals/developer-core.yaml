@@ -1,0 +1,56 @@
+version: 1
+name: developer-core-synpack-v2
+description: Core retrieval expectations for developer SynPack v2 bundles.
+cases:
+  - id: go-http-graceful-shutdown
+    query: write graceful Go HTTP shutdown
+    language: go
+    package_name: net/http
+    symbol: net/http.Server.Shutdown
+    topic: server shutdown
+    task: graceful shutdown with context cancellation
+    expect:
+      pack_language: go
+      symbols:
+        - net/http.Server.Shutdown
+      examples_required: true
+      anti_patterns:
+        - Server.Close
+      warnings:
+        - prefer Shutdown over Close for graceful shutdown
+      source_evidence_required: true
+
+  - id: python-taskgroup-cancellation
+    query: Python TaskGroup cancellation best practices
+    language: python
+    symbol: asyncio.TaskGroup
+    topic: structured concurrency
+    task: handle cancellation without swallowing CancelledError
+    expect:
+      pack_language: python
+      symbols:
+        - asyncio.TaskGroup
+      examples_required: true
+      anti_patterns:
+        - swallowing CancelledError
+      warnings:
+        - cancellation should propagate
+      source_evidence_required: true
+
+  - id: terraform-s3-import-replace-risk
+    query: Terraform aws_s3_bucket import replace risk
+    language: terraform
+    package_name: hashicorp/aws
+    symbol: aws_s3_bucket
+    topic: import and replacement risk
+    task: avoid destructive replacement during import
+    expect:
+      pack_language: terraform
+      symbols:
+        - aws_s3_bucket
+      examples_required: false
+      anti_patterns:
+        - destructive replacement
+      warnings:
+        - review plan JSON before apply
+      source_evidence_required: true

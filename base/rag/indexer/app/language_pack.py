@@ -67,18 +67,36 @@ FRONTIER_ENRICHMENT_SYSTEM_PROMPT = (
     "performance, safety, and human-facing implementation guidance. Ground every field in the provided source. "
     "If the chunk is thin, ambiguous, generated, or noisy, say so in warnings instead of inventing facts. "
     "Return exactly one JSON object matching the requested schema and no surrounding prose. "
-    "Prefer structured arrays and short source-grounded strings that can become graph nodes, retrieval facets, "
-    "and compact MCP/tool guidance for smaller coding models."
+    "Prefer structured arrays and dense source-grounded strings that preserve exact names, relationships, "
+    "retrieval facets, and MCP/tool guidance for smaller coding models. Do not artificially limit answers to "
+    "one sentence when multiple source-grounded clauses make the pack more useful."
 )
 SYNPACK_V2_ENRICHMENT_APPEND = """
 
 SynPack v2 enrichment requirements:
-- Include compact, source-grounded values for these optional fields when evidenced:
-  task_intents, query_aliases, api_contract, version_scope, performance_notes,
-  anti_patterns, canonical_examples, verification_hints, related_symbols,
-  agent_actions, confidence, evidence_spans.
-- task_intents, query_aliases, anti_patterns, canonical_examples,
-  verification_hints, related_symbols, agent_actions, and evidence_spans should be JSON arrays.
+- Do not optimize for tiny output. Return rich, dense, source-grounded fields
+  when the source supports them. Multi-sentence string fields are acceptable.
+- Optimize every field for hybrid vector, keyword, and graph retrieval. Prefer
+  concrete identifiers over pronouns. Write "net/http.Server.Shutdown shuts down
+  listeners with context cancellation", not "this function shuts down listeners".
+- Include the exact package/module, type, function, method, class, resource,
+  command, error code, property, signal, or proposal name in agent_hook,
+  query_aliases, agent_query_hints, task_intents, api_contract, and
+  verification_hints whenever the source identifies one.
+- Avoid generic phrases such as "this function", "this method", "this class",
+  "this resource", "the API", or "this chunk" unless the sentence also names
+  the concrete identifier.
+- query_aliases and agent_query_hints should include likely user search forms:
+  fully-qualified names, short names, package plus symbol, error codes, common
+  task wording, and version/runtime qualifiers evidenced by the source.
+- Include dense, source-grounded values for these optional fields when evidenced:
+  task_intents, query_aliases, agent_query_hints, api_contract, version_scope,
+  performance_notes, anti_patterns, hidden_warnings, canonical_examples,
+  verification_hints, related_interfaces, related_symbols, agent_actions,
+  confidence, evidence_spans.
+- task_intents, query_aliases, agent_query_hints, anti_patterns,
+  hidden_warnings, canonical_examples, verification_hints, related_interfaces,
+  related_symbols, agent_actions, and evidence_spans should be JSON arrays.
 - api_contract, version_scope, performance_notes, confidence may be strings or objects.
 - Use empty arrays or "unknown" when the source does not support a field.
 - Do not invent relationships. Put uncertain relationships in related_symbols with confidence and evidence span.
@@ -99,9 +117,12 @@ REQUIRED_UNIVERSAL_ENRICHMENT_FIELDS = {
 SYNPACK_V2_ARRAY_ENRICHMENT_FIELDS = (
     "task_intents",
     "query_aliases",
+    "agent_query_hints",
     "anti_patterns",
+    "hidden_warnings",
     "canonical_examples",
     "verification_hints",
+    "related_interfaces",
     "related_symbols",
     "agent_actions",
     "evidence_spans",
@@ -2897,6 +2918,101 @@ def _ensure_v2_enrichment_defaults(enrichment: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+def _chunk_identity_metadata(chunk: LanguageChunk) -> dict[str, str]:
+    return {
+        "document_name": chunk.document_name,
+        "heading_path": chunk.heading_path,
+        "section": chunk.section,
+        "package_name": chunk.package_name,
+        "module_path": chunk.module_path,
+        "symbol_kind": chunk.symbol_kind,
+        "symbol_name": chunk.symbol_name,
+        "symbol_fqn": chunk.symbol_fqn,
+        "artifact_kind": chunk.artifact_kind,
+        "source_url": chunk.source_url,
+        "prompt_id": chunk.prompt_id,
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                text = str(
+                    item.get("symbol")
+                    or item.get("name")
+                    or item.get("text")
+                    or item.get("query")
+                    or item.get("intent")
+                    or item.get("summary")
+                    or ""
+                ).strip()
+            else:
+                text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+    if isinstance(value, dict):
+        return [str(v).strip() for v in value.values() if str(v).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def _chunk_identity_terms(chunk: LanguageChunk) -> list[str]:
+    terms = [
+        chunk.symbol_fqn,
+        chunk.symbol_name,
+        chunk.package_name,
+        f"{chunk.package_name}.{chunk.symbol_name}" if chunk.package_name and chunk.symbol_name else "",
+        f"{chunk.package_name} {chunk.symbol_name}" if chunk.package_name and chunk.symbol_name else "",
+        chunk.module_path,
+        chunk.heading_path,
+        chunk.document_name,
+        chunk.artifact_kind,
+        chunk.symbol_kind,
+    ]
+    return [term for term in terms if term]
+
+
+def _retrieval_terms(chunk: LanguageChunk, enrichment: dict[str, Any]) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for term in _chunk_identity_terms(chunk):
+        if term not in seen:
+            seen.add(term)
+            terms.append(term)
+    for key in (
+        "query_aliases",
+        "agent_query_hints",
+        "task_intents",
+        "verification_hints",
+        "related_interfaces",
+        "related_symbols",
+        "hidden_warnings",
+        "anti_patterns",
+    ):
+        for term in _string_list(enrichment.get(key)):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return terms[:80]
+
+
+def _embedding_input(chunk: LanguageChunk, enrichment: dict[str, Any]) -> str:
+    identity = " | ".join(_chunk_identity_terms(chunk))
+    retrieval = " | ".join(_retrieval_terms(chunk, enrichment))
+    hook = str(enrichment.get("agent_hook") or "").strip()
+    parts = [
+        f"IDENTIFIERS: {identity}" if identity else "",
+        f"RETRIEVAL_TERMS: {retrieval}" if retrieval else "",
+        f"AGENT_HOOK: {hook}" if hook else "",
+        chunk.text,
+    ]
+    return "\n\n".join(part for part in parts if part).strip()
+
+
 def _zero_quality_enrichment_skip_reason(chunk: LanguageChunk) -> str:
     quality = _source_quality_metadata(chunk)
     raw_score = quality.get("source_quality_score")
@@ -3197,6 +3313,14 @@ class OpenAICompatibleEnrichmentClient:
             "Preserve official terminology, identifiers, APIs, package names, and error strings exactly as written. "
             "Do not translate code identifiers or infer facts from another language edition."
         )
+        identity = {k: v for k, v in _chunk_identity_metadata(chunk).items() if v}
+        if identity:
+            prompt = (
+                f"{prompt}\n\nChunk identity metadata: {json.dumps(identity, sort_keys=True)}\n"
+                "Use these identifiers as retrieval anchors when they are consistent with the source. "
+                "The best enrichment survives searches for exact symbol names, package paths, error codes, "
+                "resource names, commands, class members, and common task phrasing."
+            )
         prompt = f"{prompt}{SYNPACK_V2_ENRICHMENT_APPEND}"
         return prompt_id, prompt
 
@@ -3539,6 +3663,7 @@ def _build_rows(
             import_refs = import_refs or _join_csv([extract_import_refs(chunk.text, language)])
             call_refs = call_refs or _join_csv([extract_call_refs(chunk.text, language)])
         chunk_id = chunk_id_hash(chunk.text, f"{pack_id}:{chunk.doc_id}:{chunk.section}")
+        retrieval_terms = _retrieval_terms(chunk, enrichment)
         row = catalog_entity(
             chunk_id=chunk_id,
             text=chunk.text,
@@ -3556,7 +3681,7 @@ def _build_rows(
             tags=_join_csv(
                 [f"language-pack,{language}", f"doc-language:{doc_language}", chunk.metadata.get("scope_tags", [])]
             ),
-            keywords=",".join(str(x) for x in [chunk.package_name, chunk.symbol_kind, chunk.symbol_name] if x),
+            keywords=_join_csv([[chunk.package_name, chunk.symbol_kind, chunk.symbol_name], retrieval_terms]),
             origin_type="curated",
             authority="vetted",
             pack_id=pack_id,
@@ -3638,6 +3763,13 @@ def _build_rows(
                 )
             ),
         )
+        row["retrieval_terms"] = _join_csv([retrieval_terms])
+        row["query_aliases"] = _join_csv([enrichment.get("query_aliases")])
+        row["agent_query_hints"] = _join_csv([enrichment.get("agent_query_hints")])
+        row["task_intents"] = _join_csv([enrichment.get("task_intents")])
+        row["verification_hints"] = _join_csv([enrichment.get("verification_hints")])
+        row["related_interfaces"] = _join_csv([enrichment.get("related_interfaces")])
+        row["related_symbols"] = _join_csv([enrichment.get("related_symbols")])
         for key in (
             "contains_refs",
             "documents_refs",
@@ -4222,7 +4354,7 @@ def finalize_staged_language_pack(
     if embedder_url:
         embedder_kwargs["url"] = embedder_url
     embedder = EmbedClient(**embedder_kwargs)
-    embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
+    embed_inputs = [_embedding_input(chunk, enrichment) for chunk, enrichment in zip(chunks, enrichments)]
     embeddings = embedder.embed_texts(embed_inputs) if embed_inputs else []
     if len(embeddings) != len(chunks):
         raise SynPackError(f"embedder returned {len(embeddings)} vectors for {len(chunks)} chunks")
@@ -4263,6 +4395,9 @@ def finalize_staged_language_pack(
         "edge_count": len(edges),
         "requires_bulk_import": len(rows) >= 1000,
         "install_profile": "nornicdb-v2-typed-graph",
+        "content_type": "developer",
+        "trust_score": 1.0,
+        "freshness_score": 1.0,
         "sources_lock_sha256": _sha256_file(final_sources_lock_path),
         "metadata_sha256": _sha256_file(rows_path),
         "edges_sha256": _sha256_file(edges_path),
@@ -4275,6 +4410,9 @@ def finalize_staged_language_pack(
             "edge_count": quality_report["edge_count"],
             "node_counts_by_kind": quality_report["node_counts_by_kind"],
             "edge_counts_by_type": quality_report["edge_counts_by_type"],
+            "example_count": quality_report.get("example_count", 0),
+            "context_card_count": quality_report.get("context_card_count", 0),
+            "anti_pattern_count": quality_report.get("anti_pattern_count", 0),
             "dangling_edge_count": quality_report["dangling_edge_count"],
             "external_ref_count": quality_report["external_ref_count"],
             "quality_report_sha256": _sha256_file(final_dir / "quality" / "report.json"),
@@ -4503,7 +4641,7 @@ def build_language_pack(
         if embedder_url:
             embedder_kwargs["url"] = embedder_url
         embedder = EmbedClient(**embedder_kwargs)
-        embed_inputs = [f"{e.get('agent_hook', '')}\n\n{chunk.text}".strip() for chunk, e in zip(chunks, enrichments)]
+        embed_inputs = [_embedding_input(chunk, enrichment) for chunk, enrichment in zip(chunks, enrichments)]
         embeddings = embedder.embed_texts(embed_inputs) if embed_inputs else []
         if len(embeddings) != len(chunks):
             raise SynPackError(f"embedder returned {len(embeddings)} vectors for {len(chunks)} chunks")
@@ -4546,6 +4684,9 @@ def build_language_pack(
             "doc_language": doc_language,
             "supported_doc_languages": supported_doc_languages,
             "domain": str(config.get("domain") or language),
+            "content_type": str(config.get("content_type") or "developer"),
+            "trust_score": float(config.get("trust_score", 1.0) or 1.0),
+            "freshness_score": float(config.get("freshness_score", 1.0) or 1.0),
             "embedding_model": DEFAULT_PACK_MODEL,
             "embedding_dimensions": EMBEDDING_DIM,
             "embedding_profile": EMBEDDING_PROFILE,
@@ -4562,6 +4703,9 @@ def build_language_pack(
                 "safety_contract",
                 "lifecycle_model",
                 "agent_enrichment_json",
+                "retrieval_terms",
+                "query_aliases",
+                "task_intents",
                 "import_refs",
                 "call_refs",
             ],
@@ -4606,6 +4750,9 @@ def build_language_pack(
                 "edge_count": quality_report["edge_count"],
                 "node_counts_by_kind": quality_report["node_counts_by_kind"],
                 "edge_counts_by_type": quality_report["edge_counts_by_type"],
+                "example_count": quality_report.get("example_count", 0),
+                "context_card_count": quality_report.get("context_card_count", 0),
+                "anti_pattern_count": quality_report.get("anti_pattern_count", 0),
                 "dangling_edge_count": quality_report["dangling_edge_count"],
                 "external_ref_count": quality_report["external_ref_count"],
                 "quality_report_sha256": _sha256_file(tmp / "quality" / "report.json"),

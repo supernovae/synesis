@@ -1,22 +1,22 @@
-"""Graph content pack build/load utilities.
+"""Graph content pack build utilities.
 
 Content packs are ZIP-based, graph-aware documentation/code packs. A pack contains
 at least:
 
 - manifest.json
-- nodes.jsonl or metadata.jsonl
+- nodes/chunks.jsonl
+- typed node files under nodes/
 - edges.jsonl
 
-Optional files include cleaned Markdown, vectors.npy, embedder.onnx, and graph
-exports. The loader validates manifest compatibility before writing nodes and
-relationships into the NornicDB content graph.
+Optional files include cleaned Markdown, graph-native typed nodes, context cards,
+quality reports, and vector sidecars. Runtime loading is handled by the SynPack
+v2 bulk importer.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import struct
 import tempfile
@@ -46,14 +46,12 @@ from .schema import (
     EMBEDDING_PROFILE,
     SCHEMA_VERSION,
     catalog_entity,
-    ensure_synesis_catalog,
 )
 
 logger = get_logger("synesis.indexer.synpack")
 
 SYNPACK_FORMAT_VERSION = "2.0"
 DEFAULT_PACK_MODEL = EMBEDDING_MODEL
-DELETE_PARTIAL_IDS = os.getenv("SYNESIS_NORNIC_DELETE_PARTIAL_IDS", "").strip().lower() in {"1", "true", "yes"}
 V2_CHUNKS_PATH = "nodes/chunks.jsonl"
 V2_DOCUMENTS_PATH = "nodes/documents.jsonl"
 V2_PACKAGES_PATH = "nodes/packages.jsonl"
@@ -63,7 +61,9 @@ V2_CONCEPTS_PATH = "nodes/concepts.jsonl"
 V2_PATTERNS_PATH = "nodes/patterns.jsonl"
 V2_CONSTRAINTS_PATH = "nodes/constraints.jsonl"
 V2_EXAMPLES_PATH = "nodes/examples.jsonl"
+V2_CONTEXT_CARDS_PATH = "nodes/context_cards.jsonl"
 V2_EXTERNAL_REFS_PATH = "nodes/external_refs.jsonl"
+V2_EVAL_CASES_PATH = "nodes/eval_cases.jsonl"
 V2_ENRICHMENT_PATH = "enrichment/enrichment.jsonl"
 V2_QUALITY_PATH = "quality/report.json"
 V2_VECTOR_INDEX_PATH = "vectors/index.json"
@@ -140,8 +140,8 @@ def validate_synpack(pack_path: str | Path) -> dict[str, Any]:
     manifest = validate_manifest(read_manifest(path))
     with zipfile.ZipFile(path) as zf:
         names = set(zf.namelist())
-    if "nodes.jsonl" not in names and "metadata.jsonl" not in names and V2_CHUNKS_PATH not in names:
-        raise SynPackError("nodes.jsonl, metadata.jsonl, or nodes/chunks.jsonl missing from content pack")
+    if V2_CHUNKS_PATH not in names:
+        raise SynPackError("SynPack v2 nodes/chunks.jsonl missing from content pack")
     return manifest
 
 
@@ -158,40 +158,6 @@ def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
             if not isinstance(obj, dict):
                 raise SynPackError(f"{path.name}:{line_no} must be a JSON object")
             yield obj
-
-
-def _load_vectors_if_present(root: Path) -> list[list[float]] | None:
-    vectors_path = root / "vectors.npy"
-    if vectors_path.exists():
-        try:
-            import numpy as np  # type: ignore
-        except Exception as exc:
-            raise SynPackError("vectors.npy requires numpy to be installed") from exc
-        arr = np.load(vectors_path)
-        if len(arr.shape) != 2 or int(arr.shape[1]) != EMBEDDING_DIM:
-            raise SynPackError(f"vectors.npy must have shape [N,{EMBEDDING_DIM}]")
-        return arr.astype("float32").tolist()
-
-    binary_path = root / V2_VECTOR_BINARY_PATH
-    index_path = root / V2_VECTOR_INDEX_PATH
-    if not binary_path.exists() or not index_path.exists():
-        return None
-    index = json.loads(index_path.read_text(encoding="utf-8"))
-    count = int(index.get("count", 0) or 0)
-    dims = int(index.get("dimensions", 0) or 0)
-    if dims != EMBEDDING_DIM:
-        raise SynPackError(f"vectors/chunks.f32 dimension mismatch: got {dims}, expected {EMBEDDING_DIM}")
-    raw = binary_path.read_bytes()
-    expected = count * dims * 4
-    if len(raw) != expected:
-        raise SynPackError(f"vectors/chunks.f32 byte size mismatch: got {len(raw)}, expected {expected}")
-    vectors: list[list[float]] = []
-    offset = 0
-    for _ in range(count):
-        end = offset + dims * 4
-        vectors.append(list(struct.unpack(f"<{dims}f", raw[offset:end])))
-        offset = end
-    return vectors
 
 
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
@@ -276,6 +242,120 @@ def _iter_enrichment_texts(enrichment: dict[str, Any], keys: tuple[str, ...]) ->
                 yield key, text[:2048]
 
 
+def _first_enrichment_text(value: Any) -> str:
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            text = str(
+                item.get("text")
+                or item.get("code")
+                or item.get("summary")
+                or item.get("title")
+                or item.get("name")
+                or ""
+            )
+        else:
+            text = str(item)
+        text = text.strip()
+        if text:
+            return text[:4096]
+    return ""
+
+
+def _string_list(value: Any, *, limit: int = 24, item_limit: int = 160) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            text = str(item.get("text") or item.get("name") or item.get("title") or "")
+        else:
+            text = str(item)
+        text = text.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text[:item_limit])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _csv(value: Any, *, limit: int = 24) -> str:
+    return ",".join(_string_list(value, limit=limit))
+
+
+def _example_node(
+    row: dict[str, Any],
+    pack_id: str,
+    key: str,
+    item: Any,
+) -> dict[str, Any] | None:
+    data = item if isinstance(item, dict) else {"text": str(item)}
+    text = str(data.get("text") or data.get("code") or data.get("summary") or "").strip()
+    code = str(data.get("code") or "").strip()
+    if not text and not code:
+        return None
+    title = str(data.get("title") or data.get("name") or text or code)[:128]
+    node_id = f"{pack_id}:example:{_short_hash(key, title, text, code)}"
+    return {
+        **_node_base(row, node_id=node_id, kind="Example", name=title),
+        "example_type": key,
+        "text": (text or code)[:4096],
+        "code": code[:8192],
+        "language": str(data.get("language") or row.get("language") or "")[:32],
+        "imports": _csv(data.get("imports"), limit=32) or str(data.get("imports") or "")[:2048],
+        "setup": str(data.get("setup") or "")[:2048],
+        "expected_output": str(data.get("expected_output") or "")[:2048],
+        "test_command": str(data.get("test_command") or data.get("verification") or "")[:512],
+        "runnable": bool(data.get("runnable", False)),
+        "anti_example": bool(data.get("anti_example", False) or key == "anti_examples"),
+        "applies_to": _csv(data.get("applies_to") or row.get("symbol_fqn"), limit=24),
+        "source_span": str(data.get("source_span") or row.get("heading_path") or "")[:512],
+        "retrieval_terms": _csv(data.get("retrieval_terms") or data.get("query_aliases"), limit=32),
+        "query_aliases": _csv(data.get("query_aliases"), limit=32),
+    }
+
+
+def _context_card_node(row: dict[str, Any], pack_id: str, enrichment: dict[str, Any]) -> dict[str, Any] | None:
+    what_to_use = _first_enrichment_text(enrichment.get("what_to_use") or enrichment.get("agent_hook"))
+    minimal_example = _first_enrichment_text(enrichment.get("minimal_example") or enrichment.get("canonical_examples"))
+    verification = _first_enrichment_text(enrichment.get("verification") or enrichment.get("verification_hints"))
+    warnings = _first_enrichment_text(
+        enrichment.get("do_not_use") or enrichment.get("hidden_warnings") or enrichment.get("anti_patterns")
+    )
+    if not any((what_to_use, minimal_example, verification, warnings)):
+        return None
+    symbol = str(row.get("symbol_fqn") or row.get("symbol_name") or row.get("document_name") or row.get("id") or "")
+    title = symbol[:128] or "Context card"
+    node_id = f"{pack_id}:context-card:{_short_hash(row.get('id'), title)}"
+    text = "\n\n".join(
+        part
+        for part in (
+            f"What to use: {what_to_use}" if what_to_use else "",
+            f"Do not use: {warnings}" if warnings else "",
+            f"Minimal example: {minimal_example}" if minimal_example else "",
+            f"Verification: {verification}" if verification else "",
+        )
+        if part
+    )
+    return {
+        **_node_base(row, node_id=node_id, kind="ContextCard", name=title),
+        "text": text[:8192],
+        "what_to_use": what_to_use,
+        "when_to_use": _first_enrichment_text(enrichment.get("when_to_use") or enrichment.get("task_intents")),
+        "do_not_use": warnings,
+        "minimal_example": minimal_example,
+        "verification": verification,
+        "related_apis": _csv(
+            enrichment.get("related_apis") or enrichment.get("related_symbols") or enrichment.get("related_interfaces"),
+            limit=32,
+        ),
+        "source_refs": _csv([row.get("source_url"), row.get("doc_id"), row.get("symbol_fqn")], limit=16),
+        "retrieval_terms": _csv(enrichment.get("retrieval_terms") or enrichment.get("agent_query_hints"), limit=48),
+        "query_aliases": _csv(enrichment.get("query_aliases"), limit=48),
+        "task_intents": _csv(enrichment.get("task_intents"), limit=32),
+    }
+
+
 def materialize_synpack_v2(
     rows: list[dict[str, Any]],
     edges: list[dict[str, Any]],
@@ -299,6 +379,7 @@ def materialize_synpack_v2(
     patterns: dict[str, dict[str, Any]] = {}
     constraints: dict[str, dict[str, Any]] = {}
     examples: dict[str, dict[str, Any]] = {}
+    context_cards: dict[str, dict[str, Any]] = {}
     external_refs: dict[str, dict[str, Any]] = {}
     enrichment_rows: list[dict[str, Any]] = []
     typed_edges: list[dict[str, Any]] = [dict(edge) for edge in edges]
@@ -373,6 +454,17 @@ def materialize_synpack_v2(
                 },
             )
         enrichment = _parse_agent_enrichment(row)
+        row["retrieval_terms"] = row.get("retrieval_terms") or _csv(enrichment.get("retrieval_terms"), limit=64)
+        row["query_aliases"] = row.get("query_aliases") or _csv(enrichment.get("query_aliases"), limit=64)
+        row["task_intents"] = row.get("task_intents") or _csv(enrichment.get("task_intents"), limit=48)
+        row["content_type"] = row.get("content_type") or str(manifest.get("content_type") or "developer")
+        row["source_release"] = row.get("source_release") or str(manifest.get("source_release") or "")
+        row["upstream_commit"] = row.get("upstream_commit") or str(
+            manifest.get("upstream_commit") or row.get("commit") or ""
+        )
+        row["upstream_tag"] = row.get("upstream_tag") or str(manifest.get("upstream_tag") or "")
+        row["freshness_score"] = row.get("freshness_score", manifest.get("freshness_score", -1.0))
+        row["trust_score"] = row.get("trust_score", manifest.get("trust_score", -1.0))
         if enrichment.get("enrichment_status") == "fallback":
             fallback_enriched += 1
         elif enrichment:
@@ -403,17 +495,42 @@ def materialize_synpack_v2(
             )
         for key, text in _iter_enrichment_texts(enrichment, ("anti_patterns", "hidden_warnings")):
             node_id = f"{pack_id}:pattern:{_short_hash(key, text)}"
+            replacement_api = _first_enrichment_text(
+                enrichment.get("replacement_api")
+                or enrichment.get("replacement_apis")
+                or enrichment.get("preferred_replacements")
+            )
             _add_unique(
                 patterns,
                 {
                     **_node_base(row, node_id=node_id, kind="Pattern", name=text[:128]),
                     "pattern_type": key,
                     "text": text,
+                    "polarity": "anti_pattern" if key == "anti_patterns" else "warning",
+                    "deprecated": key == "hidden_warnings",
+                    "deprecation_status": "avoid" if key == "anti_patterns" else "warning",
+                    "replacement_api": replacement_api[:256],
+                    "retrieval_terms": _csv(
+                        enrichment.get("retrieval_terms") or enrichment.get("query_aliases"), limit=48
+                    ),
                 },
             )
             typed_edges.append(
                 {"type": "HAS_PATTERN", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
             )
+            if replacement_api:
+                replacement_id = f"{pack_id}:concept:{_short_hash('replacement', replacement_api)}"
+                _add_unique(
+                    concepts,
+                    {
+                        **_node_base(row, node_id=replacement_id, kind="Concept", name=replacement_api[:128]),
+                        "concept_type": "replacement_api",
+                        "text": replacement_api[:2048],
+                    },
+                )
+                typed_edges.append(
+                    {"type": "REPLACED_BY", "source_id": node_id, "target_id": replacement_id, "source": "enrichment"}
+                )
         for key, text in _iter_enrichment_texts(
             enrichment, ("safety_contract", "api_contract", "verification_hints", "version_scope")
         ):
@@ -429,18 +546,40 @@ def materialize_synpack_v2(
             typed_edges.append(
                 {"type": "HAS_CONSTRAINT", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
             )
-        for key, text in _iter_enrichment_texts(enrichment, ("canonical_examples", "examples")):
-            node_id = f"{pack_id}:example:{_short_hash(key, text)}"
-            _add_unique(
-                examples,
-                {
-                    **_node_base(row, node_id=node_id, kind="Example", name=text[:128]),
-                    "example_type": key,
-                    "text": text,
-                },
-            )
+        for key in ("canonical_examples", "examples", "anti_examples"):
+            for item in _as_list(enrichment.get(key)):
+                example_node = _example_node(row, pack_id, key, item)
+                if not example_node:
+                    continue
+                _add_unique(examples, example_node)
+                typed_edges.append(
+                    {
+                        "type": "HAS_EXAMPLE",
+                        "source_id": chunk_id,
+                        "target_id": example_node["id"],
+                        "source": "enrichment",
+                    }
+                )
+                if bool(example_node.get("anti_example")):
+                    typed_edges.append(
+                        {
+                            "type": "WARNS_ABOUT",
+                            "source_id": example_node["id"],
+                            "target_id": chunk_id,
+                            "source": "enrichment",
+                        }
+                    )
+
+        context_card = _context_card_node(row, pack_id, enrichment)
+        if context_card:
+            _add_unique(context_cards, context_card)
             typed_edges.append(
-                {"type": "HAS_EXAMPLE", "source_id": chunk_id, "target_id": node_id, "source": "enrichment"}
+                {
+                    "type": "HAS_CONTEXT_CARD",
+                    "source_id": chunk_id,
+                    "target_id": context_card["id"],
+                    "source": "enrichment",
+                }
             )
 
     node_ids.update(documents)
@@ -451,6 +590,7 @@ def materialize_synpack_v2(
     node_ids.update(patterns)
     node_ids.update(constraints)
     node_ids.update(examples)
+    node_ids.update(context_cards)
 
     missing_before_external_refs = 0
     unresolved_edges = 0
@@ -500,6 +640,7 @@ def materialize_synpack_v2(
     _write_jsonl(root_path / V2_PATTERNS_PATH, patterns.values())
     _write_jsonl(root_path / V2_CONSTRAINTS_PATH, constraints.values())
     _write_jsonl(root_path / V2_EXAMPLES_PATH, examples.values())
+    _write_jsonl(root_path / V2_CONTEXT_CARDS_PATH, context_cards.values())
     _write_jsonl(root_path / V2_EXTERNAL_REFS_PATH, external_refs.values())
     _write_jsonl(root_path / V2_ENRICHMENT_PATH, enrichment_rows)
 
@@ -546,6 +687,7 @@ def materialize_synpack_v2(
         "Pattern": len(patterns),
         "Constraint": len(constraints),
         "Example": len(examples),
+        "ContextCard": len(context_cards),
         "ExternalRef": len(external_refs),
     }
     total_nodes = sum(node_counts.values())
@@ -561,6 +703,9 @@ def materialize_synpack_v2(
         "edge_count": len(typed_edges),
         "fallback_enriched": fallback_enriched,
         "enriched": enriched,
+        "example_count": len(examples),
+        "context_card_count": len(context_cards),
+        "anti_pattern_count": len(patterns),
         "enrichment_coverage_score": round(enrichment_coverage, 4),
         "graph_resolution_score": round(max(0.0, graph_resolution), 4),
         "dangling_edge_count_before_external_refs": missing_before_external_refs,
@@ -572,177 +717,6 @@ def materialize_synpack_v2(
     quality_path.parent.mkdir(parents=True, exist_ok=True)
     quality_path.write_text(json.dumps(quality_report, indent=2, sort_keys=True), encoding="utf-8")
     return quality_report
-
-
-def _row_to_entity(row: dict[str, Any], manifest: dict[str, Any], embedding: list[float] | None) -> dict[str, Any]:
-    if "embedding" in row and isinstance(row["embedding"], list):
-        embedding = [float(x) for x in row["embedding"]]
-    if embedding is None:
-        raise SynPackError("row is missing embedding and no vectors.npy entry is available")
-    if len(embedding) != EMBEDDING_DIM:
-        raise SynPackError(f"row embedding dimension mismatch: got {len(embedding)}, expected {EMBEDDING_DIM}")
-
-    if "chunk_id" in row and "text" in row:
-        # Complete or near-complete catalog entity. Rebuild through catalog_entity
-        # so new fields/defaults and truncation rules stay consistent.
-        base = dict(row)
-    else:
-        base = row
-
-    pack_id = str(base.get("pack_id") or manifest["pack_id"])
-    text = str(base.get("text") or base.get("content") or "")
-    if not text:
-        raise SynPackError("row text/content is required")
-    source_url = str(base.get("source_url") or "")
-    chunk_id = str(base.get("chunk_id") or chunk_id_hash(text, f"{pack_id}:{source_url}"))
-
-    return catalog_entity(
-        chunk_id=chunk_id,
-        text=text,
-        embedding=embedding,
-        doc_id=str(base.get("doc_id") or source_url or pack_id),
-        chunk_index=int(base.get("chunk_index", 0) or 0),
-        context_prefix=str(base.get("context_prefix", "") or ""),
-        chunk_summary=str(base.get("chunk_summary", "") or ""),
-        heading_path=str(base.get("heading_path", "") or ""),
-        section=str(base.get("section", "") or ""),
-        document_name=str(base.get("document_name", "") or manifest.get("name", pack_id)),
-        source_type=str(base.get("source_type", "") or "docs"),
-        handler=str(base.get("handler", "") or "synpack"),
-        domain=str(base.get("domain", "") or manifest.get("domain", "")),
-        tags=str(
-            base.get("tags", "") or ",".join(manifest.get("tags", []) if isinstance(manifest.get("tags"), list) else [])
-        ),
-        keywords=str(base.get("keywords", "") or ""),
-        origin_type=str(base.get("origin_type", "") or "curated"),
-        authority=str(base.get("authority", "") or "vetted"),
-        pack_id=pack_id,
-        pack_version=str(base.get("pack_version", "") or manifest.get("pack_version", manifest.get("version", ""))),
-        pack_source_version=str(base.get("pack_source_version", "") or manifest.get("source_version", "")),
-        pack_artifact_hash=str(base.get("pack_artifact_hash", "") or manifest.get("artifact_hash", "")),
-        pack_partition=str(base.get("pack_partition", "") or pack_id),
-        symbol_kind=str(base.get("symbol_kind", "") or ""),
-        symbol_fqn=str(base.get("symbol_fqn", "") or ""),
-        package_name=str(base.get("package_name", "") or ""),
-        doc_relation_ids=(
-            ",".join(str(x) for x in base.get("doc_relation_ids", []) if str(x).strip())
-            if isinstance(base.get("doc_relation_ids"), list)
-            else str(base.get("doc_relation_ids", "") or "")
-        ),
-        source_url=source_url,
-        agent_hook=str(base.get("agent_hook", "") or ""),
-        perf_tier=str(base.get("perf_tier", "") or ""),
-        safety_contract=str(base.get("safety_contract", "") or ""),
-        lifecycle_model=str(base.get("lifecycle_model", "") or ""),
-        agent_enrichment_json=(
-            json.dumps(base.get("agent_enrichment_json", {}), sort_keys=True)
-            if isinstance(base.get("agent_enrichment_json"), dict)
-            else str(base.get("agent_enrichment_json", "") or "")
-        ),
-        scan_status=str(base.get("scan_status", "clean") or "clean"),
-        scan_signals=str(base.get("scan_signals", "") or ""),
-        content_format=str(base.get("content_format", "") or ""),
-        symbol_type=str(base.get("symbol_type", "") or base.get("symbol_kind", "") or ""),
-        approval_status=str(base.get("approval_status", "auto_approved") or "auto_approved"),
-        language=str(base.get("language", "") or manifest.get("language", "")),
-        repo_path=str(base.get("repo_path", "") or ""),
-        module_path=str(base.get("module_path", "") or ""),
-        symbol_name=str(base.get("symbol_name", "") or ""),
-        artifact_kind=str(base.get("artifact_kind", "") or "docs"),
-        has_code=bool(base.get("has_code", False)),
-        code_signal_count=int(base.get("code_signal_count", 0) or 0),
-        code_density=float(base.get("code_density", 0.0) or 0.0),
-        code_language=str(base.get("code_language", "") or ""),
-        visibility_scope=str(base.get("visibility_scope", "global") or "global"),
-        org_id=str(base.get("org_id", "") or ""),
-        tenant_id=str(base.get("tenant_id", "") or ""),
-        acl_mode=str(base.get("acl_mode", "open") or "open"),
-        acl_groups=str(base.get("acl_groups", "") or ""),
-        corpus_class=str(base.get("corpus_class", "") or "coder_enriched"),
-        constraint_kind=str(base.get("constraint_kind", "") or ""),
-        content_profile=str(base.get("content_profile", "") or "reference"),
-        scope_tags=str(base.get("scope_tags", "") or ""),
-        constraint_source=str(base.get("constraint_source", "") or ""),
-        constraint_confidence=float(base.get("constraint_confidence", -1.0) or -1.0),
-        crawl_timestamp=int(base.get("crawl_timestamp", 0) or int(time.time() * 1000)),
-        raw_content_hash=str(base.get("raw_content_hash", "") or hashlib.sha256(text.encode()).hexdigest()),
-        clean_content_hash=str(base.get("clean_content_hash", "") or hashlib.sha256(text.encode()).hexdigest()),
-        enrichment_profile=str(base.get("enrichment_profile", "") or "synpack_v1"),
-    )
-
-
-def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace: bool = False) -> dict[str, Any]:
-    nornic_uri = nornic_uri or NORNIC_URI
-    manifest = validate_synpack(pack_path)
-    pack_id = manifest["pack_id"]
-    tmp = Path(tempfile.mkdtemp(prefix="synpack-load-"))
-    try:
-        with zipfile.ZipFile(pack_path) as zf:
-            zf.extractall(tmp)
-        vectors = _load_vectors_if_present(tmp)
-        rows_file = tmp / "nodes.jsonl"
-        if not rows_file.exists():
-            rows_file = tmp / "metadata.jsonl"
-        if not rows_file.exists():
-            rows_file = tmp / V2_CHUNKS_PATH
-        rows = list(_iter_jsonl(rows_file))
-        if vectors is not None and len(vectors) != len(rows):
-            raise SynPackError(f"vectors.npy row count {len(vectors)} does not match metadata rows {len(rows)}")
-
-        writer = NornicGraphWriter(uri=nornic_uri)
-        ensure_synesis_catalog(writer.client)
-        if replace:
-            writer.delete_pack(pack_id)
-
-        artifact_hash = _sha256_file(Path(pack_path))
-        manifest["artifact_hash"] = artifact_hash
-        logger.info("synpack_nodes_parse_start", extra={"pack_id": pack_id, "rows": len(rows)})
-        raw_entities = [
-            _row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)
-        ]
-        entities_by_id: dict[str, dict[str, Any]] = {}
-        duplicate_nodes = 0
-        for entity in raw_entities:
-            entity_id = str(entity["id"])
-            if entity_id in entities_by_id:
-                duplicate_nodes += 1
-            entities_by_id[entity_id] = entity
-        entities = list(entities_by_id.values())
-        logger.info(
-            "synpack_nodes_parse_complete",
-            extra={"pack_id": pack_id, "nodes": len(entities), "duplicate_nodes": duplicate_nodes},
-        )
-        partial_nodes_deleted = 0
-        if DELETE_PARTIAL_IDS:
-            partial_nodes_deleted = writer.delete_partial_ids([str(entity["id"]) for entity in entities])
-        count = writer.upsert_batch(entities)
-        logger.info(
-            "synpack_nodes_loaded",
-            extra={
-                "pack_id": pack_id,
-                "nodes": count,
-                "duplicate_nodes": duplicate_nodes,
-                "partial_nodes_deleted": partial_nodes_deleted,
-            },
-        )
-        edge_count = 0
-        edges_path = tmp / "edges.jsonl"
-        if edges_path.exists():
-            edges = list(_iter_jsonl(edges_path))
-            logger.info("synpack_edges_load_start", extra={"pack_id": pack_id, "edges": len(edges)})
-            edge_count = writer.upsert_edges(edges)
-            logger.info("synpack_edges_loaded", extra={"pack_id": pack_id, "edges": edge_count})
-        return {
-            "ok": True,
-            "pack_id": pack_id,
-            "nodes": count,
-            "duplicate_nodes": duplicate_nodes,
-            "partial_nodes_deleted": partial_nodes_deleted,
-            "edges": edge_count,
-            "artifact_hash": artifact_hash,
-        }
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def list_packs(*, nornic_uri: str = NORNIC_URI, limit: int = 16384) -> list[dict[str, Any]]:

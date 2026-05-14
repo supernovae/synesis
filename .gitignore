@@ -65,6 +65,7 @@ synesis-models/
 
 # Synpack artifacts (large generated bundles)
 synpacks/
+.work/synpacks/
 
 # Secrets and credentials
 .env

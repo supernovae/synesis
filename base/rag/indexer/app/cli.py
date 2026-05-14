@@ -307,7 +307,7 @@ def _run_yaml_mode(args: argparse.Namespace) -> None:
 
 def _run_synpack(args: argparse.Namespace) -> None:
     from .nornic_bulk_importer import bulk_load_synpack
-    from .synpack import list_packs, load_synpack, search_pack, validate_synpack
+    from .synpack import list_packs, search_pack, validate_synpack
 
     if args.synpack_command == "validate":
         if not args.synpack:
@@ -321,7 +321,7 @@ def _run_synpack(args: argparse.Namespace) -> None:
         if not args.synpack:
             logger.error("synpack_path_required")
             sys.exit(1)
-        print(json_dump(load_synpack(args.synpack, nornic_uri=args.nornic_uri or "", replace=args.replace)))
+        print(json_dump(bulk_load_synpack(args.synpack, nornic_uri=args.nornic_uri or "", replace=args.replace)))
         return
 
     if args.synpack_command == "bulk-load":

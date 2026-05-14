@@ -12,7 +12,7 @@ sensitivity, dependency graph shape, and whether this resource should require a
 human approval gate before apply.
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": Strategic advice for how an agent should suggest or modify this.
+- "agent_hook": Rich, identifier-heavy guidance for how an agent should suggest or modify this.
 - "perf_tier": instant, moderate, long_running, or unknown.
 - "safety_contract": Destructive/update/additive constraints and state safety requirements.
 - "lifecycle_model": Dependency, provider, module, state, import, and plan lifecycle.
@@ -30,8 +30,8 @@ human approval gate before apply.
 - "cloud_provider": aws, azure, gcp, multi, opentofu, terraform, or unknown.
 - "resource_weight": instant, moderate, long_running, or unknown.
 - "validation_hints": Array of concrete validation commands or checks.
-- "hidden_warnings": Array of concise gotchas.
-- "agent_query_hints": Array of retrieval phrases an agent should use next.
+- "hidden_warnings": Array of source-grounded gotchas.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases an agent should use next.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

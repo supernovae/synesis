@@ -9,7 +9,7 @@ Use only the provided source content. If a field is not evidenced, return "unkno
 
 ### OUTPUT
 Return exactly one valid JSON object with these keys:
-- agent_hook: one sentence explaining when an agent should use this CLI command.
+- agent_hook: rich, identifier-heavy guidance explaining when an agent should use this CLI command.
 - perf_tier: one of "instant", "triggers-build-or-download", "long-running-process", "unknown".
 - safety_contract: command safety: read-only, project-modifying, destructive/overwrite, or "unknown".
 - lifecycle_model: command lifecycle such as one-shot, dev-mode long-running, build pipeline, deploy pipeline, or "unknown".
@@ -20,4 +20,4 @@ Return exactly one valid JSON object with these keys:
 - common_flags: JSON array of the most important flags.
 - agent_advice: practical instruction before suggesting this command.
 - hidden_warnings: JSON array of CLI footguns agents often miss.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

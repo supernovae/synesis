@@ -24,4 +24,4 @@ Return exactly one valid JSON object with these keys:
 - t_string_guidance: "unknown" unless evidenced.
 - type_resolution_hint: package/type-discovery guidance if evidenced.
 - hidden_warnings: JSON array of dependency/environment footguns.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

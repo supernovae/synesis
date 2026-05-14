@@ -2,9 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   KnowledgeSearchService,
   KNOWLEDGE_TOOL_NAME,
+  CONTEXT_BUNDLE_TOOL_NAME,
   DEV_DOCS_TOOL_NAME,
   KNOWLEDGE_TOOL_SCHEMA_OPENAI,
   KNOWLEDGE_TOOL_SCHEMA_CLAUDE,
+  CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI,
+  CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE,
   DEV_DOCS_TOOL_SCHEMA_OPENAI,
   DEV_DOCS_TOOL_SCHEMA_CLAUDE,
 } from "../src/state/knowledge-search.js";
@@ -98,6 +101,28 @@ describe("KnowledgeSearchService", () => {
       expect(body.caller_tenant_ids).toEqual(["t1"]);
     });
 
+    it("adapts bundle source_chunks into the standard evidence result shape", async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            query: "go shutdown",
+            source_chunks: [{ text: "Use Server.Shutdown", source_url: "https://pkg.go.dev/net/http", document_name: "net/http", authority: "canonical", score: 1 }],
+            context_cards: [{ title: "Server.Shutdown" }],
+            examples: [],
+            anti_patterns: [],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const service = new KnowledgeSearchService(deps);
+      const result = await service.resolve({ query: "go shutdown", mode: "bundle" });
+
+      expect(result.total).toBe(1);
+      expect(result.results[0]?.text).toContain("Server.Shutdown");
+      expect(result.context_cards).toHaveLength(1);
+    });
+
     it("falls back to internal service token when no bearer", async () => {
       fetchSpy.mockResolvedValue(new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }));
 
@@ -140,24 +165,25 @@ describe("KnowledgeSearchService", () => {
     it("adds tool to undefined tools list", () => {
       const service = new KnowledgeSearchService(deps);
       const tools = service.injectToolOpenAI(undefined);
-      expect(tools).toHaveLength(2);
+      expect(tools).toHaveLength(3);
       const names = (tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name);
       expect(names).toContain(KNOWLEDGE_TOOL_NAME);
+      expect(names).toContain(CONTEXT_BUNDLE_TOOL_NAME);
       expect(names).toContain(DEV_DOCS_TOOL_NAME);
     });
 
     it("does not duplicate if already present", () => {
       const service = new KnowledgeSearchService(deps);
-      const existing = [KNOWLEDGE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
+      const existing = [KNOWLEDGE_TOOL_SCHEMA_OPENAI, CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
       const tools = service.injectToolOpenAI(existing);
-      expect(tools).toHaveLength(2);
+      expect(tools).toHaveLength(3);
     });
 
     it("appends alongside existing tools", () => {
       const service = new KnowledgeSearchService(deps);
       const existing = [{ type: "function", function: { name: "other_tool" } }];
       const tools = service.injectToolOpenAI(existing);
-      expect(tools).toHaveLength(3);
+      expect(tools).toHaveLength(4);
     });
   });
 
@@ -165,17 +191,18 @@ describe("KnowledgeSearchService", () => {
     it("adds tool to undefined tools list", () => {
       const service = new KnowledgeSearchService(deps);
       const tools = service.injectToolClaude(undefined);
-      expect(tools).toHaveLength(2);
+      expect(tools).toHaveLength(3);
       const names = (tools as Array<{ name?: string }>).map((t) => t.name);
       expect(names).toContain(KNOWLEDGE_TOOL_NAME);
+      expect(names).toContain(CONTEXT_BUNDLE_TOOL_NAME);
       expect(names).toContain(DEV_DOCS_TOOL_NAME);
     });
 
     it("does not duplicate if already present", () => {
       const service = new KnowledgeSearchService(deps);
-      const existing = [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
+      const existing = [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
       const tools = service.injectToolClaude(existing);
-      expect(tools).toHaveLength(2);
+      expect(tools).toHaveLength(3);
     });
   });
 

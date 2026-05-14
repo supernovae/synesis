@@ -4,6 +4,7 @@ import { LIMITS } from "./tool-utils.js";
 /** Shared search filters (synesis_search and synesis_knowledge_search). */
 export const knowledgeSearchInputSchema = z.object({
   query: z.string().min(1).max(LIMITS.queryChars),
+  mode: z.enum(["bundle", "cards"]).optional(),
   top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
   pack_id: z.string().max(LIMITS.shortStringChars).optional(),
   pack_ids: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxStringArrayItems).optional(),
@@ -15,8 +16,34 @@ export const knowledgeSearchInputSchema = z.object({
   temporal_at: z.string().max(LIMITS.shortStringChars).optional(),
   graph_depth: z.number().int().min(0).max(3).optional(),
   edge_types: z
-    .array(z.enum(["CONTAINS", "DEFINES", "CALLS", "IMPORTS", "REFERENCES", "OVERRIDES", "IMPLEMENTS", "DOCUMENTS"]))
+    .array(z.enum([
+      "CONTAINS",
+      "DEFINES",
+      "CALLS",
+      "IMPORTS",
+      "REFERENCES",
+      "OVERRIDES",
+      "IMPLEMENTS",
+      "DOCUMENTS",
+      "HAS_CONSTRAINT",
+      "HAS_EXAMPLE",
+      "HAS_PATTERN",
+      "HAS_CONTEXT_CARD",
+      "APPLIES_TO",
+      "DEPRECATED_BY",
+      "REPLACED_BY",
+      "RELATED_TO",
+      "WARNS_ABOUT",
+    ]))
     .optional(),
+  topic: z.string().max(LIMITS.mediumStringChars).optional(),
+  symbol: z.string().max(LIMITS.mediumStringChars).optional(),
+  task: z.string().max(LIMITS.mediumStringChars).optional(),
+  content_type: z.string().max(LIMITS.shortStringChars).optional(),
+  version_preference: z.string().max(LIMITS.shortStringChars).optional(),
+  include_examples: z.boolean().optional(),
+  include_antipatterns: z.boolean().optional(),
+  include_context_cards: z.boolean().optional(),
   symbol_kind: z.string().max(LIMITS.shortStringChars).optional(),
   symbol_fqn: z.string().max(LIMITS.mediumStringChars).optional(),
   package_name: z.string().max(LIMITS.shortStringChars).optional(),
@@ -77,6 +104,21 @@ export const knowledgeSearchInputSchema = z.object({
   content_profile: z.string().max(LIMITS.shortStringChars).optional(),
   constraint_source: z.string().max(LIMITS.shortStringChars).optional(),
   golden_path_id: z.string().max(LIMITS.shortStringChars).optional(),
+});
+
+export const resolvePackInputSchema = z.object({
+  query: z.string().max(LIMITS.queryChars).optional(),
+  domain: z.string().max(LIMITS.shortStringChars).optional(),
+  content_type: z.string().max(LIMITS.shortStringChars).optional(),
+  language: z.string().max(LIMITS.shortStringChars).optional(),
+  package_name: z.string().max(LIMITS.shortStringChars).optional(),
+  symbol: z.string().max(LIMITS.mediumStringChars).optional(),
+  version: z.string().max(LIMITS.shortStringChars).optional(),
+  top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
+});
+
+export const contextBundleInputSchema = knowledgeSearchInputSchema.extend({
+  mode: z.enum(["bundle", "cards"]).optional().default("bundle"),
 });
 
 export const codeSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });

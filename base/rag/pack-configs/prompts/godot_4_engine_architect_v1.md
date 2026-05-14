@@ -12,7 +12,7 @@ physics/rendering server interaction, and GDScript 2.0 idioms. Return a SynPack
 v1 hybrid enrichment object.
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": Strategic advice for how an agent should suggest this.
+- "agent_hook": Rich, identifier-heavy guidance for how an agent should suggest this.
 - "perf_tier": One of LIGHTWEIGHT, FRAME_SENSITIVE, GPU_OR_VIEWPORT_HEAVY, UNKNOWN.
 - "safety_contract": Main safety constraints: main-thread, signal, lifecycle, physics, rendering, resource, or editor-time boundaries.
 - "lifecycle_model": Relevant Godot execution order such as _init, _enter_tree, _ready, _process, _physics_process, queue_free.
@@ -27,8 +27,8 @@ v1 hybrid enrichment object.
 - "lifecycle_order": Ordered lifecycle callbacks relevant to this chunk.
 - "physics_rendering_boundary": Physics tick, render frame, server API, or no boundary.
 - "legacy_3x_warning": Specific Godot 3.x hallucination to avoid, or empty string.
-- "hidden_warnings": Array of concise gotchas.
-- "agent_query_hints": Array of retrieval phrases an agent should use next.
+- "hidden_warnings": Array of source-grounded gotchas.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases an agent should use next.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

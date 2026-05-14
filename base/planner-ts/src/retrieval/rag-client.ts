@@ -9,7 +9,16 @@
  */
 
 import neo4j, { type Driver, type QueryResult, type Record as Neo4jRecord } from "neo4j-driver";
-import type { RagResult, ScopeFilterOptions } from "./types.js";
+import type {
+  KnowledgeBundleResponse,
+  KnowledgeContextCard,
+  KnowledgeResult,
+  PackResolveRequest,
+  PackResolveResponse,
+  RagResult,
+  ResolvedPackCandidate,
+  ScopeFilterOptions,
+} from "./types.js";
 import { AUTHORITY_BOOST as AUTH_BOOST } from "./types.js";
 import type { MetadataFilterParams } from "./metadata-filter.js";
 import { embed } from "./embedder.js";
@@ -68,11 +77,27 @@ const DEFAULT_EDGE_TYPES = [
   "HAS_CONSTRAINT",
   "HAS_EXAMPLE",
   "HAS_PATTERN",
+  "HAS_CONTEXT_CARD",
   "APPLIES_TO",
   "DEPRECATED_BY",
+  "REPLACED_BY",
+  "WARNS_ABOUT",
   "RELATED_TO",
 ];
 const MAX_GRAPH_DEPTH = 3;
+const DEFAULT_BUNDLE_EDGE_TYPES = [
+  "DEFINES",
+  "DOCUMENTS",
+  "HAS_EXAMPLE",
+  "HAS_PATTERN",
+  "HAS_CONSTRAINT",
+  "HAS_CONTEXT_CARD",
+  "APPLIES_TO",
+  "DEPRECATED_BY",
+  "REPLACED_BY",
+  "RELATED_TO",
+  "WARNS_ABOUT",
+];
 
 let cachedDriverKey = "";
 let cachedDriver: Driver | null = null;
@@ -105,6 +130,21 @@ function asBoolean(value: unknown): boolean {
   return value === true || value === "true";
 }
 
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => asString(item).trim()).filter(Boolean);
+  const raw = asString(value).trim();
+  if (!raw) return [];
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.map((item) => asString(item).trim()).filter(Boolean);
+    } catch {
+      // fall through to CSV parsing
+    }
+  }
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
 function propsOf(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && "properties" in value) {
     return ((value as GraphNodeLike).properties ?? {}) as Record<string, unknown>;
@@ -113,6 +153,18 @@ function propsOf(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   return {};
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  const raw = asString(value).trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function relTypeOf(value: unknown): string {
@@ -310,12 +362,13 @@ function graphTrace(record: Neo4jRecord): string {
   });
 }
 
-function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
-  const row = propsOf(record.get("node"));
-  const score = asNumber(record.get("score"), fallbackScore);
-  const graphContext = graphTrace(record);
+function ragResultFromProps(row: Record<string, unknown>, score: number, graphContext = "{}"): RagResult {
+  const enrichment = parseJsonRecord(row.agent_enrichment_json);
 
   return {
+    id: asString(row.id ?? row.chunk_id),
+    kind: asString(row.kind),
+    name: asString(row.name),
     chunk_id: asString(row.chunk_id ?? row.id),
     doc_id: asString(row.doc_id ?? row.document_id),
     text: asString(row.text ?? row.content ?? row.summary),
@@ -360,6 +413,7 @@ function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
     effective_at_epoch: asNumber(row.effective_at_epoch, 0),
     tags: asString(row.tags),
     language: asString(row.language),
+    content_type: asString(row.content_type),
     artifact_kind: asString(row.artifact_kind),
     content_format: asString(row.content_format),
     repo_path: asString(row.repo_path ?? row.path),
@@ -380,7 +434,34 @@ function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
     visibility_scope: asString(row.visibility_scope, "global"),
     acl_mode: asString(row.acl_mode, "open"),
     authz_object_id: asString(row.authz_object_id),
+    query_aliases: asString(row.query_aliases ?? enrichment.query_aliases),
+    retrieval_terms: asString(row.retrieval_terms ?? enrichment.retrieval_terms),
+    task_intents: asString(row.task_intents ?? enrichment.task_intents),
+    source_release: asString(row.source_release),
+    upstream_commit: asString(row.upstream_commit ?? row.commit),
+    upstream_tag: asString(row.upstream_tag),
+    deprecation_status: asString(row.deprecation_status),
+    replacement_api: asString(row.replacement_api),
+    deprecated: asBoolean(row.deprecated),
+    quality_score: asNumber(row.quality_score, -1),
+    trust_score: asNumber(row.trust_score, -1),
+    freshness_score: asNumber(row.freshness_score, -1),
+    runnable: asBoolean(row.runnable),
+    anti_example: asBoolean(row.anti_example),
+    imports: asString(row.imports),
+    setup: asString(row.setup),
+    expected_output: asString(row.expected_output),
+    test_command: asString(row.test_command),
+    related_apis: asString(row.related_apis),
   };
+}
+
+function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
+  return ragResultFromProps(
+    propsOf(record.get("node")),
+    asNumber(record.get("score"), fallbackScore),
+    graphTrace(record),
+  );
 }
 
 function parseAuthzObject(value: string): { objectType: string; objectId: string } | null {
@@ -416,6 +497,475 @@ async function filterByFga(rows: RagResult[], scope: ScopeFilterOptions | undefi
     if (decision.allowed) out.push(row);
   }
   return out;
+}
+
+function searchTerms(...values: Array<unknown>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const raw = asString(value).toLowerCase();
+    for (const part of raw.split(/[^a-z0-9_./:-]+/i)) {
+      const item = part.trim();
+      if (item.length < 2 || seen.has(item)) continue;
+      seen.add(item);
+      out.push(item.slice(0, 128));
+      if (out.length >= 16) return out;
+    }
+  }
+  return out;
+}
+
+function addOptionalResolverFilters(
+  clauses: string[],
+  params: Record<string, unknown>,
+  request: PackResolveRequest,
+): void {
+  const eq = (prop: string, value: unknown, paramName = prop) => {
+    const s = asString(value).trim();
+    if (!s) return;
+    params[paramName] = s;
+    clauses.push(`node.${prop} = $${paramName}`);
+  };
+  eq("domain", request.domain);
+  eq("content_type", request.content_type);
+  eq("language", request.language);
+  eq("package_name", request.package_name);
+  if (request.version) {
+    params.requested_version = request.version;
+    clauses.push("(node.source_version = $requested_version OR node.pack_version = $requested_version)");
+  }
+}
+
+function resolverTextPredicate(): string {
+  return `(
+    $terms = [] OR any(term IN $terms WHERE
+      toLower(coalesce(node.pack, node.pack_id, "")) CONTAINS term OR
+      toLower(coalesce(node.name, "")) CONTAINS term OR
+      toLower(coalesce(node.domain, "")) CONTAINS term OR
+      toLower(coalesce(node.content_type, "")) CONTAINS term OR
+      toLower(coalesce(node.language, "")) CONTAINS term OR
+      toLower(coalesce(node.package_name, "")) CONTAINS term OR
+      toLower(coalesce(node.symbol_fqn, "")) CONTAINS term OR
+      toLower(coalesce(node.symbol_name, "")) CONTAINS term OR
+      toLower(coalesce(node.retrieval_terms, "")) CONTAINS term OR
+      toLower(coalesce(node.query_aliases, "")) CONTAINS term OR
+      toLower(coalesce(node.task_intents, "")) CONTAINS term
+    )
+  )`;
+}
+
+function rowToResolvedPack(row: Neo4jRecord): ResolvedPackCandidate {
+  return {
+    pack_id: asString(row.get("pack_id")),
+    pack_version: asString(row.get("pack_version")),
+    source_version: asString(row.get("source_version")),
+    source_release: asString(row.get("source_release")),
+    domain: asString(row.get("domain")),
+    content_type: asString(row.get("content_type")),
+    language: asString(row.get("language")),
+    package_name: asString(row.get("package_name")),
+    trust_score: asNumber(row.get("trust_score"), -1),
+    quality_score: asNumber(row.get("quality_score"), -1),
+    freshness_score: asNumber(row.get("freshness_score"), -1),
+    node_count: asNumber(row.get("node_count"), 0),
+    chunk_count: asNumber(row.get("chunk_count"), 0),
+    example_count: asNumber(row.get("example_count"), 0),
+    context_card_count: asNumber(row.get("context_card_count"), 0),
+    pattern_count: asNumber(row.get("pattern_count"), 0),
+    constraint_count: asNumber(row.get("constraint_count"), 0),
+    edge_count: asNumber(row.get("edge_count"), 0),
+    score: asNumber(row.get("score"), 0),
+  };
+}
+
+export async function resolvePacks(
+  request: PackResolveRequest,
+  config: RagClientConfig,
+  scopeFilter?: ScopeFilterOptions,
+): Promise<PackResolveResponse> {
+  if (!config.nornicUri) return { query: asString(request.query), candidates: [], total: 0 };
+  const terms = searchTerms(request.query, request.package_name, request.symbol, request.language, request.domain);
+  const clauses = [
+    "coalesce(node.pack, node.pack_id, \"\") <> \"\"",
+    buildScopePredicate("node", scopeFilter),
+    scopeFilter?.authzMode === "enforce" ? "coalesce(node.acl_mode, \"open\") IN [\"open\", \"\"]" : "true",
+    resolverTextPredicate(),
+  ];
+  const params: Record<string, unknown> = {
+    terms,
+    limit: Math.min(Math.max(Math.trunc(request.top_k ?? 5), 1), 20),
+    symbol: asString(request.symbol).trim(),
+  };
+  addScopeParams(scopeFilter, params);
+  addOptionalResolverFilters(clauses, params, request);
+  if (params.symbol) {
+    clauses.push(`(
+      node.symbol_fqn = $symbol OR node.symbol_name = $symbol OR node.name = $symbol OR
+      toLower(coalesce(node.symbol_fqn, "")) CONTAINS toLower($symbol) OR
+      toLower(coalesce(node.retrieval_terms, "")) CONTAINS toLower($symbol)
+    )`);
+  }
+
+  const cypher = `
+MATCH (node:ContentNode)
+WHERE ${clauses.join("\n  AND ")}
+WITH coalesce(node.pack, node.pack_id, "") AS pack_id, node
+WITH pack_id,
+     count(node) AS node_count,
+     sum(CASE WHEN coalesce(node.kind, "Chunk") = "Chunk" AND node.text IS NOT NULL THEN 1 ELSE 0 END) AS chunk_count,
+     sum(CASE WHEN coalesce(node.kind, "") = "Example" THEN 1 ELSE 0 END) AS example_count,
+     sum(CASE WHEN coalesce(node.kind, "") = "ContextCard" THEN 1 ELSE 0 END) AS context_card_count,
+     sum(CASE WHEN coalesce(node.kind, "") = "Pattern" THEN 1 ELSE 0 END) AS pattern_count,
+     sum(CASE WHEN coalesce(node.kind, "") = "Constraint" THEN 1 ELSE 0 END) AS constraint_count,
+     collect(node)[0] AS sample
+OPTIONAL MATCH (a:ContentNode)-[r]-(b:ContentNode)
+WHERE (a.pack = pack_id OR a.pack_id = pack_id) AND (b.pack = pack_id OR b.pack_id = pack_id)
+WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count,
+     count(DISTINCT r) AS edge_count
+WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count, edge_count,
+     (node_count + example_count * 3 + context_card_count * 4 + pattern_count * 2 + constraint_count * 2) AS score
+RETURN pack_id,
+       coalesce(sample.pack_version, "") AS pack_version,
+       coalesce(sample.source_version, sample.pack_source_version, "") AS source_version,
+       coalesce(sample.source_release, "") AS source_release,
+       coalesce(sample.domain, "") AS domain,
+       coalesce(sample.content_type, "") AS content_type,
+       coalesce(sample.language, "") AS language,
+       coalesce(sample.package_name, "") AS package_name,
+       coalesce(sample.trust_score, -1.0) AS trust_score,
+       coalesce(sample.quality_score, -1.0) AS quality_score,
+       coalesce(sample.freshness_score, -1.0) AS freshness_score,
+       node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count, edge_count, score
+ORDER BY score DESC, pack_id
+LIMIT $limit
+`;
+  const session = driverFor(config).session({ database: config.nornicDatabase });
+  try {
+    const result = await session.run(cypher, params, { timeout: config.timeoutMs ?? 15000 });
+    const candidates = result.records.map(rowToResolvedPack);
+    return { query: asString(request.query), candidates, total: candidates.length };
+  } finally {
+    await session.close();
+  }
+}
+
+interface TypedNodeQuery {
+  query: string;
+  packId?: string;
+  kinds: string[];
+  topic?: string;
+  symbol?: string;
+  task?: string;
+  version?: string;
+  language?: string;
+  artifactKind?: string;
+  limit?: number;
+}
+
+async function findTypedNodes(
+  config: RagClientConfig,
+  input: TypedNodeQuery,
+  scopeFilter?: ScopeFilterOptions,
+): Promise<RagResult[]> {
+  if (!config.nornicUri) return [];
+  const terms = searchTerms(input.query, input.topic, input.symbol, input.task);
+  const clauses = [
+    "node.kind IN $kinds",
+    buildScopePredicate("node", scopeFilter),
+    resolverTextPredicate(),
+  ];
+  const params: Record<string, unknown> = {
+    kinds: input.kinds,
+    terms,
+    limit: Math.min(Math.max(Math.trunc(input.limit ?? 6), 1), 25),
+    symbol: asString(input.symbol).trim(),
+  };
+  addScopeParams(scopeFilter, params);
+  const eq = (prop: string, value: unknown, paramName = prop) => {
+    const s = asString(value).trim();
+    if (!s) return;
+    params[paramName] = s;
+    clauses.push(`node.${prop} = $${paramName}`);
+  };
+  if (input.packId) {
+    params.pack_id = input.packId;
+    clauses.push("(node.pack = $pack_id OR node.pack_id = $pack_id)");
+  }
+  eq("language", input.language);
+  eq("artifact_kind", input.artifactKind);
+  if (input.version) {
+    params.version = input.version;
+    clauses.push("(node.source_version = $version OR node.pack_version = $version)");
+  }
+  if (params.symbol) {
+    clauses.push(`(
+      node.symbol_fqn = $symbol OR node.symbol_name = $symbol OR node.name = $symbol OR
+      toLower(coalesce(node.symbol_fqn, "")) CONTAINS toLower($symbol) OR
+      toLower(coalesce(node.text, "")) CONTAINS toLower($symbol)
+    )`);
+  }
+
+  const cypher = `
+MATCH (node:ContentNode)
+WHERE ${clauses.join("\n  AND ")}
+WITH node,
+     CASE
+       WHEN $symbol <> "" AND (node.symbol_fqn = $symbol OR node.symbol_name = $symbol OR node.name = $symbol) THEN 4.0
+       WHEN $symbol <> "" AND toLower(coalesce(node.text, "")) CONTAINS toLower($symbol) THEN 2.5
+       ELSE 1.0
+     END + coalesce(node.quality_score, 0.0) + coalesce(node.trust_score, 0.0) AS score
+RETURN node, score
+ORDER BY score DESC, coalesce(node.name, node.id)
+LIMIT $limit
+`;
+  const session = driverFor(config).session({ database: config.nornicDatabase });
+  try {
+    const result = await session.run(cypher, params, { timeout: config.timeoutMs ?? 15000 });
+    return filterByFga(
+      result.records.map((record, i) => ragResultFromProps(propsOf(record.get("node")), asNumber(record.get("score"), 1 / (i + 1)))),
+      scopeFilter,
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+function knowledgeResultFromRag(row: RagResult): KnowledgeResult {
+  const scopeTagsStr = row.scope_tags ?? "";
+  return {
+    text: row.text,
+    source_url: row.source_url,
+    chunk_id: row.chunk_id ?? "",
+    doc_id: row.doc_id ?? "",
+    document_name: row.document_name,
+    authority: row.authority,
+    pack_id: row.pack_id ?? "",
+    pack_version: row.pack_version ?? "",
+    pack_source_version: row.pack_source_version ?? "",
+    pack_partition: row.pack_partition ?? "",
+    symbol_kind: row.symbol_kind ?? row.kind ?? "",
+    symbol_fqn: row.symbol_fqn ?? "",
+    symbol_name: row.symbol_name ?? "",
+    package_name: row.package_name ?? "",
+    doc_relation_ids: row.doc_relation_ids ? row.doc_relation_ids.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    agent_hook: row.agent_hook ?? "",
+    perf_tier: row.perf_tier ?? "",
+    safety_contract: row.safety_contract ?? "",
+    lifecycle_model: row.lifecycle_model ?? "",
+    agent_enrichment_json: row.agent_enrichment_json ?? "",
+    origin_type: row.origin_type,
+    source_type: row.source_type ?? "",
+    handler: row.handler ?? "",
+    domain: row.domain,
+    language: row.language ?? "",
+    artifact_kind: row.artifact_kind ?? "",
+    content_format: row.content_format ?? "",
+    repo_path: row.repo_path ?? "",
+    module_path: row.module_path ?? "",
+    tags: row.tags ?? "",
+    context_prefix: row.context_prefix,
+    chunk_summary: row.chunk_summary,
+    heading_path: row.heading_path,
+    score: row.rerank_score || row.rrf_score || row.vector_score,
+    constraint_kind: row.constraint_kind ?? "",
+    corpus_class: row.corpus_class ?? "",
+    scope_tags: scopeTagsStr ? scopeTagsStr.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    content_profile: row.content_profile ?? "",
+    constraint_source: row.constraint_source ?? "",
+    constraint_confidence: row.constraint_confidence ?? -1,
+    golden_path_id: row.golden_path_id ?? "",
+    novel_pattern: Boolean(row.novel_pattern),
+    has_code: Boolean(row.has_code),
+    code_signal_count: row.code_signal_count ?? 0,
+    code_density: row.code_density ?? 0,
+    code_language: row.code_language ?? "",
+    scan_status: row.scan_status ?? "unscanned",
+    approval_status: row.approval_status ?? "auto_approved",
+  };
+}
+
+function contextCardFromRag(row: RagResult, fallbackIndex: number): KnowledgeContextCard {
+  const enrichment = parseJsonRecord(row.agent_enrichment_json);
+  const title = asString(row.name ?? row.symbol_fqn ?? row.document_name, `Context card ${fallbackIndex + 1}`);
+  return {
+    title,
+    what_to_use: asString(enrichment.what_to_use ?? row.chunk_summary ?? row.text).slice(0, 1600),
+    when_to_use: asString(enrichment.when_to_use ?? row.context_prefix).slice(0, 1200),
+    do_not_use: asString(enrichment.do_not_use ?? enrichment.hidden_warnings ?? row.deprecation_status).slice(0, 1200),
+    minimal_example: asString(enrichment.minimal_example ?? row.text).slice(0, 2000),
+    verification: asString(enrichment.verification ?? row.test_command ?? row.safety_contract).slice(0, 1200),
+    related_apis: asStringArray(enrichment.related_apis ?? row.related_apis).slice(0, 12),
+    source_refs: [row.source_url, row.doc_id, row.symbol_fqn].map((v) => asString(v)).filter(Boolean).slice(0, 8),
+    score: row.rerank_score || row.rrf_score || row.vector_score,
+  };
+}
+
+function sourceVersionWarning(requested: string | undefined, resolved: ResolvedPackCandidate | undefined): string[] {
+  const wanted = asString(requested).trim();
+  if (!wanted || !resolved) return [];
+  const actual = resolved.source_version || resolved.pack_version;
+  if (!actual || actual === wanted) return [];
+  return [`Requested version ${wanted}, but resolved ${resolved.pack_id} is indexed from ${actual}.`];
+}
+
+export async function retrieveKnowledgeBundle(
+  request: {
+    query: string;
+    topK?: number;
+    packId?: string;
+    topic?: string;
+    symbol?: string;
+    task?: string;
+    version?: string;
+    language?: string;
+    domain?: string;
+    contentType?: string;
+    packageName?: string;
+    artifactKind?: string;
+    includeExamples?: boolean;
+    includeAntipatterns?: boolean;
+    includeContextCards?: boolean;
+    metadata?: MetadataFilterParams;
+    graphDepth?: number;
+    edgeTypes?: string[];
+  },
+  config: RagClientConfig,
+  scopeFilter?: ScopeFilterOptions,
+): Promise<KnowledgeBundleResponse> {
+  const started = performance.now();
+  const resolveStart = performance.now();
+  const resolve = await resolvePacks(
+    {
+      query: request.query,
+      domain: request.domain,
+      content_type: request.contentType,
+      language: request.language,
+      package_name: request.packageName,
+      symbol: request.symbol,
+      version: request.version,
+      top_k: 5,
+    },
+    config,
+    scopeFilter,
+  );
+  const resolvedPack = request.packId
+    ? resolve.candidates.find((candidate) => candidate.pack_id === request.packId)
+    : resolve.candidates[0];
+  const packId = request.packId ?? resolvedPack?.pack_id;
+  const resolveMs = performance.now() - resolveStart;
+
+  const searchStart = performance.now();
+  const bundleQuery = [request.query, request.topic, request.symbol, request.task].map((v) => asString(v).trim()).filter(Boolean).join("\n");
+  const sourceRows = await retrieveContext(bundleQuery || request.query, config, {
+    topK: request.topK ?? 8,
+    scopeFilter,
+    metadata: {
+      ...request.metadata,
+      pack_id: packId ?? request.metadata?.pack_id,
+      package_name: request.packageName ?? request.metadata?.package_name,
+      language: request.language ?? request.metadata?.language,
+      artifact_kind: request.artifactKind ?? request.metadata?.artifact_kind,
+      symbol_fqn: request.metadata?.symbol_fqn,
+    },
+    graphDepth: request.graphDepth ?? 2,
+    edgeTypes: request.edgeTypes?.length ? request.edgeTypes : DEFAULT_BUNDLE_EDGE_TYPES,
+    version: request.version,
+  });
+  const searchMs = performance.now() - searchStart;
+
+  const bundleStart = performance.now();
+  const [cardRows, exampleRows, antiPatternRows, symbolRows] = await Promise.all([
+    request.includeContextCards === false ? Promise.resolve([]) : findTypedNodes(config, {
+      query: request.query,
+      packId,
+      kinds: ["ContextCard"],
+      topic: request.topic,
+      symbol: request.symbol,
+      task: request.task,
+      version: request.version,
+      language: request.language,
+      artifactKind: request.artifactKind,
+      limit: 6,
+    }, scopeFilter),
+    request.includeExamples === false ? Promise.resolve([]) : findTypedNodes(config, {
+      query: request.query,
+      packId,
+      kinds: ["Example"],
+      topic: request.topic,
+      symbol: request.symbol,
+      task: request.task,
+      version: request.version,
+      language: request.language,
+      artifactKind: request.artifactKind,
+      limit: 6,
+    }, scopeFilter),
+    request.includeAntipatterns === false ? Promise.resolve([]) : findTypedNodes(config, {
+      query: [request.query, "avoid deprecated anti-pattern warning replacement", request.task].filter(Boolean).join(" "),
+      packId,
+      kinds: ["Pattern", "Constraint"],
+      topic: request.topic,
+      symbol: request.symbol,
+      task: request.task,
+      version: request.version,
+      language: request.language,
+      artifactKind: request.artifactKind,
+      limit: 6,
+    }, scopeFilter),
+    findTypedNodes(config, {
+      query: request.query,
+      packId,
+      kinds: ["Symbol", "Concept"],
+      topic: request.topic,
+      symbol: request.symbol,
+      task: request.task,
+      version: request.version,
+      language: request.language,
+      artifactKind: request.artifactKind,
+      limit: 8,
+    }, scopeFilter),
+  ]);
+
+  const contextCards = cardRows.length > 0
+    ? cardRows.map(contextCardFromRag)
+    : sourceRows.slice(0, 3).map(contextCardFromRag);
+  const sourceChunks = sourceRows.map(knowledgeResultFromRag);
+  const examples = exampleRows.map(knowledgeResultFromRag);
+  const antiPatterns = antiPatternRows.map(knowledgeResultFromRag);
+  const relatedSymbols = symbolRows.map(knowledgeResultFromRag);
+  const qualityValues = [resolvedPack?.quality_score, ...sourceRows.map((row) => row.quality_score)]
+    .filter((value): value is number => typeof value === "number" && value >= 0);
+  const trustValues = [resolvedPack?.trust_score, ...sourceRows.map((row) => row.trust_score)]
+    .filter((value): value is number => typeof value === "number" && value >= 0);
+  const freshnessValues = [resolvedPack?.freshness_score, ...sourceRows.map((row) => row.freshness_score)]
+    .filter((value): value is number => typeof value === "number" && value >= 0);
+  const avg = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : -1;
+  const bundleMs = performance.now() - bundleStart;
+
+  return {
+    query: request.query,
+    resolved_pack: resolvedPack,
+    context_cards: contextCards,
+    examples,
+    anti_patterns: antiPatterns,
+    source_chunks: sourceChunks,
+    related_symbols: relatedSymbols,
+    freshness_warnings: sourceVersionWarning(request.version, resolvedPack),
+    quality: {
+      quality_score: avg(qualityValues),
+      trust_score: avg(trustValues),
+      freshness_score: avg(freshnessValues),
+      evidence_count: sourceChunks.length + relatedSymbols.length,
+      example_count: examples.length,
+      anti_pattern_count: antiPatterns.length,
+      context_card_count: contextCards.length,
+    },
+    timings: {
+      resolve_ms: Math.round(resolveMs * 10) / 10,
+      search_ms: Math.round(searchMs * 10) / 10,
+      bundle_ms: Math.round(bundleMs * 10) / 10,
+      total_ms: Math.round((performance.now() - started) * 10) / 10,
+    },
+  };
 }
 
 /**

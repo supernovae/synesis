@@ -27,6 +27,7 @@ from ..services.nornic_service import (
     collection_corpus_summary,
     collection_domain_hierarchy,
     collection_installed_packs,
+    collection_pack_quality_reports,
     collection_schema_info,
     expected_graph_schema_version,
     reported_graph_schema_version,
@@ -193,6 +194,13 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
     tags = raw.get("tags")
     if not isinstance(tags, list):
         tags = []
+
+    def _safe_count(key: str) -> int:
+        try:
+            return max(0, int(raw.get(key, 0) or 0))
+        except Exception:
+            return 0
+
     entry = {
         "pack_id": pack_id,
         "name": str(raw.get("name") or pack_id)[:256],
@@ -207,6 +215,15 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
         "node_count": node_count,
         "edge_count": edge_count,
         "requires_bulk_import": bool(raw.get("requires_bulk_import", False)),
+        "content_type": str(raw.get("content_type") or "")[:64],
+        "source_version": str(raw.get("source_version") or "")[:64],
+        "source_release": str(raw.get("source_release") or "")[:64],
+        "example_count": _safe_count("example_count"),
+        "context_card_count": _safe_count("context_card_count"),
+        "anti_pattern_count": _safe_count("anti_pattern_count"),
+        "quality_score": raw.get("quality_score"),
+        "trust_score": raw.get("trust_score"),
+        "freshness_score": raw.get("freshness_score"),
         "tags": [str(t).strip()[:64] for t in tags if str(t).strip()][:32],
         "created_at": raw.get("created_at") or "",
         "requires_synesis_version": str(raw.get("requires_synesis_version") or "")[:64],
@@ -401,6 +418,8 @@ async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
             catalog["errors"] = [str(exc.detail)]
 
     installed = _installed_doc_packs()
+    quality_reports = collection_pack_quality_reports(CATALOG_COLLECTION)
+    quality_by_id = {str(report["pack_id"]): report for report in quality_reports}
     installed_by_id = {str(p["pack_id"]): p for p in installed}
     available = []
     for pack in catalog.get("packs", []):
@@ -411,11 +430,19 @@ async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
             status = "installed"
         elif installed_pack:
             status = "update_available"
-        available.append({**pack, "install_status": status, "installed": installed_pack})
+        available.append(
+            {
+                **pack,
+                "install_status": status,
+                "installed": installed_pack,
+                "quality": quality_by_id.get(str(pack["pack_id"])),
+            }
+        )
     return {
         "config": _content_pack_config_dict(config),
         "catalog": {**catalog, "packs": available},
-        "installed": installed,
+        "installed": [{**pack, "quality": quality_by_id.get(str(pack["pack_id"]))} for pack in installed],
+        "quality_reports": quality_reports,
         "jobs": [_content_pack_job_dict(job) for job in jobs],
     }
 
@@ -939,6 +966,7 @@ async def benchmarks(_user: UserInfo = Depends(get_current_user)):
                 await session.execute(
                     select(BenchmarkResult)
                     .where(BenchmarkResult.completed_at.isnot(None))
+                    .where(BenchmarkResult.benchmark_type != "synpack_retrieval_eval")
                     .order_by(BenchmarkResult.started_at.desc())
                     .limit(1)
                 )
@@ -982,7 +1010,10 @@ async def benchmark_history(
             rows = (
                 (
                     await session.execute(
-                        select(BenchmarkResult).order_by(BenchmarkResult.started_at.desc()).limit(limit)
+                        select(BenchmarkResult)
+                        .where(BenchmarkResult.benchmark_type != "synpack_retrieval_eval")
+                        .order_by(BenchmarkResult.started_at.desc())
+                        .limit(limit)
                     )
                 )
                 .scalars()

@@ -11,7 +11,7 @@ Your goal is to enrich documentation so an AI agent can build high-performance, 
 3. Generate a JSON object for the SynPack v1 hybrid schema.
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": Strategic advice for an agent using this chunk.
+- "agent_hook": Rich, identifier-heavy guidance for an agent using this chunk.
 - "perf_tier": One of JIT_FRIENDLY, PROMISE_HEAVY, GC_HEAVY, C_EXTENSION, UNKNOWN.
 - "safety_contract": Runtime, type, async, package, or memory constraints the agent must preserve.
 - "lifecycle_model": Module/static, request/closure, listener, disposable, or process lifecycle.
@@ -35,7 +35,7 @@ Your goal is to enrich documentation so an AI agent can build high-performance, 
 - "legacy_date_replacement": Safer Temporal replacement for legacy Date if relevant.
 - "calendar_safety": Calendar/time-zone safety note if relevant.
 - "hidden_warnings": Array of non-obvious traps.
-- "agent_query_hints": Array of short retrieval tags.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

@@ -35,7 +35,7 @@ import { invokeGraph, streamGraph } from "./graph.js";
 import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
 import { setRetrievalClient, directStreamPipeline, isRetrievalClientRegistered } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
-import { retrieveContext } from "./retrieval/rag-client.js";
+import { resolvePacks, retrieveContext, retrieveKnowledgeBundle } from "./retrieval/rag-client.js";
 import { searchAndProcess, setWebSearchObserver } from "./retrieval/web-search.js";
 import { persistWebSearchLog } from "./retrieval/web-search-log.js";
 import { buildMetadataFilter, extractTagMetadata } from "./retrieval/metadata-filter.js";
@@ -195,6 +195,41 @@ function deriveKnowledgeSearchScope(
     authzMode: config.SYNESIS_RAG_AUTHZ_MODE,
     authzTraceId,
     trustedScopeSource,
+  };
+}
+
+function stringArrayBody(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value.map((item) => String(item).trim()).filter(Boolean).slice(0, 50);
+  return out.length ? out : undefined;
+}
+
+function metadataFromKnowledgeBody(body: Record<string, unknown> | null): import("./retrieval/metadata-filter.js").MetadataFilterParams {
+  return {
+    pack_id: body?.pack_id ? String(body.pack_id) : undefined,
+    pack_ids: stringArrayBody(body?.pack_ids),
+    pack_version: body?.pack_version ? String(body.pack_version) : undefined,
+    pack_partition: body?.pack_partition ? String(body.pack_partition) : undefined,
+    symbol_kind: body?.symbol_kind ? String(body.symbol_kind) : undefined,
+    symbol_fqn: body?.symbol_fqn ? String(body.symbol_fqn) : undefined,
+    package_name: body?.package_name ? String(body.package_name) : undefined,
+    perf_tier: body?.perf_tier ? String(body.perf_tier) : undefined,
+    language: body?.language ? String(body.language) : undefined,
+    artifact_kind: body?.artifact_kind ? String(body.artifact_kind) : undefined,
+    domain: body?.domain ? String(body.domain) : undefined,
+    corpus_class: body?.corpus_class ? String(body.corpus_class) : undefined,
+    constraint_kind: body?.constraint_kind ? String(body.constraint_kind) : undefined,
+    content_profile: body?.content_profile ? String(body.content_profile) : undefined,
+    constraint_source: body?.constraint_source ? String(body.constraint_source) : undefined,
+    golden_path_id: body?.golden_path_id ? String(body.golden_path_id) : undefined,
+    scope_tags: stringArrayBody(body?.scope_tags),
+    tags: body?.tags ? String(body.tags) : undefined,
+    content_format: body?.content_format ? String(body.content_format) : undefined,
+    repo_path: body?.repo_path ? String(body.repo_path) : undefined,
+    module_path: body?.module_path ? String(body.module_path) : undefined,
+    symbol_name: body?.symbol_name ? String(body.symbol_name) : undefined,
+    has_code: typeof body?.has_code === "boolean" ? body.has_code : undefined,
+    code_language: body?.code_language ? String(body.code_language) : undefined,
   };
 }
 
@@ -1015,8 +1050,133 @@ export function buildApp(config: AppConfig): FastifyInstance {
   });
 
   // -----------------------------------------------------------------------
-  // Knowledge search — structured RAG retrieval for MCP and Yarn
+  // Knowledge retrieval — SynPack v2 resolver, bundles, and structured search
   // -----------------------------------------------------------------------
+  async function authorizeKnowledgeRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    body: Record<string, unknown> | null,
+  ): Promise<{ auth: AuthContext; scope: ScopeFilterOptions; authzTraceId: string } | null> {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!await isSearchRouteAuthorized(
+      request.headers.authorization,
+      token,
+      config.SYNESIS_PAT_PEPPER,
+    )) {
+      void reply.code(401).send({ error: "unauthorized" });
+      return null;
+    }
+    const authzTraceId = crypto.randomUUID();
+    reply.header("x-synesis-authz-trace-id", authzTraceId);
+
+    let auth: AuthContext;
+    try {
+      auth = await resolveAuthContext(request, config);
+    } catch (err) {
+      const statusCode = (err as ErrorWithMeta).statusCode ?? 401;
+      void reply.code(statusCode).send({
+        error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+        authz_trace_id: authzTraceId,
+      });
+      return null;
+    }
+
+    const bodyScopeHintsIgnored = hasCallerScopeHints(body);
+    const scope = deriveKnowledgeSearchScope(auth, body, config, authzTraceId);
+    if (bodyScopeHintsIgnored) {
+      request.log.warn({
+        authz_trace_id: authzTraceId,
+        auth_method: auth.authMethod,
+        trusted_forwarded_identity: auth.trustedForwardedIdentity,
+        ignored_fields: [
+          "caller_org_id",
+          "caller_tenant_ids",
+          "caller_acl_groups",
+          "caller_user_id",
+        ].filter((key) => body?.[key] !== undefined),
+      }, "knowledge_route_body_scope_ignored");
+    }
+
+    return { auth, scope, authzTraceId };
+  }
+
+  app.post(
+    "/v1/knowledge/resolve-pack",
+    {
+      config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
+      preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
+      const body = request.body as Record<string, unknown> | null;
+      const authorized = await authorizeKnowledgeRoute(request, reply, body);
+      if (!authorized) return reply;
+      const query = optionalString(body?.query) ?? "";
+      const hasResolverInput = Boolean(query || body?.language || body?.domain || body?.package_name || body?.symbol);
+      if (!hasResolverInput) {
+        return reply.code(400).send({ error: "query, language, domain, package_name, or symbol is required" });
+      }
+      const started = performance.now();
+      const result = await resolvePacks({
+        query,
+        domain: optionalString(body?.domain),
+        content_type: optionalString(body?.content_type),
+        language: optionalString(body?.language),
+        package_name: optionalString(body?.package_name),
+        symbol: optionalString(body?.symbol ?? body?.symbol_fqn ?? body?.symbol_name),
+        version: optionalString(body?.version ?? body?.pack_version),
+        top_k: Number(body?.top_k) || 5,
+      }, knowledgeSearchRagConfig, authorized.scope);
+      return {
+        ...result,
+        authz_trace_id: authorized.authzTraceId,
+        authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
+        timings: { total_ms: Math.round((performance.now() - started) * 10) / 10 },
+      };
+    },
+  );
+
+  app.post(
+    "/v1/knowledge/bundle",
+    {
+      config: { rateLimit: { max: 180, timeWindow: "1 minute" as const } },
+      preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
+      const body = request.body as Record<string, unknown> | null;
+      const authorized = await authorizeKnowledgeRoute(request, reply, body);
+      if (!authorized) return reply;
+      const query = String(body?.query ?? "").trim();
+      if (!query) {
+        return reply.code(400).send({ error: "query is required" });
+      }
+      const bundle = await retrieveKnowledgeBundle({
+        query,
+        topK: Math.min(Math.max(Number(body?.top_k) || 8, 1), 30),
+        packId: optionalString(body?.pack_id),
+        topic: optionalString(body?.topic),
+        symbol: optionalString(body?.symbol ?? body?.symbol_fqn ?? body?.symbol_name),
+        task: optionalString(body?.task),
+        version: optionalString(body?.version ?? body?.version_preference ?? body?.pack_version),
+        language: optionalString(body?.language),
+        domain: optionalString(body?.domain),
+        contentType: optionalString(body?.content_type),
+        packageName: optionalString(body?.package_name),
+        artifactKind: optionalString(body?.artifact_kind),
+        includeExamples: body?.include_examples !== false,
+        includeAntipatterns: body?.include_antipatterns !== false,
+        includeContextCards: body?.include_context_cards !== false,
+        metadata: metadataFromKnowledgeBody(body),
+        graphDepth: Number(body?.graph_depth) || undefined,
+        edgeTypes: stringArrayBody(body?.edge_types),
+      }, knowledgeSearchRagConfig, authorized.scope);
+      return {
+        ...bundle,
+        authz_trace_id: authorized.authzTraceId,
+        authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
+      };
+    },
+  );
+
   app.post(
     "/v1/knowledge/search",
     {
@@ -1055,32 +1215,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const topK = Math.min(Math.max(Number(body?.top_k) || 5, 1), 50);
 
-    const metaParams: import("./retrieval/metadata-filter.js").MetadataFilterParams = {
-      pack_id: body?.pack_id ? String(body.pack_id) : undefined,
-      pack_ids: Array.isArray(body?.pack_ids) ? (body.pack_ids as string[]) : undefined,
-      pack_version: body?.pack_version ? String(body.pack_version) : undefined,
-      pack_partition: body?.pack_partition ? String(body.pack_partition) : undefined,
-      symbol_kind: body?.symbol_kind ? String(body.symbol_kind) : undefined,
-      symbol_fqn: body?.symbol_fqn ? String(body.symbol_fqn) : undefined,
-      package_name: body?.package_name ? String(body.package_name) : undefined,
-      perf_tier: body?.perf_tier ? String(body.perf_tier) : undefined,
-      language: body?.language ? String(body.language) : undefined,
-      artifact_kind: body?.artifact_kind ? String(body.artifact_kind) : undefined,
-      domain: body?.domain ? String(body.domain) : undefined,
-      corpus_class: body?.corpus_class ? String(body.corpus_class) : undefined,
-      constraint_kind: body?.constraint_kind ? String(body.constraint_kind) : undefined,
-      content_profile: body?.content_profile ? String(body.content_profile) : undefined,
-      constraint_source: body?.constraint_source ? String(body.constraint_source) : undefined,
-      golden_path_id: body?.golden_path_id ? String(body.golden_path_id) : undefined,
-      scope_tags: Array.isArray(body?.scope_tags) ? (body.scope_tags as string[]) : undefined,
-      tags: body?.tags ? String(body.tags) : undefined,
-      content_format: body?.content_format ? String(body.content_format) : undefined,
-      repo_path: body?.repo_path ? String(body.repo_path) : undefined,
-      module_path: body?.module_path ? String(body.module_path) : undefined,
-      symbol_name: body?.symbol_name ? String(body.symbol_name) : undefined,
-      has_code: typeof body?.has_code === "boolean" ? body.has_code : undefined,
-      code_language: body?.code_language ? String(body.code_language) : undefined,
-    };
+    const metaParams = metadataFromKnowledgeBody(body);
 
     const bodyScopeHintsIgnored = hasCallerScopeHints(body);
     const scopeOpts = deriveKnowledgeSearchScope(auth, body, config, authzTraceId);
@@ -1096,6 +1231,37 @@ export function buildApp(config: AppConfig): FastifyInstance {
           "caller_user_id",
         ].filter((key) => body?.[key] !== undefined),
       }, "knowledge_search_body_scope_ignored");
+    }
+
+    const mode = String(body?.mode ?? "").trim();
+    if (mode === "bundle" || mode === "cards") {
+      const bundle = await retrieveKnowledgeBundle({
+        query,
+        topK,
+        packId: optionalString(body?.pack_id),
+        topic: optionalString(body?.topic),
+        symbol: optionalString(body?.symbol ?? body?.symbol_fqn ?? body?.symbol_name),
+        task: optionalString(body?.task),
+        version: optionalString(body?.version ?? body?.version_preference ?? body?.pack_version),
+        language: optionalString(body?.language),
+        domain: optionalString(body?.domain),
+        contentType: optionalString(body?.content_type),
+        packageName: optionalString(body?.package_name),
+        artifactKind: optionalString(body?.artifact_kind),
+        includeExamples: body?.include_examples !== false,
+        includeAntipatterns: body?.include_antipatterns !== false,
+        includeContextCards: body?.include_context_cards !== false,
+        metadata: metaParams,
+        graphDepth: Number(body?.graph_depth) || undefined,
+        edgeTypes: stringArrayBody(body?.edge_types),
+      }, knowledgeSearchRagConfig, scopeOpts);
+      return {
+        ...bundle,
+        results: mode === "cards" ? bundle.context_cards : bundle.source_chunks,
+        total: mode === "cards" ? bundle.context_cards.length : bundle.source_chunks.length,
+        authz_trace_id: authzTraceId,
+        authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
+      };
     }
 
     const metaFilter = buildMetadataFilterFn(metaParams);

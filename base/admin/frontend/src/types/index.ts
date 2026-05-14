@@ -609,6 +609,45 @@ export interface BenchmarkResults {
   timestamp?: string;
 }
 
+export interface RagEvalSuiteInfo {
+  name: string;
+  description?: string;
+  path?: string;
+  case_count: number;
+  languages?: string[];
+  topics?: string[];
+  error?: string;
+}
+
+export interface RagEvalCaseResult {
+  case_id: string;
+  query: string;
+  passed: boolean;
+  score: number;
+  latency_ms: number;
+  checks: Record<string, boolean>;
+  failures: string[];
+  warnings: string[];
+  counts: Record<string, number>;
+  resolved_pack?: Record<string, unknown>;
+  quality?: Record<string, number | null>;
+  top_evidence?: Array<Record<string, unknown>>;
+  training_row?: Record<string, unknown>;
+}
+
+export interface RagEvalResult {
+  run_id?: string;
+  benchmark_type?: string;
+  suite_name?: string;
+  description?: string;
+  aggregate: Record<string, number | string>;
+  per_query: RagEvalCaseResult[];
+  training_rows?: Array<Record<string, unknown>>;
+  triggered_by?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
 export interface ConflictGroup {
   [key: string]: unknown;
   id: number;

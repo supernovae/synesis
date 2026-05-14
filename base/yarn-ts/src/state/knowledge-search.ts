@@ -7,11 +7,12 @@
 import { dispatchSynesisTool, type SynesisMcpDeps, type SynesisMcpAuth } from "@synesis/mcp-tools";
 
 export const KNOWLEDGE_TOOL_NAME = "synesis_knowledge_search";
+export const CONTEXT_BUNDLE_TOOL_NAME = "synesis_context_bundle";
 
 const KNOWLEDGE_DESCRIPTION =
-  "Search the Synesis knowledge catalog for distilled documentation snippets, code examples, " +
+  "Retrieve SynPack v2 context bundles or source evidence for distilled documentation snippets, code examples, " +
   "language specs, error catalogs, linter rules, style guides, CLI/framework patterns (e.g. Cobra, kubectl), " +
-  "and architecture notes. Returns compact ranked chunks (usually fewer tokens than full web pages). " +
+  "and architecture notes. Prefer mode=bundle for answer-ready cards, examples, anti-patterns, and freshness warnings. " +
   "When you need external reference material, prefer this tool BEFORE synesis_web_search. " +
   "For Rust, use language=rust plus symbol_fqn=E0xxx for compiler errors, scope_tags like edition-2024/async/unsafe, " +
   "and inspect agent_enrichment_json for async_contract and borrow/lifetime constraints. " +
@@ -31,6 +32,23 @@ const KNOWLEDGE_PARAMETERS = {
     query: {
       type: "string",
       description: "Search query describing what knowledge to find",
+    },
+    mode: {
+      type: "string",
+      enum: ["bundle", "cards"],
+      description: "Use bundle for answer-ready cards/examples/warnings, or cards for context-card-only retrieval",
+    },
+    topic: {
+      type: "string",
+      description: "Topic to retrieve, such as server shutdown or TaskGroup cancellation",
+    },
+    symbol: {
+      type: "string",
+      description: "Exact symbol/API, such as net/http.Server.Shutdown",
+    },
+    task: {
+      type: "string",
+      description: "User task intent, such as write graceful shutdown or avoid destructive terraform replacement",
     },
     language: {
       type: "string",
@@ -165,6 +183,39 @@ export const DEV_DOCS_TOOL_SCHEMA_CLAUDE = {
   input_schema: DEV_DOCS_PARAMETERS,
 };
 
+const CONTEXT_BUNDLE_PARAMETERS = {
+  ...KNOWLEDGE_PARAMETERS,
+  properties: {
+    ...KNOWLEDGE_PARAMETERS.properties,
+    mode: {
+      type: "string",
+      enum: ["bundle"],
+      description: "Always bundle for this tool",
+    },
+    include_examples: { type: "boolean" },
+    include_antipatterns: { type: "boolean" },
+    include_context_cards: { type: "boolean" },
+  },
+  required: ["query"],
+};
+
+export const CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI = {
+  type: "function" as const,
+  function: {
+    name: CONTEXT_BUNDLE_TOOL_NAME,
+    description:
+      "Preferred SynPack v2 retrieval tool. Returns answer-ready context cards, exact examples, anti-patterns, related APIs, source evidence, freshness warnings, and pack quality signals.",
+    parameters: CONTEXT_BUNDLE_PARAMETERS,
+  },
+};
+
+export const CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE = {
+  name: CONTEXT_BUNDLE_TOOL_NAME,
+  description:
+    "Preferred SynPack v2 retrieval tool. Returns answer-ready context cards, exact examples, anti-patterns, related APIs, source evidence, freshness warnings, and pack quality signals.",
+  input_schema: CONTEXT_BUNDLE_PARAMETERS,
+};
+
 export interface KnowledgeSearchResult {
   results: Array<{
     text: string;
@@ -199,6 +250,15 @@ export interface KnowledgeSearchResult {
   }>;
   query: string;
   total: number;
+  context_cards?: unknown[];
+  examples?: KnowledgeSearchResult["results"];
+  anti_patterns?: KnowledgeSearchResult["results"];
+  related_symbols?: KnowledgeSearchResult["results"];
+  resolved_pack?: Record<string, unknown>;
+  quality?: Record<string, unknown>;
+  freshness_warnings?: string[];
+  authz_trace_id?: string;
+  authz_mode?: string;
 }
 
 /** Identity for planner knowledge/search — must match validated session / PAT. */
@@ -242,7 +302,11 @@ export class KnowledgeSearchService {
         this.errorCount++;
         return { results: [], query: String(args.query ?? ""), total: 0 };
       }
-      const results = Array.isArray(parsed.results) ? parsed.results : [];
+      const results = Array.isArray(parsed.results)
+        ? parsed.results
+        : Array.isArray(parsed.source_chunks)
+          ? parsed.source_chunks
+          : [];
       const total =
         typeof parsed.total === "number"
           ? parsed.total
@@ -253,6 +317,15 @@ export class KnowledgeSearchService {
         results: results as KnowledgeSearchResult["results"],
         query: String(parsed.query ?? args.query ?? ""),
         total,
+        context_cards: Array.isArray(parsed.context_cards) ? parsed.context_cards : undefined,
+        examples: Array.isArray(parsed.examples) ? parsed.examples as KnowledgeSearchResult["results"] : undefined,
+        anti_patterns: Array.isArray(parsed.anti_patterns) ? parsed.anti_patterns as KnowledgeSearchResult["results"] : undefined,
+        related_symbols: Array.isArray(parsed.related_symbols) ? parsed.related_symbols as KnowledgeSearchResult["results"] : undefined,
+        resolved_pack: parsed.resolved_pack && typeof parsed.resolved_pack === "object" ? parsed.resolved_pack as Record<string, unknown> : undefined,
+        quality: parsed.quality && typeof parsed.quality === "object" ? parsed.quality as Record<string, unknown> : undefined,
+        freshness_warnings: Array.isArray(parsed.freshness_warnings) ? parsed.freshness_warnings.map(String) : undefined,
+        authz_trace_id: typeof parsed.authz_trace_id === "string" ? parsed.authz_trace_id : undefined,
+        authz_mode: typeof parsed.authz_mode === "string" ? parsed.authz_mode : undefined,
       };
     } catch {
       this.errorCount++;
@@ -261,12 +334,17 @@ export class KnowledgeSearchService {
   }
 
   injectToolOpenAI(tools: unknown[] | undefined): unknown[] | undefined {
-    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
+    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_OPENAI, CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
     let newTools = [...tools];
     const existsKnowledge = (tools as Array<{ function?: { name?: string } }>).some(
       (t) => t.function?.name === KNOWLEDGE_TOOL_NAME,
     );
     if (!existsKnowledge) newTools.push(KNOWLEDGE_TOOL_SCHEMA_OPENAI);
+
+    const existsBundle = (tools as Array<{ function?: { name?: string } }>).some(
+      (t) => t.function?.name === CONTEXT_BUNDLE_TOOL_NAME,
+    );
+    if (!existsBundle) newTools.push(CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI);
     
     const existsDevDocs = (tools as Array<{ function?: { name?: string } }>).some(
       (t) => t.function?.name === DEV_DOCS_TOOL_NAME,
@@ -277,12 +355,17 @@ export class KnowledgeSearchService {
   }
 
   injectToolClaude(tools: unknown[] | undefined): unknown[] | undefined {
-    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
+    if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
     let newTools = [...tools];
     const existsKnowledge = (tools as Array<{ name?: string }>).some(
       (t) => t.name === KNOWLEDGE_TOOL_NAME,
     );
     if (!existsKnowledge) newTools.push(KNOWLEDGE_TOOL_SCHEMA_CLAUDE);
+
+    const existsBundle = (tools as Array<{ name?: string }>).some(
+      (t) => t.name === CONTEXT_BUNDLE_TOOL_NAME,
+    );
+    if (!existsBundle) newTools.push(CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE);
     
     const existsDevDocs = (tools as Array<{ name?: string }>).some(
       (t) => t.name === DEV_DOCS_TOOL_NAME,

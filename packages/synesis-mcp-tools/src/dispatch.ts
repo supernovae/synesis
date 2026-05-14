@@ -1,6 +1,6 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
-import { runKnowledgeSearch } from "./knowledge.js";
+import { runContextBundle, runKnowledgeSearch, runResolvePack } from "./knowledge.js";
 import { runWebSearch } from "./web-search.js";
 import { runClassify, runPlan, runCritique } from "./planner-tools.js";
 import {
@@ -14,6 +14,8 @@ import { runEcmaEnvironmentCheck, runEcmaPackageRiskAnalyze } from "./ecma-tools
 
 export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_search",
+  "synesis_resolve_pack",
+  "synesis_context_bundle",
   "synesis_code_search",
   "synesis_docs_search",
   "synesis_config_search",
@@ -47,6 +49,10 @@ export async function dispatchSynesisTool(
     case "synesis_search":
     case "synesis_knowledge_search":
       return runKnowledgeSearch(args, auth, deps, undefined);
+    case "synesis_resolve_pack":
+      return runResolvePack(args, auth, deps);
+    case "synesis_context_bundle":
+      return runContextBundle(args, auth, deps);
     case "synesis_web_search":
       return runWebSearch(args, auth, deps, "synesis_web_search");
     case "web_search":

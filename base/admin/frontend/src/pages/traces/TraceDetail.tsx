@@ -1438,15 +1438,29 @@ export default function TraceDetail() {
                 Evidence Summary
               </h3>
               <dl className="space-y-1 text-sm">
-                {Object.entries(trace.evidence_summary).map(([k, v]) => (
+                {Object.entries(trace.evidence_summary).filter(([k]) => k !== "evidenceQuality").map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <dt className="text-gray-500">{k.replace(/_/g, " ")}</dt>
                     <dd className="font-medium text-gray-900 dark:text-white">
-                      {typeof v === "number" ? v.toLocaleString() : String(v)}
+                      {typeof v === "number"
+                        ? v.toLocaleString()
+                        : typeof v === "boolean"
+                          ? String(v)
+                          : typeof v === "string"
+                            ? v
+                            : JSON.stringify(v)}
                     </dd>
                   </div>
                 ))}
               </dl>
+              {Boolean(trace.evidence_summary.evidenceQuality && typeof trace.evidence_summary.evidenceQuality === "object") && (
+                <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-950">
+                  <div className="mb-2 font-medium text-gray-700 dark:text-gray-200">Evidence quality</div>
+                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                    {JSON.stringify(trace.evidence_summary.evidenceQuality, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
           {Object.keys(trace.taxonomy || {}).length > 0 && (

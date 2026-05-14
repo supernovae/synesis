@@ -9,9 +9,9 @@ Use only the provided source content. If a field is not evidenced, return "unkno
 
 ### OUTPUT
 Return exactly one valid JSON object with these keys:
-- agent_hook: strategic advice for when an agent should use this chunk.
+- agent_hook: rich, identifier-heavy guidance explaining when an agent should use this chunk.
 - perf_tier: one of "JIT_FRIENDLY", "BYTECODE", "C_EXT", "REFLECTION_HEAVY", "unknown".
-- safety_contract: concise constraints and misuse boundaries.
+- safety_contract: rich source-grounded constraints and misuse boundaries.
 - lifecycle_model: global/singleton, context manager, task-local, interpreter-local, or resource cleanup model.
 - thread_model: one of "GIL_DEPENDENT", "FREE_THREAD_SAFE", "SUBINTERPRETER_ISOLATED", "unknown".
 - typing_strategy: how agents should resolve types, including PEP 649 deferred evaluation when relevant.
@@ -24,4 +24,4 @@ Return exactly one valid JSON object with these keys:
 - t_string_guidance: safe t-string/template guidance or "unknown".
 - type_resolution_hint: runtime/static type lookup guidance or "unknown".
 - hidden_warnings: JSON array of Python footguns agents often miss.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

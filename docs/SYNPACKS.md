@@ -11,7 +11,6 @@ A pack is a ZIP archive containing:
 
 - `manifest.json` — pack identity, source version, graph schema version,
   embedding model/profile, checksums, build metadata, and language/domain.
-- `metadata.jsonl` or `nodes.jsonl` — legacy chunk rows for compatibility.
 - `sources.lock.json` — source repositories, tags, URLs, checksums, and fetch
   settings.
 - `nodes/*.jsonl` — typed graph nodes for NornicDB-native import.
@@ -20,8 +19,8 @@ A pack is a ZIP archive containing:
 - `enrichment/enrichment.jsonl` — source-grounded enrichment payloads.
 - `quality/report.json` — pack validation and utility metrics.
 
-The legacy flat files are kept so older loaders still work. New importers
-should prefer the typed v2 files.
+SynPack v2 is the only supported content-pack format. Importers reject legacy
+flat packs that do not include `nodes/chunks.jsonl` and vector sidecars.
 
 Required node fields:
 
@@ -34,6 +33,10 @@ Required node fields:
 - `source_url`
 - `path`
 - `language`
+- `content_type`
+- `retrieval_terms`
+- `query_aliases`
+- `task_intents`
 
 Common temporal fields:
 
@@ -41,6 +44,12 @@ Common temporal fields:
 - `branch`
 - `valid_from`
 - `valid_to`
+- `source_release`
+- `upstream_commit`
+- `upstream_tag`
+- `deprecated`
+- `deprecation_status`
+- `replacement_api`
 
 Common symbol fields:
 
@@ -62,8 +71,11 @@ Supported edge types:
 - `HAS_CONSTRAINT`
 - `HAS_EXAMPLE`
 - `HAS_PATTERN`
+- `HAS_CONTEXT_CARD`
 - `APPLIES_TO`
 - `DEPRECATED_BY`
+- `REPLACED_BY`
+- `WARNS_ABOUT`
 - `RELATED_TO`
 - `VALID_IN`
 - `DERIVED_FROM`
@@ -79,7 +91,9 @@ Typed node kinds:
 - `Pattern`
 - `Constraint`
 - `Example`
+- `ContextCard`
 - `ExternalRef`
+- `EvalCase`
 
 First-class graph edges must not dangle. Unresolved imports, calls, or
 out-of-pack symbols are represented as `ExternalRef` nodes so graph traversal
@@ -89,11 +103,21 @@ stays complete and debuggable.
 
 Packs are loaded into the NornicDB content graph. Retrieval uses:
 
-1. vector seed search over file/chunk/symbol nodes
-2. graph expansion over semantic edges
-3. temporal/version filtering
-4. reranking and authority boosts
-5. structured context returned to planner/MCP callers
+1. pack resolution by library/language/package/symbol/version
+2. exact symbol/package lookup
+3. vector search over chunk/example/card/pattern nodes
+4. bounded graph expansion over semantic edges
+5. version/freshness filtering and warnings
+6. answer-ready context bundles for planner, Yarn, and MCP callers
+
+Runtime APIs:
+
+- `POST /v1/knowledge/resolve-pack` returns installed pack candidates with
+  source version, freshness/trust/quality, and node/example/card counts.
+- `POST /v1/knowledge/bundle` returns context cards, examples,
+  anti-patterns, related symbols, source chunks, and freshness warnings.
+- `POST /v1/knowledge/search` accepts `mode=bundle|cards` for clients still
+  using the older route name, but bundle retrieval is the preferred behavior.
 
 ## Enrichment
 
@@ -112,15 +136,18 @@ small models and MCP callers without shipping large markdown chunks:
 - `performance_notes`
 - `anti_patterns`
 - `canonical_examples`
+- `anti_examples`
+- `agent_query_hints`
 - `verification_hints`
+- `related_interfaces`
 - `related_symbols`
 - `agent_actions`
 - `confidence`
 - `evidence_spans`
 
 The final pack materializer turns these into `Concept`, `Pattern`,
-`Constraint`, and `Example` nodes plus relationship edges. This is the main
-advantage over markdown-only retrieval systems: the pack can return compact
+`Constraint`, `Example`, and `ContextCard` nodes plus relationship edges. This is the main
+advantage over markdown-only retrieval systems: the pack can return dense
 agent cards, safety contracts, navigation hints, and source-backed graph
 neighbors from the same artifact.
 
@@ -131,12 +158,13 @@ manifest summaries:
 
 - node and edge counts by kind/type
 - enrichment coverage and fallback count
+- example, context-card, anti-pattern, and constraint counts
 - unresolved edge count
 - external reference count
 - dangling edge count after materialization
 
-Large packs should be imported through a bulk strategy. The manifest marks
-`requires_bulk_import` when the pack exceeds the small-pack threshold.
+All content packs load through the SynPack v2 bulk importer. The old slow Bolt
+row-by-row path is no longer used for admin-managed content-pack installs.
 
 DeepSeek V4 Pro is the default pack enrichment model. The builder sends
 `X-DeepSeek-Think-Mode: Max`, uses `deepseek-v4-pro`, sets `reasoning_effort`
@@ -161,14 +189,14 @@ Use staged commands for recoverable large builds:
 
 ```bash
 python -m app.cli --mode synpack --synpack-command prepare-language \
-  --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest
+  --language go --pack-id go-latest --work-dir .work/synpacks/go-latest
 
 python -m app.cli --mode synpack --synpack-command enrich-language \
-  --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest \
+  --language go --pack-id go-latest --work-dir .work/synpacks/go-latest \
   --batch-size 250 --request-limit 7500 --enrichment-concurrency 6
 
 python -m app.cli --mode synpack --synpack-command finalize-language \
-  --language go --pack-id go-latest --work-dir /tmp/synesis-packs/go-latest \
+  --language go --pack-id go-latest --work-dir .work/synpacks/go-latest \
   --output dist/synpacks/go-latest.synpack \
   --embedder-url http://localhost:8082/v1 \
   --embedder-batch-size 8 \
@@ -182,7 +210,7 @@ Example custom provider:
 
 ```bash
 python -m app.cli --mode synpack --synpack-command enrich-language \
-  --work-dir /tmp/synesis-packs/go-latest \
+  --work-dir .work/synpacks/go-latest \
   --enrichment-provider openai-compatible \
   --enrichment-url https://provider.example/v1 \
   --enrichment-token "$SYNESIS_INDEXER_ENRICHMENT_TOKEN" \

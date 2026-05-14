@@ -29,13 +29,13 @@ Generate a JSON enrichment object for the SynPack v1 hybrid schema.
 - "dependency_advice": Native Temporal, polyfill, or avoid legacy package guidance.
 - "timezone_dependency": YES, NO, or UNKNOWN.
 - "dst_awareness": How the API handles skipped/repeated wall-clock time.
-- "runtime_status": BUN_NATIVE, NODE_EXPERIMENTAL, DENO_NATIVE, BROWSER_POLYFILL, UNKNOWN, or a concise combination.
+- "runtime_status": BUN_NATIVE, NODE_EXPERIMENTAL, DENO_NATIVE, BROWSER_POLYFILL, UNKNOWN, or a source-grounded combination.
 - "comparison_logic": Whether to use compare(), equals(), since/until(), or custom ordering.
 - "temporal_type": PlainDate, PlainTime, PlainDateTime, ZonedDateTime, Instant, Duration, Calendar, TimeZone, or empty.
 - "legacy_date_replacement": Specific Temporal replacement for Date usage.
 - "calendar_safety": Calendar and IANA timezone safety guidance.
 - "hidden_warnings": Array of traps, including PlainDateTime lacking timezone or Date month indexing.
-- "agent_query_hints": Array of short retrieval tags.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

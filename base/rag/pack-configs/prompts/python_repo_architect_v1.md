@@ -23,4 +23,4 @@ Return exactly one valid JSON object with these keys:
 - side_effects: YES, NO, or unknown.
 - agent_brief: two-sentence guide for SWE-bench navigation.
 - hidden_warnings: JSON array of search-space traps.
-- agent_query_hints: JSON array of short retrieval phrases.
+- agent_query_hints: JSON array of identifier-heavy retrieval phrases.

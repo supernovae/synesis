@@ -125,6 +125,9 @@ export interface SearchResult {
 export interface RagResult {
   chunk_id?: string;
   doc_id?: string;
+  id?: string;
+  kind?: string;
+  name?: string;
   text: string;
   source: string;
   collection: string;
@@ -167,6 +170,7 @@ export interface RagResult {
   effective_at_epoch?: number;
   tags?: string;
   language?: string;
+  content_type?: string;
   artifact_kind?: string;
   content_format?: string;
   repo_path?: string;
@@ -187,6 +191,25 @@ export interface RagResult {
   visibility_scope?: string;
   acl_mode?: string;
   authz_object_id?: string;
+  query_aliases?: string;
+  retrieval_terms?: string;
+  task_intents?: string;
+  source_release?: string;
+  upstream_commit?: string;
+  upstream_tag?: string;
+  deprecation_status?: string;
+  replacement_api?: string;
+  deprecated?: boolean;
+  quality_score?: number;
+  trust_score?: number;
+  freshness_score?: number;
+  runnable?: boolean;
+  anti_example?: boolean;
+  imports?: string;
+  setup?: string;
+  expected_output?: string;
+  test_command?: string;
+  related_apis?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */
@@ -204,6 +227,7 @@ export const AUTHORITY_BOOST: Record<string, number> = {
 
 export interface KnowledgeSearchRequest {
   query: string;
+  mode?: "bundle" | "cards";
   top_k?: number;
   pack_id?: string;
   pack_ids?: string[];
@@ -240,6 +264,95 @@ export interface KnowledgeSearchRequest {
   temporal_at?: string;
   graph_depth?: number;
   edge_types?: string[];
+  topic?: string;
+  symbol?: string;
+  task?: string;
+  content_type?: string;
+  version_preference?: string;
+  include_examples?: boolean;
+  include_antipatterns?: boolean;
+  include_context_cards?: boolean;
+}
+
+export interface PackResolveRequest {
+  query?: string;
+  domain?: string;
+  content_type?: string;
+  language?: string;
+  package_name?: string;
+  symbol?: string;
+  version?: string;
+  top_k?: number;
+  caller_org_id?: string;
+  caller_tenant_ids?: string[];
+  caller_acl_groups?: string[];
+  caller_user_id?: string;
+}
+
+export interface ResolvedPackCandidate {
+  pack_id: string;
+  pack_version: string;
+  source_version: string;
+  source_release: string;
+  domain: string;
+  content_type: string;
+  language: string;
+  package_name: string;
+  trust_score: number;
+  quality_score: number;
+  freshness_score: number;
+  node_count: number;
+  chunk_count: number;
+  example_count: number;
+  context_card_count: number;
+  pattern_count: number;
+  constraint_count: number;
+  edge_count: number;
+  score: number;
+}
+
+export interface PackResolveResponse {
+  query: string;
+  candidates: ResolvedPackCandidate[];
+  total: number;
+}
+
+export interface KnowledgeContextCard {
+  title: string;
+  what_to_use: string;
+  when_to_use: string;
+  do_not_use: string;
+  minimal_example: string;
+  verification: string;
+  related_apis: string[];
+  source_refs: string[];
+  score: number;
+}
+
+export interface KnowledgeBundleResponse {
+  query: string;
+  resolved_pack?: ResolvedPackCandidate;
+  context_cards: KnowledgeContextCard[];
+  examples: KnowledgeResult[];
+  anti_patterns: KnowledgeResult[];
+  source_chunks: KnowledgeResult[];
+  related_symbols: KnowledgeResult[];
+  freshness_warnings: string[];
+  quality: {
+    quality_score: number;
+    trust_score: number;
+    freshness_score: number;
+    evidence_count: number;
+    example_count: number;
+    anti_pattern_count: number;
+    context_card_count: number;
+  };
+  timings: {
+    resolve_ms: number;
+    search_ms: number;
+    bundle_ms: number;
+    total_ms: number;
+  };
 }
 
 export interface KnowledgeResult {

@@ -250,6 +250,44 @@ def test_deepseek_enrichment_payload_uses_v4_max_thinking_and_usage(monkeypatch:
     assert enrichment["_enrichment_usage"]["prompt_cache_hit_tokens"] == 80
 
 
+def test_enrichment_prompt_and_embedding_input_preserve_identifier_anchors():
+    client = language_pack.OpenAICompatibleEnrichmentClient(
+        base_url="https://example.test",
+        provider="openai-compatible",
+        prompt_templates={"p": "Inspect this chunk:\n{{DOC_CHUNK}}"},
+        default_prompt_id="p",
+    )
+    chunk = language_pack.LanguageChunk(
+        text="func (srv *Server) Shutdown(ctx context.Context) error",
+        doc_id="go:src/net/http/server.go:Shutdown",
+        chunk_index=0,
+        document_name="src/net/http/server.go",
+        package_name="net/http",
+        symbol_kind="method",
+        symbol_name="Shutdown",
+        symbol_fqn="net/http.Server.Shutdown",
+        module_path="src/net/http/server.go",
+        artifact_kind="code",
+    )
+
+    _prompt_id, prompt = client.render_prompt(chunk)
+    embed_text = language_pack._embedding_input(
+        chunk,
+        {
+            "agent_hook": "net/http.Server.Shutdown gracefully shuts down HTTP servers.",
+            "query_aliases": ["http graceful shutdown", "Server Shutdown context cancellation"],
+            "agent_query_hints": ["net/http Server shutdown"],
+        },
+    )
+
+    assert "Chunk identity metadata" in prompt
+    assert "net/http.Server.Shutdown" in prompt
+    assert "Do not optimize for tiny output" in prompt
+    assert "IDENTIFIERS: net/http.Server.Shutdown" in embed_text
+    assert "http graceful shutdown" in embed_text
+    assert "AGENT_HOOK: net/http.Server.Shutdown" in embed_text
+
+
 def test_openai_compatible_enrichment_uses_custom_url_token_and_standard_payload(monkeypatch: pytest.MonkeyPatch):
     captured = {}
 

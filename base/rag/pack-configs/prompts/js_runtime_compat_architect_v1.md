@@ -6,7 +6,7 @@ Enrich this runtime documentation so an agent chooses APIs that work in the user
 {{DOC_OR_SOURCE_CHUNK}}
 
 ### REQUIRED JSON FIELDS:
-- "agent_hook": Runtime-aware advice for the agent.
+- "agent_hook": Runtime-aware, identifier-heavy advice for the agent.
 - "perf_tier": JIT_FRIENDLY, PROMISE_HEAVY, IO_BOUND, GC_HEAVY, UNKNOWN.
 - "safety_contract": Permission, blocking, API stability, and compatibility constraints.
 - "lifecycle_model": Process, request, module, stream, event listener, or disposable lifecycle.
@@ -30,7 +30,7 @@ Enrich this runtime documentation so an agent chooses APIs that work in the user
 - "legacy_date_replacement": Temporal replacement if relevant.
 - "calendar_safety": Calendar/timezone note if relevant.
 - "hidden_warnings": Array of event-loop blocking, experimental flag, or environment traps.
-- "agent_query_hints": Array of short retrieval tags.
+- "agent_query_hints": Array of identifier-heavy retrieval phrases.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

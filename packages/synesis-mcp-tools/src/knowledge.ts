@@ -32,6 +32,9 @@ function buildSearchBody(
   const topK = clampInt(args.top_k, 1, LIMITS.maxTopK);
   if (topK !== undefined) body.top_k = topK;
 
+  const mode = optionalString(args.mode);
+  if (mode === "bundle" || mode === "cards") body.mode = mode;
+
   const packId = optionalString(args.pack_id);
   if (packId !== undefined) body.pack_id = packId;
 
@@ -55,6 +58,25 @@ function buildSearchBody(
 
   const temporalAt = optionalString(args.temporal_at);
   if (temporalAt !== undefined) body.temporal_at = temporalAt;
+
+  const topic = boundedString(args.topic, LIMITS.mediumStringChars);
+  if (topic !== undefined) body.topic = topic;
+
+  const symbol = boundedString(args.symbol, LIMITS.mediumStringChars);
+  if (symbol !== undefined) body.symbol = symbol;
+
+  const task = boundedString(args.task, LIMITS.mediumStringChars);
+  if (task !== undefined) body.task = task;
+
+  const contentType = optionalString(args.content_type);
+  if (contentType !== undefined) body.content_type = contentType;
+
+  const versionPreference = optionalString(args.version_preference);
+  if (versionPreference !== undefined) body.version_preference = versionPreference;
+
+  if (typeof args.include_examples === "boolean") body.include_examples = args.include_examples;
+  if (typeof args.include_antipatterns === "boolean") body.include_antipatterns = args.include_antipatterns;
+  if (typeof args.include_context_cards === "boolean") body.include_context_cards = args.include_context_cards;
 
   const graphDepth = clampInt(args.graph_depth, 0, LIMITS.maxGraphDepth);
   if (graphDepth !== undefined) body.graph_depth = graphDepth;
@@ -130,6 +152,56 @@ function buildSearchBody(
   return body;
 }
 
+function buildResolverBody(args: Record<string, unknown>, auth: SynesisMcpAuth): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const key of ["query", "domain", "content_type", "language", "package_name", "symbol", "version"]) {
+    const value = key === "query" ? boundedString(args[key], LIMITS.queryChars) : boundedString(args[key], LIMITS.mediumStringChars);
+    if (value !== undefined) body[key] = value;
+  }
+  const topK = clampInt(args.top_k, 1, LIMITS.maxTopK);
+  if (topK !== undefined) body.top_k = topK;
+  Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", "synesis_resolve_pack"));
+  return body;
+}
+
+async function postPlannerJson(
+  deps: SynesisMcpDeps,
+  auth: SynesisMcpAuth,
+  path: string,
+  body: Record<string, unknown>,
+  errorCode: string,
+): Promise<unknown> {
+  const bearer = bearerForUpstream(auth, deps);
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  let resp: Response;
+  try {
+    resp = await fetch(`${plannerBase(deps)}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(bearer),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await resp.json();
+  } catch {
+    payload = { parse_error: true, status: resp.status };
+  }
+  if (!resp.ok) {
+    void payload;
+    return sanitizeUpstreamError(errorCode, resp.status);
+  }
+  return payload;
+}
+
 export async function runKnowledgeSearch(
   args: Record<string, unknown>,
   auth: SynesisMcpAuth,
@@ -145,42 +217,41 @@ export async function runKnowledgeSearch(
       return { error: "validation_error", message: `query must be ${LIMITS.queryChars} characters or fewer` };
     }
 
-    const body = buildSearchBody(args, auth, fixedArtifactKind);
-    const bearer = bearerForUpstream(auth, deps);
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
-    let resp: Response;
-    try {
-      resp = await fetch(`${plannerBase(deps)}/v1/knowledge/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(bearer),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(t);
-    }
+    return postPlannerJson(deps, auth, "/v1/knowledge/search", buildSearchBody(args, auth, fixedArtifactKind), "knowledge_search_failed");
+  } catch (e) {
+    return requestFailure("request_failed", e);
+  }
+}
 
-    if (resp.status === 404) {
-      return { results: [], note: "Knowledge search endpoint not yet available" };
+export async function runResolvePack(
+  args: Record<string, unknown>,
+  auth: SynesisMcpAuth,
+  deps: SynesisMcpDeps,
+): Promise<unknown> {
+  try {
+    const body = buildResolverBody(args, auth);
+    if (!body.query && !body.language && !body.domain && !body.package_name && !body.symbol) {
+      return { error: "validation_error", message: "query, language, domain, package_name, or symbol is required" };
     }
+    return postPlannerJson(deps, auth, "/v1/knowledge/resolve-pack", body, "resolve_pack_failed");
+  } catch (e) {
+    return requestFailure("request_failed", e);
+  }
+}
 
-    let payload: unknown;
-    try {
-      payload = await resp.json();
-    } catch {
-      payload = { parse_error: true, status: resp.status };
+export async function runContextBundle(
+  args: Record<string, unknown>,
+  auth: SynesisMcpAuth,
+  deps: SynesisMcpDeps,
+): Promise<unknown> {
+  try {
+    const query = String(args.query ?? "").trim();
+    if (!query) return { error: "validation_error", message: "query is required" };
+    if (query.length > LIMITS.queryChars) {
+      return { error: "validation_error", message: `query must be ${LIMITS.queryChars} characters or fewer` };
     }
-
-    if (!resp.ok) {
-      void payload;
-      return sanitizeUpstreamError("knowledge_search_failed", resp.status);
-    }
-
-    return payload;
+    const body = buildSearchBody({ ...args, mode: "bundle" }, auth, undefined);
+    return postPlannerJson(deps, auth, "/v1/knowledge/bundle", body, "context_bundle_failed");
   } catch (e) {
     return requestFailure("request_failed", e);
   }

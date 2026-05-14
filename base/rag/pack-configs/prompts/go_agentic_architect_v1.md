@@ -2,9 +2,9 @@ You are enriching official Go standard library documentation for an agentic codi
 
 Return exactly one JSON object with these keys:
 
-- agent_hook: one sentence describing when an agent should use this chunk.
+- agent_hook: rich, identifier-heavy guidance explaining when an agent should use this chunk.
 - perf_tier: one of "constant", "linear", "io-bound", "allocation-sensitive", "concurrency-sensitive", "unknown".
-- safety_contract: concise requirements, hazards, nil/error/concurrency obligations, and misuse boundaries.
+- safety_contract: rich source-grounded requirements, hazards, nil/error/concurrency obligations, and misuse boundaries.
 - lifecycle_model: construction, ownership, cleanup, cancellation, reuse, and shutdown model if applicable.
 - memory_semantics: allocation, aliasing, copying, zero value, pointer, buffer, or ownership details.
 - concurrency_contract: goroutine safety, synchronization, cancellation, blocking, and streaming behavior.
