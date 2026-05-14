@@ -123,13 +123,14 @@ class NornicGraphWriter:
     @staticmethod
     def _upsert_content_node_tx(tx: Any, node_id: str, props: dict[str, Any]) -> None:
         NornicGraphWriter._ensure_content_node_tx(tx, node_id)
-        tx.run("MATCH (n:ContentNode {id: $id}) SET n += $props", id=node_id, props=props)
+        tx.run("MATCH (n:ContentNode) WHERE n.id = $id SET n += $props", id=node_id, props=props)
 
     @staticmethod
     def _ensure_content_node_tx(tx: Any, node_id: str) -> None:
         row = tx.run(
             """
-            MATCH (n:ContentNode {id: $id})
+            MATCH (n:ContentNode)
+            WHERE n.id = $id
             RETURN count(n) AS existing
             """,
             id=node_id,
@@ -167,8 +168,10 @@ class NornicGraphWriter:
     @staticmethod
     def _write_edges_tx(tx: Any, edge_type: str, rows: list[dict[str, Any]]) -> None:
         cypher = f"""
-        MATCH (a:ContentNode {{id: $source_id}})
-        MATCH (b:ContentNode {{id: $target_id}})
+        MATCH (a:ContentNode)
+        WHERE a.id = $source_id
+        MATCH (b:ContentNode)
+        WHERE b.id = $target_id
         MERGE (a)-[r:{edge_type}]->(b)
         SET r += $props
         """

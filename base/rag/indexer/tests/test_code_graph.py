@@ -213,8 +213,10 @@ def test_nornic_node_writes_use_scalar_parameters():
     assert calls[2][1]["props"]["embedding"] == [0.1, 0.2]
     assert "id" not in calls[2][1]["props"]
     assert "row.id" not in calls[2][0]
+    assert "WHERE n.id = $id" in calls[0][0]
     assert "RETURN count(n) AS existing" in calls[0][0]
     assert "CREATE (n:ContentNode {id: $id})" in calls[1][0]
+    assert "WHERE n.id = $id" in calls[2][0]
     assert "SET n += $props" in calls[2][0]
     assert len(calls) == 3
 
@@ -238,4 +240,6 @@ def test_nornic_edge_tx_uses_scalar_parameters():
     )
 
     assert calls[-1][1] == {"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}
+    assert "WHERE a.id = $source_id" in calls[-1][0]
+    assert "WHERE b.id = $target_id" in calls[-1][0]
     assert "row.source_id" not in calls[-1][0]
