@@ -144,7 +144,7 @@ class NornicGraphWriter:
                     param_name = f"{key}_{index}"
                     entries.append(f"{key}: ${param_name}")
                     params[param_name] = value
-                statements.append(f"CREATE (n{index}:ContentNode {{{', '.join(entries)}}})")
+                statements.append(f"CREATE (:ContentNode {{ {', '.join(entries)} }})")
             if statements:
                 tx.run("\n".join(statements), **params)
 
