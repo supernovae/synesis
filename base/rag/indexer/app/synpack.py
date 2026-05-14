@@ -276,9 +276,17 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
 
         artifact_hash = _sha256_file(Path(pack_path))
         manifest["artifact_hash"] = artifact_hash
-        entities = [
+        raw_entities = [
             _row_to_entity(row, manifest, vectors[i] if vectors is not None else None) for i, row in enumerate(rows)
         ]
+        entities_by_id: dict[str, dict[str, Any]] = {}
+        duplicate_nodes = 0
+        for entity in raw_entities:
+            entity_id = str(entity["id"])
+            if entity_id in entities_by_id:
+                duplicate_nodes += 1
+            entities_by_id[entity_id] = entity
+        entities = list(entities_by_id.values())
         count = writer.upsert_batch(entities)
         edge_count = 0
         edges_path = tmp / "edges.jsonl"
@@ -288,6 +296,7 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
             "ok": True,
             "pack_id": pack_id,
             "nodes": count,
+            "duplicate_nodes": duplicate_nodes,
             "edges": edge_count,
             "artifact_hash": artifact_hash,
         }
