@@ -125,9 +125,11 @@ class NornicGraphWriter:
         tx.run("MATCH (n:ContentNode {id: $id}) DETACH DELETE n", id=node_id)
         tx.run(
             """
-            CREATE (n:ContentNode $props)
+            CREATE (n:ContentNode {id: $id})
+            SET n += $props
             """,
-            props={"id": node_id, **props},
+            id=node_id,
+            props=props,
         )
 
     @staticmethod
@@ -143,9 +145,9 @@ class NornicGraphWriter:
             return
         tx.run(
             """
-            CREATE (n:ContentNode $props)
+            CREATE (n:ContentNode {id: $id})
             """,
-            props={"id": node_id},
+            id=node_id,
         )
 
     def upsert_edges(self, edges: list[dict[str, Any]]) -> int:

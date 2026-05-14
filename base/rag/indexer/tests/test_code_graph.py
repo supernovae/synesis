@@ -207,10 +207,13 @@ def test_nornic_node_writes_use_scalar_parameters():
     )
 
     assert calls[0][1]["id"] == "chunk-1"
+    assert calls[1][1]["id"] == "chunk-1"
     assert calls[1][1]["props"]["pack"] == "go-latest"
     assert calls[1][1]["props"]["embedding"] == [0.1, 0.2]
-    assert calls[1][1]["props"]["id"] == "chunk-1"
+    assert "id" not in calls[1][1]["props"]
     assert "row.id" not in calls[1][0]
+    assert "CREATE (n:ContentNode {id: $id})" in calls[1][0]
+    assert "SET n += $props" in calls[1][0]
     assert len(calls) == 2
 
 
