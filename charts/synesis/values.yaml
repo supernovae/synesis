@@ -577,6 +577,8 @@ workloads:
         value: /data/quality/proposed_sources.yaml
       - name: SYNESIS_TAXONOMY_YAML_PATH
         value: /etc/synesis/taxonomy_prompt_config.yaml
+      - name: SYNESIS_CONTENT_PACK_CATALOG_URL
+        value: https://r2.kybern.dev/synesis-pack-catalog.json
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
         valueFrom:
           secretKeyRef:
@@ -1525,7 +1527,7 @@ workloads:
 
 jobs:
   indexer:
-    enabled: false
+    enabled: true
     image:
       repository: ghcr.io/supernovae/synesis/indexer
       tag: latest
@@ -1562,7 +1564,7 @@ jobs:
       extraEnv: []
     contentPacks:
       enabled: true
-      suspend: true
+      suspend: false
       schedule: "*/15 * * * *"
       backoffLimit: 2
       ttlSecondsAfterFinished: 7200

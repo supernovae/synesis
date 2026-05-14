@@ -3,12 +3,11 @@ import {
   useContentPacks,
   useInstallContentPack,
   useRetryContentPackInstallJob,
-  useUpdateContentPackCatalog,
   type ContentPackEntry,
 } from "../../api/hooks";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
-import { Download, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { Download, RefreshCw, RotateCcw } from "lucide-react";
 
 function formatBytes(value: number) {
   if (!value) return "Unknown";
@@ -25,35 +24,6 @@ function statusTone(status: string) {
   return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200";
 }
 
-function CatalogEditor({
-  initialUrl,
-  isPending,
-  onSave,
-}: {
-  initialUrl: string;
-  isPending: boolean;
-  onSave: (url: string) => void;
-}) {
-  const [catalogUrl, setCatalogUrl] = useState(initialUrl);
-  return (
-    <div className="mt-3 flex flex-col gap-3 md:flex-row">
-      <input
-        value={catalogUrl}
-        onChange={(e) => setCatalogUrl(e.target.value)}
-        placeholder="https://bucket.example.com/synesis-pack-catalog.json"
-        className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-      />
-      <button
-        onClick={() => onSave(catalogUrl.trim())}
-        disabled={isPending}
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        <Save className="h-4 w-4" /> Save
-      </button>
-    </div>
-  );
-}
-
 function PackStatus({ pack }: { pack: ContentPackEntry }) {
   const status = pack.install_status || "not_installed";
   const label = status === "update_available" ? "Update available" : status.replace("_", " ");
@@ -66,7 +36,6 @@ function PackStatus({ pack }: { pack: ContentPackEntry }) {
 
 export default function ContentPacks() {
   const { data, isLoading, error, refetch, isFetching } = useContentPacks();
-  const updateCatalog = useUpdateContentPackCatalog();
   const installPack = useInstallContentPack();
   const retryJob = useRetryContentPackInstallJob();
   const [replaceByPack, setReplaceByPack] = useState<Record<string, boolean>>({});
@@ -104,16 +73,19 @@ export default function ContentPacks() {
         </button>
       </div>
 
-      <ApiErrorBanner error={error || updateCatalog.error || installPack.error || retryJob.error} />
+      <ApiErrorBanner error={error || installPack.error || retryJob.error} />
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Catalog</h2>
-        <CatalogEditor
-          key={data?.config?.catalog_url ?? ""}
-          initialUrl={data?.config?.catalog_url ?? ""}
-          isPending={updateCatalog.isPending}
-          onSave={(url) => updateCatalog.mutate(url)}
-        />
+        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+          <div className="font-medium">{data?.catalog?.name || "Synesis Content Packs"}</div>
+          <div className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
+            {data?.config?.catalog_url || "https://r2.kybern.dev/synesis-pack-catalog.json"}
+          </div>
+          {data?.config?.using_default && (
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Using the built-in Synesis catalog.</div>
+          )}
+        </div>
         {(data?.catalog?.errors ?? []).length > 0 && (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
             {data?.catalog.errors.join("; ")}
@@ -129,7 +101,7 @@ export default function ContentPacks() {
         {isLoading ? (
           <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
         ) : (data?.catalog?.packs ?? []).length === 0 ? (
-          <EmptyState title="No content packs available" description="Configure a catalog URL to show hosted packs." />
+          <EmptyState title="No content packs available" description="The default Synesis content pack catalog returned no packs." />
         ) : (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {data?.catalog.packs.map((pack) => {
@@ -189,6 +161,9 @@ export default function ContentPacks() {
       <section className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Install Jobs</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Pending jobs are claimed by the <span className="font-mono">synesis-indexer-content-packs</span> CronJob.
+          </p>
         </div>
         {(data?.jobs ?? []).length === 0 ? (
           <div className="p-5">

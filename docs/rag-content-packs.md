@@ -1,11 +1,13 @@
 # Synesis RAG Content Packs
 
-The admin dashboard can install hosted `.synpack` archives from a catalog URL.
-Configure the catalog in **RAG Pipeline -> Content Packs**.
+The admin dashboard can install hosted `.synpack` archives from the default
+Synesis catalog at `https://r2.kybern.dev/synesis-pack-catalog.json`.
+Open **RAG Pipeline -> Content Packs** to queue installs.
 
 ## Catalog Format
 
-Host a JSON file, commonly named `synesis-pack-catalog.json`, at an HTTPS URL:
+Host a JSON file, commonly named `synesis-pack-catalog.json`, at an HTTPS URL.
+Synesis defaults to the root catalog on `https://r2.kybern.dev`:
 
 ```json
 {
@@ -17,7 +19,7 @@ Host a JSON file, commonly named `synesis-pack-catalog.json`, at an HTTPS URL:
       "name": "Go 1.26",
       "description": "Curated Go standard library and toolchain reference pack.",
       "version": "1.0.0",
-      "download_url": "https://example-bucket.s3.amazonaws.com/synpacks/go-1-26.synpack",
+      "download_url": "https://r2.kybern.dev/go-1-26.synpack",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "size_bytes": 104857600,
       "domain": "go",

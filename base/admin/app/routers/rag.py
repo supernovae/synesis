@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -89,6 +90,13 @@ def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
 _SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
 _CATALOG_TIMEOUT_SECONDS = 20.0
 _CATALOG_MAX_BYTES = 2 * 1024 * 1024
+DEFAULT_CONTENT_PACK_CATALOG_URL = os.getenv(
+    "SYNESIS_CONTENT_PACK_CATALOG_URL",
+    "https://r2.kybern.dev/synesis-pack-catalog.json",
+).strip()
+LEGACY_CONTENT_PACK_CATALOG_URLS = {
+    "https://r2.kybern.dev/synpacks/synesis-pack-catalog.json",
+}
 
 
 class ContentPackCatalogConfigBody(BaseModel):
@@ -112,11 +120,24 @@ def _validate_https_url(value: str, *, field_name: str = "url") -> str:
 
 
 def _content_pack_config_dict(config: ContentPackConfig | None) -> dict[str, Any]:
+    configured_url = config.catalog_url if config else ""
+    using_default = not configured_url or configured_url in LEGACY_CONTENT_PACK_CATALOG_URLS
+    catalog_url = DEFAULT_CONTENT_PACK_CATALOG_URL if using_default else configured_url
     return {
-        "catalog_url": config.catalog_url if config else "",
+        "catalog_url": catalog_url,
+        "configured_catalog_url": configured_url,
+        "default_catalog_url": DEFAULT_CONTENT_PACK_CATALOG_URL,
+        "using_default": using_default,
         "updated_by": config.updated_by if config else "",
         "updated_at": config.updated_at.isoformat() if config and config.updated_at else None,
     }
+
+
+def _effective_content_pack_catalog_url(config: ContentPackConfig | None) -> str:
+    configured_url = (config.catalog_url if config and config.catalog_url else "").strip()
+    if configured_url and configured_url not in LEGACY_CONTENT_PACK_CATALOG_URLS:
+        return configured_url
+    return DEFAULT_CONTENT_PACK_CATALOG_URL
 
 
 def _content_pack_job_dict(job: ContentPackInstallJob) -> dict[str, Any]:
@@ -379,7 +400,7 @@ async def content_pack_catalog(_user: UserInfo = Depends(get_current_user)):
     _ensure_org_content_admin(_user)
     async with async_session() as session:
         config = await session.get(ContentPackConfig, 1)
-    catalog_url = config.catalog_url if config else ""
+    catalog_url = _effective_content_pack_catalog_url(config)
     if not catalog_url:
         return {"catalog_url": "", "packs": [], "errors": ["No content pack catalog URL configured"], "ok": False}
     return await _fetch_catalog(catalog_url)
@@ -396,7 +417,7 @@ async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
             .all()
         )
 
-    catalog_url = config.catalog_url if config else ""
+    catalog_url = _effective_content_pack_catalog_url(config)
     catalog: dict[str, Any] = {"catalog_url": catalog_url, "packs": [], "errors": [], "ok": False}
     if catalog_url:
         try:
@@ -432,9 +453,10 @@ async def install_content_pack(
     _ensure_org_content_admin(_user)
     async with async_session() as session:
         config = await session.get(ContentPackConfig, 1)
-    if not config or not config.catalog_url:
+    catalog_url = _effective_content_pack_catalog_url(config)
+    if not catalog_url:
         raise HTTPException(status_code=400, detail="No content pack catalog URL configured")
-    catalog = await _fetch_catalog(config.catalog_url)
+    catalog = await _fetch_catalog(catalog_url)
     candidates = [
         p
         for p in catalog.get("packs", [])
@@ -449,7 +471,7 @@ async def install_content_pack(
         job = ContentPackInstallJob(
             pack_id=selected["pack_id"],
             pack_version=selected["version"],
-            catalog_url=config.catalog_url,
+            catalog_url=catalog_url,
             download_url=selected["download_url"],
             sha256=selected["sha256"],
             size_bytes=selected["size_bytes"],

@@ -114,3 +114,31 @@ def test_admin_mcp_audit_argument_redaction():
     assert redacted["url"] == "https://example.com"
     assert redacted["nested"]["authorization"] == "<redacted>"
     assert redacted["nested"]["safe"] == "value"
+
+
+def test_content_pack_config_uses_default_catalog_when_unconfigured():
+    from app.routers.rag import _content_pack_config_dict
+
+    config = _content_pack_config_dict(None)
+
+    assert config["catalog_url"] == "https://r2.kybern.dev/synesis-pack-catalog.json"
+    assert config["default_catalog_url"] == "https://r2.kybern.dev/synesis-pack-catalog.json"
+    assert config["configured_catalog_url"] == ""
+    assert config["using_default"] is True
+
+
+def test_content_pack_config_normalizes_legacy_r2_catalog_url():
+    from types import SimpleNamespace
+
+    from app.routers.rag import _content_pack_config_dict
+
+    row = SimpleNamespace(
+        catalog_url="https://r2.kybern.dev/synpacks/synesis-pack-catalog.json",
+        updated_by="operator",
+        updated_at=None,
+    )
+    config = _content_pack_config_dict(row)
+
+    assert config["catalog_url"] == "https://r2.kybern.dev/synesis-pack-catalog.json"
+    assert config["configured_catalog_url"] == "https://r2.kybern.dev/synpacks/synesis-pack-catalog.json"
+    assert config["using_default"] is True

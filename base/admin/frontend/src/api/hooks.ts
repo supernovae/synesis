@@ -991,6 +991,9 @@ export interface ContentPackInstallJob {
 export interface ContentPacksOverview {
   config: {
     catalog_url: string;
+    configured_catalog_url?: string;
+    default_catalog_url?: string;
+    using_default?: boolean;
     updated_by?: string;
     updated_at?: string | null;
   };
