@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
 from synesis_telemetry import get_logger
 
 from .schema import GRAPH_EDGE_TYPES, SCHEMA_VERSION, SYNESIS_CATALOG
@@ -26,6 +27,11 @@ PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").st
     "1",
     "true",
     "yes",
+}
+FAST_NODE_CREATE = os.getenv("SYNESIS_NORNIC_FAST_NODE_CREATE", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
 }
 
 
@@ -107,11 +113,32 @@ class NornicGraphWriter:
             if not rows:
                 continue
             with self.driver.session(database=self.database) as session:
-                session.execute_write(self._upsert_nodes_tx, rows)
+                if FAST_NODE_CREATE:
+                    try:
+                        session.execute_write(self._create_nodes_tx, rows)
+                    except Neo4jError as exc:
+                        logger.warning(
+                            "indexer_graph_nodes_fast_create_fallback",
+                            extra={"count": len(rows), "offset": i, "error": str(exc)[:500]},
+                        )
+                        session.execute_write(self._upsert_nodes_tx, rows)
+                else:
+                    session.execute_write(self._upsert_nodes_tx, rows)
             existing_ids.update(deduped.keys())
             total += len(rows)
             logger.info("indexer_graph_nodes_batch_written", extra={"count": len(rows), "offset": i})
         return total
+
+    @staticmethod
+    def _create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        tx.run(
+            """
+            UNWIND $rows AS row
+            CREATE (n:ContentNode {id: row.id})
+            SET n += row.props
+            """,
+            rows=[{"id": str(row["id"]), "props": NornicGraphWriter._clean_props(row)} for row in rows],
+        )
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
