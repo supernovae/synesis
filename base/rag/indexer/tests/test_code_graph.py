@@ -167,6 +167,7 @@ def test_nornic_edge_writes_are_batched_by_type(monkeypatch):
     count = writer.upsert_edges(
         [
             {"type": "CALLS", "source_id": "a", "target_id": "b", "call_ref": "b"},
+            {"type": "CALLS", "source_id": "a", "target_id": "b", "call_ref": "b"},
             {"type": "CALLS", "source_id": "a", "target_id": "c", "call_ref": "c"},
             {"type": "IMPORTS", "source_id": "file", "target_id": "import:os", "import_ref": "os"},
         ]
@@ -224,14 +225,9 @@ def test_nornic_node_writes_use_scalar_parameters():
 def test_nornic_edge_tx_uses_scalar_parameters():
     calls: list[tuple[str, dict]] = []
 
-    class FakeResult:
-        def single(self) -> dict[str, int]:
-            return {"existing": 1}
-
     class FakeTx:
         def run(self, query: str, **params: object) -> None:
             calls.append((query, params))
-            return FakeResult()
 
     NornicGraphWriter._write_edges_tx(
         FakeTx(),
@@ -239,7 +235,8 @@ def test_nornic_edge_tx_uses_scalar_parameters():
         [{"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}],
     )
 
-    assert calls[-1][1] == {"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}
-    assert "WHERE a.id = $source_id" in calls[-1][0]
-    assert "WHERE b.id = $target_id" in calls[-1][0]
-    assert "row.source_id" not in calls[-1][0]
+    assert calls[-1][1] == {"rows": [{"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}]}
+    assert "UNWIND $rows AS row" in calls[-1][0]
+    assert "WHERE a.id = row.source_id" in calls[-1][0]
+    assert "WHERE b.id = row.target_id" in calls[-1][0]
+    assert "CREATE (n:ContentNode" not in calls[-1][0]

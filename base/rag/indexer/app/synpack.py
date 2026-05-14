@@ -289,10 +289,22 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
         entities = list(entities_by_id.values())
         partial_nodes_deleted = writer.delete_partial_ids([str(entity["id"]) for entity in entities])
         count = writer.upsert_batch(entities)
+        logger.info(
+            "synpack_nodes_loaded",
+            extra={
+                "pack_id": pack_id,
+                "nodes": count,
+                "duplicate_nodes": duplicate_nodes,
+                "partial_nodes_deleted": partial_nodes_deleted,
+            },
+        )
         edge_count = 0
         edges_path = tmp / "edges.jsonl"
         if edges_path.exists():
-            edge_count = writer.upsert_edges(list(_iter_jsonl(edges_path)))
+            edges = list(_iter_jsonl(edges_path))
+            logger.info("synpack_edges_load_start", extra={"pack_id": pack_id, "edges": len(edges)})
+            edge_count = writer.upsert_edges(edges)
+            logger.info("synpack_edges_loaded", extra={"pack_id": pack_id, "edges": edge_count})
         return {
             "ok": True,
             "pack_id": pack_id,

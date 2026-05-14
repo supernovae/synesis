@@ -21,6 +21,7 @@ NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
 NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
+EDGE_BATCH_SIZE = 1000
 
 
 def chunk_id_hash(text: str, source: str) -> str:
@@ -143,6 +144,7 @@ class NornicGraphWriter:
         if not edges:
             return 0
         grouped: dict[str, list[dict[str, Any]]] = {}
+        seen: set[tuple[str, str, str, str]] = set()
         total = 0
         for edge in edges:
             edge_type = str(edge.get("type", "")).upper()
@@ -154,6 +156,10 @@ class NornicGraphWriter:
             if not source_id or not target_id:
                 continue
             props = {k: v for k, v in edge.items() if k not in {"type", "source_id", "target_id", "from", "to"}}
+            key = (edge_type, source_id, target_id, repr(sorted(props.items())))
+            if key in seen:
+                continue
+            seen.add(key)
             grouped.setdefault(edge_type, []).append({"source_id": source_id, "target_id": target_id, "props": props})
             total += 1
         for edge_type, rows in grouped.items():
@@ -161,29 +167,39 @@ class NornicGraphWriter:
         return total
 
     def _write_edge_group(self, edge_type: str, rows: list[dict[str, Any]]) -> None:
-        for i in range(0, len(rows), 500):
+        batch_size = int(os.getenv("SYNESIS_NORNIC_EDGE_BATCH_SIZE", str(EDGE_BATCH_SIZE)) or str(EDGE_BATCH_SIZE))
+        batch_size = max(1, min(batch_size, 2500))
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i : i + batch_size]
             with self.driver.session(database=self.database) as session:
-                session.execute_write(self._write_edges_tx, edge_type, rows[i : i + 500])
+                session.execute_write(self._write_edges_tx, edge_type, batch)
+            logger.info(
+                "indexer_graph_edges_batch_written",
+                extra={"edge_type": edge_type, "count": len(batch), "offset": i},
+            )
 
     @staticmethod
     def _write_edges_tx(tx: Any, edge_type: str, rows: list[dict[str, Any]]) -> None:
         cypher = f"""
+        UNWIND $rows AS row
         MATCH (a:ContentNode)
-        WHERE a.id = $source_id
+        WHERE a.id = row.source_id
         MATCH (b:ContentNode)
-        WHERE b.id = $target_id
+        WHERE b.id = row.target_id
         MERGE (a)-[r:{edge_type}]->(b)
-        SET r += $props
+        SET r += row.props
         """
-        for row in rows:
-            NornicGraphWriter._ensure_content_node_tx(tx, str(row["source_id"]))
-            NornicGraphWriter._ensure_content_node_tx(tx, str(row["target_id"]))
-            tx.run(
-                cypher,
-                source_id=row["source_id"],
-                target_id=row["target_id"],
-                props=NornicGraphWriter._clean_props(row.get("props") or {}),
-            )
+        tx.run(
+            cypher,
+            rows=[
+                {
+                    "source_id": str(row["source_id"]),
+                    "target_id": str(row["target_id"]),
+                    "props": NornicGraphWriter._clean_props(row.get("props") or {}),
+                }
+                for row in rows
+            ],
+        )
 
     def delete_by_doc_id(self, doc_id: str, collection_name: str = SYNESIS_CATALOG) -> int:
         del collection_name
