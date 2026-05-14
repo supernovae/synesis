@@ -234,9 +234,15 @@ def collection_stats(collection: str) -> dict[str, Any]:
                 """
                 MATCH (n:ContentNode)
                 RETURN count(n) AS total_nodes,
-                       count(n.text) AS chunk_count,
+                       sum(CASE
+                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
+                           ELSE 0
+                       END) AS chunk_count,
                        count(n.embedding) AS embedding_count,
-                       count(DISTINCT n.pack) AS pack_count
+                       count(DISTINCT CASE
+                           WHEN coalesce(n.pack, n.pack_id, '') <> '' THEN coalesce(n.pack, n.pack_id, '')
+                           ELSE null
+                       END) AS pack_count
                 """
             ).single()
             edge_count = session.run("MATCH (:ContentNode)-[r]->(:ContentNode) RETURN count(r) AS c").single()["c"]
@@ -274,8 +280,11 @@ def collection_corpus_summary(collection: str) -> dict[str, Any]:
                        n.doc_id AS doc_id,
                        n.document_name AS document_name,
                        n.source_url AS source_url,
-                       n.pack AS pack,
-                       count(n.text) AS chunks
+                       coalesce(n.pack, n.pack_id, '') AS pack,
+                       sum(CASE
+                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
+                           ELSE 0
+                       END) AS chunks
                 """
             )
             for row in rows:
@@ -311,13 +320,16 @@ def collection_installed_packs(collection: str) -> list[dict[str, Any]]:
             rows = session.run(
                 """
                 MATCH (n:ContentNode)
-                RETURN n.pack AS pack_id,
+                RETURN coalesce(n.pack, n.pack_id, '') AS pack_id,
                        max(n.pack_version) AS pack_version,
                        max(n.pack_source_version) AS pack_source_version,
                        max(n.language) AS language,
                        max(n.domain) AS domain,
                        max(n.pack_artifact_hash) AS pack_artifact_hash,
-                       count(n.text) AS row_count
+                       sum(CASE
+                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
+                           ELSE 0
+                       END) AS row_count
                 ORDER BY pack_id
                 """
             )

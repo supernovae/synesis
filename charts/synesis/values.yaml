@@ -1268,11 +1268,11 @@ workloads:
         type: RuntimeDefault
     resources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: "2"
+        memory: 8Gi
       limits:
-        cpu: "1"
-        memory: 2Gi
+        cpu: "4"
+        memory: 16Gi
   embedder:
     enabled: true
     namespace: rag
@@ -1572,12 +1572,24 @@ jobs:
       ttlSecondsAfterFinished: 7200
       resources:
         requests:
-          cpu: 500m
-          memory: 2Gi
+          cpu: "1"
+          memory: 4Gi
         limits:
-          cpu: "2"
-          memory: 6Gi
-      extraEnv: []
+          cpu: "4"
+          memory: 8Gi
+      extraEnv:
+        - name: SYNESIS_CONTENT_PACK_IMPORT_BACKEND
+          value: auto
+        - name: SYNESIS_NORNIC_URI
+          value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+        - name: SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE
+          value: "250"
+        - name: SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE
+          value: "1000"
+        - name: SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE
+          value: "2500"
+        - name: SYNESIS_CONTENT_PACK_MAX_JOBS
+          value: "1"
     staged:
       enabled: false
       s3Bucket: ""

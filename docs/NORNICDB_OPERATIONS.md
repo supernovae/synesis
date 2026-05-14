@@ -30,6 +30,29 @@ SYNESIS_NORNIC_RUNTIME_PROFILE=cpu-bge
 
 GPU/accelerated deployments can override with `cuda-bge` or `metal-bge`.
 
+## Content Pack Imports
+
+SynPack v2 content packs are installed with the NornicDB bulk importer by
+default. The content-pack job reads the graph-native `nodes/`, `edges/`, and
+`vectors/` artifacts and writes them through batched Bolt `UNWIND` statements.
+This keeps large packs off the old row-by-row loader.
+
+Useful controls:
+
+- `SYNESIS_CONTENT_PACK_IMPORT_BACKEND=auto` selects the bulk importer for v2 or
+  large packs.
+- `SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE` controls chunk node batches with
+  embeddings.
+- `SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE` controls non-vector metadata node
+  batches.
+- `SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE` controls relationship batches.
+
+Manual import test:
+
+```bash
+python -m app.cli --mode synpack --synpack-command bulk-load --synpack ./go.synpack --replace
+```
+
 ## Health
 
 ```bash

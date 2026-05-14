@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 from synesis_telemetry import get_logger
 
+from .nornic_bulk_importer import bulk_load_synpack
 from .nornic_writer import NORNIC_URI
 from .queue_runner import _DEFAULT_ADMIN_URL
 from .synpack import load_synpack, validate_synpack
@@ -29,6 +30,8 @@ _ALLOW_SLOW_BOLT_LARGE_PACKS = os.getenv("SYNESIS_CONTENT_PACK_ALLOW_SLOW_BOLT",
 }
 _LARGE_PACK_NODE_THRESHOLD_RAW = os.getenv("SYNESIS_CONTENT_PACK_LARGE_NODE_THRESHOLD", "").strip()
 _LARGE_PACK_NODE_THRESHOLD = int(_LARGE_PACK_NODE_THRESHOLD_RAW) if _LARGE_PACK_NODE_THRESHOLD_RAW.isdigit() else 1000
+_IMPORT_BACKEND = os.getenv("SYNESIS_CONTENT_PACK_IMPORT_BACKEND", "auto").strip().lower() or "auto"
+_BULK_BACKENDS = {"auto", "bolt-unwind"}
 
 
 class ContentPackClient:
@@ -145,6 +148,42 @@ def _ensure_not_slow_large_pack(job: dict[str, Any], pack_path: Path) -> None:
         )
 
 
+def _is_v2_pack(pack_path: Path) -> bool:
+    import zipfile
+
+    with zipfile.ZipFile(pack_path) as zf:
+        return "nodes/chunks.jsonl" in set(zf.namelist())
+
+
+def _should_use_bulk_import(job: dict[str, Any], pack_path: Path) -> bool:
+    if _IMPORT_BACKEND == "bolt-unwind":
+        return True
+    if _IMPORT_BACKEND == "legacy-bolt":
+        return False
+    if _IMPORT_BACKEND != "auto":
+        raise RuntimeError(f"unsupported content pack import backend: {_IMPORT_BACKEND}")
+    return _is_v2_pack(pack_path) or _catalog_requires_bulk(job) or _manifest_requires_bulk(pack_path)
+
+
+def _load_content_pack(job: dict[str, Any], pack_path: Path, *, nornic_uri: str) -> dict[str, Any]:
+    if _should_use_bulk_import(job, pack_path):
+        if _IMPORT_BACKEND not in _BULK_BACKENDS:
+            raise RuntimeError(f"content pack bulk import backend unavailable: {_IMPORT_BACKEND}")
+        return bulk_load_synpack(
+            pack_path,
+            nornic_uri=nornic_uri or NORNIC_URI,
+            replace=bool(job.get("replace_existing")),
+        )
+    _ensure_not_slow_large_pack(job, pack_path)
+    result = load_synpack(
+        pack_path,
+        nornic_uri=nornic_uri or NORNIC_URI,
+        replace=bool(job.get("replace_existing")),
+    )
+    result.setdefault("backend", "legacy-bolt")
+    return result
+
+
 def run_content_pack_installs(
     admin_url: str = "",
     *,
@@ -179,12 +218,7 @@ def run_content_pack_installs(
             if dry_run:
                 result = {"ok": True, "pack_id": pack_id, "dry_run": True}
             else:
-                _ensure_not_slow_large_pack(job, pack_path)
-                result = load_synpack(
-                    pack_path,
-                    nornic_uri=nornic_uri or NORNIC_URI,
-                    replace=bool(job.get("replace_existing")),
-                )
+                result = _load_content_pack(job, pack_path, nornic_uri=nornic_uri or NORNIC_URI)
             client.report_status(job_id, "installed", result=result)
             installed += 1
             logger.info("content_pack_job_installed", extra={"job_id": job_id, "pack_id": pack_id})

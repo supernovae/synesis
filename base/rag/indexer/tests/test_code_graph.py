@@ -249,6 +249,34 @@ def test_nornic_fast_node_create_uses_batched_rows():
     assert calls[1][1]["props"] == {"text": "content", "pack": "go-latest", "embedding": [0.1, 0.2]}
 
 
+def test_nornic_bulk_upsert_node_tx_uses_unwind_rows():
+    calls: list[tuple[str, dict]] = []
+
+    class FakeTx:
+        def run(self, query: str, **params: object) -> None:
+            calls.append((query, params))
+
+    NornicGraphWriter._bulk_upsert_nodes_tx(
+        FakeTx(),
+        [
+            {
+                "id": "chunk-1",
+                "text": "content",
+                "pack": "go-latest",
+                "embedding": [0.1, 0.2],
+                "nested": {"risk": "json-serialized"},
+            }
+        ],
+    )
+
+    assert len(calls) == 1
+    assert "UNWIND $rows AS row" in calls[0][0]
+    assert "MERGE (n:ContentNode {id: row.id})" in calls[0][0]
+    assert calls[0][1]["rows"][0]["id"] == "chunk-1"
+    assert calls[0][1]["rows"][0]["props"]["embedding"] == [0.1, 0.2]
+    assert calls[0][1]["rows"][0]["props"]["nested"] == '{"risk": "json-serialized"}'
+
+
 def test_nornic_edge_tx_uses_scalar_parameters():
     calls: list[tuple[str, dict]] = []
 

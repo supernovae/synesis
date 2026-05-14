@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -23,6 +24,8 @@ NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
+NORNIC_BULK_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE", "250") or "250")
+NORNIC_BULK_META_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE", "1000") or "1000")
 PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
     "1",
     "true",
@@ -54,6 +57,7 @@ class NornicGraphWriter:
         self.database = database
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.client = self
+        self._schema_ready = False
 
     def close(self) -> None:
         self.driver.close()
@@ -80,6 +84,7 @@ class NornicGraphWriter:
                 name=SYNESIS_CATALOG,
                 version=SCHEMA_VERSION,
             )
+        self._schema_ready = True
 
     def existing_chunk_ids(self, collection_name: str = SYNESIS_CATALOG) -> set[str]:
         del collection_name
@@ -97,7 +102,8 @@ class NornicGraphWriter:
         del collection_name
         if not entities:
             return 0
-        self.ensure_schema()
+        if not getattr(self, "_schema_ready", False):
+            self.ensure_schema()
         total = 0
         existing_ids = self.existing_chunk_ids() if PREFETCH_EXISTING_IDS else set()
         batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "50") or "50")
@@ -147,7 +153,86 @@ class NornicGraphWriter:
 
     @staticmethod
     def _clean_props(row: dict[str, Any]) -> dict[str, Any]:
-        return {str(key): value for key, value in row.items() if key != "id" and value is not None}
+        props: dict[str, Any] = {}
+        for key, value in row.items():
+            if key == "id" or value is None:
+                continue
+            props[str(key)] = NornicGraphWriter._clean_prop_value(value)
+        return props
+
+    @staticmethod
+    def _clean_prop_value(value: Any) -> Any:
+        if isinstance(value, str | int | float | bool):
+            return value
+        if isinstance(value, list):
+            if all(isinstance(item, str | int | float | bool) for item in value):
+                return value
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        return str(value)
+
+    def bulk_upsert_nodes(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        create_only: bool = False,
+        batch_size: int | None = None,
+    ) -> int:
+        if not rows:
+            return 0
+        if not getattr(self, "_schema_ready", False):
+            self.ensure_schema()
+        size = batch_size if batch_size is not None else NORNIC_BULK_NODE_BATCH_SIZE
+        size = max(1, min(int(size), 5000))
+        total = 0
+        for i in range(0, len(rows), size):
+            batch = rows[i : i + size]
+            with self.driver.session(database=self.database) as session:
+                if create_only:
+                    try:
+                        session.execute_write(self._bulk_create_nodes_tx, batch)
+                    except Neo4jError as exc:
+                        logger.warning(
+                            "nornic_bulk_create_nodes_fallback",
+                            extra={"count": len(batch), "offset": i, "error": str(exc)[:500]},
+                        )
+                        session.execute_write(self._bulk_upsert_nodes_tx, batch)
+                else:
+                    session.execute_write(self._bulk_upsert_nodes_tx, batch)
+            total += len(batch)
+            logger.info("nornic_bulk_nodes_batch_written", extra={"count": len(batch), "offset": i})
+        return total
+
+    @staticmethod
+    def _bulk_create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        tx.run(
+            """
+            UNWIND $rows AS row
+            CREATE (n:ContentNode {id: row.id})
+            SET n += row.props
+            """,
+            rows=NornicGraphWriter._node_param_rows(rows),
+        )
+
+    @staticmethod
+    def _bulk_upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        tx.run(
+            """
+            UNWIND $rows AS row
+            MERGE (n:ContentNode {id: row.id})
+            SET n += row.props
+            """,
+            rows=NornicGraphWriter._node_param_rows(rows),
+        )
+
+    @staticmethod
+    def _node_param_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {"id": str(row["id"]), "props": NornicGraphWriter._clean_props(row)}
+            for row in rows
+            if str(row.get("id") or "")
+        ]
 
     @staticmethod
     def _upsert_node_tx(tx: Any, row: dict[str, Any]) -> None:
@@ -294,6 +379,47 @@ class NornicGraphWriter:
                 session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=partial_ids)
                 deleted += len(partial_ids)
         return deleted
+
+    def pack_counts(self, pack_id: str) -> dict[str, Any]:
+        with self.driver.session(database=self.database) as session:
+            kind_rows = session.run(
+                """
+                MATCH (n:ContentNode)
+                WHERE n.pack = $pack_id OR n.pack_id = $pack_id
+                RETURN coalesce(n.kind, "") AS kind,
+                       count(n) AS count,
+                       count(n.text) AS chunks,
+                       count(n.embedding) AS embeddings
+                """,
+                pack_id=pack_id,
+            )
+            node_count = 0
+            chunk_count = 0
+            embedding_count = 0
+            counts_by_kind: dict[str, int] = {}
+            for row in kind_rows:
+                kind = str(row.get("kind") or "Unknown")
+                count = int(row.get("count") or 0)
+                node_count += count
+                chunk_count += int(row.get("chunks") or 0)
+                embedding_count += int(row.get("embeddings") or 0)
+                counts_by_kind[kind] = counts_by_kind.get(kind, 0) + count
+            edge_row = session.run(
+                """
+                MATCH (a:ContentNode)-[r]->(b:ContentNode)
+                WHERE (a.pack = $pack_id OR a.pack_id = $pack_id)
+                  AND (b.pack = $pack_id OR b.pack_id = $pack_id)
+                RETURN count(r) AS count
+                """,
+                pack_id=pack_id,
+            ).single()
+        return {
+            "node_count": node_count,
+            "chunk_count": chunk_count,
+            "embedding_count": embedding_count,
+            "edge_count": int(edge_row["count"] or 0) if edge_row else 0,
+            "node_counts_by_kind": counts_by_kind,
+        }
 
 
 @dataclass
