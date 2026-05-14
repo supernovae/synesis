@@ -104,6 +104,10 @@ def test_load_synpack_dedupes_duplicate_node_ids(tmp_path: Path, monkeypatch: py
             written.extend(entities)
             return len(entities)
 
+        def delete_partial_ids(self, ids: list[str]) -> int:
+            assert ids == ["same-node"]
+            return 1
+
         def upsert_edges(self, edges: list[dict]) -> int:
             return len(edges)
 
@@ -114,4 +118,5 @@ def test_load_synpack_dedupes_duplicate_node_ids(tmp_path: Path, monkeypatch: py
 
     assert result["nodes"] == 1
     assert result["duplicate_nodes"] == 1
+    assert result["partial_nodes_deleted"] == 1
     assert [entity["id"] for entity in written] == ["same-node"]

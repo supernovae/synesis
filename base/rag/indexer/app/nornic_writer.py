@@ -221,6 +221,31 @@ class NornicGraphWriter:
                 session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=ids)
                 deleted += len(ids)
 
+    def delete_partial_ids(self, ids: list[str]) -> int:
+        """Delete id-only nodes left behind by interrupted or failed writes."""
+        cleaned_ids = list(dict.fromkeys(str(node_id) for node_id in ids if str(node_id)))
+        deleted = 0
+        for i in range(0, len(cleaned_ids), DELETE_BATCH_SIZE):
+            batch = cleaned_ids[i : i + DELETE_BATCH_SIZE]
+            with self.driver.session(database=self.database) as session:
+                rows = session.run(
+                    """
+                    MATCH (n:ContentNode)
+                    WHERE n.id IN $ids
+                      AND coalesce(n.pack, "") = ""
+                      AND n.text IS NULL
+                      AND n.embedding IS NULL
+                    RETURN n.id AS id
+                    """,
+                    ids=batch,
+                )
+                partial_ids = [str(row["id"]) for row in rows if row.get("id")]
+                if not partial_ids:
+                    continue
+                session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=partial_ids)
+                deleted += len(partial_ids)
+        return deleted
+
 
 @dataclass
 class ProgressTracker:

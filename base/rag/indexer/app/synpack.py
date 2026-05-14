@@ -287,6 +287,7 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
                 duplicate_nodes += 1
             entities_by_id[entity_id] = entity
         entities = list(entities_by_id.values())
+        partial_nodes_deleted = writer.delete_partial_ids([str(entity["id"]) for entity in entities])
         count = writer.upsert_batch(entities)
         edge_count = 0
         edges_path = tmp / "edges.jsonl"
@@ -297,6 +298,7 @@ def load_synpack(pack_path: str | Path, *, nornic_uri: str = NORNIC_URI, replace
             "pack_id": pack_id,
             "nodes": count,
             "duplicate_nodes": duplicate_nodes,
+            "partial_nodes_deleted": partial_nodes_deleted,
             "edges": edge_count,
             "artifact_hash": artifact_hash,
         }
