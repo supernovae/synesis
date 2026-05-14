@@ -41,6 +41,16 @@ def chunk_id_hash(text: str, source: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:64]
 
 
+def _alpha_suffix(index: int) -> str:
+    letters = []
+    current = index
+    while True:
+        letters.append(chr(ord("a") + (current % 26)))
+        current = current // 26 - 1
+        if current < 0:
+            return "".join(reversed(letters))
+
+
 class NornicGraphWriter:
     """Writes content graph nodes and deterministic relationships to NornicDB."""
 
@@ -144,7 +154,8 @@ class NornicGraphWriter:
                     param_name = f"{key}_{index}"
                     entries.append(f"{key}: ${param_name}")
                     params[param_name] = value
-                statements.append(f"CREATE (:ContentNode {{ {', '.join(entries)} }})")
+                variable = f"node{_alpha_suffix(index)}"
+                statements.append(f"CREATE ({variable}:ContentNode {{{', '.join(entries)}}})")
             if statements:
                 tx.run("\n".join(statements), **params)
 

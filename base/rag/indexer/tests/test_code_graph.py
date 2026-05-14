@@ -242,7 +242,7 @@ def test_nornic_fast_node_create_uses_batched_rows():
     )
 
     assert len(calls) == 1
-    assert "CREATE (:ContentNode {" in calls[0][0]
+    assert "CREATE (nodea:ContentNode {" in calls[0][0]
     assert "id: $id_0" in calls[0][0]
     assert "text: $text_0" in calls[0][0]
     assert "SET n +=" not in calls[0][0]
