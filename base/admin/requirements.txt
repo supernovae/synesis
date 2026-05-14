@@ -1,7 +1,7 @@
 httpx>=0.28.1
 openfga-sdk>=0.9.0
 neo4j>=6.2.0
-python-multipart>=0.0.27
+python-multipart>=0.0.28
 pyyaml>=6.0.3
 pyjwt[crypto]>=2.8.0
 sqlalchemy[asyncio]>=2.0.49
