@@ -22,6 +22,11 @@ NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
+PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 def chunk_id_hash(text: str, source: str) -> str:
@@ -88,7 +93,7 @@ class NornicGraphWriter:
             return 0
         self.ensure_schema()
         total = 0
-        existing_ids = self.existing_chunk_ids()
+        existing_ids = self.existing_chunk_ids() if PREFETCH_EXISTING_IDS else set()
         batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "100") or "100")
         batch_size = max(1, min(batch_size, 250))
         for i in range(0, len(entities), batch_size):
@@ -96,7 +101,7 @@ class NornicGraphWriter:
             deduped: dict[str, dict[str, Any]] = {}
             for entity in batch:
                 entity_id = str(entity["id"])
-                if entity_id not in existing_ids:
+                if not PREFETCH_EXISTING_IDS or entity_id not in existing_ids:
                     deduped[entity_id] = entity
             rows = list(deduped.values())
             if not rows:
@@ -105,6 +110,7 @@ class NornicGraphWriter:
                 session.execute_write(self._upsert_nodes_tx, rows)
             existing_ids.update(deduped.keys())
             total += len(rows)
+            logger.info("indexer_graph_nodes_batch_written", extra={"count": len(rows), "offset": i})
         return total
 
     @staticmethod
