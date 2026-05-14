@@ -122,12 +122,7 @@ class NornicGraphWriter:
 
     @staticmethod
     def _upsert_content_node_tx(tx: Any, node_id: str, props: dict[str, Any]) -> None:
-        tx.run(
-            """
-            MERGE (n:ContentNode {id: $id})
-            """,
-            id=node_id,
-        )
+        NornicGraphWriter._ensure_content_node_tx(tx, node_id)
         tx.run("MATCH (n:ContentNode {id: $id}) SET n += $props", id=node_id, props=props)
 
     @staticmethod
@@ -141,7 +136,7 @@ class NornicGraphWriter:
         ).single()
         if row and int(row["existing"] or 0) > 0:
             return
-        tx.run("MERGE (n:ContentNode {id: $id})", id=node_id)
+        tx.run("CREATE (n:ContentNode {id: $id})", id=node_id)
 
     def upsert_edges(self, edges: list[dict[str, Any]]) -> int:
         if not edges:
