@@ -126,11 +126,10 @@ class NornicGraphWriter:
         tx.run(
             """
             CREATE (n:ContentNode {id: $id})
-            SET n += $props
             """,
             id=node_id,
-            props=props,
         )
+        tx.run("MATCH (n:ContentNode {id: $id}) SET n += $props", id=node_id, props=props)
 
     @staticmethod
     def _ensure_content_node_tx(tx: Any, node_id: str) -> None:
