@@ -20,6 +20,7 @@ NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
 NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
 NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
+DELETE_BATCH_SIZE = 500
 
 
 def chunk_id_hash(text: str, source: str) -> str:
@@ -71,7 +72,13 @@ class NornicGraphWriter:
     def existing_chunk_ids(self, collection_name: str = SYNESIS_CATALOG) -> set[str]:
         del collection_name
         with self.driver.session(database=self.database) as session:
-            rows = session.run("MATCH (n:ContentNode) RETURN n.id AS id")
+            rows = session.run(
+                """
+                MATCH (n:ContentNode)
+                WHERE n.text IS NOT NULL OR n.embedding IS NOT NULL
+                RETURN n.id AS id
+                """
+            )
             return {str(row["id"]) for row in rows if row.get("id")}
 
     def upsert_batch(self, entities: list[dict[str, Any]], collection_name: str = SYNESIS_CATALOG) -> int:
@@ -80,91 +87,65 @@ class NornicGraphWriter:
             return 0
         self.ensure_schema()
         total = 0
-        for i in range(0, len(entities), 250):
-            batch = entities[i : i + 250]
+        existing_ids = self.existing_chunk_ids()
+        batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "100") or "100")
+        batch_size = max(1, min(batch_size, 250))
+        for i in range(0, len(entities), batch_size):
+            batch = entities[i : i + batch_size]
             deduped: dict[str, dict[str, Any]] = {}
             for entity in batch:
-                deduped[str(entity["id"])] = entity
+                entity_id = str(entity["id"])
+                if entity_id not in existing_ids:
+                    deduped[entity_id] = entity
             rows = list(deduped.values())
+            if not rows:
+                continue
             with self.driver.session(database=self.database) as session:
                 session.execute_write(self._upsert_nodes_tx, rows)
+            existing_ids.update(deduped.keys())
             total += len(rows)
         return total
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            NornicGraphWriter._upsert_node_tx(tx, row)
+
+    @staticmethod
+    def _clean_props(row: dict[str, Any]) -> dict[str, Any]:
+        return {str(key): value for key, value in row.items() if key != "id" and value is not None}
+
+    @staticmethod
+    def _upsert_node_tx(tx: Any, row: dict[str, Any]) -> None:
+        node_id = str(row["id"])
+        NornicGraphWriter._upsert_content_node_tx(tx, node_id, NornicGraphWriter._clean_props(row))
+
+    @staticmethod
+    def _upsert_content_node_tx(tx: Any, node_id: str, props: dict[str, Any]) -> None:
+        tx.run("MATCH (n:ContentNode {id: $id}) DETACH DELETE n", id=node_id)
         tx.run(
             """
-            UNWIND $rows AS row
-            MERGE (n:ContentNode {id: row.id})
-            SET n += row
-            WITH n, row
-            FOREACH (_ IN CASE WHEN row.doc_id <> "" THEN [1] ELSE [] END |
-              MERGE (d:ContentNode:Document {id: row.doc_id})
-              SET d.pack = row.pack,
-                  d.pack_version = row.pack_version,
-                  d.source_version = row.source_version,
-                  d.name = row.document_name,
-                  d.path = row.path,
-                  d.visibility_scope = row.visibility_scope,
-                  d.org_id = row.org_id,
-                  d.tenant_id = row.tenant_id,
-                  d.owner_user_id = row.owner_user_id,
-                  d.conversation_id = row.conversation_id,
-                  d.acl_mode = row.acl_mode,
-                  d.acl_groups = row.acl_groups,
-                  d.acl_group_ids = row.acl_group_ids,
-                  d.authz_object_id = row.authz_object_id
-              MERGE (d)-[:CONTAINS]->(n)
-            )
-            WITH n, row
-            FOREACH (_ IN CASE WHEN row.path <> "" THEN [1] ELSE [] END |
-              MERGE (f:ContentNode:File {id: row.pack + ":file:" + row.path})
-              SET f.pack = row.pack,
-                  f.pack_version = row.pack_version,
-                  f.source_version = row.source_version,
-                  f.name = row.path,
-                  f.path = row.path,
-                  f.repo_path = row.repo_path,
-                  f.module_path = row.module_path,
-                  f.kind = "File",
-                  f.language = row.language,
-                  f.visibility_scope = row.visibility_scope,
-                  f.org_id = row.org_id,
-                  f.tenant_id = row.tenant_id,
-                  f.owner_user_id = row.owner_user_id,
-                  f.conversation_id = row.conversation_id,
-                  f.acl_mode = row.acl_mode,
-                  f.acl_groups = row.acl_groups,
-                  f.acl_group_ids = row.acl_group_ids,
-                  f.authz_object_id = row.authz_object_id
-              MERGE (f)-[:CONTAINS]->(n)
-            )
-            WITH n, row
-            FOREACH (_ IN CASE WHEN row.symbol_fqn <> "" THEN [1] ELSE [] END |
-              MERGE (s:ContentNode:Symbol {id: row.symbol_fqn})
-              SET s.pack = row.pack,
-                  s.pack_version = row.pack_version,
-                  s.source_version = row.source_version,
-                  s.symbol_fqn = row.symbol_fqn,
-                  s.symbol_name = row.symbol_name,
-                  s.symbol_kind = row.symbol_kind,
-                  s.language = row.language,
-                  s.path = row.path,
-                  s.repo_path = row.repo_path,
-                  s.visibility_scope = row.visibility_scope,
-                  s.org_id = row.org_id,
-                  s.tenant_id = row.tenant_id,
-                  s.owner_user_id = row.owner_user_id,
-                  s.conversation_id = row.conversation_id,
-                  s.acl_mode = row.acl_mode,
-                  s.acl_groups = row.acl_groups,
-                  s.acl_group_ids = row.acl_group_ids,
-                  s.authz_object_id = row.authz_object_id
-              MERGE (n)-[:DEFINES]->(s)
-            )
+            CREATE (n:ContentNode $props)
             """,
-            rows=rows,
+            props={"id": node_id, **props},
+        )
+
+    @staticmethod
+    def _ensure_content_node_tx(tx: Any, node_id: str) -> None:
+        row = tx.run(
+            """
+            MATCH (n:ContentNode {id: $id})
+            RETURN count(n) AS existing
+            """,
+            id=node_id,
+        ).single()
+        if row and int(row["existing"] or 0) > 0:
+            return
+        tx.run(
+            """
+            CREATE (n:ContentNode $props)
+            """,
+            props={"id": node_id},
         )
 
     def upsert_edges(self, edges: list[dict[str, Any]]) -> int:
@@ -189,16 +170,27 @@ class NornicGraphWriter:
         return total
 
     def _write_edge_group(self, edge_type: str, rows: list[dict[str, Any]]) -> None:
-        cypher = f"""
-        UNWIND $rows AS row
-        MERGE (a:ContentNode {{id: row.source_id}})
-        MERGE (b:ContentNode {{id: row.target_id}})
-        MERGE (a)-[r:{edge_type}]->(b)
-        SET r += row.props
-        """
         for i in range(0, len(rows), 500):
             with self.driver.session(database=self.database) as session:
-                session.run(cypher, rows=rows[i : i + 500])
+                session.execute_write(self._write_edges_tx, edge_type, rows[i : i + 500])
+
+    @staticmethod
+    def _write_edges_tx(tx: Any, edge_type: str, rows: list[dict[str, Any]]) -> None:
+        cypher = f"""
+        MATCH (a:ContentNode {{id: $source_id}})
+        MATCH (b:ContentNode {{id: $target_id}})
+        MERGE (a)-[r:{edge_type}]->(b)
+        SET r += $props
+        """
+        for row in rows:
+            NornicGraphWriter._ensure_content_node_tx(tx, str(row["source_id"]))
+            NornicGraphWriter._ensure_content_node_tx(tx, str(row["target_id"]))
+            tx.run(
+                cypher,
+                source_id=row["source_id"],
+                target_id=row["target_id"],
+                props=NornicGraphWriter._clean_props(row.get("props") or {}),
+            )
 
     def delete_by_doc_id(self, doc_id: str, collection_name: str = SYNESIS_CATALOG) -> int:
         del collection_name
@@ -217,17 +209,24 @@ class NornicGraphWriter:
         return count
 
     def delete_pack(self, pack_id: str) -> int:
+        deleted = 0
         with self.driver.session(database=self.database) as session:
-            result = session.run(
-                """
-                MATCH (n:ContentNode {pack: $pack_id})
-                DETACH DELETE n
-                RETURN count(n) AS deleted
-                """,
-                pack_id=pack_id,
-            )
-            row = result.single()
-            return int(row["deleted"]) if row else 0
+            while True:
+                rows = session.run(
+                    """
+                    MATCH (n:ContentNode)
+                    WHERE n.pack = $pack_id OR n.pack_id = $pack_id
+                    RETURN n.id AS id
+                    LIMIT $limit
+                    """,
+                    pack_id=pack_id,
+                    limit=DELETE_BATCH_SIZE,
+                )
+                ids = [str(row["id"]) for row in rows if row.get("id")]
+                if not ids:
+                    return deleted
+                session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=ids)
+                deleted += len(ids)
 
 
 @dataclass

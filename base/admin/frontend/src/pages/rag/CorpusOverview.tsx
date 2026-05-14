@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
-import { Database, FileText, Grid3X3, Layers, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, Database, FileText, Grid3X3, Layers, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
 
 interface SchemaField {
   name: string;
@@ -62,6 +62,7 @@ export default function CorpusOverview() {
   const { data: quality } = useQualitySummary();
   const { data: schemaData } = useCorpusSchema();
   const [tab, setTab] = useState<"overview" | "schema">("overview");
+  const malformedGraphNodes = corpus?.malformed_graph_nodes ?? 0;
 
   const healthData = quality
     ? [
@@ -129,6 +130,18 @@ export default function CorpusOverview() {
             }
             icon={Layers}
           />
+        </div>
+      )}
+
+      {malformedGraphNodes > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+          <div>
+            <div className="font-medium">Content graph contains non-searchable graph nodes</div>
+            <div className="mt-1">
+              {malformedGraphNodes.toLocaleString()} graph nodes are missing chunk text or embeddings and are excluded from corpus totals.
+            </div>
+          </div>
         </div>
       )}
 

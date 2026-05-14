@@ -24,9 +24,10 @@ from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import RouteGroup, can_access_route_group
 from ..services.admin_audit import record_admin_audit
 from ..services.nornic_service import (
+    collection_corpus_summary,
     collection_domain_hierarchy,
+    collection_installed_packs,
     collection_schema_info,
-    collection_stats,
     expected_graph_schema_version,
     reported_graph_schema_version,
     safe_query,
@@ -254,36 +255,7 @@ async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
 
 
 def _installed_doc_packs() -> list[dict[str, Any]]:
-    rows = safe_query(
-        CATALOG_COLLECTION,
-        filter_expr='pack_id != ""',
-        output_fields=[
-            "pack_id",
-            "pack_version",
-            "pack_source_version",
-            "language",
-            "domain",
-            "pack_artifact_hash",
-        ],
-        limit=16384,
-    )
-    packs: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        pack_id = str(row.get("pack_id") or "global")
-        entry = packs.setdefault(
-            pack_id,
-            {
-                "pack_id": pack_id,
-                "pack_version": row.get("pack_version", ""),
-                "pack_source_version": row.get("pack_source_version", ""),
-                "language": row.get("language", ""),
-                "domain": row.get("domain", ""),
-                "pack_artifact_hash": row.get("pack_artifact_hash", ""),
-                "row_count": 0,
-            },
-        )
-        entry["row_count"] += 1
-    return sorted(packs.values(), key=lambda item: str(item["pack_id"]))
+    return collection_installed_packs(CATALOG_COLLECTION)
 
 
 @router.get("/corpus")
@@ -311,21 +283,15 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     schema_upgrade_pending = schema_version < expected_sv
 
     try:
-        stats = collection_stats(CATALOG_COLLECTION)
-        meta_rows = safe_query(
-            CATALOG_COLLECTION,
-            output_fields=["domain", "doc_id", "document_name"],
-            limit=16384,
-        )
-        unique_domains = len({r.get("domain", "") for r in meta_rows if r.get("domain")})
-        unique_docs = len({r.get("doc_id", "") for r in meta_rows if r.get("doc_id")})
-        unique_sources = len({r.get("document_name", "") for r in meta_rows if r.get("document_name")})
+        stats = collection_corpus_summary(CATALOG_COLLECTION)
         return {
             "collection": CATALOG_COLLECTION,
-            "total_chunks": int(stats.get("row_count", 0) or 0),
-            "total_documents": unique_docs,
-            "total_sources": unique_sources,
-            "domains_covered": unique_domains,
+            "total_chunks": int(stats.get("total_chunks", 0) or 0),
+            "total_documents": int(stats.get("total_documents", 0) or 0),
+            "total_sources": int(stats.get("total_sources", 0) or 0),
+            "domains_covered": int(stats.get("domains_covered", 0) or 0),
+            "total_graph_nodes": int(stats.get("node_count", 0) or 0),
+            "malformed_graph_nodes": int(stats.get("malformed_node_count", 0) or 0),
             "schema_version": schema_version,
             "expected_schema_version": expected_sv,
             "schema_upgrade_pending": schema_upgrade_pending,

@@ -177,3 +177,60 @@ def test_nornic_edge_writes_are_batched_by_type(monkeypatch):
     assert len(calls[0][1]) == 2
     assert calls[1][0] == "IMPORTS"
     assert len(calls[1][1]) == 1
+
+
+def test_nornic_node_writes_use_scalar_parameters():
+    calls: list[tuple[str, dict]] = []
+
+    class FakeResult:
+        def single(self) -> dict[str, int]:
+            return {"existing": 0}
+
+    class FakeTx:
+        def run(self, query: str, **params: object) -> None:
+            calls.append((query, params))
+            return FakeResult()
+
+    NornicGraphWriter._upsert_nodes_tx(
+        FakeTx(),
+        [
+            {
+                "id": "chunk-1",
+                "text": "content",
+                "pack": "go-latest",
+                "doc_id": "doc-1",
+                "path": "net/http/server.go",
+                "symbol_fqn": "net/http.Server",
+                "embedding": [0.1, 0.2],
+            }
+        ],
+    )
+
+    assert calls[0][1]["id"] == "chunk-1"
+    assert calls[1][1]["props"]["pack"] == "go-latest"
+    assert calls[1][1]["props"]["embedding"] == [0.1, 0.2]
+    assert calls[1][1]["props"]["id"] == "chunk-1"
+    assert "row.id" not in calls[1][0]
+    assert len(calls) == 2
+
+
+def test_nornic_edge_tx_uses_scalar_parameters():
+    calls: list[tuple[str, dict]] = []
+
+    class FakeResult:
+        def single(self) -> dict[str, int]:
+            return {"existing": 1}
+
+    class FakeTx:
+        def run(self, query: str, **params: object) -> None:
+            calls.append((query, params))
+            return FakeResult()
+
+    NornicGraphWriter._write_edges_tx(
+        FakeTx(),
+        "CALLS",
+        [{"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}],
+    )
+
+    assert calls[-1][1] == {"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}
+    assert "row.source_id" not in calls[-1][0]

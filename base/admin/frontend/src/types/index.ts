@@ -369,6 +369,8 @@ export interface CorpusStats {
   total_documents: number;
   total_sources: number;
   domains_covered: number;
+  total_graph_nodes?: number;
+  malformed_graph_nodes?: number;
   /** Last schema generation reported by indexer / admin reset (0 = none yet). */
   schema_version: number;
   /** Code default (or SYNESIS_EXPECTED_GRAPH_SCHEMA_VERSION); same source as /ingestion/schema-sync. */
