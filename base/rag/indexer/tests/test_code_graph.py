@@ -241,15 +241,12 @@ def test_nornic_fast_node_create_uses_batched_rows():
         ],
     )
 
-    assert len(calls) == 1
-    assert "CREATE (n:ContentNode {" in calls[0][0]
-    assert "id: $id" in calls[0][0]
-    assert "text: $text" in calls[0][0]
-    assert "SET n +=" not in calls[0][0]
+    assert len(calls) == 2
+    assert "CREATE (n:ContentNode {id: $id})" in calls[0][0]
+    assert "MATCH (n:ContentNode) WHERE n.id = $id SET n += $props" in calls[1][0]
     assert calls[0][1]["id"] == "chunk-1"
-    assert calls[0][1]["text"] == "content"
-    assert calls[0][1]["pack"] == "go-latest"
-    assert calls[0][1]["embedding"] == [0.1, 0.2]
+    assert calls[1][1]["id"] == "chunk-1"
+    assert calls[1][1]["props"] == {"text": "content", "pack": "go-latest", "embedding": [0.1, 0.2]}
 
 
 def test_nornic_edge_tx_uses_scalar_parameters():

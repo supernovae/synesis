@@ -100,7 +100,7 @@ class NornicGraphWriter:
         self.ensure_schema()
         total = 0
         existing_ids = self.existing_chunk_ids() if PREFETCH_EXISTING_IDS else set()
-        batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "250") or "250")
+        batch_size = int(os.getenv("SYNESIS_NORNIC_WRITE_BATCH_SIZE", "50") or "50")
         batch_size = max(1, min(batch_size, 250))
         for i in range(0, len(entities), batch_size):
             batch = entities[i : i + batch_size]
@@ -132,14 +132,13 @@ class NornicGraphWriter:
     @staticmethod
     def _create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
         for row in rows:
-            entries = ["id: $id"]
-            params: dict[str, Any] = {"id": str(row["id"])}
-            for key, value in NornicGraphWriter._clean_props(row).items():
-                if not key.replace("_", "").isalnum():
-                    continue
-                entries.append(f"{key}: ${key}")
-                params[key] = value
-            tx.run(f"CREATE (n:ContentNode {{{', '.join(entries)}}})", **params)
+            node_id = str(row["id"])
+            tx.run("CREATE (n:ContentNode {id: $id})", id=node_id)
+            tx.run(
+                "MATCH (n:ContentNode) WHERE n.id = $id SET n += $props",
+                id=node_id,
+                props=NornicGraphWriter._clean_props(row),
+            )
 
     @staticmethod
     def _upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
