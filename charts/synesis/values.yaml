@@ -1156,6 +1156,8 @@ workloads:
         value: "false"
       - name: ENABLE_TITLE_GENERATION
         value: "false"
+      - name: ENABLE_TAGS_GENERATION
+        value: "false"
       - name: TITLE_GENERATION_PROMPT_TEMPLATE
         value: |-
           ### Task:

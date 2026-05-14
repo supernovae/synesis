@@ -7,7 +7,7 @@
 # Build:  ./scripts/build-images.sh --only open-webui --push
 # Pin:    bump the tag here when upgrading Open WebUI upstream.
 
-FROM ghcr.io/open-webui/open-webui:v0.9.4
+FROM ghcr.io/open-webui/open-webui:v0.9.5
 
 COPY overrides/middleware.py /app/backend/open_webui/utils/middleware.py
 COPY overrides/capability_matrix.py /app/backend/open_webui/utils/capability_matrix.py

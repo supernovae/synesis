@@ -104,6 +104,7 @@ def _upsert_global_task_config(conn: sqlite3.Connection) -> bool:
     task = _ensure_path(data, ("task",))
     follow_up = _ensure_path(task, ("follow_up",))
     title = _ensure_path(task, ("title",))
+    tags = _ensure_path(task, ("tags",))
 
     changed = False
     if follow_up.get("enable") is not False:
@@ -111,6 +112,9 @@ def _upsert_global_task_config(conn: sqlite3.Connection) -> bool:
         changed = True
     if title.get("enable") is not False:
         title["enable"] = False
+        changed = True
+    if tags.get("enable") is not False:
+        tags["enable"] = False
         changed = True
 
     title_template = _configured_title_template()

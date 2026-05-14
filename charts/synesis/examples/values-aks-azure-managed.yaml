@@ -190,6 +190,12 @@ workloads:
         value: "false"
       - name: WEBUI_NAME
         value: Synesis
+      - name: ENABLE_FOLLOW_UP_GENERATION
+        value: "false"
+      - name: ENABLE_TITLE_GENERATION
+        value: "false"
+      - name: ENABLE_TAGS_GENERATION
+        value: "false"
     volumeMounts:
       - name: data
         mountPath: /app/backend/data

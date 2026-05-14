@@ -24,7 +24,7 @@ spec:
       containers:
         - name: open-webui
           # Overlays (e.g. overlays/api) replace ghcr.io/open-webui/open-webui → synesis/open-webui.
-          image: ghcr.io/open-webui/open-webui:v0.9.4
+          image: ghcr.io/open-webui/open-webui:v0.9.5
           imagePullPolicy: Always
           ports:
             - name: http
@@ -126,6 +126,9 @@ spec:
               value: "false"
             # Task-model chat titles (extra LLM call per conversation update). Off — UI uses default heading from first words.
             - name: ENABLE_TITLE_GENERATION
+              value: "false"
+            # Task-model chat tags (extra LLM call with "Generate 1-3 broad tags..." prompt). Off for all users.
+            - name: ENABLE_TAGS_GENERATION
               value: "false"
             # Forward X-OpenWebUI-* / org headers to the OpenAI API base (planner-ts) for trusted identity.
             - name: ENABLE_FORWARD_USER_INFO_HEADERS
