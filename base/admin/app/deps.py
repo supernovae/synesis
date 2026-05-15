@@ -9,7 +9,7 @@ import httpx
 
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
-NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
+NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "")
 NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
@@ -58,7 +58,8 @@ def get_nornic_driver():
     if _nornic_driver is None:
         from neo4j import GraphDatabase
 
-        _nornic_driver = GraphDatabase.driver(NORNIC_URI, auth=(NORNIC_USER, NORNIC_PASSWORD))
+        auth = (NORNIC_USER, NORNIC_PASSWORD) if NORNIC_PASSWORD else None
+        _nornic_driver = GraphDatabase.driver(NORNIC_URI, auth=auth)
     return _nornic_driver
 
 

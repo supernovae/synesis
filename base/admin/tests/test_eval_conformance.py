@@ -214,6 +214,12 @@ class TestEvalHarness:
             assert "case_count" in s
             assert s["case_count"] > 0
 
+    def test_rag_eval_default_dir_resolves_in_repo(self):
+        from app.services.rag_eval_harness import _DEFAULT_EVAL_DIR, list_rag_eval_suites
+
+        assert _DEFAULT_EVAL_DIR.name == "pack-evals"
+        assert list_rag_eval_suites()
+
     def test_check_expectations_latency_fail(self):
         from app.services.eval_harness import EvalCase, _check_expectations
 

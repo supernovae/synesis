@@ -23,7 +23,22 @@ from ..db.engine import async_session
 from ..db.models import BenchmarkResult
 from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_TS_URL
 
-_DEFAULT_EVAL_DIR = Path(__file__).resolve().parents[4] / "base" / "rag" / "pack-evals"
+
+def _default_eval_dir() -> Path:
+    here = Path(__file__).resolve()
+    candidates = [
+        Path("/app/base/rag/pack-evals"),
+        Path("/app/pack-evals"),
+        Path.cwd() / "base" / "rag" / "pack-evals",
+    ]
+    candidates.extend(parent / "base" / "rag" / "pack-evals" for parent in here.parents)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+_DEFAULT_EVAL_DIR = _default_eval_dir()
 _EVAL_DIR = Path(os.getenv("SYNESIS_RAG_EVAL_DIR", str(_DEFAULT_EVAL_DIR))).resolve()
 
 

@@ -44,6 +44,18 @@ app.kubernetes.io/part-of: synesis
 {{- index $root.Values.namespaces $key | default $key -}}
 {{- end -}}
 
+{{- define "synesis.nornicAuthSecretName" -}}
+{{- $nornicdb := index .Values "nornicdb" | default dict -}}
+{{- $auth := index $nornicdb "auth" | default dict -}}
+{{- index $auth "secretName" | default "synesis-nornicdb-auth" -}}
+{{- end -}}
+
+{{- define "synesis.nornicAuthUsername" -}}
+{{- $nornicdb := index .Values "nornicdb" | default dict -}}
+{{- $auth := index $nornicdb "auth" | default dict -}}
+{{- index $auth "username" | default "neo4j" -}}
+{{- end -}}
+
 {{- define "synesis.host" -}}
 {{- $host := .host | default "" -}}
 {{- if and (not $host) .name .root.Values.global.routeDomain -}}

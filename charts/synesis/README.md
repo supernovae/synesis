@@ -26,6 +26,9 @@ platform-specific behavior through values:
 - `jobs.indexer.contentPacks`: enabled by default and claims admin-queued
   Synesis RAG content pack installs. Other indexer jobs remain suspended unless
   explicitly enabled for scheduled ingestion.
+- `nornicdb.auth`: chart-managed username/password Secret for NornicDB server
+  and client pods. Set `secrets.nornicdbPassword` to pin or rotate the password;
+  otherwise Helm generates one on first install and reuses the existing Secret.
 - `jobs.qualityRunner`: optional quality CronJob, disabled by default so a
   plain install does not run quality scans until enabled.
 
@@ -207,7 +210,8 @@ maps. Use a values file, or escape the value carefully.
 ## Production Notes
 
 Replace every placeholder in `secrets.*` and `postgres.*.password` before
-production use.
+production use. `secrets.nornicdbPassword` may be left empty for Helm-managed
+generation, or set explicitly during planned credential rotation.
 
 Provider-backed role mappings (`synesis-router`, `synesis-planner`,
 `synesis-writer`, `synesis-ambiguity-scorer`, `synesis-critic`, coder tiers,

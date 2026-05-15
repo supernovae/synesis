@@ -33,6 +33,16 @@ spec:
               value: "info"
             - name: SYNESIS_NORNIC_URI
               value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
+            - name: SYNESIS_NORNIC_USER
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-nornicdb-auth
+                  key: username
+            - name: SYNESIS_NORNIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-nornicdb-auth
+                  key: password
             - name: SYNESIS_NORNIC_DATABASE
               value: "nornic"
             - name: SYNESIS_PLANNER_URL

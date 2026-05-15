@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -342,6 +343,8 @@ def classify_domain(scorecard: dict) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Corpus quality audit")
     parser.add_argument("--nornic-uri", default="bolt://localhost:7687")
+    parser.add_argument("--nornic-user", default=os.getenv("SYNESIS_NORNIC_USER", "neo4j"))
+    parser.add_argument("--nornic-password", default=os.getenv("SYNESIS_NORNIC_PASSWORD", ""))
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
     parser.add_argument("--llm-url", default=None, help="Optional: LLM URL for richer query generation")
     parser.add_argument("--model", default="synesis-general")
@@ -365,7 +368,8 @@ def main():
         [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else list(taxonomy.keys())
     )
 
-    client = GraphDatabase.driver(args.nornic_uri, auth=("neo4j", "synesis-nornicdb"))
+    auth = (args.nornic_user, args.nornic_password) if args.nornic_password else None
+    client = GraphDatabase.driver(args.nornic_uri, auth=auth)
     embedder_url = args.embedder_url.rstrip("/")
 
     scope_filter = ""

@@ -19,7 +19,7 @@ logger = get_logger("synesis.indexer.nornic")
 
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
-NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
+NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "")
 NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
@@ -55,7 +55,8 @@ class NornicGraphWriter:
     ):
         self.uri = uri
         self.database = database
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        auth = (user, password) if password else None
+        self.driver = GraphDatabase.driver(uri, auth=auth)
         self.client = self
         self._schema_ready = False
 

@@ -103,12 +103,15 @@ let cachedDriverKey = "";
 let cachedDriver: Driver | null = null;
 
 function driverFor(config: RagClientConfig): Driver {
-  const key = `${config.nornicUri}|${config.nornicUser}|${config.nornicDatabase}`;
+  const authMode = config.nornicPassword ? "basic" : "none";
+  const key = `${config.nornicUri}|${config.nornicUser}|${config.nornicDatabase}|${authMode}`;
   if (!cachedDriver || cachedDriverKey !== key) {
     if (cachedDriver) {
       void cachedDriver.close();
     }
-    cachedDriver = neo4j.driver(config.nornicUri, neo4j.auth.basic(config.nornicUser, config.nornicPassword));
+    cachedDriver = config.nornicPassword
+      ? neo4j.driver(config.nornicUri, neo4j.auth.basic(config.nornicUser, config.nornicPassword))
+      : neo4j.driver(config.nornicUri);
     cachedDriverKey = key;
   }
   return cachedDriver;

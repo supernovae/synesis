@@ -89,6 +89,43 @@ spec:
           {{- if $workload.env }}
           env:
             {{- tpl (toYaml $workload.env) $ | nindent 12 }}
+            {{- if or (eq $key "admin") (eq $key "plannerTs") }}
+            - name: SYNESIS_NORNIC_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: username
+            - name: SYNESIS_NORNIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: password
+            {{- else if eq $key "nornicdb" }}
+            - name: NORNICDB_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: auth
+            {{- end }}
+          {{- else if or (eq $key "admin") (eq $key "plannerTs") }}
+          env:
+            - name: SYNESIS_NORNIC_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: username
+            - name: SYNESIS_NORNIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: password
+          {{- else if eq $key "nornicdb" }}
+          env:
+            - name: NORNICDB_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "synesis.nornicAuthSecretName" $ }}
+                  key: auth
           {{- end }}
           {{- if $workload.volumeMounts }}
           volumeMounts:

@@ -250,6 +250,9 @@ kv:
 secrets:
   internalServiceToken: synesis-internal-change-me
   webuiSecretKey: sk-synesis-change-me
+  # Leave empty to have Helm generate a NornicDB password on first install and
+  # reuse the existing synesis-nornicdb-auth Secret on later upgrades.
+  nornicdbPassword: ""
   providerApiKeys:
     OPENROUTER_API_KEY: sk-or-v1-REPLACE_ME
     XAI_API_KEY: xai-REPLACE_ME
@@ -258,6 +261,11 @@ secrets:
   openwebuiAdminToken: ""
   githubToken: ""
   huggingFaceToken: ""
+
+nornicdb:
+  auth:
+    secretName: synesis-nornicdb-auth
+    username: neo4j
 
 openfga:
   client:
@@ -1278,6 +1286,11 @@ workloads:
     namespace: rag
     name: embedder
     component: embedder
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
     image:
       repository: ghcr.io/huggingface/text-embeddings-inference
       tag: cpu-1.9
@@ -1381,6 +1394,11 @@ workloads:
     namespace: rag
     name: gliner-service
     component: gliner
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
     image:
       repository: ghcr.io/supernovae/synesis/gliner-service
       tag: latest
@@ -1473,6 +1491,11 @@ workloads:
     namespace: authz
     name: openfga
     component: authz
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
     annotations:
       karpenter.sh/do-not-disrupt: "true"
       cluster-autoscaler.kubernetes.io/safe-to-evict: "false"

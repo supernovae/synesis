@@ -38,7 +38,10 @@ spec:
               containerPort: 7474
           env:
             - name: NORNICDB_AUTH
-              value: "neo4j/synesis-nornicdb"
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-nornicdb-auth
+                  key: auth
             - name: NORNICDB_RUNTIME_PROFILE
               value: "cpu-bge"
           volumeMounts:

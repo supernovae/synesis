@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import suppress
 
 
 def main() -> int:
     uri = os.environ.get("SYNESIS_NORNIC_URI", "bolt://localhost:7687")
     user = os.environ.get("SYNESIS_NORNIC_USER", "neo4j")
-    password = os.environ.get("SYNESIS_NORNIC_PASSWORD", "synesis-nornicdb")
+    password = os.environ.get("SYNESIS_NORNIC_PASSWORD", "")
     database = os.environ.get("SYNESIS_NORNIC_DATABASE", "nornic")
     query = os.environ.get("QUERY", "deployment configuration")
 
@@ -22,7 +23,8 @@ def main() -> int:
 
     print(f"Connecting to NornicDB at {uri} ...")
     try:
-        driver = GraphDatabase.driver(uri, auth=(user, password))
+        auth = (user, password) if password else None
+        driver = GraphDatabase.driver(uri, auth=auth)
         with driver.session(database=database) as session:
             counts = session.run(
                 """
@@ -63,10 +65,8 @@ def main() -> int:
         print("Tip: oc port-forward -n synesis-rag svc/synesis-nornicdb 7687:7687", file=sys.stderr)
         return 1
     finally:
-        try:
+        with suppress(Exception):
             driver.close()
-        except Exception:
-            pass
 
     return 0
 

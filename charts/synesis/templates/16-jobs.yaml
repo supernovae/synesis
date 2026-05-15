@@ -1,5 +1,6 @@
 {{- $root := . -}}
 {{- $ragNs := include "synesis.namespace" (dict "root" . "key" .Values.namespaces.rag) -}}
+{{- $nornicAuthSecretName := include "synesis.nornicAuthSecretName" . -}}
 {{- if and .Values.jobs.indexer.enabled .Values.jobs.indexer.queue.enabled }}
 ---
 apiVersion: batch/v1
@@ -52,6 +53,16 @@ spec:
                       name: synesis-internal-service-auth
                       key: token
                       optional: true
+                - name: SYNESIS_NORNIC_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: username
+                - name: SYNESIS_NORNIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: password
                 - name: GITHUB_TOKEN
                   valueFrom:
                     secretKeyRef:
@@ -128,6 +139,16 @@ spec:
                       name: synesis-internal-service-auth
                       key: token
                       optional: true
+                - name: SYNESIS_NORNIC_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: username
+                - name: SYNESIS_NORNIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: password
                 {{- with .Values.jobs.indexer.contentPacks.extraEnv }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
@@ -197,6 +218,16 @@ spec:
                       name: synesis-internal-service-auth
                       key: token
                       optional: true
+                - name: SYNESIS_NORNIC_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: username
+                - name: SYNESIS_NORNIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: password
                 - name: SYNESIS_INGESTION_S3_BUCKET
                   value: {{ $root.Values.jobs.indexer.staged.s3Bucket | quote }}
                 {{- if $root.Values.jobs.indexer.staged.s3Prefix }}
@@ -266,6 +297,16 @@ spec:
                 {{- toYaml .Values.jobs.qualityRunner.command | nindent 16 }}
               env:
                 {{- toYaml .Values.jobs.qualityRunner.env | nindent 16 }}
+                - name: SYNESIS_NORNIC_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: username
+                - name: SYNESIS_NORNIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $nornicAuthSecretName }}
+                      key: password
                 - name: SYNESIS_RUN_CURATOR
                   value: {{ .Values.jobs.qualityRunner.runCurator | quote }}
               {{- with .Values.jobs.qualityRunner.resources }}
