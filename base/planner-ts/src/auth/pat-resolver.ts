@@ -17,6 +17,9 @@ export function initPatPool(config: AppConfig): void {
   const dsn = config.SYNESIS_PLANNER_TS_ADMIN_DB_URL;
   if (!dsn) return;
   pool = new Pool(buildPgPoolConfig(dsn, 5));
+  if (!config.SYNESIS_PAT_PEPPER) {
+    console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
+  }
 }
 
 export async function closePatPool(): Promise<void> {
@@ -59,10 +62,9 @@ export async function resolvePatFromDb(
     scopes: string[] | null;
   };
 
-  // Fire-and-forget last_used update
-  pool
+  void pool
     .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
-    .catch(() => {});
+    .catch((err) => { console.warn("[auth] PAT last_used update failed:", (err as Error).message ?? err); });
 
   const tenantIds = (row.tenant_ids ?? []).map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 50);
   const orgId = (row.org_id ?? "").trim();

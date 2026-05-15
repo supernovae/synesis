@@ -920,7 +920,12 @@ export const searchCodeTool: McpToolDefinition<
     args.push("-m", String(input.headLimit), input.pattern, dir);
     const out = await runCommand(root, "rg", args);
     if (out.exitCode !== 0 && out.stderr.includes("ENOENT")) {
-      const re = new RegExp(input.pattern);
+      let re: RegExp;
+      try {
+        re = new RegExp(input.pattern);
+      } catch {
+        return { matches: [], exitCode: 2, stderr: "Invalid regex pattern" };
+      }
       const files = await walkFilesForSearch(dir, 4);
       const matches: string[] = [];
       for (const f of files) {

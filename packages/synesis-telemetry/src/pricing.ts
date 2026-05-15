@@ -149,8 +149,8 @@ export class PricingRegistry {
       this.rates = next;
       this.sources = nextSources;
       this.lastFetch = Date.now();
-    } catch {
-      // Non-blocking: log-and-swallow. Fallback rates still apply.
+    } catch (err) {
+      console.warn("[pricing] rate refresh failed:", (err as Error).message ?? err);
     }
   }
 }

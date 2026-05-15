@@ -26,6 +26,9 @@ export class McpAuthResolver {
         })
       : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
+    if (this.pool && !this.pepper) {
+      console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
+    }
   }
 
   async ping(): Promise<boolean> {
@@ -100,7 +103,7 @@ export class McpAuthResolver {
 
     void this.pool
       .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
-      .catch(() => {});
+      .catch((err) => { console.warn("[auth] PAT last_used update failed:", (err as Error).message ?? err); });
 
     const patUser: PatUser = {
       userId: row.user_id,

@@ -331,7 +331,6 @@ export function createDashScopeCacheFetch(
         msg: "dashscope_outbound_body",
         fullBodyHash,
         bodyBytes: serializedBody.length,
-        bodyPrefix200: serializedBody.slice(0, 200),
         markedMsgStructures,
         toolCCInfo,
       }));

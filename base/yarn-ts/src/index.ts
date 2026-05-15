@@ -3982,7 +3982,7 @@ async function casSessionSave(state: SessionState): Promise<void> {
         continuity.planFilePath = metaPlanFilePath;
       }
       state.record.continuity = continuity;
-      void sessionStore.saveContinuity(state.record.userId, continuity).catch(() => {});
+      void sessionStore.saveContinuity(state.record.userId, continuity).catch((err) => { console.warn("[session] saveContinuity failed:", (err as Error).message ?? err); });
     }
     if (state.taskLedger && state.taskLedger.tasks.length > 0) {
       state.record.metadata.task_ledger = serializeTaskLedger(state.taskLedger);
@@ -4682,7 +4682,7 @@ function persistSessionAndUsage(
         );
       }
       void casSessionSave(state);
-    });
+    }).catch((err) => { console.warn("[throttle] token window update failed:", (err as Error).message ?? err); });
   }
 
   const toolSequence = trajectory?.toolSequence ?? [];
@@ -7674,7 +7674,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
     session.implementationSoftStallNudgeStrikes = 0;
-    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch(() => {});
+    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err) => { console.warn("[session] counter reset failed:", (err as Error).message ?? err); });
   }
   {
     const readSnapshotRegistry = getFileSnapshotRegistry(sessionKey);
@@ -10688,10 +10688,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (idx >= 0) {
           pendingToolCalls[idx].args += td.inputTextDelta ?? "";
         }
-      } else if ((part as any).type === "error") {
-        throw (part as any).error;
-      } else if ((part as any).type === "finish") {
-        const fr = (part as any).finishReason;
+      } else if ((part as Record<string, unknown>).type === "error") {
+        throw (part as Record<string, unknown>).error;
+      } else if ((part as Record<string, unknown>).type === "finish") {
+        const fr = (part as Record<string, unknown>).finishReason;
         if (fr === "length") finishReason = "length";
       }
     }
@@ -11367,7 +11367,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
     session.implementationSoftStallNudgeStrikes = 0;
-    void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch(() => {});
+    void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch((err) => { console.warn("[session] counter reset failed:", (err as Error).message ?? err); });
   }
   {
     const readSnapshotRegistry = getFileSnapshotRegistry(claudeSessionKey);
@@ -13933,10 +13933,10 @@ app.post("/v1/messages", async (req, reply) => {
           claudeToolBuffer.delete(toolCallId);
           claudeStreamEmittedToolCalls += 1;
           stopReason = "tool_use";
-        } else if ((part as any).type === "error") {
-          throw (part as any).error;
-        } else if ((part as any).type === "finish") {
-          const fr = (part as any).finishReason;
+        } else if ((part as Record<string, unknown>).type === "error") {
+          throw (part as Record<string, unknown>).error;
+        } else if ((part as Record<string, unknown>).type === "finish") {
+          const fr = (part as Record<string, unknown>).finishReason;
           if (fr === "length") stopReason = "max_tokens";
           else if (fr === "stop" && claudeToolBuffer.size > 0) stopReason = "end_turn";
         }

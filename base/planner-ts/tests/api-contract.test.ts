@@ -53,10 +53,12 @@ describe("API contract", () => {
   });
 
   it("reports authz engine on health", async () => {
-    const app = buildApp(makeConfig());
+    const token = "test-internal-token";
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token }));
     const response = await app.inject({
       method: "GET",
-      url: "/health"
+      url: "/health/detailed",
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
     const body = response.json();
@@ -64,6 +66,17 @@ describe("API contract", () => {
     expect(body.auth?.policyStats).toBeTruthy();
     expect(body.auth?.openfga).toBeTruthy();
     expect(body.auth?.openfga?.apiUrlConfigured).toBe(false);
+    await app.close();
+  });
+
+  it("returns minimal liveness on /health without auth", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({ method: "GET", url: "/health" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.status).toBe("ok");
+    expect(body.auth).toBeUndefined();
+    expect(body.llm).toBeUndefined();
     await app.close();
   });
 
@@ -345,9 +358,11 @@ describe("API contract", () => {
   });
 
   it("increments authz policy stats after denied request", async () => {
+    const token = "test-internal-token";
     const app = buildApp(
       makeConfig({
-        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true"
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token,
       })
     );
     await app.inject({
@@ -365,7 +380,8 @@ describe("API contract", () => {
     });
     const health = await app.inject({
       method: "GET",
-      url: "/health"
+      url: "/health/detailed",
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(health.statusCode).toBe(200);
     const body = health.json();
@@ -539,8 +555,13 @@ describe("API contract", () => {
   });
 
   it("reports prefix cache mode and redis status on health", async () => {
-    const app = buildApp(makeConfig());
-    const response = await app.inject({ method: "GET", url: "/health" });
+    const token = "test-internal-token";
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token }));
+    const response = await app.inject({
+      method: "GET",
+      url: "/health/detailed",
+      headers: { authorization: `Bearer ${token}` },
+    });
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.llm?.prefixCacheMode).toBe("auto");

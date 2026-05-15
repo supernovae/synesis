@@ -7,6 +7,11 @@ import {
 } from "@synesis/telemetry";
 import type { AppConfig } from "../config.js";
 
+const SAFE_ENV_VAR_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
+function isSafeEnvVarName(name: string): boolean {
+  return SAFE_ENV_VAR_PATTERN.test(name);
+}
+
 const RoleSchema = z.object({
   role: z.string(),
   assigned: z.boolean().optional(),
@@ -14,7 +19,7 @@ const RoleSchema = z.object({
   endpoint: z.string().optional(),
   provider: z.string().optional(),
   api_key_env: z.string().optional(),
-  route_params: z.record(z.string(), z.any()).nullable().optional(),
+  route_params: z.record(z.string(), z.unknown()).nullable().optional(),
   adapter_hint: z.string().nullable().optional(),
   context_window: z.number().nullable().optional(),
 });
@@ -289,7 +294,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
     const samplingDefaults = parseSamplingDefaults(lp);
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
-    const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
+    const apiKey = (keyEnv && isSafeEnvVarName(keyEnv) ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
     roleAssignments.push({
       role: row.role,
       assigned: true,
@@ -353,7 +358,7 @@ const PublicOfferingRowSchema = z.object({
   standalone_endpoint: z.string().nullable().optional(),
   standalone_api_key_env: z.string().nullable().optional(),
   backend_model_override: z.string().nullable().optional(),
-  generation_params: z.record(z.string(), z.any()).nullable().optional(),
+  generation_params: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export type PublicYarnOffering = z.infer<typeof PublicOfferingRowSchema>;
@@ -430,7 +435,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
       const provider = (o.standalone_provider ?? "").trim().toLowerCase();
       const endpoint = (o.standalone_endpoint ?? "").trim() || PROVIDER_BASE_URLS[provider] || base.baseUrl;
       const keyEnv = (o.standalone_api_key_env ?? "").trim();
-      const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || base.apiKey;
+      const apiKey = (keyEnv && isSafeEnvVarName(keyEnv) ? process.env[keyEnv] : undefined) || base.apiKey;
       extra.push({
         ...base,
         id: cid,

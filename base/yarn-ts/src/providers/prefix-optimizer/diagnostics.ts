@@ -177,10 +177,7 @@ export function logPrefixDivergence(
     totalPayloadBytes,
     prevPayloadBytes: previousPayload.length,
     divergenceRegion,
-    prevSnippet,
-    currSnippet,
-    prevCharAtDiverge: previousPayload[offset],
-    currCharAtDiverge: currentPayload[offset],
+    snippetLengths: { prev: prevSnippet.length, curr: currSnippet.length },
   }));
 }
 

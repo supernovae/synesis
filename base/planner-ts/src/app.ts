@@ -137,6 +137,12 @@ const SAFE_ERROR_PATTERNS = [
   /^LLM is not enabled$/,
 ];
 
+function timingSafeTokenMatch(header: string | undefined, expected: string): boolean {
+  const actual = (header ?? "").startsWith("Bearer ") ? (header ?? "").slice(7) : "";
+  if (actual.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
+
 function sanitizeErrorMessage(raw: string): string {
   for (const pat of SAFE_ERROR_PATTERNS) {
     if (pat.test(raw)) return raw;
@@ -921,40 +927,51 @@ export function buildApp(config: AppConfig): FastifyInstance {
   app.get("/health", async () => ({
     status: "ok",
     service: "planner-ts",
-    contextOptimization: optimizationCounters,
-    session: await sessionManager.telemetry(),
-    llm: {
-      enabled: config.SYNESIS_PLANNER_TS_LLM_ENABLED,
-      baseUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL),
-      adminRoutesLoaded: hasLlmRoutes(),
-      prefixCacheMode: config.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
-    },
-    redis: {
-      configured: Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL)
-    },
-    llmResilience: getLlmResilienceStats(),
-    promptLibrary: promptRegistry.getStats(),
-    capabilityMatrix: capabilityMatrixClient.getStats(),
-    admissionControl: {
-      userRateLimit: userRateLimiter.getStats(),
-      streamAdmission: streamAdmission.getStats(),
-    },
-    failures: failureStore.stats(),
-    deps: dependencyHealthMonitor.snapshot(),
-    auth: {
-      engine: authzPolicyEngine.engineName,
-      policyStats: authzPolicyEngine.getStats(),
-      openfga: {
-        apiUrlConfigured: Boolean(config.SYNESIS_OPENFGA_API_URL),
-        storeConfigured: Boolean(config.SYNESIS_OPENFGA_STORE_ID),
-        modelConfigured: Boolean(config.SYNESIS_OPENFGA_MODEL_ID),
-        authTokenConfigured: Boolean(config.SYNESIS_OPENFGA_AUTH_TOKEN)
-      },
-      requireBearerAuth: config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH,
-      trustForwardedIdentityHeaders: config.SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS,
-      strictForwardedIdentityMode: config.SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
-    }
   }));
+
+  app.get("/health/detailed", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    return {
+      status: "ok",
+      service: "planner-ts",
+      contextOptimization: optimizationCounters,
+      session: await sessionManager.telemetry(),
+      llm: {
+        enabled: config.SYNESIS_PLANNER_TS_LLM_ENABLED,
+        baseUrlConfigured: Boolean(config.SYNESIS_PLANNER_TS_LLM_BASE_URL),
+        adminRoutesLoaded: hasLlmRoutes(),
+        prefixCacheMode: config.SYNESIS_PLANNER_TS_PREFIX_CACHE_MODE
+      },
+      redis: {
+        configured: Boolean(config.SYNESIS_PLANNER_TS_REDIS_URL)
+      },
+      llmResilience: getLlmResilienceStats(),
+      promptLibrary: promptRegistry.getStats(),
+      capabilityMatrix: capabilityMatrixClient.getStats(),
+      admissionControl: {
+        userRateLimit: userRateLimiter.getStats(),
+        streamAdmission: streamAdmission.getStats(),
+      },
+      failures: failureStore.stats(),
+      deps: dependencyHealthMonitor.snapshot(),
+      auth: {
+        engine: authzPolicyEngine.engineName,
+        policyStats: authzPolicyEngine.getStats(),
+        openfga: {
+          apiUrlConfigured: Boolean(config.SYNESIS_OPENFGA_API_URL),
+          storeConfigured: Boolean(config.SYNESIS_OPENFGA_STORE_ID),
+          modelConfigured: Boolean(config.SYNESIS_OPENFGA_MODEL_ID),
+          authTokenConfigured: Boolean(config.SYNESIS_OPENFGA_AUTH_TOKEN)
+        },
+        requireBearerAuth: config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH,
+        trustForwardedIdentityHeaders: config.SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS,
+        strictForwardedIdentityMode: config.SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
+      }
+    };
+  });
 
   app.get("/health/readiness", async (_request, reply) => {
     const readiness = await readinessSnapshot();
@@ -974,7 +991,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/health/deps", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     const snapshot = dependencyHealthMonitor.snapshot();
@@ -992,7 +1009,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/health/authz-events", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     return {
@@ -1007,7 +1024,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/health/failures", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     return {
@@ -1019,7 +1036,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/debug/retrieval-config", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     return {
@@ -1039,7 +1056,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get("/debug/session-stats", async (request, reply) => {
     const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
-    if (!token || request.headers.authorization !== `Bearer ${token}`) {
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
     return {
@@ -1364,7 +1381,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       request.log.error({ err: msg }, "knowledge_search_failed");
-      return reply.code(500).send({ error: "Knowledge search failed", detail: msg });
+      return reply.code(500).send({ error: "Knowledge search failed", detail: "Internal error" });
     }
     },
   );

@@ -37,15 +37,15 @@ export const OpenAIResponsesRequestSchema = z.object({
   max_completion_tokens: z.number().int().optional(),
   stop: z.union([z.string(), z.array(z.string())]).optional(),
   seed: z.number().int().optional(),
-  tools: z.array(z.any()).optional(),
-  tool_choice: z.any().optional(),
+  tools: z.array(z.unknown()).optional(),
+  tool_choice: z.unknown().optional(),
   parallel_tool_calls: z.boolean().optional(),
   text: z.object({
     format: z.object({
       type: z.string(),
     }).passthrough().optional(),
   }).passthrough().optional(),
-  response_format: z.any().optional(),
+  response_format: z.unknown().optional(),
   reasoning: z.object({
     effort: z.string().optional(),
   }).passthrough().optional(),

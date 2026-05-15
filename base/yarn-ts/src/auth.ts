@@ -26,6 +26,9 @@ export class AuthResolver {
         })
       : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
+    if (this.pool && !this.pepper) {
+      console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
+    }
   }
 
   async resolve(authorizationHeader: string | undefined): Promise<AuthUser> {
@@ -154,10 +157,9 @@ export class AuthResolver {
     const tenantIds = (row.tenant_ids ?? []).map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 50);
     if (tenantIds.length > 0 && !orgId) return null;
 
-    // Fire-and-forget last_used update
-    this.pool!
+    void this.pool
       .query("UPDATE personal_access_tokens SET last_used_at = now() WHERE token_hash = $1", [tokenHash])
-      .catch(() => {});
+      .catch((err) => { console.warn("[auth] PAT last_used update failed:", (err as Error).message ?? err); });
 
     return {
       userId: row.user_id,

@@ -29,7 +29,14 @@ function parsePlan(raw: unknown): Record<string, unknown> {
     const parsed = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
   }
-  return typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {};
+  if (typeof raw === "object" && raw !== null) {
+    const serialized = JSON.stringify(raw);
+    if (serialized.length > LIMITS.maxTerraformPlanChars) {
+      throw new Error("terraform_plan_too_large");
+    }
+    return raw as Record<string, unknown>;
+  }
+  return {};
 }
 
 function asRecord(v: unknown): Record<string, unknown> {

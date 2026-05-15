@@ -14,8 +14,8 @@ alwaysApply: true
 ## Canonical sources of truth
 
 1. **Workspace root** [`package.json`](package.json): `workspaces` + **`overrides`** for security and cross-workspace pins (e.g. `axios`, `zod`). When changing a pinned override, update **every** `package.json` that declares that package and refresh **all** affected `package-lock.json` files.
-2. **Node services + shared libraries** — align declared ranges with [`base/planner-ts/package.json`](base/planner-ts/package.json) and [`packages/*/package.json`](packages/): **`zod` ^4.3.x**, **`typescript` ^6.0.x**, **`vitest` ^4.1.x**, **`tsx` ^4.21.x**, **`@types/node` ^25.5.x**, **`fastify` ^5.8.x** (when used).
-3. **`base/mcp-ts`** is **not** an npm workspace member; it still uses the **same** shared versions as planner/yarn for overlapping deps. Run `npm install` there after changing those ranges so [`base/mcp-ts/package-lock.json`](base/mcp-ts/package-lock.json) stays honest.
+2. **Node services + shared libraries** — align declared ranges with [`base/planner-ts/package.json`](base/planner-ts/package.json) and [`packages/*/package.json`](packages/): **`zod` ^4.4.x**, **`typescript` ^6.0.x**, **`vitest` ^4.1.x**, **`tsx` ^4.21.x**, **`@types/node` ^25.6.x**, **`fastify` ^5.8.x** (when used).
+3. **`base/mcp-ts`** **is** an npm workspace member (listed in root `package.json` `workspaces`). It uses the **same** shared versions as planner/yarn for overlapping deps and shares the root `package-lock.json`.
 4. **Admin SPA** [`base/admin/frontend/package.json`](base/admin/frontend/package.json): Vite/React stack may differ, but **TypeScript** should stay compatible with the rest of the repo when peers allow (e.g. `typescript-eslint` must declare support for the chosen TypeScript major). Vite projects need [`src/vite-env.d.ts`](base/admin/frontend/src/vite-env.d.ts) with `/// <reference types="vite/client" />` for CSS imports under strict TS.
 
 ## Do not
@@ -26,4 +26,4 @@ alwaysApply: true
 ## When editing dependencies
 
 - Compare against **planner-ts** first; bump **mcp-ts** and **packages/** to match for shared names.
-- After edits: `npm install` at repo root (workspaces) and separately under **`base/mcp-ts`** and **`base/admin/frontend`** where those trees keep their own locks; run **`npm test`** / **`npm run build`** for touched apps.
+- After edits: `npm install` at repo root (workspaces) and separately under **`base/admin/frontend`** where that tree keeps its own lock; run **`npm test`** / **`npm run build`** for touched apps.

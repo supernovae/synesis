@@ -177,7 +177,7 @@ const EnvSchema = z.object({
   // --- Retrieval / RAG ---
   SYNESIS_NORNIC_URI: z.string().default("bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"),
   SYNESIS_NORNIC_USER: z.string().default("neo4j"),
-  SYNESIS_NORNIC_PASSWORD: z.string().default("synesis-nornicdb"),
+  SYNESIS_NORNIC_PASSWORD: z.string().default(""),
   SYNESIS_NORNIC_DATABASE: z.string().default("nornic"),
   SYNESIS_NORNIC_VECTOR_INDEX: z.string().default("embeddings"),
   SYNESIS_NORNIC_RUNTIME_PROFILE: z.enum(["cpu-bge", "cuda-bge", "metal-bge"]).default("cpu-bge"),

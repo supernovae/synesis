@@ -4,10 +4,10 @@ export const RoleSchema = z.enum(["system", "developer", "user", "assistant", "t
 
 export const ChatMessageSchema = z.object({
   role: RoleSchema,
-  content: z.union([z.string(), z.array(z.any()), z.null()]).optional(),
+  content: z.union([z.string(), z.array(z.unknown()), z.null()]).optional(),
   name: z.string().optional(),
   tool_call_id: z.string().optional(),
-  tool_calls: z.array(z.any()).optional(),
+  tool_calls: z.array(z.unknown()).optional(),
 }).passthrough().transform((message) => ({
   ...message,
   role: message.role === "developer" ? "system" as const : message.role,
@@ -55,8 +55,8 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   stream_options: z.object({
     include_usage: z.boolean().optional(),
   }).passthrough().optional(),
-  tools: z.array(z.any()).optional(),
-  tool_choice: z.any().optional(),
+  tools: z.array(z.unknown()).optional(),
+  tool_choice: z.unknown().optional(),
   parallel_tool_calls: z.boolean().optional(),
   response_format: OpenAIResponseFormatSchema.optional(),
   extra_body: z.record(z.string(), z.unknown()).optional(),
@@ -76,18 +76,18 @@ export const OpenAIChatCompletionRequestSchema = z.object({
 
 export const ClaudeMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
-  content: z.any()
+  content: z.unknown()
 });
 
 export const ClaudeMessagesRequestSchema = z.object({
   model: z.string(),
   max_tokens: z.number(),
   messages: z.array(ClaudeMessageSchema),
-  system: z.union([z.string(), z.array(z.any())]).optional(),
+  system: z.union([z.string(), z.array(z.unknown())]).optional(),
   stream: z.boolean().optional().default(false),
-  tools: z.array(z.any()).optional(),
-  tool_choice: z.any().optional(),
-  thinking: z.any().optional(),
+  tools: z.array(z.unknown()).optional(),
+  tool_choice: z.unknown().optional(),
+  thinking: z.unknown().optional(),
   temperature: z.number().optional(),
   top_p: z.number().optional(),
   top_k: z.number().optional(),

@@ -200,7 +200,7 @@ export class StateTransitionGlobalCalibrator {
       .then((raw) => {
         this.mergePersistedScope(scope, scopeKey, raw, fallbackThresholds);
       })
-      .catch(() => {})
+      .catch((err) => { console.warn("[calibrator] readScope failed:", (err as Error).message ?? err); })
       .finally(() => {
         const state = this.refreshStateByScope.get(scopeKey);
         if (!state) return;
@@ -251,7 +251,7 @@ export class StateTransitionGlobalCalibrator {
       updated_at: bucket.updatedAt,
     };
     void this.options.backingStore.writeScope(scopeKey, payload as unknown as Record<string, unknown>)
-      .catch(() => {});
+      .catch((err) => { console.warn("[calibrator] writeScope failed:", (err as Error).message ?? err); });
   }
 
   private calibrateScope(
