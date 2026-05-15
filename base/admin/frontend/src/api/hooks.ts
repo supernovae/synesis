@@ -908,6 +908,9 @@ export function useCorpusStats() {
     queryFn: () => client.get("/rag/corpus").then((r) => r.data),
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 
@@ -1031,6 +1034,12 @@ export interface ContentPackQualityReport {
   edge_type_counts?: Record<string, number>;
 }
 
+export interface RagDegradedWarning {
+  component: string;
+  operation: string;
+  message: string;
+}
+
 export interface ContentPackInstallJob {
   id: number;
   pack_id: string;
@@ -1068,10 +1077,14 @@ export interface ContentPacksOverview {
     packs: ContentPackEntry[];
     errors: string[];
     ok: boolean;
+    degraded?: boolean;
+    warnings?: RagDegradedWarning[];
   };
   installed: InstalledContentPack[];
   quality_reports?: ContentPackQualityReport[];
   jobs: ContentPackInstallJob[];
+  degraded?: boolean;
+  warnings?: RagDegradedWarning[];
 }
 
 export function useContentPacks() {
@@ -1079,6 +1092,9 @@ export function useContentPacks() {
     queryKey: ["rag", "content-packs"],
     queryFn: () => client.get("/rag/content-packs").then((r) => r.data),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 

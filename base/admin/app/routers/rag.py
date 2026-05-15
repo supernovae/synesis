@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
 import re
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -90,7 +93,6 @@ def _sanitize_schema_info(schema: Any) -> dict[str, Any]:
 
 
 _SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
-_CATALOG_TIMEOUT_SECONDS = 20.0
 _CATALOG_MAX_BYTES = 2 * 1024 * 1024
 DEFAULT_CONTENT_PACK_CATALOG_URL = os.getenv(
     "SYNESIS_CONTENT_PACK_CATALOG_URL",
@@ -99,6 +101,21 @@ DEFAULT_CONTENT_PACK_CATALOG_URL = os.getenv(
 LEGACY_CONTENT_PACK_CATALOG_URLS = {
     "https://r2.kybern.dev/synpacks/synesis-pack-catalog.json",
 }
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return max(0.5, float(os.getenv(name, str(default)) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+_CATALOG_TIMEOUT_SECONDS = _float_env("SYNESIS_CONTENT_PACK_CATALOG_TIMEOUT_SECONDS", 6.0)
+_NORNIC_ADMIN_TIMEOUT_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_QUERY_TIMEOUT_SECONDS", 3.0)
+_NORNIC_ADMIN_CACHE_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_CACHE_SECONDS", 30.0)
+_NORNIC_ADMIN_BACKOFF_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_BACKOFF_SECONDS", 10.0)
+_BEST_EFFORT_CACHE: dict[str, tuple[float, Any]] = {}
+_BEST_EFFORT_BACKOFF_UNTIL: dict[str, float] = {}
 
 
 class ContentPackCatalogConfigBody(BaseModel):
@@ -163,6 +180,65 @@ def _content_pack_job_dict(job: ContentPackInstallJob) -> dict[str, Any]:
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+
+
+def _degraded_warning(component: str, operation: str, message: str) -> dict[str, str]:
+    return {"component": component, "operation": operation, "message": message}
+
+
+async def _run_best_effort(
+    operation: str,
+    fn: Callable[[], Any],
+    fallback: Any,
+    *,
+    timeout_seconds: float = _NORNIC_ADMIN_TIMEOUT_SECONDS,
+) -> tuple[Any, dict[str, str] | None]:
+    cached = _BEST_EFFORT_CACHE.get(operation)
+    now = time.monotonic()
+    if cached and now - cached[0] <= _NORNIC_ADMIN_CACHE_SECONDS:
+        return cached[1], None
+    if _BEST_EFFORT_BACKOFF_UNTIL.get(operation, 0.0) > now:
+        return (cached[1] if cached else fallback), _degraded_warning(
+            "nornicdb",
+            operation,
+            "NornicDB is busy; briefly backing off and showing cached or partial admin data.",
+        )
+    try:
+        value = await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout_seconds)
+        _BEST_EFFORT_CACHE[operation] = (time.monotonic(), value)
+        _BEST_EFFORT_BACKOFF_UNTIL.pop(operation, None)
+        return value, None
+    except TimeoutError:
+        logger.warning("admin_rag_best_effort_timeout operation=%s timeout_seconds=%s", operation, timeout_seconds)
+        _BEST_EFFORT_BACKOFF_UNTIL[operation] = time.monotonic() + _NORNIC_ADMIN_BACKOFF_SECONDS
+        stale = _BEST_EFFORT_CACHE.get(operation)
+        return (stale[1] if stale else fallback), _degraded_warning(
+            "nornicdb",
+            operation,
+            "NornicDB is busy; showing cached or partial admin data.",
+        )
+    except Exception:
+        logger.warning("admin_rag_best_effort_failed operation=%s", operation, exc_info=True)
+        _BEST_EFFORT_BACKOFF_UNTIL[operation] = time.monotonic() + _NORNIC_ADMIN_BACKOFF_SECONDS
+        stale = _BEST_EFFORT_CACHE.get(operation)
+        return (stale[1] if stale else fallback), _degraded_warning(
+            "nornicdb",
+            operation,
+            "NornicDB query failed; showing cached or partial admin data.",
+        )
+
+
+def _empty_catalog(catalog_url: str, *, error: str = "") -> dict[str, Any]:
+    errors = [error] if error else []
+    return {
+        "catalog_url": catalog_url,
+        "name": "",
+        "version": "",
+        "packs": [],
+        "errors": errors,
+        "ok": False,
+        "degraded": bool(errors),
     }
 
 
@@ -235,14 +311,27 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
 async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
     url = _validate_https_url(catalog_url, field_name="catalog_url")
     try:
-        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        timeout = httpx.Timeout(
+            _CATALOG_TIMEOUT_SECONDS,
+            connect=min(2.0, _CATALOG_TIMEOUT_SECONDS),
+            read=_CATALOG_TIMEOUT_SECONDS,
+            write=min(2.0, _CATALOG_TIMEOUT_SECONDS),
+            pool=min(2.0, _CATALOG_TIMEOUT_SECONDS),
+        )
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             if resp.url.scheme != "https":
                 raise HTTPException(status_code=400, detail="Content pack catalog redirected to a non-https URL")
             content = resp.content
+    except httpx.TimeoutException as exc:
+        logger.warning("content_pack_catalog_fetch_timeout url=%s", url)
+        raise HTTPException(status_code=502, detail="Content pack catalog timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        logger.warning("content_pack_catalog_fetch_status_failed url=%s status=%s", url, exc.response.status_code)
+        raise HTTPException(status_code=502, detail="Content pack catalog is unavailable") from exc
     except httpx.HTTPError as exc:
-        logger.warning("content_pack_catalog_fetch_failed", exc_info=True)
+        logger.warning("content_pack_catalog_fetch_failed url=%s error=%s", url, str(exc)[:120])
         raise HTTPException(status_code=502, detail="Could not fetch content pack catalog") from exc
     if len(content) > _CATALOG_MAX_BYTES:
         raise HTTPException(status_code=400, detail="Content pack catalog is too large")
@@ -280,6 +369,24 @@ async def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
     }
 
 
+async def _fetch_catalog_soft(catalog_url: str) -> tuple[dict[str, Any], dict[str, str] | None]:
+    if not catalog_url:
+        return _empty_catalog("", error="No content pack catalog URL configured"), _degraded_warning(
+            "catalog",
+            "fetch",
+            "No content pack catalog URL is configured.",
+        )
+    try:
+        return await _fetch_catalog(catalog_url), None
+    except HTTPException as exc:
+        detail = str(exc.detail or "Content pack catalog unavailable")
+        return _empty_catalog(catalog_url, error=detail), _degraded_warning(
+            "catalog",
+            "fetch",
+            detail,
+        )
+
+
 def _installed_doc_packs() -> list[dict[str, Any]]:
     return collection_installed_packs(CATALOG_COLLECTION)
 
@@ -290,6 +397,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     from ..db.engine import async_session as _async_session
     from ..db.models import GraphSchemaSync
 
+    warnings: list[dict[str, str]] = []
     schema_version = 0
     try:
         async with _async_session() as session:
@@ -303,54 +411,62 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
     except Exception:
         logger.debug("corpus_overview_schema_version_read_failed", exc_info=True)
     if schema_version <= 0:
-        schema_version = reported_graph_schema_version()
+        schema_version, warning = await _run_best_effort(
+            "reported_graph_schema_version",
+            reported_graph_schema_version,
+            0,
+        )
+        if warning:
+            warnings.append(warning)
 
     expected_sv = expected_graph_schema_version()
     schema_upgrade_pending = schema_version < expected_sv
 
-    try:
-        stats = collection_corpus_summary(CATALOG_COLLECTION)
-        return {
-            "collection": CATALOG_COLLECTION,
-            "total_chunks": int(stats.get("total_chunks", 0) or 0),
-            "total_documents": int(stats.get("total_documents", 0) or 0),
-            "total_sources": int(stats.get("total_sources", 0) or 0),
-            "domains_covered": int(stats.get("domains_covered", 0) or 0),
-            "total_graph_nodes": int(stats.get("node_count", 0) or 0),
-            "malformed_graph_nodes": int(stats.get("malformed_node_count", 0) or 0),
-            "schema_version": schema_version,
-            "expected_schema_version": expected_sv,
-            "schema_upgrade_pending": schema_upgrade_pending,
-        }
-    except Exception:
-        logger.warning("corpus_overview_failed", exc_info=True)
-        return {
-            "collection": CATALOG_COLLECTION,
-            "total_chunks": 0,
-            "total_documents": 0,
-            "total_sources": 0,
-            "domains_covered": 0,
-            "schema_version": schema_version,
-            "expected_schema_version": expected_sv,
-            "schema_upgrade_pending": schema_upgrade_pending,
-        }
+    stats, warning = await _run_best_effort(
+        "collection_corpus_summary",
+        lambda: collection_corpus_summary(CATALOG_COLLECTION),
+        {},
+    )
+    if warning:
+        warnings.append(warning)
+    return {
+        "collection": CATALOG_COLLECTION,
+        "total_chunks": int(stats.get("total_chunks", 0) or 0),
+        "total_documents": int(stats.get("total_documents", 0) or 0),
+        "total_sources": int(stats.get("total_sources", 0) or 0),
+        "domains_covered": int(stats.get("domains_covered", 0) or 0),
+        "total_graph_nodes": int(stats.get("node_count", 0) or 0),
+        "malformed_graph_nodes": int(stats.get("malformed_node_count", 0) or 0),
+        "schema_version": schema_version,
+        "expected_schema_version": expected_sv,
+        "schema_upgrade_pending": schema_upgrade_pending,
+        "degraded": bool(warnings),
+        "warnings": warnings,
+    }
 
 
 @router.get("/corpus/schema")
 async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
     """Content graph collection schema: fields, indexes, domain->source hierarchy."""
     _ensure_org_observability(_user)
-    try:
-        schema = collection_schema_info(CATALOG_COLLECTION)
-        hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
-        return {
-            "collection": CATALOG_COLLECTION,
-            "schema": _sanitize_schema_info(schema),
-            "hierarchy": _drop_error_fields(hierarchy),
-        }
-    except Exception:
-        logger.warning("corpus_schema_failed", exc_info=True)
-        return {"collection": CATALOG_COLLECTION, "schema": {"exists": False}, "hierarchy": []}
+    schema, schema_warning = await _run_best_effort(
+        "collection_schema_info",
+        lambda: collection_schema_info(CATALOG_COLLECTION),
+        {"exists": False},
+    )
+    hierarchy, hierarchy_warning = await _run_best_effort(
+        "collection_domain_hierarchy",
+        lambda: collection_domain_hierarchy(CATALOG_COLLECTION),
+        [],
+    )
+    warnings = [w for w in (schema_warning, hierarchy_warning) if w]
+    return {
+        "collection": CATALOG_COLLECTION,
+        "schema": _sanitize_schema_info(schema),
+        "hierarchy": _drop_error_fields(hierarchy),
+        "degraded": bool(warnings),
+        "warnings": warnings,
+    }
 
 
 @router.get("/content-packs/config")
@@ -393,9 +509,10 @@ async def content_pack_catalog(_user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
         config = await session.get(ContentPackConfig, 1)
     catalog_url = _effective_content_pack_catalog_url(config)
-    if not catalog_url:
-        return {"catalog_url": "", "packs": [], "errors": ["No content pack catalog URL configured"], "ok": False}
-    return await _fetch_catalog(catalog_url)
+    catalog, warning = await _fetch_catalog_soft(catalog_url)
+    if warning:
+        catalog["warnings"] = [warning]
+    return catalog
 
 
 @router.get("/content-packs")
@@ -410,15 +527,23 @@ async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
         )
 
     catalog_url = _effective_content_pack_catalog_url(config)
-    catalog: dict[str, Any] = {"catalog_url": catalog_url, "packs": [], "errors": [], "ok": False}
-    if catalog_url:
-        try:
-            catalog = await _fetch_catalog(catalog_url)
-        except HTTPException as exc:
-            catalog["errors"] = [str(exc.detail)]
+    warnings: list[dict[str, str]] = []
+    catalog, warning = await _fetch_catalog_soft(catalog_url)
+    if warning:
+        warnings.append(warning)
 
-    installed = _installed_doc_packs()
-    quality_reports = collection_pack_quality_reports(CATALOG_COLLECTION)
+    installed_result, quality_result = await asyncio.gather(
+        _run_best_effort("collection_installed_packs", _installed_doc_packs, []),
+        _run_best_effort(
+            "collection_pack_quality_reports",
+            lambda: collection_pack_quality_reports(CATALOG_COLLECTION),
+            [],
+        ),
+    )
+    installed, installed_warning = installed_result
+    quality_reports, quality_warning = quality_result
+    warnings.extend(w for w in (installed_warning, quality_warning) if w)
+
     quality_by_id = {str(report["pack_id"]): report for report in quality_reports}
     installed_by_id = {str(p["pack_id"]): p for p in installed}
     available = []
@@ -444,6 +569,8 @@ async def content_packs_overview(_user: UserInfo = Depends(get_current_user)):
         "installed": [{**pack, "quality": quality_by_id.get(str(pack["pack_id"]))} for pack in installed],
         "quality_reports": quality_reports,
         "jobs": [_content_pack_job_dict(job) for job in jobs],
+        "degraded": bool(warnings),
+        "warnings": warnings,
     }
 
 
@@ -698,13 +825,19 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     """Compute per-domain health scores from NornicDB Content graph and store in quality_snapshots."""
     _ensure_org_content_admin(_user)
-    try:
-        hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
-    except Exception:
-        logger.warning("quality_refresh_hierarchy_failed", exc_info=True)
-        hierarchy = []
+    hierarchy, warning = await _run_best_effort(
+        "quality_refresh_domain_hierarchy",
+        lambda: collection_domain_hierarchy(CATALOG_COLLECTION),
+        [],
+        timeout_seconds=max(_NORNIC_ADMIN_TIMEOUT_SECONDS, 5.0),
+    )
     if not hierarchy:
-        return {"ok": False, "error": "no corpus data"}
+        return {
+            "ok": False,
+            "error": "no corpus data",
+            "degraded": bool(warning),
+            "warnings": [warning] if warning else [],
+        }
 
     from datetime import datetime
 

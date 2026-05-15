@@ -376,6 +376,8 @@ export interface CorpusStats {
   /** Code default (or SYNESIS_EXPECTED_GRAPH_SCHEMA_VERSION); same source as /ingestion/schema-sync. */
   expected_schema_version: number;
   schema_upgrade_pending: boolean;
+  degraded?: boolean;
+  warnings?: Array<{ component: string; operation: string; message: string }>;
 }
 
 export interface DomainScorecard {

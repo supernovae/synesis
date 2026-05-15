@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useCorpusStats, useQualitySummary } from "../../api/hooks";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import client from "../../api/client";
 import {
   PieChart,
@@ -34,6 +34,12 @@ interface DomainHierarchy {
   sources: Array<{ source: string; chunks: number }>;
 }
 
+interface RagWarning {
+  component: string;
+  operation: string;
+  message: string;
+}
+
 interface CorpusSchemaData {
   collection: string;
   schema: {
@@ -45,6 +51,8 @@ interface CorpusSchemaData {
     vector_indexes?: string[];
   };
   hierarchy: DomainHierarchy[];
+  degraded?: boolean;
+  warnings?: RagWarning[];
 }
 
 function useCorpusSchema() {
@@ -52,6 +60,9 @@ function useCorpusSchema() {
     queryKey: ["rag", "corpus", "schema"],
     queryFn: () => client.get("/rag/corpus/schema").then((r) => r.data),
     staleTime: 120_000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 
@@ -63,6 +74,7 @@ export default function CorpusOverview() {
   const { data: schemaData } = useCorpusSchema();
   const [tab, setTab] = useState<"overview" | "schema">("overview");
   const malformedGraphNodes = corpus?.malformed_graph_nodes ?? 0;
+  const degradedWarnings = [...(corpus?.warnings ?? []), ...(schemaData?.warnings ?? [])];
 
   const healthData = quality
     ? [
@@ -141,6 +153,16 @@ export default function CorpusOverview() {
             <div className="mt-1">
               {malformedGraphNodes.toLocaleString()} graph nodes are missing chunk text or embeddings and are excluded from corpus totals.
             </div>
+          </div>
+        </div>
+      )}
+
+      {degradedWarnings.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+          <div>
+            <div className="font-medium">NornicDB summary is temporarily degraded</div>
+            <div className="mt-1">{degradedWarnings.map((warning) => warning.message).join(" ")}</div>
           </div>
         </div>
       )}

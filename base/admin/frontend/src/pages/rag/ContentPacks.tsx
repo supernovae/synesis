@@ -7,7 +7,7 @@ import {
 } from "../../api/hooks";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
-import { Download, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, Download, RefreshCw, RotateCcw } from "lucide-react";
 
 function formatBytes(value: number) {
   if (!value) return "Unknown";
@@ -49,6 +49,7 @@ export default function ContentPacks() {
   const installPack = useInstallContentPack();
   const retryJob = useRetryContentPackInstallJob();
   const [replaceByPack, setReplaceByPack] = useState<Record<string, boolean>>({});
+  const degradedWarnings = data?.warnings ?? data?.catalog?.warnings ?? [];
 
   const latestJobByPack = useMemo(() => {
     const out: Record<string, string> = {};
@@ -77,13 +78,26 @@ export default function ContentPacks() {
         </div>
         <button
           onClick={() => refetch()}
-          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+          disabled={isFetching}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
         >
           <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
 
       <ApiErrorBanner error={error || installPack.error || retryJob.error} />
+
+      {degradedWarnings.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+          <div>
+            <div className="font-medium">Showing partial content pack data</div>
+            <div className="mt-1">
+              {degradedWarnings.map((warning) => warning.message).join(" ")}
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Catalog</h2>
@@ -111,7 +125,14 @@ export default function ContentPacks() {
         {isLoading ? (
           <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
         ) : (data?.catalog?.packs ?? []).length === 0 ? (
-          <EmptyState title="No content packs available" description="The default Synesis content pack catalog returned no packs." />
+          <EmptyState
+            title="No content packs available"
+            description={
+              data?.degraded
+                ? "The catalog or NornicDB summary is temporarily unavailable. Installed packs and jobs will remain visible when available."
+                : "The default Synesis content pack catalog returned no packs."
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {data?.catalog.packs.map((pack) => {
