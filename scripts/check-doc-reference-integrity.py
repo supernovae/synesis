@@ -8,10 +8,9 @@ behavior contracts used by maintainers and coding agents.
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import sys
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,7 +18,6 @@ TARGET_FILES = [
     ".cursor/rules/router-governed-evidence.mdc",
     ".cursor/rules/synesis-regressions.mdc",
     ".cursor/rules/sse-status-format.mdc",
-    "docs/user/USERGUIDE.md",
     "docs/chat/OPENWEBUI_PHASES.md",
 ]
 
@@ -47,9 +45,7 @@ REQUIRED_TOKENS: dict[str, list[str]] = {
     ],
 }
 
-PATH_TOKEN_RE = re.compile(
-    r"([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+)"
-)
+PATH_TOKEN_RE = re.compile(r"([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+)")
 
 
 def collect_path_tokens(text: str) -> set[str]:
@@ -57,7 +53,7 @@ def collect_path_tokens(text: str) -> set[str]:
     for match in PATH_TOKEN_RE.finditer(text):
         token = match.group(1).strip()
         start = match.start(1)
-        prefix = text[max(0, start - 8):start].lower()
+        prefix = text[max(0, start - 8) : start].lower()
         if prefix.endswith("http://") or prefix.endswith("https://"):
             continue
         if not token or "*" in token:

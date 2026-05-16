@@ -206,6 +206,100 @@ python -m app.cli --mode synpack --synpack-command finalize-language \
 Use `--estimate-cost-only` after prepare/staging when you want a grounded cost
 estimate from extracted chunks before spending enrichment tokens.
 
+## Local Embedder
+
+SynPack finalization needs a Text Embeddings Inference endpoint for dense
+vectors. The Synesis RAG schema uses `BAAI/bge-m3`, so local embedding
+containers should serve that same model.
+
+CPU x86_64:
+
+```bash
+docker run --rm --name synesis-embedder \
+  -p 8082:8080 \
+  -v "$HOME/.cache/huggingface:/data" \
+  -e HF_HOME=/data/hf \
+  -e HUGGINGFACE_HUB_CACHE=/data \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-1.9 \
+  --model-id=BAAI/bge-m3 \
+  --port=8080 \
+  --max-concurrent-requests=128 \
+  --max-client-batch-size=32
+```
+
+CPU ARM64:
+
+```bash
+docker run --rm --name synesis-embedder \
+  --platform linux/arm64 \
+  -p 8082:8080 \
+  -v "$HOME/.cache/huggingface:/data" \
+  -e HF_HOME=/data/hf \
+  -e HUGGINGFACE_HUB_CACHE=/data \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9 \
+  --model-id=BAAI/bge-m3 \
+  --port=8080 \
+  --max-concurrent-requests=128 \
+  --max-client-batch-size=32
+```
+
+DGX Spark / Blackwell 12.1:
+
+```bash
+docker run --rm --name synesis-embedder \
+  --gpus all \
+  -p 8082:8080 \
+  -v "$HOME/.cache/huggingface:/data" \
+  -e HF_HOME=/data/hf \
+  -e HUGGINGFACE_HUB_CACHE=/data \
+  ghcr.io/huggingface/text-embeddings-inference:121-latest \
+  --model-id=BAAI/bge-m3 \
+  --port=8080 \
+  --max-concurrent-requests=128 \
+  --max-client-batch-size=32
+```
+
+Use `http://localhost:8082/v1` as the `--embedder-url` for local SynPack
+finalization. `121-latest` is the currently published DGX Spark image tag in
+the GitHub Container Registry; if Hugging Face publishes a versioned
+`121-<version>` tag, prefer that for repeatable builds.
+
+## Rust Pack
+
+The Rust language pack uses the staged SynPack v2 workflow and is optimized for
+graph-aware retrieval in NornicDB. It indexes official Rust sources from:
+
+- `rust-lang/rust`: `std`, `core`, `alloc`, and rustc `E0xxx` error docs
+- `rust-lang/reference`: language semantics and edition behavior
+- `rust-lang/nomicon`: unsafe Rust, layout, aliasing, FFI, and soundness
+- `rust-lang/async-book`: futures, pinning, wakeups, cancellation, and runtimes
+- `rust-lang/book`: general Rust ownership, projects, and idioms
+- `rust-lang/cargo`: Cargo workspaces, manifests, features, lockfiles, profiles, and commands
+- `rust-lang/rust-by-example`: runnable examples mapped into retrieval examples
+- `rust-lang/edition-guide`: edition migration and Rust 2024 behavior
+
+The builder emits Rust-specific symbol FQNs such as `std::String`, typed
+metadata for compiler diagnostics and edition rules, query aliases, task
+intents, verification hints, examples, anti-patterns, and constraints so
+NornicDB can materialize chunk, symbol, concept, pattern, constraint, example,
+context-card, and edge sidecars.
+
+```bash
+python -m app.cli --mode synpack --synpack-command prepare-language \
+  --language rust --pack-id rust-latest --work-dir .work/synpacks/rust-latest
+
+python -m app.cli --mode synpack --synpack-command enrich-language \
+  --language rust --pack-id rust-latest --work-dir .work/synpacks/rust-latest \
+  --batch-size 250 --request-limit 7500 --enrichment-concurrency 6
+
+python -m app.cli --mode synpack --synpack-command finalize-language \
+  --language rust --pack-id rust-latest --work-dir .work/synpacks/rust-latest \
+  --output dist/synpacks/rust-latest.synpack \
+  --embedder-url http://localhost:8082/v1 \
+  --embedder-batch-size 8 \
+  --embedder-timeout 300
+```
+
 Example custom provider:
 
 ```bash

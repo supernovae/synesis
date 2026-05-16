@@ -986,9 +986,12 @@ def test_build_language_pack_from_rust_fixture(monkeypatch: pytest.MonkeyPatch, 
     assert manifest["source_version"] == "1.88.0"
     assert manifest["enrichment"]["prompt_id"] == "rust_agentic_architect_2024_v1"
     assert "rust_error_debugger_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "rust_cargo_tooling_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "rust_example_architect_v1" in manifest["enrichment"]["prompt_hashes"]
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
     assert any(row["language"] == "rust" and row["symbol_kind"] == "struct" for row in rows)
+    assert any(row["symbol_fqn"] == "std::String" for row in rows)
     assert any(row["artifact_kind"] == "compiler_error" and row["symbol_fqn"] == "E0716" for row in rows)
     assert any("edition-2024" in row["scope_tags"] for row in rows)
     error_row = next(row for row in rows if row["symbol_fqn"] == "E0716")

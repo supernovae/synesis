@@ -151,11 +151,15 @@ _CALL_KEYWORDS = {
 
 
 def extract_call_refs(source_code: str, language: str) -> list[str]:
-    del language
     refs: list[str] = []
-    for match in re.finditer(r"\b([A-Za-z_][\w.]*)\s*\(", source_code):
+    call_pattern = (
+        r"\b([A-Za-z_][\w]*(?:(?:::|\.)[A-Za-z_][\w]*)*)\s*!?\s*\("
+        if language == "rust"
+        else r"\b([A-Za-z_][\w.]*)\s*\("
+    )
+    for match in re.finditer(call_pattern, source_code):
         name = match.group(1)
-        leaf = name.rsplit(".", 1)[-1]
+        leaf = name.replace("::", ".").rsplit(".", 1)[-1]
         if leaf.lower() in _CALL_KEYWORDS:
             continue
         refs.append(name)

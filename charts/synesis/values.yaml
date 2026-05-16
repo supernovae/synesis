@@ -1299,7 +1299,7 @@ workloads:
         containerPort: 8080
     args:
       - --model-id
-      - BAAI/bge-small-en-v1.5
+      - BAAI/bge-m3
       - --port
       - "8080"
     env:

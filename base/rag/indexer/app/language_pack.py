@@ -831,6 +831,46 @@ def _rust_package_for_path(rel_path: str) -> str:
     return rel_path.split("/", 1)[0]
 
 
+def _rust_module_for_path(rel_path: str) -> str:
+    normalized = rel_path.replace("\\", "/")
+    for crate in ("std", "core", "alloc"):
+        prefix = f"library/{crate}/src/"
+        if normalized.startswith(prefix):
+            module = normalized[len(prefix) :]
+            module = re.sub(r"\.rs$", "", module)
+            if module in {"lib", "mod"}:
+                return crate
+            module = re.sub(r"/(?:mod|lib)$", "", module)
+            module = module.strip("/")
+            return "::".join([crate, *[part for part in module.split("/") if part]]) if module else crate
+    if normalized.startswith("compiler/rustc_error_codes/"):
+        return "rustc_error_codes"
+    module = re.sub(r"\.[A-Za-z0-9]+$", "", normalized)
+    module = re.sub(r"/(?:mod|lib)$", "", module)
+    return "::".join(part for part in module.split("/") if part)
+
+
+def _rust_symbol_fqn(rel_path: str, name: str) -> str:
+    module = _rust_module_for_path(rel_path)
+    return f"{module}::{name}" if module else name
+
+
+def _rust_impl_refs(snippet: str, *, package: str) -> tuple[list[str], list[str]]:
+    implements: list[str] = []
+    contains: list[str] = []
+    for match in re.finditer(
+        r"\bimpl(?:<[^>{}]+>)?\s+(?:(?P<trait>[A-Za-z_][\w:<>]*)\s+for\s+)?(?P<target>[A-Za-z_][\w:<>]*)",
+        snippet,
+    ):
+        trait = (match.group("trait") or "").strip()
+        target = (match.group("target") or "").strip()
+        if trait:
+            implements.append(trait)
+        if target:
+            contains.append(f"{package}::{target}" if package and "::" not in target else target)
+    return _unique_metadata_values(implements), _unique_metadata_values(contains)
+
+
 def _edition_scope(text: str, rel_path: str) -> list[str]:
     haystack = f"{rel_path}\n{text}".lower()
     editions: list[str] = []
@@ -845,6 +885,10 @@ def _rust_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str, symb
     lower = f"{rel_path}\n{text}".lower()
     if artifact_kind == "compiler_error" or symbol_kind == "compiler_error":
         return "rust_error_debugger_v1"
+    if artifact_kind == "tooling_guidance" or "cargo.toml" in lower or "cargo " in lower:
+        return "rust_cargo_tooling_architect_v1"
+    if artifact_kind == "examples":
+        return "rust_example_architect_v1"
     if "nomicon" in rel_path or "unsafe" in lower or "ffi" in lower:
         return "rust_unsafe_nomicon_v1"
     if "async" in rel_path or "future" in lower or "pin<" in lower or "tokio" in lower:
@@ -873,12 +917,23 @@ def _rust_metadata(
         tags.append("unsafe")
     if artifact_kind == "async_guidance":
         tags.append("async")
+    if artifact_kind == "tooling_guidance":
+        tags.extend(["cargo", "tooling"])
+    if artifact_kind == "examples":
+        tags.append("example")
+    if artifact_kind == "edition_guide":
+        tags.append("edition-guide")
+    content_profile = "reference"
+    if artifact_kind in {"tooling_guidance", "examples"}:
+        content_profile = "procedural"
+    elif artifact_kind == "compiler_error":
+        content_profile = "diagnostic"
     return {
         "edition_scope": edition,
         "scope_tags": tags,
         "constraint_kind": "hard" if artifact_kind in {"compiler_error", "language_spec"} else "guiding",
         "constraint_source": "rustc_error_codes" if artifact_kind == "compiler_error" else "rust-official-docs",
-        "content_profile": "reference",
+        "content_profile": content_profile,
         "prompt_id": prompt_id
         or _rust_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
     }
@@ -898,7 +953,17 @@ def _extract_rust_symbols(file_path: Path, root: Path, *, repo: str, tag: str) -
         comment = _rust_doc_comment(lines, i)
         snippet = "\n".join(lines[i : min(len(lines), i + 48)]).strip()
         body = f"{comment}\n\n```rust\n{snippet}\n```".strip()
-        symbol_fqn = f"{package}::{name}" if package else name
+        symbol_fqn = _rust_symbol_fqn(rel_path, name)
+        implements_refs, contains_refs = _rust_impl_refs(snippet, package=package)
+        metadata = _rust_metadata(text=body, rel_path=rel_path, artifact_kind="code", symbol_kind=kind)
+        metadata.update(
+            {
+                "module_fqn": _rust_module_for_path(rel_path),
+                "implements_refs": implements_refs,
+                "contains_refs": contains_refs,
+                "valid_in_refs": [f"rust:edition:{edition}" for edition in metadata.get("edition_scope", [])],
+            }
+        )
         chunks.append(
             LanguageChunk(
                 text=body,
@@ -915,7 +980,7 @@ def _extract_rust_symbols(file_path: Path, root: Path, *, repo: str, tag: str) -
                 module_path=rel_path,
                 artifact_kind="code",
                 content_format="rust",
-                metadata=_rust_metadata(text=body, rel_path=rel_path, artifact_kind="code", symbol_kind=kind),
+                metadata=metadata,
             )
         )
     return chunks
@@ -937,22 +1002,30 @@ def _extract_rust_module_doc(file_path: Path, root: Path, *, repo: str, tag: str
         return None
     rel_path = file_path.relative_to(root).as_posix()
     package = _rust_package_for_path(rel_path)
+    module_fqn = _rust_module_for_path(rel_path)
+    metadata = _rust_metadata(text=body, rel_path=rel_path, artifact_kind="docs", symbol_kind="module")
+    metadata.update(
+        {
+            "module_fqn": module_fqn,
+            "valid_in_refs": [f"rust:edition:{edition}" for edition in metadata.get("edition_scope", [])],
+        }
+    )
     return LanguageChunk(
         text=body[:6500],
         doc_id=f"rust:{repo}:{rel_path}:module-doc",
         chunk_index=0,
         document_name=rel_path,
-        heading_path=package,
-        section=package,
+        heading_path=module_fqn or package,
+        section=module_fqn or package,
         source_url=f"https://{repo}/blob/{tag}/{rel_path}",
         package_name=package,
         symbol_kind="module",
-        symbol_fqn=package,
-        symbol_name=package,
+        symbol_fqn=module_fqn or package,
+        symbol_name=(module_fqn or package).rsplit("::", 1)[-1],
         module_path=rel_path,
         artifact_kind="docs",
         content_format="rust",
-        metadata=_rust_metadata(text=body, rel_path=rel_path, artifact_kind="docs", symbol_kind="module"),
+        metadata=metadata,
     )
 
 
@@ -1024,6 +1097,10 @@ def _rust_doc_chunks_for_path(
                 symbol_kind=chunk.symbol_kind,
             )
         )
+        chunk.metadata["module_fqn"] = _rust_module_for_path(chunk.module_path)
+        chunk.metadata["valid_in_refs"] = [
+            f"rust:edition:{edition}" for edition in chunk.metadata.get("edition_scope", [])
+        ]
         chunks.append(chunk)
     return chunks
 
@@ -2966,6 +3043,7 @@ def _chunk_identity_terms(chunk: LanguageChunk) -> list[str]:
         chunk.symbol_name,
         chunk.package_name,
         f"{chunk.package_name}.{chunk.symbol_name}" if chunk.package_name and chunk.symbol_name else "",
+        f"{chunk.package_name}::{chunk.symbol_name}" if chunk.package_name and chunk.symbol_name else "",
         f"{chunk.package_name} {chunk.symbol_name}" if chunk.package_name and chunk.symbol_name else "",
         chunk.module_path,
         chunk.heading_path,
@@ -3071,7 +3149,19 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             "drop_semantics": "unknown",
             "feature_gate_or_stability": "unknown",
             "error_context": chunk.symbol_fqn if chunk.symbol_kind == "compiler_error" else "",
+            "api_contract": "unknown",
+            "version_scope": ",".join(str(item) for item in edition_scope) if edition_scope else "unknown",
+            "performance_notes": "unknown",
+            "task_intents": [chunk.artifact_kind] if chunk.artifact_kind else [],
+            "query_aliases": _chunk_identity_terms(chunk),
+            "verification_hints": ["cargo check", "cargo test", "cargo clippy"],
+            "related_interfaces": [],
+            "related_symbols": [],
+            "canonical_examples": [],
+            "anti_patterns": [],
             "hidden_warnings": [error] if error else [],
+            "agent_actions": [],
+            "evidence_spans": [],
             "agent_query_hints": [],
             "enrichment_status": "fallback",
             "enrichment_error": error,

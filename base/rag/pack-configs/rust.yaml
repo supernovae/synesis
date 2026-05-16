@@ -19,6 +19,10 @@ prompts:
     path: prompts/rust_error_debugger_v1.md
   - id: rust_unsafe_nomicon_v1
     path: prompts/rust_unsafe_nomicon_v1.md
+  - id: rust_cargo_tooling_architect_v1
+    path: prompts/rust_cargo_tooling_architect_v1.md
+  - id: rust_example_architect_v1
+    path: prompts/rust_example_architect_v1.md
 include:
   rust_docs:
     - library/std/src
@@ -51,3 +55,21 @@ include:
       artifact_kind: docs
       package_name: book
       prompt_id: rust_systems_architect_2021_v1
+    - name: cargo-book
+      repo: github.com/rust-lang/cargo
+      path: src/doc/src
+      artifact_kind: tooling_guidance
+      package_name: cargo
+      prompt_id: rust_cargo_tooling_architect_v1
+    - name: rust-by-example
+      repo: github.com/rust-lang/rust-by-example
+      path: src
+      artifact_kind: examples
+      package_name: rust-by-example
+      prompt_id: rust_example_architect_v1
+    - name: edition-guide
+      repo: github.com/rust-lang/edition-guide
+      path: src
+      artifact_kind: edition_guide
+      package_name: edition-guide
+      prompt_id: rust_agentic_architect_2024_v1
