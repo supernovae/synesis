@@ -62,6 +62,18 @@ export function buildBlockedDiscoveryRecoveryWithoutSnapshot(
   baseGuidance: string,
   code: "no_project_root" | "root_empty" | "snapshot_io_error",
 ): string {
+  if (code === "root_empty") {
+    return [
+      baseGuidance,
+      "Recovery: the workspace root appears empty. Do not retry broad discovery or read nonexistent README/package files. Ask what to create, or create the first project files only when the user's request is specific enough.",
+      "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"root_empty\" version=\"2\">",
+      "entries_total=0",
+      "entries_preview=0",
+      "message=The workspace is empty. Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript.",
+      "next_action=ask_user_for_project_goal|create_first_files_from_explicit_user_request|use_init_for_CLAUDE.md",
+      "</SYNESIS_DISCOVERY_RECOVERY>",
+    ].join("\n");
+  }
   return [
     baseGuidance,
     "Recovery: Read README.md or package.json to discover structure, then use a scoped Glob (e.g. src/*) or Grep.",

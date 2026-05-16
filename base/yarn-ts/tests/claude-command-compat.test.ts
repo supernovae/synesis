@@ -41,8 +41,15 @@ describe("Claude compatibility command execution", () => {
     });
     expect(result.supported).toBe(true);
     expect(result.action).toBe("return_bootstrap_template");
-    const data = result.data as { template: { content: string } };
+    const data = result.data as {
+      template: { content: string };
+      writePolicy: { mode: string; existingFileAction: string; emptyWorkspaceAction: string };
+    };
     expect(data.template.content.includes("# CLAUDE.md")).toBe(true);
+    expect(data.writePolicy.mode).toBe("create_only");
+    expect(data.writePolicy.existingFileAction).toContain("do_not_overwrite");
+    expect(data.writePolicy.emptyWorkspaceAction).toContain("workspace_root");
+    expect(result.notes.join("\n")).toContain("merge/review");
   });
 
   it("resolves model mappings for model command", () => {

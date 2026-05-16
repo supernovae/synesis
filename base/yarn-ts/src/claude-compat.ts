@@ -100,8 +100,19 @@ export function executeClaudeCompatCommand(ctx: ClaudeCommandContext): ClaudeCom
       supported: true,
       clientLocal: false,
       action: "return_bootstrap_template",
-      notes: ["Use this payload as the source for creating CLAUDE.md in your client or tooling."],
-      data: { template },
+      notes: [
+        "Use this payload as the source for creating CLAUDE.md in your client or tooling.",
+        "Create CLAUDE.md only when it does not already exist, or merge/review with the user before replacing existing guidance.",
+      ],
+      data: {
+        template,
+        writePolicy: {
+          path: "CLAUDE.md",
+          mode: "create_only",
+          existingFileAction: "review_or_merge_do_not_overwrite_without_explicit_user_confirmation",
+          emptyWorkspaceAction: "safe_to_offer_create_at_workspace_root",
+        },
+      },
     };
   }
 
