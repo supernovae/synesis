@@ -108,6 +108,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: {{ .Values.jobs.indexer.contentPacks.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.jobs.indexer.contentPacks.activeDeadlineSeconds }}
       ttlSecondsAfterFinished: {{ .Values.jobs.indexer.contentPacks.ttlSecondsAfterFinished }}
       template:
         metadata:

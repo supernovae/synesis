@@ -77,11 +77,17 @@ def _download_pack(job: dict[str, Any]) -> Path:
     expected_size = int(job.get("size_bytes") or 0)
     max_bytes = expected_size if expected_size > 0 else _MAX_DOWNLOAD_BYTES
     max_bytes = min(max_bytes, _MAX_DOWNLOAD_BYTES)
+    pack_id = str(job.get("pack_id") or "")
 
     fd, tmp_name = tempfile.mkstemp(prefix="synpack-download-", suffix=".synpack")
     path = Path(tmp_name)
     digest = hashlib.sha256()
     total = 0
+    next_log_at = 64 * 1024 * 1024
+    logger.info(
+        "content_pack_download_start",
+        extra={"pack_id": pack_id, "url": url, "expected_size": expected_size or None, "max_bytes": max_bytes},
+    )
     try:
         with os.fdopen(fd, "wb") as f:
             with httpx.stream("GET", url, follow_redirects=True, timeout=300.0) as resp:
@@ -96,9 +102,19 @@ def _download_pack(job: dict[str, Any]) -> Path:
                         raise ValueError(f"content pack download exceeded {max_bytes} bytes")
                     digest.update(chunk)
                     f.write(chunk)
+                    if total >= next_log_at:
+                        logger.info(
+                            "content_pack_download_progress",
+                            extra={"pack_id": pack_id, "bytes": total, "expected_size": expected_size or None},
+                        )
+                        next_log_at += 64 * 1024 * 1024
         actual_sha = digest.hexdigest()
         if actual_sha != expected_sha:
             raise ValueError(f"content pack sha256 mismatch: expected {expected_sha}, got {actual_sha}")
+        logger.info(
+            "content_pack_download_complete",
+            extra={"pack_id": pack_id, "bytes": total, "sha256": actual_sha},
+        )
         return path
     except Exception:
         path.unlink(missing_ok=True)
@@ -171,10 +187,20 @@ def run_content_pack_installs(
             if dry_run:
                 result = {"ok": True, "pack_id": pack_id, "dry_run": True}
             else:
+                logger.info("content_pack_import_start", extra={"job_id": job_id, "pack_id": pack_id})
                 result = _load_content_pack(job, pack_path, nornic_uri=nornic_uri or NORNIC_URI)
             client.report_status(job_id, "installed", result=result)
             installed += 1
-            logger.info("content_pack_job_installed", extra={"job_id": job_id, "pack_id": pack_id})
+            logger.info(
+                "content_pack_job_installed",
+                extra={
+                    "job_id": job_id,
+                    "pack_id": pack_id,
+                    "nodes": result.get("nodes") if isinstance(result, dict) else None,
+                    "edges": result.get("edges") if isinstance(result, dict) else None,
+                    "duration_ms": result.get("duration_ms") if isinstance(result, dict) else None,
+                },
+            )
         except Exception as exc:
             client.report_status(job_id, "failed", error_message=str(exc))
             failed += 1

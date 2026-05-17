@@ -41,11 +41,19 @@ Useful controls:
 
 - `SYNESIS_CONTENT_PACK_IMPORT_BACKEND=auto` selects the bulk importer for v2 or
   large packs.
+- `SYNESIS_CONTENT_PACK_RUNNING_STALE_MINUTES` controls when Admin marks a
+  claimed content-pack install as retryable after the worker disappears or
+  exceeds its job deadline. The default is 180 minutes.
 - `SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE` controls chunk node batches with
   embeddings.
 - `SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE` controls non-vector metadata node
   batches.
 - `SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE` controls relationship batches.
+
+For hosted language packs such as Go, keep NornicDB above the production sizing
+baseline (`8Gi` request, `16Gi` limit in the Helm defaults). A `2Gi` limit can
+OOM during index rebuild or leave the content-pack runner blocked on Bolt during
+bulk import.
 
 Manual import test:
 

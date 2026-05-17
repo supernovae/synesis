@@ -31,7 +31,7 @@ PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").st
     "true",
     "yes",
 }
-FAST_NODE_CREATE = os.getenv("SYNESIS_NORNIC_FAST_NODE_CREATE", "true").strip().lower() not in {
+FAST_NODE_CREATE = os.getenv("SYNESIS_NORNIC_FAST_NODE_CREATE", "false").strip().lower() not in {
     "0",
     "false",
     "no",
@@ -197,7 +197,7 @@ class NornicGraphWriter:
         for i in range(0, len(rows), size):
             batch = rows[i : i + size]
             with self.driver.session(database=self.database) as session:
-                if create_only:
+                if create_only and FAST_NODE_CREATE:
                     try:
                         session.execute_write(self._bulk_create_nodes_tx, batch)
                     except Neo4jError as exc:
@@ -205,9 +205,16 @@ class NornicGraphWriter:
                             "nornic_bulk_create_nodes_fallback",
                             extra={"count": len(batch), "offset": i, "error": str(exc)[:500]},
                         )
-                        session.execute_write(self._bulk_upsert_nodes_tx, batch)
+                        session.execute_write(self._safe_upsert_nodes_tx, batch)
                 else:
-                    session.execute_write(self._bulk_upsert_nodes_tx, batch)
+                    try:
+                        session.execute_write(self._bulk_upsert_nodes_tx, batch)
+                    except Neo4jError as exc:
+                        logger.warning(
+                            "nornic_bulk_upsert_nodes_safe_fallback",
+                            extra={"count": len(batch), "offset": i, "error": str(exc)[:500]},
+                        )
+                        session.execute_write(self._safe_upsert_nodes_tx, batch)
             total += len(batch)
             logger.info("nornic_bulk_nodes_batch_written", extra={"count": len(batch), "offset": i})
         return total
@@ -235,12 +242,22 @@ class NornicGraphWriter:
         )
 
     @staticmethod
+    def _safe_upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            node_id = str(row.get("id") or "")
+            if not node_id:
+                continue
+            NornicGraphWriter._upsert_content_node_tx(tx, node_id, NornicGraphWriter._clean_props(row))
+
+    @staticmethod
     def _node_param_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            {"id": str(row["id"]), "props": NornicGraphWriter._clean_props(row)}
-            for row in rows
-            if str(row.get("id") or "")
-        ]
+        deduped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            node_id = str(row.get("id") or "")
+            if not node_id:
+                continue
+            deduped[node_id] = {"id": node_id, "props": NornicGraphWriter._clean_props(row)}
+        return list(deduped.values())
 
     @staticmethod
     def _upsert_node_tx(tx: Any, row: dict[str, Any]) -> None:

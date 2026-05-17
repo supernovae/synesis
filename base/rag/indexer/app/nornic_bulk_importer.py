@@ -216,10 +216,15 @@ def _import_node_file(
         return 0
     batch_size = NORNIC_BULK_NODE_BATCH_SIZE if kind == "Chunk" else NORNIC_BULK_META_NODE_BATCH_SIZE
     batch: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     total = 0
     for node in _iter_v2_nodes(
         root, manifest, artifact_hash=artifact_hash, node_path=node_path, kind=kind, vectors=vectors
     ):
+        node_id = str(node.get("id") or "")
+        if node_id in seen_ids:
+            continue
+        seen_ids.add(node_id)
         batch.append(node)
         if len(batch) >= batch_size:
             total += _flush_nodes(writer, batch, create_only=create_only, batch_size=batch_size)
@@ -292,10 +297,12 @@ def bulk_load_synpack(
     writer: NornicGraphWriter | None = None
     vectors: _VectorSidecar | None = None
     try:
+        logger.info("synpack_bulk_extract_start", extra={"pack_id": pack_id, "pack_path": str(pack_path)})
         with zipfile.ZipFile(pack_path) as zf:
             _safe_extract_synpack(zf, tmp)
         if not (tmp / V2_CHUNKS_PATH).exists():
             raise SynPackError("bulk import requires a SynPack v2 nodes/chunks.jsonl artifact")
+        logger.info("synpack_bulk_extract_complete", extra={"pack_id": pack_id, "work_dir": str(tmp)})
 
         artifact_hash = _sha256_file(Path(pack_path))
         manifest["artifact_hash"] = artifact_hash
@@ -304,19 +311,26 @@ def bulk_load_synpack(
             raise SynPackError("bulk import requires a SynPack v2 graph without dangling edges")
 
         writer = NornicGraphWriter(uri=nornic_uri)
+        logger.info("synpack_bulk_schema_start", extra={"pack_id": pack_id, "nornic_uri": nornic_uri})
         ensure_synesis_catalog(writer.client)
+        logger.info("synpack_bulk_schema_complete", extra={"pack_id": pack_id})
         if replace:
+            logger.info("synpack_bulk_replace_start", extra={"pack_id": pack_id})
             deleted = writer.delete_pack(pack_id)
+            logger.info("synpack_bulk_replace_complete", extra={"pack_id": pack_id, "deleted": deleted})
         else:
             deleted = 0
 
+        logger.info("synpack_bulk_vectors_start", extra={"pack_id": pack_id})
         vectors = _VectorSidecar(tmp)
         if not vectors.available:
             raise SynPackError("bulk import requires vectors/index.json and vectors/chunks.f32")
+        logger.info("synpack_bulk_vectors_ready", extra={"pack_id": pack_id})
 
         nodes = 0
         node_counts_by_kind: dict[str, int] = {}
         for node_path, kind in _V2_NODE_FILES:
+            logger.info("synpack_bulk_node_file_start", extra={"pack_id": pack_id, "kind": kind, "path": node_path})
             count = _import_node_file(
                 writer,
                 tmp,
@@ -331,10 +345,14 @@ def bulk_load_synpack(
                 node_counts_by_kind[kind] = count
                 nodes += count
 
+        logger.info("synpack_bulk_edges_start", extra={"pack_id": pack_id})
         edges = list(_iter_v2_edges(tmp))
         edge_count = writer.upsert_edges(edges)
+        logger.info("synpack_bulk_edges_complete", extra={"pack_id": pack_id, "edges": edge_count})
+        logger.info("synpack_bulk_verify_start", extra={"pack_id": pack_id})
         actual_counts = writer.pack_counts(pack_id)
         _verify_counts(pack_id, quality_report, actual_counts)
+        logger.info("synpack_bulk_verify_complete", extra={"pack_id": pack_id, "verification": actual_counts})
 
         elapsed = max(time.perf_counter() - started, 0.001)
         return {

@@ -63,7 +63,7 @@ export default function ContentPacks() {
     installPack.mutate({
       pack_id: pack.pack_id,
       version: pack.version,
-      replace: Boolean(replaceByPack[pack.pack_id]),
+      replace: Boolean(replaceByPack[pack.pack_id] ?? pack.install_status !== "not_installed"),
     });
   };
 
@@ -221,7 +221,7 @@ export default function ContentPacks() {
                     <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                       <input
                         type="checkbox"
-                        checked={Boolean(replaceByPack[pack.pack_id])}
+                        checked={Boolean(replaceByPack[pack.pack_id] ?? pack.install_status !== "not_installed")}
                         onChange={(e) => setReplaceByPack({ ...replaceByPack, [pack.pack_id]: e.target.checked })}
                       />
                       Replace installed pack

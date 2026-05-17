@@ -10,7 +10,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +111,7 @@ def _float_env(name: str, default: float) -> float:
 
 
 _CATALOG_TIMEOUT_SECONDS = _float_env("SYNESIS_CONTENT_PACK_CATALOG_TIMEOUT_SECONDS", 6.0)
+_CONTENT_PACK_RUNNING_STALE_MINUTES = _float_env("SYNESIS_CONTENT_PACK_RUNNING_STALE_MINUTES", 180.0)
 _NORNIC_ADMIN_TIMEOUT_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_QUERY_TIMEOUT_SECONDS", 3.0)
 _NORNIC_ADMIN_CACHE_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_CACHE_SECONDS", 30.0)
 _NORNIC_ADMIN_BACKOFF_SECONDS = _float_env("SYNESIS_ADMIN_NORNIC_BACKOFF_SECONDS", 10.0)
@@ -597,6 +598,21 @@ async def install_content_pack(
     selected = candidates[0]
     now = datetime.now(UTC)
     async with async_session() as session:
+        existing_installed_job = (
+            (
+                await session.execute(
+                    select(ContentPackInstallJob.id)
+                    .where(
+                        ContentPackInstallJob.pack_id == selected["pack_id"],
+                        ContentPackInstallJob.status == "installed",
+                    )
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        replace_existing = body.replace or existing_installed_job is not None
         job = ContentPackInstallJob(
             pack_id=selected["pack_id"],
             pack_version=selected["version"],
@@ -604,7 +620,7 @@ async def install_content_pack(
             download_url=selected["download_url"],
             sha256=selected["sha256"],
             size_bytes=selected["size_bytes"],
-            replace_existing=body.replace,
+            replace_existing=replace_existing,
             status="pending",
             requested_by=_user.email or _user.username or _user.user_id,
             result={
@@ -625,7 +641,7 @@ async def install_content_pack(
         action="rag.content_pack.install",
         status="success",
         summary=f"Queued RAG content pack install for {selected['pack_id']}@{selected['version']}",
-        detail={"pack_id": selected["pack_id"], "version": selected["version"], "replace": body.replace},
+        detail={"pack_id": selected["pack_id"], "version": selected["version"], "replace": replace_existing},
     )
     return {"ok": True, "job": _content_pack_job_dict(job)}
 
@@ -684,6 +700,8 @@ async def claim_content_pack_install_job(
     response: Response,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
 ):
+    now = datetime.now(UTC)
+    stale_started_before = now - timedelta(minutes=_CONTENT_PACK_RUNNING_STALE_MINUTES)
     status_clause = or_(
         ContentPackInstallJob.status == "pending",
         (
@@ -696,6 +714,29 @@ async def claim_content_pack_install_job(
         ),
     )
     async with async_session() as session:
+        stale_jobs = (
+            (
+                await session.execute(
+                    select(ContentPackInstallJob)
+                    .where(
+                        ContentPackInstallJob.status == "running",
+                        ContentPackInstallJob.started_at.is_not(None),
+                        ContentPackInstallJob.started_at <= stale_started_before,
+                    )
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for stale in stale_jobs:
+            next_attempt = (stale.attempt_count or 0) + 1
+            stale.attempt_count = next_attempt
+            stale.status = "dead_letter" if next_attempt >= stale.max_attempts else "failed"
+            stale.completed_at = now
+            stale.error_message = (
+                f"content pack install lease expired after {_CONTENT_PACK_RUNNING_STALE_MINUTES:g} minutes"
+            )
         job = (
             (
                 await session.execute(
@@ -714,9 +755,10 @@ async def claim_content_pack_install_job(
         )
         if job is None:
             response.status_code = 204
+            await session.commit()
             return None
         job.status = "running"
-        job.started_at = datetime.now(UTC)
+        job.started_at = now
         job.completed_at = None
         job.error_message = ""
         job.claimed_by = getattr(_principal, "service", "") or getattr(_principal, "username", "admin")
