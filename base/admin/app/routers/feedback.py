@@ -265,7 +265,7 @@ def _unified_from_openwebui(row: OpenWebUIFeedback) -> dict[str, Any]:
 
 @router.get("")
 async def list_feedback(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
     vote: str = Query("", description="Filter: up or down"),
     source: str = Query("all", description="all | planner | openwebui"),
     review_status: str = Query("", description="pending | reviewed | closed"),
@@ -320,7 +320,7 @@ async def list_feedback(
 
 
 @router.get("/stats")
-async def feedback_stats(_user: UserInfo = Depends(get_current_user)):
+async def feedback_stats(_user: UserInfo = Depends(require_admin)):
     result = await list_feedback(_user=_user, vote="", source="all", review_status="", limit=500, offset=0)
     entries = result["entries"]
     up = sum(1 for e in entries if e.get("vote") == "up")

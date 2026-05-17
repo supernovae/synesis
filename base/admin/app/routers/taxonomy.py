@@ -10,7 +10,7 @@ import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import delete, select
 
-from ..auth import UserInfo, get_current_user
+from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import TaxonomyDomain
 from ..deps import TAXONOMY_YAML_PATH
@@ -97,7 +97,7 @@ async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
 async def update_domain(
     key: str,
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         result = await session.execute(select(TaxonomyDomain).where(TaxonomyDomain.key == key))
@@ -134,7 +134,7 @@ async def update_domain(
 
 
 @router.post("/sync-from-yaml")
-async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
+async def sync_from_yaml(_user: UserInfo = Depends(require_admin)):
     """Re-import taxonomy from the mounted YAML file, overwriting DB entries."""
     p = Path(TAXONOMY_YAML_PATH)
     if not p.exists():
@@ -164,7 +164,7 @@ async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.post("/export-yaml")
-async def export_yaml(_user: UserInfo = Depends(get_current_user)):
+async def export_yaml(_user: UserInfo = Depends(require_admin)):
     """Export current taxonomy DB state as YAML (for planner reload).
 
     Writes to the taxonomy YAML path so a planner restart picks up changes.

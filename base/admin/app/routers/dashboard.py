@@ -149,30 +149,49 @@ async def _nornic_ok() -> bool:
         return False
 
 
-async def _db_counts() -> dict:
-    """Return counts and ages for key quality tables."""
+async def _db_counts(user: UserInfo) -> dict:
+    """Return counts and ages for key quality tables, scoped to the caller's org."""
     now = _time.time()
     cutoff_24h = now - 86400
+    is_admin = resolve_role(user) >= Role.platform_admin
+    scope = trace_scope_filters(user)
     try:
         async with async_session() as session:
-            trace_total = (await session.execute(select(func.count()).select_from(Trace))).scalar() or 0
-            trace_recent = (
-                await session.execute(select(func.count()).select_from(Trace).where(Trace.timestamp >= cutoff_24h))
-            ).scalar() or 0
-            last_trace_ts = (await session.execute(select(func.max(Trace.timestamp)))).scalar()
+            # Traces: apply scope filters
+            trace_q = select(func.count()).select_from(Trace)
+            trace_recent_q = select(func.count()).select_from(Trace).where(Trace.timestamp >= cutoff_24h)
+            last_trace_q = select(func.max(Trace.timestamp))
+            if scope.get("org_id"):
+                trace_q = trace_q.where(Trace.org_id == scope["org_id"])
+                trace_recent_q = trace_recent_q.where(Trace.org_id == scope["org_id"])
+                last_trace_q = last_trace_q.where(Trace.org_id == scope["org_id"])
+            elif scope.get("user_id"):
+                trace_q = trace_q.where(Trace.user_id == scope["user_id"])
+                trace_recent_q = trace_recent_q.where(Trace.user_id == scope["user_id"])
+                last_trace_q = last_trace_q.where(Trace.user_id == scope["user_id"])
 
-            gap_total = (await session.execute(select(func.count()).select_from(KnowledgeGap))).scalar() or 0
-            gap_open = (
-                await session.execute(
-                    select(func.count()).select_from(KnowledgeGap).where(KnowledgeGap.status.in_(["open", "reopened"]))
-                )
-            ).scalar() or 0
+            trace_total = (await session.execute(trace_q)).scalar() or 0
+            trace_recent = (await session.execute(trace_recent_q)).scalar() or 0
+            last_trace_ts = (await session.execute(last_trace_q)).scalar()
 
-            snap_count = (await session.execute(select(func.count()).select_from(QualitySnapshot))).scalar() or 0
-            last_snap = (await session.execute(select(func.max(QualitySnapshot.scored_at)))).scalar()
-
-            bench_count = (await session.execute(select(func.count()).select_from(BenchmarkResult))).scalar() or 0
-            last_bench = (await session.execute(select(func.max(BenchmarkResult.started_at)))).scalar()
+            # KnowledgeGap, QualitySnapshot, BenchmarkResult: global tables without org_id
+            # Only show counts to platform_admin
+            if is_admin:
+                gap_total = (await session.execute(select(func.count()).select_from(KnowledgeGap))).scalar() or 0
+                gap_open = (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(KnowledgeGap)
+                        .where(KnowledgeGap.status.in_(["open", "reopened"]))
+                    )
+                ).scalar() or 0
+                snap_count = (await session.execute(select(func.count()).select_from(QualitySnapshot))).scalar() or 0
+                last_snap = (await session.execute(select(func.max(QualitySnapshot.scored_at)))).scalar()
+                bench_count = (await session.execute(select(func.count()).select_from(BenchmarkResult))).scalar() or 0
+                last_bench = (await session.execute(select(func.max(BenchmarkResult.started_at)))).scalar()
+            else:
+                gap_total = gap_open = snap_count = bench_count = None
+                last_snap = last_bench = None
 
         return {
             "traces_total": trace_total,
@@ -197,7 +216,7 @@ async def quality_wiring(_user: UserInfo = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Requires org_admin role or higher")
     nornic_ok, db = await asyncio.gather(
         _safe(_nornic_ok(), "nornic_check", False),
-        _safe(_db_counts(), "db_counts", {}),
+        _safe(_db_counts(_user), "db_counts", {}),
     )
 
     quality_report_present = bool(QUALITY_REPORT_PATH and Path(QUALITY_REPORT_PATH).exists())

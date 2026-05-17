@@ -16,6 +16,7 @@ from sqlalchemy import delete, func, select, update
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import Failure, KnowledgeGap
+from ..rbac import require_org_admin
 from ..services import prometheus_client_svc as prom
 from ..services.health_prober import probe_all
 
@@ -64,7 +65,7 @@ async def service_health(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/cache")
-async def cache_metrics(_user: UserInfo = Depends(get_current_user)):
+async def cache_metrics(_user: UserInfo = Depends(require_org_admin)):
     return await prom.get_extended_cache_metrics()
 
 
@@ -72,7 +73,7 @@ async def cache_metrics(_user: UserInfo = Depends(get_current_user)):
 async def cache_history(
     since_hours: int = Query(24, ge=1, le=720),
     service: str = Query("", description="Filter by service: planner, yarn"),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
 ):
     """Time-series prefix cache snapshots from the database."""
     from datetime import datetime, timedelta
@@ -158,7 +159,7 @@ async def authz_stats(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/circuit-breakers")
-async def circuit_breakers(_user: UserInfo = Depends(get_current_user)):
+async def circuit_breakers(_user: UserInfo = Depends(require_org_admin)):
     breakers = await prom.get_circuit_breaker_metrics()
     return {"breakers": breakers}
 
@@ -168,7 +169,7 @@ async def circuit_breakers(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/failures")
 async def failure_list(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     language: str = Query("", description="Filter by language"),
     error_type: str = Query("", description="Filter by error type"),
     page: int = Query(1, ge=1),
@@ -205,7 +206,7 @@ async def failure_list(
 
 
 @router.get("/failures/stats")
-async def failure_stats(_user: UserInfo = Depends(get_current_user)):
+async def failure_stats(_user: UserInfo = Depends(require_org_admin)):
     async with async_session() as session:
         total_stmt = select(func.count()).select_from(Failure)
         total = (await session.execute(total_stmt)).scalar() or 0
@@ -326,7 +327,7 @@ def _gap_to_dict(g: KnowledgeGap) -> dict:
 
 @router.get("/knowledge-gaps")
 async def knowledge_gaps(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str = Query("", description="Filter by status: open, resolved, reopened"),
@@ -347,7 +348,7 @@ async def knowledge_gaps(
 
 
 @router.get("/knowledge-gaps/stats")
-async def knowledge_gap_stats(_user: UserInfo = Depends(get_current_user)):
+async def knowledge_gap_stats(_user: UserInfo = Depends(require_org_admin)):
     """Aggregate stats on RAG corpus gaps for prioritization."""
     async with async_session() as session:
         total_stmt = select(func.count()).select_from(KnowledgeGap)
@@ -609,6 +610,7 @@ async def validate_knowledge_gaps(
                 vector=embedding,
                 top_k=1,
                 output_fields=["chunk_id", "text", "source_url"],
+                is_platform_admin=True,
             )
         except Exception as exc:
             errors += 1

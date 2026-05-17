@@ -302,6 +302,9 @@ export async function retrieveUnified(
     callerAclGroups,
     callerUserId,
     callerConversationId,
+    authzMode,
+    authzTraceId,
+    trustedScopeSource,
     sourceSurface = "planner_internal",
     toolName = "planner_web_retrieval",
     requestId,
@@ -332,7 +335,7 @@ export async function retrieveUnified(
   const ragPromise = retrieveContext(query, settings.rag, {
     collections,
     topK: overfetch,
-    scopeFilter: { callerOrgId, callerTenantIds, callerAclGroups, callerUserId, callerConversationId },
+    scopeFilter: { callerOrgId, callerTenantIds, callerAclGroups, callerUserId, callerConversationId, authzMode, authzTraceId, trustedScopeSource },
     version,
     commit,
     branch,

@@ -101,6 +101,9 @@ export interface UnifiedRetrievalRequest {
   callerAclGroups?: string[];
   callerUserId?: string;
   callerConversationId?: string;
+  authzMode?: "audit" | "enforce";
+  authzTraceId?: string;
+  trustedScopeSource?: "auth_context" | "trusted_forwarded_identity" | "none";
   sourceSurface?: WebSearchSourceSurface;
   toolName?: string;
   requestId?: string;

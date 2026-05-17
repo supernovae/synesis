@@ -1337,9 +1337,19 @@ async def list_runs(
     limit: int = Query(20, ge=1, le=100),
 ):
     async with async_session() as session:
-        rows = (
-            (await session.execute(select(IngestionRun).order_by(IngestionRun.id.desc()).limit(limit))).scalars().all()
-        )
+        role = resolve_role(_user)
+        if role >= Role.platform_admin:
+            q = select(IngestionRun).order_by(IngestionRun.id.desc()).limit(limit)
+        else:
+            # Scope runs through their source's org/visibility
+            scoped_sources = _apply_scope_filter(select(IngestionSource.id), IngestionSource, _user).subquery()
+            q = (
+                select(IngestionRun)
+                .where(IngestionRun.source_id.in_(select(scoped_sources.c.id)))
+                .order_by(IngestionRun.id.desc())
+                .limit(limit)
+            )
+        rows = (await session.execute(q)).scalars().all()
         return {
             "runs": [
                 {
@@ -1457,59 +1467,97 @@ async def update_run(
 
 @router.get("/stats")
 async def ingestion_stats(_user: UserInfo = Depends(require_org_admin)):
-    """Summary stats for the ingestion queue."""
+    """Summary stats for the ingestion queue, scoped to the caller's org."""
     async with async_session() as session:
-        total_sources = (await session.execute(select(func.count()).select_from(IngestionSource))).scalar() or 0
-        total_items = (await session.execute(select(func.count()).select_from(IngestionItem))).scalar() or 0
-        pending = (await session.execute(select(func.count()).where(IngestionItem.status == "pending"))).scalar() or 0
-        running = (await session.execute(select(func.count()).where(IngestionItem.status == "running"))).scalar() or 0
-        indexed = (await session.execute(select(func.count()).where(IngestionItem.status == "indexed"))).scalar() or 0
-        failed = (await session.execute(select(func.count()).where(IngestionItem.status == "failed"))).scalar() or 0
-        dead_letter = (
-            await session.execute(select(func.count()).where(IngestionItem.status == "dead_letter"))
-        ).scalar() or 0
-        staged_raw = (
-            await session.execute(select(func.count()).where(IngestionItem.status == "staged_raw"))
-        ).scalar() or 0
-        staged_norm = (
-            await session.execute(select(func.count()).where(IngestionItem.status == "staged_norm"))
-        ).scalar() or 0
-        enrich_queued = (
-            await session.execute(select(func.count()).where(IngestionItem.status == "enrich_queued"))
-        ).scalar() or 0
-        total_chunks = (await session.execute(select(func.sum(IngestionItem.chunk_count)))).scalar() or 0
-        staged_documents = (await session.execute(select(func.count()).select_from(IngestionDocument))).scalar() or 0
-        enrich_pending = (
-            await session.execute(select(func.count()).where(IngestionEnrichQueue.status == "pending"))
-        ).scalar() or 0
-        semantic_metrics = (
-            (
-                await session.execute(
-                    text("""
-                    SELECT
-                        COUNT(*) FILTER (
-                            WHERE indexer_stats IS NOT NULL
-                              AND indexer_stats ? 'semantic_contract'
-                        ) AS semantic_contract_items,
-                        COALESCE(
-                            SUM(
-                                COALESCE(
-                                    NULLIF(indexer_stats->'semantic_contract'->>'chunks_enriched', '')::bigint,
-                                    0
-                                )
-                            ),
-                            0
-                        ) AS semantic_chunks_enriched,
-                        COUNT(*) FILTER (
-                            WHERE COALESCE(indexer_stats->'semantic_contract'->>'enrich_full', 'false') = 'true'
-                        ) AS enrich_full_items
-                    FROM ingestion_items
-                """)
-                )
-            )
-            .mappings()
-            .one()
+        src_q = _apply_scope_filter(select(func.count()).select_from(IngestionSource), IngestionSource, _user)
+        total_sources = (await session.execute(src_q)).scalar() or 0
+
+        def _item_count(extra_where=None):
+            q = _apply_scope_filter(select(func.count()).select_from(IngestionItem), IngestionItem, _user)
+            if extra_where is not None:
+                q = q.where(extra_where)
+            return q
+
+        total_items = (await session.execute(_item_count())).scalar() or 0
+        pending = (await session.execute(_item_count(IngestionItem.status == "pending"))).scalar() or 0
+        running = (await session.execute(_item_count(IngestionItem.status == "running"))).scalar() or 0
+        indexed = (await session.execute(_item_count(IngestionItem.status == "indexed"))).scalar() or 0
+        failed = (await session.execute(_item_count(IngestionItem.status == "failed"))).scalar() or 0
+        dead_letter = (await session.execute(_item_count(IngestionItem.status == "dead_letter"))).scalar() or 0
+        staged_raw = (await session.execute(_item_count(IngestionItem.status == "staged_raw"))).scalar() or 0
+        staged_norm = (await session.execute(_item_count(IngestionItem.status == "staged_norm"))).scalar() or 0
+        enrich_queued = (await session.execute(_item_count(IngestionItem.status == "enrich_queued"))).scalar() or 0
+
+        chunks_q = _apply_scope_filter(
+            select(func.sum(IngestionItem.chunk_count)).select_from(IngestionItem), IngestionItem, _user
         )
+        total_chunks = (await session.execute(chunks_q)).scalar() or 0
+
+        # IngestionDocument + IngestionEnrichQueue: scope via item -> source join
+        role = resolve_role(_user)
+        if role >= Role.platform_admin:
+            staged_documents = (
+                await session.execute(select(func.count()).select_from(IngestionDocument))
+            ).scalar() or 0
+            enrich_pending = (
+                await session.execute(select(func.count()).where(IngestionEnrichQueue.status == "pending"))
+            ).scalar() or 0
+        else:
+            # Join through item -> source for org scoping
+            doc_q = (
+                select(func.count())
+                .select_from(IngestionDocument)
+                .join(IngestionItem, IngestionDocument.ingestion_item_id == IngestionItem.id)
+            )
+            doc_q = _apply_scope_filter(doc_q, IngestionItem, _user)
+            staged_documents = (await session.execute(doc_q)).scalar() or 0
+
+            enrich_q = (
+                select(func.count())
+                .select_from(IngestionEnrichQueue)
+                .join(IngestionDocument, IngestionEnrichQueue.document_id == IngestionDocument.id)
+                .join(IngestionItem, IngestionDocument.ingestion_item_id == IngestionItem.id)
+                .where(IngestionEnrichQueue.status == "pending")
+            )
+            enrich_q = _apply_scope_filter(enrich_q, IngestionItem, _user)
+            enrich_pending = (await session.execute(enrich_q)).scalar() or 0
+
+        # Semantic metrics: scope via item visibility/org
+        if role >= Role.platform_admin:
+            sem_sql = text("""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE indexer_stats IS NOT NULL
+                          AND indexer_stats ? 'semantic_contract'
+                    ) AS semantic_contract_items,
+                    COALESCE(SUM(COALESCE(
+                        NULLIF(indexer_stats->'semantic_contract'->>'chunks_enriched', '')::bigint, 0
+                    )), 0) AS semantic_chunks_enriched,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(indexer_stats->'semantic_contract'->>'enrich_full', 'false') = 'true'
+                    ) AS enrich_full_items
+                FROM ingestion_items
+            """)
+        else:
+            caller_org = (_user.org_id or "").strip()
+            sem_sql = text("""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE indexer_stats IS NOT NULL
+                          AND indexer_stats ? 'semantic_contract'
+                    ) AS semantic_contract_items,
+                    COALESCE(SUM(COALESCE(
+                        NULLIF(indexer_stats->'semantic_contract'->>'chunks_enriched', '')::bigint, 0
+                    )), 0) AS semantic_chunks_enriched,
+                    COUNT(*) FILTER (
+                        WHERE COALESCE(indexer_stats->'semantic_contract'->>'enrich_full', 'false') = 'true'
+                    ) AS enrich_full_items
+                FROM ingestion_items
+                WHERE visibility_scope = 'global'
+                   OR (org_id = :caller_org)
+            """).bindparams(caller_org=caller_org)
+
+        semantic_metrics = (await session.execute(sem_sql)).mappings().one()
     return {
         "total_sources": total_sources,
         "total_items": total_items,

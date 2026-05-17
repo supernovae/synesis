@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
-from ..auth import UserInfo, get_current_user
+from ..auth import UserInfo, require_admin
 from ..db.engine import async_session
 from ..db.models import AdminAuditEvent
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 @router.get("/events")
 async def list_audit_events(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
     limit: int = Query(100, ge=1, le=500),
     before_id: int | None = Query(None, description="Pagination: return rows with id < before_id"),
 ):

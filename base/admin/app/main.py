@@ -15,6 +15,7 @@ from pathlib import Path
 from app.auth import UserInfo, get_current_user
 from app.db.engine import engine
 from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
+from app.rbac import trace_scope_filters
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -220,6 +221,8 @@ async def sse_events(_user: UserInfo = Depends(get_current_user)):
 
     from fastapi.responses import StreamingResponse
 
+    scope = trace_scope_filters(_user)
+
     async def event_stream():
         last_check = time.time()
         while True:
@@ -228,13 +231,17 @@ async def sse_events(_user: UserInfo = Depends(get_current_user)):
                 from app.db.engine import async_session
                 from sqlalchemy import text
 
+                sql = "SELECT COUNT(*)::int AS cnt FROM traces WHERE timestamp >= :ts"
+                params: dict = {"ts": last_check}
+                if scope.get("org_id"):
+                    sql += " AND org_id = :org_id"
+                    params["org_id"] = scope["org_id"]
+                elif scope.get("user_id"):
+                    sql += " AND user_id = :user_id"
+                    params["user_id"] = scope["user_id"]
+
                 async with async_session() as session:
-                    row = (
-                        await session.execute(
-                            text("SELECT COUNT(*)::int AS cnt FROM traces WHERE timestamp >= :ts"),
-                            {"ts": last_check},
-                        )
-                    ).one()
+                    row = (await session.execute(text(sql), params)).one()
                     new_count = row.cnt or 0
                     if new_count > 0:
                         yield f"data: {json.dumps({'type': 'new_traces', 'count': new_count})}\n\n"

@@ -16,6 +16,7 @@ DELETE_BATCH_SIZE = 500
 
 _FILTER_EQ_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"\s*$')
 _FILTER_NE_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*!=\s*"([^"]*)"\s*$')
+_FILTER_IN_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\s+\[([^\]]*)\]\s*$")
 
 
 def expected_graph_schema_version() -> int:
@@ -106,28 +107,49 @@ def recreate_content_graph(collection: str = CATALOG_COLLECTION) -> dict[str, An
         return {"ok": False, "error": f"recreate_failed: {str(exc)[:200]}", "dropped": False}
 
 
+def _org_scope_clause(
+    alias: str = "n",
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
+) -> str:
+    """Return a Cypher WHERE clause fragment for org-scoped reads."""
+    if is_platform_admin or not caller_org_id:
+        return ""
+    return f"WHERE (coalesce({alias}.visibility_scope, 'global') = 'global' OR {alias}.org_id = $caller_org_id)"
+
+
 def safe_query(
     collection: str,
     filter_expr: str = "",
     output_fields: list[str] | None = None,
     limit: int = 100,
     offset: int = 0,
+    *,
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
 ) -> list[dict[str, Any]]:
     del collection
     fields = output_fields or []
     projection = "properties(n) AS props" if not fields else "n AS node"
+    where = _org_scope_clause("n", caller_org_id, is_platform_admin)
+    params: dict[str, Any] = {
+        "offset": max(0, offset),
+        "limit": max(1, min(limit, 5000)),
+    }
+    if caller_org_id and not is_platform_admin:
+        params["caller_org_id"] = caller_org_id
     try:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
                 f"""
                 MATCH (n:ContentNode)
+                {where}
                 RETURN {projection}
                 SKIP $offset
                 LIMIT $limit
                 """,
-                offset=max(0, offset),
-                limit=max(1, min(limit, 5000)),
+                **params,
             )
             out: list[dict[str, Any]] = []
             for row in rows:
@@ -141,26 +163,68 @@ def safe_query(
         return []
 
 
-def _apply_filter_expr(rows: list[dict[str, Any]], filter_expr: str) -> list[dict[str, Any]]:
-    """Apply the tiny filter subset Admin uses for NornicDB-backed tables.
+def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[str, Any]] | None:
+    """Apply a single filter clause. Returns None if the clause is unrecognized."""
+    clause = clause.strip()
+    if not clause:
+        return rows
 
-    This intentionally supports only equality/non-empty checks from existing
-    Admin callers. Unknown expressions are ignored instead of becoming a
-    string-injected Cypher clause.
+    # Strip wrapping parens: "(scan_status == "x")" -> "scan_status == "x""
+    while clause.startswith("(") and clause.endswith(")"):
+        clause = clause[1:-1].strip()
+
+    eq = _FILTER_EQ_RE.match(clause)
+    if eq:
+        field, expected = eq.groups()
+        return [row for row in rows if str(row.get(field) or "") == expected]
+
+    ne = _FILTER_NE_RE.match(clause)
+    if ne:
+        field, expected = ne.groups()
+        return [row for row in rows if str(row.get(field) or "") != expected]
+
+    in_match = _FILTER_IN_RE.match(clause)
+    if in_match:
+        field = in_match.group(1)
+        raw_values = in_match.group(2)
+        allowed = [v.strip().strip('"').strip("'") for v in raw_values.split(",") if v.strip()]
+        return [row for row in rows if str(row.get(field) or "") in allowed]
+
+    return None
+
+
+def _apply_filter_expr(rows: list[dict[str, Any]], filter_expr: str) -> list[dict[str, Any]]:
+    """Apply the filter subset Admin uses for NornicDB-backed tables.
+
+    Supports: equality (==), inequality (!=), membership (in [...]),
+    and compound expressions joined by `` and ``.
+    Unrecognized expressions fail closed (return empty) to prevent
+    silent filter bypass.
     """
     expr = (filter_expr or "").strip()
     if not expr:
         return rows
-    eq = _FILTER_EQ_RE.match(expr)
-    if eq:
-        field, expected = eq.groups()
-        return [row for row in rows if str(row.get(field) or "") == expected]
-    ne = _FILTER_NE_RE.match(expr)
-    if ne:
-        field, expected = ne.groups()
-        return [row for row in rows if str(row.get(field) or "") != expected]
-    logger.debug("nornic_filter_ignored expr=%s", expr[:80])
-    return rows
+
+    # Split compound expressions on ' and ' (case-sensitive, matching caller usage).
+    # Handle the pattern: "(clause1) and clause2" — the ') and ' split leaves
+    # the first part without its closing paren, so we re-add it.
+    paren_parts = re.split(r"\)\s+and\s+", expr)
+    if len(paren_parts) > 1:
+        parts = [p + ")" if i < len(paren_parts) - 1 else p for i, p in enumerate(paren_parts)]
+    else:
+        parts = re.split(r"\s+and\s+", expr)
+
+    result = rows
+    for part in parts:
+        filtered = _apply_single_clause(result, part)
+        if filtered is None:
+            logger.warning(
+                "nornic_filter_unrecognized expr=%s clause=%s — returning empty (fail closed)", expr[:120], part[:80]
+            )
+            return []
+        result = filtered
+
+    return result
 
 
 def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
@@ -202,22 +266,34 @@ def safe_vector_search(
     top_k: int = 5,
     filter_expr: str = "",
     output_fields: list[str] | None = None,
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
 ) -> list[dict[str, Any]]:
     del collection, filter_expr
     query = vector if isinstance(vector, str) else " ".join(str(x) for x in vector[:16])
+    where = _org_scope_clause("node", caller_org_id, is_platform_admin)
+    params: dict[str, Any] = {
+        "query": query,
+        "limit": max(1, min(top_k, 50)),
+    }
+    if caller_org_id and not is_platform_admin:
+        params["caller_org_id"] = caller_org_id
+    scope_filter = ""
+    if where:
+        scope_filter = f"WITH node, score\n                {where}"
     try:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
-                """
+                f"""
                 CALL db.index.vector.queryNodes('embeddings', $limit, $query)
                 YIELD node, score
+                {scope_filter}
                 RETURN node, score
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                query=query,
-                limit=max(1, min(top_k, 50)),
+                **params,
             )
             out: list[dict[str, Any]] = []
             for row in rows:

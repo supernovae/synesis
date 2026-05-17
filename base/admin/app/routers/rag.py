@@ -24,7 +24,7 @@ from ..db.engine import async_session
 from ..db.models import ContentPackConfig, ContentPackInstallJob
 from ..deps import CATALOG_COLLECTION, QUALITY_REPORT_PATH
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
-from ..rbac import RouteGroup, can_access_route_group
+from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
 from ..services.admin_audit import record_admin_audit
 from ..services.nornic_service import (
     collection_corpus_summary,
@@ -51,6 +51,14 @@ def _ensure_org_observability(user: UserInfo) -> None:
 def _ensure_org_content_admin(user: UserInfo) -> None:
     if not can_access_route_group(user, RouteGroup.org_content_admin):
         raise HTTPException(status_code=403, detail="Requires route group access: org_content_admin")
+
+
+def _nornic_scope_kwargs(user: UserInfo) -> dict:
+    """Extract org-scope kwargs for safe_query / safe_vector_search."""
+    return {
+        "caller_org_id": (user.org_id or "").strip(),
+        "is_platform_admin": resolve_role(user) >= Role.platform_admin,
+    }
 
 
 def _load_quality_report() -> dict:
@@ -901,6 +909,7 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
             filter_expr=f'domain == "{domain}"',
             output_fields=["domain", "authority", "effective_at_epoch", "crawl_timestamp"],
             limit=16384,
+            **_nornic_scope_kwargs(_user),
         )
         for row in domain_rows:
             auth = row.get("authority", "unknown") or "unknown"
@@ -1287,6 +1296,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
             CATALOG_COLLECTION,
             output_fields=["chunk_id", "id", "text", "domain", "authority", "doc_id"],
             limit=10,
+            **_nornic_scope_kwargs(_user),
         )
         elapsed = (_time.time() - start) * 1000
         total_time += elapsed
@@ -1445,14 +1455,15 @@ def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
     """Counts by scan_status and approval_status for the review queue badge."""
     _ensure_org_observability(_user)
+    scope = _nornic_scope_kwargs(_user)
     flagged = safe_query(
-        CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000
+        CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000, **scope
     )
     unscanned = safe_query(
-        CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000
+        CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000, **scope
     )
     pending = safe_query(
-        CATALOG_COLLECTION, filter_expr='approval_status == "pending"', output_fields=["chunk_id"], limit=10000
+        CATALOG_COLLECTION, filter_expr='approval_status == "pending"', output_fields=["chunk_id"], limit=10000, **scope
     )
     return {"flagged": len(flagged), "unscanned": len(unscanned), "pending_approval": len(pending)}
 
@@ -1475,7 +1486,14 @@ async def review_queue(
     if domain:
         safe_domain = domain.replace('"', '\\"')
         expr = f'({expr}) and domain == "{safe_domain}"'
-    rows = safe_query(CATALOG_COLLECTION, filter_expr=expr, output_fields=_REVIEW_FIELDS, limit=limit, offset=offset)
+    rows = safe_query(
+        CATALOG_COLLECTION,
+        filter_expr=expr,
+        output_fields=_REVIEW_FIELDS,
+        limit=limit,
+        offset=offset,
+        **_nornic_scope_kwargs(_user),
+    )
     for r in rows:
         full_text = r.pop("text", "")
         r["text_preview"] = full_text[:500]

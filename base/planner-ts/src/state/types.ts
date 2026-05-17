@@ -45,8 +45,10 @@ export interface GraphState {
   org_id?: string;
   tenant_ids?: string[];
   token_scopes?: string[];
+  acl_groups?: string[];
   auth_method?: "anonymous" | "bearer" | "pat" | "internal_service";
   conversation_id?: string;
+  rag_authz_mode?: "audit" | "enforce";
   authz_trace_id?: string;
   authz_engine?: string;
   authz_rules?: string[];

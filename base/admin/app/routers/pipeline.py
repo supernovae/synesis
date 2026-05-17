@@ -175,7 +175,7 @@ async def pipeline_metrics(_user: UserInfo = Depends(get_current_user)):
 @router.get("/critic/detailed")
 async def critic_detailed(
     days: int = Query(7, ge=1, le=90),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     """Critic analytics from Postgres traces (full_record JSONB)."""
     data = await critic_svc.get_critic_detailed(days)
@@ -205,7 +205,7 @@ async def critic_evaluations(
     days: int = Query(7, ge=1, le=90),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     """Paginated list of individual critic evaluations."""
     data = await critic_svc.get_critic_evaluations(days, limit, offset)
@@ -215,7 +215,7 @@ async def critic_evaluations(
 
 
 @router.get("/critic")
-async def critic_analytics(_user: UserInfo = Depends(get_current_user)):
+async def critic_analytics(_user: UserInfo = Depends(require_admin)):
     """Main critic stats: try Postgres detailed first, fall back to Prometheus."""
     data = await critic_svc.get_critic_detailed(7)
     if data is not None:
@@ -231,7 +231,7 @@ async def critic_analytics(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/critic/models")
-async def critic_models(_user: UserInfo = Depends(get_current_user)):
+async def critic_models(_user: UserInfo = Depends(require_admin)):
     """Return available critic models for manual runs."""
     has_openrouter = bool(os.environ.get("OPENROUTER_API_KEY") or os.environ.get("SYNESIS_OPENROUTER_API_KEY"))
     models = []

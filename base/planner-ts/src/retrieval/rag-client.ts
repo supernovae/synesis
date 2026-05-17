@@ -188,7 +188,7 @@ function edgePattern(edgeTypes: string[], depth: number): string {
   return `${typeExpr}*1..${safeDepth}`;
 }
 
-function addScopeParams(scope: ScopeFilterOptions | undefined, params: Record<string, unknown>): void {
+export function addScopeParams(scope: ScopeFilterOptions | undefined, params: Record<string, unknown>): void {
   if (!scope) return;
   if (scope.callerOrgId) params.caller_org_id = scope.callerOrgId;
   if (scope.callerTenantIds?.length) params.caller_tenant_ids = scope.callerTenantIds.slice(0, 50);
@@ -200,7 +200,7 @@ function addScopeParams(scope: ScopeFilterOptions | undefined, params: Record<st
   }
 }
 
-function buildScopePredicate(alias: string, scope: ScopeFilterOptions | undefined): string {
+export function buildScopePredicate(alias: string, scope: ScopeFilterOptions | undefined): string {
   const visibilityClauses = [`coalesce(${alias}.visibility_scope, "global") = "global"`];
 
   if (scope?.callerOrgId) {

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from ..auth import UserInfo, get_current_user, require_admin
+from ..auth import UserInfo, require_admin
 from ..db.engine import async_session
 from ..db.models import TestingLabsResult, TestingLabsRun
 from ..services import testing_labs_engine
@@ -49,7 +49,7 @@ async def list_runs(
     status: str = Query("", description="Filter by status: pending, running, completed, failed"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         base = select(TestingLabsRun)
@@ -98,7 +98,7 @@ async def create_run(
 @router.get("/runs/{run_id}")
 async def get_run(
     run_id: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         stmt = select(TestingLabsRun).where(TestingLabsRun.run_id == run_id)
@@ -178,7 +178,7 @@ async def list_results(
     review_status: str = Query("", description="Filter: pending, approved, rejected, needs_review"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         base = select(TestingLabsResult).where(TestingLabsResult.run_id == run_id)
@@ -239,7 +239,7 @@ async def execute_run(
 @router.get("/runs/{run_id}/regressions")
 async def get_regressions(
     run_id: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     """Regression report for a completed Testing Labs run."""
     report = await testing_labs_engine.detect_regressions(run_id)
@@ -252,7 +252,7 @@ async def get_regressions(
 @router.get("/runs/{run_id}/comparison")
 async def get_comparison(
     run_id: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         run_stmt = select(TestingLabsRun).where(TestingLabsRun.run_id == run_id)
@@ -293,7 +293,7 @@ async def get_comparison(
 
 
 @router.get("/stats")
-async def testing_labs_stats(_user: UserInfo = Depends(get_current_user)):
+async def testing_labs_stats(_user: UserInfo = Depends(require_admin)):
     async with async_session() as session:
         total = (await session.execute(select(func.count()).select_from(TestingLabsRun))).scalar() or 0
         pending = (

@@ -364,7 +364,7 @@ _TOOLS: list[dict[str, Any]] = [
             "Search the Synesis knowledge corpus (RAG). Returns relevant evidence "
             "packets for coding, architecture, or operational questions."
         ),
-        "min_role": Role.user,
+        "min_role": Role.org_admin,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1290,10 +1290,19 @@ async def _synesis_search(user: UserInfo, args: dict) -> Any:
 
     import httpx
 
-    from ..config import get_settings
+    from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_URL
 
-    cfg = get_settings()
-    planner_url = cfg.planner_url or "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
+    planner_url = PLANNER_URL
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {INTERNAL_SERVICE_TOKEN}",
+        "x-synesis-service-token": INTERNAL_SERVICE_TOKEN,
+        "x-synesis-service-name": "synesis-admin",
+    }
+    caller_id = user.user_id or user.username or ""
+    if caller_id:
+        headers["x-openwebui-user-id"] = caller_id
+    if user.org_id:
+        headers["x-synesis-org-id"] = user.org_id
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -1303,7 +1312,7 @@ async def _synesis_search(user: UserInfo, args: dict) -> Any:
                     "top_k": args.get("top_k", 5),
                     "domain": args.get("domain", ""),
                 },
-                headers={"Authorization": f"Bearer {cfg.internal_service_token}"},
+                headers=headers,
             )
             if resp.status_code == 200:
                 return resp.json()
