@@ -61,7 +61,7 @@ The reference deployment wires this from the `synesis-admin-db-url` secret (`adm
 
 **Synesis-backed web search** is exposed as MCP tools **`synesis_web_search`** and **`web_search`** (same handler). Typical paths:
 
-- **Streamable MCP** (`synesis-mcp-ts`) or **Yarn** `POST /v1/mcp/tools/call` — attribution defaults include `source_surface: yarn_mcp_http` unless the client passes overrides.
+- **Streamable MCP** (`synesis-mcp`) or **Yarn** `POST /v1/mcp/tools/call` — attribution defaults include `source_surface: yarn_mcp_http` unless the client passes overrides.
 - **OpenAI-compatible chat** on Yarn: when `SYNESIS_YARN_WEB_SEARCH_ENABLED` is true and the request is **non-streaming**, Yarn can inject `synesis_web_search` and execute a server-side tool loop (Planner → SearXNG).
 
 The **Anthropic `POST /v1/messages`** path on Yarn does **not** currently inject or execute server-side `synesis_web_search` (no tool-result loop there). For SearXNG-backed search from Claude Code over HTTPS, configure **MCP** so the model calls `synesis_web_search` / `web_search`, or use the OpenAI chat path where server-side web search is enabled.

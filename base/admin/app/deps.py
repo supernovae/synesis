@@ -30,7 +30,7 @@ OPENWEBUI_ADMIN_TOKEN = os.getenv("SYNESIS_OPENWEBUI_ADMIN_TOKEN", "").strip()
 ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-writer")
 MCP_URL = os.getenv(
     "SYNESIS_MCP_URL",
-    "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100",
+    "http://synesis-mcp.synesis-yarn.svc.cluster.local:8100",
 )
 ADMIN_MCP_URL = os.getenv(
     "SYNESIS_ADMIN_MCP_URL",

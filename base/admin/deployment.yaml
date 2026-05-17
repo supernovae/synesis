@@ -50,7 +50,7 @@ spec:
             - name: SYNESIS_ADMIN_ASSISTANT_MODEL
               value: "synesis-writer"
             - name: SYNESIS_MCP_URL
-              value: "http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100"
+              value: "http://synesis-mcp.synesis-yarn.svc.cluster.local:8100"
             - name: SYNESIS_ADMIN_MCP_URL
               value: "http://synesis-admin-mcp-ts.synesis-admin.svc.cluster.local:8102"
             - name: SYNESIS_QUALITY_REPORT_PATH

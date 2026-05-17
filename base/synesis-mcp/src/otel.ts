@@ -7,7 +7,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type { McpTsConfig } from "./config.js";
 
 let initialized = false;
-let serviceName = "synesis-mcp-ts";
+let serviceName = "synesis-mcp";
 
 export function initOtel(config: McpTsConfig): void {
   if (initialized) return;

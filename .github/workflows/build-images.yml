@@ -20,7 +20,7 @@ on:
       - 'base/rag/preprocess-service/**'
       - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
-      - 'base/mcp-ts/**'
+      - 'base/synesis-mcp/**'
       - 'base/ast-mcp/**'
       - 'base/admin-mcp-ts/**'
       - 'base/yarn-ts/**'
@@ -73,7 +73,7 @@ jobs:
       spam-service: ${{ steps.filter.outputs.spam-service }}
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
-      mcp-ts: ${{ steps.filter.outputs.mcp-ts }}
+      synesis-mcp: ${{ steps.filter.outputs.synesis-mcp }}
       ast-mcp: ${{ steps.filter.outputs.ast-mcp }}
       vision-worker: ${{ steps.filter.outputs.vision-worker }}
       admin-mcp-ts: ${{ steps.filter.outputs.admin-mcp-ts }}
@@ -119,8 +119,8 @@ jobs:
               - 'tools/curator/**'
             open-webui:
               - 'base/webui/**'
-            mcp-ts:
-              - 'base/mcp-ts/**'
+            synesis-mcp:
+              - 'base/synesis-mcp/**'
               - 'packages/synesis-mcp-tools/**'
             ast-mcp:
               - 'base/ast-mcp/**'
@@ -436,11 +436,11 @@ jobs:
             base_arg: ""
             change_key: open-webui
             base_change_key: ""
-          - name: mcp-ts
-            dockerfile: base/mcp-ts/Containerfile
+          - name: synesis-mcp
+            dockerfile: base/synesis-mcp/Containerfile
             context: .
             base_arg: ""
-            change_key: mcp-ts
+            change_key: synesis-mcp
             base_change_key: ""
           # GHCR image name synesis-ast-mcp (ast-mcp push failed with write_package in CI).
           - name: synesis-ast-mcp

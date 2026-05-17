@@ -1,5 +1,5 @@
 {
-  "name": "@synesis/mcp-ts",
+  "name": "@synesis/mcp-hosted",
   "version": "0.1.0",
   "type": "module",
   "private": true,
@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fastify/cors": "^11.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openfga/sdk": "^0.9.6",

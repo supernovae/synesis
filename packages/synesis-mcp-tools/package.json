@@ -1,7 +1,7 @@
 {
   "name": "@synesis/mcp-tools",
   "version": "0.1.0",
-  "private": true,
+  "description": "Shared tool definitions for Synesis MCP servers — graph-native RAG, SynPack retrieval, and developer safety tooling.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,6 +11,9 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"

@@ -8,19 +8,13 @@ import {
   codeSearchInputSchema,
   docsSearchInputSchema,
   configSearchInputSchema,
-  devDocsSearchInputSchema,
   terraformPlanAnalyzeInputSchema,
   ecmaEnvironmentCheckInputSchema,
   ecmaPackageRiskInputSchema,
 } from "./knowledge-schemas.js";
 import { webSearchInputSchema } from "./web-search-schemas.js";
 import { classifyInputSchema, planInputSchema, critiqueInputSchema } from "./planner-tools.js";
-import {
-  cvePackagesSchema,
-  licensePackagesSchema,
-  docsLookupSchema,
-  patchIntegritySchema,
-} from "./cve-license-docs-patch.js";
+import { patchIntegritySchema } from "./cve-license-docs-patch.js";
 import type { z } from "zod/v4";
 
 function jsonResult(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -41,6 +35,11 @@ type ToolRegistrationServer = {
     callback: (args: unknown) => ToolResult | Promise<ToolResult>,
   ): void;
 };
+
+export interface RegisterSynesisMcpToolsOptions {
+  /** Register niche/advanced tools in addition to the core set (default: false). */
+  allTools?: boolean;
+}
 
 function argsRecord(args: unknown): Record<string, unknown> {
   if (args && typeof args === "object" && !Array.isArray(args)) {
@@ -73,20 +72,33 @@ function registerTool(
 }
 
 /**
- * Register all Synesis platform tools on an MCP server instance.
- * Call once per `McpServer` (typically one server per HTTP request / stdio session).
+ * Register Synesis platform tools on an MCP server instance.
+ *
+ * Core tools (always registered): synesis_search, synesis_resolve_pack,
+ * synesis_context_bundle, synesis_code_search, synesis_docs_search,
+ * synesis_web_search, synesis_patch_integrity.
+ *
+ * Extended tools (registered when `options.allTools` is true): synesis_classify,
+ * synesis_plan, synesis_critique, synesis_config_search,
+ * synesis_terraform_plan_analyze, synesis_ecma_environment_check,
+ * synesis_ecma_package_risk_analyze.
  */
 export function registerSynesisMcpTools(
   server: ToolRegistrationServer,
   auth: SynesisMcpAuth,
   deps: SynesisMcpDeps,
+  options?: RegisterSynesisMcpToolsOptions,
 ): void {
+  const allTools = options?.allTools === true;
+
+  // ── Core tools (always registered) ──
+
   registerTool(
     server,
     "synesis_search",
     {
       description:
-        "Graph-native RAG retrieval against the Synesis content graph. Supports pack, symbol, temporal, and graph-expansion filters via planner /v1/knowledge/search with your PAT scope.",
+        "Graph-native RAG retrieval against the Synesis content graph. Supports pack, symbol, temporal, and graph-expansion filters with your PAT scope.",
       inputSchema: knowledgeSearchInputSchema,
     },
     auth,
@@ -122,18 +134,7 @@ export function registerSynesisMcpTools(
     "synesis_web_search",
     {
       description:
-        "Web search via planner /v1/web/search (SearXNG-backed) with standard attribution fields.",
-      inputSchema: webSearchInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "web_search",
-    {
-      description: "Alias for synesis_web_search.",
+        "Web search with standard attribution fields. Use when evidence is likely outside the indexed Synesis corpora.",
       inputSchema: webSearchInputSchema,
     },
     auth,
@@ -164,97 +165,6 @@ export function registerSynesisMcpTools(
 
   registerTool(
     server,
-    "synesis_config_search",
-    {
-      description:
-        "Search the Synesis configuration corpus (artifact_kind=config): YAML, JSON, HCL, Kubernetes, etc.",
-      inputSchema: configSearchInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "search_developer_docs",
-    {
-      description:
-        "RAG over official developer documentation for programming languages and frameworks (e.g., Python, React, Go). Use this to look up API references and best practices before falling back to web search.",
-      inputSchema: devDocsSearchInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_classify",
-    {
-      description:
-        "Classify a task description via planner entry classifier (intent, difficulty, taxonomy).",
-      inputSchema: classifyInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_plan",
-    {
-      description: "Generate an execution plan via planner chat completions.",
-      inputSchema: planInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_critique",
-    {
-      description: "Submit code for critic model review.",
-      inputSchema: critiqueInputSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_cve_check",
-    {
-      description: "Check packages for CVEs via OSV.dev API.",
-      inputSchema: cvePackagesSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_license_check",
-    {
-      description: "Check SPDX license compatibility against a target license.",
-      inputSchema: licensePackagesSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
-    "synesis_docs_lookup",
-    {
-      description: "Curated documentation URLs for known frameworks (fastapi, langchain, vllm, …).",
-      inputSchema: docsLookupSchema,
-    },
-    auth,
-    deps,
-  );
-
-  registerTool(
-    server,
     "synesis_patch_integrity",
     {
       description:
@@ -265,39 +175,89 @@ export function registerSynesisMcpTools(
     deps,
   );
 
-  registerTool(
-    server,
-    "synesis_terraform_plan_analyze",
-    {
-      description:
-        "Analyze Terraform plan JSON for destructive, replacement, update, and additive resource changes. Read-only: does not run terraform, import, apply, or destroy. Returns hard-gate approval context when risk is high.",
-      inputSchema: terraformPlanAnalyzeInputSchema,
-    },
-    auth,
-    deps,
-  );
+  // ── Extended tools (allTools only) ──
 
-  registerTool(
-    server,
-    "synesis_ecma_environment_check",
-    {
-      description:
-        "Read-only JS/TS environment analyzer. Pass package.json, tsconfig/jsconfig, deno.json, bunfig.toml, and lockfile names to detect runtime, module system, TypeScript strictness, and recommended EcmaPack filters. It does not install packages or mutate files.",
-      inputSchema: ecmaEnvironmentCheckInputSchema,
-    },
-    auth,
-    deps,
-  );
+  if (allTools) {
+    registerTool(
+      server,
+      "synesis_config_search",
+      {
+        description:
+          "Search the Synesis configuration corpus (artifact_kind=config): YAML, JSON, HCL, Kubernetes, etc.",
+        inputSchema: configSearchInputSchema,
+      },
+      auth,
+      deps,
+    );
 
-  registerTool(
-    server,
-    "synesis_ecma_package_risk_analyze",
-    {
-      description:
-        "Read-only package.json risk analyzer for JS/TS. Flags lifecycle scripts and legacy/heavy dependency additions so the harness can request approval before package changes. It does not run npm, bun, yarn, pnpm, or deno.",
-      inputSchema: ecmaPackageRiskInputSchema,
-    },
-    auth,
-    deps,
-  );
+    registerTool(
+      server,
+      "synesis_classify",
+      {
+        description:
+          "Classify a task description via planner entry classifier (intent, difficulty, taxonomy).",
+        inputSchema: classifyInputSchema,
+      },
+      auth,
+      deps,
+    );
+
+    registerTool(
+      server,
+      "synesis_plan",
+      {
+        description: "Generate an execution plan via planner chat completions.",
+        inputSchema: planInputSchema,
+      },
+      auth,
+      deps,
+    );
+
+    registerTool(
+      server,
+      "synesis_critique",
+      {
+        description: "Submit code for critic model review.",
+        inputSchema: critiqueInputSchema,
+      },
+      auth,
+      deps,
+    );
+
+    registerTool(
+      server,
+      "synesis_terraform_plan_analyze",
+      {
+        description:
+          "Analyze Terraform plan JSON for destructive, replacement, update, and additive resource changes. Read-only: does not run terraform, import, apply, or destroy. Returns hard-gate approval context when risk is high.",
+        inputSchema: terraformPlanAnalyzeInputSchema,
+      },
+      auth,
+      deps,
+    );
+
+    registerTool(
+      server,
+      "synesis_ecma_environment_check",
+      {
+        description:
+          "Read-only JS/TS environment analyzer. Pass package.json, tsconfig/jsconfig, deno.json, bunfig.toml, and lockfile names to detect runtime, module system, TypeScript strictness, and recommended EcmaPack filters.",
+        inputSchema: ecmaEnvironmentCheckInputSchema,
+      },
+      auth,
+      deps,
+    );
+
+    registerTool(
+      server,
+      "synesis_ecma_package_risk_analyze",
+      {
+        description:
+          "Read-only package.json risk analyzer for JS/TS. Flags lifecycle scripts and legacy/heavy dependency additions so the harness can request approval before package changes.",
+        inputSchema: ecmaPackageRiskInputSchema,
+      },
+      auth,
+      deps,
+    );
+  }
 }

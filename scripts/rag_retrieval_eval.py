@@ -3,7 +3,7 @@
 
 Auth (important):
   This route is wired for the *shared internal service token* (same Bearer value MCP
-  uses to call the planner — see base/mcp-ts knowledge-search handler), not a user PAT.
+  uses to call the planner — see base/synesis-mcp knowledge-search handler), not a user PAT.
 
   Admin PATs (syn-...) work on user-facing planner routes (e.g. chat completions) but
   will get 401 on /v1/knowledge/search if you pass them here. Use the token from
@@ -123,7 +123,9 @@ def main() -> int:
     )
     parser.add_argument("--top-k", type=int, default=8, help="Knowledge search top_k")
     parser.add_argument("--domain", default="go", help="Default domain filter")
-    parser.add_argument("--disable-domain-filter", action="store_true", help="Disable domain filter even when suite cases set domain")
+    parser.add_argument(
+        "--disable-domain-filter", action="store_true", help="Disable domain filter even when suite cases set domain"
+    )
     parser.add_argument("--language", default="", help="Default language filter")
     parser.add_argument("--caller-org-id", default="", help="Optional caller org_id for scoped retrieval")
     parser.add_argument("--caller-tenant-ids", default="", help="Optional comma-separated caller tenant_ids")

@@ -34,7 +34,9 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  OTEL_SERVICE_NAME: z.string().default("synesis-mcp-ts"),
+  /** Comma-separated CORS origins, or "*" to allow all. Empty disables CORS. */
+  SYNESIS_MCP_CORS_ORIGINS: z.string().default(""),
+  OTEL_SERVICE_NAME: z.string().default("synesis-mcp"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 });
 

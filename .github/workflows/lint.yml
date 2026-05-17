@@ -129,8 +129,8 @@ jobs:
         working-directory: base/yarn-ts
         run: npx vitest run
 
-  mcp-ts-tests:
-    name: MCP-TS typecheck + tests
+  synesis-mcp-tests:
+    name: Synesis MCP typecheck + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -147,15 +147,15 @@ jobs:
         run: npm run build -w packages/synesis-mcp-tools
 
       - name: Install dependencies
-        working-directory: base/mcp-ts
+        working-directory: base/synesis-mcp
         run: npm ci
 
       - name: Typecheck
-        working-directory: base/mcp-ts
+        working-directory: base/synesis-mcp
         run: npx tsc --noEmit
 
       - name: Unit tests
-        working-directory: base/mcp-ts
+        working-directory: base/synesis-mcp
         run: npx vitest run
 
   admin-mcp-ts-tests:

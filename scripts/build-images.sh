@@ -98,7 +98,7 @@ SERVICE_IMAGES=(
     "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
-    "mcp-ts|base/mcp-ts/Containerfile|."
+    "synesis-mcp|base/synesis-mcp/Containerfile|."
     "admin-mcp-ts|base/admin-mcp-ts/Containerfile|."
     "yarn-ts|base/yarn-ts/Containerfile|base"
 )

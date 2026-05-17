@@ -35,12 +35,12 @@ updates:
           - "patch"
 
   - package-ecosystem: "npm"
-    directory: "/base/mcp-ts"
+    directory: "/base/synesis-mcp"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 8
     groups:
-      mcp-ts-minor-patch:
+      synesis-mcp-minor-patch:
         patterns:
           - "*"
         update-types:

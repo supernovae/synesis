@@ -214,8 +214,8 @@ jobs:
             dir: .
           - name: admin-frontend
             dir: base/admin/frontend
-          - name: mcp-ts
-            dir: base/mcp-ts
+          - name: synesis-mcp
+            dir: base/synesis-mcp
           - name: admin-mcp-ts
             dir: base/admin-mcp-ts
           - name: planner-ts

@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: synesis-mcp-ts
+  name: synesis-mcp
   namespace: synesis-yarn
   labels:
-    app: synesis-mcp-ts
+    app: synesis-mcp
     app.kubernetes.io/part-of: synesis-coder
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: synesis-mcp-ts
+      app: synesis-mcp
   template:
     metadata:
       labels:
-        app: synesis-mcp-ts
+        app: synesis-mcp
     spec:
       containers:
-        - name: mcp-ts
-          image: synesis-mcp-ts:latest
+        - name: synesis-mcp
+          image: synesis-mcp-hosted:latest
           ports:
             - containerPort: 8100
               protocol: TCP

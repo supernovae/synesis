@@ -27,5 +27,5 @@ export {
   type SearchSourceSurface,
   buildSearchAttributionBody,
 } from "./search-contract.js";
-export { registerSynesisMcpTools } from "./register-synesis-tools.js";
+export { registerSynesisMcpTools, type RegisterSynesisMcpToolsOptions } from "./register-synesis-tools.js";
 export { getSynesisPlatformCatalog, type SynesisPlatformCatalogEntry } from "./catalog.js";

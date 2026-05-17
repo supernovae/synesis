@@ -10,7 +10,7 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
-| [`.github/workflows/lint.yml`](../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **mcp-ts** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
+| [`.github/workflows/lint.yml`](../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
 | [`.github/workflows/security.yml`](../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
 | [`.github/workflows/quality-pipeline.yml`](../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs | Per workflow |

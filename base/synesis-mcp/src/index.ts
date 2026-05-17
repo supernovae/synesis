@@ -3,6 +3,7 @@
  */
 import crypto from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import fastifyCors from "@fastify/cors";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -150,7 +151,19 @@ async function enforceFga(patUser: PatUser): Promise<void> {
   }
 }
 
-const app = Fastify({ logger: { level: config.LOG_LEVEL } });
+const app = Fastify({
+  logger: { level: config.LOG_LEVEL },
+  bodyLimit: 1_048_576,
+});
+const corsOrigins = config.SYNESIS_MCP_CORS_ORIGINS.trim();
+if (corsOrigins) {
+  void app.register(fastifyCors, {
+    origin: corsOrigins === "*" ? true : corsOrigins.split(",").map((o) => o.trim()),
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Mcp-Session-Id"],
+    credentials: true,
+  });
+}
 void app.register(fastifyRateLimit, {
   global: true,
   max: config.SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX,
@@ -163,7 +176,7 @@ const mcpAuthPreHandler = createRouteRateLimit(mcpAuthRateLimit);
 
 /** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
 app.get("/v1/synesis-tools", async () => ({
-  service: "synesis-mcp-ts",
+  service: "synesis-mcp",
   protocol: "mcp-streamable-http",
   mcp_path: config.SYNESIS_MCP_HTTP_PATH,
   tools: getSynesisPlatformCatalog(),
@@ -242,7 +255,7 @@ app.route({
             { name: "synesis-mcp", version: "0.2.0" },
             { capabilities: { tools: { listChanged: true } } },
           );
-          registerSynesisMcpTools(server, mcpAuth, createDeps());
+          registerSynesisMcpTools(server, mcpAuth, createDeps(), { allTools: true });
           transport = new StreamableHTTPServerTransport({});
           await server.connect(transport as unknown as Parameters<McpServer["connect"]>[0]);
           const parsedBody = req.method === "POST" ? (req.body as unknown) : undefined;
@@ -275,7 +288,7 @@ app.route({
 
 app.get("/health", async () => ({
   status: "ok",
-  service: "synesis-mcp-ts",
+  service: "synesis-mcp",
   protocol: "mcp-streamable-http",
   path: config.SYNESIS_MCP_HTTP_PATH,
 }));
@@ -300,7 +313,7 @@ app.get("/health/readiness", async (request, reply) => {
 });
 
 app.get("/health/telemetry", async () => ({
-  service: "synesis-mcp-ts",
+  service: "synesis-mcp",
   mcp_http_requests: mcpHttpRequests,
   mcp_auth_failures: mcpAuthFailures,
   mcp_policy_denials: mcpPolicyDenials,
@@ -313,17 +326,24 @@ async function main() {
   await app.listen({ port: config.PORT, host: config.HOST });
   app.log.info(
     { host: config.HOST, port: config.PORT, path: config.SYNESIS_MCP_HTTP_PATH },
-    "synesis-mcp-ts MCP Streamable HTTP listening",
+    "synesis-mcp MCP Streamable HTTP listening",
   );
 }
 
 main().catch((err) => {
-  console.error("MCP-TS startup failed:", err);
+  console.error("synesis-mcp startup failed:", err);
   process.exit(1);
 });
 
-process.on("SIGTERM", async () => {
-  await authResolver.close();
-  await app.close();
-  process.exit(0);
+const DRAIN_MS = 5_000;
+let shuttingDown = false;
+process.on("SIGTERM", () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info("SIGTERM received — draining for %dms", DRAIN_MS);
+  setTimeout(async () => {
+    await app.close().catch(() => {});
+    await authResolver.close().catch(() => {});
+    process.exit(0);
+  }, DRAIN_MS);
 });

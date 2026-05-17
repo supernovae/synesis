@@ -8,7 +8,7 @@
     "packages/*",
     "base/planner-ts",
     "base/yarn-ts",
-    "base/mcp-ts",
+    "base/synesis-mcp",
     "base/admin-mcp-ts"
   ],
   "overrides": {

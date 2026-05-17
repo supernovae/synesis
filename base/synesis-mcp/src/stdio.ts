@@ -56,7 +56,7 @@ async function main() {
     { name: "synesis-mcp", version: "0.2.0" },
     { capabilities: { tools: { listChanged: true } } },
   );
-  registerSynesisMcpTools(server, auth, deps);
+  registerSynesisMcpTools(server, auth, deps, { allTools: true });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

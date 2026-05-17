@@ -1,0 +1,45 @@
+{
+  "name": "@synesis/mcp",
+  "version": "0.1.0",
+  "description": "Synesis MCP server — graph-native RAG, SynPack knowledge bundles, and multi-corpus search for any IDE or agent harness.",
+  "type": "module",
+  "bin": {
+    "synesis-mcp": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@synesis/mcp-tools": "file:../synesis-mcp-tools"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  },
+  "keywords": [
+    "mcp",
+    "synesis",
+    "rag",
+    "synpack",
+    "knowledge",
+    "ai",
+    "context"
+  ],
+  "license": "Apache-2.0"
+}

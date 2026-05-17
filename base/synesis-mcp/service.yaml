@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: synesis-mcp-ts
+  name: synesis-mcp
   namespace: synesis-yarn
   labels:
-    app: synesis-mcp-ts
+    app: synesis-mcp
 spec:
   selector:
-    app: synesis-mcp-ts
+    app: synesis-mcp
   ports:
     - port: 8100
       targetPort: 8100

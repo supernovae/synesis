@@ -452,6 +452,14 @@ ingress:
       host: auth-admin.example.com
       path: /
       pathType: Prefix
+    synesis-mcp:
+      namespace: yarn
+      service: synesis-mcp
+      port: http
+      originPort: 8100
+      host: mcp.example.com
+      path: /
+      pathType: Prefix
 
 cloudflared:
   # Optional Cloudflare Tunnel connector. When enabled, this renders a
@@ -576,7 +584,7 @@ workloads:
       - name: SYNESIS_ADMIN_ASSISTANT_MODEL
         value: synesis-writer
       - name: SYNESIS_MCP_URL
-        value: http://synesis-mcp-ts.synesis-yarn.svc.cluster.local:8100
+        value: http://synesis-mcp.synesis-yarn.svc.cluster.local:8100
       - name: SYNESIS_ADMIN_MCP_URL
         value: http://synesis-admin-mcp-ts.synesis-admin.svc.cluster.local:8102
       - name: SYNESIS_QUALITY_REPORT_PATH
@@ -1022,10 +1030,10 @@ workloads:
   mcpTs:
     enabled: true
     namespace: yarn
-    name: synesis-mcp-ts
+    name: synesis-mcp
     component: mcp
     image:
-      repository: ghcr.io/supernovae/synesis/mcp-ts
+      repository: ghcr.io/supernovae/synesis/synesis-mcp
       tag: latest
     ports:
       - name: http

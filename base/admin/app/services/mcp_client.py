@@ -14,7 +14,7 @@ logger = logging.getLogger("synesis.admin.mcp")
 
 
 async def get_mcp_tools() -> list[dict]:
-    """Catalog from synesis-mcp-ts (Streamable HTTP); public ``GET /v1/synesis-tools``."""
+    """Catalog from synesis-mcp (Streamable HTTP); public ``GET /v1/synesis-tools``."""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{MCP_URL.rstrip('/')}/v1/synesis-tools", timeout=5.0)
@@ -35,7 +35,7 @@ async def get_mcp_tools() -> list[dict]:
 
 
 async def probe_mcp_health() -> dict:
-    """GET synesis-mcp-ts /health — reachability for Admin Integrations UI."""
+    """GET synesis-mcp /health — reachability for Admin Integrations UI."""
     url = f"{MCP_URL.rstrip('/')}/health"
     t0 = time.perf_counter()
     try:

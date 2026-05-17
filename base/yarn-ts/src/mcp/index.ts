@@ -53,7 +53,7 @@ export interface McpPluginOptions {
   openClawProfileEnabled: boolean;
   openClawMcpAllowlistEnabled: boolean;
   openClawStrictGovernanceEnabled: boolean;
-  /** Same deps as `KnowledgeSearchService` / synesis-mcp-ts — planner + critic URLs for platform tools. */
+  /** Same deps as `KnowledgeSearchService` / synesis-mcp — planner + critic URLs for platform tools. */
   synesisMcpDeps: SynesisMcpDeps;
 }
 
@@ -70,7 +70,7 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "git_rev_parse",
   "git_branch_info",
   "git_file_state",
-  /** Read-only Synesis platform tools (same handlers as synesis-mcp-ts). */
+  /** Read-only Synesis platform tools. */
   "synesis_search",
   "synesis_knowledge_search",
   "synesis_web_search",
@@ -79,9 +79,6 @@ const OPENCLAW_MCP_ALLOWLIST = new Set<string>([
   "synesis_docs_search",
   "search_developer_docs",
   "synesis_config_search",
-  "synesis_cve_check",
-  "synesis_license_check",
-  "synesis_docs_lookup",
   "synesis_patch_integrity",
   "store_observation",
   "recall_findings",

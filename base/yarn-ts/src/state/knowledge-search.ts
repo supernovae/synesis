@@ -1,6 +1,6 @@
 /**
  * KnowledgeSearchService — server-side RAG via shared `@synesis/mcp-tools` handlers
- * (same code path as synesis-mcp-ts MCP tools). Calls planner `POST /v1/knowledge/search`
+ * (same code path as synesis-mcp MCP tools). Calls planner `POST /v1/knowledge/search`
  * with the caller's PAT for scope alignment.
  */
 

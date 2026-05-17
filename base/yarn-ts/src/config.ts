@@ -279,7 +279,7 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
-  /** Planner base URL for knowledge search (shared with synesis-mcp-ts tool handlers). */
+  /** Planner base URL for knowledge search (shared with synesis-mcp tool handlers). */
   SYNESIS_YARN_PLANNER_URL: z.string().default(
     "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080",
   ),

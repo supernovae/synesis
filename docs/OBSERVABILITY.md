@@ -148,7 +148,7 @@ All Synesis components read `SYNESIS_LOG_LEVEL` from the environment:
 - Planner-ts (`base/planner-ts/src/config.ts`)
 - Yarn-ts (`base/yarn-ts/src/index.ts`)
 - Health Monitor (`base/planner/app/health_monitor.py`)
-- MCP-TS Server (`base/mcp-ts/src/index.ts`)
+- synesis-mcp (`base/synesis-mcp/src/index.ts`)
 - Admin Service (`base/admin/app/main.py`)
 
 The base deployment YAMLs default to `"info"`. Overlays override per environment using

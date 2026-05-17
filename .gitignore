@@ -16,7 +16,7 @@ base/admin/frontend/.vite/
 packages/*/dist/
 
 # TypeScript service build output
-base/mcp-ts/dist/
+base/synesis-mcp/dist/
 base/admin-mcp-ts/dist/
 base/planner-ts/dist/
 base/yarn-ts/dist/

@@ -16,7 +16,7 @@ export default function McpTools() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">MCP integrations</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Two services: <strong>synesis-mcp-ts</strong> (Coder API agent tools — Streamable HTTP, PAT + FGA) and{" "}
+          Two services: <strong>synesis-mcp</strong> (Coder API agent tools — Streamable HTTP, PAT + FGA) and{" "}
           <strong>synesis-admin-mcp-ts</strong> (Admin console tools — internal Streamable HTTP mediated by the Admin
           API).
         </p>
@@ -25,7 +25,7 @@ export default function McpTools() {
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Server className="h-5 w-5 text-indigo-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Agent MCP (synesis-mcp-ts)</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Agent MCP (synesis-mcp)</h2>
           {healthLoading ? (
             <span className="text-sm text-gray-400">Checking…</span>
           ) : health?.reachable ? (
@@ -54,7 +54,7 @@ export default function McpTools() {
         ) : tools.length === 0 ? (
           <EmptyState
             title="No agent MCP tools"
-            description="Could not load catalog from synesis-mcp-ts — check SYNESIS_MCP_URL, network policy, and that GET /v1/synesis-tools is reachable."
+            description="Could not load catalog from synesis-mcp — check SYNESIS_MCP_URL, network policy, and that GET /v1/synesis-tools is reachable."
           />
         ) : (
           <DataTable

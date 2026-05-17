@@ -172,8 +172,8 @@ jobs:
             dockerfile: base/rag/spam-service/Dockerfile
             context: base/rag/spam-service
             base_arg: synesis-base-ml
-          - name: mcp-ts
-            dockerfile: base/mcp-ts/Containerfile
+          - name: synesis-mcp
+            dockerfile: base/synesis-mcp/Containerfile
             context: .
             base_arg: ""
           - name: admin-mcp-ts
