@@ -196,28 +196,61 @@ class NornicGraphWriter:
         total = 0
         for i in range(0, len(rows), size):
             batch = rows[i : i + size]
-            with self.driver.session(database=self.database) as session:
-                if create_only and FAST_NODE_CREATE:
-                    try:
-                        session.execute_write(self._bulk_create_nodes_tx, batch)
-                    except Neo4jError as exc:
-                        logger.warning(
-                            "nornic_bulk_create_nodes_fallback",
-                            extra={"count": len(batch), "offset": i, "error": str(exc)[:500]},
-                        )
-                        session.execute_write(self._safe_upsert_nodes_tx, batch)
-                else:
-                    try:
-                        session.execute_write(self._bulk_upsert_nodes_tx, batch)
-                    except Neo4jError as exc:
-                        logger.warning(
-                            "nornic_bulk_upsert_nodes_safe_fallback",
-                            extra={"count": len(batch), "offset": i, "error": str(exc)[:500]},
-                        )
-                        session.execute_write(self._safe_upsert_nodes_tx, batch)
-            total += len(batch)
+            total += self._write_node_batch(batch, offset=i, create_only=create_only)
             logger.info("nornic_bulk_nodes_batch_written", extra={"count": len(batch), "offset": i})
         return total
+
+    def _write_node_batch(
+        self,
+        batch: list[dict[str, Any]],
+        *,
+        offset: int,
+        create_only: bool,
+        _retries: int = 3,
+    ) -> int:
+        """Write a single batch with retry on transient commit failures."""
+        last_exc: Neo4jError | None = None
+        for attempt in range(_retries):
+            try:
+                with self.driver.session(database=self.database) as session:
+                    if create_only and FAST_NODE_CREATE and attempt == 0:
+                        try:
+                            session.execute_write(self._bulk_create_nodes_tx, batch)
+                            return len(batch)
+                        except Neo4jError as exc:
+                            logger.warning(
+                                "nornic_bulk_create_nodes_fallback",
+                                extra={"count": len(batch), "offset": offset, "error": str(exc)[:500]},
+                            )
+                with self.driver.session(database=self.database) as session:
+                    session.execute_write(self._bulk_upsert_nodes_tx, batch)
+                return len(batch)
+            except Neo4jError as exc:
+                last_exc = exc
+                is_constraint = "constraint" in str(exc).lower() or "unique" in str(exc).lower()
+                if is_constraint and attempt < _retries - 1:
+                    delay = 0.5 * (attempt + 1)
+                    logger.warning(
+                        "nornic_bulk_upsert_retry",
+                        extra={
+                            "count": len(batch),
+                            "offset": offset,
+                            "attempt": attempt + 1,
+                            "delay_s": delay,
+                            "error": str(exc)[:500],
+                        },
+                    )
+                    time.sleep(delay)
+                    continue
+                break
+
+        logger.warning(
+            "nornic_bulk_upsert_nodes_safe_fallback",
+            extra={"count": len(batch), "offset": offset, "error": str(last_exc)[:500] if last_exc else ""},
+        )
+        with self.driver.session(database=self.database) as session:
+            session.execute_write(self._safe_upsert_nodes_tx, batch)
+        return len(batch)
 
     @staticmethod
     def _bulk_create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
@@ -247,7 +280,12 @@ class NornicGraphWriter:
             node_id = str(row.get("id") or "")
             if not node_id:
                 continue
-            NornicGraphWriter._upsert_content_node_tx(tx, node_id, NornicGraphWriter._clean_props(row))
+            props = NornicGraphWriter._clean_props(row)
+            tx.run(
+                "MERGE (n:ContentNode {id: $id}) SET n += $props",
+                id=node_id,
+                props=props,
+            )
 
     @staticmethod
     def _node_param_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -262,26 +300,20 @@ class NornicGraphWriter:
     @staticmethod
     def _upsert_node_tx(tx: Any, row: dict[str, Any]) -> None:
         node_id = str(row["id"])
-        NornicGraphWriter._upsert_content_node_tx(tx, node_id, NornicGraphWriter._clean_props(row))
+        props = NornicGraphWriter._clean_props(row)
+        tx.run(
+            "MERGE (n:ContentNode {id: $id}) SET n += $props",
+            id=node_id,
+            props=props,
+        )
 
     @staticmethod
     def _upsert_content_node_tx(tx: Any, node_id: str, props: dict[str, Any]) -> None:
-        NornicGraphWriter._ensure_content_node_tx(tx, node_id)
-        tx.run("MATCH (n:ContentNode) WHERE n.id = $id SET n += $props", id=node_id, props=props)
-
-    @staticmethod
-    def _ensure_content_node_tx(tx: Any, node_id: str) -> None:
-        row = tx.run(
-            """
-            MATCH (n:ContentNode)
-            WHERE n.id = $id
-            RETURN count(n) AS existing
-            """,
+        tx.run(
+            "MERGE (n:ContentNode {id: $id}) SET n += $props",
             id=node_id,
-        ).single()
-        if row and int(row["existing"] or 0) > 0:
-            return
-        tx.run("CREATE (n:ContentNode {id: $id})", id=node_id)
+            props=props,
+        )
 
     def upsert_edges(self, edges: list[dict[str, Any]]) -> int:
         if not edges:

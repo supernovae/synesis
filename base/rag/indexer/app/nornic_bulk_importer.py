@@ -210,26 +210,32 @@ def _import_node_file(
     kind: str,
     vectors: _VectorSidecar,
     create_only: bool,
+    global_seen_ids: set[str] | None = None,
 ) -> int:
     path = root / node_path
     if not path.exists():
         return 0
     batch_size = NORNIC_BULK_NODE_BATCH_SIZE if kind == "Chunk" else NORNIC_BULK_META_NODE_BATCH_SIZE
     batch: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
+    seen_ids = global_seen_ids if global_seen_ids is not None else set()
     total = 0
+    skipped = 0
     for node in _iter_v2_nodes(
         root, manifest, artifact_hash=artifact_hash, node_path=node_path, kind=kind, vectors=vectors
     ):
         node_id = str(node.get("id") or "")
         if node_id in seen_ids:
+            skipped += 1
             continue
         seen_ids.add(node_id)
         batch.append(node)
         if len(batch) >= batch_size:
             total += _flush_nodes(writer, batch, create_only=create_only, batch_size=batch_size)
     total += _flush_nodes(writer, batch, create_only=create_only, batch_size=batch_size)
-    logger.info("synpack_bulk_node_file_imported", extra={"kind": kind, "path": node_path, "count": total})
+    logger.info(
+        "synpack_bulk_node_file_imported",
+        extra={"kind": kind, "path": node_path, "count": total, "skipped_duplicates": skipped},
+    )
     return total
 
 
@@ -329,6 +335,7 @@ def bulk_load_synpack(
 
         nodes = 0
         node_counts_by_kind: dict[str, int] = {}
+        global_seen_ids: set[str] = set()
         for node_path, kind in _V2_NODE_FILES:
             logger.info("synpack_bulk_node_file_start", extra={"pack_id": pack_id, "kind": kind, "path": node_path})
             count = _import_node_file(
@@ -340,6 +347,7 @@ def bulk_load_synpack(
                 kind=kind,
                 vectors=vectors,
                 create_only=replace,
+                global_seen_ids=global_seen_ids,
             )
             if count:
                 node_counts_by_kind[kind] = count
