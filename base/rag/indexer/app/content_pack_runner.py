@@ -24,6 +24,8 @@ _MAX_JOBS_RAW = os.getenv("SYNESIS_CONTENT_PACK_MAX_JOBS", "").strip()
 _MAX_JOBS = int(_MAX_JOBS_RAW) if _MAX_JOBS_RAW.isdigit() else 0
 _IMPORT_BACKEND = os.getenv("SYNESIS_CONTENT_PACK_IMPORT_BACKEND", "auto").strip().lower() or "auto"
 _BULK_BACKENDS = {"auto", "bolt-unwind"}
+_STATUS_REPORT_RETRIES = 3
+_STATUS_REPORT_BACKOFF_SECONDS = 5
 
 
 class ContentPackClient:
@@ -58,8 +60,32 @@ class ContentPackClient:
             payload["result"] = result
         if error_message:
             payload["error_message"] = error_message[:8000]
-        resp = self._http.patch(f"/api/v1/rag/content-packs/install-jobs/{job_id}/status", json=payload)
-        resp.raise_for_status()
+        last_exc: Exception | None = None
+        for attempt in range(_STATUS_REPORT_RETRIES):
+            try:
+                resp = self._http.patch(f"/api/v1/rag/content-packs/install-jobs/{job_id}/status", json=payload)
+                resp.raise_for_status()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if attempt < _STATUS_REPORT_RETRIES - 1:
+                    import time
+
+                    wait = _STATUS_REPORT_BACKOFF_SECONDS * (attempt + 1)
+                    logger.warning(
+                        "content_pack_report_status_retry",
+                        extra={"job_id": job_id, "status": status, "attempt": attempt + 1, "error": str(exc)[:300]},
+                    )
+                    time.sleep(wait)
+        logger.error(
+            "content_pack_report_status_failed",
+            extra={
+                "job_id": job_id,
+                "status": status,
+                "attempts": _STATUS_REPORT_RETRIES,
+                "error": str(last_exc)[:500],
+            },
+        )
 
 
 def _require_https(url: str) -> str:
