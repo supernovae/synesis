@@ -102,6 +102,7 @@ def main() -> None:
             "build-godot",
             "build-terraform",
             "build-ecma",
+            "build-bash",
             "build-language",
             "prepare-language",
             "enrich-language",
@@ -702,6 +703,44 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     max_chunks=max(0, args.max_chunks),
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
+                    doc_language=args.doc_language,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-bash":
+        from .language_pack import build_language_pack
+
+        pack_id = args.pack_id or "bash-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_language_pack(
+                    language="bash",
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    latest_tag=args.latest_tag,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    skip_zero_quality=not args.enrich_zero_quality,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    enrichment_timeout=args.enrichment_timeout,
+                    enrichment_input_price_per_mtok=args.enrichment_input_price_per_mtok,
+                    enrichment_output_price_per_mtok=args.enrichment_output_price_per_mtok,
+                    estimate_cost_only=args.estimate_cost_only,
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
                     doc_language=args.doc_language,
                 )
             )

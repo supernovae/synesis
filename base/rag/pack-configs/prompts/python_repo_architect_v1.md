@@ -24,3 +24,16 @@ Return exactly one valid JSON object with these keys:
 - agent_brief: two-sentence guide for SWE-bench navigation.
 - hidden_warnings: JSON array of search-space traps.
 - agent_query_hints: JSON array of identifier-heavy retrieval phrases.
+- task_intents: JSON array of repository-navigation tasks this chunk should answer.
+- query_aliases: JSON array of exact module, package, entry point, dependency, and likely user search aliases.
+- api_contract: exact module/export/import/side-effect contract when evidenced.
+- version_scope: Python version, package metadata, optional dependency, or platform scope.
+- performance_notes: import-time, reflection, side-effect, dependency, or startup cost notes.
+- canonical_examples: JSON array of minimal source-grounded navigation or usage examples.
+- anti_patterns: JSON array of search, import, dependency, side-effect, or module-boundary mistakes.
+- verification_hints: JSON array of concrete import, test, typecheck, or entry-point checks.
+- related_interfaces: JSON array of related modules, exports, entry points, dependencies, or tools.
+- related_symbols: JSON array of related identifiers with confidence or evidence span when useful.
+- agent_actions: JSON array of safe next actions after retrieval.
+- evidence_spans: JSON array of short source snippets or headings supporting key claims.
+- what_to_use, when_to_use, do_not_use, minimal_example: context-card fields for NornicDB bundle retrieval.

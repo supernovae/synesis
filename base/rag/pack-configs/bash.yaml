@@ -1,0 +1,57 @@
+language: bash
+doc_language: en
+supported_doc_languages:
+  - en
+domain: bash
+pack_id: bash-latest
+repo: github.com/koalaman/shellcheck
+tag_strategy: main_or_pinned
+prompt_id: bash_shell_safety_architect_v1
+prompt_variable: "{{SHELL_DOC_OR_SOURCE_CHUNK}}"
+prompts:
+  - id: bash_shell_safety_architect_v1
+    path: prompts/bash_shell_safety_architect_v1.md
+  - id: shellcheck_rule_architect_v1
+    path: prompts/shellcheck_rule_architect_v1.md
+  - id: shell_feedback_loop_architect_v1
+    path: prompts/shell_feedback_loop_architect_v1.md
+include:
+  docs:
+    - README.md
+  shellcheck_rules:
+    - wiki
+  script_roots:
+    - examples
+  aux_sources:
+    - name: shellcheck-wiki
+      repo: github.com/koalaman/shellcheck.wiki
+      path: .
+      artifact_kind: shellcheck_rule
+      package_name: shellcheck
+      prompt_id: shellcheck_rule_architect_v1
+    - name: google-styleguide
+      repo: github.com/google/styleguide
+      path: shellguide.md
+      artifact_kind: style_guide
+      package_name: google-shell-style-guide
+      prompt_id: bash_shell_safety_architect_v1
+    - name: bash-reference
+      repo: github.com/bminor/bash
+      path:
+        - doc
+        - examples
+      artifact_kind: bash_reference
+      package_name: bash
+      prompt_id: bash_shell_safety_architect_v1
+    - name: defensive-bash-programming
+      repo: github.com/kfir-lavi/defensive-bash-programming
+      path: README.md
+      artifact_kind: defensive_pattern
+      package_name: defensive-bash-programming
+      prompt_id: shell_feedback_loop_architect_v1
+    - name: pure-bash-bible
+      repo: github.com/dylanaraps/pure-bash-bible
+      path: README.md
+      artifact_kind: pure_bash_pattern
+      package_name: pure-bash-bible
+      prompt_id: bash_shell_safety_architect_v1

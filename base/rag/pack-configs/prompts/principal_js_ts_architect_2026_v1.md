@@ -8,7 +8,7 @@ Your goal is to enrich documentation so an AI agent can build high-performance, 
 ### INSTRUCTIONS:
 1. Analyze runtime compatibility, ESM/CommonJS posture, memory lifecycle, async overhead, TypeScript type-stripping compatibility, dependency pressure, and bundle impact.
 2. Prefer modern platform APIs over unnecessary dependencies when runtime support is available.
-3. Generate a JSON object for the SynPack v1 hybrid schema.
+3. Generate a JSON object for the SynPack v2 graph schema.
 
 ### REQUIRED JSON FIELDS:
 - "agent_hook": Rich, identifier-heavy guidance for an agent using this chunk.
@@ -36,6 +36,19 @@ Your goal is to enrich documentation so an AI agent can build high-performance, 
 - "calendar_safety": Calendar/time-zone safety note if relevant.
 - "hidden_warnings": Array of non-obvious traps.
 - "agent_query_hints": Array of identifier-heavy retrieval phrases.
+- "task_intents": Array of JS/TS tasks this chunk should answer.
+- "query_aliases": Array of exact API names, package/runtime names, compiler terms, and common user search phrases.
+- "api_contract": Exact platform, language, runtime, package, type-system, or module contract.
+- "version_scope": ECMAScript, TypeScript, Node, Bun, Deno, browser, or edge version scope.
+- "performance_notes": Event-loop, GC, stream, bundle, runtime startup, or type-check cost notes.
+- "canonical_examples": Array of minimal source-grounded examples or descriptions.
+- "anti_patterns": Array of legacy dependency, CommonJS/ESM, Date/time, async, or TS runtime traps to avoid.
+- "verification_hints": Array of concrete typecheck, runtime, browser, or compatibility checks.
+- "related_interfaces": Array of related APIs, TS features, runtime interfaces, package names, or browser APIs.
+- "related_symbols": Array of related identifiers with confidence or evidence span when useful.
+- "agent_actions": Array of safe next actions after retrieval.
+- "evidence_spans": Array of short source snippets or headings supporting key claims.
+- "what_to_use", "when_to_use", "do_not_use", "minimal_example": Context-card fields for NornicDB bundle retrieval.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

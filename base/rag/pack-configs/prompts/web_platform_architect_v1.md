@@ -5,7 +5,7 @@ You are a Principal Web Platform engineer specializing in MDN APIs, WebStreams, 
 {{DOC_OR_SOURCE_CHUNK}}
 
 ### TASK:
-Enrich this web platform documentation for an AI agent using the SynPack v1 hybrid schema.
+Enrich this web platform documentation for an AI agent using the SynPack v2 graph schema.
 
 ### REQUIRED JSON FIELDS:
 - "agent_hook": Browser/edge-safe, identifier-heavy guidance for applying this API.
@@ -33,6 +33,19 @@ Enrich this web platform documentation for an AI agent using the SynPack v1 hybr
 - "calendar_safety": Calendar/timezone note if relevant.
 - "hidden_warnings": Array of subtle web-platform traps.
 - "agent_query_hints": Array of identifier-heavy retrieval phrases.
+- "task_intents": Array of Web Platform tasks this chunk should answer.
+- "query_aliases": Array of exact API names, interface names, browser feature names, and common user search phrases.
+- "api_contract": Exact Web API, security, origin, worker/window, stream, or permission contract.
+- "version_scope": Browser, edge runtime, standards, secure-context, or compatibility scope.
+- "performance_notes": Layout, GC, stream, clone, worker, service worker, WASM, or network cost notes.
+- "canonical_examples": Array of minimal source-grounded examples or descriptions.
+- "anti_patterns": Array of insecure context, blocking, lifecycle, polyfill, listener, or compatibility mistakes.
+- "verification_hints": Array of concrete browser, edge, type, permission, and compatibility checks.
+- "related_interfaces": Array of related Web APIs, DOM interfaces, events, workers, streams, or permissions.
+- "related_symbols": Array of related identifiers with confidence or evidence span when useful.
+- "agent_actions": Array of safe next actions after retrieval.
+- "evidence_spans": Array of short source snippets or headings supporting key claims.
+- "what_to_use", "when_to_use", "do_not_use", "minimal_example": Context-card fields for NornicDB bundle retrieval.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

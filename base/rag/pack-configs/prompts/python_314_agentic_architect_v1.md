@@ -25,3 +25,16 @@ Return exactly one valid JSON object with these keys:
 - type_resolution_hint: runtime/static type lookup guidance or "unknown".
 - hidden_warnings: JSON array of Python footguns agents often miss.
 - agent_query_hints: JSON array of identifier-heavy retrieval phrases.
+- task_intents: JSON array of Python implementation/debugging tasks this chunk should answer.
+- query_aliases: JSON array of exact module, class, function, PEP, exception, and likely user search aliases.
+- api_contract: exact stdlib, CPython, PEP, typing, async, C-extension, or interpreter contract.
+- version_scope: Python version, PEP status, ABI, free-threading, or subinterpreter scope.
+- performance_notes: bytecode, C-extension, reflection, import, allocation, GIL/no-GIL, or async cost notes.
+- canonical_examples: JSON array of minimal source-grounded examples or descriptions.
+- anti_patterns: JSON array of source-grounded legacy, async, typing, packaging, or thread-safety mistakes.
+- verification_hints: JSON array of concrete pytest, mypy/pyright, uv, import, or minimal repro checks.
+- related_interfaces: JSON array of related modules, classes, PEPs, exceptions, protocols, or tools.
+- related_symbols: JSON array of related identifiers with confidence or evidence span when useful.
+- agent_actions: JSON array of safe next actions after retrieval.
+- evidence_spans: JSON array of short source snippets or headings supporting key claims.
+- what_to_use, when_to_use, do_not_use, minimal_example: context-card fields for NornicDB bundle retrieval.

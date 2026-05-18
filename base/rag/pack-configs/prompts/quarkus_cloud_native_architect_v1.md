@@ -24,3 +24,16 @@ Return exactly one valid JSON object with these keys:
 - agent_advice: practical instruction the agent should give.
 - hidden_warnings: JSON array of Quarkus-specific footguns agents often miss.
 - agent_query_hints: JSON array of identifier-heavy retrieval phrases.
+- task_intents: JSON array of Quarkus implementation/debugging tasks this chunk should answer.
+- query_aliases: JSON array of exact extension, config key, annotation, CLI, Maven/Gradle, and likely user search aliases.
+- api_contract: exact extension, config phase, CDI, reactive, native-image, Dev Services, or runtime contract.
+- version_scope: Quarkus platform, extension, Java, native-image, or CLI version scope when evidenced.
+- performance_notes: startup, native-image, event-loop, blocking, build-time augmentation, or Dev Services cost notes.
+- canonical_examples: JSON array of minimal source-grounded examples or descriptions.
+- anti_patterns: JSON array of blocking, config-phase, CDI scope, dependency, native-image, or extension mistakes.
+- verification_hints: JSON array of concrete quarkus, Maven/Gradle, dev-mode, test, native-image, or config checks.
+- related_interfaces: JSON array of related extensions, annotations, config keys, commands, classes, or build tools.
+- related_symbols: JSON array of related identifiers with confidence or evidence span when useful.
+- agent_actions: JSON array of safe next actions after retrieval.
+- evidence_spans: JSON array of short source snippets or headings supporting key claims.
+- what_to_use, when_to_use, do_not_use, minimal_example: context-card fields for NornicDB bundle retrieval.

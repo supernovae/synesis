@@ -284,6 +284,25 @@ intents, verification hints, examples, anti-patterns, and constraints so
 NornicDB can materialize chunk, symbol, concept, pattern, constraint, example,
 context-card, and edge sidecars.
 
+## Language Pack V2 Coverage
+
+All curated code-language prompts now target the same SynPack v2 enrichment
+contract. Go, Rust, Python, Quarkus, Godot, Terraform/OpenTofu,
+ECMA/JavaScript/TypeScript, and Bash/Shell prompts ask for graph-ready task intents, query
+aliases, API contracts, version scope, performance notes, examples,
+anti-patterns, verification hints, related symbols/interfaces, agent actions,
+evidence spans, and context-card fields. During finalization these fields are
+used to build NornicDB-native `Concept`, `Pattern`, `Constraint`, `Example`,
+and `ContextCard` nodes plus typed relationship edges.
+
+The Bash/Shell pack is optimized for safe script generation by small models. It
+indexes ShellCheck rules as exact `SC####` symbols, style guidance, Bash
+reference material, defensive scripting patterns, pure-Bash idioms, and script
+function examples. Its prompts emphasize quoting, word splitting, arrays,
+`"$@"`, `read -r`, `mktemp`, traps, strict-mode boundaries, command safety, and
+the developer feedback loop: `bash -n`, `shellcheck -x`, `shfmt -d`, and
+fixture or Bats/ShellSpec tests.
+
 ```bash
 python -m app.cli --mode synpack --synpack-command prepare-language \
   --language rust --pack-id rust-latest --work-dir .work/synpacks/rust-latest

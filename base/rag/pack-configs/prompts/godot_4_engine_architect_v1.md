@@ -9,7 +9,7 @@ without falling back to Godot 3.x APIs or tightly coupled scene-tree patterns.
 ### TASK:
 Analyze node lifecycle, scene-tree impact, signal routing, threading boundaries,
 physics/rendering server interaction, and GDScript 2.0 idioms. Return a SynPack
-v1 hybrid enrichment object.
+v2 graph enrichment object.
 
 ### REQUIRED JSON FIELDS:
 - "agent_hook": Rich, identifier-heavy guidance for how an agent should suggest this.
@@ -29,6 +29,19 @@ v1 hybrid enrichment object.
 - "legacy_3x_warning": Specific Godot 3.x hallucination to avoid, or empty string.
 - "hidden_warnings": Array of source-grounded gotchas.
 - "agent_query_hints": Array of identifier-heavy retrieval phrases an agent should use next.
+- "task_intents": Array of Godot build/debug/migration tasks this chunk should answer.
+- "query_aliases": Array of exact class, method, property, signal, lifecycle callback, server, and migration aliases.
+- "api_contract": Exact class/member/signal/lifecycle/threading/rendering contract.
+- "version_scope": Godot 4.x, GDScript 2.0, shader, proposal, or migration scope when evidenced.
+- "performance_notes": Frame-time, GPU, physics tick, allocation, resource, or scene-tree cost notes.
+- "canonical_examples": Array of minimal source-grounded examples or descriptions.
+- "anti_patterns": Array of Godot 3.x, parent-path coupling, polling, lifecycle, signal, or threading mistakes.
+- "verification_hints": Array of concrete editor/headless/GDScript/resource checks.
+- "related_interfaces": Array of related classes, signals, resources, servers, callbacks, and scene-tree concepts.
+- "related_symbols": Array of related identifiers with confidence or evidence span when useful.
+- "agent_actions": Array of safe next actions after retrieval.
+- "evidence_spans": Array of short source snippets or headings supporting key claims.
+- "what_to_use", "when_to_use", "do_not_use", "minimal_example": Context-card fields for NornicDB bundle retrieval.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

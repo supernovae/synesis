@@ -5,7 +5,7 @@ You are a Principal TypeScript engineer focused on strict typing, native type st
 {{DOC_OR_SOURCE_CHUNK}}
 
 ### TASK:
-Enrich this TypeScript documentation for an AI agent using the SynPack v1 hybrid schema.
+Enrich this TypeScript documentation for an AI agent using the SynPack v2 graph schema.
 
 ### REQUIRED JSON FIELDS:
 - "agent_hook": Identifier-heavy guidance for how the agent should apply this TypeScript feature.
@@ -33,6 +33,19 @@ Enrich this TypeScript documentation for an AI agent using the SynPack v1 hybrid
 - "calendar_safety": Calendar/timezone note if relevant.
 - "hidden_warnings": Array of non-obvious TS/runtime traps.
 - "agent_query_hints": Array of identifier-heavy retrieval phrases.
+- "task_intents": Array of TypeScript tasks this chunk should answer.
+- "query_aliases": Array of exact syntax, compiler option, type-system, runtime, and user-search aliases.
+- "api_contract": Exact type, compiler, runtime erasure, or strictness contract.
+- "version_scope": TypeScript, ECMAScript, or runtime version support when evidenced.
+- "performance_notes": Build-step, runtime-erasure, reflection, or bundle cost notes.
+- "canonical_examples": Array of minimal source-grounded examples or descriptions.
+- "anti_patterns": Array of unsafe type erasure, loose typing, decorator, enum, namespace, or runtime-reflection mistakes.
+- "verification_hints": Array of concrete `tsc`, runtime type-stripping, lint, or test checks.
+- "related_interfaces": Array of related TS features, compiler options, runtime APIs, or library types.
+- "related_symbols": Array of related identifiers with confidence or evidence span when useful.
+- "agent_actions": Array of safe next actions after retrieval.
+- "evidence_spans": Array of short source snippets or headings supporting key claims.
+- "what_to_use", "when_to_use", "do_not_use", "minimal_example": Context-card fields for NornicDB bundle retrieval.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

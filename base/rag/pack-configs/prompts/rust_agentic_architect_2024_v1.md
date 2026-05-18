@@ -38,3 +38,4 @@ Return exactly one valid JSON object with these keys:
 - agent_actions: JSON array of safe next actions an agent can take after retrieval.
 - evidence_spans: JSON array of short source snippets or headings supporting key claims.
 - agent_query_hints: JSON array of identifier-heavy retrieval phrases.
+- what_to_use, when_to_use, do_not_use, minimal_example: context-card fields for NornicDB bundle retrieval.

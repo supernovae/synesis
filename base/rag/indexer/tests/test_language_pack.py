@@ -36,6 +36,38 @@ from app.schema import EMBEDDING_DIM, SCHEMA_VERSION
 from app.synpack import SynPackError, validate_synpack
 
 
+def test_language_pack_prompts_request_synpack_v2_graph_fields():
+    prompt_dir = ROOT / "base" / "rag" / "pack-configs" / "prompts"
+    required_terms = {
+        "task_intents",
+        "query_aliases",
+        "api_contract",
+        "version_scope",
+        "performance_notes",
+        "canonical_examples",
+        "anti_patterns",
+        "verification_hints",
+        "related_interfaces",
+        "related_symbols",
+        "agent_actions",
+        "evidence_spans",
+        "what_to_use",
+        "minimal_example",
+    }
+    for prompt_path in sorted(prompt_dir.glob("*.md")):
+        text = prompt_path.read_text(encoding="utf-8")
+        assert "SynPack v1" not in text
+        assert "v1 hybrid" not in text
+        missing = sorted(term for term in required_terms if term not in text)
+        assert not missing, f"{prompt_path.name} missing v2 enrichment terms: {missing}"
+
+
+def test_shared_synpack_v2_append_requests_context_card_fields():
+    append = language_pack.SYNPACK_V2_ENRICHMENT_APPEND
+    for term in ("what_to_use", "when_to_use", "do_not_use", "minimal_example", "canonical_examples", "anti_examples"):
+        assert term in append
+
+
 def test_go_tag_parser_accepts_stable_and_rejects_prerelease():
     assert parse_go_stable_tag("go1.26.2") == (1, 26, 2)
     assert parse_go_stable_tag("go1.27rc1") is None
@@ -1567,3 +1599,91 @@ def test_build_language_pack_from_ecma_fixture(monkeypatch: pytest.MonkeyPatch, 
     enrichment = json.loads(temporal_row["agent_enrichment_json"])
     assert "runtime_compatibility" in enrichment
     assert "legacy_date_replacement" in enrichment
+
+
+def test_build_language_pack_from_bash_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    source = tmp_path / "bash-src"
+    (source / "wiki").mkdir(parents=True)
+    (source / "examples").mkdir(parents=True)
+    (source / "google-styleguide").mkdir(parents=True)
+    (source / "defensive-bash-programming").mkdir(parents=True)
+    (source / "pure-bash-bible").mkdir(parents=True)
+    (source / "README.md").write_text(
+        "# ShellCheck\n\nShellCheck finds quoting, word splitting, and command substitution bugs. Run shellcheck -x scripts/*.sh.",
+        encoding="utf-8",
+    )
+    (source / "wiki" / "SC2086.md").write_text(
+        "# SC2086\n\nDouble quote to prevent globbing and word splitting. Prefer arrays for multiple arguments.",
+        encoding="utf-8",
+    )
+    (source / "google-styleguide" / "shellguide.md").write_text(
+        "# Shell Style Guide\n\nUse functions, quote variables, prefer readonly constants, and check command failures.",
+        encoding="utf-8",
+    )
+    (source / "defensive-bash-programming" / "README.md").write_text(
+        "# Defensive Bash\n\nUse set -euo pipefail carefully, trap cleanup, mktemp, shellcheck, shfmt, and bats tests.",
+        encoding="utf-8",
+    )
+    (source / "pure-bash-bible" / "README.md").write_text(
+        "# Pure Bash Bible\n\nUse Bash builtins for string manipulation to avoid unnecessary subprocesses.",
+        encoding="utf-8",
+    )
+    (source / "examples" / "deploy.sh").write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+# Clean up temporary deployment workspace.
+cleanup() {
+  rm -rf -- "$tmpdir"
+}
+
+main() {
+  tmpdir="$(mktemp -d)"
+  trap cleanup EXIT
+  shellcheck -x "$0"
+  shfmt -d "$0"
+  printf '%s\n' "$@"
+}
+
+main "$@"
+""",
+        encoding="utf-8",
+    )
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(language_pack, "EmbedClient", FakeEmbedClient)
+    out = tmp_path / "bash.synpack"
+    result = build_language_pack(
+        language="bash",
+        output_path=out,
+        source_dir=source,
+        latest_tag="main",
+        skip_enrichment=True,
+        max_chunks=100,
+    )
+    assert result["ok"] is True
+    manifest = validate_synpack(out)
+    assert manifest["source_version"] == "main"
+    assert manifest["language"] == "bash"
+    assert manifest["enrichment"]["prompt_id"] == "bash_shell_safety_architect_v1"
+    assert "shellcheck_rule_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "shell_feedback_loop_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    with zipfile.ZipFile(out) as zf:
+        rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
+    assert any(row["artifact_kind"] == "shellcheck_rule" and row["symbol_fqn"] == "SC2086" for row in rows)
+    assert any(row["artifact_kind"] == "style_guide" for row in rows)
+    assert any(row["artifact_kind"] == "defensive_pattern" for row in rows)
+    assert any(row["artifact_kind"] == "pure_bash_pattern" for row in rows)
+    assert any(row["artifact_kind"] == "script_pattern" and row["symbol_name"] == "cleanup" for row in rows)
+    assert any("strict-mode" in row["scope_tags"] for row in rows)
+    assert any("cleanup-traps" in row["scope_tags"] for row in rows)
+    rule_row = next(row for row in rows if row["symbol_fqn"] == "SC2086")
+    rule_enrichment = json.loads(rule_row["agent_enrichment_json"])
+    assert any("shellcheck" in item for item in rule_enrichment["feedback_loop"])
+    assert "SC2086" in rule_enrichment["query_aliases"]

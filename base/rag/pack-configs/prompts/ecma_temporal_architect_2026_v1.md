@@ -6,7 +6,7 @@ Your goal is to enrich documentation so an AI agent can solve timezone, calendar
 {{DOC_OR_SOURCE_CHUNK}}
 
 ### TASK:
-Generate a JSON enrichment object for the SynPack v1 hybrid schema.
+Generate a JSON enrichment object for the SynPack v2 graph schema.
 
 ### UNIVERSAL SCALARS:
 - "perf_tier": CONSTANT, TIMEZONE_LOOKUP, CALENDAR_INTL_HEAVY, UNKNOWN.
@@ -36,6 +36,19 @@ Generate a JSON enrichment object for the SynPack v1 hybrid schema.
 - "calendar_safety": Calendar and IANA timezone safety guidance.
 - "hidden_warnings": Array of traps, including PlainDateTime lacking timezone or Date month indexing.
 - "agent_query_hints": Array of identifier-heavy retrieval phrases.
+- "task_intents": Array of Temporal tasks this chunk should answer.
+- "query_aliases": Array of exact Temporal names, legacy Date phrases, and runtime/version aliases.
+- "api_contract": Exact Temporal type, method, constructor, parsing, timezone, or calendar contract.
+- "version_scope": ECMAScript proposal/runtime support scope when evidenced.
+- "performance_notes": Allocation, Intl/calendar, timezone lookup, parsing, or polyfill cost notes.
+- "canonical_examples": Array of minimal source-grounded examples or descriptions.
+- "anti_patterns": Array of legacy Date, mutation, parsing, timezone, or calendar mistakes to avoid.
+- "verification_hints": Array of runtime/browser/polyfill checks or test cases.
+- "related_interfaces": Array of related Temporal types, Intl APIs, runtime APIs, or polyfills.
+- "related_symbols": Array of related identifiers with confidence or evidence span when useful.
+- "agent_actions": Array of safe next actions after retrieval.
+- "evidence_spans": Array of short source snippets or headings supporting key claims.
+- "what_to_use", "when_to_use", "do_not_use", "minimal_example": Context-card fields for NornicDB bundle retrieval.
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

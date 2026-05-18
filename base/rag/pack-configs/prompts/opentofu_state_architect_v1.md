@@ -16,7 +16,12 @@ approval gate that should protect production infrastructure.
 "permission_requirements", "cross_resource_links", "drift_risk",
 "provisioner_safe", "import_id_format", "state_sensitivity",
 "approval_policy", "plan_guardrail", "cloud_provider", "resource_weight",
-"validation_hints", "hidden_warnings", "agent_query_hints".
+"validation_hints", "hidden_warnings", "agent_query_hints",
+"task_intents", "query_aliases", "api_contract", "version_scope",
+"performance_notes", "canonical_examples", "anti_patterns",
+"verification_hints", "related_interfaces", "related_symbols",
+"agent_actions", "evidence_spans", "what_to_use", "when_to_use",
+"do_not_use", "minimal_example".
 
 ### OUTPUT:
 Return ONLY a valid JSON object.

@@ -1,7 +1,7 @@
 """Configurable SynPack language-pack builder.
 
 The pipeline supports curated language packs with language-specific extraction
-and enrichment prompts while preserving universal SynPack v17 agentic fields.
+and enrichment prompts while preserving universal SynPack v2 graph-ready fields.
 """
 
 from __future__ import annotations
@@ -93,10 +93,16 @@ SynPack v2 enrichment requirements:
   task_intents, query_aliases, agent_query_hints, api_contract, version_scope,
   performance_notes, anti_patterns, hidden_warnings, canonical_examples,
   verification_hints, related_interfaces, related_symbols, agent_actions,
-  confidence, evidence_spans.
+  confidence, evidence_spans, what_to_use, when_to_use, do_not_use,
+  minimal_example.
 - task_intents, query_aliases, agent_query_hints, anti_patterns,
   hidden_warnings, canonical_examples, verification_hints, related_interfaces,
   related_symbols, agent_actions, and evidence_spans should be JSON arrays.
+- canonical_examples and anti_examples may be objects with title, text, code,
+  setup, expected_output, test_command, runnable, applies_to, retrieval_terms,
+  and query_aliases when the source supports concrete examples.
+- what_to_use, when_to_use, do_not_use, and minimal_example should be concise
+  context-card text suitable for small coding models and MCP clients.
 - api_contract, version_scope, performance_notes, confidence may be strings or objects.
 - Use empty arrays or "unknown" when the source does not support a field.
 - Do not invent relationships. Put uncertain relationships in related_symbols with confidence and evidence span.
@@ -108,6 +114,9 @@ PYTHON_PROMPT_ID = "python_314_agentic_architect_v1"
 GODOT_PROMPT_ID = "godot_4_engine_architect_v1"
 TERRAFORM_PROMPT_ID = "terraform_infrastructure_architect_v1"
 ECMA_PROMPT_ID = "principal_js_ts_architect_2026_v1"
+BASH_PROMPT_ID = "bash_shell_safety_architect_v1"
+SUPPORTED_LANGUAGE_PACKS = {"go", "rust", "quarkus", "python", "godot", "terraform", "ecma", "bash"}
+AUX_SOURCE_LANGUAGES = {"rust", "quarkus", "python", "godot", "terraform", "ecma", "bash"}
 REQUIRED_UNIVERSAL_ENRICHMENT_FIELDS = {
     "agent_hook",
     "perf_tier",
@@ -133,11 +142,13 @@ SYNPACK_V2_SCALAR_ENRICHMENT_FIELDS = (
     "performance_notes",
     "confidence",
 )
-DOC_LIKE_FORMATS = {"", "md", "markdown", "html", "htm", "rst", "adoc", "txt", "text"}
+DOC_LIKE_FORMATS = {"", "md", "markdown", "html", "htm", "rst", "adoc", "txt", "text", "texi"}
 MARKDOWN_FORMATS = {"md", "markdown"}
 HTML_FORMATS = {"html", "htm"}
 STRUCTURED_FORMATS = {
     "c",
+    "bash",
+    "bats",
     "cpp",
     "cs",
     "gd",
@@ -153,11 +164,15 @@ STRUCTURED_FORMATS = {
     "python",
     "rs",
     "rust",
+    "sh",
+    "shell",
     "toml",
     "ts",
     "xml",
     "yaml",
     "yml",
+    "zsh",
+    "ksh",
 }
 LANGUAGE_PACK_GATE_POLICY = GatePolicy(min_chunk_quality=0.10, min_chunk_words=12, min_chunk_words_absolute=3)
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -223,7 +238,7 @@ def _normalize_language_chunk_text(chunk: LanguageChunk) -> tuple[str, str]:
     if original_format in MARKDOWN_FORMATS:
         return normalize_doc_markdown(text), "markdown"
 
-    if original_format in {"rst", "adoc", "txt", "text", ""}:
+    if original_format in {"rst", "adoc", "txt", "text", "texi", "1", ""}:
         return normalize_doc_markdown(text), original_format or "text"
 
     return text, original_format
@@ -619,7 +634,18 @@ def _doc_chunks(
         for file_path in files:
             if not file_path.is_file() or file_path.name.startswith("."):
                 continue
-            if file_path.suffix.lower() not in {"", ".adoc", ".md", ".markdown", ".mdx", ".rst", ".txt", ".html"}:
+            if file_path.suffix.lower() not in {
+                "",
+                ".1",
+                ".adoc",
+                ".html",
+                ".md",
+                ".markdown",
+                ".mdx",
+                ".rst",
+                ".texi",
+                ".txt",
+            }:
                 continue
             rel_path = file_path.relative_to(root).as_posix()
             for part in _split_text(_read_text(file_path)):
@@ -775,6 +801,358 @@ def extract_go_chunks(source_root: Path, *, config: dict[str, Any], tag: str) ->
     chunks.extend(_go_package_chunks(source_root, exclude_dirs=exclude_dirs))
     for chunk in chunks:
         chunk.source_url = chunk.source_url.replace("{tag}", tag)
+    return chunks
+
+
+SHELL_SCRIPT_SUFFIXES = {".sh", ".bash", ".zsh", ".ksh", ".bats"}
+
+
+def _shell_dialect(text: str, rel_path: str = "") -> str:
+    first = text.splitlines()[0].lower() if text.splitlines() else ""
+    haystack = f"{rel_path}\n{first}".lower()
+    if "zsh" in haystack:
+        return "zsh"
+    if "ksh" in haystack:
+        return "ksh"
+    if "bash" in haystack:
+        return "bash"
+    if "dash" in haystack or "/bin/sh" in haystack or "posix" in haystack:
+        return "posix-sh"
+    return "shell"
+
+
+def _bash_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str, symbol_kind: str = "") -> str:
+    lower = f"{rel_path}\n{text}".lower()
+    if artifact_kind == "shellcheck_rule" or re.search(r"\bSC\d{4}\b", text):
+        return "shellcheck_rule_architect_v1"
+    if artifact_kind in {"feedback_loop", "script_pattern"} or any(
+        token in lower for token in ("shellcheck", "shfmt", "bats", "bash -n", "set -euo pipefail")
+    ):
+        return "shell_feedback_loop_architect_v1"
+    return BASH_PROMPT_ID
+
+
+def _bash_metadata(
+    *,
+    text: str,
+    rel_path: str,
+    artifact_kind: str,
+    symbol_kind: str = "",
+    prompt_id: str = "",
+) -> dict[str, Any]:
+    lower = f"{rel_path}\n{text}".lower()
+    tags = ["language-pack", "bash", "shell"]
+    if "shellcheck" in lower or artifact_kind == "shellcheck_rule":
+        tags.extend(["shellcheck", "linter-rules"])
+    if "shfmt" in lower:
+        tags.append("shfmt")
+    if "bats" in lower or "test" in lower:
+        tags.append("testing")
+    if "set -euo pipefail" in lower or "errexit" in lower or "nounset" in lower:
+        tags.append("strict-mode")
+    if "trap" in lower or "cleanup" in lower:
+        tags.append("cleanup-traps")
+    if "mktemp" in lower or "tmp" in lower:
+        tags.append("safe-tempfiles")
+    if "quote" in lower or "word splitting" in lower or "$@" in text:
+        tags.append("quoting")
+    if any(token in lower for token in ("eval", "curl |", "| bash", "rm -rf", "sudo", "chmod +x")):
+        tags.append("dangerous-command")
+    if artifact_kind == "style_guide":
+        tags.append("style-guide")
+    if artifact_kind == "bash_reference":
+        tags.append("bash-reference")
+    if artifact_kind == "defensive_pattern":
+        tags.append("defensive-programming")
+    if artifact_kind == "pure_bash_pattern":
+        tags.append("pure-bash")
+    return {
+        "scope_tags": tags,
+        "constraint_kind": "hard" if artifact_kind == "shellcheck_rule" or "dangerous-command" in tags else "guiding",
+        "constraint_source": "shellcheck"
+        if artifact_kind == "shellcheck_rule"
+        else "shell-style-guide"
+        if artifact_kind == "style_guide"
+        else "bash-reference"
+        if artifact_kind == "bash_reference"
+        else "shell-patterns",
+        "content_profile": "diagnostic" if artifact_kind == "shellcheck_rule" else "procedural",
+        "shell_dialect": _shell_dialect(text, rel_path),
+        "command_safety": "dangerous"
+        if "dangerous-command" in tags
+        else "guarded"
+        if "cleanup-traps" in tags
+        else "safe",
+        "prompt_id": prompt_id or _bash_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind),
+    }
+
+
+def _shellcheck_rule_id(text: str, rel_path: str) -> str:
+    name_match = re.search(r"\b(SC\d{4})\b", Path(rel_path).stem, re.I)
+    if name_match:
+        return name_match.group(1).upper()
+    text_match = re.search(r"\b(SC\d{4})\b", text)
+    return text_match.group(1).upper() if text_match else ""
+
+
+def _extract_shellcheck_rule_chunks(
+    root: Path,
+    rel: str,
+    *,
+    repo: str,
+    tag: str,
+    package_name: str,
+    prompt_id: str = "",
+) -> list[LanguageChunk]:
+    chunks: list[LanguageChunk] = []
+    path = root / rel
+    files = sorted(path.rglob("*")) if path.is_dir() else [path]
+    for file_path in files:
+        if not file_path.is_file():
+            continue
+        if file_path.suffix.lower() not in {"", ".md", ".markdown", ".txt", ".rst"}:
+            continue
+        rel_path = file_path.relative_to(root).as_posix()
+        text = _read_text(file_path)
+        rule_id = _shellcheck_rule_id(text, rel_path)
+        if not rule_id:
+            continue
+        for index, part in enumerate(_split_text(text, max_chars=6500)):
+            chunks.append(
+                LanguageChunk(
+                    text=part,
+                    doc_id=f"bash:{repo}:{rel_path}:{rule_id}",
+                    chunk_index=index,
+                    document_name=rel_path,
+                    heading_path=rule_id,
+                    section=rule_id,
+                    source_url=f"https://{repo}/blob/{tag}/{rel_path}",
+                    package_name=package_name,
+                    symbol_kind="shellcheck_rule",
+                    symbol_fqn=rule_id,
+                    symbol_name=rule_id,
+                    module_path=rel_path,
+                    artifact_kind="shellcheck_rule",
+                    content_format=file_path.suffix.lstrip(".") or "text",
+                    metadata=_bash_metadata(
+                        text=part,
+                        rel_path=rel_path,
+                        artifact_kind="shellcheck_rule",
+                        symbol_kind="shellcheck_rule",
+                        prompt_id=prompt_id,
+                    ),
+                )
+            )
+    return chunks
+
+
+def _is_shell_script(path: Path, text: str) -> bool:
+    return path.suffix.lower() in SHELL_SCRIPT_SUFFIXES or (text.startswith("#!") and "sh" in text.splitlines()[0])
+
+
+def _shell_function_comment(lines: list[str], start: int) -> str:
+    out: list[str] = []
+    i = start - 1
+    while i >= 0:
+        stripped = lines[i].strip()
+        if stripped.startswith("#") and not stripped.startswith("#!"):
+            out.append(stripped.lstrip("#").strip())
+            i -= 1
+            continue
+        if not stripped:
+            i -= 1
+            continue
+        break
+    return "\n".join(reversed([item for item in out if item])).strip()
+
+
+def _extract_shell_script_chunks(
+    root: Path,
+    rel: str,
+    *,
+    repo: str,
+    tag: str,
+    package_name: str,
+    prompt_id: str = "",
+) -> list[LanguageChunk]:
+    chunks: list[LanguageChunk] = []
+    path = root / rel
+    files = sorted(path.rglob("*")) if path.is_dir() else [path]
+    function_re = re.compile(r"(?m)^\s*(?:function\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_:-]*)\s*(?:\(\))?\s*\{")
+    for file_path in files:
+        if not file_path.is_file():
+            continue
+        text = _read_text(file_path)
+        if not _is_shell_script(file_path, text):
+            continue
+        rel_path = file_path.relative_to(root).as_posix()
+        lines = text.splitlines()
+        matched = False
+        for match in function_re.finditer(text):
+            matched = True
+            name = match.group("name")
+            line_no = text[: match.start()].count("\n")
+            comment = _shell_function_comment(lines, line_no)
+            snippet = "\n".join(lines[line_no : min(len(lines), line_no + 80)]).strip()
+            body = f"{comment}\n\n```bash\n{snippet}\n```".strip()
+            chunks.append(
+                LanguageChunk(
+                    text=body,
+                    doc_id=f"bash:{repo}:{rel_path}:{name}",
+                    chunk_index=len(chunks),
+                    document_name=rel_path,
+                    heading_path=name,
+                    section=name,
+                    source_url=f"https://{repo}/blob/{tag}/{rel_path}",
+                    package_name=package_name,
+                    symbol_kind="function",
+                    symbol_fqn=f"{rel_path}:{name}",
+                    symbol_name=name,
+                    module_path=rel_path,
+                    artifact_kind="script_pattern",
+                    content_format=file_path.suffix.lstrip(".") or "shell",
+                    metadata=_bash_metadata(
+                        text=body,
+                        rel_path=rel_path,
+                        artifact_kind="script_pattern",
+                        symbol_kind="function",
+                        prompt_id=prompt_id,
+                    ),
+                )
+            )
+        if not matched:
+            chunks.append(
+                LanguageChunk(
+                    text=text[:6500],
+                    doc_id=f"bash:{repo}:{rel_path}",
+                    chunk_index=len(chunks),
+                    document_name=rel_path,
+                    heading_path=rel_path,
+                    section=file_path.stem,
+                    source_url=f"https://{repo}/blob/{tag}/{rel_path}",
+                    package_name=package_name,
+                    symbol_kind="script",
+                    symbol_fqn=rel_path,
+                    symbol_name=file_path.name,
+                    module_path=rel_path,
+                    artifact_kind="script_pattern",
+                    content_format=file_path.suffix.lstrip(".") or "shell",
+                    metadata=_bash_metadata(
+                        text=text,
+                        rel_path=rel_path,
+                        artifact_kind="script_pattern",
+                        symbol_kind="script",
+                        prompt_id=prompt_id,
+                    ),
+                )
+            )
+    return chunks
+
+
+def extract_bash_chunks(source_root: Path, *, config: dict[str, Any], tag: str) -> list[LanguageChunk]:
+    repo = str(config.get("repo") or "github.com/koalaman/shellcheck")
+    include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
+    chunks: list[LanguageChunk] = []
+    for chunk in _doc_chunks(
+        source_root,
+        [str(x) for x in include.get("docs", ["README.md"])],
+        language="bash",
+        repo=repo,
+        tag=tag,
+        package_name="shellcheck",
+        artifact_kind="feedback_loop",
+        prompt_id="shell_feedback_loop_architect_v1",
+    ):
+        chunk.metadata.update(
+            _bash_metadata(
+                text=chunk.text,
+                rel_path=chunk.module_path,
+                artifact_kind="feedback_loop",
+                prompt_id="shell_feedback_loop_architect_v1",
+            )
+        )
+        chunks.append(chunk)
+
+    for rel in include.get("shellcheck_rules", []):
+        chunks.extend(
+            _extract_shellcheck_rule_chunks(
+                source_root,
+                str(rel),
+                repo=repo,
+                tag=tag,
+                package_name="shellcheck",
+                prompt_id="shellcheck_rule_architect_v1",
+            )
+        )
+    for rel in include.get("script_roots", []):
+        chunks.extend(
+            _extract_shell_script_chunks(
+                source_root,
+                str(rel),
+                repo=repo,
+                tag=tag,
+                package_name="shell-patterns",
+                prompt_id="shell_feedback_loop_architect_v1",
+            )
+        )
+
+    for aux in include.get("aux_sources", []):
+        if not isinstance(aux, dict):
+            continue
+        name = str(aux.get("name") or "")
+        aux_root = source_root / name if name and (source_root / name).exists() else source_root
+        repo_name = str(aux.get("repo") or repo)
+        raw_path = aux.get("path") or "."
+        paths = [str(path) for path in raw_path] if isinstance(raw_path, list) else [str(raw_path)]
+        artifact_kind = str(aux.get("artifact_kind") or "docs")
+        package_name = str(aux.get("package_name") or name or "shell")
+        prompt_id = str(aux.get("prompt_id") or "")
+        for rel in paths:
+            if artifact_kind == "shellcheck_rule":
+                chunks.extend(
+                    _extract_shellcheck_rule_chunks(
+                        aux_root,
+                        rel,
+                        repo=repo_name,
+                        tag=str(aux.get("resolved_ref") or "main"),
+                        package_name=package_name,
+                        prompt_id=prompt_id or "shellcheck_rule_architect_v1",
+                    )
+                )
+                continue
+            for chunk in _doc_chunks(
+                aux_root,
+                [rel],
+                language="bash",
+                repo=repo_name,
+                tag=str(aux.get("resolved_ref") or "main"),
+                package_name=package_name,
+                artifact_kind=artifact_kind,
+                prompt_id=prompt_id,
+            ):
+                chunk.metadata.update(
+                    _bash_metadata(
+                        text=chunk.text,
+                        rel_path=chunk.module_path,
+                        artifact_kind=artifact_kind,
+                        prompt_id=prompt_id,
+                    )
+                )
+                chunks.append(chunk)
+            if artifact_kind in {"script_pattern", "feedback_loop"}:
+                chunks.extend(
+                    _extract_shell_script_chunks(
+                        aux_root,
+                        rel,
+                        repo=repo_name,
+                        tag=str(aux.get("resolved_ref") or "main"),
+                        package_name=package_name,
+                        prompt_id=prompt_id or "shell_feedback_loop_architect_v1",
+                    )
+                )
+
+    for idx, chunk in enumerate(chunks):
+        chunk.chunk_index = idx
     return chunks
 
 
@@ -3120,6 +3498,8 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             if chunk.doc_id.startswith("terraform:")
             else "Ecma"
             if chunk.doc_id.startswith("ecma:")
+            else "Bash"
+            if chunk.doc_id.startswith("bash:")
             else "Go"
         )
     )
@@ -3334,6 +3714,41 @@ def fallback_enrichment(chunk: LanguageChunk, *, error: str = "") -> dict[str, A
             "event_loop_safety": "unknown",
             "config_phase": "unknown",
             "agent_advice": "",
+            "hidden_warnings": [error] if error else [],
+            "enrichment_status": "fallback",
+            "enrichment_error": error,
+        }
+    if language.lower() in {"bash", "shell", "sh"}:
+        return {
+            "agent_hook": f"Use this shell {chunk.symbol_kind or 'pattern'} chunk for {chunk.symbol_fqn or chunk.document_name}; prefer safe quoting, explicit checks, and a shellcheck/shfmt/test feedback loop.",
+            "perf_tier": "unknown",
+            "safety_contract": "Validate quoting, word splitting, globbing, command substitution, traps, tempfiles, permissions, destructive commands, and ShellCheck diagnostics against the source text.",
+            "lifecycle_model": "Shell script execution lifecycle: parse with bash -n, lint with shellcheck, format with shfmt, test with bats or fixture scripts, and clean up resources with traps.",
+            "shell_dialect": str(chunk.metadata.get("shell_dialect") or _shell_dialect(chunk.text, chunk.module_path)),
+            "portability_scope": "unknown",
+            "strict_mode_guidance": "Use strict mode only with understood errexit/nounset/pipefail boundaries; guard expected failures explicitly.",
+            "quoting_contract": 'Quote expansions by default, use arrays for multi-word values, and use "$@" for argument forwarding.',
+            "error_handling_contract": "Check command exits directly in if/while or with immediate captures; do not mask failures with declare/local assignment.",
+            "tempfile_contract": "Use mktemp and trap-based cleanup when temporary paths are needed.",
+            "command_safety": str(chunk.metadata.get("command_safety") or "safe"),
+            "feedback_loop": ["bash -n", "shellcheck -x", "shfmt -d", "bats"],
+            "task_intents": [chunk.artifact_kind] if chunk.artifact_kind else ["shell scripting"],
+            "query_aliases": _chunk_identity_terms(chunk),
+            "agent_query_hints": ["shellcheck", "safe bash", "quoting", "bash -n", "shfmt"],
+            "api_contract": "unknown",
+            "version_scope": "unknown",
+            "performance_notes": "unknown",
+            "canonical_examples": [],
+            "anti_patterns": [],
+            "verification_hints": ["bash -n script.sh", "shellcheck -x script.sh", "shfmt -d script.sh"],
+            "related_interfaces": [],
+            "related_symbols": [],
+            "agent_actions": ["lint with ShellCheck", "format with shfmt", "run syntax checks", "add fixture tests"],
+            "evidence_spans": [],
+            "what_to_use": "Safe shell patterns grounded in ShellCheck, shell style guidance, and defensive scripting sources.",
+            "when_to_use": "Use for writing, reviewing, or repairing Bash/POSIX shell scripts and developer automation.",
+            "do_not_use": "Do not use to justify unquoted expansions, eval, curl-pipe-shell installers, unsafe rm -rf paths, or unchecked cd.",
+            "minimal_example": "shellcheck -x script.sh && shfmt -d script.sh && bash -n script.sh",
             "hidden_warnings": [error] if error else [],
             "enrichment_status": "fallback",
             "enrichment_error": error,
@@ -3808,6 +4223,8 @@ def _build_rows(
                     if language == "godot"
                     else "tc39/proposals"
                     if language == "ecma"
+                    else "koalaman/shellcheck"
+                    if language == "bash"
                     else "hashicorp/terraform"
                 )
             ),
@@ -3849,6 +4266,8 @@ def _build_rows(
                     if language == "godot"
                     else ECMA_PROMPT_ID
                     if language == "ecma"
+                    else BASH_PROMPT_ID
+                    if language == "bash"
                     else TERRAFORM_PROMPT_ID
                 )
             ),
@@ -3893,6 +4312,8 @@ def _default_repo_for_language(language: str) -> str:
         if language == "godot"
         else "github.com/tc39/proposals"
         if language == "ecma"
+        else "github.com/koalaman/shellcheck"
+        if language == "bash"
         else "github.com/hashicorp/terraform"
     )
 
@@ -3911,6 +4332,8 @@ def _default_prompt_id_for_language(language: str) -> str:
         if language == "godot"
         else ECMA_PROMPT_ID
         if language == "ecma"
+        else BASH_PROMPT_ID
+        if language == "bash"
         else TERRAFORM_PROMPT_ID
     )
 
@@ -3932,6 +4355,8 @@ def _resolve_language_tag(language: str, *, latest_tag: str, source_version: str
         return resolve_latest_terraform_tag()
     if language == "ecma":
         return resolve_latest_ecma_tag()
+    if language == "bash":
+        return "main"
     raise SynPackError(f"unsupported language pack: {language}")
 
 
@@ -4006,6 +4431,8 @@ def _extract_chunks_for_language(
         return extract_terraform_chunks(source_root, config=config, tag=tag, provider_schema=provider_schema)
     if language == "ecma":
         return extract_ecma_chunks(source_root, config=config, tag=tag)
+    if language == "bash":
+        return extract_bash_chunks(source_root, config=config, tag=tag)
     return extract_quarkus_chunks(source_root, config=config, tag=tag)
 
 
@@ -4146,7 +4573,7 @@ def prepare_staged_language_pack(
     doc_language: str = "",
 ) -> dict[str, Any]:
     language = language.lower().strip()
-    if language not in {"go", "rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+    if language not in SUPPORTED_LANGUAGE_PACKS:
         raise SynPackError(f"unsupported language pack: {language}")
     enrichment_provider = _normalize_enrichment_provider(enrichment_provider)
     work = Path(work_dir)
@@ -4170,9 +4597,9 @@ def prepare_staged_language_pack(
         "tag": resolved_tag,
         "source_dir": str(source_root),
     }
-    if language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"} and not source_dir:
+    if language in AUX_SOURCE_LANGUAGES and not source_dir:
         _clone_aux_sources(config, source_root, sources_lock)
-    elif language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+    elif language in AUX_SOURCE_LANGUAGES:
         include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
         sources_lock["aux_sources"] = [
             {
@@ -4554,7 +4981,7 @@ def build_language_pack(
     doc_language: str = "",
 ) -> dict[str, Any]:
     language = language.lower().strip()
-    if language not in {"go", "rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+    if language not in SUPPORTED_LANGUAGE_PACKS:
         raise SynPackError(f"unsupported language pack: {language}")
     enrichment_provider = _normalize_enrichment_provider(enrichment_provider)
     config_path = Path(pack_config) if pack_config else _default_config_path(language)
@@ -4586,6 +5013,8 @@ def build_language_pack(
                             if language == "godot"
                             else "github.com/tc39/proposals"
                             if language == "ecma"
+                            else "github.com/koalaman/shellcheck"
+                            if language == "bash"
                             else "github.com/hashicorp/terraform"
                         )
                     ),
@@ -4595,14 +5024,14 @@ def build_language_pack(
         sources_lock = {
             "repo": config.get(
                 "repo",
-                f"github.com/{'golang/go' if language == 'go' else 'rust-lang/rust' if language == 'rust' else 'quarkusio/quarkus' if language == 'quarkus' else 'python/cpython' if language == 'python' else 'godotengine/godot' if language == 'godot' else 'tc39/proposals' if language == 'ecma' else 'hashicorp/terraform'}",
+                f"github.com/{'golang/go' if language == 'go' else 'rust-lang/rust' if language == 'rust' else 'quarkusio/quarkus' if language == 'quarkus' else 'python/cpython' if language == 'python' else 'godotengine/godot' if language == 'godot' else 'tc39/proposals' if language == 'ecma' else 'koalaman/shellcheck' if language == 'bash' else 'hashicorp/terraform'}",
             ),
             "tag": resolved_tag,
             "source_dir": str(source_root),
         }
-        if language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"} and not source_dir:
+        if language in AUX_SOURCE_LANGUAGES and not source_dir:
             _clone_aux_sources(config, source_root, sources_lock)
-        elif language in {"rust", "quarkus", "python", "godot", "terraform", "ecma"}:
+        elif language in AUX_SOURCE_LANGUAGES:
             include = config.get("include", {}) if isinstance(config.get("include"), dict) else {}
             sources_lock["aux_sources"] = [
                 {
@@ -4628,6 +5057,8 @@ def build_language_pack(
             )
         elif language == "ecma":
             chunks = extract_ecma_chunks(source_root, config=config, tag=resolved_tag)
+        elif language == "bash":
+            chunks = extract_bash_chunks(source_root, config=config, tag=resolved_tag)
         else:
             chunks = extract_quarkus_chunks(source_root, config=config, tag=resolved_tag)
         if max_chunks:
@@ -4653,6 +5084,8 @@ def build_language_pack(
                 if language == "godot"
                 else ECMA_PROMPT_ID
                 if language == "ecma"
+                else BASH_PROMPT_ID
+                if language == "bash"
                 else TERRAFORM_PROMPT_ID
             )
         )
