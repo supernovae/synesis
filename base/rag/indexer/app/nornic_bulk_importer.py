@@ -28,6 +28,7 @@ from .nornic_writer import (
 )
 from .schema import EMBEDDING_DIM, ensure_synesis_catalog
 from .synpack import (
+    V2_API_GROUP_VERSIONS_PATH,
     V2_CHUNKS_PATH,
     V2_CONCEPTS_PATH,
     V2_CONSTRAINTS_PATH,
@@ -39,8 +40,14 @@ from .synpack import (
     V2_MODULES_PATH,
     V2_PACKAGES_PATH,
     V2_PATTERNS_PATH,
+    V2_PLATFORM_COMMANDS_PATH,
+    V2_PLATFORM_CONSTRAINTS_PATH,
     V2_QUALITY_PATH,
+    V2_RESOURCE_KINDS_PATH,
+    V2_RISK_PATTERNS_PATH,
+    V2_SCHEMA_PROPERTIES_PATH,
     V2_SYMBOLS_PATH,
+    V2_VALIDATION_RECIPES_PATH,
     V2_VECTOR_BINARY_PATH,
     V2_VECTOR_INDEX_PATH,
     SynPackError,
@@ -66,6 +73,13 @@ _V2_NODE_FILES: tuple[tuple[str, str], ...] = (
     (V2_CONTEXT_CARDS_PATH, "ContextCard"),
     (V2_EVAL_CASES_PATH, "EvalCase"),
     (V2_EXTERNAL_REFS_PATH, "ExternalRef"),
+    (V2_RESOURCE_KINDS_PATH, "ResourceKind"),
+    (V2_API_GROUP_VERSIONS_PATH, "ApiGroupVersion"),
+    (V2_SCHEMA_PROPERTIES_PATH, "SchemaProperty"),
+    (V2_PLATFORM_CONSTRAINTS_PATH, "PlatformConstraint"),
+    (V2_PLATFORM_COMMANDS_PATH, "PlatformCommand"),
+    (V2_VALIDATION_RECIPES_PATH, "ValidationRecipe"),
+    (V2_RISK_PATTERNS_PATH, "RiskPattern"),
 )
 
 

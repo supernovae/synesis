@@ -1,0 +1,17 @@
+platform: kubernetes
+domain: kubernetes
+pack_id: kubernetes-latest
+source_version: "1.30"
+prompt_id: platform_api_schema_architect_v1
+prompts:
+  - id: platform_api_schema_architect_v1
+    path: ../prompts/platform_api_schema_architect_v1.md
+  - id: platform_manifest_safety_architect_v1
+    path: ../prompts/platform_manifest_safety_architect_v1.md
+  - id: platform_cli_workflow_architect_v1
+    path: ../prompts/platform_cli_workflow_architect_v1.md
+openapi_specs:
+  - name: kubernetes-core-v1
+    path: base/rag/indexer/fixtures/platform/kubernetes-core-v1.openapi.yaml
+docs: []
+cli_docs: []

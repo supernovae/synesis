@@ -1,0 +1,27 @@
+platform: openshift
+domain: openshift
+pack_id: openshift-latest
+source_version: "4.16"
+prompt_id: platform_api_schema_architect_v1
+prompts:
+  - id: platform_api_schema_architect_v1
+    path: ../prompts/platform_api_schema_architect_v1.md
+  - id: platform_manifest_safety_architect_v1
+    path: ../prompts/platform_manifest_safety_architect_v1.md
+  - id: platform_cli_workflow_architect_v1
+    path: ../prompts/platform_cli_workflow_architect_v1.md
+  - id: platform_migration_deprecation_architect_v1
+    path: ../prompts/platform_migration_deprecation_architect_v1.md
+  - id: platform_golden_path_architect_v1
+    path: ../prompts/platform_golden_path_architect_v1.md
+openapi_specs:
+  - name: kubernetes-core-v1
+    path: base/rag/indexer/fixtures/platform/kubernetes-core-v1.openapi.yaml
+  - name: openshift-route-v1
+    path: base/rag/indexer/fixtures/platform/openshift-route-v1.openapi.yaml
+  - name: openshift-security-v1
+    path: base/rag/indexer/fixtures/platform/openshift-security-v1.openapi.yaml
+docs: []
+cli_docs: []
+platform_pack_dependencies:
+  - kubernetes

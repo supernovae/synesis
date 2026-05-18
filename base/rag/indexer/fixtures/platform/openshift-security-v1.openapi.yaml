@@ -1,0 +1,28 @@
+openapi: 3.0.0
+info:
+  title: OpenShift Security fixture
+  version: v1
+components:
+  schemas:
+    com.github.openshift.api.security.v1.SecurityContextConstraints:
+      type: object
+      description: SecurityContextConstraints controls security permissions admitted for pods.
+      x-kubernetes-group-version-kind:
+        - group: security.openshift.io
+          version: v1
+          kind: SecurityContextConstraints
+      properties:
+        allowPrivilegedContainer:
+          type: boolean
+          default: false
+        allowHostDirVolumePlugin:
+          type: boolean
+          default: false
+        users:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string

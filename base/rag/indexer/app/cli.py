@@ -107,6 +107,10 @@ def main() -> None:
             "prepare-language",
             "enrich-language",
             "finalize-language",
+            "build-platform",
+            "prepare-platform",
+            "enrich-platform",
+            "finalize-platform",
         ],
         default="validate",
         help="SynPack command when --mode synpack",
@@ -118,6 +122,7 @@ def main() -> None:
     parser.add_argument("--pack-version", default="1.0.0", help="SynPack artifact version")
     parser.add_argument("--source-version", default="", help="Upstream documentation/source version")
     parser.add_argument("--language", default="", help="Language for build-language, e.g. go")
+    parser.add_argument("--platform", default="", help="Platform for build-platform, e.g. openshift")
     parser.add_argument("--doc-language", default="", help="Source document language/locale for SynPack builds")
     parser.add_argument("--pack-config", default="", help="Language pack config path")
     parser.add_argument("--enrichment-url", default="", help="OpenAI-compatible enrichment base URL")
@@ -384,6 +389,118 @@ def _run_synpack(args: argparse.Namespace) -> None:
                     source_dir=args.source_dir,
                     provider_schema=args.provider_schema,
                     doc_language=args.doc_language,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "prepare-platform":
+        from .platform_pack import prepare_staged_platform_pack
+
+        platform = (args.platform or "openshift").lower()
+        pack_id = args.pack_id or f"{platform}-latest"
+        work_dir = args.work_dir or f".work/synpacks/{pack_id}"
+        print(
+            json_dump(
+                prepare_staged_platform_pack(
+                    platform=platform,
+                    work_dir=work_dir,
+                    pack_config=args.pack_config,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "enrich-platform":
+        from .platform_pack import enrich_staged_platform_pack
+
+        if not args.work_dir:
+            logger.error("synpack_work_dir_required")
+            sys.exit(1)
+        print(
+            json_dump(
+                enrich_staged_platform_pack(
+                    work_dir=args.work_dir,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    enrichment_timeout=args.enrichment_timeout,
+                    request_limit=max(0, args.request_limit),
+                    batch_size=max(1, args.batch_size),
+                    skip_enrichment=args.skip_enrichment,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "finalize-platform":
+        from .platform_pack import finalize_staged_platform_pack
+
+        if not args.work_dir:
+            logger.error("synpack_work_dir_required")
+            sys.exit(1)
+        manifest_path = Path(args.work_dir) / "run_manifest.json"
+        pack_id = args.pack_id
+        if not pack_id and manifest_path.exists():
+            import json
+
+            pack_id = str(json.loads(manifest_path.read_text(encoding="utf-8")).get("pack_id") or "synpack")
+        output = args.output or f"dist/synpacks/{pack_id or 'synpack'}.synpack"
+        print(
+            json_dump(
+                finalize_staged_platform_pack(
+                    work_dir=args.work_dir,
+                    output_path=output,
+                    embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "build-platform":
+        from .platform_pack import build_platform_pack
+
+        platform = (args.platform or "openshift").lower()
+        pack_id = args.pack_id or f"{platform}-latest"
+        output = args.output or f"dist/synpacks/{pack_id}.synpack"
+        print(
+            json_dump(
+                build_platform_pack(
+                    platform=platform,
+                    pack_config=args.pack_config,
+                    output_path=output,
+                    pack_id=pack_id,
+                    pack_version=args.pack_version,
+                    source_version=args.source_version,
+                    enrichment_url=args.enrichment_url or args.llm_url,
+                    enrichment_model=args.enrichment_model,
+                    enrichment_provider=args.enrichment_provider,
+                    enrichment_api_key=args.enrichment_api_key,
+                    enrichment_concurrency=max(1, min(args.enrichment_concurrency, 8)),
+                    enrichment_max_tokens=args.enrichment_max_tokens,
+                    enrichment_timeout=args.enrichment_timeout,
+                    estimate_cost_only=args.estimate_cost_only,
+                    skip_enrichment=args.skip_enrichment,
+                    embedder_url=args.embedder_url,
+                    embedder_batch_size=args.embedder_batch_size,
+                    embedder_timeout=args.embedder_timeout,
+                    max_chunks=max(0, args.max_chunks),
+                    source_dir=args.source_dir,
                 )
             )
         )

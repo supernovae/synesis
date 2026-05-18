@@ -1,0 +1,36 @@
+openapi: 3.0.0
+info:
+  title: OpenShift Route fixture
+  version: v1
+components:
+  schemas:
+    com.github.openshift.api.route.v1.Route:
+      type: object
+      description: Route exposes a service at a host name and supports edge, reencrypt, and passthrough TLS termination.
+      x-kubernetes-group-version-kind:
+        - group: route.openshift.io
+          version: v1
+          kind: Route
+      required:
+        - spec
+      properties:
+        spec:
+          type: object
+          required:
+            - to
+          properties:
+            host:
+              type: string
+            to:
+              type: object
+            tls:
+              type: object
+              properties:
+                termination:
+                  type: string
+                  enum:
+                    - edge
+                    - reencrypt
+                    - passthrough
+                insecureEdgeTerminationPolicy:
+                  type: string

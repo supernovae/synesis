@@ -1,0 +1,80 @@
+openapi: 3.0.0
+info:
+  title: Kubernetes core fixture
+  version: v1
+components:
+  schemas:
+    io.k8s.api.apps.v1.Deployment:
+      type: object
+      description: Deployment enables declarative updates for Pods and ReplicaSets.
+      x-kubernetes-group-version-kind:
+        - group: apps
+          version: v1
+          kind: Deployment
+      required:
+        - spec
+      properties:
+        apiVersion:
+          type: string
+        kind:
+          type: string
+        metadata:
+          type: object
+        spec:
+          type: object
+          required:
+            - selector
+            - template
+          properties:
+            selector:
+              type: object
+              description: Label selector for pods. Existing selectors are immutable.
+              properties:
+                matchLabels:
+                  type: object
+            template:
+              type: object
+            replicas:
+              type: integer
+              default: 1
+    io.k8s.api.core.v1.Pod:
+      type: object
+      description: Pod is a collection of containers that can run on a host.
+      x-kubernetes-group-version-kind:
+        - group: ""
+          version: v1
+          kind: Pod
+      properties:
+        spec:
+          type: object
+          properties:
+            securityContext:
+              type: object
+            volumes:
+              type: array
+              items:
+                type: object
+                properties:
+                  hostPath:
+                    type: object
+    io.k8s.api.rbac.v1.Role:
+      type: object
+      description: Role grants permissions within a namespace.
+      x-kubernetes-group-version-kind:
+        - group: rbac.authorization.k8s.io
+          version: v1
+          kind: Role
+      properties:
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              verbs:
+                type: array
+                items:
+                  type: string
+              resources:
+                type: array
+                items:
+                  type: string

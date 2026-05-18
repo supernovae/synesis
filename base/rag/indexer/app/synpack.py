@@ -64,10 +64,26 @@ V2_EXAMPLES_PATH = "nodes/examples.jsonl"
 V2_CONTEXT_CARDS_PATH = "nodes/context_cards.jsonl"
 V2_EXTERNAL_REFS_PATH = "nodes/external_refs.jsonl"
 V2_EVAL_CASES_PATH = "nodes/eval_cases.jsonl"
+V2_RESOURCE_KINDS_PATH = "nodes/resource_kinds.jsonl"
+V2_API_GROUP_VERSIONS_PATH = "nodes/api_group_versions.jsonl"
+V2_SCHEMA_PROPERTIES_PATH = "nodes/schema_properties.jsonl"
+V2_PLATFORM_CONSTRAINTS_PATH = "nodes/platform_constraints.jsonl"
+V2_PLATFORM_COMMANDS_PATH = "nodes/platform_commands.jsonl"
+V2_VALIDATION_RECIPES_PATH = "nodes/validation_recipes.jsonl"
+V2_RISK_PATTERNS_PATH = "nodes/risk_patterns.jsonl"
 V2_ENRICHMENT_PATH = "enrichment/enrichment.jsonl"
 V2_QUALITY_PATH = "quality/report.json"
 V2_VECTOR_INDEX_PATH = "vectors/index.json"
 V2_VECTOR_BINARY_PATH = "vectors/chunks.f32"
+V2_EXTRA_NODE_FILES: dict[str, str] = {
+    "ResourceKind": V2_RESOURCE_KINDS_PATH,
+    "ApiGroupVersion": V2_API_GROUP_VERSIONS_PATH,
+    "SchemaProperty": V2_SCHEMA_PROPERTIES_PATH,
+    "PlatformConstraint": V2_PLATFORM_CONSTRAINTS_PATH,
+    "PlatformCommand": V2_PLATFORM_COMMANDS_PATH,
+    "ValidationRecipe": V2_VALIDATION_RECIPES_PATH,
+    "RiskPattern": V2_RISK_PATTERNS_PATH,
+}
 
 
 class SynPackError(ValueError):
@@ -361,6 +377,7 @@ def materialize_synpack_v2(
     edges: list[dict[str, Any]],
     manifest: dict[str, Any],
     root: str | Path,
+    extra_nodes_by_kind: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Write a NornicDB-native typed SynPack v2 bundle under ``root``.
 
@@ -381,6 +398,9 @@ def materialize_synpack_v2(
     examples: dict[str, dict[str, Any]] = {}
     context_cards: dict[str, dict[str, Any]] = {}
     external_refs: dict[str, dict[str, Any]] = {}
+    extra_nodes: dict[str, dict[str, dict[str, Any]]] = {
+        kind: {} for kind in V2_EXTRA_NODE_FILES if extra_nodes_by_kind and kind in extra_nodes_by_kind
+    }
     enrichment_rows: list[dict[str, Any]] = []
     typed_edges: list[dict[str, Any]] = [dict(edge) for edge in edges]
     node_ids: set[str] = set()
@@ -591,6 +611,37 @@ def materialize_synpack_v2(
     node_ids.update(constraints)
     node_ids.update(examples)
     node_ids.update(context_cards)
+    if extra_nodes_by_kind:
+        for kind, nodes_for_kind in extra_nodes_by_kind.items():
+            if kind not in V2_EXTRA_NODE_FILES:
+                raise SynPackError(f"unsupported SynPack v2 extra node kind: {kind}")
+            bucket = extra_nodes.setdefault(kind, {})
+            for node in nodes_for_kind:
+                if not isinstance(node, dict):
+                    raise SynPackError(f"{kind} extra node must be a JSON object")
+                node_id = str(node.get("id") or "").strip()
+                if not node_id:
+                    raise SynPackError(f"{kind} extra node is missing id")
+                normalized = {
+                    **_node_base(node, node_id=node_id, kind=kind, name=str(node.get("name") or node_id)),
+                    **node,
+                    "id": node_id[:192],
+                    "kind": kind,
+                    "pack": str(node.get("pack") or node.get("pack_id") or pack_id)[:96],
+                    "pack_id": str(node.get("pack_id") or node.get("pack") or pack_id)[:96],
+                    "pack_version": str(node.get("pack_version") or manifest.get("pack_version") or "")[:64],
+                    "source_version": str(
+                        node.get("source_version")
+                        or node.get("pack_source_version")
+                        or manifest.get("source_version")
+                        or ""
+                    )[:64],
+                    "domain": str(node.get("domain") or manifest.get("domain") or "")[:64],
+                    "content_type": str(node.get("content_type") or manifest.get("content_type") or "developer"),
+                }
+                bucket[node_id] = normalized
+        for bucket in extra_nodes.values():
+            node_ids.update(bucket)
 
     missing_before_external_refs = 0
     unresolved_edges = 0
@@ -642,6 +693,9 @@ def materialize_synpack_v2(
     _write_jsonl(root_path / V2_EXAMPLES_PATH, examples.values())
     _write_jsonl(root_path / V2_CONTEXT_CARDS_PATH, context_cards.values())
     _write_jsonl(root_path / V2_EXTERNAL_REFS_PATH, external_refs.values())
+    for kind, node_path in V2_EXTRA_NODE_FILES.items():
+        if kind in extra_nodes:
+            _write_jsonl(root_path / node_path, extra_nodes[kind].values())
     _write_jsonl(root_path / V2_ENRICHMENT_PATH, enrichment_rows)
 
     edge_counts = Counter(str(edge.get("type") or "").upper() for edge in typed_edges)
@@ -690,6 +744,8 @@ def materialize_synpack_v2(
         "ContextCard": len(context_cards),
         "ExternalRef": len(external_refs),
     }
+    for kind, bucket in extra_nodes.items():
+        node_counts[kind] = len(bucket)
     total_nodes = sum(node_counts.values())
     enrichment_coverage = enriched / len(rows) if rows else 1.0
     graph_resolution = 1.0 - (unresolved_edges / len(typed_edges)) if typed_edges else 1.0

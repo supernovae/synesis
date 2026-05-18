@@ -1,0 +1,12 @@
+platform: observability
+domain: observability
+pack_id: observability-latest
+source_version: pinned
+prompt_id: platform_golden_path_architect_v1
+prompts:
+  - id: platform_golden_path_architect_v1
+    path: ../prompts/platform_golden_path_architect_v1.md
+openapi_specs: []
+docs: []
+cli_docs: []
+scaffold_only: true
