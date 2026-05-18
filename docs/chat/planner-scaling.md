@@ -47,7 +47,9 @@ Target operating envelope remains **25-50+ concurrent users** with stable latenc
 - Clarification follow-up merge is implemented (original task + clarification answer merged for replanning).
 - Short quiz-option follow-up handling is implemented (`a)`, `b)`, etc.) by merging prior assistant quiz context before planning.
 
-## Objective TODO (Not Done Yet)
+## Objective TODO (post-v1.0)
+
+These items are not blocking for the v1.0 security tag. They are tracked here for future load-testing and observability hardening.
 
 1. Run and publish repeatable load gates at 25/35/50 concurrency (stream + non-stream), with pass/fail thresholds on p95 latency and error rate.
 2. Finalize OTEL propagation consistency across planner, yarn, mcp, and admin (`traceparent`/request correlation end-to-end validation, not just baseline spans).

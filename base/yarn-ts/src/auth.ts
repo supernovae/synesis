@@ -45,14 +45,16 @@ export class AuthResolver {
       tenantIds: [],
       role: "user",
       authMethod: "bearer",
-      tokenScopes: [],
+      tokenScopes: ["coder:default"],
       displayName: bearerIdentity.displayName,
     };
   }
 
   requireCoderScope(user: AuthUser): void {
     const scopes = user.tokenScopes;
-    if (!scopes || scopes.length === 0) return;
+    if (!scopes || scopes.length === 0) {
+      throw new Error("Insufficient scope for coder access");
+    }
     const allowedPrefixes = ["coder", "model:", "chat:"];
     if (scopes.some((s) => allowedPrefixes.some((p) => s.startsWith(p)))) return;
     throw new Error("Insufficient scope for coder access");

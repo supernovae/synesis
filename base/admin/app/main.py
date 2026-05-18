@@ -15,6 +15,7 @@ from pathlib import Path
 from app.auth import UserInfo, get_current_user
 from app.db.engine import engine
 from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
+from app.rate_limit import RateLimitMiddleware
 from app.rbac import trace_scope_filters
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -131,6 +132,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 from app.routers.acl import router as acl_router
 from app.routers.admin_mcp import internal_router as admin_mcp_internal_router

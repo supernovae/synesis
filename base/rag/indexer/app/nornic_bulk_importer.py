@@ -318,7 +318,6 @@ def bulk_load_synpack(
     tmp = Path(tempfile.mkdtemp(prefix="synpack-bulk-load-"))
     writer: NornicGraphWriter | None = None
     vectors: _VectorSidecar | None = None
-    constraint_suspended = False
     try:
         logger.info("synpack_bulk_extract_start", extra={"pack_id": pack_id, "pack_path": str(pack_path)})
         with zipfile.ZipFile(pack_path) as zf:
@@ -350,13 +349,6 @@ def bulk_load_synpack(
             raise SynPackError("bulk import requires vectors/index.json and vectors/chunks.f32")
         logger.info("synpack_bulk_vectors_ready", extra={"pack_id": pack_id})
 
-        # NornicDB has two bulk-load bottlenecks:
-        # 1. MERGE bug — UNIQUE constraint fires on any write, not just creates.
-        # 2. Incremental HNSW rebuild — vector index update per batch is O(n log n).
-        # Standard DB bulk-load pattern: drop indexes → insert → rebuild once.
-        writer.suspend_write_indexes()
-        constraint_suspended = True
-
         nodes = 0
         node_counts_by_kind: dict[str, int] = {}
         global_seen_ids: set[str] = set()
@@ -382,11 +374,6 @@ def bulk_load_synpack(
         edge_count = writer.upsert_edges(edges)
         logger.info("synpack_bulk_edges_complete", extra={"pack_id": pack_id, "edges": edge_count})
 
-        logger.info("synpack_bulk_index_rebuild_start", extra={"pack_id": pack_id})
-        writer.restore_write_indexes()
-        constraint_suspended = False
-        logger.info("synpack_bulk_index_rebuild_complete", extra={"pack_id": pack_id})
-
         logger.info("synpack_bulk_verify_start", extra={"pack_id": pack_id})
         actual_counts = writer.pack_counts(pack_id)
         _verify_counts(pack_id, quality_report, actual_counts)
@@ -408,13 +395,6 @@ def bulk_load_synpack(
             "verification": actual_counts,
             "quality": quality_report,
         }
-    except Exception:
-        if writer is not None and constraint_suspended:
-            try:
-                writer.restore_write_indexes()
-            except Exception:
-                logger.error("nornic_index_restore_failed_in_cleanup")
-        raise
     finally:
         if vectors is not None:
             vectors.close()

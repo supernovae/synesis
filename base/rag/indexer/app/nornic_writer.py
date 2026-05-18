@@ -13,7 +13,7 @@ from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 from synesis_telemetry import get_logger
 
-from .schema import GRAPH_EDGE_TYPES, SCHEMA_VERSION, SYNESIS_CATALOG
+from .schema import EMBEDDING_DIM, GRAPH_EDGE_TYPES, SCHEMA_VERSION, SYNESIS_CATALOG
 
 logger = get_logger("synesis.indexer.nornic")
 
@@ -24,8 +24,8 @@ NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
-NORNIC_BULK_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE", "250") or "250")
-NORNIC_BULK_META_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE", "1000") or "1000")
+NORNIC_BULK_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE", "500") or "500")
+NORNIC_BULK_META_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE", "2000") or "2000")
 PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
     "1",
     "true",
@@ -64,7 +64,11 @@ class NornicGraphWriter:
         self.driver.close()
 
     _CONSTRAINT_DDL = "CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE"
-    _VECTOR_INDEX_DDL = "CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)"
+    _VECTOR_INDEX_DDL = (
+        "CREATE VECTOR INDEX embeddings IF NOT EXISTS "
+        "FOR (n:ContentNode) ON (n.embedding) "
+        f"OPTIONS {{ indexConfig: {{ `vector.dimensions`: {EMBEDDING_DIM}, `vector.similarity_function`: 'cosine' }} }}"
+    )
     _SCALAR_INDEX_DDL: ClassVar[list[str]] = [
         "CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)",
         "CREATE INDEX content_node_source_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)",
@@ -114,11 +118,10 @@ class NornicGraphWriter:
     def suspend_write_indexes(self) -> None:
         """Drop all indexes and constraints before bulk writes.
 
-        NornicDB has two issues that make incremental loading slow:
-        1. MERGE bug — UNIQUE constraint fires on any write, not just creates.
-        2. Incremental HNSW rebuild — vector index update per batch is O(n log n).
-
-        Standard database bulk-load pattern: drop indexes, insert, rebuild once.
+        Utility for extreme bulk-load scenarios where removing indexes during
+        INSERT + rebuilding once afterward is faster than incremental updates.
+        NornicDB v1.1.0+ handles normal MERGE batches efficiently, so this is
+        only needed for very large (>1M node) initial loads.
         """
         with self.driver.session(database=self.database) as session:
             session.run("DROP CONSTRAINT content_node_id IF EXISTS")
@@ -128,11 +131,7 @@ class NornicGraphWriter:
         logger.info("nornic_write_indexes_suspended")
 
     def restore_write_indexes(self) -> None:
-        """Recreate all indexes and constraints after bulk writes.
-
-        One-shot HNSW construction over all vectors is much faster than
-        incremental per-batch index updates.
-        """
+        """Recreate all indexes and constraints after suspend_write_indexes."""
         with self.driver.session(database=self.database) as session:
             session.run(self._CONSTRAINT_DDL)
         logger.info("nornic_unique_constraint_restored")
@@ -344,6 +343,8 @@ class NornicGraphWriter:
 
     @staticmethod
     def _bulk_upsert_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
+        # UNWIND + MERGE on a single key hits UnwindSimpleMergeBatch hot path
+        # in NornicDB v1.1.0+ for O(1) per-row lookup instead of full scan.
         tx.run(
             """
             UNWIND $rows AS row
@@ -434,12 +435,11 @@ class NornicGraphWriter:
 
     @staticmethod
     def _write_edges_tx(tx: Any, edge_type: str, rows: list[dict[str, Any]]) -> None:
+        # UNWIND + two MATCH + MERGE targets the batch edge hot path.
         cypher = f"""
         UNWIND $rows AS row
-        MATCH (a:ContentNode)
-        WHERE a.id = row.source_id
-        MATCH (b:ContentNode)
-        WHERE b.id = row.target_id
+        MATCH (a:ContentNode {{id: row.source_id}})
+        MATCH (b:ContentNode {{id: row.target_id}})
         MERGE (a)-[r:{edge_type}]->(b)
         SET r += row.props
         """

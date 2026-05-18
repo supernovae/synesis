@@ -132,6 +132,39 @@ After rollout, verify:
 
 Cloudflare should be treated as the outer guardrail; these service-level controls remain required defense in depth.
 
+## Three-Layer Rate Limiting Architecture
+
+Synesis uses three independent rate limiting layers, each with a different purpose:
+
+### Layer 1: Cloudflare (edge)
+
+Enforced before traffic reaches the cluster. Configured in the Cloudflare dashboard as custom rate limiting rules. Protects against volumetric abuse and credential stuffing. See "Example rate limit rules" section below.
+
+### Layer 2: Ingress (cluster boundary)
+
+NGINX ingress annotations can enforce rate limits at the cluster edge. Add annotations per-ingress in `charts/synesis/values.yaml` under `ingress.items.<service>.annotations`:
+
+```yaml
+ingress:
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "30"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+```
+
+### Layer 3: Origin (per-pod, in-memory)
+
+Each service enforces its own rate limits at the application layer. These are per-pod counters, so effective limits scale linearly with replica count.
+
+| Service | Global env | Per-user env | Chart defaults |
+|---------|-----------|--------------|----------------|
+| planner-ts | `SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_MAX` / `_WINDOW` | `SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS` / `_WINDOW_MS` | 1200/min global, 30/min user |
+| yarn-ts | `SYNESIS_YARN_GLOBAL_RATE_LIMIT_MAX` / `_WINDOW` | `SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS` / `_WINDOW_MS` | 1200/min global, 30/min user |
+| synesis-mcp | `SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX` / `_WINDOW` | (per-route in code) | 1200/min global |
+| admin | `SYNESIS_ADMIN_RATE_LIMIT_MAX` / `_WINDOW_SECONDS` | `SYNESIS_ADMIN_AUTH_RATE_LIMIT_MAX`, `SYNESIS_ADMIN_RAG_RATE_LIMIT_MAX` | 120/min global, 20/min auth, 30/min RAG |
+
+For multi-replica deployments: per-pod limits mean the effective per-user limit is `limit * replicas`. Compensate with stricter Cloudflare rules or migrate to Redis-backed rate limiting (planner already supports `SYNESIS_PLANNER_TS_REDIS_URL`).
+
 ## Go-Live Checklist (Short)
 
 Use this as a final pre-exposure runbook.

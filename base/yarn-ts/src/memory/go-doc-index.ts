@@ -9,9 +9,12 @@
  * full structural index service is wired up.
  */
 
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { FileInput } from "./structural-index.js";
 import type { StructuralIndex, FileIndexEntry, SymbolEntry } from "./types.js";
+
+const execFileAsync = promisify(execFile);
 
 const MAX_OUTPUT_CHARS = 32_000;
 const TIMEOUT_MS = 10_000;
@@ -20,16 +23,15 @@ const TIMEOUT_MS = 10_000;
  * Run `go doc ./...` in the project root and return the raw output.
  * Returns null if the command fails (no Go toolchain, not a Go project, etc.).
  */
-export function runGoDoc(projectRoot: string): string | null {
+export async function runGoDoc(projectRoot: string): Promise<string | null> {
   try {
-    const output = execSync("go doc ./...", {
+    const { stdout } = await execFileAsync("go", ["doc", "./..."], {
       cwd: projectRoot,
       timeout: TIMEOUT_MS,
       encoding: "utf-8",
       maxBuffer: MAX_OUTPUT_CHARS * 2,
-      stdio: ["pipe", "pipe", "pipe"],
     });
-    return output.slice(0, MAX_OUTPUT_CHARS);
+    return stdout.slice(0, MAX_OUTPUT_CHARS);
   } catch {
     return null;
   }
@@ -153,8 +155,8 @@ export function parseGoDocOutput(
  * All-in-one: run go doc, parse, return a structural index.
  * Returns null if go doc fails or produces no output.
  */
-export function buildGoDocIndex(projectRoot: string): StructuralIndex | null {
-  const output = runGoDoc(projectRoot);
+export async function buildGoDocIndex(projectRoot: string): Promise<StructuralIndex | null> {
+  const output = await runGoDoc(projectRoot);
   if (!output || output.trim().length < 20) return null;
 
   const index = parseGoDocOutput(output, projectRoot);

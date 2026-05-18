@@ -405,6 +405,10 @@ ingress:
   # when cloudflared.enabled=true; in that case ingress.enabled can stay false.
   enabled: false
   className: ""
+  # Recommended for production: add NGINX rate-limit annotations here or per-item.
+  # nginx.ingress.kubernetes.io/limit-rps: "30"
+  # nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+  # nginx.ingress.kubernetes.io/limit-connections: "20"
   annotations: {}
   tls:
     enabled: true
@@ -623,6 +627,19 @@ workloads:
           secretKeyRef:
             name: openfga-client-config
             key: auth-token
+      # Rate limiting (per-IP, in-memory)
+      - name: SYNESIS_ADMIN_RATE_LIMIT_MAX
+        value: "120"
+      - name: SYNESIS_ADMIN_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - name: SYNESIS_ADMIN_AUTH_RATE_LIMIT_MAX
+        value: "20"
+      - name: SYNESIS_ADMIN_AUTH_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - name: SYNESIS_ADMIN_RAG_RATE_LIMIT_MAX
+        value: "30"
+      - name: SYNESIS_ADMIN_RAG_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
     volumeMounts:
       - name: taxonomy-config
         mountPath: /etc/synesis/taxonomy_prompt_config.yaml
@@ -651,6 +668,8 @@ workloads:
     image:
       repository: ghcr.io/supernovae/synesis/planner-ts
       tag: latest
+    # Planner session state is externalized to Redis. Multi-replica is safe when
+    # SYNESIS_PLANNER_TS_REDIS_URL is set (required for replicas > 1).
     replicas: 2
     strategy:
       type: RollingUpdate
@@ -705,6 +724,15 @@ workloads:
         value: "5000"
       - name: SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES
         value: "5"
+      # Rate limiting (per-user + global, in-memory per pod)
+      - name: SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_MAX
+        value: "1200"
+      - name: SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_WINDOW
+        value: "1 minute"
+      - name: SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS
+        value: "30"
+      - name: SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS
+        value: "60000"
       - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_ENABLED
         value: "true"
       - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_INTERVAL_MS
@@ -730,7 +758,7 @@ workloads:
       - name: SYNESIS_NORNIC_DATABASE
         value: nornic
       - name: SYNESIS_RAG_AUTHZ_MODE
-        value: audit
+        value: enforce
       - name: SYNESIS_WEB_SEARCH_ENABLED
         value: "true"
       - name: SYNESIS_WEB_SEARCH_URL
@@ -788,7 +816,11 @@ workloads:
     image:
       repository: ghcr.io/supernovae/synesis/yarn-ts
       tag: latest
-    replicas: 2
+    # Yarn keeps critical session state (governor, dedup, snapshots) in-memory.
+    # Redis stores SessionRecord but not all per-session maps. Until state is
+    # fully externalized, multi-replica requires session affinity at the ingress
+    # layer. Default to 1 for safe production deployments.
+    replicas: 1
     ports:
       - name: http
         containerPort: 8000
@@ -836,6 +868,15 @@ workloads:
         value: "4000"
       - name: SYNESIS_YARN_MAX_CONCURRENT_STREAMS
         value: "50"
+      # Rate limiting (per-user + global, in-memory per pod)
+      - name: SYNESIS_YARN_GLOBAL_RATE_LIMIT_MAX
+        value: "1200"
+      - name: SYNESIS_YARN_GLOBAL_RATE_LIMIT_WINDOW
+        value: "1 minute"
+      - name: SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS
+        value: "30"
+      - name: SYNESIS_YARN_RATE_LIMIT_WINDOW_MS
+        value: "60000"
       - name: SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH
         value: "100"
       - name: SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS
@@ -1051,6 +1092,10 @@ workloads:
         value: /mcp
       - name: SYNESIS_MCP_AUTHZ_MODE
         value: enforce
+      - name: SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX
+        value: "1200"
+      - name: SYNESIS_MCP_GLOBAL_RATE_LIMIT_WINDOW
+        value: "1 minute"
       - name: SYNESIS_PLANNER_URL
         value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
       - name: SYNESIS_OPENFGA_API_URL
@@ -1277,7 +1322,7 @@ workloads:
       #   repository: neo4j
       #   tag: "5-community"
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
-      tag: latest
+      tag: v1.1.0
     ports:
       - name: bolt
         containerPort: 7687
@@ -1629,9 +1674,9 @@ jobs:
         - name: SYNESIS_NORNIC_URI
           value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
         - name: SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE
-          value: "250"
+          value: "500"
         - name: SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE
-          value: "1000"
+          value: "2000"
         - name: SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE
           value: "2500"
         - name: SYNESIS_CONTENT_PACK_MAX_JOBS

@@ -18,16 +18,39 @@ function messageContentToText(value: unknown): string {
   return "";
 }
 
+const FunctionCallSchema = z.object({
+  name: z.string().max(256),
+  arguments: z.string().optional().default("{}"),
+});
+
+const ToolCallSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("function").optional().default("function"),
+  function: FunctionCallSchema,
+}).passthrough();
+
 const MessageSchema = z.object({
   role: z.enum(["system", "developer", "user", "assistant", "tool"]),
   content: z.unknown().optional().transform(messageContentToText),
-  name: z.string().optional(),
+  name: z.string().max(256).optional(),
   tool_call_id: z.string().optional(),
-  tool_calls: z.array(z.unknown()).optional(),
+  tool_calls: z.array(ToolCallSchema).optional(),
 }).passthrough().transform((message) => ({
   ...message,
   role: message.role === "developer" ? "system" as const : message.role,
 }));
+
+const ToolFunctionSchema = z.object({
+  name: z.string().max(256),
+  description: z.string().max(4096).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
+  strict: z.boolean().optional(),
+}).passthrough();
+
+const ToolDefinitionSchema = z.object({
+  type: z.literal("function"),
+  function: ToolFunctionSchema,
+}).passthrough();
 
 const ResponseFormatSchema = z.object({
   type: z.string(),
@@ -46,9 +69,12 @@ const ToolChoiceSchema = z.union([
 
 const StringOrStringArraySchema = z.union([z.string(), z.array(z.string())]);
 
+const MAX_MESSAGES = 512;
+const MAX_TOOLS = 128;
+
 export const ChatCompletionRequestSchema = z.object({
   model: z.string().default("Synesis"),
-  messages: z.array(MessageSchema).min(1),
+  messages: z.array(MessageSchema).min(1).max(MAX_MESSAGES),
   stream: z.boolean().optional().default(false),
   stream_options: StreamOptionsSchema.optional(),
   max_tokens: z.number().int().optional(),
@@ -68,7 +94,7 @@ export const ChatCompletionRequestSchema = z.object({
   logprobs: z.boolean().optional(),
   top_logprobs: z.number().int().optional(),
   n: z.number().int().optional(),
-  tools: z.array(z.unknown()).optional(),
+  tools: z.array(ToolDefinitionSchema).max(MAX_TOOLS).optional(),
   tool_choice: ToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
   response_format: ResponseFormatSchema.optional(),

@@ -3348,7 +3348,7 @@ function isQwenModelName(modelName: string | undefined): boolean {
   return /qwen/i.test((modelName ?? "").toLowerCase());
 }
 
-function enrichWithFrameAndManifest(
+async function enrichWithFrameAndManifest(
   messages: Array<{ role: string; content: unknown }>,
   sessionKey: string,
   adapterBlock?: string,
@@ -3358,7 +3358,7 @@ function enrichWithFrameAndManifest(
   topLevelDirs?: string[],
   sessionState?: SessionState | null,
   stateChannels?: { chatStateBlock?: string | null; fileStateBlock?: string | null },
-): EnrichResult {
+): Promise<EnrichResult> {
   const out = [...messages];
   let detectedPhase: WorkflowPhase | undefined;
   let detectedGoal: string | undefined;
@@ -3507,7 +3507,7 @@ function enrichWithFrameAndManifest(
     && pathHints?.projectRoot
     && projectLanguageForExt === "go"
   ) {
-    goDocOutputForExt = runGoDoc(pathHints.projectRoot);
+    goDocOutputForExt = await runGoDoc(pathHints.projectRoot);
   }
   const extendedMemoryInjected = generateExtendedMemoryContext(config, {
     structuralIndex: null,
@@ -8990,7 +8990,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMemBlocks = oaiMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
-  const oaiEnriched = enrichWithFrameAndManifest(
+  const oaiEnriched = await enrichWithFrameAndManifest(
     oaiScopedMessages as never,
     sessionKey,
     effectiveOaiAdapterBlock,
@@ -12675,7 +12675,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMemBlocks = claudeMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
-  const claudeEnriched = enrichWithFrameAndManifest(
+  const claudeEnriched = await enrichWithFrameAndManifest(
     claudeScopedMessages as never,
     claudeSessionKey,
     effectiveClaudeAdapterBlock,

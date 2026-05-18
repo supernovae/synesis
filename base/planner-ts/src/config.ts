@@ -205,7 +205,7 @@ const EnvSchema = z.object({
    * audit: derive scope from auth context and log ignored caller-provided scope hints.
    * enforce: same filtering behavior, with response diagnostics marked as enforced.
    */
-  SYNESIS_RAG_AUTHZ_MODE: z.enum(["audit", "enforce"]).default("audit"),
+  SYNESIS_RAG_AUTHZ_MODE: z.enum(["audit", "enforce"]).default("enforce"),
 
   // --- Web search ---
   SYNESIS_WEB_SEARCH_ENABLED: z

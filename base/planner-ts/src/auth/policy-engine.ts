@@ -43,7 +43,7 @@ export interface AuthorizationPolicyEngine {
 }
 
 function hasScope(scopes: string[], prefix: string): boolean {
-  if (scopes.length === 0) return true;
+  if (scopes.length === 0) return false;
   return scopes.some((scope) => scope.startsWith(prefix));
 }
 

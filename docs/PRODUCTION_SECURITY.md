@@ -54,28 +54,32 @@ Set these environment variables on the planner deployment:
 ```yaml
 env:
   # Require Bearer token on all requests
-  - name: SYNESIS_PLANNER_REQUIRE_BEARER_AUTH
+  - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
     value: "true"
 
   # Trust forwarded identity headers from verified upstreams
-  - name: SYNESIS_TRUST_FORWARDED_IDENTITY_HEADERS
+  - name: SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS
     value: "true"
 
   # CRITICAL: Reject requests with forwarded identity headers
   # from bearers that are not internal service tokens
-  - name: SYNESIS_STRICT_FORWARDED_IDENTITY_MODE
+  - name: SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE
     value: "true"
 
   # CRITICAL: Do not accept model API key for identity trust
-  - name: SYNESIS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY
+  - name: SYNESIS_PLANNER_TS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY
     value: "false"
 
   # Internal service token (from shared secret)
-  - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+  - name: SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN
     valueFrom:
       secretKeyRef:
         name: synesis-internal-service-auth
         key: token
+
+  # RAG authorization mode — must be "enforce" for production
+  - name: SYNESIS_RAG_AUTHZ_MODE
+    value: "enforce"
 ```
 
 ### Yarn

@@ -149,20 +149,20 @@ function responseInputToMessages(input: OpenAIResponsesRequest["input"]): ChatMe
 function responsesToolsToChatTools(tools: OpenAIResponsesRequest["tools"]): OpenAIChatCompletionRequest["tools"] {
   if (!tools) return undefined;
   return tools.map((tool) => {
-    if (!tool || typeof tool !== "object") return tool;
-    const row = tool as Record<string, unknown>;
-    if (row.type === "function" && typeof row.name === "string") {
-      return {
-        type: "function",
-        function: {
-          name: row.name,
-          description: typeof row.description === "string" ? row.description : undefined,
-          parameters: row.parameters ?? {},
-          strict: typeof row.strict === "boolean" ? row.strict : undefined,
-        },
-      };
+    if (!tool || typeof tool !== "object") {
+      return { type: "function" as const, function: { name: "unknown" } };
     }
-    return tool;
+    const row = tool as Record<string, unknown>;
+    const name = typeof row.name === "string" ? row.name : "unknown";
+    return {
+      type: "function" as const,
+      function: {
+        name,
+        description: typeof row.description === "string" ? row.description : undefined,
+        parameters: (row.parameters ?? {}) as Record<string, unknown>,
+        strict: typeof row.strict === "boolean" ? row.strict : undefined,
+      },
+    };
   });
 }
 

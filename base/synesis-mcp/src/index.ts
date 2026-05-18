@@ -130,12 +130,9 @@ async function resolvePatAndAuth(
 }
 
 async function enforceFga(patUser: PatUser): Promise<void> {
-  if (config.SYNESIS_MCP_AUTHZ_MODE === "disabled") return;
-  if (patUser.userId === "mcp-internal") return;
   if (!getFgaClient()) {
     if (config.SYNESIS_MCP_AUTHZ_MODE === "audit") {
-      app.log.warn({ userId: patUser.userId }, "MCP OpenFGA audit: OpenFGA is not configured");
-      return;
+      app.log.warn({ userId: patUser.userId }, "MCP FGA not configured — denying request");
     }
     mcpPolicyDenials++;
     throw new Error("policy_denied");
@@ -143,8 +140,7 @@ async function enforceFga(patUser: PatUser): Promise<void> {
   const r = await fgaCheckMcpTools(patUser.userId);
   if (!r.allowed) {
     if (config.SYNESIS_MCP_AUTHZ_MODE === "audit") {
-      app.log.warn({ userId: patUser.userId, resolution: r.resolution }, "MCP OpenFGA audit: authorization would be denied");
-      return;
+      app.log.warn({ userId: patUser.userId, resolution: r.resolution }, "MCP FGA denied (audit log)");
     }
     mcpPolicyDenials++;
     throw new Error("policy_denied");
@@ -174,13 +170,20 @@ void app.register(fastifyRateLimit, {
 const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
 const mcpAuthPreHandler = createRouteRateLimit(mcpAuthRateLimit);
 
-/** Public catalog for UIs (Integrations page) — no secrets; same tool surface as Streamable MCP. */
-app.get("/v1/synesis-tools", async () => ({
-  service: "synesis-mcp",
-  protocol: "mcp-streamable-http",
-  mcp_path: config.SYNESIS_MCP_HTTP_PATH,
-  tools: getSynesisPlatformCatalog(),
-}));
+/** Tool catalog for UIs (Integrations page) — requires auth; exposes metadata only. */
+app.get("/v1/synesis-tools", async (req, reply) => {
+  try {
+    await resolvePatAndAuth(req);
+  } catch {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+  }
+  return {
+    service: "synesis-mcp",
+    protocol: "mcp-streamable-http",
+    mcp_path: config.SYNESIS_MCP_HTTP_PATH,
+    tools: getSynesisPlatformCatalog(),
+  };
+});
 
 app.route({
   method: ["GET", "POST", "DELETE"],

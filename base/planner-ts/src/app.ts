@@ -1538,15 +1538,22 @@ export function buildApp(config: AppConfig): FastifyInstance {
     },
   );
 
-  app.get("/v1/models", async () => ({
-    object: "list",
-    data: listModelIds(config).map((id) => ({
-      id,
-      object: "model",
-      created: Math.floor(Date.now() / 1000),
-      owned_by: "synesis"
-    }))
-  }));
+  app.get("/v1/models", async (request, reply) => {
+    try {
+      await resolveAuthContext(request, config);
+    } catch {
+      return reply.code(401).send({ error: { message: "Authentication required", type: "auth_error" } });
+    }
+    return {
+      object: "list",
+      data: listModelIds(config).map((id) => ({
+        id,
+        object: "model",
+        created: Math.floor(Date.now() / 1000),
+        owned_by: "synesis"
+      }))
+    };
+  });
 
   app.delete(
     "/v1/memory/:conversationId",

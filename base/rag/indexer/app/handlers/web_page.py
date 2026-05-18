@@ -73,9 +73,7 @@ class WebPageHandler:
 
         policy = self._build_policy(config)
 
-        pages = asyncio.get_event_loop().run_until_complete(
-            _crawl_pages(url, config, policy),
-        )
+        pages = asyncio.run(_crawl_pages(url, config, policy))
         if not pages:
             logger.warning("No content retrieved from %s", url)
             return []

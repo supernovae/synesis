@@ -82,7 +82,7 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
       orgId: "",
       tenantIds: [],
       role: "readonly",
-      tokenScopes: [],
+      tokenScopes: config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH ? [] : ["model:readonly"],
       authMethod: "anonymous",
       trustedForwardedIdentity: false
     };
@@ -113,7 +113,7 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
     orgId: "",
     tenantIds: [],
     role: "user",
-    tokenScopes: scopeHeader,
+    tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
     authMethod: "bearer",
     trustedForwardedIdentity: false
   };

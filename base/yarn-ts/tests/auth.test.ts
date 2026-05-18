@@ -71,7 +71,7 @@ describe("AuthResolver", () => {
       const user = await resolver.resolve("Bearer some-api-key-123");
       expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);
       expect(user.authMethod).toBe("bearer");
-      expect(user.tokenScopes).toEqual([]);
+      expect(user.tokenScopes).toEqual(["coder:default"]);
 
       const again = await resolver.resolve("Bearer some-api-key-123");
       expect(again.userId).toBe(user.userId);
@@ -142,10 +142,10 @@ describe("AuthResolver", () => {
       ).not.toThrow();
     });
 
-    it("passes for user with empty scopes (permissive default)", () => {
+    it("denies user with empty scopes (fail-closed)", () => {
       expect(() =>
         resolver.requireCoderScope({ userId: "u1", orgId: "", role: "user", authMethod: "bearer", tokenScopes: [] })
-      ).not.toThrow();
+      ).toThrow("Insufficient scope");
     });
 
     it("throws for user with only unrelated scopes", () => {

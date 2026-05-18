@@ -28,7 +28,7 @@ const EnvSchema = z.object({
   SYNESIS_OPENFGA_STORE_ID: z.string().optional(),
   SYNESIS_OPENFGA_AUTH_TOKEN: z.string().optional(),
   SYNESIS_OPENFGA_MODEL_ID: z.string().optional(),
-  SYNESIS_MCP_AUTHZ_MODE: z.enum(["disabled", "audit", "enforce"]).default("audit"),
+  SYNESIS_MCP_AUTHZ_MODE: z.enum(["audit", "enforce"]).default("enforce"),
   /** When true, allow requests with only internal service token (no PAT) — cluster internal */
   SYNESIS_MCP_ALLOW_INTERNAL_ONLY: z
     .enum(["true", "false"])

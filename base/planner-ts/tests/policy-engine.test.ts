@@ -48,6 +48,23 @@ describe("authorization policy engine (OpenFGA)", () => {
     expect(decision.matchedRules).toContain("deny_openfga_planner_invoke");
   });
 
+  it("denies when token has no scopes (fail-closed)", async () => {
+    const engine = createAuthorizationPolicyEngine(makeConfig());
+    const decision = await engine.authorize("chat.completions", "invoke", {
+      userId: "u1",
+      userEmail: "u1@test.com",
+      orgId: "",
+      tenantIds: [],
+      role: "user",
+      tokenScopes: [],
+      authMethod: "bearer",
+      trustedForwardedIdentity: false
+    });
+    expect(decision.allow).toBe(false);
+    expect(decision.rejectReason).toContain("scope");
+    expect(decision.matchedRules).toContain("deny_missing_model_scope");
+  });
+
   it("tracks stats across evaluations", async () => {
     const engine = createAuthorizationPolicyEngine(makeConfig());
     await engine.authorize("chat.completions", "invoke", {
