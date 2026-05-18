@@ -7,7 +7,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
@@ -64,25 +64,40 @@ class NornicGraphWriter:
         self.driver.close()
 
     _CONSTRAINT_DDL = "CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE"
+    _VECTOR_INDEX_DDL = "CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)"
+    _SCALAR_INDEX_DDL: ClassVar[list[str]] = [
+        "CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)",
+        "CREATE INDEX content_node_source_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)",
+        "CREATE INDEX content_node_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.kind)",
+        "CREATE INDEX content_node_domain IF NOT EXISTS FOR (n:ContentNode) ON (n.domain)",
+        "CREATE INDEX content_node_content_type IF NOT EXISTS FOR (n:ContentNode) ON (n.content_type)",
+        "CREATE INDEX content_node_language IF NOT EXISTS FOR (n:ContentNode) ON (n.language)",
+        "CREATE INDEX content_node_package IF NOT EXISTS FOR (n:ContentNode) ON (n.package_name)",
+        "CREATE INDEX content_node_symbol_fqn IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)",
+        "CREATE INDEX content_node_artifact_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.artifact_kind)",
+        "CREATE INDEX content_node_deprecated IF NOT EXISTS FOR (n:ContentNode) ON (n.deprecated)",
+        "CREATE INDEX content_node_path IF NOT EXISTS FOR (n:ContentNode) ON (n.path)",
+        "CREATE INDEX content_node_acl IF NOT EXISTS FOR (n:ContentNode) ON (n.visibility_scope, n.org_id, n.tenant_id)",
+        "CREATE INDEX content_node_authz_object IF NOT EXISTS FOR (n:ContentNode) ON (n.authz_object_id)",
+    ]
+    _SCALAR_INDEX_NAMES: ClassVar[list[str]] = [
+        "content_node_pack",
+        "content_node_source_version",
+        "content_node_kind",
+        "content_node_domain",
+        "content_node_content_type",
+        "content_node_language",
+        "content_node_package",
+        "content_node_symbol_fqn",
+        "content_node_artifact_kind",
+        "content_node_deprecated",
+        "content_node_path",
+        "content_node_acl",
+        "content_node_authz_object",
+    ]
 
     def ensure_schema(self) -> None:
-        statements = [
-            self._CONSTRAINT_DDL,
-            "CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)",
-            "CREATE INDEX content_node_source_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)",
-            "CREATE INDEX content_node_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.kind)",
-            "CREATE INDEX content_node_domain IF NOT EXISTS FOR (n:ContentNode) ON (n.domain)",
-            "CREATE INDEX content_node_content_type IF NOT EXISTS FOR (n:ContentNode) ON (n.content_type)",
-            "CREATE INDEX content_node_language IF NOT EXISTS FOR (n:ContentNode) ON (n.language)",
-            "CREATE INDEX content_node_package IF NOT EXISTS FOR (n:ContentNode) ON (n.package_name)",
-            "CREATE INDEX content_node_symbol_fqn IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)",
-            "CREATE INDEX content_node_artifact_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.artifact_kind)",
-            "CREATE INDEX content_node_deprecated IF NOT EXISTS FOR (n:ContentNode) ON (n.deprecated)",
-            "CREATE INDEX content_node_path IF NOT EXISTS FOR (n:ContentNode) ON (n.path)",
-            "CREATE INDEX content_node_acl IF NOT EXISTS FOR (n:ContentNode) ON (n.visibility_scope, n.org_id, n.tenant_id)",
-            "CREATE INDEX content_node_authz_object IF NOT EXISTS FOR (n:ContentNode) ON (n.authz_object_id)",
-            "CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)",
-        ]
+        statements = [self._CONSTRAINT_DDL, *self._SCALAR_INDEX_DDL, self._VECTOR_INDEX_DDL]
         with self.driver.session(database=self.database) as session:
             for statement in statements:
                 session.run(statement)
@@ -96,23 +111,38 @@ class NornicGraphWriter:
             )
         self._schema_ready = True
 
-    def suspend_unique_constraint(self) -> None:
-        """Drop the ContentNode UNIQUE constraint to work around NornicDB MERGE bug.
+    def suspend_write_indexes(self) -> None:
+        """Drop all indexes and constraints before bulk writes.
 
-        NornicDB incorrectly fires the UNIQUE constraint check on *any* write
-        to an existing node (including MATCH+SET), not just on creates. Dropping
-        the constraint before bulk upserts and restoring it after is the only
-        reliable workaround.
+        NornicDB has two issues that make incremental loading slow:
+        1. MERGE bug — UNIQUE constraint fires on any write, not just creates.
+        2. Incremental HNSW rebuild — vector index update per batch is O(n log n).
+
+        Standard database bulk-load pattern: drop indexes, insert, rebuild once.
         """
         with self.driver.session(database=self.database) as session:
             session.run("DROP CONSTRAINT content_node_id IF EXISTS")
-        logger.info("nornic_unique_constraint_suspended")
+            session.run("DROP INDEX embeddings IF EXISTS")
+            for name in self._SCALAR_INDEX_NAMES:
+                session.run(f"DROP INDEX {name} IF EXISTS")
+        logger.info("nornic_write_indexes_suspended")
 
-    def restore_unique_constraint(self) -> None:
-        """Recreate the ContentNode UNIQUE constraint after bulk writes."""
+    def restore_write_indexes(self) -> None:
+        """Recreate all indexes and constraints after bulk writes.
+
+        One-shot HNSW construction over all vectors is much faster than
+        incremental per-batch index updates.
+        """
         with self.driver.session(database=self.database) as session:
             session.run(self._CONSTRAINT_DDL)
         logger.info("nornic_unique_constraint_restored")
+        with self.driver.session(database=self.database) as session:
+            for ddl in self._SCALAR_INDEX_DDL:
+                session.run(ddl)
+        logger.info("nornic_scalar_indexes_restored")
+        with self.driver.session(database=self.database) as session:
+            session.run(self._VECTOR_INDEX_DDL)
+        logger.info("nornic_vector_index_restored")
 
     def existing_chunk_ids(self, collection_name: str = SYNESIS_CATALOG) -> set[str]:
         del collection_name
