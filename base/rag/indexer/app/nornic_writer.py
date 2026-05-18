@@ -63,9 +63,11 @@ class NornicGraphWriter:
     def close(self) -> None:
         self.driver.close()
 
+    _CONSTRAINT_DDL = "CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE"
+
     def ensure_schema(self) -> None:
         statements = [
-            "CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE",
+            self._CONSTRAINT_DDL,
             "CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)",
             "CREATE INDEX content_node_source_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)",
             "CREATE INDEX content_node_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.kind)",
@@ -93,6 +95,24 @@ class NornicGraphWriter:
                 version=SCHEMA_VERSION,
             )
         self._schema_ready = True
+
+    def suspend_unique_constraint(self) -> None:
+        """Drop the ContentNode UNIQUE constraint to work around NornicDB MERGE bug.
+
+        NornicDB incorrectly fires the UNIQUE constraint check on *any* write
+        to an existing node (including MATCH+SET), not just on creates. Dropping
+        the constraint before bulk upserts and restoring it after is the only
+        reliable workaround.
+        """
+        with self.driver.session(database=self.database) as session:
+            session.run("DROP CONSTRAINT content_node_id IF EXISTS")
+        logger.info("nornic_unique_constraint_suspended")
+
+    def restore_unique_constraint(self) -> None:
+        """Recreate the ContentNode UNIQUE constraint after bulk writes."""
+        with self.driver.session(database=self.database) as session:
+            session.run(self._CONSTRAINT_DDL)
+        logger.info("nornic_unique_constraint_restored")
 
     def existing_chunk_ids(self, collection_name: str = SYNESIS_CATALOG) -> set[str]:
         del collection_name
