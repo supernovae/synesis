@@ -1614,7 +1614,7 @@ jobs:
       suspend: false
       schedule: "*/15 * * * *"
       backoffLimit: 2
-      activeDeadlineSeconds: 7200
+      activeDeadlineSeconds: 86400
       ttlSecondsAfterFinished: 7200
       resources:
         requests:
