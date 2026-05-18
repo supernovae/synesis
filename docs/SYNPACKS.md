@@ -79,6 +79,12 @@ Supported edge types:
 - `RELATED_TO`
 - `VALID_IN`
 - `DERIVED_FROM`
+- `HAS_FIELD`
+- `REQUIRES`
+- `VALIDATED_BY`
+- `MANAGED_BY`
+- `OWNS`
+- `CONFLICTS_WITH`
 
 Typed node kinds:
 
@@ -94,6 +100,13 @@ Typed node kinds:
 - `ContextCard`
 - `ExternalRef`
 - `EvalCase`
+- `ResourceKind`
+- `ApiGroupVersion`
+- `SchemaProperty`
+- `PlatformConstraint`
+- `PlatformCommand`
+- `ValidationRecipe`
+- `RiskPattern`
 
 First-class graph edges must not dangle. Unresolved imports, calls, or
 out-of-pack symbols are represented as `ExternalRef` nodes so graph traversal
@@ -302,6 +315,102 @@ function examples. Its prompts emphasize quoting, word splitting, arrays,
 `"$@"`, `read -r`, `mktemp`, traps, strict-mode boundaries, command safety, and
 the developer feedback loop: `bash -n`, `shellcheck -x`, `shfmt -d`, and
 fixture or Bats/ShellSpec tests.
+
+## Platform Packs
+
+Platform packs are SynPack v2 builds for operational platforms rather than
+programming languages. They use `platform_pack.py`, platform configs, and
+platform prompts so language-pack extraction stays focused on code languages.
+
+Current platform configs live under `base/rag/pack-configs/platform/`:
+
+- `openshift.yaml` — OpenShift-first pack with Kubernetes as a base layer.
+- `kubernetes.yaml` — upstream Kubernetes API and workflow foundation.
+- `gitops.yaml`, `observability.yaml`, `devops-tooling.yaml` — scaffolds for
+  future rich packs.
+
+The OpenShift pack structurally parses OpenAPI/CRD-style schemas and emits
+first-class NornicDB graph nodes:
+
+- `ResourceKind`: `Pod`, `Deployment`, `Route`, `SecurityContextConstraints`
+- `ApiGroupVersion`: `apps/v1`, `route.openshift.io/v1`,
+  `rbac.authorization.k8s.io/v1`
+- `SchemaProperty`: field paths with required/default/deprecated/sensitive
+  markers
+- `PlatformConstraint`: required fields, immutable selectors, deprecated
+  fields, admission/security constraints
+- `PlatformCommand`: `kubectl`, `oc`, `helm`, `kustomize`, `argocd`,
+  `kubeconform`, `conftest`
+- `ValidationRecipe`: dry-run, diff, RBAC, SCC, schema, and policy checks
+- `RiskPattern`: privileged pods, hostPath, wildcard RBAC, unsafe SCC,
+  route TLS mismatch, public exposure, destructive stateful changes
+
+Direct OpenShift build:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-platform \
+  --platform openshift \
+  --pack-id openshift-latest \
+  --output dist/synpacks/openshift-latest.synpack \
+  --embedder-url http://localhost:8082/v1
+```
+
+Estimate enrichment cost without model or embedding calls:
+
+```bash
+python -m app.cli --mode synpack --synpack-command build-platform \
+  --platform openshift \
+  --pack-id openshift-latest \
+  --estimate-cost-only
+```
+
+Recoverable staged OpenShift build:
+
+```bash
+python -m app.cli --mode synpack --synpack-command prepare-platform \
+  --platform openshift \
+  --pack-id openshift-latest \
+  --work-dir .work/synpacks/openshift-latest
+
+python -m app.cli --mode synpack --synpack-command enrich-platform \
+  --work-dir .work/synpacks/openshift-latest \
+  --batch-size 250 \
+  --request-limit 7500 \
+  --enrichment-concurrency 6
+
+python -m app.cli --mode synpack --synpack-command finalize-platform \
+  --work-dir .work/synpacks/openshift-latest \
+  --output dist/synpacks/openshift-latest.synpack \
+  --embedder-url http://localhost:8082/v1 \
+  --embedder-batch-size 8 \
+  --embedder-timeout 300
+```
+
+For offline development and tests, the default OpenShift config includes small
+local fixture specs under `base/rag/indexer/fixtures/platform/`. For production
+packs, replace or extend `openapi_specs`, `docs`, and `cli_docs` in the
+platform config with pinned official Kubernetes/OpenShift API specs, docs, and
+CLI references. Keep `source_version` pinned for reproducible builds. Pass
+`--pack-config /path/to/openshift.yaml` when building from a custom config.
+
+Useful platform-pack searches after loading:
+
+```bash
+python -m app.cli --mode synpack --synpack-command search \
+  --query "OpenShift route TLS passthrough" \
+  --pack-id openshift-latest \
+  --nornic-uri bolt://localhost:7687
+
+python -m app.cli --mode synpack --synpack-command search \
+  --query "why is my deployment selector immutable" \
+  --pack-id openshift-latest \
+  --nornic-uri bolt://localhost:7687
+
+python -m app.cli --mode synpack --synpack-command search \
+  --query "service account can-i create pods" \
+  --pack-id openshift-latest \
+  --nornic-uri bolt://localhost:7687
+```
 
 ```bash
 python -m app.cli --mode synpack --synpack-command prepare-language \

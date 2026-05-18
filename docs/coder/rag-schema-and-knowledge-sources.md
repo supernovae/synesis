@@ -100,6 +100,7 @@ Required/important payloads:
 | `nodes/chunks.jsonl` | Searchable chunk rows; required for v2 validation |
 | `nodes/documents.jsonl`, `nodes/packages.jsonl`, `nodes/modules.jsonl`, `nodes/symbols.jsonl` | Structural graph nodes |
 | `nodes/concepts.jsonl`, `nodes/patterns.jsonl`, `nodes/constraints.jsonl`, `nodes/examples.jsonl`, `nodes/context_cards.jsonl`, `nodes/external_refs.jsonl`, `nodes/eval_cases.jsonl` | Enrichment and retrieval support nodes |
+| `nodes/resource_kinds.jsonl`, `nodes/api_group_versions.jsonl`, `nodes/schema_properties.jsonl`, `nodes/platform_constraints.jsonl`, `nodes/platform_commands.jsonl`, `nodes/validation_recipes.jsonl`, `nodes/risk_patterns.jsonl` | Platform-pack graph nodes for Kubernetes/OpenShift/API/tooling packs |
 | `edges/*.jsonl` | Grouped graph relationships by edge type |
 | `enrichment/enrichment.jsonl` | Raw enrichment payloads keyed by chunk/symbol |
 | `quality/report.json` | Node/edge counts, enrichment coverage, graph resolution, dangling refs |
@@ -141,6 +142,21 @@ Common `artifact_kind` values include `code`, `docs`, `repo_map`,
 `opentofu_feature`, `iac_policy_rule`, `terraform_plan`, `live_state`,
 `ecma_spec`, `tc39_proposal`, `temporal_api`, `typescript_handbook`,
 `runtime_api`, `web_api`, `runtime_config`, and `package_policy`.
+
+## Platform Packs
+
+Platform packs are curated SynPack v2 builds for operational platforms such as
+OpenShift, Kubernetes, GitOps, observability, and DevOps tooling. They are built
+with `base/rag/indexer/app/platform_pack.py` and configured under
+`base/rag/pack-configs/platform/`.
+
+The first rich pack is OpenShift with Kubernetes as a base layer. It parses
+OpenAPI/CRD-style schemas structurally, then materializes resource kinds, API
+group/versions, schema properties, constraints, commands, validation recipes,
+and risk patterns. This lets retrieval answer platform searches such as
+`OpenShift route TLS passthrough`, `deployment selector immutable`, or
+`service account can-i create pods` with exact API kinds, fields, commands,
+examples, and risk constraints instead of plain markdown chunks.
 
 ## Search Behavior
 

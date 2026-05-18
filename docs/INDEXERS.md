@@ -85,7 +85,7 @@ retrieval with the same graph-native context.
 | `github_code.py` | Repository code fetch, AST-aware chunking, code graph signals |
 | documentation handlers | Markdown/HTML/docs chunking and source metadata |
 | API spec handlers | OpenAPI and structured reference extraction |
-| `synpack.py` / `language_pack.py` | Managed content packs, lock files, optional enrichment |
+| `synpack.py` / `language_pack.py` / `platform_pack.py` | Managed content packs, language packs, platform packs, lock files, optional enrichment |
 
 Handlers should produce deterministic metadata first. Optional services such as
 preprocess, spam scoring, entity extraction, or LLM enrichment are env-gated and
