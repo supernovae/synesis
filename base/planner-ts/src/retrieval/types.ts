@@ -213,6 +213,21 @@ export interface RagResult {
   expected_output?: string;
   test_command?: string;
   related_apis?: string;
+  card_type?: string;
+  topic?: string;
+  intent?: string;
+  what_to_use?: string;
+  when_to_use?: string;
+  do_not_use?: string;
+  minimal_example?: string;
+  verification?: string;
+  claims?: string;
+  constraints?: string;
+  evidence_refs?: string;
+  freshness?: string;
+  provenance?: string;
+  taxonomy_domains?: string;
+  source_refs?: string;
 }
 
 /** Authority multipliers applied after reranking (same as Python). */
@@ -275,6 +290,8 @@ export interface KnowledgeSearchRequest {
   include_examples?: boolean;
   include_antipatterns?: boolean;
   include_context_cards?: boolean;
+  include_pack_cards?: boolean;
+  routing_mode?: "auto" | "local" | "hosted" | "hybrid";
 }
 
 export interface PackResolveRequest {
@@ -308,6 +325,7 @@ export interface ResolvedPackCandidate {
   chunk_count: number;
   example_count: number;
   context_card_count: number;
+  pack_card_count: number;
   pattern_count: number;
   constraint_count: number;
   edge_count: number;
@@ -322,6 +340,9 @@ export interface PackResolveResponse {
 
 export interface KnowledgeContextCard {
   title: string;
+  card_type?: string;
+  topic?: string;
+  intent?: string;
   what_to_use: string;
   when_to_use: string;
   do_not_use: string;
@@ -329,18 +350,33 @@ export interface KnowledgeContextCard {
   verification: string;
   related_apis: string[];
   source_refs: string[];
+  claims?: string[];
+  constraints?: string[];
+  evidence_refs?: string[];
+  freshness?: string;
+  provenance?: string[];
+  taxonomy_domains?: string[];
   score: number;
 }
 
 export interface KnowledgeBundleResponse {
   query: string;
   resolved_pack?: ResolvedPackCandidate;
+  pack_cards: KnowledgeContextCard[];
   context_cards: KnowledgeContextCard[];
   examples: KnowledgeResult[];
   anti_patterns: KnowledgeResult[];
   source_chunks: KnowledgeResult[];
   related_symbols: KnowledgeResult[];
   freshness_warnings: string[];
+  routing: {
+    mode: "auto" | "local" | "hosted" | "hybrid";
+    strategy: "single-nornicdb" | "catalog-router";
+    candidate_pack_count: number;
+    selected_pack_ids: string[];
+    endpoint_count: number;
+    notes: string[];
+  };
   quality: {
     quality_score: number;
     trust_score: number;
@@ -349,6 +385,7 @@ export interface KnowledgeBundleResponse {
     example_count: number;
     anti_pattern_count: number;
     context_card_count: number;
+    pack_card_count: number;
   };
   timings: {
     resolve_ms: number;

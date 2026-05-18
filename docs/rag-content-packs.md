@@ -27,7 +27,16 @@ Synesis defaults to the root catalog on `https://r2.kybern.dev`:
       "install_profile": "nornicdb-v2-typed-graph",
       "node_count": 14533,
       "edge_count": 115221,
+      "pack_card_count": 320,
       "requires_bulk_import": true,
+      "pack_type": "language",
+      "delivery_modes": ["download", "local_nornicdb", "hosted_query"],
+      "taxonomy_domains": ["golang", "software_development"],
+      "routing_aliases": ["go stdlib", "golang http server", "go modules"],
+      "endpoint": {
+        "mode": "download",
+        "install_target": "local_nornicdb"
+      },
       "tags": ["language-pack", "stdlib"]
     }
   ]
@@ -37,6 +46,19 @@ Synesis defaults to the root catalog on `https://r2.kybern.dev`:
 Every pack entry must include `pack_id`, `download_url`, and `sha256`.
 Both catalog and pack downloads must use HTTPS. The indexer validates the
 checksum before loading the pack into NornicDB.
+
+Catalog entries may also advertise routing metadata for the pack resolver:
+
+- `pack_type`: `language`, `platform`, `domain`, `music_audio`, or another
+  coarse product category.
+- `delivery_modes`: whether the pack is downloadable, locally installed,
+  hosted-query capable, or hybrid.
+- `taxonomy_domains`: canonical Synesis taxonomy domains used for routing.
+- `routing_aliases`: user-search phrases that should resolve to this pack.
+- `pack_card_count`: count of first-class `PackCard` nodes.
+- `endpoint` / `endpoints`: optional hosted/local query endpoint metadata. The
+  current installer still uses `download_url`; endpoint metadata is for the
+  pack router/search-head path.
 
 ## Install Flow
 

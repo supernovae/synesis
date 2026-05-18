@@ -107,6 +107,17 @@ def _write_minimal_v2_pack(path: Path) -> None:
         "document_name": "fmt",
         "pack_id": "go-latest",
     }
+    pack_card = {
+        "id": "go-latest:pack-card:fmt",
+        "kind": "PackCard",
+        "name": "fmt overview",
+        "text": "Use fmt for formatted I/O.",
+        "what_to_use": "fmt package formatting helpers",
+        "when_to_use": "formatted I/O",
+        "minimal_example": 'fmt.Println("hello")',
+        "verification": "go test ./...",
+        "pack_id": "go-latest",
+    }
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr(
             "manifest.json",
@@ -118,16 +129,21 @@ def _write_minimal_v2_pack(path: Path) -> None:
                     "embedding_dimensions": EMBEDDING_DIM,
                     "synesis_catalog_schema_version": 17,
                     "requires_bulk_import": True,
-                    "node_count": 2,
-                    "edge_count": 1,
+                    "node_count": 3,
+                    "edge_count": 2,
                 }
             ),
         )
         zf.writestr("nodes/chunks.jsonl", json.dumps(chunk) + "\n")
         zf.writestr("nodes/documents.jsonl", json.dumps(document) + "\n")
+        zf.writestr("nodes/pack_cards.jsonl", json.dumps(pack_card) + "\n")
         zf.writestr(
             "edges/contains.jsonl",
             json.dumps({"type": "CONTAINS", "source_id": "doc-1", "target_id": "chunk-1"}) + "\n",
+        )
+        zf.writestr(
+            "edges/has_pack_card.jsonl",
+            json.dumps({"type": "HAS_PACK_CARD", "source_id": "chunk-1", "target_id": pack_card["id"]}) + "\n",
         )
         zf.writestr(
             "vectors/index.json",
@@ -146,9 +162,10 @@ def _write_minimal_v2_pack(path: Path) -> None:
             "quality/report.json",
             json.dumps(
                 {
-                    "node_count": 2,
+                    "node_count": 3,
                     "chunk_count": 1,
-                    "edge_count": 1,
+                    "edge_count": 2,
+                    "pack_card_count": 1,
                     "dangling_edge_count": 0,
                 }
             ),
@@ -170,6 +187,12 @@ def test_bulk_load_synpack_imports_v2_typed_graph(tmp_path: Path, monkeypatch: p
             return None
 
         def ensure_schema(self) -> None:
+            return None
+
+        def suspend_unique_constraint(self) -> None:
+            return None
+
+        def restore_unique_constraint(self) -> None:
             return None
 
         def delete_pack(self, pack_id: str) -> int:
@@ -195,7 +218,7 @@ def test_bulk_load_synpack_imports_v2_typed_graph(tmp_path: Path, monkeypatch: p
                 "chunk_count": sum(1 for node in written_nodes if node.get("kind") == "Chunk"),
                 "embedding_count": sum(1 for node in written_nodes if node.get("embedding")),
                 "edge_count": len(written_edges),
-                "node_counts_by_kind": {"Chunk": 1, "Document": 1},
+                "node_counts_by_kind": {"Chunk": 1, "Document": 1, "PackCard": 1},
             }
 
     monkeypatch.setattr(nornic_bulk_importer, "NornicGraphWriter", FakeWriter)
@@ -204,10 +227,12 @@ def test_bulk_load_synpack_imports_v2_typed_graph(tmp_path: Path, monkeypatch: p
     result = nornic_bulk_importer.bulk_load_synpack(pack, replace=True)
 
     assert result["backend"] == "bolt-unwind"
-    assert result["nodes"] == 2
-    assert result["edges"] == 1
+    assert result["nodes"] == 3
+    assert result["edges"] == 2
     assert result["deleted_existing_nodes"] == 3
-    assert {node["kind"] for node in written_nodes} == {"Chunk", "Document"}
+    assert {node["kind"] for node in written_nodes} == {"Chunk", "Document", "PackCard"}
+    card = next(node for node in written_nodes if node["kind"] == "PackCard")
+    assert card["what_to_use"] == "fmt package formatting helpers"
     chunk = next(node for node in written_nodes if node["kind"] == "Chunk")
     assert chunk["embedding"] == [0.0] * EMBEDDING_DIM
     assert chunk["domain"] == "go"

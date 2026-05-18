@@ -171,6 +171,13 @@ function optionalString(value: unknown): string | undefined {
   return s.length > 0 ? s : undefined;
 }
 
+type KnowledgeRoutingMode = "auto" | "local" | "hosted" | "hybrid";
+
+function optionalRoutingMode(value: unknown): KnowledgeRoutingMode | undefined {
+  const mode = optionalString(value);
+  return mode === "auto" || mode === "local" || mode === "hosted" || mode === "hybrid" ? mode : undefined;
+}
+
 function hasCallerScopeHints(body: Record<string, unknown> | null): boolean {
   if (!body) return false;
   return [
@@ -1184,6 +1191,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         includeExamples: body?.include_examples !== false,
         includeAntipatterns: body?.include_antipatterns !== false,
         includeContextCards: body?.include_context_cards !== false,
+        includePackCards: body?.include_pack_cards !== false,
+        routingMode: optionalRoutingMode(body?.routing_mode),
         metadata: metadataFromKnowledgeBody(body),
         graphDepth: Number(body?.graph_depth) || undefined,
         edgeTypes: stringArrayBody(body?.edge_types),
@@ -1270,6 +1279,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         includeExamples: body?.include_examples !== false,
         includeAntipatterns: body?.include_antipatterns !== false,
         includeContextCards: body?.include_context_cards !== false,
+        includePackCards: body?.include_pack_cards !== false,
+        routingMode: optionalRoutingMode(body?.routing_mode),
         metadata: metaParams,
         graphDepth: Number(body?.graph_depth) || undefined,
         edgeTypes: stringArrayBody(body?.edge_types),

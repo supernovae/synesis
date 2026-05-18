@@ -305,7 +305,26 @@ def _normalize_catalog_entry(raw: Any, index: int) -> tuple[dict[str, Any] | Non
         "source_release": str(raw.get("source_release") or "")[:64],
         "example_count": _safe_count("example_count"),
         "context_card_count": _safe_count("context_card_count"),
+        "pack_card_count": _safe_count("pack_card_count"),
         "anti_pattern_count": _safe_count("anti_pattern_count"),
+        "endpoint": raw.get("endpoint") if isinstance(raw.get("endpoint"), dict) else {},
+        "endpoints": raw.get("endpoints") if isinstance(raw.get("endpoints"), list) else [],
+        "delivery_modes": [
+            str(mode).strip()[:32]
+            for mode in (raw.get("delivery_modes") if isinstance(raw.get("delivery_modes"), list) else [])
+            if str(mode).strip()
+        ][:8],
+        "taxonomy_domains": [
+            str(domain).strip()[:64]
+            for domain in (raw.get("taxonomy_domains") if isinstance(raw.get("taxonomy_domains"), list) else [])
+            if str(domain).strip()
+        ][:32],
+        "routing_aliases": [
+            str(alias).strip()[:128]
+            for alias in (raw.get("routing_aliases") if isinstance(raw.get("routing_aliases"), list) else [])
+            if str(alias).strip()
+        ][:64],
+        "pack_type": str(raw.get("pack_type") or raw.get("type") or "")[:64],
         "quality_score": raw.get("quality_score"),
         "trust_score": raw.get("trust_score"),
         "freshness_score": raw.get("freshness_score"),

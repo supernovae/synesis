@@ -13,7 +13,7 @@ vi.mock("neo4j-driver", () => ({
   },
 }));
 
-const { retrieveContext } = await import("../src/retrieval/rag-client.js");
+const { retrieveContext, retrieveKnowledgeBundle } = await import("../src/retrieval/rag-client.js");
 const { setFgaCheckOverride } = await import("../src/auth/openfga-client.js");
 import type { RagClientConfig } from "../src/retrieval/rag-client.js";
 
@@ -188,5 +188,90 @@ describe("retrieveContext", () => {
     expect(cypher).toContain('coalesce(node.acl_mode, "open") IN ["open", "", "restricted", "private"]');
     expect(results).toHaveLength(1);
     expect(results[0]?.doc_id).toBe("doc-allow");
+  });
+});
+
+describe("retrieveKnowledgeBundle", () => {
+  it("prefers PackCard rows while preserving context_cards compatibility", async () => {
+    const record = (values: Record<string, unknown>) => ({
+      get(key: string) {
+        return values[key];
+      },
+    });
+    const node = (properties: Record<string, unknown>) => ({ properties });
+
+    runMock
+      .mockResolvedValueOnce({
+        records: [
+          record({
+            pack_id: "openshift-latest",
+            pack_version: "1.0.0",
+            source_version: "4.16",
+            domain: "openshift",
+            content_type: "developer",
+            language: "",
+            package_name: "",
+            trust_score: 1,
+            quality_score: 1,
+            freshness_score: 1,
+            node_count: 12,
+            chunk_count: 2,
+            example_count: 0,
+            context_card_count: 0,
+            pack_card_count: 1,
+            pattern_count: 0,
+            constraint_count: 0,
+            edge_count: 5,
+            score: 24,
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({
+        records: [
+          record({
+            node: node({
+              id: "openshift-latest:pack-card:route-tls",
+              kind: "PackCard",
+              name: "OpenShift Route TLS passthrough",
+              text: "Use passthrough termination when the backend owns TLS.",
+              pack: "openshift-latest",
+              domain: "openshift",
+              what_to_use: "Route passthrough TLS",
+              when_to_use: "Backend service presents the certificate.",
+              do_not_use: "Do not set edge-only fields for passthrough.",
+              minimal_example: "spec.tls.termination: passthrough",
+              verification: "oc explain route.spec.tls",
+              claims: "[\"passthrough preserves backend TLS\"]",
+              constraints: "[\"backend must terminate TLS\"]",
+              evidence_refs: "[\"route.openshift.io/v1 Route spec.tls\"]",
+              taxonomy_domains: "openshift,kubernetes",
+            }),
+            score: 4,
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({ records: [] });
+
+    const bundle = await retrieveKnowledgeBundle(
+      { query: "OpenShift route TLS passthrough", domain: "openshift", topK: 3 },
+      baseConfig,
+    );
+
+    expect(bundle.resolved_pack?.pack_id).toBe("openshift-latest");
+    expect(bundle.resolved_pack?.pack_card_count).toBe(1);
+    expect(bundle.pack_cards).toHaveLength(1);
+    expect(bundle.context_cards).toHaveLength(1);
+    expect(bundle.context_cards[0]?.what_to_use).toBe("Route passthrough TLS");
+    expect(bundle.context_cards[0]?.claims).toContain("passthrough preserves backend TLS");
+    expect(bundle.routing).toMatchObject({
+      mode: "auto",
+      strategy: "single-nornicdb",
+      selected_pack_ids: ["openshift-latest"],
+    });
+    expect(bundle.quality.pack_card_count).toBe(1);
   });
 });

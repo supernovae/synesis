@@ -62,6 +62,7 @@ V2_PATTERNS_PATH = "nodes/patterns.jsonl"
 V2_CONSTRAINTS_PATH = "nodes/constraints.jsonl"
 V2_EXAMPLES_PATH = "nodes/examples.jsonl"
 V2_CONTEXT_CARDS_PATH = "nodes/context_cards.jsonl"
+V2_PACK_CARDS_PATH = "nodes/pack_cards.jsonl"
 V2_EXTERNAL_REFS_PATH = "nodes/external_refs.jsonl"
 V2_EVAL_CASES_PATH = "nodes/eval_cases.jsonl"
 V2_RESOURCE_KINDS_PATH = "nodes/resource_kinds.jsonl"
@@ -76,6 +77,7 @@ V2_QUALITY_PATH = "quality/report.json"
 V2_VECTOR_INDEX_PATH = "vectors/index.json"
 V2_VECTOR_BINARY_PATH = "vectors/chunks.f32"
 V2_EXTRA_NODE_FILES: dict[str, str] = {
+    "PackCard": V2_PACK_CARDS_PATH,
     "ResourceKind": V2_RESOURCE_KINDS_PATH,
     "ApiGroupVersion": V2_API_GROUP_VERSIONS_PATH,
     "SchemaProperty": V2_SCHEMA_PROPERTIES_PATH,
@@ -372,6 +374,41 @@ def _context_card_node(row: dict[str, Any], pack_id: str, enrichment: dict[str, 
     }
 
 
+def _pack_card_node(row: dict[str, Any], pack_id: str, enrichment: dict[str, Any]) -> dict[str, Any] | None:
+    context_card = _context_card_node(row, pack_id, enrichment)
+    if not context_card:
+        return None
+    title = str(context_card.get("name") or context_card.get("title") or "Pack card")[:160]
+    node_id = f"{pack_id}:pack-card:{_short_hash(row.get('id'), title)}"
+    claims = _as_list(enrichment.get("claims") or enrichment.get("api_contract") or enrichment.get("agent_hook"))
+    constraints = _as_list(
+        enrichment.get("constraints")
+        or enrichment.get("safety_contract")
+        or enrichment.get("hidden_warnings")
+        or enrichment.get("anti_patterns")
+    )
+    evidence = _as_list(enrichment.get("evidence_spans") or context_card.get("source_refs"))
+    return {
+        **context_card,
+        "id": node_id,
+        "kind": "PackCard",
+        "name": title,
+        "card_type": str(
+            row.get("card_type") or enrichment.get("card_type") or row.get("artifact_kind") or "reference"
+        )[:64],
+        "topic": str(row.get("symbol_fqn") or row.get("symbol_name") or row.get("document_name") or title)[:256],
+        "intent": _csv(enrichment.get("task_intents"), limit=16),
+        "claims": json.dumps(claims[:16], ensure_ascii=False, sort_keys=True),
+        "constraints": json.dumps(constraints[:16], ensure_ascii=False, sort_keys=True),
+        "evidence_refs": json.dumps(evidence[:24], ensure_ascii=False, sort_keys=True),
+        "freshness": str(
+            row.get("source_version") or row.get("pack_source_version") or row.get("source_release") or ""
+        )[:128],
+        "provenance": _csv([row.get("source_url"), row.get("doc_id"), row.get("pack_id")], limit=16),
+        "taxonomy_domains": _csv([row.get("domain"), row.get("language"), row.get("scope_tags")], limit=32),
+    }
+
+
 def materialize_synpack_v2(
     rows: list[dict[str, Any]],
     edges: list[dict[str, Any]],
@@ -397,9 +434,12 @@ def materialize_synpack_v2(
     constraints: dict[str, dict[str, Any]] = {}
     examples: dict[str, dict[str, Any]] = {}
     context_cards: dict[str, dict[str, Any]] = {}
+    pack_cards: dict[str, dict[str, Any]] = {}
     external_refs: dict[str, dict[str, Any]] = {}
     extra_nodes: dict[str, dict[str, dict[str, Any]]] = {
-        kind: {} for kind in V2_EXTRA_NODE_FILES if extra_nodes_by_kind and kind in extra_nodes_by_kind
+        kind: {}
+        for kind in V2_EXTRA_NODE_FILES
+        if kind != "PackCard" and extra_nodes_by_kind and kind in extra_nodes_by_kind
     }
     enrichment_rows: list[dict[str, Any]] = []
     typed_edges: list[dict[str, Any]] = [dict(edge) for edge in edges]
@@ -601,6 +641,17 @@ def materialize_synpack_v2(
                     "source": "enrichment",
                 }
             )
+        pack_card = _pack_card_node(row, pack_id, enrichment)
+        if pack_card:
+            _add_unique(pack_cards, pack_card)
+            typed_edges.append(
+                {
+                    "type": "HAS_PACK_CARD",
+                    "source_id": chunk_id,
+                    "target_id": pack_card["id"],
+                    "source": "enrichment",
+                }
+            )
 
     node_ids.update(documents)
     node_ids.update(packages)
@@ -611,11 +662,12 @@ def materialize_synpack_v2(
     node_ids.update(constraints)
     node_ids.update(examples)
     node_ids.update(context_cards)
+    node_ids.update(pack_cards)
     if extra_nodes_by_kind:
         for kind, nodes_for_kind in extra_nodes_by_kind.items():
             if kind not in V2_EXTRA_NODE_FILES:
                 raise SynPackError(f"unsupported SynPack v2 extra node kind: {kind}")
-            bucket = extra_nodes.setdefault(kind, {})
+            bucket = pack_cards if kind == "PackCard" else extra_nodes.setdefault(kind, {})
             for node in nodes_for_kind:
                 if not isinstance(node, dict):
                     raise SynPackError(f"{kind} extra node must be a JSON object")
@@ -640,6 +692,7 @@ def materialize_synpack_v2(
                     "content_type": str(node.get("content_type") or manifest.get("content_type") or "developer"),
                 }
                 bucket[node_id] = normalized
+        node_ids.update(pack_cards)
         for bucket in extra_nodes.values():
             node_ids.update(bucket)
 
@@ -692,6 +745,7 @@ def materialize_synpack_v2(
     _write_jsonl(root_path / V2_CONSTRAINTS_PATH, constraints.values())
     _write_jsonl(root_path / V2_EXAMPLES_PATH, examples.values())
     _write_jsonl(root_path / V2_CONTEXT_CARDS_PATH, context_cards.values())
+    _write_jsonl(root_path / V2_PACK_CARDS_PATH, pack_cards.values())
     _write_jsonl(root_path / V2_EXTERNAL_REFS_PATH, external_refs.values())
     for kind, node_path in V2_EXTRA_NODE_FILES.items():
         if kind in extra_nodes:
@@ -742,6 +796,7 @@ def materialize_synpack_v2(
         "Constraint": len(constraints),
         "Example": len(examples),
         "ContextCard": len(context_cards),
+        "PackCard": len(pack_cards),
         "ExternalRef": len(external_refs),
     }
     for kind, bucket in extra_nodes.items():
@@ -761,6 +816,7 @@ def materialize_synpack_v2(
         "enriched": enriched,
         "example_count": len(examples),
         "context_card_count": len(context_cards),
+        "pack_card_count": len(pack_cards),
         "anti_pattern_count": len(patterns),
         "enrichment_coverage_score": round(enrichment_coverage, 4),
         "graph_resolution_score": round(max(0.0, graph_resolution), 4),
@@ -1027,6 +1083,7 @@ def build_pack_from_sources(
             "edge_count": quality_report["edge_count"],
             "node_counts_by_kind": quality_report["node_counts_by_kind"],
             "edge_counts_by_type": quality_report["edge_counts_by_type"],
+            "pack_card_count": quality_report.get("pack_card_count", 0),
             "dangling_edge_count": quality_report["dangling_edge_count"],
             "external_ref_count": quality_report["external_ref_count"],
             "quality_report_sha256": _sha256_file(tmp / "quality" / "report.json"),

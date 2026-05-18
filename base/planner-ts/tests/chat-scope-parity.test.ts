@@ -72,7 +72,7 @@ const baseSettings: RetrievalSettings = {
   overfetchMin: 8,
   overfetchMax: 25,
   adaptiveGapMultiplier: 1.5,
-  domainPolicyMode: "none",
+  domainPolicyMode: "prefer",
   domainPolicyBoost: 1.2,
   webBudgetBase: 3,
   webBudgetMax: 8,

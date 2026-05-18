@@ -147,6 +147,12 @@ def test_bulk_importer_loads_platform_node_files(tmp_path: Path, monkeypatch: py
         def close(self) -> None:
             return None
 
+        def suspend_unique_constraint(self) -> None:
+            return None
+
+        def restore_unique_constraint(self) -> None:
+            return None
+
         def delete_pack(self, pack_id: str) -> int:
             return 0
 

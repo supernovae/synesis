@@ -992,7 +992,14 @@ export interface ContentPackEntry {
   edge_count?: number;
   example_count?: number;
   context_card_count?: number;
+  pack_card_count?: number;
   anti_pattern_count?: number;
+  pack_type?: string;
+  endpoint?: Record<string, unknown>;
+  endpoints?: Array<Record<string, unknown>>;
+  delivery_modes?: string[];
+  taxonomy_domains?: string[];
+  routing_aliases?: string[];
   quality_score?: number;
   trust_score?: number;
   freshness_score?: number;
@@ -1021,6 +1028,7 @@ export interface ContentPackQualityReport {
   chunk_count: number;
   example_count: number;
   context_card_count: number;
+  pack_card_count?: number;
   anti_pattern_count: number;
   constraint_count: number;
   external_ref_count: number;

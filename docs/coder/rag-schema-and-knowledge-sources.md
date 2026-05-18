@@ -99,7 +99,7 @@ Required/important payloads:
 | `manifest.json` | Pack identity, model/dimension/schema requirements, source version |
 | `nodes/chunks.jsonl` | Searchable chunk rows; required for v2 validation |
 | `nodes/documents.jsonl`, `nodes/packages.jsonl`, `nodes/modules.jsonl`, `nodes/symbols.jsonl` | Structural graph nodes |
-| `nodes/concepts.jsonl`, `nodes/patterns.jsonl`, `nodes/constraints.jsonl`, `nodes/examples.jsonl`, `nodes/context_cards.jsonl`, `nodes/external_refs.jsonl`, `nodes/eval_cases.jsonl` | Enrichment and retrieval support nodes |
+| `nodes/concepts.jsonl`, `nodes/patterns.jsonl`, `nodes/constraints.jsonl`, `nodes/examples.jsonl`, `nodes/context_cards.jsonl`, `nodes/pack_cards.jsonl`, `nodes/external_refs.jsonl`, `nodes/eval_cases.jsonl` | Enrichment and retrieval support nodes |
 | `nodes/resource_kinds.jsonl`, `nodes/api_group_versions.jsonl`, `nodes/schema_properties.jsonl`, `nodes/platform_constraints.jsonl`, `nodes/platform_commands.jsonl`, `nodes/validation_recipes.jsonl`, `nodes/risk_patterns.jsonl` | Platform-pack graph nodes for Kubernetes/OpenShift/API/tooling packs |
 | `edges/*.jsonl` | Grouped graph relationships by edge type |
 | `enrichment/enrichment.jsonl` | Raw enrichment payloads keyed by chunk/symbol |
@@ -157,6 +157,15 @@ and risk patterns. This lets retrieval answer platform searches such as
 `OpenShift route TLS passthrough`, `deployment selector immutable`, or
 `service account can-i create pods` with exact API kinds, fields, commands,
 examples, and risk constraints instead of plain markdown chunks.
+
+## Pack Cards And Routing
+
+`PackCard` is the formal card contract for cross-domain packs. It keeps the
+small-model-friendly fields from `ContextCard` while adding topic, intent,
+claims, constraints, evidence refs, freshness, provenance, and taxonomy domains.
+Bundle retrieval prefers PackCards and reports routing metadata so callers can
+see whether the answer came from a local pack, a hosted catalog route, or a
+future multi-endpoint query.
 
 ## Search Behavior
 

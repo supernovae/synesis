@@ -98,6 +98,7 @@ Typed node kinds:
 - `Constraint`
 - `Example`
 - `ContextCard`
+- `PackCard`
 - `ExternalRef`
 - `EvalCase`
 - `ResourceKind`
@@ -163,6 +164,12 @@ The final pack materializer turns these into `Concept`, `Pattern`,
 advantage over markdown-only retrieval systems: the pack can return dense
 agent cards, safety contracts, navigation hints, and source-backed graph
 neighbors from the same artifact.
+
+`PackCard` is the versioned cross-domain card contract. It preserves the
+existing `ContextCard` shape for callers, but adds pack-level topic, intent,
+claims, constraints, evidence refs, freshness, provenance, and taxonomy domain
+metadata. Bundle retrieval prefers `PackCard` nodes when present and falls back
+to `ContextCard` or source-derived cards for older packs.
 
 ## Quality Gates
 

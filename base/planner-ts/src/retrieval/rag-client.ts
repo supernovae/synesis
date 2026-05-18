@@ -78,6 +78,7 @@ const DEFAULT_EDGE_TYPES = [
   "HAS_EXAMPLE",
   "HAS_PATTERN",
   "HAS_CONTEXT_CARD",
+  "HAS_PACK_CARD",
   "APPLIES_TO",
   "DEPRECATED_BY",
   "REPLACED_BY",
@@ -92,6 +93,7 @@ const DEFAULT_BUNDLE_EDGE_TYPES = [
   "HAS_PATTERN",
   "HAS_CONSTRAINT",
   "HAS_CONTEXT_CARD",
+  "HAS_PACK_CARD",
   "APPLIES_TO",
   "DEPRECATED_BY",
   "REPLACED_BY",
@@ -456,6 +458,21 @@ function ragResultFromProps(row: Record<string, unknown>, score: number, graphCo
     expected_output: asString(row.expected_output),
     test_command: asString(row.test_command),
     related_apis: asString(row.related_apis),
+    card_type: asString(row.card_type),
+    topic: asString(row.topic),
+    intent: asString(row.intent),
+    what_to_use: asString(row.what_to_use),
+    when_to_use: asString(row.when_to_use),
+    do_not_use: asString(row.do_not_use),
+    minimal_example: asString(row.minimal_example),
+    verification: asString(row.verification),
+    claims: asString(row.claims),
+    constraints: asString(row.constraints),
+    evidence_refs: asString(row.evidence_refs),
+    freshness: asString(row.freshness),
+    provenance: asString(row.provenance),
+    taxonomy_domains: asString(row.taxonomy_domains),
+    source_refs: asString(row.source_refs),
   };
 }
 
@@ -576,6 +593,7 @@ function rowToResolvedPack(row: Neo4jRecord): ResolvedPackCandidate {
     context_card_count: asNumber(row.get("context_card_count"), 0),
     pattern_count: asNumber(row.get("pattern_count"), 0),
     constraint_count: asNumber(row.get("constraint_count"), 0),
+    pack_card_count: asNumber(row.get("pack_card_count"), 0),
     edge_count: asNumber(row.get("edge_count"), 0),
     score: asNumber(row.get("score"), 0),
   };
@@ -618,15 +636,16 @@ WITH pack_id,
      sum(CASE WHEN coalesce(node.kind, "Chunk") = "Chunk" AND node.text IS NOT NULL THEN 1 ELSE 0 END) AS chunk_count,
      sum(CASE WHEN coalesce(node.kind, "") = "Example" THEN 1 ELSE 0 END) AS example_count,
      sum(CASE WHEN coalesce(node.kind, "") = "ContextCard" THEN 1 ELSE 0 END) AS context_card_count,
+     sum(CASE WHEN coalesce(node.kind, "") = "PackCard" THEN 1 ELSE 0 END) AS pack_card_count,
      sum(CASE WHEN coalesce(node.kind, "") = "Pattern" THEN 1 ELSE 0 END) AS pattern_count,
      sum(CASE WHEN coalesce(node.kind, "") = "Constraint" THEN 1 ELSE 0 END) AS constraint_count,
      collect(node)[0] AS sample
 OPTIONAL MATCH (a:ContentNode)-[r]-(b:ContentNode)
 WHERE (a.pack = pack_id OR a.pack_id = pack_id) AND (b.pack = pack_id OR b.pack_id = pack_id)
-WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count,
+WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pack_card_count, pattern_count, constraint_count,
      count(DISTINCT r) AS edge_count
-WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count, edge_count,
-     (node_count + example_count * 3 + context_card_count * 4 + pattern_count * 2 + constraint_count * 2) AS score
+WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pack_card_count, pattern_count, constraint_count, edge_count,
+     (node_count + example_count * 3 + context_card_count * 4 + pack_card_count * 6 + pattern_count * 2 + constraint_count * 2) AS score
 RETURN pack_id,
        coalesce(sample.pack_version, "") AS pack_version,
        coalesce(sample.source_version, sample.pack_source_version, "") AS source_version,
@@ -638,7 +657,7 @@ RETURN pack_id,
        coalesce(sample.trust_score, -1.0) AS trust_score,
        coalesce(sample.quality_score, -1.0) AS quality_score,
        coalesce(sample.freshness_score, -1.0) AS freshness_score,
-       node_count, chunk_count, example_count, context_card_count, pattern_count, constraint_count, edge_count, score
+       node_count, chunk_count, example_count, context_card_count, pack_card_count, pattern_count, constraint_count, edge_count, score
 ORDER BY score DESC, pack_id
 LIMIT $limit
 `;
@@ -792,13 +811,24 @@ function contextCardFromRag(row: RagResult, fallbackIndex: number): KnowledgeCon
   const title = asString(row.name ?? row.symbol_fqn ?? row.document_name, `Context card ${fallbackIndex + 1}`);
   return {
     title,
-    what_to_use: asString(enrichment.what_to_use ?? row.chunk_summary ?? row.text).slice(0, 1600),
-    when_to_use: asString(enrichment.when_to_use ?? row.context_prefix).slice(0, 1200),
-    do_not_use: asString(enrichment.do_not_use ?? enrichment.hidden_warnings ?? row.deprecation_status).slice(0, 1200),
-    minimal_example: asString(enrichment.minimal_example ?? row.text).slice(0, 2000),
-    verification: asString(enrichment.verification ?? row.test_command ?? row.safety_contract).slice(0, 1200),
+    card_type: asString(enrichment.card_type ?? row.card_type ?? row.artifact_kind),
+    topic: asString(enrichment.topic ?? row.topic ?? row.symbol_fqn ?? row.symbol_name ?? row.document_name),
+    intent: asString(enrichment.intent ?? row.intent ?? row.task_intents),
+    what_to_use: asString(enrichment.what_to_use ?? row.what_to_use ?? row.chunk_summary ?? row.text).slice(0, 1600),
+    when_to_use: asString(enrichment.when_to_use ?? row.when_to_use ?? row.context_prefix).slice(0, 1200),
+    do_not_use: asString(enrichment.do_not_use ?? row.do_not_use ?? enrichment.hidden_warnings ?? row.deprecation_status).slice(0, 1200),
+    minimal_example: asString(enrichment.minimal_example ?? row.minimal_example ?? row.text).slice(0, 2000),
+    verification: asString(enrichment.verification ?? row.verification ?? row.test_command ?? row.safety_contract).slice(0, 1200),
     related_apis: asStringArray(enrichment.related_apis ?? row.related_apis).slice(0, 12),
-    source_refs: [row.source_url, row.doc_id, row.symbol_fqn].map((v) => asString(v)).filter(Boolean).slice(0, 8),
+    source_refs: asStringArray(row.source_refs).length
+      ? asStringArray(row.source_refs).slice(0, 8)
+      : [row.source_url, row.doc_id, row.symbol_fqn].map((v) => asString(v)).filter(Boolean).slice(0, 8),
+    claims: asStringArray(enrichment.claims ?? row.claims).slice(0, 16),
+    constraints: asStringArray(enrichment.constraints ?? row.constraints ?? row.safety_contract).slice(0, 16),
+    evidence_refs: asStringArray(enrichment.evidence_refs ?? row.evidence_refs).slice(0, 24),
+    freshness: asString(enrichment.freshness ?? row.freshness ?? row.pack_source_version ?? row.source_release),
+    provenance: asStringArray(enrichment.provenance ?? row.provenance).slice(0, 16),
+    taxonomy_domains: asStringArray(enrichment.taxonomy_domains ?? row.taxonomy_domains ?? row.scope_tags ?? row.domain).slice(0, 16),
     score: row.rerank_score || row.rrf_score || row.vector_score,
   };
 }
@@ -828,6 +858,8 @@ export async function retrieveKnowledgeBundle(
     includeExamples?: boolean;
     includeAntipatterns?: boolean;
     includeContextCards?: boolean;
+    includePackCards?: boolean;
+    routingMode?: "auto" | "local" | "hosted" | "hybrid";
     metadata?: MetadataFilterParams;
     graphDepth?: number;
     edgeTypes?: string[];
@@ -877,7 +909,19 @@ export async function retrieveKnowledgeBundle(
   const searchMs = performance.now() - searchStart;
 
   const bundleStart = performance.now();
-  const [cardRows, exampleRows, antiPatternRows, symbolRows] = await Promise.all([
+  const [packCardRows, contextCardRows, exampleRows, antiPatternRows, symbolRows] = await Promise.all([
+    request.includePackCards === false ? Promise.resolve([]) : findTypedNodes(config, {
+      query: request.query,
+      packId,
+      kinds: ["PackCard"],
+      topic: request.topic,
+      symbol: request.symbol,
+      task: request.task,
+      version: request.version,
+      language: request.language,
+      artifactKind: request.artifactKind,
+      limit: 8,
+    }, scopeFilter),
     request.includeContextCards === false ? Promise.resolve([]) : findTypedNodes(config, {
       query: request.query,
       packId,
@@ -928,8 +972,11 @@ export async function retrieveKnowledgeBundle(
     }, scopeFilter),
   ]);
 
-  const contextCards = cardRows.length > 0
-    ? cardRows.map(contextCardFromRag)
+  const packCards = packCardRows.length > 0 ? packCardRows.map(contextCardFromRag) : [];
+  const contextCards = packCards.length > 0
+    ? packCards
+    : contextCardRows.length > 0
+    ? contextCardRows.map(contextCardFromRag)
     : sourceRows.slice(0, 3).map(contextCardFromRag);
   const sourceChunks = sourceRows.map(knowledgeResultFromRag);
   const examples = exampleRows.map(knowledgeResultFromRag);
@@ -947,12 +994,21 @@ export async function retrieveKnowledgeBundle(
   return {
     query: request.query,
     resolved_pack: resolvedPack,
+    pack_cards: packCards,
     context_cards: contextCards,
     examples,
     anti_patterns: antiPatterns,
     source_chunks: sourceChunks,
     related_symbols: relatedSymbols,
     freshness_warnings: sourceVersionWarning(request.version, resolvedPack),
+    routing: {
+      mode: request.routingMode ?? "auto",
+      strategy: "single-nornicdb",
+      candidate_pack_count: resolve.candidates.length,
+      selected_pack_ids: packId ? [packId] : [],
+      endpoint_count: 1,
+      notes: ["local_nornicdb_selected", "catalog_router_not_required_for_single_endpoint"],
+    },
     quality: {
       quality_score: avg(qualityValues),
       trust_score: avg(trustValues),
@@ -961,6 +1017,7 @@ export async function retrieveKnowledgeBundle(
       example_count: examples.length,
       anti_pattern_count: antiPatterns.length,
       context_card_count: contextCards.length,
+      pack_card_count: packCards.length,
     },
     timings: {
       resolve_ms: Math.round(resolveMs * 10) / 10,

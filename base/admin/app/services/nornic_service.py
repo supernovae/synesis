@@ -454,6 +454,7 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                      sum(CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1 ELSE 0 END) AS chunk_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'Example' THEN 1 ELSE 0 END) AS example_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'ContextCard' THEN 1 ELSE 0 END) AS context_card_count,
+                     sum(CASE WHEN coalesce(n.kind, '') = 'PackCard' THEN 1 ELSE 0 END) AS pack_card_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'Pattern' THEN 1 ELSE 0 END) AS anti_pattern_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'Constraint' THEN 1 ELSE 0 END) AS constraint_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'ExternalRef' THEN 1 ELSE 0 END) AS external_ref_count,
@@ -461,10 +462,10 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                 OPTIONAL MATCH (a:ContentNode)-[r]-(b:ContentNode)
                 WHERE (a.pack = pack_id OR a.pack_id = pack_id)
                   AND (b.pack = pack_id OR b.pack_id = pack_id)
-                WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count,
+                WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pack_card_count,
                      anti_pattern_count, constraint_count, external_ref_count, count(DISTINCT r) AS edge_count
                 RETURN pack_id,
-                       node_count, chunk_count, example_count, context_card_count, anti_pattern_count,
+                       node_count, chunk_count, example_count, context_card_count, pack_card_count, anti_pattern_count,
                        constraint_count, external_ref_count,
                        edge_count,
                        coalesce(sample.source_version, '') AS source_version,
@@ -484,6 +485,7 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                         "chunk_count": int(row.get("chunk_count") or 0),
                         "example_count": int(row.get("example_count") or 0),
                         "context_card_count": int(row.get("context_card_count") or 0),
+                        "pack_card_count": int(row.get("pack_card_count") or 0),
                         "anti_pattern_count": int(row.get("anti_pattern_count") or 0),
                         "constraint_count": int(row.get("constraint_count") or 0),
                         "external_ref_count": int(row.get("external_ref_count") or 0),
@@ -598,6 +600,7 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             "Constraint",
             "Example",
             "ContextCard",
+            "PackCard",
             "ExternalRef",
             "EvalCase",
         ],

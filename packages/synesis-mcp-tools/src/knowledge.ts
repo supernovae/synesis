@@ -77,6 +77,12 @@ function buildSearchBody(
   if (typeof args.include_examples === "boolean") body.include_examples = args.include_examples;
   if (typeof args.include_antipatterns === "boolean") body.include_antipatterns = args.include_antipatterns;
   if (typeof args.include_context_cards === "boolean") body.include_context_cards = args.include_context_cards;
+  if (typeof args.include_pack_cards === "boolean") body.include_pack_cards = args.include_pack_cards;
+
+  const routingMode = optionalString(args.routing_mode);
+  if (routingMode === "auto" || routingMode === "local" || routingMode === "hosted" || routingMode === "hybrid") {
+    body.routing_mode = routingMode;
+  }
 
   const graphDepth = clampInt(args.graph_depth, 0, LIMITS.maxGraphDepth);
   if (graphDepth !== undefined) body.graph_depth = graphDepth;
