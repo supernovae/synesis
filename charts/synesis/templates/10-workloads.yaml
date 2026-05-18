@@ -55,6 +55,9 @@ spec:
       topologySpreadConstraints:
         {{- toYaml $workload.topologySpreadConstraints | nindent 8 }}
       {{- end }}
+      {{- if $workload.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ $workload.terminationGracePeriodSeconds }}
+      {{- end }}
       securityContext:
         {{- if $workload.podSecurityContext }}
         {{- toYaml $workload.podSecurityContext | nindent 8 }}
@@ -188,6 +191,14 @@ metadata:
     app.kubernetes.io/name: {{ $workload.name }}
     app.kubernetes.io/component: {{ $workload.component | default $key }}
 spec:
+  {{- if $workload.sessionAffinity }}
+  sessionAffinity: {{ $workload.sessionAffinity.type | default "ClientIP" }}
+  {{- if $workload.sessionAffinity.timeoutSeconds }}
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: {{ $workload.sessionAffinity.timeoutSeconds }}
+  {{- end }}
+  {{- end }}
   selector:
     app.kubernetes.io/name: {{ $workload.name }}
   ports:

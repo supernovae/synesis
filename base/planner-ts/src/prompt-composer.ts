@@ -1,11 +1,5 @@
 import type { PromptSnapshot } from "./prompt-registry.js";
 
-let activeSnapshot: PromptSnapshot | null = null;
-
-export function setPlannerPromptSnapshot(snapshot: PromptSnapshot): void {
-  activeSnapshot = snapshot;
-}
-
 function inferModelFamily(model: string): string {
   const m = (model || "").toLowerCase();
   if (/qwen3.*coder/.test(m)) return "qwen3-coder";
@@ -18,11 +12,12 @@ function inferModelFamily(model: string): string {
 export function composePlannerPrompt(
   basePrompt: string,
   ctx: { tier?: string; role?: string; node?: string; model?: string },
+  snapshot?: PromptSnapshot | null,
 ): { content: string; profileIds: number[]; profileHashes: string[] } {
-  if (!activeSnapshot || !Array.isArray(activeSnapshot.profiles) || !Array.isArray(activeSnapshot.assignments)) {
+  if (!snapshot || !Array.isArray(snapshot.profiles) || !Array.isArray(snapshot.assignments)) {
     return { content: basePrompt, profileIds: [], profileHashes: [] };
   }
-  const byId = new Map(activeSnapshot.profiles.map((p) => [p.id, p] as const));
+  const byId = new Map(snapshot.profiles.map((p) => [p.id, p] as const));
   const modelFamily = inferModelFamily(ctx.model ?? "");
   const targets: Array<[string, string | undefined]> = [
     ["default", "*"],
@@ -37,7 +32,7 @@ export function composePlannerPrompt(
   const hashes: string[] = [];
   for (const [targetType, targetValue] of targets) {
     if (!targetValue) continue;
-    const assignment = activeSnapshot.assignments.find(
+    const assignment = snapshot.assignments.find(
       (a) => a.target_type === targetType && a.target_value === targetValue,
     );
     if (!assignment || seen.has(assignment.profile_id)) continue;

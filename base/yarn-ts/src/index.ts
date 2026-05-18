@@ -63,7 +63,7 @@ import {
   inferCompactionSensitivity,
   type CompactionSensitivity,
 } from "./context/compaction-sensitivity.js";
-import { SessionStore, type SessionRecord } from "./state/session-store.js";
+import { SessionStore, type SessionRecord, type SessionStateSnapshot } from "./state/session-store.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
@@ -3236,6 +3236,7 @@ const circuitBreakers = new CircuitBreakerRegistry({
 const userRateLimiter = new UserRateLimiter({
   windowMs: config.SYNESIS_YARN_RATE_LIMIT_WINDOW_MS,
   maxRequests: config.SYNESIS_YARN_RATE_LIMIT_MAX_REQUESTS,
+  redis: memoryStoreRedis ?? undefined,
 });
 const distributedCounters = new DistributedCounterService(config);
 const stateTransitionGlobalCalibrator = new StateTransitionGlobalCalibrator({
@@ -3885,6 +3886,19 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
       : null,
     taskCapabilities: null,
   };
+
+  if (loaded) {
+    try {
+      const snap = await sessionStore.loadSessionState(key);
+      if (snap && snap.snapshotAt > 0) {
+        rehydrateFromSnapshot(state, snap);
+        app.log.info({ sessionKey: key, snapshotAge: Date.now() - snap.snapshotAt }, "session_state_rehydrated");
+      }
+    } catch (err) {
+      app.log.warn({ err, sessionKey: key }, "Session state rehydration failed (non-fatal)");
+    }
+  }
+
   sessions.set(key, state);
   return state;
 }
@@ -3976,6 +3990,65 @@ function countTurnsSinceLastUser(messages: readonly { role: string }[]): number 
   return Math.max(1, count);
 }
 
+function buildSessionStateSnapshot(state: SessionState): SessionStateSnapshot {
+  return {
+    history: state.history,
+    toolCallsSinceCheckpoint: state.toolCallsSinceCheckpoint,
+    consecutiveToolCalls: state.consecutiveToolCalls,
+    stagnantToolCycles: state.stagnantToolCycles,
+    lastToolSignalHash: state.lastToolSignalHash,
+    awaitingToolLoopUserAck: state.awaitingToolLoopUserAck,
+    toolLoopAckAnchorUserHash: state.toolLoopAckAnchorUserHash,
+    toolLoopNoUserAckCount: state.toolLoopNoUserAckCount,
+    blockBroadVerificationUntilEdit: state.blockBroadVerificationUntilEdit,
+    blockFailingVerificationUntilEdit: state.blockFailingVerificationUntilEdit,
+    pruningWatermark: state.pruningWatermark,
+    consecutiveRecoveryFires: state.consecutiveRecoveryFires,
+    consecutiveEditContextMisses: state.consecutiveEditContextMisses,
+    editReplayHardStopGraceUsed: state.editReplayHardStopGraceUsed,
+    editMissForceReadPending: state.editMissForceReadPending,
+    lastGovernorPhase: state.lastGovernorPhase ?? null,
+    artifactEditTurns: Object.fromEntries(state.artifactEditTurns),
+    seenFailureSignatures: [...state.seenFailureSignatures],
+    previousFailureSignature: state.previousFailureSignature,
+    lastIncomingMessageCount: state.lastIncomingMessageCount,
+    implementationSoftStallNudgeStrikes: state.implementationSoftStallNudgeStrikes,
+    regroundCooldownRemaining: state.regroundCooldownRemaining,
+    lastGovernorNoPauseAt: state.lastGovernorNoPauseAt,
+    skipToolIdStabilization: state.skipToolIdStabilization,
+    gitInspectionBlockCount: state.gitInspectionBlockCount,
+    snapshotAt: Date.now(),
+  };
+}
+
+function rehydrateFromSnapshot(state: SessionState, snap: SessionStateSnapshot): void {
+  state.history = snap.history as SessionState["history"];
+  state.toolCallsSinceCheckpoint = snap.toolCallsSinceCheckpoint;
+  state.consecutiveToolCalls = snap.consecutiveToolCalls;
+  state.stagnantToolCycles = snap.stagnantToolCycles;
+  state.lastToolSignalHash = snap.lastToolSignalHash;
+  state.awaitingToolLoopUserAck = snap.awaitingToolLoopUserAck;
+  state.toolLoopAckAnchorUserHash = snap.toolLoopAckAnchorUserHash;
+  state.toolLoopNoUserAckCount = snap.toolLoopNoUserAckCount;
+  state.blockBroadVerificationUntilEdit = snap.blockBroadVerificationUntilEdit;
+  state.blockFailingVerificationUntilEdit = snap.blockFailingVerificationUntilEdit;
+  state.pruningWatermark = snap.pruningWatermark;
+  state.consecutiveRecoveryFires = snap.consecutiveRecoveryFires;
+  state.consecutiveEditContextMisses = snap.consecutiveEditContextMisses;
+  state.editReplayHardStopGraceUsed = snap.editReplayHardStopGraceUsed;
+  state.editMissForceReadPending = snap.editMissForceReadPending;
+  state.lastGovernorPhase = (snap.lastGovernorPhase as SessionState["lastGovernorPhase"]) ?? undefined;
+  state.artifactEditTurns = new Map(Object.entries(snap.artifactEditTurns));
+  state.seenFailureSignatures = new Set(snap.seenFailureSignatures);
+  state.previousFailureSignature = snap.previousFailureSignature;
+  state.lastIncomingMessageCount = snap.lastIncomingMessageCount;
+  state.implementationSoftStallNudgeStrikes = (snap.implementationSoftStallNudgeStrikes === 1 ? 1 : 0) as 0 | 1;
+  state.regroundCooldownRemaining = snap.regroundCooldownRemaining;
+  state.lastGovernorNoPauseAt = snap.lastGovernorNoPauseAt;
+  state.skipToolIdStabilization = snap.skipToolIdStabilization;
+  state.gitInspectionBlockCount = snap.gitInspectionBlockCount;
+}
+
 async function casSessionSave(state: SessionState): Promise<void> {
   try {
     if (state.history.length > 2 && state.record.userId !== "anon") {
@@ -4015,6 +4088,9 @@ async function casSessionSave(state: SessionState): Promise<void> {
         await sessionStore.save(state.record);
       }
     }
+    void sessionStore.saveSessionState(state.record.sessionKey, buildSessionStateSnapshot(state)).catch((err) => {
+      app.log.warn({ err }, "Session state snapshot persist failed (non-fatal)");
+    });
   } catch (err) {
     app.log.warn({ err }, "Session persistence failed (non-fatal)");
     recordSessionEvent(state.record.sessionKey, state.record.userId, state.record.orgId, "persistence_error", "casSessionSave", String(err instanceof Error ? err.message : err).slice(0, 500));
@@ -7007,7 +7083,21 @@ const sessionEvictionTimer = setInterval(() => {
 }, 60_000);
 
 // --- Graceful shutdown ---
+let shuttingDown = false;
+
+async function snapshotSessionsToRedis(): Promise<void> {
+  const saves: Promise<unknown>[] = [];
+  for (const [key, state] of sessions) {
+    state.record.lastActiveAt = Date.now();
+    saves.push(sessionStore.save(state.record));
+    saves.push(sessionStore.saveSessionState(key, buildSessionStateSnapshot(state)));
+  }
+  await Promise.allSettled(saves);
+}
+
 async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   clearInterval(sessionEvictionTimer);
   clearInterval(tierPollTimer);
   streamAdmission.close();
@@ -7015,9 +7105,9 @@ async function shutdown(): Promise<void> {
   policyEngine.close();
   governanceClient?.close();
   artifactStore.close();
+  await snapshotSessionsToRedis();
   await app.close();
   await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close(), enrichmentPool.close(), memoryStoreRedis?.quit()]);
-  process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
@@ -7053,7 +7143,13 @@ app.get("/health", async () => ({
   usage_persistence_enabled: usagePersistenceEnabled,
   usage_write_queue: usageWriter.getStats(),
 }));
-app.get("/health/readiness", async () => ({ status: "ready" }));
+app.get("/health/readiness", async (_req, reply) => {
+  const redisOk = await sessionStore.ping();
+  if (!redisOk) {
+    return reply.code(503).send({ status: "not_ready", reason: "redis_unreachable" });
+  }
+  return { status: "ready" };
+});
 app.get("/health/telemetry", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
@@ -7322,7 +7418,7 @@ app.get("/v1/claude/bootstrap", async (req, reply) => {
   if (!fgaResult.allowed) {
     return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
   }
-  const rateResult = userRateLimiter.check(authUser.userId);
+  const rateResult = await userRateLimiter.check(authUser.userId);
   if (!rateResult.allowed) {
     reply.header("Retry-After", String(rateResult.retryAfterSeconds));
     return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
@@ -7356,7 +7452,7 @@ app.get("/v1/claude/model-resolution", async (req, reply) => {
   if (!fgaResult.allowed) {
     return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
   }
-  const rateResult = userRateLimiter.check(authUser.userId);
+  const rateResult = await userRateLimiter.check(authUser.userId);
   if (!rateResult.allowed) {
     reply.header("Retry-After", String(rateResult.retryAfterSeconds));
     return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
@@ -7400,7 +7496,7 @@ app.post("/v1/claude/commands/execute", async (req, reply) => {
   if (!fgaResult.allowed) {
     return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
   }
-  const rateResult = userRateLimiter.check(authUser.userId);
+  const rateResult = await userRateLimiter.check(authUser.userId);
   if (!rateResult.allowed) {
     reply.header("Retry-After", String(rateResult.retryAfterSeconds));
     return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${rateResult.retryAfterSeconds} seconds.` } });
@@ -7532,7 +7628,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(403).send({ error: { type: "authz_error", message: "Authorization denied by policy" } });
   }
 
-  const oaiRateResult = userRateLimiter.check(authUser.userId);
+  const oaiRateResult = await userRateLimiter.check(authUser.userId);
   if (!oaiRateResult.allowed) {
     app.log.warn({ userId: authUser.userId, count: oaiRateResult.currentCount, limit: oaiRateResult.limit }, "rate_limit_rejected");
     recordSessionEvent("", authUser.userId, authUser.orgId, "rate_limit_reject", "user-rate-limiter",
@@ -11276,7 +11372,7 @@ app.post("/v1/messages", async (req, reply) => {
     return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Authorization denied by policy" } });
   }
 
-  const claudeRateResult = userRateLimiter.check(claudeAuthUser.userId);
+  const claudeRateResult = await userRateLimiter.check(claudeAuthUser.userId);
   if (!claudeRateResult.allowed) {
     app.log.warn({ userId: claudeAuthUser.userId, count: claudeRateResult.currentCount, limit: claudeRateResult.limit }, "rate_limit_rejected_claude");
     recordSessionEvent("", claudeAuthUser.userId, claudeAuthUser.orgId, "rate_limit_reject", "user-rate-limiter",

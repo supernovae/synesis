@@ -187,7 +187,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED: z
     .string()
     .optional()
-    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+    .transform((v) => (v ?? "true").toLowerCase() === "true"),
   /** Generic tool-blob tier (e.g. large payloads) — uses session Redis. */
   SYNESIS_YARN_TOOL_BLOB_REDIS_ENABLED: z
     .string()

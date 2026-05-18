@@ -29,6 +29,7 @@ export interface SessionStore {
   ping(): Promise<boolean>;
   keys(): Promise<string[]>;
   pruneExpired(maxAgeMs: number): Promise<number>;
+  disconnect(): Promise<void>;
 }
 
 export class MemorySessionStore implements SessionStore {
@@ -97,6 +98,8 @@ export class MemorySessionStore implements SessionStore {
     }
     if (oldestKey) this.sessions.delete(oldestKey);
   }
+
+  async disconnect(): Promise<void> {}
 }
 
 export class RedisSessionStore implements SessionStore {

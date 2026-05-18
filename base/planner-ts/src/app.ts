@@ -64,7 +64,6 @@ import { FailureStore } from "./diagnostics/failure-store.js";
 import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
 import { getTracer } from "./telemetry/otel.js";
 import { PromptRegistry } from "./prompt-registry.js";
-import { setPlannerPromptSnapshot } from "./prompt-composer.js";
 import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
 import type { ScopeFilterOptions, WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
 import { CapabilityMatrixClient } from "./capability-matrix/client.js";
@@ -574,6 +573,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     dependencyHealthMonitor.stop();
     promptRegistry.stop();
     capabilityMatrixClient.stop();
+    await sessionStore.disconnect();
   });
   dependencyHealthMonitor.start();
 
@@ -679,9 +679,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
     traceparent?: string,
   ): Promise<GraphState> {
     const promptSnapshot = promptRegistry.getSnapshot();
-    if (promptSnapshot) {
-      setPlannerPromptSnapshot(promptSnapshot);
-    }
     const incomingWithSession = await sessionManager.enrichIncomingMessages(
       sessionKey,
       requestBody.messages.map((m) => ({ role: m.role, content: m.content ?? "" }))
@@ -876,6 +873,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
       injection_scan_result: injectionScanResult,
+      _prompt_snapshot: promptSnapshot ?? null,
     };
 
     if (applyPendingClarification && pendingClarification) {

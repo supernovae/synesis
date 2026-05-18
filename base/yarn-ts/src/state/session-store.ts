@@ -11,6 +11,41 @@ export interface SessionContinuity {
   updatedAt: number;
 }
 
+/**
+ * Serializable snapshot of the full proxy-side session state.
+ * Stored in a separate Redis key from SessionRecord so that sessions
+ * survive pod migration without requiring session affinity.
+ * Maps/Sets are serialized as plain objects/arrays for JSON compatibility.
+ */
+export interface SessionStateSnapshot {
+  history: Array<{ role: string; content: string }>;
+  toolCallsSinceCheckpoint: number;
+  consecutiveToolCalls: number;
+  stagnantToolCycles: number;
+  lastToolSignalHash: string;
+  awaitingToolLoopUserAck: boolean;
+  toolLoopAckAnchorUserHash: string;
+  toolLoopNoUserAckCount: number;
+  blockBroadVerificationUntilEdit: boolean;
+  blockFailingVerificationUntilEdit: boolean;
+  pruningWatermark: number;
+  consecutiveRecoveryFires: number;
+  consecutiveEditContextMisses: number;
+  editReplayHardStopGraceUsed: boolean;
+  editMissForceReadPending: boolean;
+  lastGovernorPhase?: string | null;
+  artifactEditTurns: Record<string, number>;
+  seenFailureSignatures: string[];
+  previousFailureSignature: string | null;
+  lastIncomingMessageCount: number;
+  implementationSoftStallNudgeStrikes: number;
+  regroundCooldownRemaining: number;
+  lastGovernorNoPauseAt: number;
+  skipToolIdStabilization: boolean;
+  gitInspectionBlockCount: number;
+  snapshotAt: number;
+}
+
 export interface SessionRecord {
   sessionKey: string;
   userId: string;
@@ -132,11 +167,44 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Persist the full proxy-side session state (history + governor counters)
+   * to a separate Redis key so sessions survive pod migration.
+   */
+  async saveSessionState(sessionKey: string, snapshot: SessionStateSnapshot): Promise<void> {
+    const key = this.stateKey(sessionKey);
+    await this.redis.set(key, JSON.stringify(snapshot), "EX", this.ttlSeconds);
+  }
+
+  async loadSessionState(sessionKey: string): Promise<SessionStateSnapshot | null> {
+    const key = this.stateKey(sessionKey);
+    const raw = await this.redis.get(key);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as SessionStateSnapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      const res = await this.redis.ping();
+      return res === "PONG";
+    } catch {
+      return false;
+    }
+  }
+
   async close(): Promise<void> {
     await this.redis.quit();
   }
 
   private redisKey(sessionKey: string): string {
     return `yarn-ts:session:${sessionKey}`;
+  }
+
+  private stateKey(sessionKey: string): string {
+    return `yarn-ts:state:${sessionKey}`;
   }
 }

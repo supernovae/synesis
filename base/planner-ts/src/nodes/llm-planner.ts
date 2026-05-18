@@ -418,7 +418,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       role: "planner",
       node: "planner",
       model: plannerModel,
-    });
+    }, state._prompt_snapshot);
     const composedSystemPrompt = `${composed.content}\n\n${PLANNER_JSON_FOOTER}`;
     const plannerMessages = [
       {

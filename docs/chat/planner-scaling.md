@@ -100,5 +100,6 @@ Tune from measured telemetry, not ad hoc edits.
 
 ## Reference
 
+- **Scaling architecture (both services):** [`docs/SCALING.md`](../SCALING.md) — pod lifecycle, session state persistence, HPA/PDB, Redis key layout
 - Observability source of truth: `docs/OBSERVABILITY.md`
 - Historical research notes: [PLANNER_TS_SCALABILITY_RESEARCH.md](../development/PLANNER_TS_SCALABILITY_RESEARCH.md)

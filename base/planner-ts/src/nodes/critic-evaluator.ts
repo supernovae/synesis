@@ -233,6 +233,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
       node: "critic",
       model: criticModel,
     },
+    state._prompt_snapshot,
   ).content;
   const result = await chatCompletion({
     model: criticModel,

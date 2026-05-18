@@ -1,6 +1,7 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
 import type { ContextSelectionMetadata } from "../context/context-selector.js";
 import type { LlmRoute } from "../public-model-catalog.js";
+import type { PromptSnapshot } from "../prompt-registry.js";
 import type { CohesionLockData } from "../retrieval/types.js";
 import type { SpanCollector } from "../tracing/span-collector.js";
 
@@ -142,4 +143,5 @@ export interface GraphState {
   injection_detected?: boolean;
   injection_scan_result?: { detected: boolean; patterns_found: string[]; source: string };
   _span_collector?: SpanCollector;
+  _prompt_snapshot?: PromptSnapshot | null;
 }

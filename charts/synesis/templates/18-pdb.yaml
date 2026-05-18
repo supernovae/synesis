@@ -1,0 +1,26 @@
+{{- range $key, $workload := .Values.workloads }}
+{{- if and $workload.enabled (dig "podDisruptionBudget" "enabled" false $workload) }}
+{{- $ns := include "synesis.namespace" (dict "root" $ "key" $workload.namespace) -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $workload.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $workload.name }}
+    app.kubernetes.io/component: {{ $workload.component | default $key }}
+spec:
+  {{- if $workload.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ $workload.podDisruptionBudget.minAvailable }}
+  {{- else if $workload.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ $workload.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $workload.name }}
+{{- end }}
+{{- end }}

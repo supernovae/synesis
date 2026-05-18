@@ -296,7 +296,7 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     role: "writer",
     node: "writer",
     model: writerModel,
-  }).content;
+  }, state._prompt_snapshot).content;
   const msgs: ChatMessage[] = [
     { role: "system" as const, content: composedWriterSystem },
   ];

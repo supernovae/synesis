@@ -671,6 +671,11 @@ workloads:
     # Planner session state is externalized to Redis. Multi-replica is safe when
     # SYNESIS_PLANNER_TS_REDIS_URL is set (required for replicas > 1).
     replicas: 2
+    terminationGracePeriodSeconds: 60
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sh", "-c", "sleep 5"]
     strategy:
       type: RollingUpdate
       rollingUpdate:
@@ -808,6 +813,14 @@ workloads:
     probes:
       readiness: /health/readiness
       liveness: /health
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+    podDisruptionBudget:
+      enabled: false
+      minAvailable: 1
   yarn:
     enabled: true
     namespace: yarn
@@ -816,11 +829,20 @@ workloads:
     image:
       repository: ghcr.io/supernovae/synesis/yarn-ts
       tag: latest
-    # Yarn keeps critical session state (governor, dedup, snapshots) in-memory.
-    # Redis stores SessionRecord but not all per-session maps. Until state is
-    # fully externalized, multi-replica requires session affinity at the ingress
-    # layer. Default to 1 for safe production deployments.
+    # Yarn now persists full SessionState (history, governor counters) to Redis
+    # on every request via saveSessionState and rehydrates on pod migration.
+    # Structural index, file snapshots, and dedup caches start cold after migration
+    # but rebuild incrementally from tool traffic. Session affinity (below) is
+    # recommended for best UX but no longer strictly required.
     replicas: 1
+    terminationGracePeriodSeconds: 60
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sh", "-c", "sleep 5"]
+    sessionAffinity:
+      type: ClientIP
+      timeoutSeconds: 10800
     ports:
       - name: http
         containerPort: 8000
@@ -1074,6 +1096,14 @@ workloads:
     probes:
       readiness: /health/readiness
       liveness: /health
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+    podDisruptionBudget:
+      enabled: false
+      minAvailable: 1
   mcpTs:
     enabled: true
     namespace: yarn

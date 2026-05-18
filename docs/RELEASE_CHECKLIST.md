@@ -63,4 +63,5 @@ Pre-tag verification for an internet-facing, multi-tenant Synesis deployment.
 
 - [ ] `docs/PRODUCTION_SECURITY.md` env names match code (`SYNESIS_PLANNER_TS_*`)
 - [ ] `docs/CLOUDFLARE_EDGE_HARDENING.md` three-layer rate limit section present
+- [ ] `docs/SCALING.md` reviewed — pod lifecycle, session state, HPA/PDB configuration
 - [ ] `docs/RELEASE_CHECKLIST.md` (this file) reviewed

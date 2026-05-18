@@ -1,0 +1,33 @@
+{{- range $key, $workload := .Values.workloads }}
+{{- if and $workload.enabled (dig "autoscaling" "enabled" false $workload) }}
+{{- $ns := include "synesis.namespace" (dict "root" $ "key" $workload.namespace) -}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $workload.name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "synesis.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $workload.name }}
+    app.kubernetes.io/component: {{ $workload.component | default $key }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $workload.name }}
+  minReplicas: {{ $workload.autoscaling.minReplicas | default $workload.replicas | default 1 }}
+  maxReplicas: {{ $workload.autoscaling.maxReplicas | default 4 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $workload.autoscaling.targetCPUUtilizationPercentage | default 70 }}
+  {{- if $workload.autoscaling.behavior }}
+  behavior:
+    {{- toYaml $workload.autoscaling.behavior | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

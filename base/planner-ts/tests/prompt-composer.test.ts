@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composePlannerPrompt, setPlannerPromptSnapshot } from "../src/prompt-composer.js";
+import { composePlannerPrompt } from "../src/prompt-composer.js";
 
 describe("planner prompt composer", () => {
   it("falls back to base when no snapshot loaded", () => {
@@ -9,7 +9,7 @@ describe("planner prompt composer", () => {
   });
 
   it("applies default -> tier -> model_family -> role -> node overlays", () => {
-    setPlannerPromptSnapshot({
+    const snapshot = {
       service: "planner",
       profiles: [
         { id: 10, name: "default", service: "planner", content: "default-overlay", content_hash: "h10" },
@@ -26,14 +26,14 @@ describe("planner prompt composer", () => {
         { id: 5, service: "planner", target_type: "node", target_value: "critic", profile_id: 14 },
       ],
       updated_at: null,
-    });
+    };
 
     const out = composePlannerPrompt("base", {
       tier: "core",
       role: "critic",
       node: "critic",
       model: "Qwen/Qwen3-Coder-32B-Instruct",
-    });
+    }, snapshot);
 
     expect(out.content).toContain("base");
     expect(out.content).toContain("default-overlay");
