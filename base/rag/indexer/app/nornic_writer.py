@@ -248,9 +248,38 @@ class NornicGraphWriter:
             "nornic_bulk_upsert_nodes_safe_fallback",
             extra={"count": len(batch), "offset": offset, "error": str(last_exc)[:500] if last_exc else ""},
         )
-        with self.driver.session(database=self.database) as session:
-            session.execute_write(self._safe_upsert_nodes_tx, batch)
-        return len(batch)
+        return self._upsert_nodes_individually(batch, offset=offset)
+
+    def _upsert_nodes_individually(self, batch: list[dict[str, Any]], *, offset: int) -> int:
+        """Last-resort fallback: one MERGE per node in its own transaction."""
+        written = 0
+        errors = 0
+        for row in batch:
+            node_id = str(row.get("id") or "")
+            if not node_id:
+                continue
+            props = self._clean_props(row)
+            for attempt in range(3):
+                try:
+                    with self.driver.session(database=self.database) as session:
+                        session.execute_write(self._upsert_content_node_tx, node_id, props)
+                    written += 1
+                    break
+                except Neo4jError as exc:
+                    if attempt < 2:
+                        time.sleep(0.2 * (attempt + 1))
+                        continue
+                    errors += 1
+                    logger.warning(
+                        "nornic_individual_node_upsert_failed",
+                        extra={"node_id": node_id, "offset": offset, "error": str(exc)[:500]},
+                    )
+        if errors:
+            logger.warning(
+                "nornic_individual_fallback_summary",
+                extra={"offset": offset, "written": written, "errors": errors, "total": len(batch)},
+            )
+        return written
 
     @staticmethod
     def _bulk_create_nodes_tx(tx: Any, rows: list[dict[str, Any]]) -> None:
