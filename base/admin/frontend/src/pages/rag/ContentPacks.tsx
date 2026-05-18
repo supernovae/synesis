@@ -7,7 +7,7 @@ import {
 } from "../../api/hooks";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
-import { AlertTriangle, Download, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Download, RefreshCw, RotateCcw } from "lucide-react";
 
 function formatBytes(value: number) {
   if (!value) return "Unknown";
@@ -41,6 +41,55 @@ function PackStatus({ pack }: { pack: ContentPackEntry }) {
     <span className={`rounded-full px-2 py-1 text-xs font-medium capitalize ${statusTone(status)}`}>
       {label}
     </span>
+  );
+}
+
+function JobRow({ job, onRetry }: { job: { id: number; pack_id: string; pack_version: string; status: string; attempt_count: number; max_attempts: number; requested_by: string; error_message?: string }; onRetry: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasError = Boolean(job.error_message);
+
+  return (
+    <tr>
+      <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+        {job.pack_id}@{job.pack_version || "unversioned"}
+      </td>
+      <td className="px-4 py-3">
+        <span className={`rounded-full px-2 py-1 text-xs font-medium capitalize ${statusTone(job.status)}`}>
+          {job.status.replace("_", " ")}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+        {job.attempt_count}/{job.max_attempts}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{job.requested_by || "system"}</td>
+      <td className="max-w-xl px-4 py-3 text-sm text-red-700 dark:text-red-300">
+        {hasError && (
+          <div>
+            <div className={expanded ? "whitespace-pre-wrap break-all" : "truncate"} title={job.error_message}>
+              {job.error_message}
+            </div>
+            {job.error_message!.length > 80 && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-200"
+              >
+                {expanded ? <><ChevronUp className="h-3 w-3" /> Collapse</> : <><ChevronDown className="h-3 w-3" /> Show full error</>}
+              </button>
+            )}
+          </div>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {job.status !== "running" && (
+          <button
+            onClick={onRetry}
+            className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900 dark:text-blue-300"
+          >
+            <RotateCcw className="h-4 w-4" /> Retry
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -266,33 +315,7 @@ export default function ContentPacks() {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {data?.jobs.map((job) => (
-                  <tr key={job.id}>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
-                      {job.pack_id}@{job.pack_version || "unversioned"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-1 text-xs font-medium capitalize ${statusTone(job.status)}`}>
-                        {job.status.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                      {job.attempt_count}/{job.max_attempts}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{job.requested_by || "system"}</td>
-                    <td className="max-w-md truncate px-4 py-3 text-sm text-red-700 dark:text-red-300">
-                      {job.error_message}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {job.status !== "running" && (
-                        <button
-                          onClick={() => retryJob.mutate(job.id)}
-                          className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900 dark:text-blue-300"
-                        >
-                          <RotateCcw className="h-4 w-4" /> Retry
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                  <JobRow key={job.id} job={job} onRetry={() => retryJob.mutate(job.id)} />
                 ))}
               </tbody>
             </table>

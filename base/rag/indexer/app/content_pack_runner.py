@@ -57,7 +57,7 @@ class ContentPackClient:
         if result is not None:
             payload["result"] = result
         if error_message:
-            payload["error_message"] = error_message[:2000]
+            payload["error_message"] = error_message[:8000]
         resp = self._http.patch(f"/api/v1/rag/content-packs/install-jobs/{job_id}/status", json=payload)
         resp.raise_for_status()
 

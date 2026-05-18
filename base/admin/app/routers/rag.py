@@ -793,7 +793,7 @@ async def update_content_pack_install_job_status(
             job.error_message = ""
         else:
             job.attempt_count = (job.attempt_count or 0) + 1
-            job.error_message = body.error_message[:2000] or "content pack install failed"
+            job.error_message = body.error_message[:8000] or "content pack install failed"
             job.status = "dead_letter" if job.attempt_count >= job.max_attempts else "failed"
         await session.commit()
         await session.refresh(job)
