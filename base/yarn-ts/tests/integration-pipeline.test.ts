@@ -699,18 +699,22 @@ const knowledgeDeps = {
 
 describe("Knowledge search tool Claude parity", () => {
   it("injectToolOpenAI and injectToolClaude both add the tool", async () => {
-    const { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME } = await import("../src/state/knowledge-search.js");
+    const { KnowledgeSearchService, KNOWLEDGE_TOOL_NAME, CONTEXT_BUNDLE_TOOL_NAME, DEV_DOCS_TOOL_NAME } = await import("../src/state/knowledge-search.js");
     const svc = new KnowledgeSearchService(knowledgeDeps);
 
     const oaiTools = svc.injectToolOpenAI([]);
-    expect(oaiTools).toHaveLength(2);
+    expect(oaiTools).toHaveLength(3);
     const oaiNames = (oaiTools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name);
     expect(oaiNames).toContain(KNOWLEDGE_TOOL_NAME);
+    expect(oaiNames).toContain(CONTEXT_BUNDLE_TOOL_NAME);
+    expect(oaiNames).toContain(DEV_DOCS_TOOL_NAME);
 
     const claudeTools = svc.injectToolClaude([]);
-    expect(claudeTools).toHaveLength(2);
+    expect(claudeTools).toHaveLength(3);
     const claudeNames = (claudeTools as Array<{ name?: string }>).map((t) => t.name);
     expect(claudeNames).toContain(KNOWLEDGE_TOOL_NAME);
+    expect(claudeNames).toContain(CONTEXT_BUNDLE_TOOL_NAME);
+    expect(claudeNames).toContain(DEV_DOCS_TOOL_NAME);
   });
 
   it("knowledge search resolve returns results and tracks stats", async () => {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,18 +34,19 @@ def test_planner_metering_ingest_requires_token_when_configured(client: TestClie
         "latency_ms": 100.0,
         "has_error": False,
     }
-    r = client.post("/api/v1/planner/usage/metering", json=payload)
-    if token:
-        assert r.status_code == 401
-        r2 = client.post(
-            "/api/v1/planner/usage/metering",
-            json=payload,
-            headers={"x-synesis-service-token": token},
-        )
-        assert r2.status_code == 200
-        assert r2.json().get("status") == "ok"
-    else:
-        assert r.status_code == 200
+    with patch("app.routers.planner_usage.upsert_metering_row", new_callable=AsyncMock):
+        r = client.post("/api/v1/planner/usage/metering", json=payload)
+        if token:
+            assert r.status_code == 401
+            r2 = client.post(
+                "/api/v1/planner/usage/metering",
+                json=payload,
+                headers={"x-synesis-service-token": token},
+            )
+            assert r2.status_code == 200
+            assert r2.json().get("status") == "ok"
+        else:
+            assert r.status_code == 200
 
 
 def test_usage_me_summary_requires_auth(client: TestClient):

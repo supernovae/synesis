@@ -92,14 +92,14 @@ def _normalize_governance_scope(
     if normalized_scope not in VALID_SCOPES:
         raise HTTPException(400, f"Invalid scope: {normalized_scope}")
     target_org = (org_id or scope_value or user.org_id or "").strip()
-    if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
-        raise HTTPException(403, "Not authorized for governance scope")
     if resolve_role(user) < Role.platform_admin:
         normalized_scope = "org"
         target_org = (user.org_id or "").strip()
         scope_value = target_org
     elif normalized_scope == "org" and not target_org:
         raise HTTPException(400, "org_id or scope_value is required for org scope")
+    if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
+        raise HTTPException(403, "Not authorized for governance scope")
     return normalized_scope, (scope_value or target_org).strip(), target_org
 
 

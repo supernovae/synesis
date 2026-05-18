@@ -220,7 +220,7 @@ class TestConstitutionCRUD:
         assert data["name"] == "Platform Safety"
         assert data["status"] == "draft"
         assert data["version"] == 1
-        assert data["scope"] == "platform"
+        assert data["scope"] == "org"
 
     def test_create_constitution_invalid_scope(self, admin_client, _mock_db):
         resp = admin_client.post(
@@ -269,7 +269,7 @@ class TestConstitutionCRUD:
             version=1,
             status="draft",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -302,7 +302,7 @@ class TestConstitutionCRUD:
             version=1,
             status="active",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -337,7 +337,7 @@ class TestConstitutionLifecycle:
             version=1,
             status="draft",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -367,7 +367,7 @@ class TestConstitutionLifecycle:
             version=1,
             status="draft",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -399,7 +399,7 @@ class TestConstitutionLifecycle:
             version=1,
             status="active",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -425,7 +425,7 @@ class TestConstitutionLifecycle:
             version=1,
             status="draft",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             precedence=0,
             description="",
             provenance_source="",
@@ -448,6 +448,27 @@ class TestConstitutionLifecycle:
 
 class TestClauseCRUD:
     def test_create_clause(self, admin_client, _mock_db):
+        parent = FakeRow(
+            id=1,
+            constitution_id="c-1",
+            name="Parent",
+            version=1,
+            status="draft",
+            scope="org",
+            scope_value="org-1",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="base",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        _mock_db._execute_results = [FakeResult(items=[parent])]
         resp = admin_client.post(
             "/api/v1/governance/constitutions/c-1/clauses",
             json={
@@ -546,7 +567,7 @@ class TestPolicyCRUD:
             name="Delete Me",
             description="",
             scope="org",
-            scope_value="",
+            scope_value="org-1",
             org_id="org-1",
             category="quality",
             constraint_kind="guiding",
@@ -648,7 +669,7 @@ class TestCapabilityMatrixCanonicalSelectors:
             policy_id="cm-override-1",
             name="Legacy selector",
             scope="platform",
-            scope_value="",
+            scope_value="org-1",
             org_id="",
             category="tooling",
             constraint_kind="hard",

@@ -21,4 +21,6 @@ tree-sitter>=0.25.2
 tree-sitter-language-pack>=1.8.1
 cryptography>=46.0.7
 requests>=2.34.2
+# Pin urllib3 to address CVE-2026-44431, CVE-2026-44432 (transitive via requests, boto3, etc.)
+urllib3>=2.7.0
 pygments>=2.20.0

@@ -105,12 +105,12 @@ def test_loader_hash_deterministic():
 
 
 def test_loader_file_not_found():
+    import asyncio
+
     from app.services.pattern_loader import load_patterns_from_yaml
 
     with pytest.raises(FileNotFoundError):
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(load_patterns_from_yaml("/nonexistent/path.yaml"))
+        asyncio.run(load_patterns_from_yaml("/nonexistent/path.yaml"))
 
 
 # ── Eval harness extended tests ──────────────────────────────────────────────
