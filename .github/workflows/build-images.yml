@@ -196,7 +196,7 @@ jobs:
 
       - uses: actions/checkout@v6
         if: steps.filter.outputs.skip != 'true'
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -256,7 +256,7 @@ jobs:
 
       - uses: actions/checkout@v6
         if: steps.filter.outputs.skip != 'true'
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -547,7 +547,7 @@ jobs:
 
       - uses: actions/checkout@v6
         if: steps.check.outputs.skip != 'true'
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: steps.check.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.check.outputs.skip != 'true'
@@ -577,9 +577,28 @@ jobs:
             BASE_REBUILDING="true"
           fi
           if [[ "$BASE_REBUILDING" == "true" ]]; then
-            echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:${{ needs.determine-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+            REF="${{ env.REGISTRY }}/${{ matrix.base_arg }}:${{ needs.determine-tag.outputs.tag }}"
           else
-            echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:latest" >> "$GITHUB_OUTPUT"
+            REF="${{ env.REGISTRY }}/${{ matrix.base_arg }}:latest"
+          fi
+          echo "arg=BASE_IMAGE=$REF" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "rebuilding=$BASE_REBUILDING" >> "$GITHUB_OUTPUT"
+
+      - name: Verify base image platform support
+        if: steps.check.outputs.skip != 'true' && matrix.base_arg != '' && steps.base.outputs.rebuilding != 'true'
+        id: platform-check
+        run: |
+          REQUESTED="${{ inputs.platforms || matrix.platforms }}"
+          if [[ "$REQUESTED" != *"arm64"* ]]; then
+            exit 0
+          fi
+          BASE_REF="${{ steps.base.outputs.ref }}"
+          if docker buildx imagetools inspect "$BASE_REF" 2>&1 | grep -q 'linux/arm64'; then
+            echo "Base image $BASE_REF supports arm64"
+          else
+            echo "::warning::Base image $BASE_REF lacks arm64 manifest — building ${{ matrix.name }} as amd64-only"
+            echo "override=linux/amd64" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve image tags
@@ -610,7 +629,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: ${{ inputs.platforms || matrix.platforms }}
+          platforms: ${{ steps.platform-check.outputs.override || inputs.platforms || matrix.platforms }}
           push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
