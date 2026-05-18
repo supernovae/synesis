@@ -1,0 +1,26 @@
+# AKS with Azure Cobalt (ARM64) nodes — cost-optimized scheduling.
+#
+# Usage:
+#   helm upgrade synesis charts/synesis \
+#     --namespace default \
+#     --reuse-values \
+#     -f charts/synesis/examples/values-aks-cobalt-arm64.yaml
+#
+# This sets global.architecture=arm64 so all multi-arch workloads schedule on
+# Cobalt/ARM nodes. ML services (spamService, glinerService) and the indexer
+# are amd64-only and will automatically pin to kubernetes.io/arch: amd64 via
+# their amd64Only flag — ensure you have at least one amd64 node pool for them.
+#
+# NornicDB uses a custom amd64 image by default. Override to use the official
+# Neo4j community image which publishes multi-arch manifests.
+
+global:
+  architecture: arm64
+  provider: aks
+
+workloads:
+  nornicdb:
+    amd64Only: false
+    image:
+      repository: neo4j
+      tag: "5-community"

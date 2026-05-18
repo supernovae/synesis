@@ -33,6 +33,30 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{/*
+Merge architecture nodeSelector: workload-level > global.architecture.
+Returns the combined nodeSelector map as YAML.
+*/}}
+{{- define "synesis.nodeSelector" -}}
+{{- $workload := .workload -}}
+{{- $root := .root -}}
+{{- $amd64Only := .amd64Only | default false -}}
+{{- $merged := dict -}}
+{{- if $root.Values.global.architecture }}
+{{- $_ := set $merged "kubernetes.io/arch" $root.Values.global.architecture -}}
+{{- end }}
+{{- if $amd64Only }}
+{{- $_ := set $merged "kubernetes.io/arch" "amd64" -}}
+{{- end }}
+{{- if $workload.nodeSelector }}
+{{- $merged = merge $workload.nodeSelector $merged -}}
+{{- end }}
+{{- if $merged }}
+nodeSelector:
+  {{- toYaml $merged | nindent 2 }}
+{{- end }}
+{{- end -}}
+
 {{- define "synesis.selectorLabels" -}}
 app.kubernetes.io/name: {{ .name }}
 app.kubernetes.io/part-of: synesis

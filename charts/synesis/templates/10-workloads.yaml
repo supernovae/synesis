@@ -42,10 +42,7 @@ spec:
       {{- end }}
     spec:
       {{- include "synesis.imagePullSecrets" $ | nindent 6 }}
-      {{- if $workload.nodeSelector }}
-      nodeSelector:
-        {{- toYaml $workload.nodeSelector | nindent 8 }}
-      {{- end }}
+      {{- include "synesis.nodeSelector" (dict "workload" $workload "root" $ "amd64Only" $workload.amd64Only) | nindent 6 }}
       {{- if $workload.affinity }}
       affinity:
         {{- toYaml $workload.affinity | nindent 8 }}

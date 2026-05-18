@@ -28,6 +28,12 @@ global:
   # Deprecated compatibility switch. Prefer global.provider=openshift.
   openshift: true
   routeDomain: apps.example.com
+  # Set to "arm64" to schedule workloads on ARM nodes (e.g. Azure Cobalt),
+  # "amd64" to pin to x86, or "" (default) for no arch constraint.
+  # Per-workload nodeSelector overrides this. ML services (bge-reranker,
+  # gliner-service, spam-service) always pin to amd64 since their images
+  # are amd64-only.
+  architecture: ""
 
 registryCredentials:
   # When enabled, Helm creates a docker-registry pull secret in Synesis
@@ -1262,8 +1268,14 @@ workloads:
     namespace: rag
     name: synesis-nornicdb
     component: graph-store
+    amd64Only: true
     strategy: Recreate
     image:
+      # For ARM64 (Azure Cobalt), override with a multi-arch Neo4j image:
+      #   repository: docker.io/timothyswt/nornicdb-arm64-cpu
+      # or the official Neo4j community image:
+      #   repository: neo4j
+      #   tag: "5-community"
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
       tag: latest
     ports:
@@ -1369,6 +1381,7 @@ workloads:
     namespace: rag
     name: spam-service
     component: spam
+    amd64Only: true
     image:
       repository: ghcr.io/supernovae/synesis/spam-service
       tag: latest
@@ -1402,6 +1415,7 @@ workloads:
     namespace: rag
     name: gliner-service
     component: gliner
+    amd64Only: true
     strategy:
       type: RollingUpdate
       rollingUpdate:

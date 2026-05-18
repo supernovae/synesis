@@ -61,6 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -73,6 +74,7 @@ jobs:
         with:
           context: base/images/base-api
           file: base/images/base-api/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
           tags: |
             ${{ env.REGISTRY }}/synesis-base-api:${{ needs.prepare.outputs.version }}
@@ -85,6 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -97,6 +100,7 @@ jobs:
         with:
           context: base/images
           file: base/images/base-devtools/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
           tags: |
             ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.prepare.outputs.version }}
@@ -121,6 +125,8 @@ jobs:
         with:
           context: base/images/base-ml
           file: base/images/base-ml/Dockerfile
+          # ML base: amd64-only (torch/CUDA wheels not validated for arm64 yet)
+          platforms: linux/amd64
           push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
           build-args: |
             BASE_IMAGE=${{ env.REGISTRY }}/synesis-base-api:${{ needs.prepare.outputs.version }}
@@ -140,57 +146,72 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ------- Multi-arch (amd64 + arm64) -------
           - name: admin
             dockerfile: base/admin/Dockerfile
             context: base/admin
             base_arg: synesis-base-api
+            platforms: linux/amd64,linux/arm64
           - name: sandbox
             dockerfile: base/sandbox/image/Dockerfile
             context: base/sandbox/image
             base_arg: synesis-base-devtools
-          - name: bge-reranker
-            dockerfile: base/planner/bge-reranker/Dockerfile
-            context: base/planner/bge-reranker
-            base_arg: synesis-base-ml
-          - name: indexer
-            dockerfile: base/rag/indexer/Dockerfile
-            context: base
-            base_arg: ""
+            platforms: linux/amd64,linux/arm64
           - name: keyword-service
             dockerfile: base/rag/keyword-service/Dockerfile
             context: base/rag/keyword-service
             base_arg: synesis-base-api
-          - name: gliner-service
-            dockerfile: base/rag/gliner-service/Dockerfile
-            context: base/rag/gliner-service
-            base_arg: synesis-base-ml
+            platforms: linux/amd64,linux/arm64
           - name: preprocess-service
             dockerfile: base/rag/preprocess-service/Dockerfile
             context: base/rag/preprocess-service
             base_arg: synesis-base-api
-          - name: spam-service
-            dockerfile: base/rag/spam-service/Dockerfile
-            context: base/rag/spam-service
-            base_arg: synesis-base-ml
+            platforms: linux/amd64,linux/arm64
           - name: synesis-mcp
             dockerfile: base/synesis-mcp/Containerfile
             context: .
             base_arg: ""
+            platforms: linux/amd64,linux/arm64
           - name: admin-mcp-ts
             dockerfile: base/admin-mcp-ts/Containerfile
             context: .
             base_arg: ""
+            platforms: linux/amd64,linux/arm64
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
             context: .
             base_arg: ""
+            platforms: linux/amd64,linux/arm64
           - name: planner-ts
             dockerfile: base/planner-ts/Containerfile
             context: .
             base_arg: ""
+            platforms: linux/amd64,linux/arm64
+          # ------- amd64-only (ML/torch/Playwright — arm64 not yet validated) -------
+          - name: bge-reranker
+            dockerfile: base/planner/bge-reranker/Dockerfile
+            context: base/planner/bge-reranker
+            base_arg: synesis-base-ml
+            platforms: linux/amd64
+          - name: indexer
+            dockerfile: base/rag/indexer/Dockerfile
+            context: base
+            base_arg: ""
+            platforms: linux/amd64
+          - name: gliner-service
+            dockerfile: base/rag/gliner-service/Dockerfile
+            context: base/rag/gliner-service
+            base_arg: synesis-base-ml
+            platforms: linux/amd64
+          - name: spam-service
+            dockerfile: base/rag/spam-service/Dockerfile
+            context: base/rag/spam-service
+            base_arg: synesis-base-ml
+            platforms: linux/amd64
 
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -209,6 +230,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
           push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -242,7 +264,7 @@ jobs:
 
           ### Container Images
 
-          All images tagged \`${VERSION}\` and \`latest\`:
+          All images tagged \`${VERSION}\` and \`latest\` (multi-arch: amd64 + arm64 where supported):
 
           | Image | Pull |
           |-------|------|

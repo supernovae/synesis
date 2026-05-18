@@ -33,6 +33,7 @@ spec:
           restartPolicy: OnFailure
           serviceAccountName: {{ .Values.jobs.indexer.serviceAccountName }}
           {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          {{- include "synesis.nodeSelector" (dict "workload" .Values.jobs.indexer "root" . "amd64Only" (default true .Values.jobs.indexer.amd64Only)) | nindent 10 }}
           {{- with .Values.jobs.indexer.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -120,6 +121,7 @@ spec:
           restartPolicy: OnFailure
           serviceAccountName: {{ .Values.jobs.indexer.serviceAccountName }}
           {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          {{- include "synesis.nodeSelector" (dict "workload" .Values.jobs.indexer "root" . "amd64Only" (default true .Values.jobs.indexer.amd64Only)) | nindent 10 }}
           {{- with .Values.jobs.indexer.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -195,6 +197,7 @@ spec:
           restartPolicy: OnFailure
           serviceAccountName: {{ $root.Values.jobs.indexer.serviceAccountName }}
           {{- include "synesis.imagePullSecrets" $root | nindent 10 }}
+          {{- include "synesis.nodeSelector" (dict "workload" $root.Values.jobs.indexer "root" $root "amd64Only" (default true $root.Values.jobs.indexer.amd64Only)) | nindent 10 }}
           {{- with $root.Values.jobs.indexer.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -285,6 +288,7 @@ spec:
         spec:
           restartPolicy: Never
           {{- include "synesis.imagePullSecrets" . | nindent 10 }}
+          {{- include "synesis.nodeSelector" (dict "workload" .Values.jobs.qualityRunner "root" .) | nindent 10 }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001

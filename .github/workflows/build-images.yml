@@ -44,6 +44,10 @@ on:
         description: 'Comma-separated list of images to build (empty = all)'
         required: false
         type: string
+      platforms:
+        description: 'Override build platforms (e.g., linux/amd64 or linux/amd64,linux/arm64)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}/synesis
@@ -192,6 +196,8 @@ jobs:
 
       - uses: actions/checkout@v6
         if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-qemu-action@v3
+        if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/login-action@v4
@@ -207,6 +213,7 @@ jobs:
         with:
           context: base/images/base-api
           file: base/images/base-api/Dockerfile
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           tags: |
             ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
@@ -249,6 +256,8 @@ jobs:
 
       - uses: actions/checkout@v6
         if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-qemu-action@v3
+        if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/login-action@v4
@@ -266,6 +275,7 @@ jobs:
           # (matches scripts/build-images.sh synesis-base-devtools entry).
           context: base/images
           file: base/images/base-devtools/Dockerfile
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           tags: |
             ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
@@ -337,6 +347,8 @@ jobs:
         with:
           context: base/images/base-ml
           file: base/images/base-ml/Dockerfile
+          # ML base: amd64-only (torch/CUDA wheels not validated for arm64 yet)
+          platforms: linux/amd64
           push: true
           build-args: |
             BASE_IMAGE=${{ env.REGISTRY }}/synesis-base-api:${{ steps.base.outputs.tag }}
@@ -376,72 +388,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ------- Multi-arch (amd64 + arm64) -------
           - name: admin
             dockerfile: base/admin/Dockerfile
             context: base/admin
             base_arg: synesis-base-api
             change_key: admin
             base_change_key: base-api
+            platforms: linux/amd64,linux/arm64
           - name: sandbox
             dockerfile: base/sandbox/image/Dockerfile
             context: base/sandbox/image
             base_arg: synesis-base-devtools
             change_key: sandbox
             base_change_key: base-devtools
-          - name: bge-reranker
-            dockerfile: base/planner/bge-reranker/Dockerfile
-            context: base/planner/bge-reranker
-            base_arg: synesis-base-ml
-            change_key: bge-reranker
-            base_change_key: base-ml
-          - name: indexer
-            dockerfile: base/rag/indexer/Dockerfile
-            context: base
-            base_arg: ""
-            change_key: indexer
-            base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           - name: keyword-service
             dockerfile: base/rag/keyword-service/Dockerfile
             context: base/rag/keyword-service
             base_arg: synesis-base-api
             change_key: keyword-service
             base_change_key: base-api
-          - name: gliner-service
-            dockerfile: base/rag/gliner-service/Dockerfile
-            context: base/rag/gliner-service
-            base_arg: synesis-base-ml
-            change_key: gliner-service
-            base_change_key: base-ml
+            platforms: linux/amd64,linux/arm64
           - name: preprocess-service
             dockerfile: base/rag/preprocess-service/Dockerfile
             context: base/rag/preprocess-service
             base_arg: synesis-base-api
             change_key: preprocess-service
             base_change_key: base-api
-          - name: spam-service
-            dockerfile: base/rag/spam-service/Dockerfile
-            context: base/rag/spam-service
-            base_arg: synesis-base-ml
-            change_key: spam-service
-            base_change_key: base-ml
+            platforms: linux/amd64,linux/arm64
           - name: quality-runner
             dockerfile: base/quality-runner/Dockerfile
             context: .
             base_arg: synesis-base-api
             change_key: quality-runner
             base_change_key: base-api
-          - name: open-webui
-            dockerfile: base/webui/Dockerfile
-            context: base/webui
-            base_arg: ""
-            change_key: open-webui
-            base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           - name: synesis-mcp
             dockerfile: base/synesis-mcp/Containerfile
             context: .
             base_arg: ""
             change_key: synesis-mcp
             base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           # GHCR image name synesis-ast-mcp (ast-mcp push failed with write_package in CI).
           - name: synesis-ast-mcp
             dockerfile: base/ast-mcp/Dockerfile
@@ -449,30 +438,71 @@ jobs:
             base_arg: synesis-base-api
             change_key: ast-mcp
             base_change_key: base-api
-          - name: vision-worker
-            dockerfile: base/vision-worker/Dockerfile
-            context: base/vision-worker
-            base_arg: ""
-            change_key: vision-worker
-            base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           - name: admin-mcp-ts
             dockerfile: base/admin-mcp-ts/Containerfile
             context: .
             base_arg: ""
             change_key: admin-mcp-ts
             base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
             context: .
             base_arg: ""
             change_key: yarn-ts
             base_change_key: ""
+            platforms: linux/amd64,linux/arm64
           - name: planner-ts
             dockerfile: base/planner-ts/Containerfile
             context: .
             base_arg: ""
             change_key: planner-ts
             base_change_key: ""
+            platforms: linux/amd64,linux/arm64
+          # ------- amd64-only (ML/torch/Playwright — arm64 not yet validated) -------
+          - name: bge-reranker
+            dockerfile: base/planner/bge-reranker/Dockerfile
+            context: base/planner/bge-reranker
+            base_arg: synesis-base-ml
+            change_key: bge-reranker
+            base_change_key: base-ml
+            platforms: linux/amd64
+          - name: indexer
+            dockerfile: base/rag/indexer/Dockerfile
+            context: base
+            base_arg: ""
+            change_key: indexer
+            base_change_key: ""
+            platforms: linux/amd64
+          - name: gliner-service
+            dockerfile: base/rag/gliner-service/Dockerfile
+            context: base/rag/gliner-service
+            base_arg: synesis-base-ml
+            change_key: gliner-service
+            base_change_key: base-ml
+            platforms: linux/amd64
+          - name: spam-service
+            dockerfile: base/rag/spam-service/Dockerfile
+            context: base/rag/spam-service
+            base_arg: synesis-base-ml
+            change_key: spam-service
+            base_change_key: base-ml
+            platforms: linux/amd64
+          - name: open-webui
+            dockerfile: base/webui/Dockerfile
+            context: base/webui
+            base_arg: ""
+            change_key: open-webui
+            base_change_key: ""
+            platforms: linux/amd64
+          - name: vision-worker
+            dockerfile: base/vision-worker/Dockerfile
+            context: base/vision-worker
+            base_arg: ""
+            change_key: vision-worker
+            base_change_key: ""
+            platforms: linux/amd64
 
     steps:
       - name: Check if build needed
@@ -516,6 +546,8 @@ jobs:
           fi
 
       - uses: actions/checkout@v6
+        if: steps.check.outputs.skip != 'true'
+      - uses: docker/setup-qemu-action@v3
         if: steps.check.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.check.outputs.skip != 'true'
@@ -578,6 +610,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ inputs.platforms || matrix.platforms }}
           push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
