@@ -98,7 +98,13 @@ class _VectorSidecar:
         self._file = None
         if not self._binary.exists() or not self._index.exists():
             return
-        index = json.loads(self._index.read_text(encoding="utf-8"))
+        raw_index = self._index.read_bytes()
+        try:
+            index_text = raw_index.decode("utf-8")
+        except UnicodeDecodeError:
+            index_text = raw_index.decode("utf-8", errors="replace")
+            logger.warning("synpack_vector_index_encoding_fallback", extra={"path": str(self._index)})
+        index = json.loads(index_text)
         dims = int(index.get("dimensions", 0) or 0)
         count = int(index.get("count", 0) or 0)
         if dims != EMBEDDING_DIM:
@@ -272,7 +278,13 @@ def _load_quality_report(root: Path) -> dict[str, Any]:
     path = root / V2_QUALITY_PATH
     if not path.exists():
         return {}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", errors="replace")
+        logger.warning("synpack_quality_report_encoding_fallback", extra={"path": str(path)})
+    payload = json.loads(text)
     return payload if isinstance(payload, dict) else {}
 
 

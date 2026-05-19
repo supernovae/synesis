@@ -121,7 +121,7 @@ def read_manifest(pack_path: Path) -> dict[str, Any]:
             raise SynPackError("manifest.json missing from SynPack") from exc
     try:
         manifest = json.loads(raw)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SynPackError(f"manifest.json is not valid JSON: {exc}") from exc
     if not isinstance(manifest, dict):
         raise SynPackError("manifest.json must be an object")
@@ -163,27 +163,112 @@ def validate_synpack(pack_path: str | Path) -> dict[str, Any]:
     return manifest
 
 
+def _detect_encoding(raw: bytes) -> str:
+    """Best-effort encoding detection for diagnostic messages."""
+    if raw[:3] == b"\xef\xbb\xbf":
+        return "UTF-8-BOM"
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return "UTF-16"
+    try:
+        raw.decode("utf-8")
+        return "UTF-8"
+    except UnicodeDecodeError:
+        pass
+    try:
+        raw.decode("ascii")
+        return "ASCII"
+    except UnicodeDecodeError:
+        pass
+    high_bytes = sum(1 for b in raw[:4096] if b > 127)
+    if high_bytes == 0:
+        return "ASCII"
+    latin1_printable = sum(1 for b in raw[:4096] if 0xA0 <= b <= 0xFF)
+    if latin1_printable > high_bytes * 0.5:
+        return "Latin-1/Windows-1252"
+    return "unknown-binary"
+
+
 def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
-        for line_no, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise SynPackError(f"{path.name}:{line_no} invalid JSON: {exc}") from exc
-            if not isinstance(obj, dict):
-                raise SynPackError(f"{path.name}:{line_no} must be a JSON object")
-            yield obj
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        yield from _iter_jsonl_recover(path, raw, exc)
+        return
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise SynPackError(f"{path.name}:{line_no} invalid JSON: {exc}") from exc
+        if not isinstance(obj, dict):
+            raise SynPackError(f"{path.name}:{line_no} must be a JSON object")
+        yield obj
+
+
+def _iter_jsonl_recover(path: Path, raw: bytes, original_exc: UnicodeDecodeError) -> Iterable[dict[str, Any]]:
+    """Re-read a JSONL file replacing invalid UTF-8 bytes with U+FFFD."""
+    detected = _detect_encoding(raw)
+    logger.warning(
+        "synpack_jsonl_encoding_fallback",
+        extra={
+            "file": path.name,
+            "byte_offset": original_exc.start,
+            "reason": original_exc.reason,
+            "detected_encoding": detected,
+            "file_bytes": len(raw),
+        },
+    )
+    text = raw.decode("utf-8", errors="replace")
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise SynPackError(
+                f"{path.name}:{line_no} invalid JSON after encoding recovery: {exc}; "
+                f"original encoding error at byte {original_exc.start}: {original_exc.reason} "
+                f"(detected {detected}). Rebuild the SynPack with valid UTF-8 sources."
+            ) from exc
+        if not isinstance(obj, dict):
+            raise SynPackError(f"{path.name}:{line_no} must be a JSON object")
+        yield obj
+
+
+def _sanitize_str_values(obj: Any) -> Any:
+    """Replace lone surrogates and other non-encodable chars in nested structures."""
+    if isinstance(obj, str):
+        try:
+            obj.encode("utf-8")
+            return obj
+        except UnicodeEncodeError:
+            return obj.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(obj, dict):
+        return {k: _sanitize_str_values(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_str_values(item) for item in obj]
+    return obj
 
 
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     count = 0
-    with path.open("w", encoding="utf-8") as f:
+    with path.open("wb") as f:
         for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            try:
+                line = json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            except UnicodeEncodeError:
+                row = _sanitize_str_values(row)
+                line = json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                logger.warning(
+                    "synpack_write_sanitized_row",
+                    extra={"file": path.name, "row_id": str(row.get("id", ""))[:64]},
+                )
+            f.write(line.encode("utf-8"))
             count += 1
     return count
 

@@ -269,3 +269,145 @@ def test_content_pack_runner_rejects_legacy_bolt_backend(tmp_path: Path, monkeyp
 
     with pytest.raises(RuntimeError, match="legacy-bolt"):
         content_pack_runner._load_content_pack({"replace_existing": False}, pack, nornic_uri="bolt://nornic")
+
+
+def test_iter_jsonl_recovers_from_latin1_bytes(tmp_path: Path):
+    """Synpack loader recovers when JSONL contains non-UTF-8 bytes (e.g. Latin-1)."""
+    from app.synpack import _iter_jsonl
+
+    # Simulate a JSONL file where a value contains a Latin-1 byte (0xBE = ¾)
+    line1 = b'{"id": "chunk-1", "text": "value is \xbe here"}\n'
+    line2 = b'{"id": "chunk-2", "text": "clean line"}\n'
+    bad_file = tmp_path / "chunks.jsonl"
+    bad_file.write_bytes(line1 + line2)
+
+    rows = list(_iter_jsonl(bad_file))
+
+    assert len(rows) == 2
+    assert rows[0]["id"] == "chunk-1"
+    assert "\ufffd" in rows[0]["text"]  # replacement character
+    assert rows[1]["id"] == "chunk-2"
+    assert rows[1]["text"] == "clean line"
+
+
+def test_iter_jsonl_works_with_valid_utf8(tmp_path: Path):
+    """Normal UTF-8 JSONL files load without triggering the fallback path."""
+    from app.synpack import _iter_jsonl
+
+    content = '{"id": "chunk-1", "text": "héllo wörld 你好"}\n{"id": "chunk-2", "text": "ok"}\n'
+    jsonl_file = tmp_path / "chunks.jsonl"
+    jsonl_file.write_text(content, encoding="utf-8")
+
+    rows = list(_iter_jsonl(jsonl_file))
+
+    assert len(rows) == 2
+    assert rows[0]["text"] == "héllo wörld 你好"
+    assert rows[1]["text"] == "ok"
+
+
+def test_read_manifest_rejects_binary_manifest(tmp_path: Path):
+    """read_manifest wraps UnicodeDecodeError as SynPackError."""
+    pack = tmp_path / "bad-manifest.synpack"
+    with zipfile.ZipFile(pack, "w") as zf:
+        zf.writestr("manifest.json", b"\x00\xbe\xef not json at all")
+        zf.writestr("nodes/chunks.jsonl", '{"id":"c1","text":"x"}\n')
+
+    with pytest.raises(SynPackError, match="not valid JSON"):
+        validate_synpack(pack)
+
+
+def test_bulk_load_recovers_latin1_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """bulk_load_synpack succeeds when nodes/chunks.jsonl has non-UTF-8 bytes."""
+    vector = [0.0] * EMBEDDING_DIM
+    chunk_line = b'{"id": "chunk-1", "chunk_id": "chunk-1", "kind": "Chunk", '
+    chunk_line += b'"text": "Package \xbe fmt", "doc_id": "d1", '
+    chunk_line += b'"pack_id": "test-pack", "domain": "go", "language": "go"}\n'
+
+    with zipfile.ZipFile(tmp_path / "latin1.synpack", "w") as zf:
+        zf.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "pack_id": "test-pack",
+                    "pack_version": "1.0.0",
+                    "embedding_model": "BAAI/bge-m3",
+                    "embedding_dimensions": EMBEDDING_DIM,
+                    "synesis_catalog_schema_version": 17,
+                    "requires_bulk_import": True,
+                    "node_count": 1,
+                    "edge_count": 0,
+                }
+            ),
+        )
+        zf.writestr("nodes/chunks.jsonl", chunk_line)
+        zf.writestr(
+            "vectors/index.json",
+            json.dumps(
+                {
+                    "format": "synpack-v2-vectors",
+                    "dtype": "float32",
+                    "dimensions": EMBEDDING_DIM,
+                    "count": 1,
+                    "rows": [{"chunk_id": "chunk-1", "offset": 0}],
+                }
+            ),
+        )
+        zf.writestr("vectors/chunks.f32", struct.pack(f"<{EMBEDDING_DIM}f", *vector))
+        zf.writestr(
+            "quality/report.json",
+            json.dumps(
+                {
+                    "node_count": 1,
+                    "chunk_count": 1,
+                    "edge_count": 0,
+                    "dangling_edge_count": 0,
+                    "pack_card_count": 0,
+                }
+            ),
+        )
+
+    written_nodes: list[dict] = []
+
+    class FakeWriter:
+        def __init__(self, uri=""):
+            self.client = self
+
+        def close(self):
+            pass
+
+        def ensure_schema(self):
+            pass
+
+        def suspend_unique_constraint(self):
+            pass
+
+        def restore_unique_constraint(self):
+            pass
+
+        def delete_pack(self, pack_id):
+            return 0
+
+        def bulk_upsert_nodes(self, rows, *, create_only=False, batch_size=None):
+            written_nodes.extend(rows)
+            return len(rows)
+
+        def upsert_edges(self, edges):
+            return len(edges)
+
+        def pack_counts(self, pack_id):
+            return {
+                "node_count": len(written_nodes),
+                "chunk_count": len(written_nodes),
+                "embedding_count": len(written_nodes),
+                "edge_count": 0,
+            }
+
+    monkeypatch.setattr(nornic_bulk_importer, "NornicGraphWriter", FakeWriter)
+    monkeypatch.setattr(nornic_bulk_importer, "ensure_synesis_catalog", lambda client: client)
+
+    result = nornic_bulk_importer.bulk_load_synpack(tmp_path / "latin1.synpack", replace=True)
+
+    assert result["ok"] is True
+    assert result["nodes"] == 1
+    assert len(written_nodes) == 1
+    assert "\ufffd" in written_nodes[0]["text"]  # bad byte replaced
