@@ -7,7 +7,12 @@ metadata:
     app.kubernetes.io/component: yarn
     app.kubernetes.io/part-of: synesis
 spec:
-  replicas: 2
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: synesis-yarn
@@ -231,16 +236,20 @@ spec:
               port: http
             initialDelaySeconds: 3
             periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "100m"
+              memory: "768Mi"
             limits:
               cpu: "2"
               memory: "2Gi"
