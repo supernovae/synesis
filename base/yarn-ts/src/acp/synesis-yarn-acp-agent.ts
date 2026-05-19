@@ -9,6 +9,7 @@ import type {
   Agent,
   AgentSideConnection,
   CancelNotification,
+  ClientCapabilities,
   ContentBlock,
   InitializeRequest,
   InitializeResponse,
@@ -36,11 +37,14 @@ export interface OaiChatMessage {
   }>;
 }
 
+type AcpToolName = "Read" | "Write" | "Bash";
+
 interface SessionData {
   messages: OaiChatMessage[];
   conversationId: string;
   /** Merged into every POST body `metadata` for session execution context + ACP hints. */
   requestMetadata: Record<string, unknown>;
+  availableToolNames: Set<AcpToolName>;
 }
 
 const META_MAX = 500;
@@ -48,6 +52,73 @@ const ACP_META_JSON_MAX = 2048;
 const MAX_TOOL_ROUNDS = 32;
 
 const ACP_USER_ERROR_PREFIX = "[Synesis ACP] ";
+const ACP_TOOL_NAMES = new Set<string>(["Read", "Write", "Bash"]);
+
+const READ_TOOL_SCHEMA = {
+  type: "function",
+  function: {
+    name: "Read",
+    description: "Read a UTF-8 text file from the workspace.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Path relative to the session cwd, or an absolute path within the workspace." },
+      },
+      required: ["file_path"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+const WRITE_TOOL_SCHEMA = {
+  type: "function",
+  function: {
+    name: "Write",
+    description: "Write UTF-8 text content to a workspace file.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Path relative to the session cwd, or an absolute path within the workspace." },
+        content: { type: "string", description: "Complete file content to write." },
+      },
+      required: ["file_path", "content"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+const BASH_TOOL_SCHEMA = {
+  type: "function",
+  function: {
+    name: "Bash",
+    description: "Run a shell command in the session workspace.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Command to execute." },
+        cwd: { type: "string", description: "Optional working directory within the workspace." },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+function acpToolNamesForCapabilities(capabilities: ClientCapabilities | undefined): Set<AcpToolName> {
+  const names = new Set<AcpToolName>();
+  if (capabilities?.fs?.readTextFile) names.add("Read");
+  if (capabilities?.fs?.writeTextFile) names.add("Write");
+  if (capabilities?.terminal) names.add("Bash");
+  return names;
+}
+
+function acpToolSchemas(names: Set<AcpToolName>): unknown[] {
+  const tools: unknown[] = [];
+  if (names.has("Read")) tools.push(READ_TOOL_SCHEMA);
+  if (names.has("Write")) tools.push(WRITE_TOOL_SCHEMA);
+  if (names.has("Bash")) tools.push(BASH_TOOL_SCHEMA);
+  return tools;
+}
 
 type FetchChatCompletionResult =
   | {
@@ -379,6 +450,7 @@ export class SynesisYarnAcpAgent implements Agent {
   private readonly sessions = new Map<string, SessionData>();
   private initBridge: InitBridgeContext = {};
   private initMeta: InitializeRequest["_meta"];
+  private clientCapabilities: ClientCapabilities | undefined;
 
   constructor(connection: AgentSideConnection) {
     this.connection = connection;
@@ -387,6 +459,7 @@ export class SynesisYarnAcpAgent implements Agent {
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     this.initBridge = parseInitializeContext(params);
     this.initMeta = params._meta;
+    this.clientCapabilities = params.clientCapabilities;
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
@@ -417,6 +490,7 @@ export class SynesisYarnAcpAgent implements Agent {
       messages: [],
       conversationId,
       requestMetadata,
+      availableToolNames: acpToolNamesForCapabilities(this.clientCapabilities),
     });
     return { sessionId };
   }
@@ -588,6 +662,7 @@ export class SynesisYarnAcpAgent implements Agent {
     base: string,
     model: string,
   ): Promise<FetchChatCompletionResult> {
+    const tools = acpToolSchemas(session.availableToolNames);
     const body: Record<string, unknown> = {
       model,
       max_tokens: 32_768,
@@ -595,6 +670,7 @@ export class SynesisYarnAcpAgent implements Agent {
       stream: false,
       conversation_id: session.conversationId,
       metadata: { ...session.requestMetadata },
+      ...(tools.length > 0 ? { tools } : {}),
       ...(acpRequestEnableThinking() ? { enable_thinking: true } : {}),
     };
 
@@ -679,6 +755,17 @@ export class SynesisYarnAcpAgent implements Agent {
     input: Record<string, unknown>,
   ): Promise<string> {
     const meta = session.requestMetadata;
+    if (ACP_TOOL_NAMES.has(toolName) && !session.availableToolNames.has(toolName as AcpToolName)) {
+      return JSON.stringify({
+        synesis_error: true,
+        schema_version: 1,
+        category: "acp_missing_client_capability",
+        error: true,
+        message: `ACP client did not advertise the capability required to execute "${toolName}".`,
+        tool: toolName,
+        retryable: false,
+      });
+    }
     switch (toolName) {
       case "Read": {
         const fp = requiredPathArg(input);

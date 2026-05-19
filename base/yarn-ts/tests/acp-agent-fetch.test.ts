@@ -66,8 +66,11 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
     else process.env.SYNESIS_YARN_URL = prevUrl;
   });
 
-  async function setupSession(agent: SynesisYarnAcpAgent): Promise<string> {
-    await agent.initialize({ protocolVersion: PROTOCOL_VERSION });
+  async function setupSession(
+    agent: SynesisYarnAcpAgent,
+    clientCapabilities?: Parameters<SynesisYarnAcpAgent["initialize"]>[0]["clientCapabilities"],
+  ): Promise<string> {
+    await agent.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities });
     const ns = await agent.newSession({ cwd: "/tmp", mcpServers: [] });
     return ns.sessionId;
   }
@@ -234,6 +237,126 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
       }),
     );
     expect(agentMessageText(sessionUpdate)).toContain("Hello from coder");
+  });
+
+  it("does not advertise ACP tools when the client provides no capabilities", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent);
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { tools?: unknown[] };
+    expect(body.tools).toBeUndefined();
+  });
+
+  it("advertises ACP tools from client capabilities", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent, {
+      fs: { readTextFile: true, writeTextFile: true },
+      terminal: true,
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { tools?: Array<{ function?: { name?: string; description?: string } }> };
+    expect(body.tools?.map((tool) => tool.function?.name)).toEqual(["Read", "Write", "Bash"]);
+    expect(body.tools?.every((tool) => (tool.function?.description?.length ?? 0) <= 4096)).toBe(true);
+  });
+
+  it("executes returned Read tool calls through ACP fs and feeds results back to Yarn", async () => {
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [{
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "Read", arguments: "{\"file_path\":\"README.md\"}" },
+                }],
+              },
+            }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "read complete" } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const { conn, sessionUpdate } = mockConnection();
+    vi.mocked(conn.readTextFile).mockResolvedValueOnce({ content: "file body" });
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent, { fs: { readTextFile: true } });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "read it" }] });
+
+    expect(conn.readTextFile).toHaveBeenCalledWith({ sessionId, path: "/tmp/README.md" });
+    const second = vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(second.body)) as { messages: Array<{ role: string; content?: string; tool_call_id?: string }> };
+    expect(body.messages).toContainEqual({ role: "tool", tool_call_id: "call_1", name: "Read", content: "file body" });
+    expect(agentMessageText(sessionUpdate)).toContain("read complete");
+  });
+
+  it("returns a structured missing-capability result when Yarn asks for an unadvertised ACP tool", async () => {
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [{
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "Bash", arguments: "{\"command\":\"pwd\"}" },
+                }],
+              },
+            }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "handled" } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent, { fs: { readTextFile: true } });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "run pwd" }] });
+
+    expect(conn.createTerminal).not.toHaveBeenCalled();
+    const second = vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(second.body)) as { messages: Array<{ role: string; content?: string }> };
+    const toolResult = body.messages.find((message) => message.role === "tool");
+    expect(toolResult?.content).toContain("acp_missing_client_capability");
+    expect(toolResult?.content).toContain("Bash");
   });
 
   it("keeps cwd as shell_cwd and uses a containing additional directory as project_root", async () => {

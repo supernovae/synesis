@@ -55,6 +55,7 @@ import {
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
 import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
+import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
 import { resolveEndpointCapabilityId } from "./providers/endpoint-capabilities/resolve.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import {
@@ -7036,6 +7037,16 @@ function resolveRequestId(headers: Record<string, unknown>): string {
   return `req-${crypto.randomUUID()}`;
 }
 
+function formatValidationError(error: { issues?: Array<{ path?: PropertyKey[]; message?: string }>; message: string }): string {
+  const issue = error.issues?.[0];
+  if (issue) {
+    const path = Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.map(String).join(".") : "request";
+    const message = typeof issue.message === "string" && issue.message.trim() ? issue.message.trim() : "invalid value";
+    return `Invalid request: ${path}: ${message}`;
+  }
+  return `Invalid request: ${error.message.slice(0, 500)}`;
+}
+
 function selectedOpenAiCompatHeaders(headers: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = { "content-type": "application/json" };
   for (const [key, value] of Object.entries(headers)) {
@@ -7356,9 +7367,14 @@ app.get("/v1/models/:model", async (req, reply) => {
 });
 
 app.post("/v1/responses", async (req, reply) => {
-  const parsed = OpenAIResponsesRequestSchema.safeParse(req.body);
+  const responseReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const normalizedIngress = normalizeToolDescriptions(req.body, "responses", "/v1/responses");
+  for (const truncation of normalizedIngress.truncations) {
+    app.log.warn({ reqId: responseReqId, ...truncation }, "tool_description_truncated");
+  }
+  const parsed = OpenAIResponsesRequestSchema.safeParse(normalizedIngress.body);
   if (!parsed.success) {
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsed.error.message } });
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: formatValidationError(parsed.error) } });
   }
   const responseRequest = parsed.data;
   const chatRequest = responsesRequestToChatCompletion(responseRequest);
@@ -7607,9 +7623,14 @@ if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
 
 // --- OpenAI chat completions ---
 app.post("/v1/chat/completions", async (req, reply) => {
-  const parsed = OpenAIChatCompletionRequestSchema.safeParse(req.body);
+  const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const normalizedIngress = normalizeToolDescriptions(req.body, "openai", "/v1/chat/completions");
+  for (const truncation of normalizedIngress.truncations) {
+    app.log.warn({ reqId: oaiTraceReqId, ...truncation }, "tool_description_truncated");
+  }
+  const parsed = OpenAIChatCompletionRequestSchema.safeParse(normalizedIngress.body);
   if (!parsed.success) {
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: parsed.error.message } });
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: formatValidationError(parsed.error) } });
   }
   let authUser: import("./auth.js").AuthUser;
   try {
@@ -7639,7 +7660,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const request = parsed.data;
-  const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
   const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
   const oaiBodyMeta =
     oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
@@ -11390,15 +11410,19 @@ app.post("/v1/messages", async (req, reply) => {
       error: { type: "invalid_request_error", message: "Missing required header: anthropic-version" }
     });
   }
-  const parsed = ClaudeMessagesRequestSchema.safeParse(req.body);
+  const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+  const normalizedIngress = normalizeToolDescriptions(req.body, "claude", "/v1/messages");
+  for (const truncation of normalizedIngress.truncations) {
+    app.log.warn({ reqId: traceReqId, ...truncation }, "tool_description_truncated");
+  }
+  const parsed = ClaudeMessagesRequestSchema.safeParse(normalizedIngress.body);
   if (!parsed.success) {
     return reply.code(400).send({
       type: "error",
-      error: { type: "invalid_request_error", message: parsed.error.message }
+      error: { type: "invalid_request_error", message: formatValidationError(parsed.error) }
     });
   }
   const body: ClaudeMessagesRequest = parsed.data;
-  const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
   const claudeTaskCue = extractLatestUserPromptFromMessages(body.messages as Array<{ role: string; content: unknown }>);
 
   const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");

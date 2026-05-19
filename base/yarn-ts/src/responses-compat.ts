@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
 import type { OpenAIChatCompletionRequest } from "./schemas.js";
 
 const ResponsesContentPartSchema = z.object({
@@ -148,11 +149,24 @@ function responseInputToMessages(input: OpenAIResponsesRequest["input"]): ChatMe
 
 function responsesToolsToChatTools(tools: OpenAIResponsesRequest["tools"]): OpenAIChatCompletionRequest["tools"] {
   if (!tools) return undefined;
-  return tools.map((tool) => {
+  const normalized = normalizeToolDescriptions({ tools }, "responses", "responsesRequestToChatCompletion").body.tools;
+  return normalized.map((tool) => {
     if (!tool || typeof tool !== "object") {
       return { type: "function" as const, function: { name: "unknown" } };
     }
     const row = tool as Record<string, unknown>;
+    if (row.type === "function" && row.function && typeof row.function === "object") {
+      const fn = row.function as Record<string, unknown>;
+      return {
+        type: "function" as const,
+        function: {
+          name: typeof fn.name === "string" ? fn.name : "unknown",
+          description: typeof fn.description === "string" ? fn.description : undefined,
+          parameters: (fn.parameters ?? {}) as Record<string, unknown>,
+          strict: typeof fn.strict === "boolean" ? fn.strict : undefined,
+        },
+      };
+    }
     const name = typeof row.name === "string" ? row.name : "unknown";
     return {
       type: "function" as const,
