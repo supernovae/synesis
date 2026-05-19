@@ -249,7 +249,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
       "If the workspace is empty, add files at the root (e.g. go.mod, main.go) instead of mkdir && cd into repeated path segments.",
     );
     lines.push(
-      "Keep Read/Write/Edit paths relative to project_root. Shell cd only affects Bash; file tools stay workspace-relative to project_root.",
+      "For client-native Read/Write/Edit/Update tools, use paths relative to shell_cwd/current working directory when it is set; otherwise use project_root. Do not prepend project_root or shell_cwd segments to relative file paths.",
     );
     lines.push(
       "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
@@ -277,13 +277,13 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
   if (ctx.projectRoot || ctx.shellCwd) {
     lines.push("<FILE_PATH_RESOLUTION>");
     lines.push(
-      "Read/Write/Edit/Update file_path: use paths relative to project_root when it is set. If only shell_cwd is available, treat shell_cwd as the workspace root for file tools.",
+      "Read/Write/Edit/Update file_path: use paths relative to shell_cwd/current working directory when it is set. If only project_root is available, use paths relative to project_root.",
     );
     lines.push(
       "Do not invent a sibling directory or alternate checkout name (e.g. a folder next to the real repo). Strip bogus parent segments and anchor paths under project_root or shell_cwd.",
     );
     lines.push(
-      "shell_cwd affects Bash cwd only; when both project_root and shell_cwd are set, file tools still resolve from project_root unless you compose an explicit path under the repo.",
+      "project_root is the broader workspace/repo boundary for context. shell_cwd is the file-tool execution root for client-native tools; when both are set and shell_cwd is a subdirectory, do not include that subdirectory prefix in file_path.",
     );
     const pr = ctx.projectRoot?.trim();
     const cw = ctx.shellCwd?.trim();

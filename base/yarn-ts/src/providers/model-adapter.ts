@@ -231,7 +231,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
         "Use the EXACT parameter names from each tool's schema.",
         "If a tool requires no arguments, pass an empty object: `{}`.",
         "Use RELATIVE file paths (e.g., `hello.go`, `cmd/main.go`), not absolute paths.",
-        "For file tools, paths are workspace-relative. Do NOT prefix paths with the workspace folder name.",
+        "For file tools, paths are relative to the client working directory. Do NOT prefix paths with the workspace folder name.",
         "Do NOT assume shell `cd` changes file-tool path roots.",
         workflowDiscipline,
       ].join("\n");
@@ -270,7 +270,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "Use RELATIVE paths from the current working directory (e.g., `hello.go`, `cmd/main.go`).",
       "Do NOT use absolute paths like `/home/user/...`. The user's OS may not be Linux.",
       "For file tools, do NOT prefix with the repository/workspace folder name.",
-      "Shell `cd` usage does not change file-tool root semantics; keep file paths workspace-relative.",
+      "Shell `cd` usage does not change client-native file-tool root semantics; keep file paths relative to the session working directory.",
       "",
       "## Directories (avoid getting lost):",
       "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times (e.g. `aws-cost-calculator/aws-cost-calculator/...`).",
@@ -637,16 +637,16 @@ export class MiniMaxAdapter implements ModelAdapter {
     return [
       "# Tool discipline (MiniMax — paths and shell)",
       "The Bash tool runs in a **session working directory** that may or may not be the git/repository root.",
-      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`. File tools (Read/Write/Edit) resolve paths **relative to `project_root`** when it is set — not relative to whatever directory Bash happens to be in.",
+      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`. Client-native file tools (Read/Write/Edit) resolve paths relative to `shell_cwd` when it is set; otherwise use `project_root`.",
       "",
       "## Read before raw shell file ops",
-      "- To view part of a file, **prefer Read** with `file_path` set to the **repo-relative** path (e.g. `cmd/foo/ask_test.go`), not `sed`/`head`/`cat` on a bare filename.",
-      "- If you use Bash to read files, every path must be correct for the **current shell cwd**: either `cd` to the repo root or the file's directory first, or use a **single path relative to repo root** (e.g. `sed -n '1,20p' cmd/foo/ask_test.go` from repo root).",
+      "- To view part of a file, **prefer Read** with `file_path` set relative to `shell_cwd` when provided, otherwise project-root-relative (e.g. `cmd/foo/ask_test.go`), not `sed`/`head`/`cat` on a guessed basename.",
+      "- If you use Bash to read files, every path must be correct for the **current shell cwd**: either `cd` to the repo root or the file's directory first, or use a single path relative to the current directory.",
       "- A **bare** `ask_test.go` or `foo.go` only works if the shell cwd is already that file's directory; if a command fails with “No such file”, your cwd or path was wrong — fix the path or `cd`, do not guess repeatedly.",
       "",
       "## Stabilize location",
       "- When unsure, one short `pwd` (or list the target path) before destructive or line-based commands.",
-      "- Do not assert a “repo root” path in prose without confirming it matches `project_root` / `pwd` in this session.",
+      "- Do not assert a “repo root” path in prose without confirming it matches `project_root`, `shell_cwd`, or `pwd` in this session.",
       "- Keep **one** consistent story: either work from repo root with rooted relative paths, or `cd` once and use paths under that directory.",
       "",
       "## Discovery",
@@ -658,9 +658,9 @@ export class MiniMaxAdapter implements ModelAdapter {
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
       Read:
-        " [MiniMax: Use repo-relative paths from project_root (e.g. cmd/pkg/file.go). Do not pass only a basename unless you have confirmed cwd. Read a file once, then **Write** the full updated file to change it; use Edit/Update only for tiny exact hunks.]",
+        " [MiniMax: Use paths relative to shell_cwd/current working directory when provided, otherwise project_root (e.g. cmd/pkg/file.go). Do not prepend workspace or cwd folder names. Read a file once, then **Write** the full updated file to change it; use Edit/Update only for tiny exact hunks.]",
       Write:
-        " [MiniMax: PREFERRED for new files and for updates after one Read (full `content`). Repo-relative path under project_root; avoid bare filenames when multiple packages exist.]",
+        " [MiniMax: PREFERRED for new files and for updates after one Read (full `content`). Path is relative to shell_cwd/current working directory when provided, otherwise project_root; avoid bare filenames when multiple packages exist.]",
       Edit:
         " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
       Update:

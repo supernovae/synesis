@@ -86,6 +86,13 @@ This allows path governance and the path sandbox to anchor correctly,
 preventing the model from referencing random directories outside the
 project.
 
+OpenCode's client-side file tools resolve relative paths from `Working
+directory`. `Workspace root folder` is kept as the broader repository/workspace
+boundary for context and sandboxing. When both are present and differ, Yarn
+normalizes returned `Read`/`Write`/`Edit` tool paths to be relative to
+`Working directory` so paths like `k8/overseerr/overseerr-k8s.yaml` do not get
+executed as `/home/byron/k8/overseerr/k8/overseerr/overseerr-k8s.yaml`.
+
 **File:** `base/yarn-ts/src/providers/prefix-optimizer/metadata-extractor.ts`
 
 > **Note:** This is a **keep** — not a temporary workaround. opencode's

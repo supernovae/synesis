@@ -236,6 +236,30 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
     expect(agentMessageText(sessionUpdate)).toContain("Hello from coder");
   });
 
+  it("keeps cwd as shell_cwd and uses a containing additional directory as project_root", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    await agent.initialize({ protocolVersion: PROTOCOL_VERSION });
+    const { sessionId } = await agent.newSession({
+      cwd: "/home/byron/k8/overseerr",
+      additionalDirectories: ["/home/byron/k8"],
+      mcpServers: [],
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { metadata?: Record<string, unknown> };
+    expect(body.metadata?.synesis_shell_cwd).toBe("/home/byron/k8/overseerr");
+    expect(body.metadata?.synesis_project_root).toBe("/home/byron/k8");
+  });
+
   it("prefixes Model reasoning when API returns reasoning_content (OpenAI extension)", async () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(

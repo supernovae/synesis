@@ -10199,8 +10199,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           onEditTurn: (canonicalPath, turnIndex) => {
             session.artifactEditTurns.set(canonicalPath, turnIndex);
           },
-          pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveOaiPathCtx.projectRoot
-            ? buildDefaultPolicy(effectiveOaiPathCtx.projectRoot) : null,
+          pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
+            ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
         });
         if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
           session.gitInspectionBlockCount += 1;
@@ -10884,8 +10884,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
             onEditTurn: (canonicalPath, turnIndex) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
-            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveOaiPathCtx.projectRoot
-              ? buildDefaultPolicy(effectiveOaiPathCtx.projectRoot) : null,
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
+              ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
           });
           if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
             session.gitInspectionBlockCount += 1;
@@ -14136,8 +14136,8 @@ app.post("/v1/messages", async (req, reply) => {
             onEditTurn: (canonicalPath, turnIndex) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
-            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveClaudePathCtx.projectRoot
-              ? buildDefaultPolicy(effectiveClaudePathCtx.projectRoot) : null,
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
+              ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
           });
           if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
             session.gitInspectionBlockCount += 1;
@@ -14897,8 +14897,8 @@ app.post("/v1/messages", async (req, reply) => {
         onEditTurn: (canonicalPath, turnIndex) => {
           session.artifactEditTurns.set(canonicalPath, turnIndex);
         },
-        pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && effectiveClaudePathCtx.projectRoot
-          ? buildDefaultPolicy(effectiveClaudePathCtx.projectRoot) : null,
+        pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
+          ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
       });
       if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
         session.gitInspectionBlockCount += 1;

@@ -959,10 +959,10 @@ function maybeBlockVerificationForFailure(
 }
 
 function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {
-  const root = (projectRoot ?? "").trim();
-  if (root) return root;
   const cwd = (shellCwd ?? "").trim();
-  return cwd || null;
+  if (cwd) return cwd;
+  const root = (projectRoot ?? "").trim();
+  return root || null;
 }
 
 function repairShellCwdPrefixedFilePath(

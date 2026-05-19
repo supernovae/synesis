@@ -29,6 +29,20 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
+  it("repairs opencode cwd-prefixed camelCase file paths before returning to the client", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { filePath: "k8/overseerr/overseerr-k8s.yaml" },
+      projectRoot: "/home/byron/k8",
+      shellCwd: "/home/byron/k8/overseerr",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+    expect(out.input.filePath).toBe("overseerr-k8s.yaml");
+    expect(out.normalizedPath).toBe(true);
+  });
+
   it("repairs paths that repeat a suffix of shell_cwd without project_root", () => {
     const out = governToolCall({
       toolName: "Read",

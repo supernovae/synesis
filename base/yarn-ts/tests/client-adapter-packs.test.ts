@@ -92,7 +92,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(block).toContain("aws-cost-calculator/aws-cost-calculator");
     expect(block).toContain("human-readable paths");
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
-    expect(block).toContain("treat shell_cwd as the workspace root for file tools");
+    expect(block).toContain("paths relative to shell_cwd/current working directory");
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
@@ -112,6 +112,7 @@ describe("appendPathContextToAdapterBlock", () => {
     });
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
     expect(block).toContain("Current shell working directory for this session is repo-relative: services/api");
+    expect(block).toContain("shell_cwd is the file-tool execution root");
   });
 
   it("prefers metadata synesis_project_root over header", () => {

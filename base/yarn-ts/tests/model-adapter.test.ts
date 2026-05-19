@@ -266,7 +266,7 @@ describe("Qwen3CoderAdapter (nativeToolParser)", () => {
     const prompt = adapter.toolSystemPrompt!(10);
     expect(prompt).toBeDefined();
     expect(prompt).toContain("RELATIVE");
-    expect(prompt).toContain("workspace-relative");
+    expect(prompt).toContain("client working directory");
     expect(prompt).not.toContain("heredoc");
     expect(prompt).not.toContain("cat >");
   });
@@ -303,6 +303,7 @@ describe("MiniMaxAdapter", () => {
     expect(prompt).toBeDefined();
     expect(prompt).toContain("MiniMax");
     expect(prompt).toContain("project_root");
+    expect(prompt).toContain("shell_cwd");
     expect(prompt).toMatch(/prefer Read/i);
     expect(prompt).toContain("pwd");
     expect(prompt).toContain("Prefer Read once, then Write");

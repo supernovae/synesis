@@ -133,23 +133,67 @@ export function resolvePathForAcp(filePath: string, meta: Record<string, unknown
   if (!fp) return fp;
   const root = meta.synesis_project_root;
   const cwd = meta.synesis_shell_cwd;
-  const anchor = typeof root === "string" && root
-    ? root
-    : (typeof cwd === "string" && cwd ? cwd : "");
+  const projectRoot = typeof root === "string" && root.trim() ? path.resolve(root.trim()) : "";
+  const shellCwd = typeof cwd === "string" && cwd.trim() ? path.resolve(cwd.trim()) : "";
+  const anchor = shellCwd || projectRoot;
   const hasAnchor = anchor.trim().length > 0;
   const normalized = fp.replace(/\\/g, "/");
   const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(normalized);
   const withHostSlash = maybeHostLikeNoSlash ? `/${normalized}` : normalized;
   const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(fp) || /^[A-Za-z]:\//.test(normalized);
+  const rel = !path.isAbsolute(withHostSlash) && !looksWindowsAbsolute && hasAnchor
+    ? normalizeAcpRelativePath(normalized, anchor, shellCwd || null)
+    : fp;
   const candidate = hasAnchor
     ? (
       looksWindowsAbsolute && path.sep !== "\\"
         ? path.resolve("/", normalized.replace(/^[A-Za-z]:[\\/]/, ""))
-        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(anchor, fp))
+        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(anchor, rel))
     )
-    : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(fp));
+    : (
+      looksWindowsAbsolute && path.sep !== "\\"
+        ? path.resolve("/", normalized.replace(/^[A-Za-z]:[\\/]/, ""))
+        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(fp))
+    );
 
+  const boundary = projectRoot || shellCwd;
+  if (boundary && !isInsideDirectory(candidate, boundary)) {
+    throw new Error(`Path escapes project root: ${fp}`);
+  }
   return candidate;
+}
+
+function isInsideDirectory(filePath: string, dir: string): boolean {
+  const rel = path.relative(path.resolve(dir), path.resolve(filePath));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function normalizeAcpRelativePath(relPath: string, anchor: string, shellCwdForDuplicateRepair: string | null): string {
+  const clean = relPath.replace(/\0/g, "").replace(/^\.\/+/, "");
+  const anchorBase = path.basename(path.resolve(anchor));
+  if (anchorBase && (clean === anchorBase || clean.startsWith(`${anchorBase}/`))) {
+    const stripped = clean.slice(anchorBase.length).replace(/^\/+/, "");
+    return stripped || ".";
+  }
+  if (shellCwdForDuplicateRepair) {
+    return repairShellCwdPrefixedRelativePath(clean, shellCwdForDuplicateRepair);
+  }
+  return clean;
+}
+
+function repairShellCwdPrefixedRelativePath(relPath: string, shellCwd: string): string {
+  const relParts = relPath.split("/").filter(Boolean);
+  const cwdParts = path.resolve(shellCwd).split(path.sep).filter(Boolean);
+  const max = Math.min(relParts.length, cwdParts.length);
+  for (let len = max; len >= 1; len -= 1) {
+    const suffix = cwdParts.slice(cwdParts.length - len);
+    const prefix = relParts.slice(0, len);
+    if (suffix.join("/") === prefix.join("/")) {
+      const rest = relParts.slice(len);
+      return rest.length > 0 ? rest.join("/") : ".";
+    }
+  }
+  return relPath;
 }
 
 function parseToolArguments(argumentsJson: string | undefined): Record<string, unknown> {
@@ -238,6 +282,31 @@ function applyAcpMetaHints(target: Record<string, unknown>, meta: Record<string,
   }
 }
 
+function metaPath(meta: Record<string, unknown> | null | undefined, keys: string[]): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  for (const key of keys) {
+    const v = meta[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function envProjectRoot(): string | undefined {
+  const raw = (process.env.SYNESIS_YARN_ACP_PROJECT_ROOT ?? process.env.SYNESIS_PROJECT_ROOT ?? "").trim();
+  return raw || undefined;
+}
+
+function closestContainingRoot(cwd: string, candidates: string[]): string | undefined {
+  const absCwd = path.resolve(cwd);
+  const matches = candidates
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => path.resolve(c))
+    .filter((c) => isInsideDirectory(absCwd, c));
+  matches.sort((a, b) => b.length - a.length);
+  return matches[0];
+}
+
 /** Safe, bounded JSON snapshot for observability (no secrets). */
 function compactAcpMetaForAudit(meta: Record<string, unknown> | null | undefined): string | undefined {
   if (!meta || typeof meta !== "object") return undefined;
@@ -274,7 +343,21 @@ function buildRequestMetadata(
   const cwd = typeof ns.cwd === "string" && ns.cwd.trim() ? ns.cwd.trim() : "";
   const extra = ns.additionalDirectories?.filter((d) => typeof d === "string" && d.trim()) ?? [];
   if (cwd) out.synesis_shell_cwd = cwd;
-  const projectRoot = extra[0] ?? (cwd || undefined);
+  const explicitProjectRoot =
+    envProjectRoot()
+    ?? metaPath(ns._meta as Record<string, unknown> | null | undefined, [
+      "synesis_project_root",
+      "workspace_context_project_root",
+      "project_root",
+      "projectRoot",
+    ])
+    ?? metaPath(initMeta as Record<string, unknown> | null | undefined, [
+      "synesis_project_root",
+      "workspace_context_project_root",
+      "project_root",
+      "projectRoot",
+    ]);
+  const projectRoot = explicitProjectRoot ?? (cwd ? closestContainingRoot(cwd, extra) : undefined);
   if (projectRoot) out.synesis_project_root = projectRoot;
 
   const mcp = ns.mcpServers ?? [];
