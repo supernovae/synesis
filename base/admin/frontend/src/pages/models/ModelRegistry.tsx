@@ -205,7 +205,7 @@ const ADAPTER_FAMILIES = [
   { value: "", label: "Auto-detect" },
   { value: "qwen3-coder", label: "Qwen3-Coder" },
   { value: "deepseek", label: "DeepSeek" },
-  { value: "kimi", label: "Kimi / Moonshot" },
+  { value: "kimi", label: "Kimi / Moonshot (KimiAdapter — K2.x)" },
   { value: "minimax", label: "MiniMax" },
   { value: "generic", label: "Generic OpenAI" },
 ] as const;

@@ -628,6 +628,196 @@ export class GenericOpenAIAdapter implements ModelAdapter {
  * MiniMax models often lose track of shell CWD vs repository layout, leading to
  * `sed`/`cat` on bare filenames or wrong-relative paths. Strong path + Read-first rails.
  */
+/**
+ * Model families that use {@link Qwen3CoderAdapter}-style loop steering in Yarn
+ * (`getEarlyPivotPrompt`, `dampenConsecutiveSameTools`, write-tool prioritization).
+ */
+export const TOOL_LOOP_STEERING_FAMILIES = new Set<string>(["qwen3-coder", "kimi"]);
+
+export function adapterUsesToolLoopSteering(family: string): boolean {
+  return TOOL_LOOP_STEERING_FAMILIES.has(family);
+}
+
+/**
+ * Kimi K2.x / Moonshot coding agents (OpenCode, Kimi Code API, OpenRouter, vLLM).
+ *
+ * Known K2.6 behavioral patterns this adapter targets:
+ * - **Path/CWD confusion**: prepends UI/workspace segments (e.g. `k8/overseerr/foo.yaml`) while
+ *   client file tools resolve from `shell_cwd` — use basename or repo-relative paths only.
+ * - **Strict tool schema**: rejects empty assistant turns; prefers exact `file_path` / `command` names.
+ * - **Long-horizon drift**: repeated Read/WebFetch/git status without edits in agent sessions.
+ * - **Verbal plans without tools**: states intent in prose then loops on discovery.
+ * - **Parameter aliases**: often emits `path` instead of `file_path`, `cmd` instead of `command`.
+ *
+ * Associate with any provider via Admin **adapter_hint=kimi** or backend id matching `kimi|moonshot|k2.5|k2.6`.
+ */
+export class KimiAdapter implements ModelAdapter {
+  readonly family = "kimi";
+  readonly supportsThinking = true;
+  readonly maxEffectiveTools = 48;
+
+  /** Reuse Qwen loop detectors; Kimi-specific checks run first. */
+  private readonly pivotDelegate = new Qwen3CoderAdapter(false);
+
+  toolSystemPrompt(toolCount: number): string | undefined {
+    if (toolCount === 0) return undefined;
+    return [
+      "# Tool discipline (Kimi K2.x — coding agents)",
+      "You are in a **client-executed** tool environment: Read/Write/Edit run on the user's machine, not on the API server.",
+      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`.",
+      "",
+      "## File paths (critical)",
+      "- Client-native file tools resolve paths relative to **`shell_cwd`** when it is set; otherwise **`project_root`**.",
+      "- Use paths **relative to that root only** (e.g. `overseerr-k8s.yaml`, `cmd/main.go`).",
+      "- **Never** prepend `shell_cwd` or workspace folder segments already shown in the UI (e.g. if cwd is `.../k8/overseerr`, use `overseerr-k8s.yaml`, NOT `k8/overseerr/overseerr-k8s.yaml`).",
+      "- Do **not** use absolute paths (`/home/...`) for file tools unless the tool schema requires it.",
+      "- Shell `cd` does **not** change file-tool roots; only `shell_cwd` / `project_root` matter for Read/Write/Edit.",
+      "",
+      "## Tool schema (strict providers)",
+      "- Use **exact** parameter names from each tool schema: `file_path`, `command`, `old_string`, `new_string`.",
+      "- Every tool call must include an `arguments` object (use `{}` when empty).",
+      "- Do not emit empty assistant messages with no text and no tool calls.",
+      "- Prefer **one focused tool** per turn when exploring; batch only related reads.",
+      "",
+      "## Read vs shell",
+      "- Prefer **Read** with a correct relative `file_path` over `cat`/`sed`/`head` on guessed paths.",
+      "- If Read returns “File not found”, fix the path (check `shell_cwd` / `pwd`) — do not retry the same path.",
+      "",
+      "## WebFetch",
+      "- Fetch a URL **once** per task unless the user asked to refresh or content changed.",
+      "- After a successful fetch, use the result; do not refetch the same docs while debugging paths.",
+      "",
+      "## Long sessions (K2.6 agent mode)",
+      "- After stating a plan, take the **next concrete** Edit/Write or one verification command — do not re-gather the same context.",
+      "- Mark tasks complete before claiming done; avoid duplicate TodoWrite items with the same intent.",
+      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
+    ].join("\n");
+  }
+
+  normalizeToolCallArgs(args: string): string {
+    const trimmed = args.trim();
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "{}";
+    return trimmed;
+  }
+
+  remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
+    return this.pivotDelegate.remapToolArgs!(toolName, input);
+  }
+
+  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
+    const pathMiss = this._detectPathNotFoundRetryLoop(recentToolCalls, options.recentToolResultText);
+    if (pathMiss) return pathMiss;
+    const webRetry = this._detectWebFetchRetryLoop(recentToolCalls);
+    if (webRetry) return webRetry;
+    const proseStall = this._detectProseWithoutTools(recentToolCalls, options.recentAssistantText);
+    if (proseStall) return proseStall;
+    return this.pivotDelegate.getEarlyPivotPrompt!(recentToolCalls, options);
+  }
+
+  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
+    const web = this._dampenConsecutiveWebFetch(recentToolNames);
+    if (web) return web;
+    return this.pivotDelegate.dampenConsecutiveSameTools!(recentToolNames);
+  }
+
+  enrichToolDescription(toolName: string, description: string): string {
+    const hints: Record<string, string> = {
+      Read:
+        " [Kimi: `file_path` relative to shell_cwd when set (else project_root). No workspace/cwd prefix duplication. One Read per file per phase; on 'File not found' fix path before retry.]",
+      Write:
+        " [Kimi: Same path rules as Read. Read once, then Write full content for substantive edits.]",
+      Edit:
+        " [Kimi: Exact `old_string` from last Read; tiny hunks only. On failure, re-read then Write full file.]",
+      Update:
+        " [Kimi: Exact `old_string` from last Read; tiny hunks only. On failure, re-read then Write full file.]",
+      Bash:
+        " [Kimi: `command` required. Shell cwd may differ from file-tool root — use Read for file content, not cat/sed on uncertain paths.]",
+      WebFetch:
+        " [Kimi: One fetch per URL per task unless user requests refresh. Do not refetch docs while fixing local file paths.]",
+      Grep:
+        " [Kimi: Set target_directory to a subtree; act on results instead of repeating broad searches.]",
+      Glob:
+        " [Kimi: Scoped pattern (e.g. `**/*.yaml` in cwd), not repo path prefixes duplicated from the UI.]",
+    };
+    const hint = hints[toolName];
+    return hint ? description + hint : description;
+  }
+
+  defaultSamplingParams(): { temperature?: number; top_p?: number } | undefined {
+    // K2.6 thinking-mode defaults per Moonshot docs; client/request values still win when set.
+    return { temperature: 1.0, top_p: 0.95 };
+  }
+
+  private _detectPathNotFoundRetryLoop(
+    recentToolCalls: RecentToolCall[],
+    recentToolResultText?: string | null,
+  ): string | null {
+    const result = (recentToolResultText ?? "").toLowerCase();
+    if (!/file not found|no such file|enoent/.test(result)) return null;
+    const tail = recentToolCalls.slice(-6);
+    const readFails = tail.filter((c) => {
+      const t = c.toolName.trim().toLowerCase();
+      return t === "read" || t === "read_file";
+    });
+    if (readFails.length < 2) return null;
+    const paths = readFails
+      .map((c) => c.filePath ?? (typeof c.args?.file_path === "string" ? c.args.file_path : ""))
+      .filter(Boolean);
+    const unique = [...new Set(paths)];
+    return [
+      "Read failed with a path error. Client file tools resolve relative to `shell_cwd` (see <SESSION_EXECUTION_CONTEXT>), not from a repeated workspace folder prefix.",
+      "Use a path relative to shell_cwd only (e.g. `overseerr-k8s.yaml` when cwd is already `.../k8/overseerr`).",
+      unique.length > 0
+        ? `Recent failing paths: ${unique.slice(0, 3).join(", ")}. Strip parent segments that duplicate shell_cwd, or run one short \`pwd\` in Bash and match that directory.`
+        : "Run one short `pwd` in Bash, then Read using a path relative to that directory.",
+      "Do NOT retry the same prefixed path.",
+    ].join(" ");
+  }
+
+  private _detectWebFetchRetryLoop(recentToolCalls: RecentToolCall[]): string | null {
+    const tail = recentToolCalls.slice(-8);
+    const urls: string[] = [];
+    for (const call of tail) {
+      const t = call.toolName.trim().toLowerCase();
+      if (t !== "webfetch" && t !== "web_fetch" && t !== "fetch") continue;
+      const url = typeof call.args?.url === "string" ? call.args.url.trim() : "";
+      if (url) urls.push(url);
+    }
+    if (urls.length < 2) return null;
+    const last = urls[urls.length - 1];
+    const repeatCount = urls.filter((u) => u === last).length;
+    if (repeatCount < 2) return null;
+    return `You fetched the same URL (${last}) ${repeatCount} times. Use the content already returned, or fix local file paths with Read using shell_cwd-relative paths. Do not refetch unless the user asked for an update.`;
+  }
+
+  private _detectProseWithoutTools(
+    recentToolCalls: RecentToolCall[],
+    recentAssistantText?: string | null,
+  ): string | null {
+    const text = (recentAssistantText ?? "").trim();
+    if (text.length < 280 || !IMPLEMENT_INTENT_RE.test(text)) return null;
+    const tail = recentToolCalls.slice(-4);
+    if (tail.some((c) => isActionToolCall(c))) return null;
+    if (tail.length < 2) return null;
+    return "You wrote a long implementation plan in prose but did not call tools. Kimi agent sessions need concrete tool use: one Read or Edit/Write now, or one focused Bash verification — not another planning paragraph.";
+  }
+
+  private _dampenConsecutiveWebFetch(recentToolNames: string[]): string | null {
+    const tail = recentToolNames.slice(-5);
+    if (tail.length < 3) return null;
+    const last = tail[tail.length - 1]?.trim().toLowerCase() ?? "";
+    if (last !== "webfetch" && last !== "web_fetch" && last !== "fetch") return null;
+    let consecutive = 1;
+    for (let i = tail.length - 2; i >= 0; i--) {
+      const n = tail[i]?.trim().toLowerCase() ?? "";
+      if (n === last) consecutive++;
+      else break;
+    }
+    if (consecutive < 3) return null;
+    return `You called ${last} ${consecutive} times in a row. Stop refetching; use prior fetch output or fix local files with Read (shell_cwd-relative paths).`;
+  }
+}
+
 export class MiniMaxAdapter implements ModelAdapter {
   readonly family = "minimax";
   readonly supportsThinking = false;
@@ -1006,7 +1196,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/claude|anthropic/i.test(m)) return new ClaudeAdapter();
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
-  if (/kimi|moonshot/i.test(m)) return new GenericOpenAIAdapter("kimi");
+  if (/kimi|moonshot|k2[.-]?5|k2[.-]?6/i.test(m)) return new KimiAdapter();
   if (/minimax|abab/i.test(m)) return new MiniMaxAdapter();
   return new GenericOpenAIAdapter("generic");
 }
@@ -1018,7 +1208,7 @@ function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter 
       return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
     case "claude": return new ClaudeAdapter();
     case "deepseek": return new DeepSeekAdapter();
-    case "kimi": return new GenericOpenAIAdapter("kimi");
+    case "kimi": return new KimiAdapter();
     case "minimax": return new MiniMaxAdapter();
     case "generic": return new GenericOpenAIAdapter("generic");
   }

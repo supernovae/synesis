@@ -53,6 +53,8 @@ export function extractClientMetadata(systemContent: string): ClientMetadata {
   const meta: ClientMetadata = { ...EMPTY_METADATA, openFiles: [], recentFiles: [] };
 
   extractUserInfo(systemContent, meta);
+  // OpenCode/Cursor env lines (e.g. "Working directory:") often live outside <user_info>.
+  extractLoosePatterns(systemContent, meta);
   extractOpenFiles(systemContent, meta);
   deriveProjectRoot(meta);
 
@@ -74,7 +76,6 @@ export function extractClientMetadata(systemContent: string): ClientMetadata {
 function extractUserInfo(text: string, meta: ClientMetadata): void {
   const userInfoMatch = text.match(/<user_info>([\s\S]*?)<\/user_info>/);
   if (!userInfoMatch) {
-    extractLoosePatterns(text, meta);
     return;
   }
 
@@ -107,8 +108,8 @@ function extractUserInfo(text: string, meta: ClientMetadata): void {
 }
 
 /**
- * Fallback: extract metadata from loose patterns when <user_info> block
- * is not present (some IDE clients embed these inline).
+ * Extract metadata from inline / out-of-band patterns (OpenCode environment block,
+ * etc.). Runs on the full system text and only fills fields not already set.
  */
 function extractLoosePatterns(text: string, meta: ClientMetadata): void {
   if (!meta.workspacePath) {

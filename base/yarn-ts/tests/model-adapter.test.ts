@@ -5,6 +5,8 @@ import {
   GenericOpenAIAdapter,
   DeepSeekAdapter,
   MiniMaxAdapter,
+  KimiAdapter,
+  adapterUsesToolLoopSteering,
   KNOWN_ADAPTER_FAMILIES,
   constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
@@ -30,10 +32,15 @@ describe("resolveAdapter", () => {
     expect(adapter.family).toBe("deepseek");
   });
 
-  it("resolves Kimi/Moonshot model names to GenericOpenAIAdapter(kimi)", () => {
+  it("resolves Kimi/Moonshot model names to KimiAdapter", () => {
     const adapter = resolveAdapter("moonshot-v1-128k");
-    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter).toBeInstanceOf(KimiAdapter);
     expect(adapter.family).toBe("kimi");
+  });
+
+  it("resolves Kimi K2.5/K2.6 model ids to KimiAdapter", () => {
+    expect(resolveAdapter("moonshotai/kimi-k2.6")).toBeInstanceOf(KimiAdapter);
+    expect(resolveAdapter("kimi-k2.5")).toBeInstanceOf(KimiAdapter);
   });
 
   it("resolves MiniMax model names to MiniMaxAdapter", () => {
@@ -110,7 +117,7 @@ describe("resolveAdapter with adapterHint", () => {
 
   it("overrides auto-detect when hint is kimi", () => {
     const adapter = resolveAdapter("custom-finetuned-v2", undefined, "kimi");
-    expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
+    expect(adapter).toBeInstanceOf(KimiAdapter);
     expect(adapter.family).toBe("kimi");
   });
 
@@ -283,15 +290,84 @@ describe("GenericOpenAIAdapter", () => {
     expect(adapter.supportsThinking).toBe(false);
   });
 
-  it("accepts custom family name", () => {
-    const adapter = new GenericOpenAIAdapter("kimi");
-    expect(adapter.family).toBe("kimi");
-  });
-
   it("has no toolSystemPrompt or normalizeToolCallArgs", () => {
     const adapter = new GenericOpenAIAdapter();
     expect(adapter.toolSystemPrompt).toBeUndefined();
     expect(adapter.normalizeToolCallArgs).toBeUndefined();
+  });
+});
+
+describe("KimiAdapter", () => {
+  const adapter = new KimiAdapter();
+
+  it("has kimi family and loop-steering membership", () => {
+    expect(adapter.family).toBe("kimi");
+    expect(adapterUsesToolLoopSteering("kimi")).toBe(true);
+    expect(adapter.supportsThinking).toBe(true);
+  });
+
+  it("toolSystemPrompt covers shell_cwd path discipline and K2.6 session behavior", () => {
+    const prompt = adapter.toolSystemPrompt!(5);
+    expect(prompt).toBeDefined();
+    expect(prompt).toContain("shell_cwd");
+    expect(prompt).toContain("Never");
+    expect(prompt).toContain("WebFetch");
+    expect(prompt).toContain("Kimi K2");
+  });
+
+  it("returns undefined toolSystemPrompt when no tools", () => {
+    expect(adapter.toolSystemPrompt!(0)).toBeUndefined();
+  });
+
+  it("normalizes empty tool args to {}", () => {
+    expect(adapter.normalizeToolCallArgs!("")).toBe("{}");
+    expect(adapter.normalizeToolCallArgs!("null")).toBe("{}");
+  });
+
+  it("remaps path to file_path for Read", () => {
+    const result = adapter.remapToolArgs!("Read", { path: "foo.yaml" });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ file_path: "foo.yaml" });
+  });
+
+  it("enrichToolDescription adds Kimi hints for Read and WebFetch", () => {
+    expect(adapter.enrichToolDescription!("Read", "Read file")).toContain("Kimi");
+    expect(adapter.enrichToolDescription!("WebFetch", "Fetch")).toContain("One fetch");
+    expect(adapter.enrichToolDescription!("Other", "x")).toBe("x");
+  });
+
+  it("defaultSamplingParams matches K2.6 thinking defaults", () => {
+    expect(adapter.defaultSamplingParams?.()).toEqual({ temperature: 1.0, top_p: 0.95 });
+  });
+
+  it("getEarlyPivotPrompt detects path-not-found read loops", () => {
+    const calls: RecentToolCall[] = [
+      { toolName: "Read", filePath: "k8/overseerr/overseerr-k8s.yaml", args: { file_path: "k8/overseerr/overseerr-k8s.yaml" } },
+      { toolName: "Read", filePath: "k8/overseerr/overseerr-k8s.yaml", args: { file_path: "k8/overseerr/overseerr-k8s.yaml" } },
+    ];
+    const pivot = adapter.getEarlyPivotPrompt!(calls, {
+      recentToolResultText: "File not found: /home/byron/k8/overseerr/k8/overseerr/overseerr-k8s.yaml",
+    });
+    expect(pivot).toContain("shell_cwd");
+    expect(pivot).toContain("Do NOT retry");
+  });
+
+  it("getEarlyPivotPrompt detects repeated WebFetch", () => {
+    const url = "https://docs.seerr.dev/migration-guide/";
+    const calls: RecentToolCall[] = [
+      { toolName: "WebFetch", args: { url } },
+      { toolName: "Read", args: { file_path: "x.yaml" } },
+      { toolName: "WebFetch", args: { url } },
+    ];
+    const pivot = adapter.getEarlyPivotPrompt!(calls, {});
+    expect(pivot).toContain(url);
+    expect(pivot).toMatch(/refetch|fetched/i);
+  });
+
+  it("dampenConsecutiveSameTools dampens WebFetch streaks", () => {
+    const names = ["WebFetch", "WebFetch", "WebFetch"];
+    const msg = adapter.dampenConsecutiveSameTools!(names);
+    expect(msg).toMatch(/WebFetch|webfetch/i);
   });
 });
 

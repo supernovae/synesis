@@ -4309,6 +4309,7 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
 
 import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js";
 import {
+  adapterUsesToolLoopSteering,
   repairBashToolCall,
   repairWriteToolCall,
 } from "./providers/model-adapter.js";
@@ -9324,7 +9325,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       );
     }
   }
-  const qwenLoopRiskOpenAI = adapter.family === "qwen3-coder" && detectQwenLoopRisk(oaiRecentCallsForSteering);
+  const qwenLoopRiskOpenAI = adapterUsesToolLoopSteering(adapter.family)
+    && detectQwenLoopRisk(oaiRecentCallsForSteering);
   const prunedTools = pruneToolSchemas(
     rawTools,
     toolBudget,
@@ -9548,7 +9550,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     || oaiNeedsStateReground
     || (oaiSensemakingDecision && oaiSensemakingDecision.responseLevel !== "allow"),
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapter.family === "qwen3-coder" && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapterUsesToolLoopSteering(adapter.family) && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
     app.log.info(
       {
         reqId: oaiTraceReqId,
@@ -9561,7 +9563,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "yarn_harness_adapter_pivot_skipped",
     );
   }
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !oaiGovernanceRecoveryActive && adapter.family === "qwen3-coder") {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !oaiGovernanceRecoveryActive && adapterUsesToolLoopSteering(adapter.family)) {
     const oaiRecentCalls = oaiRecentCallsForSteering;
     const oaiRecentAssistantText = extractRecentAssistantText(
       normalizedRequest.messages as Array<{ role: string; content: unknown }>,
@@ -13007,7 +13009,7 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   const qwenLoopRiskClaude =
-    claudeAdapter.family === "qwen3-coder" && detectQwenLoopRisk(claudeRecentCallsForSteering);
+    adapterUsesToolLoopSteering(claudeAdapter.family) && detectQwenLoopRisk(claudeRecentCallsForSteering);
   const prunedClaudeTools = pruneToolSchemas(
     claudeRawTools,
     claudeToolBudget,
@@ -13084,7 +13086,7 @@ app.post("/v1/messages", async (req, reply) => {
     || claudeNeedsStateReground
     || (claudeSensemakingDecision && claudeSensemakingDecision.responseLevel !== "allow"),
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && claudeAdapter.family === "qwen3-coder" && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapterUsesToolLoopSteering(claudeAdapter.family) && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
     app.log.info(
       {
         reqId: traceReqId,
@@ -13097,7 +13099,7 @@ app.post("/v1/messages", async (req, reply) => {
       "yarn_harness_adapter_pivot_skipped",
     );
   }
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudeGovernanceRecoveryActive && claudeAdapter.family === "qwen3-coder") {
+  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudeGovernanceRecoveryActive && adapterUsesToolLoopSteering(claudeAdapter.family)) {
     const claudeRecentCalls = claudeRecentCallsForSteering;
     const claudeRecentAssistantText = extractRecentAssistantText(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,

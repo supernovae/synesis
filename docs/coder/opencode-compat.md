@@ -100,6 +100,9 @@ executed as `/home/byron/k8/overseerr/k8/overseerr/overseerr-k8s.yaml`.
 > (tool_calls reconstruction, camelCase normalization) are the ones that
 > should be audited against upstream fixes.
 
+For Kimi / Moonshot models behind Yarn, also see [`KIMI_ADAPTER.md`](KIMI_ADAPTER.md)
+(path discipline, loop steering, and **adapter_hint=kimi** on any provider).
+
 ---
 
 ## Diagnostic commits (can be removed)

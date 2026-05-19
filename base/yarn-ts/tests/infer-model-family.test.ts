@@ -9,6 +9,8 @@ describe("inferModelFamily (yarn prompt context)", () => {
   it("maps Kimi / Moonshot backend ids to slug kimi", () => {
     expect(inferModelFamily("kimi-v1")).toBe("kimi");
     expect(inferModelFamily("moonshot-v1-128k")).toBe("kimi");
+    expect(inferModelFamily("moonshotai/kimi-k2.6")).toBe("kimi");
+    expect(inferModelFamily("kimi-k2.5-instruct")).toBe("kimi");
   });
 
   it("maps MiniMax / abab backend ids to slug minimax", () => {

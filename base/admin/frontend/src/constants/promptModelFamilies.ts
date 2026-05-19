@@ -11,7 +11,7 @@ export const PROMPT_MODEL_FAMILY_OPTIONS: Array<{ value: string; label: string }
   { value: "generic", label: "generic — unknown / unmatched backend model id" },
   { value: "qwen3-coder", label: "qwen3-coder — Qwen3 Coder (incl. qwen3-coder-next)" },
   { value: "deepseek", label: "deepseek — DeepSeek" },
-  { value: "kimi", label: "kimi — Kimi / Moonshot (Moonshot API ids)" },
+  { value: "kimi", label: "kimi — Kimi / Moonshot / K2.5–K2.6 (Yarn KimiAdapter)" },
   { value: "minimax", label: "minimax — MiniMax / abab" },
 ] as const;
 

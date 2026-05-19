@@ -810,6 +810,22 @@ Today's date: Wednesday Apr 9, 2026`;
     expect(meta.workspacePath).toBe("C:\\Users\\dev\\project");
   });
 
+  it("extracts opencode Working directory when it is outside <user_info>", () => {
+    const combined = `<user_info>
+OS Version: linux 6.8.0
+Shell: bash
+Workspace Path: /home/byron/k8
+</user_info>
+Here is some useful information about the environment you are running in:
+Working directory: /home/byron/k8/overseerr
+Workspace root folder: /home/byron/k8
+Platform: linux
+`;
+    const meta = extractClientMetadata(combined);
+    expect(meta.projectRoot).toBe("/home/byron/k8");
+    expect(meta.shellCwd).toBe("/home/byron/k8/overseerr");
+  });
+
   it("extracts opencode environment block with distinct cwd and workspace root", () => {
     const opencodeSys = `You are powered by the model named claude-sonnet-4-20250514. The exact model ID is anthropic/claude-sonnet-4-20250514
 Here is some useful information about the environment you are running in:
