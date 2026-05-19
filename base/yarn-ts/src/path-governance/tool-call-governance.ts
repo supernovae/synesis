@@ -235,6 +235,11 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = pathNorm.input;
     out.normalizedPath = true;
   }
+  const cwdPrefixRepair = repairShellCwdPrefixedFilePath(logicalName, out.input, opts.shellCwd, opts.projectRoot);
+  if (cwdPrefixRepair.repaired) {
+    out.input = cwdPrefixRepair.input;
+    out.normalizedPath = true;
+  }
 
   const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
   if (opts.enforcePathRoot && anchorRoot) {
@@ -958,6 +963,51 @@ function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | nul
   if (root) return root;
   const cwd = (shellCwd ?? "").trim();
   return cwd || null;
+}
+
+function repairShellCwdPrefixedFilePath(
+  logicalName: string,
+  input: Record<string, unknown>,
+  shellCwd?: string | null,
+  projectRoot?: string | null,
+): { input: Record<string, unknown>; repaired: boolean } {
+  if (!["Write", "Read", "Edit", "Update"].includes(logicalName)) return { input, repaired: false };
+  const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
+  const cwd = shellCwd?.trim();
+  if (!raw || !cwd) return { input, repaired: false };
+  if (path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
+    return { input, repaired: false };
+  }
+
+  const normalized = raw.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/{2,}/g, "/");
+  const rawParts = normalized.split("/").filter(Boolean);
+  if (rawParts.length < 2) return { input, repaired: false };
+
+  const project = projectRoot?.trim();
+  if (project) {
+    const taskRel = path.relative(path.resolve(project), path.resolve(cwd)).split(path.sep).join("/");
+    const taskRelParts = taskRel.split("/").filter((part) => part && part !== "." && part !== "..");
+    if (taskRelParts.length > 0 && startsWithParts(rawParts, taskRelParts)) {
+      const repaired = rawParts.slice(taskRelParts.length).join("/");
+      if (repaired) return { input: { ...input, file_path: repaired }, repaired: true };
+    }
+  }
+
+  const cwdParts = path.resolve(cwd).split(path.sep).filter(Boolean);
+  const max = Math.min(cwdParts.length, rawParts.length - 1);
+  for (let n = max; n >= 2; n -= 1) {
+    const suffix = cwdParts.slice(cwdParts.length - n);
+    if (!startsWithParts(rawParts, suffix)) continue;
+    const repaired = rawParts.slice(n).join("/");
+    if (repaired) return { input: { ...input, file_path: repaired }, repaired: true };
+  }
+
+  return { input, repaired: false };
+}
+
+function startsWithParts(parts: string[], prefix: string[]): boolean {
+  if (prefix.length > parts.length) return false;
+  return prefix.every((part, index) => parts[index] === part);
 }
 
 function detectDangerousBash(command: string): { reason: string } | null {

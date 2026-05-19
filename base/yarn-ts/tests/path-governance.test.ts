@@ -15,6 +15,33 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
+  it("repairs project-relative file paths that duplicate shell_cwd", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "k8/overseerr/overseerr-k8s.yaml" },
+      projectRoot: "/home/byron",
+      shellCwd: "/home/byron/k8/overseerr",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.input.file_path).toBe("overseerr-k8s.yaml");
+    expect(out.normalizedPath).toBe(true);
+  });
+
+  it("repairs paths that repeat a suffix of shell_cwd without project_root", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "k8/overseerr/overseerr-k8s.yaml" },
+      shellCwd: "/home/byron/k8/overseerr",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+    expect(out.input.file_path).toBe("overseerr-k8s.yaml");
+    expect(out.normalizedPath).toBe(true);
+  });
+
   it("passes through out-of-root paths to the client (client enforces permissions)", () => {
     const traversal = governToolCall({
       toolName: "Write",
