@@ -236,6 +236,7 @@ import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
   evaluateExecutionGovernor,
+  buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
@@ -8988,8 +8989,47 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   session.lastGovernorPhase = oaiGovernorPhase;
 
+  const oaiSensemakingPrimaryEnabled =
+    config.SYNESIS_YARN_SENSEMAKING_ENABLED
+    && !config.SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY;
+  if (
+    !oaiSensemakingPrimaryEnabled
+    && oaiExecutionGovernor.pause
+    && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
+  ) {
+    session.consecutiveRecoveryFires += 1;
+    const pauseContent = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      matchedRules: oaiExecutionGovernor.matchedRules,
+    });
+    const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: oaiExecutionGovernor.matchedRules,
+      consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      hardStopThreshold: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+      evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+      activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
+      artifactContext: oaiArtifactContext,
+      chatStateSummary: oaiPauseChatSummary,
+      fileStateSummary: oaiPauseFileSummary,
+    });
+    recordSessionEvent(
+      sessionKey, identity.userId, identity.orgId,
+      "execution_governor_pause",
+      "execution-governor",
+      `Pause: rules=${oaiExecutionGovernor.matchedRules.slice(0, 3).join(",") || "unknown"}`,
+      oaiTraceReqId,
+      {
+        matchedRules: oaiExecutionGovernor.matchedRules,
+        reason: oaiExecutionGovernor.reason,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      },
+    );
+    maybeCheckpoint(session);
+    return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pauseContent, !!request.stream, pauseEnvelope);
+  }
+
   // Sensemaking-driven response: graduated allow/nudge/guide/intervene
-  if (oaiSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+  if (oaiSensemakingPrimaryEnabled && oaiSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     if (oaiSensemakingDecision.shouldPause) {
       // Chaotic domain — hard pause
       session.consecutiveRecoveryFires += 1;
@@ -12679,8 +12719,47 @@ app.post("/v1/messages", async (req, reply) => {
   }
   session.lastGovernorPhase = claudeGovernorPhase;
 
+  const claudeSensemakingPrimaryEnabled =
+    config.SYNESIS_YARN_SENSEMAKING_ENABLED
+    && !config.SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY;
+  if (
+    !claudeSensemakingPrimaryEnabled
+    && claudeExecutionGovernor.pause
+    && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
+  ) {
+    session.consecutiveRecoveryFires += 1;
+    const pauseContent = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      matchedRules: claudeExecutionGovernor.matchedRules,
+    });
+    const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: claudeExecutionGovernor.matchedRules,
+      consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      hardStopThreshold: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
+      evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
+      activeGuards: claudeExecutionGovernor.telemetry.activeGuards,
+      artifactContext: claudeArtifactContext,
+      chatStateSummary: claudePauseChatSummary,
+      fileStateSummary: claudePauseFileSummary,
+    });
+    recordSessionEvent(
+      claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
+      "execution_governor_pause",
+      "execution-governor",
+      `Pause: rules=${claudeExecutionGovernor.matchedRules.slice(0, 3).join(",") || "unknown"}`,
+      traceReqId,
+      {
+        matchedRules: claudeExecutionGovernor.matchedRules,
+        reason: claudeExecutionGovernor.reason,
+        consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+      },
+    );
+    maybeCheckpoint(session);
+    return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pauseContent, !!body.stream, pauseEnvelope);
+  }
+
   // Sensemaking-driven response: graduated allow/nudge/guide/intervene
-  if (claudeSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
+  if (claudeSensemakingPrimaryEnabled && claudeSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     if (claudeSensemakingDecision.shouldPause) {
       session.consecutiveRecoveryFires += 1;
       const pauseContent = buildSensemakingPauseMessage(claudeSensemakingDecision);

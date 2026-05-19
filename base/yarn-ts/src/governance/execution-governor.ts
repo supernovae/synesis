@@ -3146,6 +3146,10 @@ const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
     what: "The assistant repeated the same opening or plan text across multiple messages instead of new actions or a real test/build result.",
     nudge: "Read the file you need once, make one exact anchored edit, or run one `git diff` / one targeted test—skip re-stating the plan.",
   },
+  task_creation_replay: {
+    what: "The assistant recreated or rewrote the same task list instead of continuing from the existing task state.",
+    nudge: "Reuse the current TodoWrite or task list, preserve completed items, update only the active item, then take one concrete next action.",
+  },
   broad_to_narrow_verification: {
     what: "The same kind of very broad test or build command was re-run; scoped checks usually finish faster and make failures easier to fix.",
     nudge: "Re-run a single package or file-scoped test for the code you just touched, not the whole tree again.",
