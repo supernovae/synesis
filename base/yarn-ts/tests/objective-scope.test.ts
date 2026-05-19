@@ -619,4 +619,93 @@ describe("objective scope", () => {
       expect(result.boundaryIndex).toBe(first.boundaryIndex);
     }
   });
+
+  it("retains the previous assistant proposal when the latest user confirms an option", () => {
+    const objective = "Fix requests.themiller.haus routing";
+    const chatState = makeChatState({
+      activeObjective: "yes, lets do option 1 and see if it fixes it",
+      pendingUserDirective: "yes, lets do option 1 and see if it fixes it",
+    });
+    const messages: ObjectiveScopeMessage[] = [];
+    for (let i = 0; i < 90; i++) {
+      messages.push({ role: "assistant", content: `Older work ${i}` });
+    }
+    messages.push({
+      role: "assistant",
+      content:
+        "Option 1 (Recommended): Disable nginx ssl-redirect since Cloudflare handles HTTPS. kubectl annotate ingress seerr -n arr nginx.ingress.kubernetes.io/ssl-redirect=\"false\"",
+    });
+    messages.push({ role: "user", content: "yes, lets do option 1 and see if it fixes it" });
+
+    const epoch = resolveObjectiveEpoch({
+      metadata: {
+        objective_epoch_id: 1,
+        objective_epoch_objective_text: objective,
+      },
+      chatState,
+      latestUserPromptText: "yes, lets do option 1 and see if it fixes it",
+      requestOrdinal: 20,
+    });
+
+    const scoped = applyObjectiveScope({
+      messages,
+      epoch,
+      chatState,
+      fileState: makeFileState("seerr-k8s.yaml"),
+      requestOrdinal: 20,
+      bucketSize: 1,
+      preBoundaryWindow: 10,
+      minimumScore: 3,
+    });
+
+    expect(scoped.boundaryIndex).toBe(messages.length - 1);
+    expect(scoped.relevantEvidenceBlock).toContain("Previous assistant proposal confirmed by latest user");
+    expect(scoped.relevantEvidenceBlock).toContain("ssl-redirect");
+    expect(scoped.relevantEvidenceBlock).toContain("kubectl annotate ingress seerr");
+  });
+
+  it("retains confirmation context even when the frozen boundary would drop it", () => {
+    const chatState = makeChatState({
+      activeObjective: "yes, apply option 1",
+      pendingUserDirective: "yes, apply option 1",
+    });
+    const messages: ObjectiveScopeMessage[] = [
+      {
+        role: "assistant",
+        content:
+          "Option 1: Disable nginx ssl-redirect with kubectl annotate ingress seerr -n arr nginx.ingress.kubernetes.io/ssl-redirect=\"false\"",
+      },
+      { role: "user", content: "yes, apply option 1" },
+    ];
+    for (let i = 0; i < 20; i++) {
+      messages.push({ role: "assistant", content: `Working ${i}` });
+      messages.push({ role: "tool", content: `Result ${i}` });
+    }
+
+    const scoped = applyObjectiveScope({
+      messages,
+      epoch: {
+        epochId: 2,
+        objectiveHash: "abc",
+        objectiveText: "yes, apply option 1",
+        anchorUserHash: "missing",
+        objectiveSetRequest: 1,
+        objectiveChanged: false,
+        similarityToPrevious: 1,
+        pruningCheckpoint: {
+          frozenBoundaryIndex: 10,
+          frozenAtRequest: 1,
+          frozenMessageCount: 10,
+        },
+      },
+      chatState,
+      fileState: makeFileState("seerr-k8s.yaml"),
+      requestOrdinal: 2,
+      epochInterval: 10,
+    });
+
+    expect(scoped.reanchored).toBe(false);
+    expect(scoped.relevantEvidenceBlock).toContain("Previous assistant proposal confirmed by latest user");
+    expect(scoped.relevantEvidenceBlock).toContain("ssl-redirect");
+  });
 });

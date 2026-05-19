@@ -209,6 +209,41 @@ function findLastGenuineUserIndex(messages: ObjectiveScopeMessage[]): number {
   return -1;
 }
 
+function isConfirmatoryUserReply(text: string): boolean {
+  const normalized = normalizeText(text).toLowerCase();
+  if (!normalized || normalized.length > 320) return false;
+  return /^(yes|yep|yeah|ok|okay|sure|sounds good|that works|go ahead|proceed)\b/.test(normalized)
+    || /\b(let'?s|lets)\s+do\s+(it|that|this|option\s+\d+)\b/.test(normalized)
+    || /\b(apply|choose|use|take|run)\s+option\s+\d+\b/.test(normalized)
+    || /\boption\s+\d+\b/.test(normalized);
+}
+
+function findConfirmationContext(messages: ObjectiveScopeMessage[]): RelevancyCandidate | null {
+  const latestUserIndex = findLastGenuineUserIndex(messages);
+  if (latestUserIndex <= 0) return null;
+
+  const latestUserText = contentToText(messages[latestUserIndex].content);
+  if (!isConfirmatoryUserReply(latestUserText)) return null;
+
+  for (let i = latestUserIndex - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role === "user") break;
+    if (message.role !== "assistant") continue;
+
+    const text = contentToText(message.content);
+    if (!text) continue;
+    return {
+      role: "assistant",
+      toolName: null,
+      summary: safeSummary(`Previous assistant proposal confirmed by latest user: ${text}`, 640),
+      score: 99,
+      index: i,
+    };
+  }
+
+  return null;
+}
+
 function findAnchorUserIndex(messages: ObjectiveScopeMessage[], anchorUserHash: string): number {
   if (!anchorUserHash) return -1;
   for (let i = 0; i < messages.length; i += 1) {
@@ -307,6 +342,31 @@ function scoreRelevancyCandidates(
     });
   }
   return candidates;
+}
+
+function formatRelevantEvidenceBlock(
+  retained: RelevancyCandidate[],
+  options: {
+    epochId: number;
+    objectiveChanged: boolean;
+    boundaryIndex: number;
+    preBoundaryCandidates: number;
+    droppedCandidates: number;
+  },
+): string | null {
+  if (retained.length === 0) return null;
+  return [
+    "<SYNESIS_RELEVANT_EVIDENCE version=\"1\" source=\"objective_scope_gate\">",
+    `objective_epoch_id=${options.epochId}`,
+    `objective_changed=${options.objectiveChanged ? "yes" : "no"}`,
+    `tail_start_index=${options.boundaryIndex}`,
+    `pre_boundary_candidates=${options.preBoundaryCandidates}`,
+    `retained_candidates=${retained.length}`,
+    `dropped_candidates=${options.droppedCandidates}`,
+    ...retained.map((row) =>
+      `evidence=role:${row.role};tool:${row.toolName ?? "none"};score:${row.score};summary:${row.summary.replace(/;/g, ",")}`),
+    "</SYNESIS_RELEVANT_EVIDENCE>",
+  ].join("\n");
 }
 
 export function resolveObjectiveEpoch(options: ResolveObjectiveEpochOptions): ObjectiveEpochState {
@@ -698,6 +758,10 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   }
 
   const scopedMessages = healToolCallResultPairs(allMessages.slice(Math.max(0, boundaryIndex)));
+  const confirmationContext = findConfirmationContext(allMessages);
+  const confirmationAlreadyRetained = confirmationContext
+    ? confirmationContext.index >= boundaryIndex
+    : true;
 
   let relevantEvidenceBlock: string | null = null;
   let artifactBridgeBlock: string | null = null;
@@ -731,23 +795,20 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
       .sort((a, b) => (b.score - a.score) || (b.index - a.index))
       .slice(0, maxRelevantEvidence)
       .sort((a, b) => a.index - b.index);
+    if (confirmationContext && !confirmationAlreadyRetained && !retained.some((row) => row.index === confirmationContext.index)) {
+      retained.push(confirmationContext);
+      retained.sort((a, b) => a.index - b.index);
+    }
     retainedEvidenceCount = retained.length;
     droppedPreBoundaryCount = Math.max(0, preBoundaryMessages.length - retained.length);
 
-    relevantEvidenceBlock = retained.length > 0
-      ? [
-          "<SYNESIS_RELEVANT_EVIDENCE version=\"1\" source=\"objective_scope_gate\">",
-          `objective_epoch_id=${options.epoch.epochId}`,
-          `objective_changed=${options.epoch.objectiveChanged ? "yes" : "no"}`,
-          `tail_start_index=${boundaryIndex}`,
-          `pre_boundary_candidates=${preBoundaryMessages.length}`,
-          `retained_candidates=${retained.length}`,
-          `dropped_candidates=${Math.max(0, preBoundaryMessages.length - retained.length)}`,
-          ...retained.map((row) =>
-            `evidence=role:${row.role};tool:${row.toolName ?? "none"};score:${row.score};summary:${row.summary.replace(/;/g, ",")}`),
-          "</SYNESIS_RELEVANT_EVIDENCE>",
-        ].join("\n")
-      : null;
+    relevantEvidenceBlock = formatRelevantEvidenceBlock(retained, {
+      epochId: options.epoch.epochId,
+      objectiveChanged: options.epoch.objectiveChanged,
+      boundaryIndex,
+      preBoundaryCandidates: preBoundaryMessages.length,
+      droppedCandidates: Math.max(0, preBoundaryMessages.length - retained.length),
+    });
 
     const droppedMessages = allMessages.slice(0, Math.max(0, boundaryIndex));
     const bridgedHandles = extractArtifactHandles(droppedMessages);
@@ -760,6 +821,17 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
           "</SYNESIS_AVAILABLE_ARTIFACTS>",
         ].join("\n")
       : null;
+  }
+
+  if (!reanchored && confirmationContext && !confirmationAlreadyRetained) {
+    retainedEvidenceCount = 1;
+    relevantEvidenceBlock = formatRelevantEvidenceBlock([confirmationContext], {
+      epochId: options.epoch.epochId,
+      objectiveChanged: options.epoch.objectiveChanged,
+      boundaryIndex,
+      preBoundaryCandidates: 0,
+      droppedCandidates: 0,
+    });
   }
 
   return {
