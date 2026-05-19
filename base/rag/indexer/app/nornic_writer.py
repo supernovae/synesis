@@ -6,11 +6,12 @@ import hashlib
 import json
 import os
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import Neo4jError
+from neo4j.exceptions import Neo4jError, ServiceUnavailable, SessionExpired, TransientError
 from synesis_telemetry import get_logger
 
 from .schema import EMBEDDING_DIM, GRAPH_EDGE_TYPES, SCHEMA_VERSION, SYNESIS_CATALOG
@@ -26,6 +27,8 @@ DELETE_BATCH_SIZE = 500
 EDGE_BATCH_SIZE = 1000
 NORNIC_BULK_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE", "500") or "500")
 NORNIC_BULK_META_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE", "2000") or "2000")
+NORNIC_BULK_RETRY_ATTEMPTS = int(os.getenv("SYNESIS_NORNIC_BULK_RETRY_ATTEMPTS", "5") or "5")
+NORNIC_BULK_RETRY_BASE_DELAY = float(os.getenv("SYNESIS_NORNIC_BULK_RETRY_BASE_DELAY", "1.0") or "1.0")
 PREFETCH_EXISTING_IDS = os.getenv("SYNESIS_NORNIC_PREFETCH_EXISTING_IDS", "").strip().lower() in {
     "1",
     "true",
@@ -36,6 +39,8 @@ FAST_NODE_CREATE = os.getenv("SYNESIS_NORNIC_FAST_NODE_CREATE", "false").strip()
     "false",
     "no",
 }
+_RETRYABLE_BOLT_ERRORS = (ServiceUnavailable, SessionExpired, TransientError)
+_BOLT_WRITE_ERRORS = (*_RETRYABLE_BOLT_ERRORS, Neo4jError)
 
 
 def chunk_id_hash(text: str, source: str) -> str:
@@ -56,16 +61,31 @@ class NornicGraphWriter:
         self.uri = uri
         self.database = database
         auth = (user, password) if password else None
-        self.driver = GraphDatabase.driver(uri, auth=auth)
+        self._auth = auth
+        self.driver = self._new_driver()
         self.client = self
         self._schema_ready = False
+
+    def _new_driver(self) -> Any:
+        return GraphDatabase.driver(
+            self.uri,
+            auth=self._auth,
+            connection_timeout=float(os.getenv("SYNESIS_NORNIC_BOLT_CONNECTION_TIMEOUT", "30") or "30"),
+            max_connection_lifetime=float(os.getenv("SYNESIS_NORNIC_BOLT_MAX_CONNECTION_LIFETIME", "300") or "300"),
+            max_transaction_retry_time=float(os.getenv("SYNESIS_NORNIC_BOLT_MAX_TRANSACTION_RETRY_TIME", "60") or "60"),
+        )
+
+    def _reset_driver(self) -> None:
+        with suppress(Exception):
+            self.driver.close()
+        self.driver = self._new_driver()
 
     def close(self) -> None:
         self.driver.close()
 
     _CONSTRAINT_DDL = "CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE"
     _VECTOR_INDEX_DDL = (
-        "CREATE VECTOR INDEX embeddings IF NOT EXISTS "
+        f"CREATE VECTOR INDEX {NORNIC_VECTOR_INDEX} IF NOT EXISTS "
         "FOR (n:ContentNode) ON (n.embedding) "
         f"OPTIONS {{ indexConfig: {{ `vector.dimensions`: {EMBEDDING_DIM}, `vector.similarity_function`: 'cosine' }} }}"
     )
@@ -130,6 +150,17 @@ class NornicGraphWriter:
                 session.run(f"DROP INDEX {name} IF EXISTS")
         logger.info("nornic_write_indexes_suspended")
 
+    def suspend_vector_index(self) -> None:
+        """Drop the vector index during large bulk imports.
+
+        Keeping the id constraint and scalar indexes in place preserves fast
+        MERGE/MATCH behavior for nodes and edges while avoiding incremental
+        vector-index updates for every embedding batch.
+        """
+        with self.driver.session(database=self.database) as session:
+            session.run(f"DROP INDEX {NORNIC_VECTOR_INDEX} IF EXISTS")
+        logger.info("nornic_vector_index_suspended")
+
     def restore_write_indexes(self) -> None:
         """Recreate all indexes and constraints after suspend_write_indexes."""
         with self.driver.session(database=self.database) as session:
@@ -139,6 +170,11 @@ class NornicGraphWriter:
             for ddl in self._SCALAR_INDEX_DDL:
                 session.run(ddl)
         logger.info("nornic_scalar_indexes_restored")
+        with self.driver.session(database=self.database) as session:
+            session.run(self._VECTOR_INDEX_DDL)
+        logger.info("nornic_vector_index_restored")
+
+    def restore_vector_index(self) -> None:
         with self.driver.session(database=self.database) as session:
             session.run(self._VECTOR_INDEX_DDL)
         logger.info("nornic_vector_index_restored")
@@ -255,10 +291,10 @@ class NornicGraphWriter:
         *,
         offset: int,
         create_only: bool,
-        _retries: int = 3,
+        _retries: int = NORNIC_BULK_RETRY_ATTEMPTS,
     ) -> int:
         """Write a single batch with retry on transient commit failures."""
-        last_exc: Neo4jError | None = None
+        last_exc: Exception | None = None
         for attempt in range(_retries):
             try:
                 with self.driver.session(database=self.database) as session:
@@ -274,11 +310,14 @@ class NornicGraphWriter:
                 with self.driver.session(database=self.database) as session:
                     session.execute_write(self._bulk_upsert_nodes_tx, batch)
                 return len(batch)
-            except Neo4jError as exc:
+            except _BOLT_WRITE_ERRORS as exc:
                 last_exc = exc
                 is_constraint = "constraint" in str(exc).lower() or "unique" in str(exc).lower()
-                if is_constraint and attempt < _retries - 1:
-                    delay = 0.5 * (attempt + 1)
+                retryable = isinstance(exc, _RETRYABLE_BOLT_ERRORS) or is_constraint
+                if retryable and attempt < _retries - 1:
+                    if isinstance(exc, _RETRYABLE_BOLT_ERRORS):
+                        self._reset_driver()
+                    delay = NORNIC_BULK_RETRY_BASE_DELAY * (attempt + 1)
                     logger.warning(
                         "nornic_bulk_upsert_retry",
                         extra={
@@ -314,7 +353,9 @@ class NornicGraphWriter:
                         session.execute_write(self._upsert_content_node_tx, node_id, props)
                     written += 1
                     break
-                except Neo4jError as exc:
+                except _BOLT_WRITE_ERRORS as exc:
+                    if isinstance(exc, _RETRYABLE_BOLT_ERRORS):
+                        self._reset_driver()
                     if attempt < 2:
                         time.sleep(0.2 * (attempt + 1))
                         continue
@@ -422,16 +463,64 @@ class NornicGraphWriter:
         return total
 
     def _write_edge_group(self, edge_type: str, rows: list[dict[str, Any]]) -> None:
-        batch_size = int(os.getenv("SYNESIS_NORNIC_EDGE_BATCH_SIZE", str(EDGE_BATCH_SIZE)) or str(EDGE_BATCH_SIZE))
+        batch_size = int(
+            os.getenv("SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE")
+            or os.getenv("SYNESIS_NORNIC_EDGE_BATCH_SIZE")
+            or str(EDGE_BATCH_SIZE)
+        )
         batch_size = max(1, min(batch_size, 2500))
         for i in range(0, len(rows), batch_size):
             batch = rows[i : i + batch_size]
-            with self.driver.session(database=self.database) as session:
-                session.execute_write(self._write_edges_tx, edge_type, batch)
+            self._write_edge_batch(edge_type, batch, offset=i)
             logger.info(
                 "indexer_graph_edges_batch_written",
                 extra={"edge_type": edge_type, "count": len(batch), "offset": i},
             )
+
+    def _write_edge_batch(
+        self,
+        edge_type: str,
+        batch: list[dict[str, Any]],
+        *,
+        offset: int,
+        _retries: int = NORNIC_BULK_RETRY_ATTEMPTS,
+    ) -> None:
+        last_exc: Exception | None = None
+        for attempt in range(_retries):
+            try:
+                with self.driver.session(database=self.database) as session:
+                    session.execute_write(self._write_edges_tx, edge_type, batch)
+                return
+            except _RETRYABLE_BOLT_ERRORS as exc:
+                last_exc = exc
+                self._reset_driver()
+                delay = NORNIC_BULK_RETRY_BASE_DELAY * (attempt + 1)
+                logger.warning(
+                    "nornic_edge_batch_retry",
+                    extra={
+                        "edge_type": edge_type,
+                        "count": len(batch),
+                        "offset": offset,
+                        "attempt": attempt + 1,
+                        "delay_s": delay,
+                        "error": str(exc)[:500],
+                    },
+                )
+                time.sleep(delay)
+            except Neo4jError as exc:
+                last_exc = exc
+                break
+        if len(batch) > 1:
+            midpoint = max(1, len(batch) // 2)
+            logger.warning(
+                "nornic_edge_batch_split",
+                extra={"edge_type": edge_type, "count": len(batch), "offset": offset, "error": str(last_exc)[:500]},
+            )
+            self._write_edge_batch(edge_type, batch[:midpoint], offset=offset, _retries=_retries)
+            self._write_edge_batch(edge_type, batch[midpoint:], offset=offset + midpoint, _retries=_retries)
+            return
+        if last_exc:
+            raise last_exc
 
     @staticmethod
     def _write_edges_tx(tx: Any, edge_type: str, rows: list[dict[str, Any]]) -> None:

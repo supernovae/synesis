@@ -208,18 +208,13 @@ def test_nornic_node_writes_use_scalar_parameters():
     )
 
     assert calls[0][1]["id"] == "chunk-1"
-    assert calls[1][1]["id"] == "chunk-1"
-    assert calls[2][1]["id"] == "chunk-1"
-    assert calls[2][1]["props"]["pack"] == "go-latest"
-    assert calls[2][1]["props"]["embedding"] == [0.1, 0.2]
-    assert "id" not in calls[2][1]["props"]
-    assert "row.id" not in calls[2][0]
-    assert "WHERE n.id = $id" in calls[0][0]
-    assert "RETURN count(n) AS existing" in calls[0][0]
-    assert "CREATE (n:ContentNode {id: $id})" in calls[1][0]
-    assert "WHERE n.id = $id" in calls[2][0]
-    assert "SET n += $props" in calls[2][0]
-    assert len(calls) == 3
+    assert calls[0][1]["props"]["pack"] == "go-latest"
+    assert calls[0][1]["props"]["embedding"] == [0.1, 0.2]
+    assert "id" not in calls[0][1]["props"]
+    assert "row.id" not in calls[0][0]
+    assert "MERGE (n:ContentNode {id: $id})" in calls[0][0]
+    assert "SET n += $props" in calls[0][0]
+    assert len(calls) == 1
 
 
 def test_nornic_fast_node_create_uses_batched_rows():
@@ -292,6 +287,6 @@ def test_nornic_edge_tx_uses_scalar_parameters():
 
     assert calls[-1][1] == {"rows": [{"source_id": "a", "target_id": "b", "props": {"call_ref": "b"}}]}
     assert "UNWIND $rows AS row" in calls[-1][0]
-    assert "WHERE a.id = row.source_id" in calls[-1][0]
-    assert "WHERE b.id = row.target_id" in calls[-1][0]
+    assert "MATCH (a:ContentNode {id: row.source_id})" in calls[-1][0]
+    assert "MATCH (b:ContentNode {id: row.target_id})" in calls[-1][0]
     assert "CREATE (n:ContentNode" not in calls[-1][0]

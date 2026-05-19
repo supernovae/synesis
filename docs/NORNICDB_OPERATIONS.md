@@ -49,11 +49,25 @@ Useful controls:
 - `SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE` controls non-vector metadata node
   batches.
 - `SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE` controls relationship batches.
+- `SYNESIS_NORNIC_BULK_RETRY_ATTEMPTS` and
+  `SYNESIS_NORNIC_BULK_RETRY_BASE_DELAY` control retry/backoff for transient
+  Bolt disconnects during node and relationship batches.
+- `SYNESIS_NORNIC_BULK_SUSPEND_VECTOR_INDEX=true` drops only the vector index
+  during large bulk imports and recreates it after verification. The id
+  constraint stays online so node/edge `MERGE` and `MATCH` operations remain
+  indexed.
+- `SYNESIS_NORNIC_FAST_NODE_CREATE=true` enables faster create-first writes
+  when a content-pack install is replacing an existing pack.
 
 For hosted language packs such as Go, keep NornicDB above the production sizing
 baseline (`8Gi` request, `16Gi` limit in the Helm defaults). A `2Gi` limit can
 OOM during index rebuild or leave the content-pack runner blocked on Bolt during
 bulk import.
+
+If a load fails with `Failed to read from defunct connection`, inspect the
+NornicDB pod first. If the previous container state is `OOMKilled` / exit 137,
+the Bolt client error is downstream of the server restart. Increase the live
+NornicDB resources or lower the bulk batch sizes before retrying the pack.
 
 Manual import test:
 

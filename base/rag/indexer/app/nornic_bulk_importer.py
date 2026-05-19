@@ -60,6 +60,11 @@ from .synpack import (
 logger = get_logger("synesis.indexer.nornic_bulk")
 
 _EDGE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE", "2500") or "2500")
+_SUSPEND_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_BULK_SUSPEND_VECTOR_INDEX", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 _V2_NODE_FILES: tuple[tuple[str, str], ...] = (
     (V2_CHUNKS_PATH, "Chunk"),
@@ -318,6 +323,7 @@ def bulk_load_synpack(
     tmp = Path(tempfile.mkdtemp(prefix="synpack-bulk-load-"))
     writer: NornicGraphWriter | None = None
     vectors: _VectorSidecar | None = None
+    vector_index_suspended = False
     try:
         logger.info("synpack_bulk_extract_start", extra={"pack_id": pack_id, "pack_path": str(pack_path)})
         with zipfile.ZipFile(pack_path) as zf:
@@ -342,6 +348,11 @@ def bulk_load_synpack(
             logger.info("synpack_bulk_replace_complete", extra={"pack_id": pack_id, "deleted": deleted})
         else:
             deleted = 0
+        if _SUSPEND_VECTOR_INDEX:
+            logger.info("synpack_bulk_vector_index_suspend_start", extra={"pack_id": pack_id})
+            writer.suspend_vector_index()
+            vector_index_suspended = True
+            logger.info("synpack_bulk_vector_index_suspend_complete", extra={"pack_id": pack_id})
 
         logger.info("synpack_bulk_vectors_start", extra={"pack_id": pack_id})
         vectors = _VectorSidecar(tmp)
@@ -379,6 +390,12 @@ def bulk_load_synpack(
         _verify_counts(pack_id, quality_report, actual_counts)
         logger.info("synpack_bulk_verify_complete", extra={"pack_id": pack_id, "verification": actual_counts})
 
+        if vector_index_suspended:
+            logger.info("synpack_bulk_vector_index_restore_start", extra={"pack_id": pack_id})
+            writer.restore_vector_index()
+            vector_index_suspended = False
+            logger.info("synpack_bulk_vector_index_restore_complete", extra={"pack_id": pack_id})
+
         elapsed = max(time.perf_counter() - started, 0.001)
         return {
             "ok": True,
@@ -396,6 +413,14 @@ def bulk_load_synpack(
             "quality": quality_report,
         }
     finally:
+        if vector_index_suspended and writer is not None:
+            try:
+                writer.restore_vector_index()
+            except Exception as exc:
+                logger.warning(
+                    "synpack_bulk_vector_index_restore_failed",
+                    extra={"pack_id": pack_id, "error": str(exc)[:500]},
+                )
         if vectors is not None:
             vectors.close()
         if writer is not None:
