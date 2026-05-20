@@ -102,6 +102,38 @@ describe("resolveAdapter", () => {
   });
 });
 
+describe("Qwen/Kimi loop steering", () => {
+  it("treats repeated pytest commands as verification action, not repeated intent", () => {
+    const adapter = new Qwen3CoderAdapter();
+    const calls: RecentToolCall[] = [
+      { toolName: "bash", args: { command: "python -m pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "python -m pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "python -m pytest taskpulse/tests/ -v" } },
+    ];
+
+    expect(adapter.getEarlyPivotPrompt(calls, {
+      recentUserPrompt: "Build a Python task app",
+      stagnationWindow: 3,
+      stagnationThreshold: 2,
+    })).toBeNull();
+  });
+
+  it("treats repeated vitest commands as verification action, not repeated intent", () => {
+    const adapter = new Qwen3CoderAdapter();
+    const calls: RecentToolCall[] = [
+      { toolName: "bash", args: { command: "npx vitest run tests/execution-governor.test.ts" } },
+      { toolName: "bash", args: { command: "npx vitest run tests/execution-governor.test.ts" } },
+      { toolName: "bash", args: { command: "npx vitest run tests/execution-governor.test.ts" } },
+    ];
+
+    expect(adapter.getEarlyPivotPrompt(calls, {
+      recentUserPrompt: "Fix the tests",
+      stagnationWindow: 3,
+      stagnationThreshold: 2,
+    })).toBeNull();
+  });
+});
+
 describe("resolveAdapter with adapterHint", () => {
   it("overrides auto-detect when hint is qwen3-coder", () => {
     const adapter = resolveAdapter("some-unknown-model", undefined, "qwen3-coder");

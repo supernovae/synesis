@@ -2961,6 +2961,7 @@ const roleAssignmentRegistry = new Map<string, RoleAssignmentConfig>();
 let promptSnapshotRegistry: PromptSnapshot | null = null;
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS, config.SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS);
 const sessions = new Map<string, SessionState>();
+const rotatedSessionByBaseKey = new Map<string, string>();
 const sessionStore = new SessionStore(config);
 const diagnosticStore = new DiagnosticStore(config);
 const memoryStoreRedis = config.SYNESIS_YARN_SESSION_REDIS_URL
@@ -3728,6 +3729,23 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
 
   if (hasExplicitConvo) return baseKey;
 
+  const rotatedKey = rotatedSessionByBaseKey.get(baseKey);
+  if (rotatedKey) {
+    const active = sessions.get(rotatedKey);
+    if (active) {
+      const idle = Date.now() - active.record.lastActiveAt;
+      if (idle <= config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) return rotatedKey;
+      rotatedSessionByBaseKey.delete(baseKey);
+    } else {
+      const loadedRotated = await sessionStore.load(rotatedKey);
+      if (loadedRotated) {
+        const idle = Date.now() - loadedRotated.lastActiveAt;
+        if (idle <= config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) return rotatedKey;
+      }
+      rotatedSessionByBaseKey.delete(baseKey);
+    }
+  }
+
   const inMemory = sessions.get(baseKey);
   if (inMemory) {
     const idle = Date.now() - inMemory.record.lastActiveAt;
@@ -3744,6 +3762,7 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
       clearSessionMemory(baseKey);
       blockedDiscoveryBySession.delete(baseKey);
       const rotated = `${baseKey}:r${Date.now()}`;
+      rotatedSessionByBaseKey.set(baseKey, rotated);
       return rotated;
     }
     return baseKey;
@@ -3758,6 +3777,7 @@ async function getSessionKey(identity: SessionIdentity): Promise<string> {
         "session_inactivity_rotation_redis"
       );
       const rotated = `${baseKey}:r${Date.now()}`;
+      rotatedSessionByBaseKey.set(baseKey, rotated);
       return rotated;
     }
   }

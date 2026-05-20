@@ -137,7 +137,10 @@ function isActionToolCall(call: RecentToolCall): boolean {
   const cmdRaw = call.args?.command;
   if (typeof cmdRaw !== "string") return false;
   const cmd = cmdRaw.toLowerCase();
-  return /\b(test|build|lint|vet)\b/.test(cmd);
+  return /\b(test|build|lint|vet|pytest|unittest|vitest|jest|mocha|mypy|ruff|tsc)\b/.test(cmd)
+    || /\bgo\s+test\b/.test(cmd)
+    || /\bcargo\s+test\b/.test(cmd)
+    || /\bpython(?:\d+(?:\.\d+)?)?\s+-m\s+(?:pytest|unittest)\b/.test(cmd);
 }
 
 export function fingerprintToolCall(call: RecentToolCall): string {
