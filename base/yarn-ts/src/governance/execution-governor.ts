@@ -674,6 +674,27 @@ function extractPathLikeArg(row: Record<string, unknown>): string {
   );
 }
 
+function todoWriteCommandSignature(row: Record<string, unknown>): string {
+  const todos = Array.isArray(row.todos) ? row.todos : [];
+  if (todos.length === 0) return "todowrite";
+
+  const entries: string[] = [];
+  for (const [idx, todo] of todos.entries()) {
+    if (!todo || typeof todo !== "object") {
+      entries.push(`${idx}:unknown`);
+      continue;
+    }
+    const item = todo as Record<string, unknown>;
+    const content = normalizeString(item.content ?? item.title ?? item.task ?? item.id)
+      .toLowerCase()
+      .slice(0, 80);
+    const status = normalizeString(item.status).toLowerCase() || "unknown";
+    entries.push(`${idx}:${status}:${content}`);
+  }
+
+  return `todowrite:${entries.join("|").slice(0, 700)}`;
+}
+
 /**
  * Extract text from a message content payload.
  * Supports plain strings, Claude-style text blocks, and nested tool_result blocks.
@@ -793,11 +814,7 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
     return title ? `taskupdate:${title}` : "taskupdate";
   }
   if (tool === "todowrite" || tool.includes("todowrite")) {
-    const todos = Array.isArray(row.todos) ? row.todos : [];
-    const firstTodo = todos.length > 0 && typeof todos[0] === "object" && todos[0] !== null
-      ? normalizeString((todos[0] as Record<string, unknown>).content)
-      : "";
-    return firstTodo ? `todowrite:${firstTodo}` : "todowrite";
+    return todoWriteCommandSignature(row);
   }
   const fallbackCommand = normalizeString(
     row.command

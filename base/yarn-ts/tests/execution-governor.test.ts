@@ -397,6 +397,49 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("task_creation_replay");
   });
 
+  it("does not pause when TodoWrite advances from one task to the next", () => {
+    const initialTodos = [
+      { content: "Create project directory structure for TaskPulse", status: "in_progress" },
+      { content: "Implement core models (task.py with Pydantic schemas)", status: "pending" },
+      { content: "Implement storage layer (abstract + SQLite)", status: "pending" },
+    ];
+    const advancedTodos = [
+      { content: "Create project directory structure for TaskPulse", status: "completed" },
+      { content: "Implement core models (task.py with Pydantic schemas)", status: "in_progress" },
+      { content: "Implement storage layer (abstract + SQLite)", status: "pending" },
+    ];
+    const messages = [
+      assistantCall("1", "todowrite", { todos: initialTodos }),
+      toolResult("1", "todos updated"),
+      assistantCall("2", "bash", { command: "mkdir -p taskpulse" }),
+      toolResult("2", "created taskpulse"),
+      assistantCall("3", "todowrite", { todos: advancedTodos }),
+      toolResult("3", "todos updated"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("task_creation_replay");
+  });
+
+  it("pauses duplicate TodoWrite replay when the todo state does not change", () => {
+    const todos = [
+      { content: "Create project directory structure for TaskPulse", status: "in_progress" },
+      { content: "Implement core models (task.py with Pydantic schemas)", status: "pending" },
+    ];
+    const messages = [
+      assistantCall("1", "todowrite", { todos }),
+      toolResult("1", "todos updated"),
+      assistantCall("2", "todowrite", { todos }),
+      toolResult("2", "todos updated"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("task_creation_replay");
+    expect(out.matchedRules).toContain("task_creation_replay");
+  });
+
   it("pauses read/search churn after declaration-only edit until follow-through edit", () => {
     const messages = [
       assistantCall("1", "edit", { file_path: "cmd/synesis/ask.go", old_string: "import (", new_string: "import (\n\t\"synesis.sh/synesis/pkg/clipboard\"" }),
