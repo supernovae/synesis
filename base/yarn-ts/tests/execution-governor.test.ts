@@ -440,6 +440,26 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("task_creation_replay");
   });
 
+  it("does not pause duplicate TodoWrite state after an intervening concrete action", () => {
+    const todos = [
+      { content: "Create project directory structure", status: "in_progress" },
+      { content: "Create core models and services", status: "pending" },
+      { content: "Create API endpoints", status: "pending" },
+    ];
+    const messages = [
+      assistantCall("1", "todowrite", { todos }),
+      toolResult("1", "todos updated"),
+      assistantCall("2", "bash", { command: "pwd && ls -la" }),
+      toolResult("2", "/home/byron/src/python\ntotal 0"),
+      assistantCall("3", "todowrite", { todos }),
+      toolResult("3", "todos updated"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("task_creation_replay");
+  });
+
   it("pauses read/search churn after declaration-only edit until follow-through edit", () => {
     const messages = [
       assistantCall("1", "edit", { file_path: "cmd/synesis/ask.go", old_string: "import (", new_string: "import (\n\t\"synesis.sh/synesis/pkg/clipboard\"" }),

@@ -1690,13 +1690,23 @@ export function evaluateExecutionGovernor(
     editFailureReplay.clear();
     repeatedEditFailureReplay = 0;
   }
+  let previousTodoWriteCommand = "";
   for (const e of events) {
     const c = normalizeString(e.command);
-    if (!(c.startsWith("taskcreate:") || c === "taskcreate" || c.startsWith("todowrite:") || c === "todowrite")) continue;
-    const key = c;
-    const next = (taskCreateReplay.get(key) ?? 0) + 1;
-    taskCreateReplay.set(key, next);
-    if (next >= 2) repeatedTaskCreateReplay += 1;
+    if (c.startsWith("taskcreate:") || c === "taskcreate") {
+      const key = c;
+      const next = (taskCreateReplay.get(key) ?? 0) + 1;
+      taskCreateReplay.set(key, next);
+      if (next >= 2) repeatedTaskCreateReplay += 1;
+      previousTodoWriteCommand = "";
+      continue;
+    }
+    if (c.startsWith("todowrite:") || c === "todowrite") {
+      if (previousTodoWriteCommand === c) repeatedTaskCreateReplay += 1;
+      previousTodoWriteCommand = c;
+      continue;
+    }
+    previousTodoWriteCommand = "";
   }
   for (const e of events) {
     const c = normalizeString(e.command);
