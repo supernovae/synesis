@@ -89,7 +89,7 @@ async def get_summary_unified(
         "glossary": {
             "estimated": "Configured $/M rates x tokens; pipeline from planner_usage_log when available.",
             "actual": "Sum of provider-reported costs when present on LLM calls / metering rows.",
-            "yarn": "IDE/Yarn path (yarn_usage_log), separate from LangGraph pipeline.",
+            "yarn": "IDE/Yarn path (yarn_usage_log), separate from planner-ts pipeline.",
         },
     }
 

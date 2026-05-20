@@ -309,24 +309,24 @@ sources:
       url: "https://help.openai.com/en/articles/4936848-how-do-i-create-a-good-prompt-for-an-ai-model"
       tags: [prompt-engineering, openai]
 
-  - name: "LangGraph Documentation"
+  - name: "AI SDK Documentation"
     handler: web_page
     origin_type: external
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://langchain-ai.github.io/langgraph/"
+      url: "https://ai-sdk.dev/docs"
       follow_links: true
-      tags: [langgraph, langchain, agents, graph]
+      tags: [ai-sdk, agents, streaming, structured-output]
 
-  - name: "LangChain Retrieval Concepts"
+  - name: "OpenAI API Compatibility"
     handler: web_page
     origin_type: external
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://python.langchain.com/docs/concepts/retrieval/"
-      tags: [langchain, retrieval, rag]
+      url: "https://platform.openai.com/docs/api-reference/chat"
+      tags: [openai, retrieval, rag, chat-completions]
 
   - name: "Pinecone Data Modeling"
     handler: web_page

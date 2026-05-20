@@ -32,14 +32,8 @@ function parseSsePayloads(streamBody: string): SsePayload[] {
   return payloads;
 }
 
-function extractReasoningContent(payload: SsePayload): string | undefined {
-  const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
-  const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
-  return typeof delta.reasoning_content === "string" ? delta.reasoning_content : undefined;
-}
-
 describe("SSE conformance", () => {
-  it("emits phase reasoning deltas and final chunk", async () => {
+  it("emits strict OpenAI-compatible chunks and final usage by default", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({
       method: "POST",
@@ -53,23 +47,27 @@ describe("SSE conformance", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(typeof response.headers["x-synesis-run-id"]).toBe("string");
     expect(response.body).toContain("[DONE]");
 
     const payloads = parseSsePayloads(response.body);
     expect(payloads.length).toBeGreaterThan(2);
+    for (const payload of payloads) {
+      expect(payload.object).toBe("chat.completion.chunk");
+      expect(payload).not.toHaveProperty("event");
+      expect(payload).not.toHaveProperty("run_id");
+      expect(payload).not.toHaveProperty("authz_trace_id");
+      const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
+      const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
+      expect(delta).not.toHaveProperty("reasoning_content");
+    }
+
     const roleBootstrap = payloads.find((p) => {
       const choices = Array.isArray(p.choices) ? p.choices as Array<Record<string, unknown>> : [];
       const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
       return delta.role === "assistant";
     });
     expect(roleBootstrap).toBeTruthy();
-
-    const phaseDeltas = payloads
-      .map((p) => extractReasoningContent(p))
-      .filter((rc): rc is string => rc !== undefined);
-    expect(phaseDeltas.length).toBeGreaterThanOrEqual(3);
-    expect(phaseDeltas[0]).toContain("Synthesizing request");
-    expect(phaseDeltas.some((d) => d.includes("Classifying"))).toBe(true);
 
     const chunks = payloads.filter((payload) => payload.object === "chat.completion.chunk");
     expect(chunks.length).toBeGreaterThanOrEqual(1);
@@ -81,8 +79,30 @@ describe("SSE conformance", () => {
     expect(firstChoice.logprobs).toBeNull();
     expect(typeof finalChunk.usage).toBe("object");
     expect(typeof finalChunk.system_fingerprint).toBe("string");
-    expect(typeof finalChunk.run_id).toBe("string");
-    expect(String(finalChunk.run_id).length).toBeGreaterThan(0);
+
+    await app.close();
+  });
+
+  it("can emit legacy Open WebUI status frames when explicitly enabled", async () => {
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS: "openwebui-data" }));
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "Provide planner summary" }],
+        stream: true
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payloads = parseSsePayloads(response.body);
+    expect(payloads.some((payload) => payload.event)).toBe(true);
+    expect(payloads.some((payload) => {
+      const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
+      const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
+      return typeof delta.reasoning_content === "string";
+    })).toBe(true);
 
     await app.close();
   });

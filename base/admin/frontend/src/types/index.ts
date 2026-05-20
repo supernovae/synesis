@@ -69,7 +69,7 @@ export interface DashboardSummary {
     traces_24h: number;
     /** @deprecated use pipeline_usage_estimated_spend_24h_usd */
     trace_estimated_spend_24h_usd: number;
-    /** LangGraph pipeline metering (planner_usage_log), estimated, 24h */
+    /** planner-ts pipeline metering (planner_usage_log), estimated, 24h */
     pipeline_usage_estimated_spend_24h_usd?: number;
     /** Yarn IDE (yarn_usage_log), 24h */
     yarn_usage_estimated_spend_24h_usd?: number;

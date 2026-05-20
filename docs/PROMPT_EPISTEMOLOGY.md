@@ -27,7 +27,7 @@ Taxonomy **extends** the critic; it does **not** sit “above” L0. Nothing in 
 
 ## How taxonomy is chosen (escape prevention)
 
-`taxonomy_metadata` (and `taxonomy_key`) come from the **entry classifier** plus [`resolve_taxonomy_metadata`](../base/planner/app/taxonomy_prompt_factory.py) — deterministic from signals derived from the user message and config, **not** from free-text instructions inside the user message that claim “you are now in medical mode.”
+`taxonomy_metadata` (and `taxonomy_key`) come from the **entry classifier** plus [`resolveTaxonomyMetadata`](../base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts) — deterministic from signals derived from the user message and config, **not** from free-text instructions inside the user message that claim “you are now in medical mode.”
 
 That means:
 

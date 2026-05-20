@@ -46,13 +46,12 @@ oc get pods -n synesis-models
 oc get deployment synesis-router synesis-writer synesis-coder -n synesis-models
 ```
 
-## UDS (low-latency, no OVN)
+## Planner Access
 
-Planner and models co-locate on the same node. Planner can use Unix domain sockets instead of HTTP to talk to vLLM, avoiding cluster network traffic. See [UDS_SETUP.md](UDS_SETUP.md).
+planner-ts reaches models through OpenAI-compatible HTTP routes resolved by the Model Registry. UDS-specific planner wiring has been retired.
 
 ## Related
 
 - [base/model-serving/README.md](../base/model-serving/README.md)
 - Admin Model Registry (`/models`) -- live role/provider assignments and reconcile flow
-- [UDS_SETUP.md](UDS_SETUP.md) -- UDS wiring and hostPath SCC
 - [pipelines/README.md](../pipelines/README.md)

@@ -16,7 +16,7 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 | [`.github/workflows/quality-pipeline.yml`](../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs | Per workflow |
 | [`.github/workflows/retrieval-regression.yml`](../.github/workflows/retrieval-regression.yml) | RAG/regression against cluster inputs | Manual / scheduled |
 
-**Note:** `base/planner/` is **YAML ontology + taxonomy** for planner-ts, not a separate Python API service exercised in `lint.yml`.
+**Note:** planner ontology + taxonomy YAML now lives in `base/planner-ts/config/` and is exercised by planner-ts tests.
 
 ---
 

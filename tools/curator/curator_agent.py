@@ -269,7 +269,7 @@ def main():
     parser.add_argument(
         "--audit-report", default="benchmarks/corpus/corpus_audit_report.json", help="Path to corpus audit report"
     )
-    parser.add_argument("--taxonomy", default="base/planner/taxonomy_prompt_config.yaml")
+    parser.add_argument("--taxonomy", default="base/planner-ts/config/taxonomy_prompt_config.yaml")
     parser.add_argument("--llm-url", default="http://localhost:4000/v1")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--searxng-url", default="http://localhost:8888")

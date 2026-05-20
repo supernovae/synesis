@@ -373,13 +373,15 @@ export function loadConfigWithPlugins(
 
 function resolveCorePath(input: string): string | null {
   if (input && existsSync(input)) return input;
-  // Look relative to planner content (shipped in image)
+  // Look relative to planner-ts content (shipped in image)
   const candidates = [
-    resolve(process.cwd(), "base/planner/intent_weights.yaml"),
+    resolve(process.cwd(), "base/planner-ts/config/intent_weights.yaml"),
     resolve(process.cwd(), "intent_weights.yaml"),
+    resolve(process.cwd(), "config/intent_weights.yaml"),
     resolve(__dirname, "../../intent_weights.yaml"),
     resolve(__dirname, "../../../intent_weights.yaml"),
-    resolve(__dirname, "../../../../base/planner/intent_weights.yaml"),
+    resolve(__dirname, "../../../config/intent_weights.yaml"),
+    resolve(__dirname, "../../../../base/planner-ts/config/intent_weights.yaml"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -391,11 +393,13 @@ function resolvePluginDir(input?: string): string | null {
   const dir = input ?? process.env.SYNESIS_PLANNER_TS_PLUGIN_WEIGHTS_DIR ?? "";
   if (dir && existsSync(dir)) return dir;
   const candidates = [
-    resolve(process.cwd(), "base/planner/plugins/weights"),
+    resolve(process.cwd(), "base/planner-ts/config/plugins/weights"),
     resolve(process.cwd(), "plugins/weights"),
+    resolve(process.cwd(), "config/plugins/weights"),
     resolve(__dirname, "../../plugins/weights"),
     resolve(__dirname, "../../../plugins/weights"),
-    resolve(__dirname, "../../../../base/planner/plugins/weights"),
+    resolve(__dirname, "../../../config/plugins/weights"),
+    resolve(__dirname, "../../../../base/planner-ts/config/plugins/weights"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;

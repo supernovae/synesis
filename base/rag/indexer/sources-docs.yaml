@@ -1472,41 +1472,41 @@ sources:
       url: "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use"
       tags: [agents, tool-use, anthropic]
 
-  - name: "LangChain Retrieval"
+  - name: "AI SDK RAG"
     handler: web_page
     origin_type: curated
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://docs.langchain.com/oss/python/langchain/retrieval"
-      tags: [rag, langchain, retrieval]
+      url: "https://ai-sdk.dev/docs/guides/rag-chatbot"
+      tags: [rag, ai-sdk, retrieval]
 
-  - name: "LangGraph Agentic RAG"
+  - name: "AI SDK Agents"
     handler: web_page
     origin_type: curated
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://docs.langchain.com/oss/python/langgraph/agentic-rag"
-      tags: [rag, agents, langgraph]
+      url: "https://ai-sdk.dev/docs/agents"
+      tags: [rag, agents, ai-sdk]
 
-  - name: "LangChain Build a RAG Agent"
+  - name: "AI SDK Tool Calling"
     handler: web_page
     origin_type: curated
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://docs.langchain.com/oss/python/langchain/rag"
-      tags: [rag, langchain, tutorial]
+      url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling"
+      tags: [rag, ai-sdk, tool-calling]
 
-  - name: "LangChain Multi-Agent"
+  - name: "AI SDK Structured Output"
     handler: web_page
     origin_type: external
-    authority: community
+    authority: vetted
     domain: generalist
     config:
-      url: "https://docs.langchain.com/oss/python/langchain/multi-agent"
-      tags: [agents, multi-agent, langchain]
+      url: "https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data"
+      tags: [agents, structured-output, ai-sdk]
 
   # ═══════════════════════════════════════════════════════════════════════
   # Platform Engineering

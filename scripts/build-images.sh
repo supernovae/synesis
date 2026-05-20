@@ -90,7 +90,7 @@ SERVICE_IMAGES=(
     "planner-ts|base/planner-ts/Containerfile|."
     "admin|base/admin/Dockerfile|base/admin"
     "sandbox|base/sandbox/image/Dockerfile|base/sandbox/image"
-    "bge-reranker|base/planner/bge-reranker/Dockerfile|base/planner/bge-reranker"
+    "bge-reranker|base/rag/bge-reranker/Dockerfile|base/rag/bge-reranker"
     "indexer|base/rag/indexer/Dockerfile|base"
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"

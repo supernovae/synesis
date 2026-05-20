@@ -968,7 +968,7 @@ prompts:
     corpus_slice: corpus
     prompt: |
       Evaluate whether Synesis should replace its current multi-node
-      LangGraph architecture (entry → router → planner → writer → critic)
+      planner-ts graph architecture (entry → router → planner → writer → critic)
       with a simpler single-LLM-call approach using a large reasoning model
       (e.g., Claude 4, GPT-5) with tool use. Analyze:
       - Quality comparison (grounding, factuality, citation accuracy)

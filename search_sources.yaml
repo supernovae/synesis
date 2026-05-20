@@ -1,16 +1,16 @@
 # ============================================================================
 # Synesis Search Source Catalog — Single Source of Truth
 # ============================================================================
-# Keep base/planner/search_sources.yaml in sync for planner ConfigMap (kustomize).
+# Keep base/planner-ts/config/search_sources.yaml in sync when mounting a
+# service-local catalog.
 #
 # Defines all search sources available to the retrieval pipeline. Each source
 # maps to one or more SearXNG engines/categories and carries trust metadata
 # used for authority-weighted fusion (RRF + boost).
 #
-# The planner loads this file at startup (SYNESIS_SEARCH_SOURCES_PATH env var
-# or /etc/synesis/search_sources.yaml) and derives engine_authority_map entries
-# automatically. Sources with enabled: false are ignored unless explicitly
-# requested via prompt aliases.
+# Search integrations can mount this file and derive engine_authority_map
+# entries automatically. Sources with enabled: false are ignored unless
+# explicitly requested via prompt aliases.
 #
 # See docs/WEB_SEARCH.md and the search federation plan for context.
 # ============================================================================

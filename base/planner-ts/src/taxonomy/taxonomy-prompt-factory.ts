@@ -73,11 +73,13 @@ function resolveTaxonomyPath(): string | null {
   const envPath = process.env.SYNESIS_TAXONOMY_PROMPT_CONFIG;
   if (envPath && existsSync(envPath)) return envPath;
   const candidates = [
-    resolve(process.cwd(), "base/planner/taxonomy_prompt_config.yaml"),
+    resolve(process.cwd(), "base/planner-ts/config/taxonomy_prompt_config.yaml"),
     resolve(process.cwd(), "taxonomy_prompt_config.yaml"),
+    resolve(process.cwd(), "config/taxonomy_prompt_config.yaml"),
     resolve(__dirname, "../../taxonomy_prompt_config.yaml"),
     resolve(__dirname, "../../../taxonomy_prompt_config.yaml"),
-    resolve(__dirname, "../../../../base/planner/taxonomy_prompt_config.yaml"),
+    resolve(__dirname, "../../../config/taxonomy_prompt_config.yaml"),
+    resolve(__dirname, "../../../../base/planner-ts/config/taxonomy_prompt_config.yaml"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;

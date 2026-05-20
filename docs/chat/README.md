@@ -2,7 +2,7 @@
 
 **Chat** is the Synesis product surface for **knowledge-backed conversation**: intent classification, planning, router-governed retrieval (RAG + web), writing, critic review, and streaming responses over an **OpenAI-compatible** HTTP API.
 
-The implementation is **`base/planner-ts/`** (TypeScript, Fastify, LangGraph). The `base/planner/` tree holds **YAML ontology and taxonomy assets** consumed by planner-ts — not a separate Python chat runtime.
+The implementation is **`base/planner-ts/`** (TypeScript, Fastify, Vercel AI SDK). Planner ontology and taxonomy assets live in **`base/planner-ts/config/`**.
 
 ## Start here
 

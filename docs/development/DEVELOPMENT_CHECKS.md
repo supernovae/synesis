@@ -117,13 +117,13 @@ All checks passed.
 ## 4. Customizing Prompts
 
 - **Live / regression prompts:** Edit `tests/prompts/test_prompts.yaml` (used by `validate-intent-live.py` and prompt regression workflows).
-- **Ontology + taxonomy YAML:** Under `base/planner/` (`intent_weights.yaml`, `taxonomy_prompt_config.yaml`, `plugins/weights/`). Invalid YAML fails fast when planner-ts loads config.
+- **Ontology + taxonomy YAML:** Under `base/planner-ts/config/` (`intent_weights.yaml`, `taxonomy_prompt_config.yaml`, `plugins/weights/`). Invalid YAML fails fast when planner-ts loads config.
 
 ---
 
 ## 5. Startup validation (planner-ts)
 
-planner-ts loads merged ontology + taxonomy from `base/planner/` at runtime. Structural issues surface as startup errors or test failures — extend **`base/planner-ts`** tests when adding new validation rules.
+planner-ts loads merged ontology + taxonomy from `base/planner-ts/config/` at runtime. Structural issues surface as startup errors or test failures — extend **`base/planner-ts`** tests when adding new validation rules.
 
 ---
 

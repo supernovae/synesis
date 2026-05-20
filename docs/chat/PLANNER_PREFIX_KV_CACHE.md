@@ -14,9 +14,9 @@ A separate optimization would be **skipping or shortening entry** when `pending_
 
 The knowledge planner is intentionally shaped so **long, identical rules live in the system message**, and **per-request variability** (task text, evidence block, taxonomy append, clarification resume JSON, gate feedback) lands in the **user message** where possible. That maximizes the chance that the model server can reuse a cached prefix across requests.
 
-- Static planner rules + trust policy: `_PLANNER_SYSTEM_STATIC` in `base/planner/app/nodes/planner_node.py`
-- `_build_knowledge_planner_prompt()` documents intent: *“Static rules (identical across requests) form the prefix for vLLM KV-cache reuse.”*
-- Comment at the user-message build: *“preserve the static system prefix for vLLM KV-cache reuse.”*
+- Static planner rules + trust policy are built in `base/planner-ts/src/nodes/llm-planner.ts`.
+- The taxonomy-driven dynamic suffix is appended after the static core so providers with prompt/prefix caching can reuse the stable part.
+- The AI SDK client preserves OpenAI-compatible provider usage fields, including cached-token details when upstreams return them.
 
 Entry nodes (classifier, advisor, frame) have their own prompt shapes; whether they cache as well depends on how static each system prompt is and on the provider.
 
@@ -48,7 +48,7 @@ raw response usage payloads to measure cache hit rates and discounted input toke
 
 **Synesis** does **not** currently copy cached-token breakdowns into Postgres `traces`:
 each `LLMCallRecord` stores aggregate `prompt_tokens` / `completion_tokens` / `total_tokens`
-(see `base/planner/app/synesis_tracer.py`). Extending the tracer to persist
+(see `base/planner-ts/src/llm/client.ts` and `base/planner-ts/src/tracing/span-collector.ts`). Extending trace metadata to persist
 `usage.prompt_tokens_details` (or provider equivalents) would be the path to **admin-native**
 cache dashboards. Until then, rely on provider dashboards or **model-server metrics** for
 cache verification.
@@ -57,8 +57,8 @@ See [WORKFLOW_PLANNER.MD](./WORKFLOW_PLANNER.MD) for planner graph flow and rout
 
 ## References
 
-- Planner prompt layout: `base/planner/app/nodes/planner_node.py` — `_build_knowledge_planner_prompt`, task/user message assembly
-- Graph entry point (entry always runs first): `base/planner/app/graph.py` — `set_entry_point("entry_pipeline")`
-- Clarification pending context + plan reuse: `base/planner/app/graph.py` (`store_pending_question`), `base/planner/app/main.py` (pending restore), `base/planner/app/clarification_helpers.py`
+- Planner prompt layout: `base/planner-ts/src/nodes/llm-planner.ts`
+- Graph entry point: `base/planner-ts/src/graph.ts`
+- Clarification pending context + plan reuse: `base/planner-ts/src/context/session-manager.ts`, `base/planner-ts/src/app.ts`, and `base/planner-ts/src/pipeline.ts`
 - High-level pipeline, routing, retries: `docs/chat/WORKFLOW_PLANNER.MD` — graph flow and routing tables
-- Tracer schema: `base/planner/app/synesis_tracer.py` — `LLMCallRecord`
+- Trace collection: `base/planner-ts/src/tracing/span-collector.ts`

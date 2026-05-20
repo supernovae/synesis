@@ -20,7 +20,11 @@ describe("llm client request shaping", () => {
       .mockResolvedValue(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: "{\"steps\":[{\"id\":1,\"action\":\"x\"}]}" } }],
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 1,
+            model: "synesis-writer",
+            choices: [{ index: 0, message: { role: "assistant", content: "{\"steps\":[{\"id\":1,\"action\":\"x\"}]}" }, finish_reason: "stop" }],
             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -49,7 +53,11 @@ describe("llm client request shaping", () => {
       .mockResolvedValue(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: "ok" } }],
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 1,
+            model: "synesis-writer",
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -104,7 +112,11 @@ describe("llm client request shaping", () => {
       .mockResolvedValue(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: "ok" } }],
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 1,
+            model: "grok-4-fast",
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
             usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -134,7 +146,7 @@ describe("llm client request shaping", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.x.ai/v1/chat/completions");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer xai-secret");
+    expect(new Headers(init.headers as HeadersInit).get("authorization")).toBe("Bearer xai-secret");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("grok-4-fast");
     expect(body.reasoning_effort).toBe("low");

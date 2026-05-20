@@ -182,7 +182,7 @@ Broad coverage from outdoors to making to obscure interests. `vertical_fitness` 
 
 ## 4. Plugin Catalog (41 plugins)
 
-Plugins add **niche** keywords. The master covers **generic** baseline. Files live in `base/planner/plugins/weights/`.
+Plugins add **niche** keywords. The master covers **generic** baseline. Files live in `base/planner-ts/config/plugins/weights/`.
 
 ### Compliance (4)
 
@@ -428,16 +428,16 @@ Surfaced in respond as **How I got here** (Architect).
 
 ---
 
-## 10. Critic Policy Engine (§critic_policy_spec)
+## 10. Critic Policy Engine
 
-The critic follows a **policy engine spec** (`base/planner/critic_policy_spec.json`) that defines:
+The critic policy is implemented in planner-ts (`base/planner-ts/src/nodes/critic-evaluator.ts` and `base/planner-ts/src/nodes/critic-routing.ts`) and defines:
 
 - **Evidence gating:** Blocking issues MUST cite sandbox evidence; no speculation.
 - **Monotonic retry:** `state.retry` accumulates failures, decisions, diversification history; never loses prior state.
 - **Fail-fast:** At `max_iterations`, force PASS (degraded).
 - **needs_more_evidence:** Emit retrieval query plan; route to Router; do not call tools.
 
-Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `retry_state_updates`, `should_force_pass`, etc.
+Implementation source of truth: `base/planner-ts/src/nodes/critic-evaluator.ts`, `base/planner-ts/src/nodes/critic-routing.ts`, and related tests under `base/planner-ts/tests/`.
 
 ---
 
@@ -574,10 +574,8 @@ See [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) for design, flo
 
 - [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) — Taxonomy metadata, Planner deep-dive, depth block injection
 - [TAXONOMY_CANONICAL.md](TAXONOMY_CANONICAL.md) — Canonical domains, verticals, seeding
-- [prompt_taxonomy.yaml](../base/planner/prompt_taxonomy.yaml) — Router → prompt components
-- [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
-- [intent_weights.yaml](../base/planner/intent_weights.yaml) — Active config (may symlink to master)
-- [master_intent_weights.yaml](../base/planner/master_intent_weights.yaml) — Full sovereign catalog
+- [intent_weights.yaml](../base/planner-ts/config/intent_weights.yaml) — Active config (may symlink to master)
+- [master_intent_weights.yaml](../base/planner-ts/config/master_intent_weights.yaml) — Full sovereign catalog
 - Vertical prompts in taxonomy plugin YAMLs — Sovereign persona injection
-- [plugins/weights/README.md](../base/planner/plugins/weights/README.md) — Plugin format
+- [plugins/weights/README.md](../base/planner-ts/config/plugins/weights/README.md) — Plugin format
 - [nodes.md](nodes.md) — Node flow and persona tiers

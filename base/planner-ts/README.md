@@ -1,6 +1,6 @@
-# Planner TS (Bootstrap)
+# Planner TS
 
-This service is the TypeScript migration target for the planner runtime.
+This service is the TypeScript planner runtime.
 
 ## Current scope
 
@@ -41,9 +41,9 @@ This service is the TypeScript migration target for the planner runtime.
   - replay tests asserting contract-level outcomes for representative scenarios
   - includes baseline scenarios for happy path, citation gaps, decision drift, and oscillation pressure
   - baseline corpus for ongoing TS-only regression expansion
-- LangGraph.js execution path:
-  - `invokeGraph()` now runs a compiled `StateGraph` (entry -> planner -> plan_gate -> router -> writer -> critic -> scrubber/respond)
-  - conditional routing mirrors current TS pipeline decisions
+- Lightweight TypeScript graph execution path:
+  - `invokeGraph()` runs the planner graph directly (entry -> planner -> plan_gate -> router -> writer -> critic -> scrubber/respond)
+  - conditional routing mirrors canonical pipeline decisions
   - parity test ensures graph invocation stays aligned with canonical pipeline output
 - Writer/Critic behavior bootstrap:
   - writer now composes structured draft sections from plan + evidence packets
@@ -59,13 +59,13 @@ This service is the TypeScript migration target for the planner runtime.
 - SSE decoupling and cleanup:
   - centralized SSE writer helpers in `src/streaming/sse.ts`
   - phase mapping + content chunking in `src/streaming/phases.ts`
-  - streaming now emits node-trace phase events and chunked content deltas via a consistent event envelope
+  - streaming emits OpenAI-compatible `chat.completion.chunk` frames by default; `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables legacy OpenWebUI status/reasoning data events
 - API decoupling:
   - Fastify app construction moved to `src/app.ts` (`buildApp(config)`)
   - `src/index.ts` is now a thin runtime bootstrap wrapper
   - API compatibility tests validate non-stream envelope, bearer-auth behavior, and SSE output contract
 - Verification/perf gate artifacts:
-  - `tests/sse-conformance.test.ts` validates SSE status/event/chunk semantics
+  - `tests/sse-conformance.test.ts` validates strict OpenAI-compatible SSE semantics and the opt-in OpenWebUI status mode
   - `tests/latency-budget.test.ts` validates local p50/p95 latency budgets for stream + non-stream
   - `npm run bun:smoke` runs Bun compatibility smoke checks (`typecheck`, `test`) and skips cleanly when Bun is not installed
   - `npm run verify:gates` runs consolidated cutover gates (typecheck, tests, Bun smoke)

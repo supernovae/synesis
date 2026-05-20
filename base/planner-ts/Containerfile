@@ -29,10 +29,8 @@ RUN npm run build --workspace=base/planner-ts
 # Prune dev dependencies
 RUN npm prune --omit=dev
 
-# Taxonomy + ontology config (single source of truth from planner/)
-COPY base/planner/intent_weights.yaml base/planner/intent_weights.yaml
-COPY base/planner/taxonomy_prompt_config.yaml base/planner/taxonomy_prompt_config.yaml
-COPY base/planner/plugins/weights base/planner/plugins/weights
+# Taxonomy + ontology config (single source of truth from planner-ts/config)
+COPY base/planner-ts/config base/planner-ts/config
 
 USER 1001
 EXPOSE 8080

@@ -43,6 +43,9 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT: z.coerce.number().default(50),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX: z.coerce.number().default(100),
   SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS: z.coerce.number().default(30000),
+  SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS: z
+    .enum(["off", "openwebui-data"])
+    .default("off"),
   /** Writer: trivial fast-path policy target (tokens). */
   SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(2048),
   /** Writer: scaled budget at difficulty 0 (tokens). */

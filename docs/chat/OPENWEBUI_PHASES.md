@@ -1,6 +1,6 @@
-# Open WebUI Phase/Status Integration
+# Open WebUI Streaming Integration
 
-How Synesis sends "Analyzing request," "Gathering evidence," "Composing response" and other phases to Open WebUI during graph execution, and how to debug when they don't appear.
+How Synesis streams planner-ts responses to Open WebUI, and how to debug the OpenAI-compatible SSE path.
 
 ---
 
@@ -9,7 +9,7 @@ How Synesis sends "Analyzing request," "Gathering evidence," "Composing response
 | Component | Role |
 |-----------|------|
 | **Open WebUI** | Chat frontend; calls API with `stream: true`, expects SSE |
-| **Planner-ts** | OpenAI-compatible `/v1` for WebUI; runs LangGraph; streams SSE + final content |
+| **Planner-ts** | OpenAI-compatible `/v1` for WebUI; runs the TypeScript graph; streams OpenAI `chat.completion.chunk` frames |
 
 **Request path (Synesis manifests):**
 - **Open WebUI → planner-ts** (`OPENAI_API_BASE_URL` → `synesis-planner-ts:8080/v1`).
@@ -19,69 +19,31 @@ How Synesis sends "Analyzing request," "Gathering evidence," "Composing response
 
 ## Streaming Implementation
 
-Uses `graph.astream_events(version="v2")` for fine-grained token-level streaming:
+Default production streaming is intentionally plain OpenAI-compatible SSE:
 
-- `on_chain_start` events emit phase-based status messages via `_flow_phase()`
-- `on_chain_end` events accumulate state and emit rich status messages (router search results, planner summary)
-- `on_chat_model_stream` events from the writer stream content tokens to the client
-- **Reasoning content:** R1-Distill `<think>` tags surface via `reasoning_content` field in chunks, with "Thinking..." status
-- **Plan step visibility:** For knowledge deep-dives (non-code tasks with a planner), plan steps are emitted as visible markdown content (blockquote) before the main response
-- `StatusQueueCallback` provides fallback node-level status when `streaming_events_enabled=false`
+- every streamed payload is `object: "chat.completion.chunk"`
+- content appears in `choices[0].delta.content`
+- the final chunk carries `finish_reason`, `usage`, and `system_fingerprint`
+- the stream ends with `data: [DONE]`
+- no custom `event` envelope, `reasoning_content`, `run_id`, or authz fields are embedded in the SSE payload
 
-### Phase Labels (Legacy Python Reference)
+Correlation IDs are exposed through HTTP response headers (`x-synesis-run-id`, `x-synesis-authz-trace-id`) so clients can debug without parsing custom SSE shapes.
 
-The mapping below reflects the older Python planner implementation and is kept for migration context only. Runtime phase labels for production are defined in planner-ts (`base/planner-ts/src/streaming/phases.ts`) in the next section.
+### Optional OpenWebUI Status Mode
 
-```python
-_NODE_TO_PHASE = {
-    "entry_pipeline": "Analyzing request…",
-    "entry_classifier": "Analyzing request…",
-    "strategic_advisor": "Analyzing request…",
-    "frame_extractor": "Analyzing request…",
-    "planner": "Building plan…",
-    "plan_gate": "Validating plan…",
-    "router": "Gathering evidence…",
-    "writer": "Composing response…",
-    "critic": "Evaluating quality…",
-    "final_scrubber": "Polishing…",
-    "respond": "Finalizing…",
-}
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the old Open WebUI data-event mode for local debugging or deployments that still want visible phase/status events. In that mode planner-ts may emit:
+
+```text
+data: {"event":{"type":"status","data":{"description":"Gathering evidence...","done":false,"hidden":false}}}
 ```
 
-The early entry nodes (`entry_pipeline`, `entry_classifier`, `strategic_advisor`, `frame_extractor`) are collapsed into a single "Analyzing request" phase so the user sees one clean status instead of rapid-fire transitions.
-
-### Rich Status Messages
-
-After certain nodes complete, additional descriptive status messages are emitted:
-
-- **Router** (`on_chain_end`): For each evidence packet (up to 3), emits a message like "Searched: Kubernetes deployment strategies (2 web + 3 docs)"
-- **Planner** (`on_chain_end`): Emits "Plan ready: N sections"
-
-These use the same `_flow_phase()` mechanism — no new SSE event types.
-
-### Flow Indicator
-
-After the initial "Starting…" event, subsequent phase messages are prefixed with `›` to create a visual flow progression.
-
-**SSE format we send:**
-```
-data: {"event": {"type": "status", "data": {"description": "› Gathering evidence…", "done": false, "hidden": false}}}
-```
+Leave `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS` unset or set to `off` for strict OpenAI-compatible behavior.
 
 ---
 
 ## planner-ts Streaming (TypeScript runtime)
 
-planner-ts uses `LangGraph` `.stream({ streamMode: "updates" })` and emits
-`reasoning_content` deltas for phase descriptions, plus `content` deltas for
-the writer output. **Implementation today is planner-ts only** (`base/planner-ts/`). The bullets below are a **historical** comparison vs an older Python implementation:
-
-### Early SSE pulse
-
-An immediate `[Synthesizing request]` reasoning delta is emitted right after
-SSE headers are flushed, **before** the entry pipeline starts. This triggers
-Open WebUI's "Thinking" indicator instantly, eliminating the perceived dead air
-while classification, taxonomy resolution, and frame extraction run.
+planner-ts uses `streamGraph()` from `base/planner-ts/src/graph.ts` for node transitions and the Vercel AI SDK `streamText()` path for upstream model streaming. Phase labels are internal observability metadata by default; they are only serialized into SSE in `openwebui-data` compatibility mode.
 
 ### Phase labels (planner-ts)
 
@@ -182,12 +144,14 @@ The document-path critic has three optimizations that reduce latency regardless 
 
 ### SSE Streaming (Our Case)
 
-Open WebUI expects status events in the stream with:
+Open WebUI 0.9 accepts an OpenAI-compatible streaming endpoint as its normal chat backend. For production, use the native OpenAI-compatible stream and debug with raw `data:` frames rather than client-specific custom events.
+
+Legacy status events are only expected when `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` is enabled:
 - `type: "status"`
 - `data.description`: display text
 - `data.done`: `true` at end to clear the indicator
 - `data.hidden`: optional
-- `data.detail`: optional — short subtext for the phase (e.g. "Searching sources and ranking relevance") shown within the same phase block without stacking extra events
+- `data.detail`: optional short subtext
 
 ### Visible Plan Steps (Knowledge Deep-Dives)
 
@@ -195,19 +159,17 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 
 - **Code tasks:** No plan block emitted
 - **Simple text tasks (no planner):** No plan block emitted
-- **Status events** still fire in parallel for real-time UI indicators
-
-**Phase resolution:** The planner resolves the current node from `astream_events` using `_resolve_node_from_event()` (exact match on `metadata.langgraph_node` or `name`, then substring match for wrapped runnables). This ensures phase status events are emitted even when LangGraph event shape varies.
+- **Status events** only fire in legacy `openwebui-data` mode
 
 **Unified pipeline phases:** Phases are **node-driven**: each node in `_NODE_TO_PHASE` emits its label when that node runs. The typical sequence is "Analyzing request" → "Building plan" → "Validating plan" → "Gathering evidence" → "Composing response" → "Evaluating quality". If the critic requests more evidence, a second pass runs the router and "Gathering evidence" is emitted again. No separate phase support is needed — retrieval always goes through the router node, which is already in the phase map.
 
-**Production behavior:** Use Open WebUI's **native** status display only; do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
+**Production behavior:** Use Open WebUI's OpenAI-compatible backend path only; do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
 
-**Why statuses might not appear:**
-- **Proxy buffering**: Status events are sent as JSON `"event"` keys inside `data:` lines (not SSE named `event:` lines). Edge proxies may buffer or drop small `data:` lines. Try calling planner directly in-cluster to verify.
-- **Open WebUI version**: SSE status routing may require a recent release.
+**Why streaming might appear delayed:**
+- **Proxy buffering**: Edge proxies may buffer small `data:` lines. Try calling planner directly in-cluster to verify.
+- **Open WebUI version/config**: Confirm it is using the planner-ts `/v1` endpoint and not an older custom pipe.
 - **Buffering**: `X-Accel-Buffering: no` is set; upstream proxies (HAProxy, nginx) may still buffer—add `haproxy.router.openshift.io/disable_buffer: "true"` on the route.
-- **Planner restarts**: If the planner pod OOMs or crashes, the stream stops and the UI can sit on "Gathering evidence" or similar. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. Ensure `search_sources.yaml` is mounted (apply planner via kustomize so the `synesis-search-sources` ConfigMap exists); otherwise logs show `search_sources_file_not_found` and the router uses in-memory defaults, but the file mount avoids path confusion and matches production config. For memory debugging and instrumentation, see [OBSERVABILITY.md](OBSERVABILITY.md).
+- **Planner restarts**: If the planner pod OOMs or crashes, the stream stops. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. For memory debugging and instrumentation, see [OBSERVABILITY.md](../OBSERVABILITY.md).
 
 ---
 
@@ -232,27 +194,29 @@ chunk regardless.
 1. **Browser console (F12 / Cmd+Opt+I)**
    Look for `Incoming event: status` or parse errors.
 
-2. **Verify planner emits status**
+2. **Verify planner emits OpenAI chunks**
    ```bash
    curl -N -X POST "http://localhost:8000/v1/chat/completions" \
      -H "Content-Type: application/json" \
-     -d '{"model":"synesis-agent","messages":[{"role":"user","content":"hello"}],"stream":true}' \
+     -d '{"model":"Synesis Auto","messages":[{"role":"user","content":"hello"}],"stream":true}' \
      2>/dev/null | head -50
    ```
+
+   Expected frames look like `data: {"id":"...","object":"chat.completion.chunk",...}` and end with `data: [DONE]`.
 
 3. **Direct planner path**
    - `OPENAI_API_BASE_URL` should point to planner. Confirm no edge proxy is buffering or transforming SSE lines.
 
 4. **SSE test endpoint**
-   `GET /debug/sse-test` (requires `stream_debug_chatter=true`) emits sample status events for verification.
+   `GET /debug/sse-test` (requires `stream_debug_chatter=true`) emits sample events for local verification only.
 
 ---
 
 ## References
 
-- **planner-ts streaming:** `base/planner-ts/src/app.ts` — SSE init, early pulse, post-loop content guard
+- **planner-ts streaming:** `base/planner-ts/src/app.ts` — SSE init, OpenAI chunk framing, post-loop content guard
 - **planner-ts phases:** `base/planner-ts/src/streaming/phases.ts` — `describePhase()`
-- **planner-ts SSE helpers:** `base/planner-ts/src/streaming/sse.ts` — `writeContentDelta`, `writeReasoningDelta`
+- **planner-ts SSE helpers:** `base/planner-ts/src/streaming/sse.ts` — OpenAI chunk helpers plus legacy status helpers
 - **planner-ts graph:** `base/planner-ts/src/graph.ts` — `streamGraph()` yields `NodeTransitionEvent`
 - **planner-ts closing follow-up:** `base/planner-ts/src/pipeline.ts` — `buildClosingFollowup()`, `finalScrubberNode()`
 - **Legacy Python planner path:** retired; planner-ts is the maintained runtime.

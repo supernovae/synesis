@@ -46,7 +46,8 @@ domain_keywords:
   llm_rag:
     domain: llm_rag
     keywords:
-      - langchain
+      - ai-sdk
+      - openai
       - llama-index
       - haystack
       - retrieval

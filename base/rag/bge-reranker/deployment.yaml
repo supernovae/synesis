@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bge-reranker
-  namespace: synesis-planner
+  namespace: synesis-rag
   labels:
     app.kubernetes.io/name: bge-reranker
     app.kubernetes.io/part-of: synesis

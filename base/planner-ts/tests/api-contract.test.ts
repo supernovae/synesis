@@ -620,7 +620,7 @@ describe("API contract", () => {
     await app.close();
   });
 
-  it("emits SSE status and completion chunks", async () => {
+  it("emits OpenAI-compatible SSE completion chunks", async () => {
     const app = buildApp(makeConfig());
     const response = await app.inject({
       method: "POST",
@@ -634,7 +634,8 @@ describe("API contract", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
     const payload = response.body;
-    expect(payload).toContain('"reasoning_content"');
+    expect(payload).not.toContain('"reasoning_content"');
+    expect(payload).not.toContain('"event"');
     expect(payload).toContain('"chat.completion.chunk"');
     expect(payload).toContain('"role":"assistant"');
     expect(payload).toContain("[DONE]");

@@ -635,7 +635,7 @@ class YarnUsageLog(Base):
 
 
 class PlannerUsageLog(Base):
-    """Pipeline (LangGraph) metering — one row per completed chat completion; no prompt text."""
+    """planner-ts pipeline metering — one row per completed chat completion; no prompt text."""
 
     __tablename__ = "planner_usage_log"
 

@@ -2150,6 +2150,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
       const streamReqStart = Date.now();
       let firstTokenAt: number | undefined;
+      const emitLegacyStreamStatus = config.SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS === "openwebui-data";
+      reply.header("x-synesis-run-id", initialState.run_id ?? completionId);
+      reply.raw.setHeader("x-synesis-authz-trace-id", authzTraceId);
+      reply.raw.setHeader("x-synesis-run-id", initialState.run_id ?? completionId);
       initSse(reply.raw);
       reply.raw.once("close", () => {
         streamRelease?.();
@@ -2160,16 +2164,20 @@ export function buildApp(config: AppConfig): FastifyInstance {
         model: responseModel,
         system_fingerprint: SYSTEM_FINGERPRINT,
       });
-
-      // Immediate pulse so Open WebUI shows "Thinking" right away,
-      // before entry_pipeline (classification + taxonomy) completes.
-      writeReasoningDelta(reply.raw, {
-        id: completionId,
-        created,
-        model: responseModel,
-        reasoning_content: "[Synthesizing request]\n",
-        system_fingerprint: SYSTEM_FINGERPRINT,
-      });
+      if (emitLegacyStreamStatus) {
+        writeStatusEvent(reply.raw, {
+          description: "Thinking…",
+          done: false,
+          detail: "Preparing request",
+        });
+        writeReasoningDelta(reply.raw, {
+          id: completionId,
+          created,
+          model: responseModel,
+          reasoning_content: "[Synthesizing request]\n",
+          system_fingerprint: SYSTEM_FINGERPRINT,
+        });
+      }
 
       let finalState: GraphState = initialState;
       let streamingError: Error | undefined;
@@ -2191,7 +2199,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
               system_fingerprint: SYSTEM_FINGERPRINT,
             });
           }
-          if (delta.reasoning_content) {
+          if (emitLegacyStreamStatus && delta.reasoning_content) {
             writeReasoningDelta(reply.raw, {
               id: completionId,
               created,
@@ -2208,7 +2216,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         if (usedDirectPath) {
           finalState = directState;
         } else {
-          if (isSseWritable(reply.raw)) {
+          if (emitLegacyStreamStatus && isSseWritable(reply.raw)) {
             writeReasoningDelta(reply.raw, {
               id: completionId,
               created,
@@ -2223,6 +2231,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
             const nextNode = event.state.next_node;
             if (
+              emitLegacyStreamStatus &&
               (event.node === "plan_gate" || event.node === "critic") &&
               nextNode === "router"
             ) {
@@ -2232,14 +2241,14 @@ export function buildApp(config: AppConfig): FastifyInstance {
                 detail: "Searching sources and ranking relevance",
               });
             }
-            if (event.node === "router") {
+            if (emitLegacyStreamStatus && event.node === "router") {
               writeStatusEvent(reply.raw, {
                 description: "Gathering evidence…",
                 done: true,
               });
             }
 
-            if (event.node !== "respond") {
+            if (emitLegacyStreamStatus && event.node !== "respond") {
               writeReasoningDelta(reply.raw, {
                 id: completionId,
                 created,
@@ -2369,8 +2378,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
             estimated_cost_usd: streamUsage.estimated_cost_usd,
             actual_cost_usd: streamUsage.actual_cost_usd,
           },
-          run_id: finalState.run_id,
-          authz_trace_id: finalState.authz_trace_id,
+          run_id: emitLegacyStreamStatus ? finalState.run_id : undefined,
+          authz_trace_id: emitLegacyStreamStatus ? finalState.authz_trace_id : undefined,
           include_usage: finalState.stream_include_usage ?? true,
           system_fingerprint: SYSTEM_FINGERPRINT,
         });

@@ -216,8 +216,8 @@ Usage is aggregated from the tracer. If the tracer is disabled or upstream model
 
 ## Known Synesis-Specific Deviations
 
-1. **No native tool/function calling**: The planner does not expose OpenAI's `tools[]` or `functions[]` parameters. Tool orchestration happens internally via the LangGraph pipeline.
+1. **Planner-owned tool orchestration**: Chat requests are accepted through the OpenAI-compatible surface, but product-level routing/retrieval/writer/critic orchestration happens internally in the planner-ts graph.
 2. **Single choice**: Only `n=1` is supported; additional values are ignored.
-3. **Status SSE lines**: Non-standard `data: {"event": {...}}` lines for UI phase indicators.
-4. **`run_id` and `pipeline_trace`**: Extra response fields for observability/feedback.
+3. **Status SSE lines are opt-in**: Non-standard `data: {"event": {...}}` lines only appear when `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data`.
+4. **Observability fields**: Non-stream responses may include `run_id` and `pipeline_trace`; strict streaming keeps these in headers or server-side traces.
 5. **`cached_prompt_tokens`**: Additional usage field beyond OpenAI standard.

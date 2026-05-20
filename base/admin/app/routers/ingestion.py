@@ -1905,7 +1905,7 @@ HANDLER_METADATA = [
         "label": "GitHub Markdown Docs",
         "source_type": "markdown",
         "uri_pattern": "owner/repo",
-        "uri_hint": "GitHub owner/repo with markdown docs (e.g. langchain-ai/langchain)",
+        "uri_hint": "GitHub owner/repo with markdown docs (e.g. vercel/ai)",
         "config_hints": {"branch": "main", "paths": ["docs/"]},
         "artifact_kind": "docs",
     },

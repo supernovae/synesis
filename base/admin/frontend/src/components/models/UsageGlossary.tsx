@@ -9,7 +9,7 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
       <p className="font-medium">How we count usage</p>
       <ul className="mt-2 list-inside list-disc space-y-1 text-blue-900/90 dark:text-blue-200/90">
         <li>
-          <strong>Estimated</strong> — configured $/M rates × tokens; Chat (LangGraph) pipeline uses{" "}
+          <strong>Estimated</strong> — configured $/M rates × tokens; Chat planner-ts pipeline uses{" "}
           <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">planner_usage_log</code> when
           populated (trace rows as fallback), not a provider invoice.
         </li>

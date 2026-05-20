@@ -60,7 +60,7 @@ body:
     attributes:
       label: Component
       options:
-        - Planner (LangGraph)
+        - Planner (planner-ts)
         - RAG Pipeline
         - Sandbox / Executor
         - Model Serving (vLLM)

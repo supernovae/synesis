@@ -58,9 +58,9 @@ oc get deployments -n synesis-models
 |-------|--------|---------|
 | synesis-coder-api | synesis-coder | Direct IDE access to Coder endpoint |
 
-## UDS (Unix Domain Socket)
+## Planner Access
 
-When planner is co-located with models on the same GPU node, UDS reduces latency vs HTTP. See [docs/UDS_SETUP.md](../../docs/UDS_SETUP.md).
+planner-ts reaches model endpoints through OpenAI-compatible HTTP routes resolved by the Model Registry. UDS-specific planner wiring has been retired.
 
 ## Troubleshooting
 

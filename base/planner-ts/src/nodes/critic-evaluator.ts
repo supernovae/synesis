@@ -253,6 +253,11 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
         content: `Evaluate this response:\n\n${state.generated_code ?? ""}\n\nEvidence packet count: ${(state.evidence_packets ?? []).length}${assumptionContext}\n\nTaxonomy context:\n${dynamicSuffix}`,
       },
     ],
+    structuredOutput: {
+      schema: CriticOutSchema,
+      name: "critic_output",
+      strictJsonSchema: false,
+    },
   });
   const parsed = validateWithRepair(result.content, CriticOutSchema);
   return { ...parsed, usage: result.usage };

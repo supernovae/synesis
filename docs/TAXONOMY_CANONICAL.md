@@ -261,6 +261,6 @@ To bias prompts well for a taxonomy/vertical without infinite prompts:
 ## 6. See Also
 
 - [TAXONOMY.md](TAXONOMY.md) — Full design, coverage matrix, plugin catalog
-- [vertical_prompts.yaml](../base/planner/vertical_prompts.yaml) — Sovereign persona injection
-- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
-- [prompt_taxonomy.yaml](../base/planner/prompt_taxonomy.yaml) — Router → prompt components (summary depth, domain focus)
+- [intent_weights.yaml](../base/planner-ts/config/intent_weights.yaml) — Core intent/domain ontology
+- [taxonomy_prompt_config.yaml](../base/planner-ts/config/taxonomy_prompt_config.yaml) — Taxonomy metadata and prompt shaping
+- [plugins/weights](../base/planner-ts/config/plugins/weights) — Vertical prompts, compliance overlays, and domain plugins

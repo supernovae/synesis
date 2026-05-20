@@ -151,7 +151,11 @@ async function runAmbiguityScorer(
       authz_trace_id: state.authz_trace_id,
       traceparent: state.traceparent,
       messages,
-      response_format: { type: "json_object" },
+      structuredOutput: {
+        schema: AmbiguityAssessmentSchema,
+        name: "ambiguity_assessment",
+        strictJsonSchema: false,
+      },
     });
     const parsed = validateWithRepair(result.content, AmbiguityAssessmentSchema);
     const trimmedQuestions = parsed.clarification_questions
@@ -445,7 +449,11 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     try {
       result = await chatCompletion({
         ...plannerRequest,
-        response_format: { type: "json_object" },
+        structuredOutput: {
+          schema: PlannerOutputSchema,
+          name: "planner_output",
+          strictJsonSchema: false,
+        },
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -453,12 +461,15 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       process.stderr.write(
         JSON.stringify({
           level: 30,
-          msg: "planner structured-output mode unsupported; retrying without response_format",
+          msg: "planner structured-output mode unsupported; retrying with json_object response_format",
           error: detail,
           time: Date.now(),
         }) + "\n",
       );
-      result = await chatCompletion(plannerRequest);
+      result = await chatCompletion({
+        ...plannerRequest,
+        response_format: { type: "json_object" },
+      });
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

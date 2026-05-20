@@ -841,7 +841,7 @@
         },
         {
           "query_id": "rag-08",
-          "query": "LangGraph stateful multi-agent workflow",
+          "query": "planner-ts stateful multi-node workflow",
           "recall@5": 0.6,
           "mrr@5": 1.0,
           "ndcg@5": 0.6992148198508501,
@@ -1939,7 +1939,7 @@
         },
         {
           "query_id": "rag-08",
-          "query": "LangGraph stateful multi-agent workflow",
+          "query": "planner-ts stateful multi-node workflow",
           "recall@5": 0.6,
           "mrr@5": 1.0,
           "ndcg@5": 0.6164336326286644,
@@ -3037,7 +3037,7 @@
         },
         {
           "query_id": "rag-08",
-          "query": "LangGraph stateful multi-agent workflow",
+          "query": "planner-ts stateful multi-node workflow",
           "recall@5": 0.4,
           "mrr@5": 1.0,
           "ndcg@5": 0.4703652827859579,

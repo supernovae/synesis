@@ -183,7 +183,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ || true
+            base/rag/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -191,7 +191,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/
+            base/rag/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/admin/app/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v6

@@ -12,7 +12,7 @@ USER 1001
 COPY benchmarks/ /app/benchmarks/
 COPY tools/curator/ /app/tools/curator/
 COPY base/quality-runner/entrypoint.py /app/entrypoint.py
-COPY base/planner/taxonomy_prompt_config.yaml /app/taxonomy_prompt_config.yaml
+COPY base/planner-ts/config/taxonomy_prompt_config.yaml /app/taxonomy_prompt_config.yaml
 
 WORKDIR /app
 CMD ["python", "entrypoint.py"]

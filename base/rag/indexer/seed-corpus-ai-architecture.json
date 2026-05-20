@@ -66,9 +66,9 @@
       "category": "rag_security",
       "domain": "secops",
       "priority": 2,
-      "title": "LangChain: Security Best Practices",
-      "url": "https://python.langchain.com/docs/security/",
-      "tags": ["security", "langchain", "best-practices", "sandboxing", "input-validation"]
+      "title": "OpenAI Safety Best Practices",
+      "url": "https://platform.openai.com/docs/guides/safety-best-practices",
+      "tags": ["security", "openai", "best-practices", "sandboxing", "input-validation"]
     },
     {
       "category": "rag_architecture",
@@ -138,9 +138,9 @@
       "category": "rag_architecture",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangChain: RAG Tutorial",
-      "url": "https://python.langchain.com/docs/tutorials/rag/",
-      "tags": ["rag", "tutorial", "langchain", "implementation", "step-by-step"]
+      "title": "AI SDK: RAG Chatbot Guide",
+      "url": "https://ai-sdk.dev/docs/guides/rag-chatbot",
+      "tags": ["rag", "tutorial", "ai-sdk", "implementation", "step-by-step"]
     },
     {
       "category": "rag_architecture",
@@ -490,9 +490,9 @@
       "category": "production_patterns",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangSmith: LLM Observability and Tracing",
-      "url": "https://docs.smith.langchain.com/",
-      "tags": ["observability", "tracing", "langsmith", "debugging", "production"]
+      "title": "OpenTelemetry Semantic Conventions for Generative AI",
+      "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "tags": ["observability", "tracing", "opentelemetry", "debugging", "production"]
     },
     {
       "category": "production_patterns",

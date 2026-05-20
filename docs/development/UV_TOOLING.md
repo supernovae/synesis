@@ -31,13 +31,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ```bash
 # System-wide (into your active Python)
-cd base/planner
-uv pip install --system -r requirements-test.txt
+cd base/rag/indexer
+uv pip install --system -r requirements.txt
 
 # Or create a venv first
 uv venv .venv
 source .venv/bin/activate
-uv pip install -r requirements-test.txt
+uv pip install -r requirements.txt
 ```
 
 ### Run one-shot tools without installing
@@ -61,7 +61,7 @@ with dependency caching:
 - uses: astral-sh/setup-uv@v5
   with:
     enable-cache: true
-    cache-dependency-glob: "base/planner/requirements*.txt"
+    cache-dependency-glob: "base/rag/**/requirements*.txt"
 
 - uses: actions/setup-python@v6
   with:

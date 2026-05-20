@@ -31,7 +31,7 @@ Most enterprise AI platforms solve one problem well: a chatbot with RAG, or a co
 
 ### How Synesis Compares
 
-| | Synesis | LangChain / LlamaIndex | Dify / Flowise | Cursor / Continue | Perplexity / Glean |
+| | Synesis | AI SDK / LlamaIndex | Dify / Flowise | Cursor / Continue | Perplexity / Glean |
 |-|---------|----------------------|---------------|------------------|-------------------|
 | **Self-hosted, air-gappable** | Yes — your infrastructure, your models, your data | Framework only — bring your own infra | Partial — some cloud dependencies | Cloud-first | SaaS only |
 | **Integrated RAG + coding + MCP** | Single platform | Separate libraries to compose | RAG workflows, no coding agent | Coding only, no RAG pipeline | Search only, no coding |

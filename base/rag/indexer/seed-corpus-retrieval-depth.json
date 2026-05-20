@@ -1,122 +1,122 @@
 {
   "version": 2,
-  "description": "Targeted corpus for retrieval architecture depth, current LangChain/LangGraph patterns, FAISS limitations, hybrid search, vector DB comparisons, self-hosted LLM operations, and code-aware retrieval. Fills gaps identified by external critic: retrieval topology precision, current framework versions, operational realism, and code-context architecture.",
+  "description": "Targeted corpus for retrieval architecture depth, AI SDK/OpenAI-compatible streaming and structured-output patterns, FAISS limitations, hybrid search, vector DB comparisons, self-hosted LLM operations, and code-aware retrieval. Fills gaps identified by external critic: retrieval topology precision, current framework versions, operational realism, and code-context architecture.",
   "_mapping_notes": {
     "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored on NornicDB graph nodes at index time.",
     "category": "Human-readable grouping for corpus organization. Not stored as a retrieval filter."
   },
   "sources": [
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_core",
       "domain": "software_architecture",
       "priority": 1,
-      "title": "LangChain v0.3: What's New and Migration Guide",
-      "url": "https://python.langchain.com/docs/versions/v0_3",
-      "tags": ["langchain", "v0.3", "migration", "current", "breaking-changes"]
+      "title": "AI SDK Core: Generating Text",
+      "url": "https://ai-sdk.dev/docs/ai-sdk-core/generating-text",
+      "tags": ["ai-sdk", "generate-text", "openai-compatible", "current"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_core",
       "domain": "software_architecture",
       "priority": 1,
-      "title": "LangChain Concepts: Retrievers",
-      "url": "https://python.langchain.com/docs/concepts/retrievers",
-      "tags": ["langchain", "retrievers", "concepts", "rag", "current"]
+      "title": "AI SDK Core: Streaming Text",
+      "url": "https://ai-sdk.dev/docs/ai-sdk-core/generating-text#streamtext",
+      "tags": ["ai-sdk", "streaming", "sse", "openai-compatible", "current"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_core",
       "domain": "software_architecture",
       "priority": 1,
-      "title": "LangChain How-To: Ensemble Retriever (Hybrid Search)",
-      "url": "https://python.langchain.com/docs/how_to/ensemble_retriever",
-      "tags": ["langchain", "ensemble-retriever", "hybrid-search", "bm25", "vector"]
+      "title": "AI SDK Core: Structured Data",
+      "url": "https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data",
+      "tags": ["ai-sdk", "structured-output", "zod", "json-schema"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_core",
       "domain": "software_architecture",
       "priority": 1,
-      "title": "LangChain: FAISS Vector Store Integration",
-      "url": "https://python.langchain.com/docs/integrations/vectorstores/faiss/",
-      "tags": ["langchain", "faiss", "vector-store", "integration", "limitations"]
+      "title": "AI SDK Core: Tools and Tool Calling",
+      "url": "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+      "tags": ["ai-sdk", "tool-calling", "agents", "openai-compatible"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_agents",
       "domain": "software_architecture",
       "priority": 1,
-      "title": "LangChain: Vector Stores Overview and Comparison",
-      "url": "https://python.langchain.com/docs/integrations/vectorstores",
-      "tags": ["langchain", "vector-stores", "comparison", "integrations", "current"]
+      "title": "AI SDK Agents",
+      "url": "https://ai-sdk.dev/docs/agents",
+      "tags": ["ai-sdk", "agents", "orchestration", "stateful", "architecture"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_rag",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "AI SDK RAG Chatbot Guide",
+      "url": "https://ai-sdk.dev/docs/guides/rag-chatbot",
+      "tags": ["ai-sdk", "rag", "retrieval", "embeddings"]
+    },
+    {
+      "category": "openai_compatibility",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "OpenAI Chat Completions API Reference",
+      "url": "https://platform.openai.com/docs/api-reference/chat",
+      "tags": ["openai", "chat-completions", "streaming", "compatibility"]
+    },
+    {
+      "category": "openai_compatibility",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "OpenAI Structured Outputs Guide",
+      "url": "https://platform.openai.com/docs/guides/structured-outputs",
+      "tags": ["openai", "structured-output", "json-schema", "safety"]
+    },
+    {
+      "category": "retrieval_architecture",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "OpenAI Vector Stores API Reference",
+      "url": "https://platform.openai.com/docs/api-reference/vector-stores",
+      "tags": ["openai", "vector-stores", "retrieval", "current"]
+    },
+    {
+      "category": "retrieval_architecture",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "OpenAI Embeddings Guide",
+      "url": "https://platform.openai.com/docs/guides/embeddings",
+      "tags": ["openai", "embeddings", "retrieval", "current"]
+    },
+    {
+      "category": "ai_sdk_providers",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangChain: Elasticsearch Retriever (Hybrid Search Example)",
-      "url": "https://python.langchain.com/docs/integrations/retrievers/elasticsearch_retriever",
-      "tags": ["langchain", "elasticsearch", "hybrid-search", "bm25", "vector-search"]
+      "title": "AI SDK OpenAI Provider",
+      "url": "https://ai-sdk.dev/providers/ai-sdk-providers/openai",
+      "tags": ["ai-sdk", "openai", "provider", "compatibility"]
     },
     {
-      "category": "langchain_current",
+      "category": "ai_sdk_providers",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangChain v0.2 Deprecations (What to Avoid)",
-      "url": "https://python.langchain.com/docs/versions/v0_2/deprecations",
-      "tags": ["langchain", "deprecations", "migration", "v0.2", "legacy"]
+      "title": "AI SDK OpenAI-Compatible Providers",
+      "url": "https://ai-sdk.dev/providers/openai-compatible-providers",
+      "tags": ["ai-sdk", "openai-compatible", "providers", "migration"]
     },
     {
-      "category": "langchain_current",
+      "category": "agent_architecture",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangChain: Migrating from Legacy Chains",
-      "url": "https://python.langchain.com/docs/versions/migrating_chains/map_rerank_docs_chain",
-      "tags": ["langchain", "migration", "chains", "legacy", "lcel"]
+      "title": "OpenAI Agents SDK",
+      "url": "https://openai.github.io/openai-agents-js/",
+      "tags": ["openai", "agents", "orchestration", "typescript"]
     },
     {
-      "category": "langgraph_agents",
-      "domain": "software_architecture",
-      "priority": 1,
-      "title": "LangGraph: Framework Overview and Architecture",
-      "url": "https://langchain-ai.github.io/langgraph",
-      "tags": ["langgraph", "agents", "orchestration", "stateful", "architecture"]
-    },
-    {
-      "category": "langgraph_agents",
-      "domain": "software_architecture",
-      "priority": 1,
-      "title": "LangGraph: Conceptual Guide (State, Nodes, Edges, Persistence)",
-      "url": "https://langchain-ai.github.io/langgraph/concepts/",
-      "tags": ["langgraph", "concepts", "state-management", "persistence", "checkpointing"]
-    },
-    {
-      "category": "langgraph_agents",
-      "domain": "software_architecture",
-      "priority": 1,
-      "title": "LangGraph Patterns and Best Practices Guide (2025)",
-      "url": "https://sumanta9090.medium.com/langgraph-patterns-best-practices-guide-2025-38cc2abb8763",
-      "tags": ["langgraph", "patterns", "best-practices", "react", "tool-calling"]
-    },
-    {
-      "category": "langgraph_agents",
-      "domain": "software_architecture",
-      "priority": 1,
-      "title": "LangGraph Multi-Agent Supervisor Pattern Guide (2026)",
-      "url": "https://myengineeringpath.dev/genai-engineer/langgraph-multi-agent/",
-      "tags": ["langgraph", "multi-agent", "supervisor", "orchestration", "command-api"]
-    },
-    {
-      "category": "langgraph_agents",
+      "category": "agent_architecture",
       "domain": "software_architecture",
       "priority": 2,
-      "title": "LangGraph: Build Stateful Multi-Agent Systems (Deep Dive)",
-      "url": "https://www.mager.co/blog/2026-03-12-langgraph-deep-dive/",
-      "tags": ["langgraph", "multi-agent", "stateful", "production", "deep-dive"]
-    },
-    {
-      "category": "langgraph_agents",
-      "domain": "software_architecture",
-      "priority": 2,
-      "title": "Multi-Agent AI Systems with LangGraph (Comprehensive Guide)",
-      "url": "https://blogs.pavanrangani.com/multi-agent-ai-systems-langgraph-guide/",
-      "tags": ["langgraph", "multi-agent", "supervisor", "swarm", "architecture"]
+      "title": "OpenAI Function Calling Guide",
+      "url": "https://platform.openai.com/docs/guides/function-calling",
+      "tags": ["openai", "tool-calling", "function-calling", "agents"]
     },
     {
       "category": "faiss_architecture",

@@ -34,7 +34,7 @@ body:
     attributes:
       label: Component
       options:
-        - Planner (LangGraph)
+        - Planner (planner-ts)
         - Gateway (LiteLLM)
         - RAG Pipeline
         - Sandbox / Executor

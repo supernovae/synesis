@@ -1300,7 +1300,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
     test_queries = [
         "How does NornicDB support graph-native retrieval with metadata filtering?",
         "What is the best graph-native architecture for production RAG systems?",
-        "How does LangGraph implement multi-agent orchestration?",
+        "How does planner-ts implement multi-node orchestration?",
         "What are the tradeoffs between BM25 and dense retrieval?",
         "How to deploy vLLM on Kubernetes with GPU sharing?",
     ]

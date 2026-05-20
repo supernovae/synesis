@@ -189,8 +189,8 @@ jobs:
             platforms: linux/amd64,linux/arm64
           # ------- amd64-only (ML/torch/Playwright — arm64 not yet validated) -------
           - name: bge-reranker
-            dockerfile: base/planner/bge-reranker/Dockerfile
-            context: base/planner/bge-reranker
+            dockerfile: base/rag/bge-reranker/Dockerfile
+            context: base/rag/bge-reranker
             base_arg: synesis-base-ml
             platforms: linux/amd64
           - name: indexer

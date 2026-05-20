@@ -82,7 +82,7 @@ Use `budget_utilization` to detect under-use (wasted headroom) or near-saturatio
 
 **Provider routes:** Each request’s effective generation limit is the minimum of the planner node budget, the role assignment's configured `max_tokens`, and the upstream provider limit.
 
-**`base/planner/`:** YAML ontology and taxonomy assets for **chat** (planner-ts), not a separate Python API runtime. This doc’s *intent* and formulas align with planner-ts behavior; some historical file references below may still cite old filenames — prefer `base/planner-ts/src/` when in doubt.
+Planner ontology and taxonomy YAML assets live in `base/planner-ts/config/`; runtime budget behavior is implemented in `base/planner-ts/src/`.
 
 
 ### Executor (text-mode responses)
@@ -243,14 +243,13 @@ Quick lookup for where to change each type of limit:
 
 | What to change | Primary file | Secondary file |
 |---|---|---|
-| Writer/evidence/section budgets | `base/planner/app/config.py` | — |
-| Writer / critic / planner budgets (TS) | `base/planner-ts/src/config.ts` | `base/planner-ts/src/budgets.ts`, `model-tiers.ts` |
-| Executor token budget curve | `base/planner/app/nodes/writer.py` | — |
+| Writer / critic / planner budgets | `base/planner-ts/src/config.ts` | `base/planner-ts/src/budgets.ts`, `model-tiers.ts` |
+| Writer/evidence composition | `base/planner-ts/src/nodes/writer-compose.ts` | `base/planner-ts/src/retrieval/` |
 | Role route `max_tokens` | Admin Model Registry | — |
-| Temperature (pipeline nodes) | Each node file in `base/planner/app/nodes/` | `base/planner/app/graph.py` |
+| Temperature (pipeline nodes) | `base/planner-ts/src/nodes/*` | `base/planner-ts/src/graph.ts` |
 | Temperature (role default) | Admin Model Registry | — |
-| Context window | `base/planner/app/config.py` (`compiler_model_context`) | — |
-| HTTP timeouts | `base/planner/app/config.py` | — |
+| Context window / provider route limits | Admin Model Registry | `base/planner-ts/src/model-tiers.ts` |
+| HTTP timeouts | `base/planner-ts/src/config.ts` | `base/planner-ts/src/llm/client.ts` |
 
 ---
 

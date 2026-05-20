@@ -1,6 +1,6 @@
 # Web Search & Multi-Source Federation
 
-Synesis includes a self-hosted **SearXNG** meta-search engine that gives LangGraph nodes live web context. This grounds the AI's responses in current information — catching deprecated APIs, newly disclosed CVEs, and community-known error resolutions that aren't in the static RAG corpus.
+Synesis includes a self-hosted **SearXNG** meta-search engine that gives planner-ts router nodes live web context. This grounds the AI's responses in current information — catching deprecated APIs, newly disclosed CVEs, and community-known error resolutions that aren't in the static RAG corpus.
 
 ## Architecture
 
@@ -167,7 +167,7 @@ These map to the `web_general` and `code_general` sources in the catalog.
 
 ## Smart Auto-Trigger Logic
 
-Each LangGraph node independently decides whether to search. There is no blanket "search every request."
+The planner-ts router decides whether to search based on request context and taxonomy signals. There is no blanket "search every request."
 
 **Router (Retrieval + Grounding):**
 - Triggered when the task mentions specific libraries/APIs, version numbers, or words like "latest"/"current"/"deprecated"

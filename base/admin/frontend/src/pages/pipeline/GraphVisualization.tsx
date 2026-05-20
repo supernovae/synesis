@@ -43,7 +43,7 @@ export default function GraphVisualization() {
           Pipeline Graph
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          LangGraph orchestration pipeline — real node topology
+          planner-ts orchestration pipeline — real node topology
         </p>
       </div>
 

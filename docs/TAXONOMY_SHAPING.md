@@ -467,9 +467,9 @@ and pedagogical structure -- all from YAML.
 
 | File | Purpose |
 |---|---|
-| `base/planner/app/query_normalizer.py` | Deterministic typo correction — compiled lexicon, protected tokens |
-| `base/planner/app/taxonomy_config_linter.py` | Pydantic schema validation (startup) |
-| `base/planner/app/taxonomy_prompt_factory.py` | Taxonomy resolver — startup-compiled, all YAML fields forwarded |
+| `base/planner-ts/config/query_normalizer_config.yaml` | Deterministic typo/protected-token source config |
+| `base/planner-ts/tests/taxonomy.test.ts` | Taxonomy validation coverage |
+| `base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts` | Taxonomy resolver — cached YAML load, all fields forwarded |
 
 ## Precedence
 

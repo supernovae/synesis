@@ -17,6 +17,8 @@ resources:
   - keyword-service/service.yaml
   - gliner-service/deployment.yaml
   - gliner-service/service.yaml
+  - bge-reranker/deployment.yaml
+  - bge-reranker/service.yaml
   - preprocess-service/deployment.yaml
   - preprocess-service/service.yaml
   - preprocess-service/network-policy.yaml

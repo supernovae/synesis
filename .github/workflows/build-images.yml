@@ -105,7 +105,7 @@ jobs:
             sandbox:
               - 'base/sandbox/image/**'
             bge-reranker:
-              - 'base/planner/bge-reranker/**'
+              - 'base/rag/bge-reranker/**'
             indexer:
               - 'base/rag/indexer/**'
               - 'base/images/base-api/synesis-telemetry/**'
@@ -462,8 +462,8 @@ jobs:
             platforms: linux/amd64,linux/arm64
           # ------- amd64-only (ML/torch/Playwright — arm64 not yet validated) -------
           - name: bge-reranker
-            dockerfile: base/planner/bge-reranker/Dockerfile
-            context: base/planner/bge-reranker
+            dockerfile: base/rag/bge-reranker/Dockerfile
+            context: base/rag/bge-reranker
             base_arg: synesis-base-ml
             change_key: bge-reranker
             base_change_key: base-ml

@@ -116,9 +116,9 @@ extra_jargon:
   - quart
   - sanic
   - litestar
-  - langchain
-  - langgraph
-  - langsmith
+  - ai-sdk
+  - vercel-ai
+  - openai
   - llamaindex
   - vllm
   - ollama

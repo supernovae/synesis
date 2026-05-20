@@ -6,8 +6,8 @@ Latency, **writer evidence budgeting**, prefix ordering, and observability. Grap
 
 ## Goals
 
-1. **Rank-first evidence** — Pack retrieved content by **descending router confidence** into token + character budgets so strong evidence is never dropped for weaker packets ([`context_curation.py`](../base/planner/app/context_curation.py)).
-2. **Predictable prefill** — Bound writer input; scale retrieval fan-out with difficulty ([`config.py`](../base/planner/app/config.py)).
+1. **Rank-first evidence** — Retrieve and rank evidence in planner-ts through [`retrieval/unified.ts`](../base/planner-ts/src/retrieval/unified.ts) and [`rag-client.ts`](../base/planner-ts/src/retrieval/rag-client.ts) before writer composition.
+2. **Predictable prefill** — Bound writer output by difficulty and model tier via [`budgets.ts`](../base/planner-ts/src/budgets.ts), [`config.ts`](../base/planner-ts/src/config.ts), and [`model-tiers.ts`](../base/planner-ts/src/model-tiers.ts).
 3. **Observable** — Structured `context_curation` log, `request_feedback` fields, Prometheus metrics, and **Traces → trace detail** in admin for budget alerts vs low utilization.
 
 ---
@@ -16,19 +16,19 @@ Latency, **writer evidence budgeting**, prefix ordering, and observability. Grap
 
 | Piece | Location |
 |-------|-----------|
-| Greedy pack + truncation | [`curate_evidence_for_writer`](../base/planner/app/context_curation.py) |
-| Config | `curator_rag_max_tokens`, `curator_min_rerank_score`, `curator_budget_alert_threshold`, `scaled_evidence_budget` |
-| Logs | `context_curation` (counts, utilization, alerts); `request_feedback` adds `context_curation_*` keys |
-| Prometheus | `synesis_context_curation_excluded_total{reason}`, `synesis_context_curation_budget_alert_total`, `synesis_context_curation_token_utilization_ratio`, `synesis_context_curation_low_utilization_total` |
-| Traces / admin | [`synesis_tracer.set_context_curation`](../base/planner/app/synesis_tracer.py) → `TraceRecord.context_curation` → **Traces → Writer context budgeting** panel |
+| Retrieval/ranking | [`retrieveUnified`](../base/planner-ts/src/retrieval/unified.ts) |
+| RAG client | [`retrieveContext`](../base/planner-ts/src/retrieval/rag-client.ts) |
+| Writer composition | [`writer-compose.ts`](../base/planner-ts/src/nodes/writer-compose.ts) |
+| Budget metadata | [`budgetSpanMetadata`](../base/planner-ts/src/budgets.ts) |
+| Traces / admin | Planner-ts span metadata and request trace fields exposed through admin traces |
 
-Token estimates use [`token_utils.estimate_tokens`](../base/planner/app/token_utils.py) (tiktoken when the package is installed, else `len // 4`). There is **no** separate `curator_tiktoken` flag.
+Planner-ts estimates fallback usage in [`llm/client.ts`](../base/planner-ts/src/llm/client.ts) when an upstream provider omits usage.
 
 ---
 
 ## Per-request token budget (enforced)
 
-The per-request token budget (`token_budget_remaining`) is a real enforced ledger, not aspirational. Every core LLM-calling node decrements it via [`token_utils.apply_budget_decrement`](../base/planner/app/token_utils.py).
+The per-request budget policy is enforced through planner-ts node caps and model-tier ceilings, with actual utilization recorded in span metadata via [`budgetSpanMetadata`](../base/planner-ts/src/budgets.ts).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -51,7 +51,7 @@ The per-request token budget (`token_budget_remaining`) is a real enforced ledge
 
 ## Tier token fields (still future)
 
-`curator_tier1_2_max_tokens`, `curator_tier3_max_tokens`, `curator_tier4_max_tokens`, and `curator_max_total_tokens` remain in Settings for a **pinned-tier + RAG** assembly path. Today only **RAG/evidence** packing uses `curator_rag_max_tokens` (plus char budget). [`ContextPack`](../base/planner/app/schemas.py) is the schema for future trust-tier wiring.
+Legacy curator tier fields are retired for planner-ts. Writer and critic budget policy now flows through planner-ts config, budgets, and model-tier ceilings.
 
 ---
 
@@ -63,11 +63,10 @@ Put **static** system content first and **per-request** suffix + user messages l
 
 ## Other implemented pieces (short)
 
-- Graph: `with_telemetry_node` → `node_complete` ([`graph.py`](../base/planner/app/graph.py))
-- Shared HTTP: `get_llm_http_client()` ([`llm_telemetry.py`](../base/planner/app/llm_telemetry.py))
-- Streaming / direct stream: [`main.py`](../base/planner/app/main.py), `streaming_events_enabled`
-- Context refs: `rag_context_refs` + `context_cache` ([`context_resolver.py`](../base/planner/app/context_resolver.py))
-- RAG metrics: [`rag_client.py`](../base/planner/app/rag_client.py); chat metrics: [`api_metrics.py`](../base/planner/app/api_metrics.py)
+- Graph: [`graph.ts`](../base/planner-ts/src/graph.ts) and [`pipeline.ts`](../base/planner-ts/src/pipeline.ts)
+- Shared HTTP/model access: [`llm/client.ts`](../base/planner-ts/src/llm/client.ts)
+- Streaming: [`app.ts`](../base/planner-ts/src/app.ts) and [`streaming/sse.ts`](../base/planner-ts/src/streaming/sse.ts)
+- Retrieval: [`retrieval/rag-client.ts`](../base/planner-ts/src/retrieval/rag-client.ts) and [`retrieval/unified.ts`](../base/planner-ts/src/retrieval/unified.ts)
 
 ---
 
@@ -76,4 +75,4 @@ Put **static** system content first and **per-request** suffix + user messages l
 - [VLLM_RECIPES.md](VLLM_RECIPES.md)
 - [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD)
 - [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md)
-- [base/planner/app/config.py](../base/planner/app/config.py)
+- [base/planner-ts/src/config.ts](../base/planner-ts/src/config.ts)

@@ -191,7 +191,7 @@ queries:
     difficulty: hard
 
   - id: rag-08
-    query: "LangGraph stateful multi-agent workflow"
+    query: "planner-ts stateful multi-node workflow"
     domain: generalist
     difficulty: medium
 

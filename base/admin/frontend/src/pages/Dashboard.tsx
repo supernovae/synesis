@@ -93,7 +93,7 @@ export default function Dashboard() {
         <MetricCard
           label="Traces (24h)"
           value={m?.traces_24h ?? "---"}
-          subtitle="LangGraph pipeline rows only (excludes Coder traces)"
+          subtitle="planner-ts pipeline rows only (excludes Coder traces)"
           icon={Activity}
         />
         <MetricCard

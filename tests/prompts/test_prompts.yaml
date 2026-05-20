@@ -2468,7 +2468,7 @@
   context_must_persist: false
   max_latency_s: 60
   expected_pipeline: knowledge_deep_dive
-  reject_terms: ["GPT-4", "Claude", "Anthropic", "langchain.agents"]
+  reject_terms: ["GPT-4", "Claude", "Anthropic", "external framework agents"]
   notes: "Grounding: answer should cite Synesis architecture docs from RAG, not hallucinate external LLM frameworks. Evidence phase expected."
 
 - id: grounding-02

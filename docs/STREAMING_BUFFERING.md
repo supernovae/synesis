@@ -1,110 +1,36 @@
 # Streaming and Buffering for Synesis
 
-Status updates from the LLM (e.g. "Analyzing request…", "Gathering evidence…") depend on streaming tokens reaching the client without being buffered. Buffering in proxies (HAProxy, nginx) can delay or drop small updates, degrading UX.
+planner-ts streams chat responses as OpenAI-compatible SSE frames by default:
+`data: {"object":"chat.completion.chunk",...}` followed by `data: [DONE]`.
+The old custom status-event stream is opt-in with
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data`.
 
----
+## Buffering Risks
 
-## Problem
-
-When Open WebUI or another client connects to the Planner (directly or via a reverse proxy such as HAProxy, Ingress, or OpenShift Route):
-
-1. The Planner streams SSE or chunked HTTP to the client.
-2. Intermediate proxies may buffer responses until a threshold (e.g. 4KB) or until the request completes.
-3. Small updates (single tokens or short status lines) get delayed or batched, so the UI feels unresponsive.
-
----
-
-## Critic Modes and Streaming Behavior
-
-### Background Critic (`SYNESIS_CRITIC_BACKGROUND=true`)
-
-The SSE stream closes immediately after the writer/executor finishes streaming content. The critic runs asynchronously after the stream closes. This shortens the SSE connection lifetime significantly (eliminates the ~23 second critic wait), which reduces buffering sensitivity and the risk of proxy timeouts.
-
-Writer/executor tokens stream directly to the client in real-time.
-
-### Inline Critic (`SYNESIS_CRITIC_BACKGROUND=false`, the deployment default)
-
-When the inline critic rejects a draft and triggers a revision cycle, the writer generates a new draft. To prevent multiple drafts from being concatenated in the SSE stream (since SSE deltas cannot be retracted once sent), **writer/executor content tokens are not streamed directly** in this mode. Instead:
-
-1. Reasoning tokens (`reasoning_content`) still stream in real-time so the thinking UI stays responsive.
-2. Phase indicators (Searching, Planning, Writing, Reviewing, Revising) stream in real-time.
-3. After the graph completes, the final approved content is emitted progressively (paragraph-by-paragraph for large responses).
-
-This trades token-by-token streaming for **single-document coherence** — the user always sees exactly one approved response, not concatenated drafts from multiple revision cycles.
-
----
+When Open WebUI or another client connects through HAProxy, nginx, an Ingress,
+or an OpenShift Route, small SSE frames can be delayed if the proxy buffers
+responses. planner-ts sets `X-Accel-Buffering: no`, but edge proxies may still
+need explicit buffering/timeout configuration.
 
 ## Mitigations
 
-### 1. OpenShift Route annotations (if using Routes)
+- Keep Open WebUI pointed directly at planner-ts:
+  `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1`.
+- For OpenShift Routes, use long request timeouts and disable buffering where
+  the router supports it.
+- Curl planner-ts directly before debugging browser behavior:
 
-The Planner route (`base/planner/route.yaml`) includes:
-
-- `haproxy.router.openshift.io/timeout: 300s` — long timeout for complex plans
-- `haproxy.router.openshift.io/disable_buffer: "true"` — disables response buffering for SSE (if supported by your OpenShift router version)
-
-If phases still don't appear, the router may ignore `disable_buffer`. Verify in your cluster docs.
-
-### 2. Planner response headers
-
-The Planner sends `X-Accel-Buffering: no` on streaming responses. This instructs nginx (if in front) to disable buffering.
-
-### 3. Direct HAProxy config (if you manage it)
-
-```
-backend synesis_planner
-    option http-server-close
-    http-response set-header X-Accel-Buffering no
+```bash
+curl -N -X POST "http://localhost:8080/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"Synesis Auto","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
-### 4. Direct Planner connection (bypass proxies)
-
-Synesis Open WebUI is configured to call **planner-ts** directly. For lowest latency and most reliable streaming:
-
-- Use the in-cluster Planner URL (e.g. `http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080/v1`) or a route/ingress that does not buffer (or configure buffering off).
-- Avoid HAProxy in the path when possible.
-
-### 5. UDS path
-
-When Planner and vLLM are co-located with UDS:
-
-- Planner → vLLM traffic uses Unix sockets, avoiding network buffering.
-- Client → Planner still goes over HTTP; ensure that segment does not buffer (see above).
-
----
-
-## Event Iterator Safety
-
-The SSE generator polls the LangGraph event iterator with a 1-second timeout to interleave heartbeat keepalives. The polling uses `asyncio.wait` on a persistent task — **not** `asyncio.wait_for`.
-
-**Why this matters:** `asyncio.wait_for` cancels the `__anext__()` coroutine when the timeout fires. For async generators (like `astream_events`), this throws `CancelledError` into the generator, permanently closing it and cascading cancellation into the running graph node. When this happens during a long-running internal LLM call (e.g. frame extraction repair), the entire pipeline is destroyed and the graph produces no output.
-
-`asyncio.wait` does not cancel the task on timeout — it simply returns an empty `done` set, allowing the heartbeat loop to continue while the event task stays alive. This is the correct pattern for non-blocking polling of async iterators.
-
-Additionally, all internal LLM calls within the entry pipeline now use `streaming=True` (even when using `ainvoke()` which buffers the full response). This ensures that LangChain emits `on_chat_model_stream` events during the call, keeping the event iterator active and preventing silent windows.
-
----
-
-## Response Echo Guard
-
-As defense-in-depth, the planner verifies that the last message in the accumulated state is an `AIMessage` before returning it as the response. If the graph was interrupted before producing an assistant response (e.g. by cancellation or timeout), `accumulated_state["messages"]` may still contain only user `HumanMessage`s. Without this check, the user's own prompt could be echoed back as the "response."
-
-Two guards prevent this:
-1. **`_extract_content_and_metrics`**: Checks `message.type == "ai"` before using content; returns an error message for non-AI messages.
-2. **SSE no-result check**: Verifies at least one `AIMessage` exists in `accumulated_state["messages"]` before proceeding to emit content. If none exist, an error event is sent instead.
-
----
-
-## Verification
-
-1. Enable streaming in the client (`stream: true`).
-2. Send a request that triggers status updates (e.g. code generation).
-3. Observe whether updates appear incrementally or only at the end.
-4. If updates arrive only at the end, investigate proxy/ingress buffering.
-
----
+Expected output is a sequence of OpenAI `chat.completion.chunk` data lines and
+a final `[DONE]`.
 
 ## References
 
-- Open WebUI streaming: ensure `stream: true` and compatible API
-- SSE status format: see [`docs/chat/OPENWEBUI_PHASES.md`](chat/OPENWEBUI_PHASES.md)
+- Open WebUI streaming: ensure `stream: true` and an OpenAI-compatible API base
+- SSE behavior: [`docs/chat/OPENWEBUI_PHASES.md`](chat/OPENWEBUI_PHASES.md)
+- planner-ts SSE tests: [`base/planner-ts/tests/sse-conformance.test.ts`](../base/planner-ts/tests/sse-conformance.test.ts)

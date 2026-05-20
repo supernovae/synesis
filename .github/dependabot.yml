@@ -91,7 +91,7 @@ updates:
         versions: [">=3.14"]
 
   - package-ecosystem: "docker"
-    directory: "/base/planner/bge-reranker"
+    directory: "/base/rag/bge-reranker"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3

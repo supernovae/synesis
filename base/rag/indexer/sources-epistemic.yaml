@@ -44,4 +44,4 @@ sources:
     config:
       path: seed-corpus-retrieval-depth.json
       doc_id_prefix: retrieval-depth
-      tags: [retrieval, hybrid-search, langchain, langgraph, faiss, vector-db, self-hosted-llm, code-context]
+      tags: [retrieval, hybrid-search, ai-sdk, openai-compatible, faiss, vector-db, self-hosted-llm, code-context]

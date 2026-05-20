@@ -348,7 +348,7 @@ def main():
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
     parser.add_argument("--llm-url", default=None, help="Optional: LLM URL for richer query generation")
     parser.add_argument("--model", default="synesis-general")
-    parser.add_argument("--taxonomy", default="base/planner/taxonomy_prompt_config.yaml")
+    parser.add_argument("--taxonomy", default="base/planner-ts/config/taxonomy_prompt_config.yaml")
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--domains", default="", help="Comma-separated list of domains to audit (empty = all)")
     parser.add_argument("--output", default="benchmarks/corpus/corpus_audit_report.json")

@@ -1,3 +1,6 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText, Output, streamText, type JSONValue, type LanguageModelUsage, type ModelMessage } from "ai";
+import type { ZodType } from "zod";
 import {
   type LlmUsage,
   type PricingRates,
@@ -13,6 +16,14 @@ export type { LlmUsage };
 export { ZERO_USAGE, mergeUsage };
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+export interface StructuredOutputRequest {
+  schema: ZodType;
+  name?: string;
+  description?: string;
+  /** OpenAI strict JSON schema rejects optional fields; planner schemas intentionally use defaults. */
+  strictJsonSchema?: boolean;
+}
 
 export interface ChatRequest {
   model: string;
@@ -39,6 +50,7 @@ export interface ChatRequest {
   max_tokens?: number;
   pricingRates?: PricingRates;
   response_format?: Record<string, unknown>;
+  structuredOutput?: StructuredOutputRequest;
   extra_body?: Record<string, unknown>;
   request_id?: string;
   authz_trace_id?: string;
@@ -74,10 +86,7 @@ interface ProviderUsage {
   prompt_cache_hit_tokens?: number;
 }
 
-interface ChatResponse {
-  choices?: Array<{ message?: { content?: string | null } }>;
-  usage?: ProviderUsage;
-}
+type AiProviderOptions = Record<string, Record<string, JSONValue>>;
 
 let _pricingRates: PricingRates = {
   input_per_million: 0,
@@ -99,6 +108,28 @@ function extractUsage(raw?: ProviderUsage, pricingRates?: PricingRates): LlmUsag
     ...base,
     estimated_cost_usd: cost.estimated_cost_usd,
   };
+}
+
+function usageFromSdk(usage: LanguageModelUsage | undefined, pricingRates?: PricingRates): LlmUsage {
+  const raw = (usage?.raw ?? {}) as Record<string, unknown>;
+  const promptTokens =
+    typeof usage?.inputTokens === "number" ? usage.inputTokens : Number(raw.prompt_tokens ?? 0);
+  const completionTokens =
+    typeof usage?.outputTokens === "number" ? usage.outputTokens : Number(raw.completion_tokens ?? 0);
+  const totalTokens =
+    typeof usage?.totalTokens === "number" ? usage.totalTokens : Number(raw.total_tokens ?? promptTokens + completionTokens);
+  const cachedTokens =
+    usage?.inputTokenDetails?.cacheReadTokens
+    ?? usage?.cachedInputTokens
+    ?? (raw.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens
+    ?? Number(raw.cached_tokens ?? 0);
+
+  return extractUsage({
+    prompt_tokens: Number.isFinite(promptTokens) ? promptTokens : 0,
+    completion_tokens: Number.isFinite(completionTokens) ? completionTokens : 0,
+    total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0,
+    cached_tokens: Number.isFinite(cachedTokens) ? cachedTokens : 0,
+  }, pricingRates);
 }
 
 function llmEnabled(): boolean {
@@ -393,59 +424,77 @@ export function isLlmAvailable(): boolean {
   return llmEnabled() && (baseUrl.length > 0 || hasLlmRoutes());
 }
 
-function buildRequestBody(request: ChatRequest, prefixCacheMode: string, modelOverride?: string): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: modelOverride ?? request.model,
-    messages: request.messages,
-    temperature: request.temperature ?? 0,
-    max_tokens: request.max_tokens,
-  };
-  if (request.top_p !== undefined) body.top_p = request.top_p;
-  if (request.presence_penalty !== undefined) body.presence_penalty = request.presence_penalty;
-  if (request.frequency_penalty !== undefined) body.frequency_penalty = request.frequency_penalty;
-  if (request.reasoning_effort) body.reasoning_effort = request.reasoning_effort;
-  if (request.stop !== undefined) body.stop = request.stop;
-  if (request.seed !== undefined) body.seed = request.seed;
-  if (request.logit_bias !== undefined) body.logit_bias = request.logit_bias;
-  if (request.logprobs !== undefined) body.logprobs = request.logprobs;
-  if (request.top_logprobs !== undefined) body.top_logprobs = request.top_logprobs;
-  if (request.n !== undefined) body.n = request.n;
-  if (request.tools !== undefined) body.tools = request.tools;
-  if (request.tool_choice !== undefined) body.tool_choice = request.tool_choice;
-  if (request.parallel_tool_calls !== undefined) body.parallel_tool_calls = request.parallel_tool_calls;
-  if (request.response_format && typeof request.response_format === "object") {
-    body.response_format = request.response_format;
+function addExtraBodyOption(extraBody: Record<string, unknown>, key: string, value: unknown): void {
+  if (value !== undefined) extraBody[key] = value;
+}
+
+function mutateOpenAICompatBody(body: BodyInit | null | undefined, request: ChatRequest, prefixCacheMode: string): BodyInit | null | undefined {
+  if (typeof body !== "string") return body;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    return body;
   }
 
-  const extraBody: Record<string, unknown> = {};
-  if (request.top_k !== undefined) extraBody.top_k = request.top_k;
-  if (request.min_p !== undefined) extraBody.min_p = request.min_p;
-  if (request.repetition_penalty !== undefined) extraBody.repetition_penalty = request.repetition_penalty;
-  if (request.enable_thinking !== undefined) extraBody.enable_thinking = request.enable_thinking;
+  if (request.response_format && !request.structuredOutput) parsed.response_format = request.response_format;
+  if (request.n !== undefined) parsed.n = request.n;
+  if (request.tools !== undefined) parsed.tools = request.tools;
+  if (request.tool_choice !== undefined) parsed.tool_choice = request.tool_choice;
+  if (request.parallel_tool_calls !== undefined) parsed.parallel_tool_calls = request.parallel_tool_calls;
+  if (request.logit_bias !== undefined) parsed.logit_bias = request.logit_bias;
+  if (request.logprobs !== undefined) parsed.logprobs = request.logprobs;
+  if (request.top_logprobs !== undefined) parsed.top_logprobs = request.top_logprobs;
+
+  const existingExtraBody =
+    parsed.extra_body && typeof parsed.extra_body === "object" && !Array.isArray(parsed.extra_body)
+      ? parsed.extra_body as Record<string, unknown>
+      : {};
+  const extraBody = { ...existingExtraBody };
+  addExtraBodyOption(extraBody, "top_k", request.top_k);
+  addExtraBodyOption(extraBody, "min_p", request.min_p);
+  addExtraBodyOption(extraBody, "repetition_penalty", request.repetition_penalty);
+  addExtraBodyOption(extraBody, "enable_thinking", request.enable_thinking);
   if (prefixCacheMode === "strict") {
     extraBody.enable_prefix_caching = true;
   }
   if (request.extra_body && typeof request.extra_body === "object") {
     Object.assign(extraBody, request.extra_body);
   }
-  if (Object.keys(extraBody).length > 0) {
-    body.extra_body = extraBody;
-  }
-  return body;
+  if (Object.keys(extraBody).length > 0) parsed.extra_body = extraBody;
+
+  return JSON.stringify(parsed);
 }
 
-function buildHeaders(apiKey: string, request?: ChatRequest): Record<string, string> {
+function buildHeaders(request?: ChatRequest): Record<string, string> {
   return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     ...(request?.request_id ? { "x-request-id": request.request_id } : {}),
     ...(request?.authz_trace_id ? { "x-synesis-authz-trace-id": request.authz_trace_id } : {}),
     ...(request?.traceparent ? { traceparent: request.traceparent } : {}),
   };
 }
 
+function buildProviderOptions(request: ChatRequest): AiProviderOptions | undefined {
+  const openai: Record<string, JSONValue> = {};
+  if (request.reasoning_effort) openai.reasoningEffort = request.reasoning_effort;
+  if (request.logit_bias) openai.logitBias = request.logit_bias;
+  if (request.logprobs !== undefined) openai.logprobs = request.logprobs;
+  if (request.top_logprobs !== undefined) openai.topLogprobs = request.top_logprobs;
+  if (request.parallel_tool_calls !== undefined) openai.parallelToolCalls = request.parallel_tool_calls;
+  if (request.structuredOutput) openai.strictJsonSchema = request.structuredOutput.strictJsonSchema ?? false;
+  return Object.keys(openai).length > 0 ? { openai } : undefined;
+}
+
+function stopSequences(stop: string | string[] | undefined): string[] | undefined {
+  if (typeof stop === "string") return [stop];
+  return stop;
+}
+
+function asModelMessages(messages: ChatMessage[]): ModelMessage[] {
+  return messages.map((m) => ({ role: m.role, content: m.content })) as ModelMessage[];
+}
+
 function estimateTokensFromText(text: string): number {
-  // Conservative approximation for providers that omit usage in streamed mode.
   return Math.max(1, Math.ceil((text ?? "").length / 4));
 }
 
@@ -466,62 +515,90 @@ function estimateUsage(request: ChatRequest, content: string): LlmUsage {
   return { ...base, estimated_cost_usd: cost.estimated_cost_usd };
 }
 
+function createAiSdkModel(target: ResolvedLlmTarget, request: ChatRequest, config: LlmConfig) {
+  const fetchWithResilience = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    return resilientFetch(url, {
+      ...init,
+      body: mutateOpenAICompatBody(init?.body, request, config.prefixCacheMode),
+    }, {
+      modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
+      timeoutMs: config.timeoutMs,
+      retryMaxAttempts: config.retryMaxAttempts,
+      retryBaseDelayMs: config.retryBaseDelayMs,
+      circuitBreakerRecoveryTimeoutMs: config.circuitBreakerRecoveryTimeoutMs,
+      externalSignal: init?.signal ?? undefined,
+    });
+  };
+
+  const provider = createOpenAI({
+    baseURL: target.baseUrl,
+    apiKey: target.apiKey || "unused",
+    name: target.provider || "openai",
+    fetch: fetchWithResilience,
+  });
+  return provider.chat(target.model);
+}
+
+function commonGenerateOptions(request: ChatRequest, model: ReturnType<ReturnType<typeof createOpenAI>["chat"]> | unknown, abortSignal: AbortSignal) {
+  return {
+    model: model as never,
+    messages: asModelMessages(request.messages),
+    maxOutputTokens: request.max_tokens,
+    temperature: request.temperature ?? 0,
+    topP: request.top_p,
+    presencePenalty: request.presence_penalty,
+    frequencyPenalty: request.frequency_penalty,
+    stopSequences: stopSequences(request.stop),
+    seed: request.seed,
+    headers: buildHeaders(request),
+    providerOptions: buildProviderOptions(request),
+    abortSignal,
+    maxRetries: 0,
+  };
+}
+
 export async function chatCompletion(request: ChatRequest): Promise<ChatResult> {
   const config = llmConfig();
-  const {
-    timeoutMs,
-    prefixCacheMode,
-    retryMaxAttempts,
-    retryBaseDelayMs,
-    circuitBreakerRecoveryTimeoutMs,
-  } = config;
   if (!llmEnabled()) {
     throw new Error("LLM is not enabled");
   }
 
   const target = resolveLlmTarget(request, config);
   const effectiveRequest = mergeRouteDefaults({ ...request, model: target.model }, target.route);
-  const body = buildRequestBody(effectiveRequest, prefixCacheMode, target.model);
-  const resp = await resilientFetch(`${target.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: buildHeaders(target.apiKey, request),
-    body: JSON.stringify(body),
-  }, {
-    modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
-    timeoutMs,
-    retryMaxAttempts,
-    retryBaseDelayMs,
-    circuitBreakerRecoveryTimeoutMs,
-  });
-  const data = (await resp.json()) as ChatResponse;
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("LLM returned empty content");
-  const usage = extractUsage(data.usage, request.pricingRates);
-  return {
-    content,
-    usage: usage.total_tokens > 0 ? usage : estimateUsage(effectiveRequest, content),
-  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * 4);
+  try {
+    const model = createAiSdkModel(target, effectiveRequest, config);
+    const output = effectiveRequest.structuredOutput
+      ? Output.object({
+          schema: effectiveRequest.structuredOutput.schema,
+          name: effectiveRequest.structuredOutput.name,
+          description: effectiveRequest.structuredOutput.description,
+        })
+      : undefined;
+
+    const result = await generateText({
+      ...commonGenerateOptions(effectiveRequest, model, controller.signal),
+      ...(output ? { output } : {}),
+    });
+    const content = output ? JSON.stringify(result.output) : result.text;
+    if (!content) throw new Error("LLM returned empty content");
+    const usage = usageFromSdk(result.totalUsage ?? result.usage, effectiveRequest.pricingRates);
+    return {
+      content,
+      usage: usage.total_tokens > 0 ? usage : estimateUsage(effectiveRequest, content),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-/**
- * Streaming variant — yields token deltas as they arrive from the provider.
- * Returns accumulated content + usage when the stream completes.
- *
- * The caller provides an `onDelta` callback that receives each delta
- * synchronously as it is parsed, enabling real-time SSE forwarding.
- */
 export async function chatCompletionStream(
   request: ChatRequest,
   onDelta: (delta: StreamDelta) => void,
 ): Promise<StreamResult> {
   const config = llmConfig();
-  const {
-    timeoutMs,
-    prefixCacheMode,
-    retryMaxAttempts,
-    retryBaseDelayMs,
-    circuitBreakerRecoveryTimeoutMs,
-  } = config;
   if (!llmEnabled()) {
     throw new Error("LLM is not enabled");
   }
@@ -529,77 +606,25 @@ export async function chatCompletionStream(
   const effectiveRequest = mergeRouteDefaults({ ...request, model: target.model }, target.route);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs * 4);
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * 4);
   try {
-    const body = buildRequestBody(effectiveRequest, prefixCacheMode, target.model);
-    body.stream = true;
-    body.stream_options = { include_usage: true };
-
-    const resp = await resilientFetch(`${target.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: buildHeaders(target.apiKey, request),
-      body: JSON.stringify(body),
-    }, {
-      modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
-      timeoutMs,
-      retryMaxAttempts,
-      retryBaseDelayMs,
-      circuitBreakerRecoveryTimeoutMs,
-      externalSignal: controller.signal,
+    const model = createAiSdkModel(target, effectiveRequest, config);
+    const streamed = streamText({
+      ...commonGenerateOptions(effectiveRequest, model, controller.signal),
+      timeout: { totalMs: config.timeoutMs * 4, chunkMs: config.timeoutMs },
     });
 
     const contentParts: string[] = [];
     let finalUsage: LlmUsage = { ...ZERO_USAGE };
 
-    const reader = resp.body?.getReader();
-    if (!reader) throw new Error("Response body is not readable");
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith(":")) continue;
-        if (trimmed === "data: [DONE]") continue;
-        if (!trimmed.startsWith("data: ")) continue;
-
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(trimmed.slice(6));
-        } catch {
-          continue;
-        }
-
-        const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
-        if (choices?.[0]) {
-          const delta = choices[0].delta as Record<string, unknown> | undefined;
-          if (delta) {
-            const content = typeof delta.content === "string" ? delta.content : undefined;
-            const rc =
-              typeof delta.reasoning_content === "string"
-                ? delta.reasoning_content
-                : typeof (delta.additional_kwargs as Record<string, unknown>)?.reasoning_content === "string"
-                  ? (delta.additional_kwargs as Record<string, unknown>).reasoning_content as string
-                  : undefined;
-
-            if (content) contentParts.push(content);
-            if (content || rc) {
-              try { onDelta({ content, reasoning_content: rc }); } catch { /* write to closed stream */ }
-            }
-          }
-        }
-
-        if (parsed.usage) {
-          finalUsage = extractUsage(parsed.usage as ProviderUsage, request.pricingRates);
-        }
+    for await (const part of streamed.fullStream) {
+      if (part.type === "text-delta") {
+        contentParts.push(part.text);
+        try { onDelta({ content: part.text }); } catch { /* write to closed stream */ }
+      } else if (part.type === "reasoning-delta") {
+        try { onDelta({ reasoning_content: part.text }); } catch { /* write to closed stream */ }
+      } else if (part.type === "finish") {
+        finalUsage = usageFromSdk(part.totalUsage, effectiveRequest.pricingRates);
       }
     }
 
