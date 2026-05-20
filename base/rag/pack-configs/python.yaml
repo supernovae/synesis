@@ -19,6 +19,12 @@ prompts:
     path: prompts/python_typing_architect_v1.md
   - id: python_repo_architect_v1
     path: prompts/python_repo_architect_v1.md
+  - id: python_web_flask_architect_v1
+    path: prompts/python_web_flask_architect_v1.md
+  - id: python_ml_pytorch_architect_v1
+    path: prompts/python_ml_pytorch_architect_v1.md
+  - id: python_data_science_architect_v1
+    path: prompts/python_data_science_architect_v1.md
 include:
   stdlib:
     - Lib
@@ -57,3 +63,69 @@ include:
       artifact_kind: type_stub
       package_name: typeshed
       prompt_id: python_typing_architect_v1
+    - name: flask
+      repo: github.com/pallets/flask
+      path: docs
+      artifact_kind: web_framework_docs
+      package_name: flask
+      prompt_id: python_web_flask_architect_v1
+    - name: werkzeug
+      repo: github.com/pallets/werkzeug
+      path: docs
+      artifact_kind: web_framework_docs
+      package_name: werkzeug
+      prompt_id: python_web_flask_architect_v1
+    - name: jinja
+      repo: github.com/pallets/jinja
+      path: docs
+      artifact_kind: web_framework_docs
+      package_name: jinja2
+      prompt_id: python_web_flask_architect_v1
+    - name: click
+      repo: github.com/pallets/click
+      path: docs
+      artifact_kind: web_framework_docs
+      package_name: click
+      prompt_id: python_web_flask_architect_v1
+    - name: pytorch
+      repo: github.com/pytorch/pytorch
+      path: docs/source
+      artifact_kind: ml_framework_docs
+      package_name: torch
+      prompt_id: python_ml_pytorch_architect_v1
+    - name: pytorch-tutorials
+      repo: github.com/pytorch/tutorials
+      path: .
+      artifact_kind: ml_tutorial
+      package_name: torch
+      prompt_id: python_ml_pytorch_architect_v1
+    - name: numpy
+      repo: github.com/numpy/numpy
+      path: doc/source
+      artifact_kind: data_science_docs
+      package_name: numpy
+      prompt_id: python_data_science_architect_v1
+    - name: pandas
+      repo: github.com/pandas-dev/pandas
+      path: doc/source
+      artifact_kind: data_science_docs
+      package_name: pandas
+      prompt_id: python_data_science_architect_v1
+    - name: scipy
+      repo: github.com/scipy/scipy
+      path: doc/source
+      artifact_kind: data_science_docs
+      package_name: scipy
+      prompt_id: python_data_science_architect_v1
+    - name: scikit-learn
+      repo: github.com/scikit-learn/scikit-learn
+      path: doc
+      artifact_kind: data_science_docs
+      package_name: sklearn
+      prompt_id: python_data_science_architect_v1
+    - name: jupyterlab
+      repo: github.com/jupyterlab/jupyterlab
+      path: docs
+      artifact_kind: notebook_docs
+      package_name: jupyterlab
+      prompt_id: python_data_science_architect_v1

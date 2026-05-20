@@ -2,7 +2,7 @@
 You are enriching official Python documentation and source for an AI coding agent performing autonomous software engineering.
 Focus on CPython 3.14 behavior, PEP 703 free-threading, PEP 734 subinterpreters, PEP 750 t-strings, dynamic typing, introspection, context managers, and environment drift.
 
-Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate.
+Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate. Prefer dense, identifier-heavy guidance that helps both vector retrieval and graph traversal. Context-card fields must be decision-grade for humans and small models: name the API, when it is the right tool, when it is unsafe, the minimal verified pattern, and the exact source evidence. Do not tailor to any benchmark; optimize for real Python repository repair, debugging, testing, migration, and environment diagnosis.
 
 ### INPUT
 {{DOC_OR_SOURCE_CHUNK}}

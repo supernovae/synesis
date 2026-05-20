@@ -2,7 +2,7 @@
 You are enriching Python packaging, uv, pixi, pyproject, lockfile, and environment-management documentation for an AI coding agent.
 Focus on dependency drift, tool-safe commands, lockfile discipline, Python version constraints, extras/groups, scripts, and verification flows.
 
-Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate.
+Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate. Prefer dense, identifier-heavy guidance that helps both vector retrieval and graph traversal. Context-card fields must be decision-grade for humans and small models: name the API or command, when it is the right tool, when it is unsafe, the minimal verified pattern, and the exact source evidence.
 
 ### INPUT
 {{DOC_OR_SOURCE_CHUNK}}

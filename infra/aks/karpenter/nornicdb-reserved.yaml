@@ -1,0 +1,54 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: nornicdb-reserved
+spec:
+  disruption:
+    budgets:
+      - nodes: "1"
+    consolidateAfter: Never
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        intent: graph-store
+        terraform-managed-pool: nornicdb-reserved
+        workload-cost-profile: nornicdb-reserved
+    spec:
+      expireAfter: Never
+      nodeClassRef:
+        group: karpenter.azure.com
+        kind: AKSNodeClass
+        name: core-reserved
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+        - key: kubernetes.io/os
+          operator: In
+          values:
+            - linux
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - on-demand
+        - key: karpenter.azure.com/sku-family
+          operator: In
+          values:
+            - D
+            - E
+        - key: karpenter.azure.com/sku-cpu
+          operator: In
+          values:
+            - "8"
+            - "16"
+        - key: karpenter.azure.com/sku-memory
+          operator: Gte
+          values:
+            - "32768"
+        - key: karpenter.azure.com/sku-storage-premium-capable
+          operator: In
+          values:
+            - "true"

@@ -1902,6 +1902,29 @@ def _python_prompt_for_chunk(text: str, *, rel_path: str, artifact_kind: str, sy
         return "python_packaging_env_architect_v1"
     if artifact_kind == "type_stub" or "typing" in lower or "type hints" in lower or "pep 649" in lower:
         return "python_typing_architect_v1"
+    if artifact_kind == "web_framework_docs" or any(
+        marker in lower for marker in ("flask", "werkzeug", "jinja", "wsgi", "blueprint", "request context")
+    ):
+        return "python_web_flask_architect_v1"
+    if artifact_kind in {"ml_framework_docs", "ml_tutorial"} or any(
+        marker in lower for marker in ("torch.", "pytorch", "autograd", "cuda", "nn.module", "dataloader")
+    ):
+        return "python_ml_pytorch_architect_v1"
+    if artifact_kind in {"data_science_docs", "notebook_docs"} or any(
+        marker in lower
+        for marker in (
+            "numpy",
+            "pandas",
+            "scipy",
+            "scikit-learn",
+            "sklearn",
+            "matplotlib",
+            "jupyter",
+            "dataframe",
+            "ndarray",
+        )
+    ):
+        return "python_data_science_architect_v1"
     if "asyncio" in rel_path or "taskgroup" in lower or "await" in lower or "cancel" in lower:
         return "python_async_architect_v1"
     return PYTHON_PROMPT_ID
@@ -1931,8 +1954,40 @@ def _python_metadata(
         tags.append("uv")
     if "pixi" in lower:
         tags.append("pixi")
+    if artifact_kind == "web_framework_docs":
+        tags.extend(["web-framework", "flask-ecosystem"])
+        if "flask" in lower:
+            tags.append("flask")
+        if "werkzeug" in lower or "wsgi" in lower:
+            tags.append("werkzeug-wsgi")
+        if "jinja" in lower or "template" in lower:
+            tags.append("jinja-template")
+        if "click" in lower or "cli" in lower:
+            tags.append("click-cli")
+    if artifact_kind in {"ml_framework_docs", "ml_tutorial"}:
+        tags.extend(["ml", "pytorch"])
+        if "cuda" in lower or "mps" in lower or "device" in lower:
+            tags.append("accelerator-device")
+        if "autograd" in lower or "gradient" in lower:
+            tags.append("autograd")
+        if "dataloader" in lower or "dataset" in lower:
+            tags.append("data-loading")
+        if "distributed" in lower:
+            tags.append("distributed-training")
+    if artifact_kind in {"data_science_docs", "notebook_docs"}:
+        tags.extend(["data-science", "numeric-python"])
+        if "numpy" in lower or "ndarray" in lower:
+            tags.append("numpy-array")
+        if "pandas" in lower or "dataframe" in lower:
+            tags.append("pandas-dataframe")
+        if "scipy" in lower:
+            tags.append("scipy")
+        if "scikit-learn" in lower or "sklearn" in lower or "estimator" in lower:
+            tags.append("sklearn-estimator")
+        if "jupyter" in lower or "notebook" in lower:
+            tags.append("notebook")
     if artifact_kind == "repo_map":
-        tags.extend(["repo-map", "python-architecture", "swe-bench"])
+        tags.extend(["repo-map", "python-architecture", "repo-repair"])
     if artifact_kind == "type_stub":
         tags.append("typeshed")
     if artifact_kind == "pep":
@@ -1946,8 +2001,18 @@ def _python_metadata(
         if artifact_kind == "type_stub"
         else "python-repo-map"
         if artifact_kind == "repo_map"
+        else "python-web-framework-docs"
+        if artifact_kind == "web_framework_docs"
+        else "python-ml-framework-docs"
+        if artifact_kind in {"ml_framework_docs", "ml_tutorial"}
+        else "python-data-science-docs"
+        if artifact_kind in {"data_science_docs", "notebook_docs"}
         else "python-docs",
-        "content_profile": "architecture" if artifact_kind == "repo_map" else "reference",
+        "content_profile": "architecture"
+        if artifact_kind == "repo_map"
+        else "procedural"
+        if artifact_kind in {"ml_tutorial", "notebook_docs"}
+        else "reference",
         "prompt_id": prompt_id
         or _python_prompt_for_chunk(text, rel_path=rel_path, artifact_kind=artifact_kind, symbol_kind=symbol_kind),
     }

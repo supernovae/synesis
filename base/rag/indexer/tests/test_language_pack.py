@@ -1142,6 +1142,17 @@ def test_build_language_pack_from_python_fixture(monkeypatch: pytest.MonkeyPatch
     (source / "uv" / "docs").mkdir(parents=True)
     (source / "pixi" / "docs").mkdir(parents=True)
     (source / "typeshed" / "stdlib").mkdir(parents=True)
+    (source / "flask" / "docs").mkdir(parents=True)
+    (source / "werkzeug" / "docs").mkdir(parents=True)
+    (source / "jinja" / "docs").mkdir(parents=True)
+    (source / "click" / "docs").mkdir(parents=True)
+    (source / "pytorch" / "docs" / "source").mkdir(parents=True)
+    (source / "pytorch-tutorials").mkdir(parents=True)
+    (source / "numpy" / "doc" / "source").mkdir(parents=True)
+    (source / "pandas" / "doc" / "source").mkdir(parents=True)
+    (source / "scipy" / "doc" / "source").mkdir(parents=True)
+    (source / "scikit-learn" / "doc").mkdir(parents=True)
+    (source / "jupyterlab" / "docs").mkdir(parents=True)
     (source / "pyproject.toml").write_text(
         '[project]\nname = "demo"\nrequires-python = ">=3.14"\ndependencies = ["httpx>=0.27"]\n',
         encoding="utf-8",
@@ -1175,6 +1186,50 @@ def test_build_language_pack_from_python_fixture(monkeypatch: pytest.MonkeyPatch
     (source / "typeshed" / "stdlib" / "zlib.pyi").write_text(
         "def compress(data: bytes) -> bytes: ...\n", encoding="utf-8"
     )
+    (source / "flask" / "docs" / "patterns.rst").write_text(
+        "Flask app factories create applications for testing. Use test_client for request tests.",
+        encoding="utf-8",
+    )
+    (source / "werkzeug" / "docs" / "request.rst").write_text(
+        "Werkzeug provides WSGI request and response utilities for Flask.",
+        encoding="utf-8",
+    )
+    (source / "jinja" / "docs" / "templates.rst").write_text(
+        "Jinja templates escape user controlled values when autoescape is enabled.",
+        encoding="utf-8",
+    )
+    (source / "click" / "docs" / "commands.rst").write_text(
+        "Click commands define Python command line interfaces with decorators.",
+        encoding="utf-8",
+    )
+    (source / "pytorch" / "docs" / "source" / "tensors.rst").write_text(
+        "PyTorch tensors carry dtype and device. Autograd tracks operations when gradients are enabled.",
+        encoding="utf-8",
+    )
+    (source / "pytorch-tutorials" / "training.md").write_text(
+        "Use torch.utils.data.DataLoader and nn.Module training loops with optimizer.zero_grad.",
+        encoding="utf-8",
+    )
+    (source / "numpy" / "doc" / "source" / "arrays.rst").write_text(
+        "NumPy ndarray operations are vectorized and depend on shape and dtype.",
+        encoding="utf-8",
+    )
+    (source / "pandas" / "doc" / "source" / "frame.rst").write_text(
+        "pandas DataFrame indexes labels and columns; missing values affect operations.",
+        encoding="utf-8",
+    )
+    (source / "scipy" / "doc" / "source" / "optimize.rst").write_text(
+        "SciPy optimize routines solve numerical minimization problems.",
+        encoding="utf-8",
+    )
+    (source / "scikit-learn" / "doc" / "pipeline.rst").write_text(
+        "scikit-learn Pipeline chains transformers and estimators to avoid leakage.",
+        encoding="utf-8",
+    )
+    (source / "jupyterlab" / "docs" / "notebooks.md").write_text(
+        "Jupyter notebooks execute cells in a kernel where prior state can affect results.",
+        encoding="utf-8",
+    )
 
     class FakeEmbedClient:
         def __init__(self, **_kwargs):
@@ -1198,11 +1253,22 @@ def test_build_language_pack_from_python_fixture(monkeypatch: pytest.MonkeyPatch
     assert manifest["source_version"] == "v3.14.4"
     assert manifest["enrichment"]["prompt_id"] == "python_314_agentic_architect_v1"
     assert "python_repo_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "python_web_flask_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "python_ml_pytorch_architect_v1" in manifest["enrichment"]["prompt_hashes"]
+    assert "python_data_science_architect_v1" in manifest["enrichment"]["prompt_hashes"]
     with zipfile.ZipFile(out) as zf:
         rows = [json.loads(line) for line in zf.read("metadata.jsonl").decode().splitlines()]
     assert any(row["artifact_kind"] == "pep" and row["symbol_fqn"] == "PEP-0703" for row in rows)
     assert any(row["artifact_kind"] == "type_stub" for row in rows)
     assert any(row["artifact_kind"] == "tool_docs" and "uv" in row["scope_tags"] for row in rows)
+    assert any(row["artifact_kind"] == "web_framework_docs" and "flask-ecosystem" in row["scope_tags"] for row in rows)
+    assert any(row["artifact_kind"] == "ml_framework_docs" and "pytorch" in row["scope_tags"] for row in rows)
+    assert any(
+        row["artifact_kind"] == "ml_tutorial" and row["enrichment_profile"] == "python_ml_pytorch_architect_v1"
+        for row in rows
+    )
+    assert any(row["artifact_kind"] == "data_science_docs" and "data-science" in row["scope_tags"] for row in rows)
+    assert any(row["artifact_kind"] == "notebook_docs" and "notebook" in row["scope_tags"] for row in rows)
     assert any(row["artifact_kind"] == "repo_map" for row in rows)
     assert any(row["artifact_kind"] == "repo_map" and row["symbol_kind"] == "project_config" for row in rows)
     assert any("subinterpreters" in row["scope_tags"] for row in rows)

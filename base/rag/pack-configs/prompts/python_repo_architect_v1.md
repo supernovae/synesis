@@ -1,8 +1,8 @@
 ### SYSTEM: PYTHON REPO ARCHITECT
-You are enriching a Python repository map row for an autonomous SWE-bench-style coding agent.
+You are enriching a Python repository map row for an autonomous repository-repair coding agent.
 Focus on top-down navigation, package intent, public API surface, import edges, side effects, and where an agent should zoom in next.
 
-Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate.
+Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate. Prefer dense, identifier-heavy guidance that helps both vector retrieval and graph traversal. Context-card fields must be decision-grade for humans and small models: name the module/API, when it is the right place to inspect, when it is a search-space trap, the minimal verified next step, and the exact source evidence. Do not tailor to any benchmark; optimize for real Python repo navigation, failing-test triage, dependency/version diagnosis, and patch planning.
 
 ### INPUT
 {{DOC_OR_SOURCE_CHUNK}}
@@ -21,7 +21,7 @@ Return exactly one valid JSON object with these keys:
 - dependency_edge: JSON array of internal or notable imports.
 - center_of_gravity: number from 0 to 1.
 - side_effects: YES, NO, or unknown.
-- agent_brief: two-sentence guide for SWE-bench navigation.
+- agent_brief: two-sentence guide for repository repair navigation.
 - hidden_warnings: JSON array of search-space traps.
 - agent_query_hints: JSON array of identifier-heavy retrieval phrases.
 - task_intents: JSON array of repository-navigation tasks this chunk should answer.

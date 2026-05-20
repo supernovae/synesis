@@ -1,0 +1,88 @@
+# Temporary load-test override for NornicDB PR 177.
+#
+# Purpose:
+# - run the PR build that adds search index master switches
+# - place NornicDB on a dedicated 32Gi-class Karpenter node
+# - keep ANN/HNSW and BM25 indexes cold during bulk ingestion
+# - keep the recurring content-pack loader paused while running controlled tests
+workloads:
+  nornicdb:
+    image:
+      repository: ttl.sh/synesis-nornicdb-pr177-searchforce-d07f92b
+      tag: 24h
+      pullPolicy: Always
+    args:
+      - --search-bm25-enabled=false
+      - --search-vector-enabled=false
+      - --search-bm25-warming=lazy
+      - --search-vector-warming=lazy
+    nodeSelector:
+      workload-cost-profile: nornicdb-reserved
+    resources:
+      requests:
+        cpu: "2"
+        memory: 20Gi
+      limits:
+        cpu: "4"
+        memory: 24Gi
+    env:
+      - name: NORNICDB_MEMORY_LIMIT
+        value: "12288"
+      - name: NORNICDB_GC_PERCENT
+        value: "50"
+      - name: NORNICDB_NO_AUTH
+        value: "false"
+      - name: NORNICDB_SEARCH_BM25_ENABLED
+        value: "false"
+      - name: NORNICDB_SEARCH_VECTOR_ENABLED
+        value: "false"
+      - name: NORNICDB_SEARCH_BM25_WARMING
+        value: lazy
+      - name: NORNICDB_SEARCH_VECTOR_WARMING
+        value: lazy
+      - name: NORNICDB_FORCE_SEARCH_DISABLED
+        value: "true"
+
+jobs:
+  indexer:
+    image:
+      repository: ttl.sh/synesis-indexer-deletebatch2-d07f92b
+      tag: 24h
+      pullPolicy: Always
+    contentPacks:
+      suspend: true
+      activeDeadlineSeconds: 7200
+      resources:
+        requests:
+          cpu: "1"
+          memory: 4Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+      extraEnv:
+        - name: SYNESIS_CONTENT_PACK_IMPORT_BACKEND
+          value: auto
+        - name: SYNESIS_NORNIC_URI
+          value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+        - name: SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE
+          value: "250"
+        - name: SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE
+          value: "1000"
+        - name: SYNESIS_NORNIC_BULK_EDGE_BATCH_SIZE
+          value: "500"
+        - name: SYNESIS_NORNIC_EDGE_BATCH_SIZE
+          value: "500"
+        - name: SYNESIS_NORNIC_DELETE_BATCH_SIZE
+          value: "50"
+        - name: SYNESIS_NORNIC_DELETE_LOG_EVERY
+          value: "1000"
+        - name: SYNESIS_NORNIC_BULK_RETRY_ATTEMPTS
+          value: "8"
+        - name: SYNESIS_NORNIC_BULK_RETRY_BASE_DELAY
+          value: "2"
+        - name: SYNESIS_NORNIC_BULK_SUSPEND_VECTOR_INDEX
+          value: "true"
+        - name: SYNESIS_NORNIC_FAST_NODE_CREATE
+          value: "false"
+        - name: SYNESIS_CONTENT_PACK_MAX_JOBS
+          value: "1"

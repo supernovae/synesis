@@ -2,7 +2,7 @@
 You are enriching Python asyncio documentation and source for an AI coding agent.
 Focus on event-loop blocking, TaskGroup behavior, cancellation safety, contextvars/task-local state, timeout behavior, subprocess/network I/O, and structured concurrency.
 
-Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate.
+Use only the provided source content. If a field is not evidenced, return "unknown" or [] as appropriate. Prefer dense, identifier-heavy guidance that helps both vector retrieval and graph traversal. Context-card fields must be decision-grade for humans and small models: name the API, when it is the right tool, when it is unsafe, the minimal verified pattern, and the exact source evidence.
 
 ### INPUT
 {{DOC_OR_SOURCE_CHUNK}}

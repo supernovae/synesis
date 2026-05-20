@@ -23,7 +23,8 @@ NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
 NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "")
 NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
 NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
-DELETE_BATCH_SIZE = 500
+DELETE_BATCH_SIZE = max(1, min(int(os.getenv("SYNESIS_NORNIC_DELETE_BATCH_SIZE", "500") or "500"), 500))
+DELETE_LOG_EVERY = max(1, int(os.getenv("SYNESIS_NORNIC_DELETE_LOG_EVERY", "1000") or "1000"))
 EDGE_BATCH_SIZE = 1000
 NORNIC_BULK_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_NODE_BATCH_SIZE", "500") or "500")
 NORNIC_BULK_META_NODE_BATCH_SIZE = int(os.getenv("SYNESIS_NORNIC_BULK_META_NODE_BATCH_SIZE", "2000") or "2000")
@@ -562,8 +563,8 @@ class NornicGraphWriter:
 
     def delete_pack(self, pack_id: str) -> int:
         deleted = 0
-        with self.driver.session(database=self.database) as session:
-            while True:
+        while True:
+            with self.driver.session(database=self.database) as session:
                 rows = session.run(
                     """
                     MATCH (n:ContentNode)
@@ -575,10 +576,17 @@ class NornicGraphWriter:
                     limit=DELETE_BATCH_SIZE,
                 )
                 ids = [str(row["id"]) for row in rows if row.get("id")]
-                if not ids:
-                    return deleted
-                session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=ids)
-                deleted += len(ids)
+            if not ids:
+                return deleted
+            with self.driver.session(database=self.database) as session:
+                result = session.run("MATCH (n:ContentNode) WHERE n.id IN $ids DETACH DELETE n", ids=ids)
+                result.consume()
+            deleted += len(ids)
+            if deleted % DELETE_LOG_EVERY == 0:
+                logger.info(
+                    "indexer_graph_pack_delete_progress",
+                    extra={"pack_id": pack_id, "deleted": deleted, "batch_size": DELETE_BATCH_SIZE},
+                )
 
     def delete_partial_ids(self, ids: list[str]) -> int:
         """Delete id-only nodes left behind by interrupted or failed writes."""
