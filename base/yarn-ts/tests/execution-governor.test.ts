@@ -1140,6 +1140,26 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("verification_churn_no_edit");
   });
 
+  it("does not treat a successful dependency install as verification churn", () => {
+    const messages = [
+      { role: "user", content: "write tests, install missing pytest plugin, and continue" },
+      assistantCall("1", "write", { file_path: "taskpulse/tests/test_tasks.py", content: "def test_task(): pass" }),
+      toolResult("1", "Wrote 42 lines"),
+      assistantCall("2", "bash", { command: "python -m pytest taskpulse/tests/ -v" }),
+      toolResult("2", "ModuleNotFoundError: No module named 'pytest_asyncio'\nExit code 1"),
+      assistantCall("3", "bash", { command: "pytest taskpulse/tests/ -v" }),
+      toolResult("3", "ModuleNotFoundError: No module named 'pytest_asyncio'\nExit code 1"),
+      assistantCall("4", "bash", { command: "python3 -m pytest taskpulse/tests/ -v" }),
+      toolResult("4", "ModuleNotFoundError: No module named 'pytest_asyncio'\nExit code 1"),
+      assistantCall("5", "bash", { command: "pip install pytest-asyncio==0.25.3" }),
+      toolResult("5", "Successfully installed pytest-asyncio-0.25.3"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("verification_churn_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBe(0);
+  });
+
   it("fires recovery rewrite block for verification_stall_no_edit", () => {
     const decision = evaluateExecutionGovernor([
       { role: "user", content: "implement feature" },

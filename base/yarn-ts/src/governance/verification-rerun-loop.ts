@@ -13,6 +13,12 @@ const WRAPPER_SUFFIXES = [
   /\s*>\s*\S+\s*2>&1\s*;\s*(echo\s+"[^"]*"\s*;\s*)?(cat|head|tail|sed|rg)\b.*$/i,
 ];
 
+function isDependencySetupCommand(command: string): boolean {
+  return /\b(npm|pnpm|yarn)\s+install\b/i.test(command)
+    || /\b(?:uv\s+)?pip\s+install\b/i.test(command)
+    || /\bgo\s+mod\s+tidy\b/i.test(command);
+}
+
 function normalizeCommand(command: string): string {
   let out = command.trim();
   for (const re of WRAPPER_SUFFIXES) {
@@ -65,6 +71,13 @@ export function detectVerificationRerunLoop(
   const tail = recentCalls.slice(-windowSize);
   const fingerprints: string[] = [];
   for (const c of tail) {
+    const command = typeof c.args?.command === "string"
+      ? c.args.command
+      : (typeof c.args?.cmd === "string" ? c.args.cmd : "");
+    if (command && isDependencySetupCommand(command)) {
+      fingerprints.length = 0;
+      continue;
+    }
     const fp = extractVerificationFingerprint(c);
     if (fp) fingerprints.push(fp);
   }

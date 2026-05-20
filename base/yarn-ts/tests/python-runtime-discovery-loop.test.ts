@@ -27,6 +27,16 @@ describe("python-runtime-discovery-loop", () => {
     expect(out).toBeNull();
   });
 
+  it("resets runtime probing after dependency setup", () => {
+    const out = detectPythonRuntimeDiscoveryLoop([
+      { toolName: "bash", args: { command: "python -m pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "python3 -m pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "pip install pytest-asyncio==0.25.3" } },
+    ]);
+    expect(out).toBeNull();
+  });
+
   it("ignores non-python shell commands", () => {
     const out = detectPythonRuntimeDiscoveryLoop([
       { toolName: "bash", args: { command: "go test ./..." } },

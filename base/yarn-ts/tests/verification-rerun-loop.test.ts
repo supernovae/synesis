@@ -35,6 +35,15 @@ describe("verification-rerun-loop", () => {
     expect(out).toBeNull();
   });
 
+  it("resets repeated verification detection after dependency setup", () => {
+    const out = detectVerificationRerunLoop([
+      { toolName: "bash", args: { command: "python -m pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "pytest taskpulse/tests/ -v" } },
+      { toolName: "bash", args: { command: "pip install pytest-asyncio==0.25.3" } },
+    ]);
+    expect(out).toBeNull();
+  });
+
   it("ignores non-verification shell commands", () => {
     const out = detectVerificationRerunLoop([
       { toolName: "bash", args: { command: "ls -la" } },

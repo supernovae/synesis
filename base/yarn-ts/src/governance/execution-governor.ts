@@ -1352,15 +1352,7 @@ function isDependencyInstallReplay(events: CommandEvent[]): boolean {
   const depCmds = new Map<string, number>();
   for (const e of events) {
     const cmd = normalizeString(e.command).toLowerCase();
-    const isDepInstall =
-      /\bnpm\s+install\b/.test(cmd)
-      || /\bpnpm\s+install\b/.test(cmd)
-      || /\byarn\s+install\b/.test(cmd)
-      || /\bgo\s+mod\s+tidy\b/.test(cmd)
-      || /\bpip\s+install\b/.test(cmd)
-      || /\buv\s+pip\s+install\b/.test(cmd)
-      || /\bcargo\s+build\b/.test(cmd);
-    if (!isDepInstall) continue;
+    if (!isDependencyInstallCommand(cmd)) continue;
     const key = cmd.slice(0, 60);
     depCmds.set(key, (depCmds.get(key) ?? 0) + 1);
   }
@@ -1368,6 +1360,23 @@ function isDependencyInstallReplay(events: CommandEvent[]): boolean {
     if (count >= 2) return true;
   }
   return false;
+}
+
+function isDependencyInstallCommand(command: string): boolean {
+  const cmd = normalizeString(command).toLowerCase();
+  return /\bnpm\s+install\b/.test(cmd)
+    || /\bpnpm\s+install\b/.test(cmd)
+    || /\byarn\s+install\b/.test(cmd)
+    || /\bgo\s+mod\s+tidy\b/.test(cmd)
+    || /\bpip\s+install\b/.test(cmd)
+    || /\buv\s+pip\s+install\b/.test(cmd)
+    || /\bcargo\s+build\b/.test(cmd);
+}
+
+function hasSuccessfulDependencyInstallSignature(sig: string): boolean {
+  if (!sig) return false;
+  if (hasFailureSignature(sig)) return false;
+  return /\bsuccessfully installed\b|\bup to date\b|\balready satisfied\b|\baudited \d+ packages\b|\bfound 0 vulnerabilities\b|\bgo: downloading\b|\bgo: found\b|\bfinished\b/.test(sig);
 }
 
 function isReadOnlyInvestigationIntent(userText: string): boolean {
@@ -1771,6 +1780,9 @@ export function evaluateExecutionGovernor(
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const vc = events[i].command;
     if (isEditCommand(vc)) break;
+    if (isDependencyInstallCommand(vc) && hasSuccessfulDependencyInstallSignature(events[i].resultSignature)) {
+      break;
+    }
     if (isVerificationCommand(events[i].toolName, vc)) {
       trailingVerificationRunLength += 1;
       trailingVerificationCommands.add(vc);

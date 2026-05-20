@@ -34,6 +34,12 @@ function isPythonRelated(command: string): boolean {
   return /\bpython\b|\bpython3\b|\buv\s+run\b|\bpytest\b|\bpip\b/.test(lower);
 }
 
+function isDependencySetupCommand(command: string): boolean {
+  return /\b(?:uv\s+)?pip\s+install\b/i.test(command)
+    || /\b(npm|pnpm|yarn)\s+install\b/i.test(command)
+    || /\bgo\s+mod\s+tidy\b/i.test(command);
+}
+
 export interface PythonRuntimeDiscoveryLoopResult {
   detected: boolean;
   attempts: number;
@@ -54,6 +60,11 @@ export function detectPythonRuntimeDiscoveryLoop(
     if (!SHELL_TOOLS.has(tool) && tool !== "run_test" && tool !== "run_build" && tool !== "run_lint") continue;
     const cmd = normalizeCommand(call);
     if (!cmd) continue;
+    if (isDependencySetupCommand(cmd)) {
+      tokens.length = 0;
+      pythonAttempts = 0;
+      continue;
+    }
     if (!isPythonRelated(cmd)) continue;
     pythonAttempts += 1;
     const token = runtimeToken(cmd);
