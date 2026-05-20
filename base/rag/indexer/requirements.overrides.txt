@@ -1,2 +1,2 @@
 lxml>=6.1.0,<7
-lxml-html-clean>=0.4.4
+lxml-html-clean>=0.4.5
