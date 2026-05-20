@@ -1,5 +1,5 @@
 httpx>=0.28.1
-boto3>=1.43.5
+boto3>=1.43.11
 # synesis_telemetry: installed separately in Dockerfile (UBI base-api path copy, not base-api image)
 defusedxml>=0.7.1
 neo4j>=6.2.0
