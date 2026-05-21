@@ -3,26 +3,74 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+staged_files=()
+while IFS= read -r file; do
+    staged_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ "${#staged_files[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+echo "pre-commit: checking staged diff"
+git diff --cached --check
+
+if git diff --cached --no-ext-diff -- "${staged_files[@]}" | grep -nE 'BEGIN (RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}' >/tmp/synesis-precommit-secret-scan.txt; then
+    echo "pre-commit: possible secret material found in staged diff:" >&2
+    cat /tmp/synesis-precommit-secret-scan.txt >&2
+    exit 1
+fi
+
 staged_python_files=()
 while IFS= read -r file; do
     staged_python_files+=("$file")
 done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
 
-if [ "${#staged_python_files[@]}" -eq 0 ]; then
-    exit 0
+if [ "${#staged_python_files[@]}" -gt 0 ]; then
+    if ! command -v uvx >/dev/null 2>&1; then
+        echo "pre-commit: uvx is required to run Ruff." >&2
+        echo "Install uv from https://docs.astral.sh/uv/ and retry the commit." >&2
+        exit 1
+    fi
+
+    echo "pre-commit: running Ruff on staged Python files"
+    uvx ruff check --fix "${staged_python_files[@]}"
+    uvx ruff format "${staged_python_files[@]}"
+
+    if ! git diff --quiet -- "${staged_python_files[@]}"; then
+        echo "pre-commit: Ruff updated files. Review and stage the changes, then commit again." >&2
+        exit 1
+    fi
 fi
 
-if ! command -v uvx >/dev/null 2>&1; then
-    echo "pre-commit: uvx is required to run Ruff." >&2
-    echo "Install uv from https://docs.astral.sh/uv/ and retry the commit." >&2
-    exit 1
+staged_yaml_files=()
+while IFS= read -r file; do
+    staged_yaml_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.yaml' '*.yml')
+
+if [ "${#staged_yaml_files[@]}" -gt 0 ]; then
+    if ! command -v uvx >/dev/null 2>&1; then
+        echo "pre-commit: uvx is required to run yamllint." >&2
+        echo "Install uv from https://docs.astral.sh/uv/ and retry the commit." >&2
+        exit 1
+    fi
+
+    echo "pre-commit: running yamllint on staged YAML files"
+    uvx yamllint -c .yamllint.yml "${staged_yaml_files[@]}"
 fi
 
-echo "pre-commit: running Ruff on staged Python files"
-uvx ruff check --fix "${staged_python_files[@]}"
-uvx ruff format "${staged_python_files[@]}"
+staged_shell_files=()
+while IFS= read -r file; do
+    staged_shell_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.sh')
 
-if ! git diff --quiet -- "${staged_python_files[@]}"; then
-    echo "pre-commit: Ruff updated files. Review and stage the changes, then commit again." >&2
-    exit 1
+if [ "${#staged_shell_files[@]}" -gt 0 ]; then
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        echo "pre-commit: shellcheck is required for staged shell scripts." >&2
+        echo "Install ShellCheck and retry the commit." >&2
+        exit 1
+    fi
+
+    echo "pre-commit: running ShellCheck on staged shell scripts"
+    shellcheck --severity=warning --shell=bash "${staged_shell_files[@]}"
 fi

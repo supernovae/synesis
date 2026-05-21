@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [ "${SYNESIS_SKIP_PRE_PUSH:-}" = "1" ]; then
+    echo "pre-push: skipped because SYNESIS_SKIP_PRE_PUSH=1"
+    exit 0
+fi
+
+echo "pre-push: running local quality gate"
+./scripts/quality-check.sh --quick

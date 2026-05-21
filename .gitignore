@@ -66,7 +66,9 @@ synesis-models/
 # Synpack artifacts (large generated bundles)
 synpacks/
 .work/synpacks/
+dist/synpacks/
 base/rag/indexer/synpacks/
+base/rag/indexer/dist/synpacks/
 
 # Secrets and credentials
 .env

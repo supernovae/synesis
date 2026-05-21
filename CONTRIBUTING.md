@@ -37,7 +37,22 @@ sudo dnf install ShellCheck
 
 # Install hadolint for Dockerfile linting
 brew install hadolint
+
+# Use the repository's tracked commit hooks
+make install-hooks
 ```
+
+## Local Quality Gates
+
+The repository includes tracked Git hooks under `.githooks/`.
+
+```bash
+make quality       # quick local parity with lint/doc CI checks
+make quality-full  # quick checks plus TypeScript/frontend build and tests
+npm run lint       # ESLint for TypeScript/JavaScript workspaces and services
+```
+
+The pre-commit hook checks staged whitespace, likely secrets, Ruff formatting/linting for Python, yamllint for YAML, and ShellCheck for shell scripts. The pre-push hook runs `make quality` unless `SYNESIS_SKIP_PRE_PUSH=1` is set. `make quality` also runs `scripts/check-authz-coverage.py`, which fails when admin or MCP routes are added without explicit auth/authz coverage.
 
 ## Code Standards
 
@@ -71,6 +86,17 @@ ruff format --check base/
 
 # Auto-format
 ruff format base/
+```
+
+### TypeScript / JavaScript
+
+TypeScript and JavaScript code is linted with ESLint. The root config covers
+workspace packages and services; the admin frontend keeps its React-specific
+config under `base/admin/frontend/`.
+
+```bash
+npm run lint
+cd base/admin/frontend && npm run lint
 ```
 
 ### YAML / Kubernetes Manifests

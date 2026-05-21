@@ -205,7 +205,46 @@ enrichment provider.
 
 ## Staged Builds
 
-Use staged commands for recoverable large builds:
+Use `scripts/synpack-helper.py` for recoverable large builds. The helper can be
+run from the repository root, stores each pack in `.work/synpacks/<pack-id>`
+(already gitignored), runs the indexer from the correct directory, sets
+`UV_CACHE_DIR`, and refuses to reuse a work directory whose staged manifest
+belongs to another language or pack id.
+
+```bash
+./scripts/synpack-helper.py prepare --language python
+
+./scripts/synpack-helper.py enrich --language python \
+  --enrichment-url https://api.deepseek.com/v1 \
+  --enrichment-model deepseek-v4-pro \
+  --enrichment-token-env DEEPSEEK_TOKEN \
+  --request-limit 1000
+
+./scripts/synpack-helper.py status --language python
+
+./scripts/synpack-helper.py finalize --language python \
+  --embedder-url http://localhost:8082/v1
+```
+
+For a full remaining enrichment run, pass `--confirm-spend` instead of
+`--request-limit`. This is intentionally explicit because enrichment can spend
+large token volumes. To generate deterministic fallback enrichments without
+model calls, use `--skip-enrichment`.
+
+Generate all supported language packs with the same safety rails:
+
+```bash
+./scripts/synpack-helper.py prepare --language all
+./scripts/synpack-helper.py enrich --language all \
+  --enrichment-url https://api.deepseek.com/v1 \
+  --enrichment-model deepseek-v4-pro \
+  --enrichment-token-env DEEPSEEK_TOKEN \
+  --request-limit 1000
+./scripts/synpack-helper.py finalize --language all \
+  --embedder-url http://localhost:8082/v1
+```
+
+The lower-level staged indexer commands are still available when debugging:
 
 ```bash
 python -m app.cli --mode synpack --synpack-command prepare-language \

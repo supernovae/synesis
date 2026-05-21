@@ -48,10 +48,15 @@ All checks run on every push to `main` and on pull requests:
 | **Syft** | CycloneDX SBOM generation (per image build) | Artifact only |
 | **Semgrep** | OWASP Top 10, Python security rules | Yes |
 | **pip-audit** | Known vulnerabilities in Python dependencies | Yes |
+| **ESLint** | TypeScript/JavaScript security-dangerous patterns and code smell warnings | Yes |
 | **Ruff** | Lint + flake8-bandit (S-class) security rules | Yes |
 | **ShellCheck** | Shell script analysis | Yes |
 | **Hadolint** | Dockerfile best practices | Yes |
 | **Dependabot** | Dependency version alerts | Advisory |
+
+Snyk is not required for the baseline gate because CodeQL, Semgrep, npm audit, pip-audit, Checkov, Grype, and Ruff already cover the open-source CI posture. If the project adopts Snyk, treat it as an additional SAST/SCA signal using a repository `SNYK_TOKEN`, not as a replacement for the existing GitHub-native and lockfile-based checks.
+
+Admin API and MCP route auth coverage is also checked by `scripts/check-authz-coverage.py`. The check is intentionally repo-specific: every non-public FastAPI route must declare a user/RBAC/internal-service dependency or call an internal-token verifier, and MCP Fastify routes must pass through the expected PAT/session/FGA auth path.
 
 **Note:** Trivy was removed after the Aqua Security supply-chain compromise ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Checkov (IaC misconfiguration) and Grype (vulnerability scanning) replace it. Syft generates CycloneDX SBOMs for every built image.
 

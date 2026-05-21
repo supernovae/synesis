@@ -261,6 +261,8 @@ jobs:
             dir: base/planner-ts
           - name: yarn-ts
             dir: base/yarn-ts
+          - name: vision-worker
+            dir: base/vision-worker
     steps:
       - uses: actions/checkout@v6
 
@@ -341,7 +343,7 @@ jobs:
             --config "https://semgrep.dev/p/xss" \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
             --json --json-output=semgrep-ts-services-results.json \
-            base/planner-ts/src/ base/yarn-ts/src/ || true
+            packages/ base/admin-mcp-ts/src/ base/synesis-mcp/src/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/ || true
 
       - name: Run Semgrep on Planner/Yarn TypeScript (gate)
         run: |
@@ -352,7 +354,7 @@ jobs:
             --severity ERROR \
             --error \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            base/planner-ts/src/ base/yarn-ts/src/
+            packages/ base/admin-mcp-ts/src/ base/synesis-mcp/src/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/
 
       - name: Upload Semgrep Planner/Yarn results
         uses: actions/upload-artifact@v6

@@ -11,7 +11,8 @@
 
 ## Checklist
 
-- [ ] Linters pass (`ruff check`, `shellcheck`, `yamllint`)
+- [ ] Linters pass (`make quality`, `npm run lint`, frontend lint if touched)
+- [ ] Auth/authz-sensitive routes declare explicit user/RBAC/service-token coverage
 - [ ] Kustomize builds succeed for all overlays
 - [ ] No secrets or credentials in the diff
 - [ ] README updated (if applicable)

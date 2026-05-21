@@ -21,8 +21,13 @@ jobs:
 
       - name: Run ShellCheck on all shell scripts
         run: |
-          find scripts/ -name '*.sh' -type f | xargs shellcheck --severity=warning --shell=bash
-          find base/ -name '*.sh' -type f | xargs shellcheck --severity=warning --shell=bash || true
+          find scripts base \
+            -path '*/.venv/*' -prune -o \
+            -path '*/.test-venv/*' -prune -o \
+            -path '*/node_modules/*' -prune -o \
+            -path '*/.work/*' -prune -o \
+            -name '*.sh' -type f -print |
+            xargs shellcheck --severity=warning --shell=bash
 
   python:
     name: Python (ruff)
@@ -57,6 +62,15 @@ jobs:
 
       - name: Validate doc and rule references
         run: python3 scripts/check-doc-reference-integrity.py
+
+  authz-coverage:
+    name: Auth/Authz Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify admin and MCP routes declare auth
+        run: python3 scripts/check-authz-coverage.py
 
   kustomize:
     name: Kustomize Build
@@ -125,6 +139,9 @@ jobs:
         working-directory: base/yarn-ts
         run: npx tsc --noEmit
 
+      - name: ESLint
+        run: npm run lint
+
       - name: Unit tests
         working-directory: base/yarn-ts
         run: npx vitest run
@@ -179,6 +196,32 @@ jobs:
       - name: Unit tests
         working-directory: base/admin-mcp-ts
         run: npx vitest run
+
+  admin-frontend:
+    name: Admin frontend lint + build + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        working-directory: base/admin/frontend
+        run: npm ci
+
+      - name: ESLint
+        working-directory: base/admin/frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: base/admin/frontend
+        run: npm run build
+
+      - name: Unit tests
+        working-directory: base/admin/frontend
+        run: npm test
 
   planner-ts-tests:
     name: Planner-TS typecheck + tests

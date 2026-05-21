@@ -1,6 +1,9 @@
 {
   "name": "synesis",
   "private": true,
+  "scripts": {
+    "lint": "eslint packages base/yarn-ts base/planner-ts base/synesis-mcp base/admin-mcp-ts base/vision-worker"
+  },
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "1.0.2"
   },
@@ -24,5 +27,11 @@
     "@opentelemetry/sdk-trace-node": "^2.6.1",
     "@opentelemetry/exporter-trace-otlp-http": "0.215.0",
     "ip-address": "10.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.0",
+    "globals": "^17.6.0",
+    "typescript-eslint": "^8.59.4"
   }
 }

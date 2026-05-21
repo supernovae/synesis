@@ -2,7 +2,7 @@
 # Run from project root.
 # Prerequisites: npm ci (for planner-ts workspace tests)
 
-.PHONY: mock-tests online-tests tests help
+.PHONY: mock-tests online-tests tests quality quality-full install-hooks help
 .PHONY: bench-retrieval bench-llm-judge bench-corpus-audit bench-chunking
 .PHONY: curator-discover curator-report
 
@@ -19,6 +19,16 @@ online-tests:
 
 # All unit/mock tests (alias)
 tests: mock-tests
+
+# Local quality gates. The pre-push hook runs the quick gate automatically.
+quality:
+	./scripts/quality-check.sh --quick
+
+quality-full:
+	./scripts/quality-check.sh --full
+
+install-hooks:
+	git config core.hooksPath .githooks
 
 # ── Retrieval Benchmarks ─────────────────────────────────────────────────────
 # All benchmarks require port-forward to Milvus + embedder:

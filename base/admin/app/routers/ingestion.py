@@ -2011,7 +2011,7 @@ HANDLER_METADATA = [
 
 
 @router.get("/handlers")
-async def list_handler_types():
+async def list_handler_types(_user: UserInfo = Depends(get_current_user)):
     """Return supported handler types with metadata for the UI."""
     return {"handlers": HANDLER_METADATA}
 

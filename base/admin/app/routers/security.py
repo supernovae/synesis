@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ..auth import UserInfo, get_current_user
+from ..internal_auth import require_internal_service_token_request
 from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
 from ..services import security_service
 from ..services.admin_audit import record_admin_audit
@@ -108,11 +109,11 @@ async def resolve_event(
 
 
 @router.post("/events/ingest")
-async def ingest_event(body: dict[str, Any]):
+async def ingest_event(request: Request, body: dict[str, Any]):
     """Accept security event payloads from Planner or Yarn.
 
-    In production this endpoint should be behind internal-only networking
-    or a service mesh policy. No user auth required — service-to-service only.
+    Service-to-service only; callers must present the configured internal token.
     """
+    require_internal_service_token_request(request)
     event_id = await security_service.ingest_event(body)
     return {"event_id": event_id, "status": "ingested"}
