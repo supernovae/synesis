@@ -9,6 +9,7 @@ can compose a final answer.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ import yaml
 from ..db.engine import async_session
 from ..db.models import BenchmarkResult
 from ..deps import INTERNAL_SERVICE_TOKEN, PLANNER_TS_URL
+
+logger = logging.getLogger("synesis.admin.rag_eval_harness")
 
 
 def _default_eval_dir() -> Path:
@@ -123,8 +126,9 @@ def list_rag_eval_suites() -> list[dict[str, Any]]:
     for path in sorted(_repo_eval_dir().glob("*.yaml")):
         try:
             suite = _load_suite(path)
-        except Exception as exc:
-            suites.append({"name": path.stem, "path": str(path), "case_count": 0, "error": str(exc)[:200]})
+        except Exception:
+            logger.exception("rag_eval_suite_load_failed path=%s", path)
+            suites.append({"name": path.stem, "path": str(path), "case_count": 0, "error": "suite load failed"})
             continue
         suites.append(
             {

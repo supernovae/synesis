@@ -66,7 +66,7 @@ async def run_eval(
         return result.to_dict()
     except Exception:
         logger.exception("eval_run_failed suite=%s", body.suite_name)
-        raise HTTPException(500, "Eval run failed")
+        raise HTTPException(500, "Eval run failed") from None
 
 
 @router.get("/rag/suites")
@@ -78,7 +78,7 @@ async def get_rag_eval_suites(
         return {"suites": list_rag_eval_suites()}
     except Exception:
         logger.exception("rag_eval_suite_list_failed")
-        raise HTTPException(500, "Failed to list RAG eval suites")
+        raise HTTPException(500, "Failed to list RAG eval suites") from None
 
 
 def _benchmark_to_rag_eval(row: BenchmarkResult) -> dict:
@@ -157,7 +157,7 @@ async def run_rag_eval(
         )
     except Exception:
         logger.exception("rag_eval_run_failed suite=%s", body.suite_name)
-        raise HTTPException(500, "RAG eval run failed")
+        raise HTTPException(500, "RAG eval run failed") from None
 
 
 @router.get("/rag/training-export")
