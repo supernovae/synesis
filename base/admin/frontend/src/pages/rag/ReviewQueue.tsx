@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -103,39 +103,48 @@ export default function ReviewQueue() {
   );
   const [sortPivot, setSortPivot] = useState<SortPivot>("");
   const [domainFilter, setDomainFilter] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadedQueryKey, setLoadedQueryKey] = useState("");
   const [acting, setActing] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkActing, setBulkActing] = useState(false);
   const [confirmBulkReject, setConfirmBulkReject] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string | number> = {
-        status: filter,
-        limit: 100,
-      };
-      if (sortPivot) params.sort = sortPivot;
-      if (domainFilter) params.domain = domainFilter;
-      const [statsRes, chunkRes] = await Promise.all([
-        client.get("/rag/review/stats").then((r) => r.data),
-        client.get("/rag/review", { params }).then((r) => r.data),
-      ]);
-      setStats(statsRes);
-      setChunks(chunkRes.chunks || []);
-      setSelected(new Set());
-    } catch {
-      setChunks([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, sortPivot, domainFilter]);
+  const currentQueryKey = JSON.stringify([filter, sortPivot, domainFilter]);
+  const loading = loadedQueryKey !== currentQueryKey;
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    let cancelled = false;
+
+    async function loadReviewData() {
+      try {
+        const params: Record<string, string | number> = {
+          status: filter,
+          limit: 100,
+        };
+        if (sortPivot) params.sort = sortPivot;
+        if (domainFilter) params.domain = domainFilter;
+        const [statsRes, chunkRes] = await Promise.all([
+          client.get("/rag/review/stats").then((r) => r.data),
+          client.get("/rag/review", { params }).then((r) => r.data),
+        ]);
+        if (cancelled) return;
+        setStats(statsRes);
+        setChunks(chunkRes.chunks || []);
+        setSelected(new Set());
+        setLoadedQueryKey(currentQueryKey);
+      } catch {
+        if (cancelled) return;
+        setChunks([]);
+        setLoadedQueryKey(currentQueryKey);
+      }
+    }
+
+    void loadReviewData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, sortPivot, domainFilter, currentQueryKey]);
 
   function toggleSelect(chunkId: string) {
     setSelected((prev) => {
