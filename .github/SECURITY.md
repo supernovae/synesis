@@ -57,9 +57,13 @@ All checks run on every push to `main` and on pull requests:
 
 Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.checkov.yml` (including `CKV_K8S_49` for the RHBK Keycloak operator `Role` in `base/keycloak/operator-rbac.yaml`, and `CKV_DOCKER_3` for the thin **Open WebUI** child `Dockerfile` that inherits upstream’s default root user).
 
-### pip-audit: indexer and NLTK (transitive)
+### pip-audit: accepted unfixed upstream advisories
 
-The RAG **indexer** depends on **Crawl4AI**, which pulls **nltk**. OSV currently reports **CVE-2026-33230**, **CVE-2026-33231**, and **GHSA-rf74-v2fm-23pw** for **nltk** through **3.9.3**, and **there is no newer fixed release on PyPI** yet. The indexer does not run NLTK’s `wordnet_app` web UI; risk from these advisories is assessed as **low** for our usage. The **Security Scan** workflow applies **pip-audit `ignore-vulns` only to the indexer matrix job** (not the whole monorepo). **Revisit** when **nltk** publishes a patched version, then drop the ignores and add an explicit `nltk>=…` constraint if needed.
+The **Security Scan** workflow applies narrow **pip-audit `ignore-vuln` entries only to the affected matrix jobs** when OSV reports an advisory against the current locked package but does not provide a fixed PyPI version. These are not global suppressions.
+
+- **admin / PyJWT**: locked to `pyjwt==2.12.1`, the latest release and the release that includes the critical-header validation fix. OSV still reports `PYSEC-2025-183` with no fixed version. Remove the ignore when OSV metadata no longer flags `2.12.1`.
+- **base-ml and gliner-service / torch + transformers**: locked to current `torch==2.12.0` and `transformers==5.9.0`. OSV reports `PYSEC-2025-189` through `PYSEC-2025-197`, `PYSEC-2025-210`, `PYSEC-2026-139`, and `PYSEC-2025-211` through `PYSEC-2025-218` with no fixed versions. These images are ML runtime images; downgrade would not reduce risk without a known fixed release. Remove individual ignores as patched releases become available.
+- **indexer / Crawl4AI transitives**: `crawl4ai` pulls `nltk` and `joblib`. OSV reports `CVE-2026-33230`, `CVE-2026-33231`, `GHSA-rf74-v2fm-23pw`, `PYSEC-2024-277`, and `PYSEC-2026-97` with no fixed PyPI versions for the resolved packages. The indexer does not run NLTK’s `wordnet_app` web UI; risk from these advisories is assessed as **low** for our usage. Remove the ignores when patched releases are published, then add explicit constraints if the resolver does not pick them up automatically.
 
 ### Python dependency lockfiles and hash verification
 

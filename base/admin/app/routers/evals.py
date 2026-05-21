@@ -74,7 +74,11 @@ async def get_rag_eval_suites(
     _user: UserInfo = Depends(get_current_user),
 ):
     """List YAML-backed SynPack retrieval eval suites."""
-    return {"suites": list_rag_eval_suites()}
+    try:
+        return {"suites": list_rag_eval_suites()}
+    except Exception:
+        logger.exception("rag_eval_suite_list_failed")
+        raise HTTPException(500, "Failed to list RAG eval suites")
 
 
 def _benchmark_to_rag_eval(row: BenchmarkResult) -> dict:
@@ -151,9 +155,9 @@ async def run_rag_eval(
             top_k=body.top_k,
             triggered_by=_user.email or _user.username or _user.user_id,
         )
-    except Exception as exc:
-        logger.error("rag_eval_run_failed suite=%s error=%s", body.suite_name, exc, exc_info=True)
-        raise HTTPException(500, f"RAG eval run failed: {exc}")
+    except Exception:
+        logger.exception("rag_eval_run_failed suite=%s", body.suite_name)
+        raise HTTPException(500, "RAG eval run failed")
 
 
 @router.get("/rag/training-export")
