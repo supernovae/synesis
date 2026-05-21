@@ -105,6 +105,31 @@ describe("Canonical session key", () => {
     expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r1000");
     expect(decision.reason).toBe("active_alias");
   });
+
+  it("does not reuse the bare legacy key for implicit conversations", async () => {
+    const { resolveSessionKey } = await import("../src/session/session-key.js");
+    const decision = await resolveSessionKey({
+      identity: {
+        userId: "alice",
+        orgId: "",
+        clientKind: "opencode",
+        conversationId: "",
+      },
+      nowMs: 3000,
+      inactivityRotationMs: 30 * 60 * 1000,
+      activeByBaseKey: new Map(),
+      loadRecord: vi.fn().mockImplementation((sessionKey: string) => Promise.resolve(
+        sessionKey === "synesis:alice:opencode:_"
+          ? { sessionKey, lastActiveAt: 2999 }
+          : null,
+      )),
+      loadActiveSessionKey: vi.fn().mockResolvedValue(null),
+      saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r3000");
+    expect(decision.reason).toBe("new_implicit_conversation");
+  });
 });
 
 describe("Session isolation — two clients, same user", () => {

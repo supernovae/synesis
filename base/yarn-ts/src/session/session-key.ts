@@ -24,7 +24,7 @@ export interface ResolveSessionKeyOptions {
 export interface SessionKeyDecision {
   baseKey: string;
   sessionKey: string;
-  reason: "explicit_conversation" | "active_alias" | "active_legacy_base" | "new_implicit_conversation";
+  reason: "explicit_conversation" | "active_alias" | "new_implicit_conversation";
   rotated: boolean;
 }
 
@@ -83,14 +83,6 @@ export async function resolveSessionKey(options: ResolveSessionKeyOptions): Prom
   if (persistedAlias && await isActive(persistedAlias)) {
     await remember(persistedAlias);
     return { baseKey, sessionKey: persistedAlias, reason: "active_alias", rotated: persistedAlias !== baseKey };
-  }
-
-  // Transitional support for legacy implicit sessions that are still active in
-  // Redis or local memory. If Redis expired, we intentionally do not consult
-  // Postgres; reusing the bare base key would join old usage rows to a new run.
-  if (await isActive(baseKey)) {
-    await remember(baseKey);
-    return { baseKey, sessionKey: baseKey, reason: "active_legacy_base", rotated: false };
   }
 
   const rotated = buildRotatedSessionKey(baseKey, options.nowMs);
