@@ -63,6 +63,7 @@ describe("retrieveContext", () => {
                   module_path: "provider-schemas/aws.json",
                   content_format: "json",
                   has_code: false,
+                  embedding: [0.1, 0.2, 0.3],
                 },
               };
             }
@@ -103,6 +104,8 @@ describe("retrieveContext", () => {
     expect(results[0]?.symbol_name).toBe("aws_instance");
     expect(results[0]?.module_path).toBe("provider-schemas/aws.json");
     expect(results[0]?.content_format).toBe("json");
+    expect(results[0]?.retrieval_source).toBe("hybrid");
+    expect("embedding" in (results[0] as unknown as Record<string, unknown>)).toBe(false);
   });
 
   it("applies exact ACL and scope predicates to seed and graph neighbor nodes", async () => {

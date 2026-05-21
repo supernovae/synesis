@@ -398,6 +398,7 @@ export interface KnowledgeBundleResponse {
 export interface KnowledgeResult {
   text: string;
   source_url: string;
+  search_backend?: "vector" | "bm25" | "both" | "hybrid";
   chunk_id?: string;
   doc_id?: string;
   document_name: string;

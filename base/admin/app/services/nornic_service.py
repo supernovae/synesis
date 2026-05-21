@@ -193,6 +193,47 @@ def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[s
     return None
 
 
+def _split_filter_clauses(expr: str) -> list[str]:
+    """Split supported filter expressions on top-level ``and`` without regex backtracking."""
+    clauses: list[str] = []
+    start = 0
+    depth = 0
+    in_quote = False
+    quote_char = ""
+    i = 0
+    while i < len(expr):
+        ch = expr[i]
+        if in_quote:
+            if ch == quote_char:
+                in_quote = False
+            i += 1
+            continue
+        if ch in {'"', "'"}:
+            in_quote = True
+            quote_char = ch
+            i += 1
+            continue
+        if ch in "([":
+            depth += 1
+            i += 1
+            continue
+        if ch in ")]":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if depth == 0 and expr[i : i + 3] == "and":
+            before_ok = i == 0 or expr[i - 1].isspace()
+            after_ok = i + 3 >= len(expr) or expr[i + 3].isspace()
+            if before_ok and after_ok:
+                clauses.append(expr[start:i].strip())
+                start = i + 3
+                i = start
+                continue
+        i += 1
+    clauses.append(expr[start:].strip())
+    return [clause for clause in clauses if clause]
+
+
 def _apply_filter_expr(rows: list[dict[str, Any]], filter_expr: str) -> list[dict[str, Any]]:
     """Apply the filter subset Admin uses for NornicDB-backed tables.
 
@@ -204,15 +245,11 @@ def _apply_filter_expr(rows: list[dict[str, Any]], filter_expr: str) -> list[dic
     expr = (filter_expr or "").strip()
     if not expr:
         return rows
+    if len(expr) > 4096:
+        logger.warning("nornic_filter_too_long len=%s — returning empty (fail closed)", len(expr))
+        return []
 
-    # Split compound expressions on ' and ' (case-sensitive, matching caller usage).
-    # Handle the pattern: "(clause1) and clause2" — the ') and ' split leaves
-    # the first part without its closing paren, so we re-add it.
-    paren_parts = re.split(r"\)\s+and\s+", expr)
-    if len(paren_parts) > 1:
-        parts = [p + ")" if i < len(paren_parts) - 1 else p for i, p in enumerate(paren_parts)]
-    else:
-        parts = re.split(r"\s+and\s+", expr)
+    parts = _split_filter_clauses(expr)
 
     result = rows
     for part in parts:

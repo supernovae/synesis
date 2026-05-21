@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,8 +15,10 @@ def client():
     return TestClient(app)
 
 
-def test_planner_metering_ingest_requires_token_when_configured(client: TestClient):
-    token = os.environ.get("SYNESIS_INTERNAL_SERVICE_TOKEN", "")
+def test_planner_metering_ingest_requires_token_when_configured(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    token = "test-service-token"
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", token)
+    monkeypatch.delenv("SYNESIS_INTERNAL_SERVICE_TOKENS", raising=False)
     payload = {
         "request_id": "test-meter-req-1",
         "user_id": "u1",
@@ -36,17 +37,14 @@ def test_planner_metering_ingest_requires_token_when_configured(client: TestClie
     }
     with patch("app.routers.planner_usage.upsert_metering_row", new_callable=AsyncMock):
         r = client.post("/api/v1/planner/usage/metering", json=payload)
-        if token:
-            assert r.status_code == 401
-            r2 = client.post(
-                "/api/v1/planner/usage/metering",
-                json=payload,
-                headers={"x-synesis-service-token": token},
-            )
-            assert r2.status_code == 200
-            assert r2.json().get("status") == "ok"
-        else:
-            assert r.status_code == 200
+        assert r.status_code == 401
+        r2 = client.post(
+            "/api/v1/planner/usage/metering",
+            json=payload,
+            headers={"x-synesis-service-token": token},
+        )
+        assert r2.status_code == 200
+        assert r2.json().get("status") == "ok"
 
 
 def test_usage_me_summary_requires_auth(client: TestClient):

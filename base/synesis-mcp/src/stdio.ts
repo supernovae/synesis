@@ -34,7 +34,7 @@ async function resolveStdioAuth(): Promise<SynesisMcpAuth> {
     if (config.SYNESIS_MCP_AUTHZ_MODE === "enforce" && !getFgaClient()) {
       throw new Error("stdio_policy_not_configured");
     }
-    if (config.SYNESIS_MCP_AUTHZ_MODE !== "disabled" && getFgaClient()) {
+    if (getFgaClient()) {
       const result = await fgaCheckMcpTools(user.userId);
       if (!result.allowed && config.SYNESIS_MCP_AUTHZ_MODE === "enforce") {
         throw new Error("stdio_policy_denied");

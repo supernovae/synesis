@@ -36,7 +36,7 @@ from .enrichment import enrich_chunks_bulk
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
 from .injection_scan import scan_chunk_text_detailed
-from .nornic_writer import NORNIC_URI, NornicGraphWriter, chunk_id_hash
+from .nornic_writer import NORNIC_URI, NORNIC_VECTOR_INDEX, NornicGraphWriter, chunk_id_hash
 from .pipeline import _code_chunk_metrics, _infer_artifact_kind
 from .queue_runner import _build_source_config
 from .schema import (
@@ -925,17 +925,183 @@ def list_packs(*, nornic_uri: str = NORNIC_URI, limit: int = 16384) -> list[dict
             WHERE coalesce(n.pack, "") <> ""
             RETURN n.pack AS pack_id,
                    max(n.pack_version) AS pack_version,
-                   max(n.source_version) AS pack_source_version,
+                   max(coalesce(n.pack_source_version, n.source_version)) AS pack_source_version,
                    max(n.language) AS language,
                    max(n.domain) AS domain,
                    max(n.pack_artifact_hash) AS pack_artifact_hash,
-                   count(n) AS node_count
+                   count(n) AS node_count,
+                   count(n.embedding) AS embedding_count,
+                   count(CASE WHEN n.kind = 'Chunk' THEN 1 END) AS chunk_count,
+                   count(CASE WHEN n.kind = 'PackCard' THEN 1 END) AS pack_card_count,
+                   count(CASE WHEN n.kind = 'ContextCard' THEN 1 END) AS context_card_count,
+                   collect(DISTINCT n.kind)[0..12] AS sample_kinds
             ORDER BY pack_id
             LIMIT $limit
             """,
             limit=limit,
         )
         return [dict(row) for row in rows]
+
+
+def _single_row(session: Any, cypher: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    row = session.run(cypher, params or {}).single()
+    return dict(row) if row else {}
+
+
+def diagnose_pack(
+    *,
+    pack_id: str,
+    query: str = "",
+    nornic_uri: str = NORNIC_URI,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Return pack health diagnostics without requiring shell heredocs."""
+    sanitized_pack_id = _sanitize_pack_id(pack_id)
+    sample_limit = max(1, min(limit, 25))
+    terms = [term.lower() for term in query.split() if len(term) >= 3][:24]
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        result: dict[str, Any] = {
+            "ok": True,
+            "pack_id": sanitized_pack_id,
+            "database": writer.database,
+            "connectivity": _single_row(session, "RETURN 1 AS ok"),
+        }
+        result["counts"] = _single_row(
+            session,
+            """
+            MATCH (n:ContentNode {pack: $pack_id})
+            RETURN count(n) AS total,
+                   count(n.embedding) AS with_embedding,
+                   count(n.text) AS with_text,
+                   count(n.content) AS with_content,
+                   count(n.kind) AS with_kind,
+                   count(n.language) AS with_language,
+                   count(n.domain) AS with_domain,
+                   count(n.pack_version) AS with_pack_version,
+                   count(n.pack_source_version) AS with_pack_source_version,
+                   count(n.source_version) AS with_source_version,
+                   count(n.pack_artifact_hash) AS with_pack_artifact_hash
+            """,
+            {"pack_id": sanitized_pack_id},
+        )
+        result["text_counts_sampled"] = _single_row(
+            session,
+            """
+            MATCH (n:ContentNode {pack: $pack_id})
+            WITH n LIMIT 5000
+            RETURN count(n) AS sampled,
+                   count(n.text) AS with_text,
+                   count(n.content) AS with_content,
+                   count(n.embedding) AS with_embedding,
+                   count(n.kind) AS with_kind,
+                   count(n.language) AS with_language,
+                   count(n.domain) AS with_domain
+            """,
+            {"pack_id": sanitized_pack_id},
+        )
+        result["kinds"] = [
+            dict(row)
+            for row in session.run(
+                """
+                MATCH (n:ContentNode {pack: $pack_id})
+                WHERE n.kind IS NOT NULL
+                RETURN n.kind AS kind, count(n) AS count
+                ORDER BY count DESC
+                LIMIT 25
+                """,
+                {"pack_id": sanitized_pack_id},
+            )
+        ]
+        result["sample_nodes"] = [
+            dict(row)
+            for row in session.run(
+                """
+                MATCH (n:ContentNode {pack: $pack_id})
+                RETURN n.id AS id,
+                       n.kind AS kind,
+                       n.language AS language,
+                       n.domain AS domain,
+                       n.document_name AS document_name,
+                       n.package_name AS package_name,
+                       n.symbol_fqn AS symbol_fqn,
+                       n.artifact_kind AS artifact_kind,
+                       n.text AS text,
+                       keys(n) AS property_keys
+                LIMIT $limit
+                """,
+                {"pack_id": sanitized_pack_id, "limit": sample_limit},
+            )
+        ]
+        for node in result["sample_nodes"]:
+            if node.get("text"):
+                node["text"] = str(node["text"])[:300]
+            if isinstance(node.get("property_keys"), list):
+                node["property_keys"] = sorted(str(key) for key in node["property_keys"])[:80]
+        result["embedding_samples"] = [
+            dict(row)
+            for row in session.run(
+                """
+                MATCH (n:ContentNode {pack: $pack_id})
+                WHERE n.embedding IS NOT NULL
+                RETURN n.id AS id,
+                       n.kind AS kind,
+                       n.document_name AS document_name,
+                       n.package_name AS package_name,
+                       n.symbol_fqn AS symbol_fqn,
+                       size(n.embedding) AS embedding_size,
+                       n.embedding[0] AS first_value,
+                       n.embedding[1] AS second_value,
+                       n.embedding[1023] AS last_value
+                LIMIT $limit
+                """,
+                {"pack_id": sanitized_pack_id, "limit": sample_limit},
+            )
+        ]
+        result["indexes"] = [
+            dict(row)
+            for row in session.run(
+                """
+                SHOW INDEXES
+                YIELD name, type, state
+                RETURN name, type, state
+                ORDER BY name
+                """
+            )
+        ]
+        if terms:
+            result["query_terms"] = terms
+            result["query_term_hits_sampled"] = _single_row(
+                session,
+                """
+                MATCH (n:ContentNode {pack: $pack_id})
+                WITH n LIMIT 50000
+                WHERE any(term IN $terms WHERE toLower(coalesce(n.text, n.content, n.name, "")) CONTAINS term)
+                RETURN count(n) AS matching_nodes
+                """,
+                {"pack_id": sanitized_pack_id, "terms": terms},
+            )
+            result["query_term_samples"] = [
+                dict(row)
+                for row in session.run(
+                    """
+                    MATCH (n:ContentNode {pack: $pack_id})
+                    WHERE any(term IN $terms WHERE toLower(coalesce(n.text, n.content, n.name, "")) CONTAINS term)
+                    RETURN n.id AS id,
+                           n.kind AS kind,
+                           n.document_name AS document_name,
+                           n.package_name AS package_name,
+                           n.symbol_fqn AS symbol_fqn,
+                           n.text AS text
+                    LIMIT $limit
+                    """,
+                    {"pack_id": sanitized_pack_id, "terms": terms, "limit": sample_limit},
+                )
+            ]
+            for node in result["query_term_samples"]:
+                if node.get("text"):
+                    node["text"] = str(node["text"])[:300]
+        return result
 
 
 def search_pack(
@@ -946,28 +1112,365 @@ def search_pack(
     nornic_uri: str = NORNIC_URI,
     embedder_url: str = "",
 ) -> list[dict[str, Any]]:
-    del embedder_url
+    embedder_kwargs = {"url": embedder_url} if embedder_url else {}
+    embeddings = EmbedClient(**embedder_kwargs).embed_texts([query])
+    if not embeddings or len(embeddings[0]) != EMBEDDING_DIM:
+        raise SynPackError(f"embedder returned invalid query vector for SynPack search; expected {EMBEDDING_DIM} dims")
+    query_vector = [float(x) for x in embeddings[0]]
+    limit = max(1, min(top_k, 50))
+    candidate_limit = max(limit, min(limit * 10, 500))
     writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
     with writer.driver.session(database=writer.database) as session:
-        rows = session.run(
+        vector_rows = session.run(
             """
-            CALL db.index.vector.queryNodes('embeddings', $limit, $query)
+            CALL db.index.vector.queryNodes('embeddings', $candidate_limit, $query_vector)
             YIELD node, score
             WHERE node.pack = $pack_id
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit
             """,
-            query=query,
-            pack_id=_sanitize_pack_id(pack_id),
-            limit=max(1, min(top_k, 50)),
+            {
+                "query_vector": query_vector,
+                "pack_id": _sanitize_pack_id(pack_id),
+                "limit": limit,
+                "candidate_limit": candidate_limit,
+            },
         )
         out = []
-        for row in rows:
-            item = dict(row["node"])
+        for row in vector_rows:
+            item = _compact_search_result(dict(row["node"]))
             item["score"] = row["score"]
+            item["search_backend"] = "vector"
+            out.append(item)
+        if out:
+            return out
+
+        lexical_terms = [term.lower() for term in query.split() if len(term) >= 3][:24]
+        lexical_rows = session.run(
+            """
+            MATCH (node:ContentNode)
+            WHERE node.pack = $pack_id
+              AND any(term IN $terms WHERE toLower(coalesce(node.text, node.content, node.name, "")) CONTAINS term)
+            WITH node,
+                 reduce(score = 0.0, term IN $terms |
+                   score + CASE WHEN toLower(coalesce(node.text, node.content, node.name, "")) CONTAINS term
+                                THEN 1.0 ELSE 0.0 END
+                 ) AS lexical_score
+            RETURN node, lexical_score AS score
+            ORDER BY score DESC
+            LIMIT $limit
+            """,
+            {
+                "pack_id": _sanitize_pack_id(pack_id),
+                "terms": lexical_terms,
+                "limit": limit,
+            },
+        )
+        for row in lexical_rows:
+            item = _compact_search_result(dict(row["node"]))
+            item["score"] = row["score"]
+            item["search_backend"] = "lexical_fallback"
             out.append(item)
         return out
+
+
+def _compact_search_result(node: dict[str, Any]) -> dict[str, Any]:
+    """Return a model-readable search hit without heavyweight index payloads."""
+    field_limits = {
+        "text": 2400,
+        "content": 2400,
+        "summary": 1200,
+        "chunk_summary": 1200,
+        "safety_contract": 1600,
+        "lifecycle_model": 1200,
+        "retrieval_terms": 1200,
+        "keywords": 1000,
+        "agent_enrichment_json": 2400,
+    }
+    preferred_fields = [
+        "id",
+        "kind",
+        "pack",
+        "pack_id",
+        "pack_version",
+        "pack_source_version",
+        "language",
+        "domain",
+        "artifact_kind",
+        "document_name",
+        "package_name",
+        "module_path",
+        "repo_path",
+        "path",
+        "heading_path",
+        "section",
+        "symbol_fqn",
+        "symbol_name",
+        "symbol_kind",
+        "source_url",
+        "url",
+        "summary",
+        "chunk_summary",
+        "safety_contract",
+        "lifecycle_model",
+        "perf_tier",
+        "related_interfaces",
+        "related_symbols",
+        "replacement_api",
+        "tags",
+        "retrieval_terms",
+        "keywords",
+        "agent_enrichment_json",
+        "text",
+        "content",
+    ]
+    omitted_fields = {
+        "embedding",
+        "entities_json",
+        "scan_signals",
+        "section_boundaries_json",
+        "query_aliases",
+        "task_intents",
+    }
+    compact: dict[str, Any] = {}
+    for key in preferred_fields:
+        if key not in node or key in omitted_fields:
+            continue
+        value = node[key]
+        if value is None or value == "":
+            continue
+        if isinstance(value, str):
+            limit = field_limits.get(key)
+            compact[key] = value[:limit] if limit else value
+        else:
+            compact[key] = value
+    return compact
+
+
+def diagnose_pack_vector_search(
+    query: str,
+    *,
+    pack_id: str,
+    top_k: int = 8,
+    nornic_uri: str = NORNIC_URI,
+    embedder_url: str = "",
+) -> dict[str, Any]:
+    """Show vector-search candidates before and after pack filtering."""
+    embedder_kwargs = {"url": embedder_url} if embedder_url else {}
+    embeddings = EmbedClient(**embedder_kwargs).embed_texts([query])
+    if not embeddings:
+        raise SynPackError("embedder returned no query vector for SynPack search diagnostics")
+    query_vector = [float(x) for x in embeddings[0]]
+    limit = max(1, min(top_k, 50))
+    candidate_limit = max(limit, min(limit * 25, 1000))
+    sanitized_pack_id = _sanitize_pack_id(pack_id)
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        raw_candidates = [
+            dict(row)
+            for row in session.run(
+                """
+                CALL db.index.vector.queryNodes('embeddings', $candidate_limit, $query_vector)
+                YIELD node, score
+                RETURN node.id AS id,
+                       node.pack AS pack,
+                       node.kind AS kind,
+                       node.document_name AS document_name,
+                       node.package_name AS package_name,
+                       node.symbol_fqn AS symbol_fqn,
+                       node.text AS text,
+                       score AS score
+                ORDER BY score DESC
+                LIMIT $limit
+                """,
+                {
+                    "query_vector": query_vector,
+                    "candidate_limit": candidate_limit,
+                    "limit": limit,
+                },
+            )
+        ]
+        filtered_candidates = [
+            dict(row)
+            for row in session.run(
+                """
+                CALL db.index.vector.queryNodes('embeddings', $candidate_limit, $query_vector)
+                YIELD node, score
+                WHERE node.pack = $pack_id
+                RETURN node.id AS id,
+                       node.pack AS pack,
+                       node.kind AS kind,
+                       node.document_name AS document_name,
+                       node.package_name AS package_name,
+                       node.symbol_fqn AS symbol_fqn,
+                       node.text AS text,
+                       score AS score
+                ORDER BY score DESC
+                LIMIT $limit
+                """,
+                {
+                    "query_vector": query_vector,
+                    "pack_id": sanitized_pack_id,
+                    "candidate_limit": candidate_limit,
+                    "limit": limit,
+                },
+            )
+        ]
+    for rows in (raw_candidates, filtered_candidates):
+        for row in rows:
+            if row.get("text"):
+                row["text"] = str(row["text"])[:300]
+    return {
+        "ok": True,
+        "pack_id": sanitized_pack_id,
+        "query_vector_dimensions": len(query_vector),
+        "query_vector_norm_sample": round(sum(x * x for x in query_vector[:128]) ** 0.5, 6),
+        "candidate_limit": candidate_limit,
+        "raw_vector_candidate_count": len(raw_candidates),
+        "pack_filtered_candidate_count": len(filtered_candidates),
+        "raw_vector_candidates": raw_candidates,
+        "pack_filtered_candidates": filtered_candidates,
+    }
+
+
+def diagnose_pack_vector_index(
+    *,
+    pack_id: str,
+    nornic_uri: str = NORNIC_URI,
+    top_k: int = 5,
+) -> dict[str, Any]:
+    """Probe the vector index with an embedding already stored in the pack."""
+    sanitized_pack_id = _sanitize_pack_id(pack_id)
+    limit = max(1, min(top_k, 25))
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        sample = session.run(
+            """
+            MATCH (n:ContentNode {pack: $pack_id})
+            WHERE n.embedding IS NOT NULL
+            RETURN n.id AS id,
+                   n.kind AS kind,
+                   n.document_name AS document_name,
+                   n.package_name AS package_name,
+                   n.symbol_fqn AS symbol_fqn,
+                   n.embedding AS embedding
+            LIMIT 1
+            """,
+            {"pack_id": sanitized_pack_id},
+        ).single()
+        if not sample:
+            return {"ok": False, "pack_id": sanitized_pack_id, "error": "no embedded nodes found"}
+        embedding = sample["embedding"]
+        embedding_list = list(embedding) if isinstance(embedding, list) else []
+        sample_values = embedding_list[:3] + embedding_list[-3:] if len(embedding_list) >= 6 else embedding_list
+        numeric_values = [value for value in embedding_list if isinstance(value, int | float)]
+        candidates = (
+            [
+                dict(row)
+                for row in session.run(
+                    f"""
+                CALL db.index.vector.queryNodes('{NORNIC_VECTOR_INDEX}', $limit, $query_vector)
+                YIELD node, score
+                RETURN node.id AS id,
+                       node.pack AS pack,
+                       node.kind AS kind,
+                       node.document_name AS document_name,
+                       node.package_name AS package_name,
+                       node.symbol_fqn AS symbol_fqn,
+                       score AS score
+                ORDER BY score DESC
+                LIMIT $limit
+                """,
+                    {"query_vector": embedding_list, "limit": limit},
+                )
+            ]
+            if embedding_list
+            else []
+        )
+        return {
+            "ok": True,
+            "pack_id": sanitized_pack_id,
+            "sample_node": {
+                "id": sample["id"],
+                "kind": sample["kind"],
+                "document_name": sample["document_name"],
+                "package_name": sample["package_name"],
+                "symbol_fqn": sample["symbol_fqn"],
+            },
+            "embedding_python_type": type(embedding).__name__,
+            "embedding_dimensions": len(embedding_list),
+            "numeric_value_count": len(numeric_values),
+            "sample_values": sample_values,
+            "self_query_candidate_count": len(candidates),
+            "self_query_candidates": candidates,
+        }
+
+
+def repair_pack_vector_index(*, nornic_uri: str = NORNIC_URI) -> dict[str, Any]:
+    """Drop and recreate the Synesis vector index."""
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        session.run(f"DROP INDEX {NORNIC_VECTOR_INDEX} IF EXISTS")
+        session.run(writer._VECTOR_INDEX_DDL)
+        indexes = [
+            dict(row)
+            for row in session.run(
+                """
+                SHOW INDEXES
+                YIELD name, type, state, populationPercent
+                WHERE name = $name
+                RETURN name, type, state, populationPercent
+                """,
+                {"name": NORNIC_VECTOR_INDEX},
+            )
+        ]
+    return {"ok": True, "index": NORNIC_VECTOR_INDEX, "indexes": indexes}
+
+
+def retouch_pack_embeddings(
+    *,
+    pack_id: str,
+    nornic_uri: str = NORNIC_URI,
+    batch_size: int = 25,
+) -> dict[str, Any]:
+    """Re-set stored embedding properties to force vector-index update hooks."""
+    sanitized_pack_id = _sanitize_pack_id(pack_id)
+    size = max(1, min(int(batch_size or 25), 50))
+    writer = NornicGraphWriter(uri=nornic_uri or NORNIC_URI)
+    with writer.driver.session(database=writer.database) as session:
+        ids = [
+            str(row["id"])
+            for row in session.run(
+                """
+                MATCH (n:ContentNode {pack: $pack_id})
+                WHERE n.embedding IS NOT NULL
+                RETURN n.id AS id
+                """,
+                {"pack_id": sanitized_pack_id},
+            )
+            if row.get("id")
+        ]
+        touched = 0
+        for offset in range(0, len(ids), size):
+            batch = ids[offset : offset + size]
+            row = session.run(
+                """
+                MATCH (n:ContentNode)
+                WHERE n.id IN $ids
+                SET n.embedding = n.embedding
+                RETURN count(n) AS touched
+                """,
+                {"ids": batch},
+            ).single()
+            touched += int(row["touched"] if row else 0)
+    return {
+        "ok": True,
+        "pack_id": sanitized_pack_id,
+        "embedded_node_count": len(ids),
+        "touched": touched,
+        "batch_size": size,
+    }
 
 
 def _load_bootstrap_items(sources_path: Path) -> list[dict[str, Any]]:

@@ -757,6 +757,7 @@ function knowledgeResultFromRag(row: RagResult): KnowledgeResult {
   return {
     text: row.text,
     source_url: row.source_url,
+    search_backend: row.retrieval_source,
     chunk_id: row.chunk_id ?? "",
     doc_id: row.doc_id ?? "",
     document_name: row.document_name,

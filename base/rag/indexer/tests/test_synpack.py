@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetry"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import content_pack_runner, nornic_bulk_importer
+from app import content_pack_runner, nornic_bulk_importer, synpack
 from app.schema import CORPUS_VERSION, EMBEDDING_DIM
 from app.synpack import SynPackError, validate_synpack
 
@@ -84,6 +84,536 @@ def test_validate_synpack_rejects_legacy_flat_pack(tmp_path: Path):
 
     with pytest.raises(SynPackError, match="SynPack v2"):
         validate_synpack(pack)
+
+
+def test_search_pack_embeds_query_and_avoids_neo4j_query_kwarg(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+
+    class FakeEmbedClient:
+        def __init__(self, **kwargs):
+            calls.append({"embedder_kwargs": kwargs})
+
+        def embed_texts(self, texts):
+            calls.append({"texts": texts})
+            return [[0.25] * EMBEDDING_DIM]
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None, **kwargs):
+            assert "query_vector" in parameters
+            assert parameters["query_vector"] == [0.25] * EMBEDDING_DIM
+            assert parameters["pack_id"] == "go-latest"
+            assert parameters["limit"] == 8
+            assert parameters["candidate_limit"] == 80
+            assert kwargs == {}
+            calls.append({"cypher": cypher, "parameters": parameters})
+            return [
+                {
+                    "node": {
+                        "id": "chunk-1",
+                        "pack": "go-latest",
+                        "text": "Use net/http Server.Shutdown with signal.NotifyContext.",
+                        "embedding": [0.25] * EMBEDDING_DIM,
+                        "entities_json": '{"ignored": true}',
+                    },
+                    "score": 0.99,
+                }
+            ]
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "EmbedClient", FakeEmbedClient)
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    results = synpack.search_pack(
+        "net/http graceful shutdown",
+        pack_id="go-latest",
+        top_k=8,
+        nornic_uri="bolt://nornic",
+        embedder_url="http://embedder",
+    )
+
+    assert calls[0]["embedder_kwargs"] == {"url": "http://embedder"}
+    assert calls[1]["texts"] == ["net/http graceful shutdown"]
+    assert results == [
+        {
+            "id": "chunk-1",
+            "pack": "go-latest",
+            "text": "Use net/http Server.Shutdown with signal.NotifyContext.",
+            "score": 0.99,
+            "search_backend": "vector",
+        }
+    ]
+    assert "embedding" not in results[0]
+    assert "entities_json" not in results[0]
+
+
+def test_search_pack_uses_pack_scoped_lexical_fallback(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+
+    class FakeEmbedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_texts(self, texts):
+            return [[0.5] * EMBEDDING_DIM]
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None, **kwargs):
+            assert kwargs == {}
+            calls.append({"cypher": cypher, "parameters": parameters})
+            if "db.index.vector.queryNodes" in cypher:
+                return []
+            return [
+                {
+                    "node": {
+                        "id": "chunk-2",
+                        "pack": "go-latest",
+                        "text": "Server.Shutdown gracefully closes a Go HTTP server." * 100,
+                        "embedding": [0.5] * EMBEDDING_DIM,
+                    },
+                    "score": 4.0,
+                }
+            ]
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "EmbedClient", FakeEmbedClient)
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    results = synpack.search_pack("net/http Server Shutdown", pack_id="go-latest", top_k=3)
+
+    assert len(calls) == 2
+    assert calls[1]["parameters"]["terms"] == ["net/http", "server", "shutdown"]
+    assert results == [
+        {
+            "id": "chunk-2",
+            "pack": "go-latest",
+            "text": ("Server.Shutdown gracefully closes a Go HTTP server." * 100)[:2400],
+            "score": 4.0,
+            "search_backend": "lexical_fallback",
+        }
+    ]
+
+
+def test_diagnose_pack_returns_counts_samples_indexes_and_query_hits(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def single(self):
+            return self.rows[0] if self.rows else None
+
+        def __iter__(self):
+            return iter(self.rows)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            calls.append({"cypher": cypher, "parameters": parameters})
+            if "RETURN 1 AS ok" in cypher:
+                return FakeResult([{"ok": 1}])
+            if "count(n) AS total" in cypher:
+                return FakeResult([{"total": 2, "with_embedding": 1, "with_text": 2}])
+            if "RETURN n.kind AS kind" in cypher:
+                return FakeResult([{"kind": "Chunk", "count": 1}])
+            if "SHOW INDEXES" in cypher:
+                return FakeResult([{"name": "embeddings", "type": "VECTOR", "state": "ONLINE"}])
+            if "sampled" in cypher:
+                return FakeResult([{"sampled": 2, "with_embedding": 1, "with_text": 2}])
+            if "matching_nodes" in cypher:
+                return FakeResult([{"matching_nodes": 1}])
+            if "any(term IN $terms" in cypher:
+                return FakeResult(
+                    [
+                        {
+                            "id": "chunk-1",
+                            "kind": "Chunk",
+                            "document_name": "net/http",
+                            "package_name": "net/http",
+                            "symbol_fqn": "net/http.Server.Shutdown",
+                            "text": "Shutdown gracefully stops the server.",
+                        }
+                    ]
+                )
+            if "size(n.embedding)" in cypher:
+                return FakeResult(
+                    [
+                        {
+                            "id": "chunk-1",
+                            "kind": "Chunk",
+                            "document_name": "net/http",
+                            "package_name": "net/http",
+                            "symbol_fqn": "net/http.Server.Shutdown",
+                            "embedding_size": EMBEDDING_DIM,
+                            "first_value": 0.1,
+                            "second_value": 0.2,
+                            "last_value": 0.3,
+                        }
+                    ]
+                )
+            return FakeResult(
+                [
+                    {
+                        "id": "chunk-1",
+                        "kind": "Chunk",
+                        "language": "go",
+                        "domain": "go",
+                        "document_name": "net/http",
+                        "package_name": "net/http",
+                        "symbol_fqn": "net/http.Server.Shutdown",
+                        "artifact_kind": "docs",
+                        "text": "Shutdown gracefully stops the server." * 20,
+                        "property_keys": ["pack", "text", "kind"],
+                    }
+                ]
+            )
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.diagnose_pack(pack_id="go-latest", query="Server Shutdown", limit=3)
+
+    assert result["connectivity"] == {"ok": 1}
+    assert result["counts"]["total"] == 2
+    assert result["kinds"] == [{"kind": "Chunk", "count": 1}]
+    assert result["indexes"] == [{"name": "embeddings", "type": "VECTOR", "state": "ONLINE"}]
+    assert result["query_terms"] == ["server", "shutdown"]
+    assert result["text_counts_sampled"] == {"sampled": 2, "with_embedding": 1, "with_text": 2}
+    assert result["query_term_hits_sampled"] == {"matching_nodes": 1}
+    assert result["embedding_samples"][0]["embedding_size"] == EMBEDDING_DIM
+    assert len(result["sample_nodes"][0]["text"]) == 300
+    assert calls[0]["parameters"] == {}
+
+
+def test_diagnose_pack_vector_search_reports_raw_and_filtered_candidates(monkeypatch: pytest.MonkeyPatch):
+    class FakeEmbedClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def embed_texts(self, texts):
+            assert texts == ["shutdown"]
+            return [[0.125] * EMBEDDING_DIM]
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            assert parameters["candidate_limit"] == 200
+            assert parameters["limit"] == 8
+            if "WHERE node.pack = $pack_id" in cypher:
+                assert parameters["pack_id"] == "go-latest"
+                return [
+                    {
+                        "id": "chunk-1",
+                        "pack": "go-latest",
+                        "kind": "Chunk",
+                        "document_name": "net/http",
+                        "package_name": "net/http",
+                        "symbol_fqn": "net/http.Server.Shutdown",
+                        "text": "Shutdown gracefully stops the server." * 20,
+                        "score": 0.95,
+                    }
+                ]
+            return [
+                {
+                    "id": "chunk-raw",
+                    "pack": "go-latest",
+                    "kind": "Chunk",
+                    "document_name": "context",
+                    "package_name": "context",
+                    "symbol_fqn": "context.WithTimeout",
+                    "text": "Context timeout." * 20,
+                    "score": 0.9,
+                }
+            ]
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "EmbedClient", FakeEmbedClient)
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.diagnose_pack_vector_search(
+        "shutdown",
+        pack_id="go-latest",
+        top_k=8,
+        embedder_url="http://embedder",
+    )
+
+    assert result["query_vector_dimensions"] == EMBEDDING_DIM
+    assert result["candidate_limit"] == 200
+    assert result["raw_vector_candidate_count"] == 1
+    assert result["pack_filtered_candidate_count"] == 1
+    assert len(result["pack_filtered_candidates"][0]["text"]) == 300
+
+
+def test_diagnose_pack_vector_index_uses_existing_embedding(monkeypatch: pytest.MonkeyPatch):
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def single(self):
+            return self.rows[0] if self.rows else None
+
+        def __iter__(self):
+            return iter(self.rows)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            if "n.embedding AS embedding" in cypher:
+                return FakeResult(
+                    [
+                        {
+                            "id": "chunk-1",
+                            "kind": "Chunk",
+                            "document_name": "net/http",
+                            "package_name": "net/http",
+                            "symbol_fqn": "net/http.Server.Shutdown",
+                            "embedding": [0.25] * EMBEDDING_DIM,
+                        }
+                    ]
+                )
+            assert parameters["limit"] == 5
+            assert parameters["query_vector"] == [0.25] * EMBEDDING_DIM
+            return FakeResult(
+                [
+                    {
+                        "id": "chunk-1",
+                        "pack": "go-latest",
+                        "kind": "Chunk",
+                        "document_name": "net/http",
+                        "package_name": "net/http",
+                        "symbol_fqn": "net/http.Server.Shutdown",
+                        "score": 1.0,
+                    }
+                ]
+            )
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.diagnose_pack_vector_index(pack_id="go-latest", top_k=5)
+
+    assert result["embedding_dimensions"] == EMBEDDING_DIM
+    assert result["numeric_value_count"] == EMBEDDING_DIM
+    assert result["self_query_candidate_count"] == 1
+    assert result["self_query_candidates"][0]["id"] == "chunk-1"
+
+
+def test_repair_pack_vector_index_recreates_index(monkeypatch: pytest.MonkeyPatch):
+    statements: list[str] = []
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            statements.append(cypher)
+            if "SHOW INDEXES" in cypher:
+                return [{"name": "embeddings", "type": "VECTOR", "state": "ONLINE", "populationPercent": 100.0}]
+            return []
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+        _VECTOR_INDEX_DDL = synpack.NornicGraphWriter._VECTOR_INDEX_DDL
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.repair_pack_vector_index()
+
+    assert "DROP INDEX embeddings IF EXISTS" in statements
+    assert any("CREATE VECTOR INDEX embeddings" in statement for statement in statements)
+    assert result["indexes"][0]["state"] == "ONLINE"
+
+
+def test_retouch_pack_embeddings_resets_embedding_properties(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def single(self):
+            return self.rows[0] if self.rows else None
+
+        def __iter__(self):
+            return iter(self.rows)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            calls.append({"cypher": cypher, "parameters": parameters})
+            if "RETURN n.id AS id" in cypher:
+                return FakeResult([{"id": "a"}, {"id": "b"}, {"id": "c"}])
+            return FakeResult([{"touched": len(parameters["ids"])}])
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.retouch_pack_embeddings(pack_id="go-latest", batch_size=2)
+
+    assert result == {
+        "ok": True,
+        "pack_id": "go-latest",
+        "embedded_node_count": 3,
+        "touched": 3,
+        "batch_size": 2,
+    }
+    assert calls[1]["parameters"]["ids"] == ["a", "b"]
+    assert calls[2]["parameters"]["ids"] == ["c"]
+
+
+def test_retouch_pack_embeddings_caps_batch_size_for_large_vectors(monkeypatch: pytest.MonkeyPatch):
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def single(self):
+            return self.rows[0] if self.rows else None
+
+        def __iter__(self):
+            return iter(self.rows)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, cypher, parameters=None):
+            if "RETURN n.id AS id" in cypher:
+                return FakeResult([{"id": str(i)} for i in range(75)])
+            assert len(parameters["ids"]) <= 50
+            return FakeResult([{"touched": len(parameters["ids"])}])
+
+    class FakeDriver:
+        def session(self, *, database):
+            assert database
+            return FakeSession()
+
+    class FakeWriter:
+        database = "neo4j"
+
+        def __init__(self, uri=""):
+            self.uri = uri
+            self.driver = FakeDriver()
+
+    monkeypatch.setattr(synpack, "NornicGraphWriter", FakeWriter)
+
+    result = synpack.retouch_pack_embeddings(pack_id="go-latest", batch_size=500)
+
+    assert result["batch_size"] == 50
+    assert result["embedded_node_count"] == 75
+    assert result["touched"] == 75
 
 
 def _write_minimal_v2_pack(path: Path) -> None:

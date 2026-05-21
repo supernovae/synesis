@@ -171,27 +171,31 @@ const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
 const mcpAuthPreHandler = createRouteRateLimit(mcpAuthRateLimit);
 
 /** Tool catalog for UIs (Integrations page) — requires auth; exposes metadata only. */
-app.get("/v1/synesis-tools", async (req, reply) => {
-  try {
-    await resolvePatAndAuth(req);
-  } catch {
-    return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
-  }
-  return {
-    service: "synesis-mcp",
-    protocol: "mcp-streamable-http",
-    mcp_path: config.SYNESIS_MCP_HTTP_PATH,
-    tools: getSynesisPlatformCatalog(),
-  };
-});
+app.get(
+  "/v1/synesis-tools",
+  {
+    config: { rateLimit: mcpAuthRateLimit },
+    preHandler: mcpAuthPreHandler,
+  },
+  async (req, reply) => {
+    try {
+      await resolvePatAndAuth(req);
+    } catch {
+      return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
+    }
+    return {
+      service: "synesis-mcp",
+      protocol: "mcp-streamable-http",
+      mcp_path: config.SYNESIS_MCP_HTTP_PATH,
+      tools: getSynesisPlatformCatalog(),
+    };
+  },
+);
 
-app.route({
-  method: ["GET", "POST", "DELETE"],
-  url: config.SYNESIS_MCP_HTTP_PATH,
+const mcpRouteOptions = {
   config: { rateLimit: mcpAuthRateLimit },
   preHandler: mcpAuthPreHandler,
-  // codeql[js/missing-rate-limiting]
-  handler: async (req, reply) => {
+  handler: async (req: FastifyRequest, reply: FastifyReply) => {
     mcpHttpRequests++;
     let patUser: PatUser;
     let mcpAuth: import("@synesis/mcp-tools").SynesisMcpAuth;
@@ -287,7 +291,10 @@ app.route({
       { "http.method": req.method ?? "GET" },
     );
   },
-});
+} as const;
+app.get(config.SYNESIS_MCP_HTTP_PATH, mcpRouteOptions);
+app.post(config.SYNESIS_MCP_HTTP_PATH, mcpRouteOptions);
+app.delete(config.SYNESIS_MCP_HTTP_PATH, mcpRouteOptions);
 
 app.get("/health", async () => ({
   status: "ok",

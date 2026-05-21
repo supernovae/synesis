@@ -125,6 +125,12 @@ class TestApplyFilterExpr:
         assert len(result) == 2
         assert all(r["domain"] == "python" for r in result)
 
+    def test_overlong_filter_fails_closed(self):
+        from app.services.nornic_service import _apply_filter_expr
+
+        result = _apply_filter_expr(_FILTER_TEST_ROWS, "x " * 2500)
+        assert result == []
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # P0: safe_query org-scope Cypher clause

@@ -64,9 +64,9 @@ async def run_eval(
     try:
         result = await run_eval_suite(effective_suite, _YARN_URL)
         return result.to_dict()
-    except Exception as exc:
-        logger.error("eval_run_failed suite=%s error=%s", body.suite_name, exc)
-        raise HTTPException(500, f"Eval run failed: {exc}")
+    except Exception:
+        logger.exception("eval_run_failed suite=%s", body.suite_name)
+        raise HTTPException(500, "Eval run failed")
 
 
 @router.get("/rag/suites")

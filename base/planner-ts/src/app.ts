@@ -1316,6 +1316,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         return {
           text: r.text,
           source_url: r.source_url,
+          search_backend: r.retrieval_source,
           chunk_id: r.chunk_id ?? "",
           doc_id: r.doc_id ?? "",
           document_name: r.document_name,
@@ -1536,22 +1537,29 @@ export function buildApp(config: AppConfig): FastifyInstance {
     },
   );
 
-  app.get("/v1/models", async (request, reply) => {
-    try {
-      await resolveAuthContext(request, config);
-    } catch {
-      return reply.code(401).send({ error: { message: "Authentication required", type: "auth_error" } });
-    }
-    return {
-      object: "list",
-      data: listModelIds(config).map((id) => ({
-        id,
-        object: "model",
-        created: Math.floor(Date.now() / 1000),
-        owned_by: "synesis"
-      }))
-    };
-  });
+  app.get(
+    "/v1/models",
+    {
+      config: { rateLimit: { max: 300, timeWindow: "1 minute" as const } },
+      preHandler: createRouteRateLimit({ max: 300, timeWindow: "1 minute" }),
+    },
+    async (request, reply) => {
+      try {
+        await resolveAuthContext(request, config);
+      } catch {
+        return reply.code(401).send({ error: { message: "Authentication required", type: "auth_error" } });
+      }
+      return {
+        object: "list",
+        data: listModelIds(config).map((id) => ({
+          id,
+          object: "model",
+          created: Math.floor(Date.now() / 1000),
+          owned_by: "synesis"
+        }))
+      };
+    },
+  );
 
   app.delete(
     "/v1/memory/:conversationId",

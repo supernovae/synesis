@@ -220,6 +220,7 @@ export interface KnowledgeSearchResult {
   results: Array<{
     text: string;
     source_url: string;
+    search_backend?: "vector" | "bm25" | "both" | "hybrid";
     document_name: string;
     authority: string;
     pack_id?: string;

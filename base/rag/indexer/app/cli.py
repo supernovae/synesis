@@ -93,6 +93,11 @@ def main() -> None:
             "validate",
             "load",
             "bulk-load",
+            "diagnose",
+            "diagnose-vector-index",
+            "diagnose-vector-search",
+            "repair-vector-index",
+            "retouch-pack-embeddings",
             "list",
             "search",
             "build-go",
@@ -313,7 +318,16 @@ def _run_yaml_mode(args: argparse.Namespace) -> None:
 
 def _run_synpack(args: argparse.Namespace) -> None:
     from .nornic_bulk_importer import bulk_load_synpack
-    from .synpack import list_packs, search_pack, validate_synpack
+    from .synpack import (
+        diagnose_pack,
+        diagnose_pack_vector_index,
+        diagnose_pack_vector_search,
+        list_packs,
+        repair_pack_vector_index,
+        retouch_pack_embeddings,
+        search_pack,
+        validate_synpack,
+    )
 
     if args.synpack_command == "validate":
         if not args.synpack:
@@ -339,6 +353,73 @@ def _run_synpack(args: argparse.Namespace) -> None:
 
     if args.synpack_command == "list":
         print(json_dump({"packs": list_packs(nornic_uri=args.nornic_uri or "")}))
+        return
+
+    if args.synpack_command == "diagnose":
+        if not args.pack_id:
+            logger.error("synpack_diagnose_requires_pack_id")
+            sys.exit(1)
+        print(
+            json_dump(
+                diagnose_pack(
+                    pack_id=args.pack_id,
+                    query=args.query,
+                    nornic_uri=args.nornic_uri or "",
+                    limit=args.top_k,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "diagnose-vector-search":
+        if not args.query or not args.pack_id:
+            logger.error("synpack_vector_diagnose_requires_query_and_pack_id")
+            sys.exit(1)
+        print(
+            json_dump(
+                diagnose_pack_vector_search(
+                    args.query,
+                    pack_id=args.pack_id,
+                    top_k=args.top_k,
+                    nornic_uri=args.nornic_uri or "",
+                    embedder_url=args.embedder_url or "",
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "diagnose-vector-index":
+        if not args.pack_id:
+            logger.error("synpack_vector_index_diagnose_requires_pack_id")
+            sys.exit(1)
+        print(
+            json_dump(
+                diagnose_pack_vector_index(
+                    pack_id=args.pack_id,
+                    nornic_uri=args.nornic_uri or "",
+                    top_k=args.top_k,
+                )
+            )
+        )
+        return
+
+    if args.synpack_command == "repair-vector-index":
+        print(json_dump(repair_pack_vector_index(nornic_uri=args.nornic_uri or "")))
+        return
+
+    if args.synpack_command == "retouch-pack-embeddings":
+        if not args.pack_id:
+            logger.error("synpack_retouch_requires_pack_id")
+            sys.exit(1)
+        print(
+            json_dump(
+                retouch_pack_embeddings(
+                    pack_id=args.pack_id,
+                    nornic_uri=args.nornic_uri or "",
+                    batch_size=args.batch_size,
+                )
+            )
+        )
         return
 
     if args.synpack_command == "search":
