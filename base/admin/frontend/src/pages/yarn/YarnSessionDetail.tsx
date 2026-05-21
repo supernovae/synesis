@@ -210,6 +210,13 @@ export default function YarnSessionDetail() {
             </p>
           </div>
 
+          {data.integrity?.truncated_to_session_request_count && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              This session key has {data.integrity.usage_rows_total.toLocaleString()} persisted usage rows, but the current session record reports{" "}
+              {data.integrity.session_request_count.toLocaleString()} request(s). Showing the current session window to avoid mixing older rows from a reused legacy key.
+            </div>
+          )}
+
           <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>

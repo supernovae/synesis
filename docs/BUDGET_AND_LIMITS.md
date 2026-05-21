@@ -283,14 +283,20 @@ per conversation.
 single user collapse into `synesis:{uid}:claude-code:_`, accumulating tokens
 across logically unrelated conversations.
 
-**Fix (shipped):** When no explicit conversation ID is present and the existing
-session has been idle longer than `SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS`
-(default 30 min), yarn-ts generates a fresh session key with a rotation suffix
-(`...:_:r{timestamp}`). The old session remains in Redis/Postgres for audit but
-stops accumulating. Active conversations within the idle window continue normally.
+**Fix (shipped):** When no explicit conversation ID is present, yarn-ts uses an
+active implicit session alias with a rotation suffix (`...:_:r{timestamp}`).
+The alias is kept in Redis while the conversation is active. If Redis no longer
+has an active alias/session, yarn-ts mints a new rotated key instead of reusing
+the bare `synesis:{uid}:{client}:_` key, which prevents old Postgres usage rows
+from being joined to a new local project.
 
 Session records are stored in Redis (4-hour TTL, refreshed on each request) and
 persisted to Postgres via the usage writer for the admin session viewer.
+
+Cross-session continuity bootstrapping is opt-in via
+`SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED=true`. By default, a new
+implicit session starts clean unless the client resumes with an explicit
+conversation/session identifier.
 
 ### TODO: Context-aware session pivot (future)
 

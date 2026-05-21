@@ -313,6 +313,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
 
   // Phase 15: Conversation memory — durable continuity persistence to Postgres
   SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED: z

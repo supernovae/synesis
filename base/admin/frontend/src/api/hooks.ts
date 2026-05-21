@@ -2750,6 +2750,11 @@ export interface YarnSessionDetailResponse {
   session: YarnSessionRow;
   requests: YarnSessionRequestRow[];
   events: YarnSessionEventRow[];
+  integrity?: {
+    usage_rows_total: number;
+    session_request_count: number;
+    truncated_to_session_request_count: boolean;
+  };
 }
 
 export interface YarnEventRow {

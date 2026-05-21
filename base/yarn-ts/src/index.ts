@@ -65,6 +65,7 @@ import {
   type CompactionSensitivity,
 } from "./context/compaction-sensitivity.js";
 import { SessionStore, type SessionRecord, type SessionStateSnapshot } from "./state/session-store.js";
+import { resolveSessionKey, type SessionIdentity } from "./session/session-key.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
@@ -3706,92 +3707,36 @@ function detectLanguagesFromMessages(messages: Array<{ role: string; content: un
   return Array.from(langs);
 }
 
-interface SessionIdentity {
-  userId: string;
-  orgId: string;
-  conversationId: string;
-  clientKind: string;
-  displayName?: string;
-}
-
-function buildSessionKey(userId: string, clientKind: string, conversationId: string): string {
-  const user = userId || "anon";
-  const client = clientKind || "unknown";
-  const convo = conversationId || "_";
-  return `synesis:${user}:${client}:${convo}`;
-}
-
 /**
- * Resolve the effective session key, applying inactivity rotation when no
- * explicit conversation_id was provided by the client. Without rotation,
- * clients like Claude Code (which never sends a conversation_id) accumulate
- * all token spend into a single immortal session that eventually hits the
- * budget ceiling.
- *
- * When the existing session has been idle longer than
- * SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS, a new key with a
- * timestamp-based rotation suffix is used so the user gets a fresh budget.
+ * Resolve the effective session key. Clients without an explicit
+ * conversation_id get an active rotated alias instead of the bare
+ * synesis:{user}:{client}:_ key, so a fresh local project cannot inherit old
+ * Postgres usage rows after Redis state expires.
  */
 async function getSessionKey(identity: SessionIdentity): Promise<string> {
-  const baseKey = buildSessionKey(identity.userId, identity.clientKind, identity.conversationId);
-  const hasExplicitConvo = !!(identity.conversationId && identity.conversationId.trim());
-
-  if (hasExplicitConvo) return baseKey;
-
-  const rotatedKey = rotatedSessionByBaseKey.get(baseKey);
-  if (rotatedKey) {
-    const active = sessions.get(rotatedKey);
-    if (active) {
-      const idle = Date.now() - active.record.lastActiveAt;
-      if (idle <= config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) return rotatedKey;
-      rotatedSessionByBaseKey.delete(baseKey);
-    } else {
-      const loadedRotated = await sessionStore.load(rotatedKey);
-      if (loadedRotated) {
-        const idle = Date.now() - loadedRotated.lastActiveAt;
-        if (idle <= config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) return rotatedKey;
-      }
-      rotatedSessionByBaseKey.delete(baseKey);
-    }
+  const decision = await resolveSessionKey({
+    identity,
+    nowMs: Date.now(),
+    inactivityRotationMs: config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS,
+    activeByBaseKey: rotatedSessionByBaseKey,
+    loadRecord: async (sessionKey) => sessions.get(sessionKey)?.record ?? await sessionStore.load(sessionKey),
+    loadActiveSessionKey: (baseKey) => sessionStore.loadActiveSessionKey(baseKey),
+    saveActiveSessionKey: (baseKey, sessionKey) => sessionStore.saveActiveSessionKey(baseKey, sessionKey),
+  });
+  if (decision.reason === "new_implicit_conversation") {
+    sessions.delete(decision.baseKey);
+    contentDedupBySession.delete(decision.baseKey);
+    fileSnapshotBySession.delete(decision.baseKey);
+    structuralIndexBySession.delete(decision.baseKey);
+    memoryGovernorBySession.delete(decision.baseKey);
+    clearSessionMemory(decision.baseKey);
+    blockedDiscoveryBySession.delete(decision.baseKey);
+    app.log.info(
+      { baseKey: decision.baseKey, sessionKey: decision.sessionKey, clientKind: identity.clientKind },
+      "session_implicit_conversation_rotation"
+    );
   }
-
-  const inMemory = sessions.get(baseKey);
-  if (inMemory) {
-    const idle = Date.now() - inMemory.record.lastActiveAt;
-    if (idle > config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) {
-      app.log.info(
-        { oldKey: baseKey, idleMs: idle, tokens: inMemory.record.totalTokensIn },
-        "session_inactivity_rotation"
-      );
-      sessions.delete(baseKey);
-      contentDedupBySession.delete(baseKey);
-      fileSnapshotBySession.delete(baseKey);
-      structuralIndexBySession.delete(baseKey);
-      memoryGovernorBySession.delete(baseKey);
-      clearSessionMemory(baseKey);
-      blockedDiscoveryBySession.delete(baseKey);
-      const rotated = `${baseKey}:r${Date.now()}`;
-      rotatedSessionByBaseKey.set(baseKey, rotated);
-      return rotated;
-    }
-    return baseKey;
-  }
-
-  const loaded = await sessionStore.load(baseKey);
-  if (loaded) {
-    const idle = Date.now() - loaded.lastActiveAt;
-    if (idle > config.SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS) {
-      app.log.info(
-        { oldKey: baseKey, idleMs: idle, tokens: loaded.totalTokensIn },
-        "session_inactivity_rotation_redis"
-      );
-      const rotated = `${baseKey}:r${Date.now()}`;
-      rotatedSessionByBaseKey.set(baseKey, rotated);
-      return rotated;
-    }
-  }
-
-  return baseKey;
+  return decision.sessionKey;
 }
 
 async function getSessionState(key: string, identity: SessionIdentity): Promise<SessionState> {
@@ -3842,7 +3787,8 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   }
 
   const hasExplicitConversation = typeof identity.conversationId === "string" && identity.conversationId.trim().length > 0;
-  const allowCarryForwardBootstrap = !hasExplicitConversation;
+  const allowCarryForwardBootstrap =
+    !hasExplicitConversation && config.SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED;
 
   if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED && allowCarryForwardBootstrap) {
     const prevContinuity = await sessionStore.loadContinuity(identity.userId);

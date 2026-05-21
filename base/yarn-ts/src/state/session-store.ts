@@ -127,6 +127,15 @@ export class SessionStore {
     }
   }
 
+  async loadActiveSessionKey(baseKey: string): Promise<string | null> {
+    const raw = await this.redis.get(this.activeKey(baseKey));
+    return raw && raw.trim() ? raw.trim() : null;
+  }
+
+  async saveActiveSessionKey(baseKey: string, sessionKey: string): Promise<void> {
+    await this.redis.set(this.activeKey(baseKey), sessionKey, "EX", this.ttlSeconds);
+  }
+
   /**
    * Atomically save a session record only if the stored version matches.
    * On success, the record's version is incremented in-place.
@@ -206,5 +215,9 @@ export class SessionStore {
 
   private stateKey(sessionKey: string): string {
     return `yarn-ts:state:${sessionKey}`;
+  }
+
+  private activeKey(baseKey: string): string {
+    return `yarn-ts:active-session:${baseKey}`;
   }
 }

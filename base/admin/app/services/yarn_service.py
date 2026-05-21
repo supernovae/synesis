@@ -207,16 +207,18 @@ async def get_yarn_session_detail(
         if not r:
             return None
 
-        req_stmt = (
-            select(YarnUsageLog)
-            .where(YarnUsageLog.session_key == session_key)
-            .order_by(YarnUsageLog.created_at.desc())
-            .limit(100)
-        )
+        req_base = select(YarnUsageLog).where(YarnUsageLog.session_key == session_key)
         if scope_user_id:
-            req_stmt = req_stmt.where(YarnUsageLog.user_id == scope_user_id)
+            req_base = req_base.where(YarnUsageLog.user_id == scope_user_id)
         elif scope_org_id:
-            req_stmt = req_stmt.where(YarnUsageLog.org_id == scope_org_id)
+            req_base = req_base.where(YarnUsageLog.org_id == scope_org_id)
+
+        usage_rows_total = (await session.execute(select(func.count()).select_from(req_base.subquery()))).scalar() or 0
+        session_request_count = int(r.request_count or 0)
+        stale_usage_rows = usage_rows_total > session_request_count >= 0
+        request_limit = min(100, session_request_count if stale_usage_rows else 100)
+
+        req_stmt = req_base.order_by(YarnUsageLog.created_at.desc()).limit(request_limit)
         req_result = await session.execute(req_stmt)
         requests = req_result.scalars().all()
 
@@ -224,8 +226,26 @@ async def get_yarn_session_detail(
             select(YarnSessionEvent)
             .where(YarnSessionEvent.session_key == session_key)
             .order_by(YarnSessionEvent.created_at.desc())
-            .limit(200)
         )
+        if scope_user_id:
+            events_stmt = events_stmt.where(YarnSessionEvent.user_id == scope_user_id)
+        elif scope_org_id:
+            events_stmt = events_stmt.where(YarnSessionEvent.org_id == scope_org_id)
+        if stale_usage_rows:
+            request_ids = [rq.request_id for rq in requests if rq.request_id]
+            earliest_request_at = min((rq.created_at for rq in requests if rq.created_at), default=None)
+            if request_ids and earliest_request_at:
+                events_stmt = events_stmt.where(
+                    (YarnSessionEvent.request_id.in_(request_ids))
+                    | (YarnSessionEvent.created_at >= earliest_request_at)
+                )
+            elif request_ids:
+                events_stmt = events_stmt.where(YarnSessionEvent.request_id.in_(request_ids))
+            elif earliest_request_at:
+                events_stmt = events_stmt.where(YarnSessionEvent.created_at >= earliest_request_at)
+            else:
+                events_stmt = events_stmt.where(text("false"))
+        events_stmt = events_stmt.limit(200)
         events_result = await session.execute(events_stmt)
         events = events_result.scalars().all()
 
@@ -287,6 +307,11 @@ async def get_yarn_session_detail(
             }
             for ev in events
         ],
+        "integrity": {
+            "usage_rows_total": int(usage_rows_total),
+            "session_request_count": session_request_count,
+            "truncated_to_session_request_count": bool(stale_usage_rows),
+        },
     }
 
 
