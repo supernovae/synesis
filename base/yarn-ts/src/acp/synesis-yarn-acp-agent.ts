@@ -23,6 +23,11 @@ import type {
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { shapeTerminalOutput } from "../terminal/output-shaper.js";
 import { attachShapingToSignals, classifyTerminalOutput } from "../terminal/terminal-signals.js";
+import {
+  applyUpperHarnessToolCall,
+  buildYarnUpperHarnessContext,
+  upperHarnessBlockPayload,
+} from "../upper-harness/bridge.js";
 
 /** OpenAI-format messages we keep in-session (matches yarn-ts /v1/chat/completions). */
 export interface OaiChatMessage {
@@ -755,28 +760,46 @@ export class SynesisYarnAcpAgent implements Agent {
     input: Record<string, unknown>,
   ): Promise<string> {
     const meta = session.requestMetadata;
-    if (ACP_TOOL_NAMES.has(toolName) && !session.availableToolNames.has(toolName as AcpToolName)) {
+    const upper = applyUpperHarnessToolCall({
+      context: buildYarnUpperHarnessContext({
+        surface: "acp",
+        modelId: envModel(),
+        requestedModel: envModel(),
+        baseUrl: envBaseUrl(),
+        provider: "acp",
+      }),
+      toolName,
+      input,
+    });
+    if (upper.blocked) {
+      return JSON.stringify(upperHarnessBlockPayload(upper.decision, toolName));
+    }
+
+    const effectiveToolName = upper.toolName;
+    const effectiveInput = upper.input;
+
+    if (ACP_TOOL_NAMES.has(effectiveToolName) && !session.availableToolNames.has(effectiveToolName as AcpToolName)) {
       return JSON.stringify({
         synesis_error: true,
         schema_version: 1,
         category: "acp_missing_client_capability",
         error: true,
-        message: `ACP client did not advertise the capability required to execute "${toolName}".`,
-        tool: toolName,
+        message: `ACP client did not advertise the capability required to execute "${effectiveToolName}".`,
+        tool: effectiveToolName,
         retryable: false,
       });
     }
-    switch (toolName) {
+    switch (effectiveToolName) {
       case "Read": {
-        const fp = requiredPathArg(input);
+        const fp = requiredPathArg(effectiveInput);
         if (!fp) return acpToolError("Read: missing file_path");
         const abs = resolvePathForAcp(fp, meta);
         const r = await this.connection.readTextFile({ sessionId, path: abs });
         return r.content;
       }
       case "Write": {
-        const fp = requiredPathArg(input);
-        const content = input.content;
+        const fp = requiredPathArg(effectiveInput);
+        const content = effectiveInput.content;
         if (!fp) return acpToolError("Write: missing file_path");
         if (typeof content !== "string") {
           return acpToolError("Write: content must be a string");
@@ -786,11 +809,11 @@ export class SynesisYarnAcpAgent implements Agent {
         return JSON.stringify({ ok: true, path: abs, bytes: Buffer.byteLength(content, "utf8") });
       }
       case "Bash": {
-        const cmd = input.command;
+        const cmd = effectiveInput.command;
         if (typeof cmd !== "string" || !cmd.trim()) {
           return acpToolError("Bash: missing command");
         }
-        const cwdRaw = input.cwd;
+        const cwdRaw = effectiveInput.cwd;
         const cwd =
           typeof cwdRaw === "string" && cwdRaw.trim()
             ? resolvePathForAcp(cwdRaw, meta)
@@ -855,8 +878,8 @@ export class SynesisYarnAcpAgent implements Agent {
           schema_version: 1,
           category: "acp_unsupported_tool",
           error: true,
-          message: `synesis-yarn-acp does not execute tool "${toolName}" on the ACP client yet. Supported: Read, Write, Bash.`,
-          tool: toolName,
+          message: `synesis-yarn-acp does not execute tool "${effectiveToolName}" on the ACP client yet. Supported: Read, Write, Bash.`,
+          tool: effectiveToolName,
           retryable: false,
           hint: "Use only Read, Write, or Bash for local execution, or ask the model to avoid this tool name.",
         });

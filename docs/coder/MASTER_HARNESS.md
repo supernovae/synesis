@@ -125,9 +125,17 @@ It currently provides:
 - universal shell safety and token budget evaluation
 - universal path-prefix and parent-traversal safety
 
-Next migration step: route Yarn's OpenAI, Responses, and Claude handlers through
-the engine in shadow mode, compare old and new decisions, then remove duplicated
-handler-level wiring after parity passes.
+Runtime integration now runs through `base/yarn-ts/src/upper-harness/bridge.ts`.
+The OpenAI-compatible and Claude message paths build one harness context per
+request, apply card repair and universal safety to every outbound client tool
+call, and emit `upper_harness_decision_v1` session events for budget decisions
+and non-allow tool decisions. The ACP bridge applies the same universal safety
+gate before local filesystem or terminal execution.
+
+Next migration step: retire duplicated adapter-level argument alias maps after
+parity is proven, then attach file-state telemetry directly to the Master
+Harness so stale-write and plan-stub blocking are implemented there instead of
+only in the legacy `governToolCall` layer.
 
 Phase 2 should attach file-state telemetry so stale writes and plan-stub writes
 can be blocked by fact, not guesswork. Until then, those rules stay in the

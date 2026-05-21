@@ -182,6 +182,15 @@ import { AttentionPositioningService } from "./context/attention-positioning.js"
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
 import {
+  applyUpperHarnessToolCall,
+  buildYarnUpperHarnessContext,
+  evaluateUpperHarnessBudget,
+  formatUpperHarnessDecisionSummary,
+  upperHarnessBlockPayload,
+  type UpperHarnessDecision,
+  type YarnUpperHarnessContext,
+} from "./upper-harness/bridge.js";
+import {
   openAIToolsToSDK,
   claudeToolsToSDK,
   mapToolChoice,
@@ -4439,21 +4448,79 @@ function applyAdapterToolHardening(
   toolNameFromCall: string,
   input: Record<string, unknown>,
   streamToolName?: string,
+  options?: {
+    upperHarness?: YarnUpperHarnessContext;
+    clientKind?: string;
+    recentToolNames?: string[];
+  },
 ): {
   toolName: string;
   input: Record<string, unknown>;
   remapped: boolean;
   repairedWrite: boolean;
   repairedBash: boolean;
+  upperHarnessDecision?: UpperHarnessDecision;
+  upperHarnessRepaired: boolean;
+  upperHarnessBlocked: boolean;
 } {
   let finalInput = { ...input };
   let remapped = false;
-  if (adapter.remapToolArgs) {
-    const r = adapter.remapToolArgs(toolNameFromCall, finalInput);
-    finalInput = r.input;
-    remapped = r.remapped;
+  let upperHarnessDecision: UpperHarnessDecision | undefined;
+  let upperHarnessRepaired = false;
+  let upperHarnessBlocked = false;
+  let toolNameForCall = toolNameFromCall;
+
+  if (options?.upperHarness) {
+    const upper = applyUpperHarnessToolCall({
+      context: options.upperHarness,
+      toolName: toolNameForCall,
+      input: finalInput,
+      recentToolNames: options.recentToolNames,
+    });
+    upperHarnessDecision = upper.decision;
+    upperHarnessRepaired = upper.repaired;
+    upperHarnessBlocked = upper.blocked;
+    toolNameForCall = upper.toolName;
+    finalInput = upper.input;
+    remapped = upper.repaired;
+
+    if (upper.blocked) {
+      const payload = upperHarnessBlockPayload(upper.decision, toolNameFromCall);
+      const clientKind = options.clientKind ?? "";
+      if (clientKind === "claude-code" || options.upperHarness.surface === "claude") {
+        return {
+          toolName: "Synesis_Error_UpperHarnessBlocked",
+          input: payload,
+          remapped,
+          repairedWrite: false,
+          repairedBash: false,
+          upperHarnessDecision,
+          upperHarnessRepaired,
+          upperHarnessBlocked,
+        };
+      }
+      return {
+        toolName: "Bash",
+        input: {
+          command: buildUserSafeErrorBashCommand(String(payload.message ?? "Tool call blocked by Synesis upper harness.")),
+          description: "Blocked by Synesis upper harness",
+        },
+        remapped,
+        repairedWrite: false,
+        repairedBash: false,
+        upperHarnessDecision,
+        upperHarnessRepaired,
+        upperHarnessBlocked,
+      };
+    }
   }
-  let emitToolName = (streamToolName ?? toolNameFromCall).trim() || toolNameFromCall;
+
+  if (adapter.remapToolArgs) {
+    const r = adapter.remapToolArgs(toolNameForCall, finalInput);
+    finalInput = r.input;
+    remapped = remapped || r.remapped;
+  }
+  let emitToolName = (streamToolName ?? toolNameForCall).trim() || toolNameForCall;
 
   let repairedWrite = false;
   const writeRepair = repairWriteToolCall(emitToolName, finalInput);
@@ -4476,6 +4543,9 @@ function applyAdapterToolHardening(
     remapped,
     repairedWrite,
     repairedBash,
+    upperHarnessDecision,
+    upperHarnessRepaired,
+    upperHarnessBlocked,
   };
 }
 
@@ -4587,6 +4657,28 @@ function maybeLogEnvelopeUnwrapSample(
       sampled: true,
     },
     "tool_args_envelope_unwrapped",
+  );
+}
+
+function recordUpperHarnessDecision(
+  sessionKey: string,
+  userId: string,
+  orgId: string,
+  requestId: string,
+  source: string,
+  decision: UpperHarnessDecision | undefined,
+  options?: { recordAllow?: boolean },
+): void {
+  if (!decision || (decision.action === "allow" && !options?.recordAllow)) return;
+  recordSessionEvent(
+    sessionKey,
+    userId,
+    orgId,
+    "upper_harness_decision_v1",
+    source,
+    formatUpperHarnessDecisionSummary(decision),
+    requestId,
+    decision as unknown as Record<string, unknown>,
   );
 }
 
@@ -9341,6 +9433,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   const { adapter } = resolved;
+  const oaiResolvedTierForHarness = tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const oaiUpperHarness = buildYarnUpperHarnessContext({
+    surface: "openai",
+    modelId: oaiResolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+    requestedModel: request.model,
+    adapter,
+    baseUrl: oaiResolvedTierForHarness?.baseUrl,
+    provider: oaiResolvedTierForHarness
+      ? resolveEndpointCapabilityId(oaiResolvedTierForHarness.baseUrl)
+      : undefined,
+  });
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
   const toolBudget = adjustToolSchemaBudgetForSession(
     resolveToolSchemaBudget(
@@ -9879,6 +9982,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
     config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
   );
+  const oaiUpperBudgetDecision = evaluateUpperHarnessBudget({
+    context: oaiUpperHarness,
+    estimatedInputTokens: oaiContextAdmission.estimatedTokens,
+    ceilingTokens: oaiResolvedTierForHarness?.contextCeilingTokens
+      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
+        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
+        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS),
+    outputReserveTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE,
+  });
+  recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-budget", oaiUpperBudgetDecision.decision, { recordAllow: true });
   contextAdmissionStats.checked += 1;
   contextAdmissionStats.byPath.openai += 1;
   if (oaiContextAdmission.decision === "warn") {
@@ -10239,7 +10352,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
           typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
             ? (tc.input as Record<string, unknown>)
             : {};
-        const hard = applyAdapterToolHardening(adapter, tc.toolName, rawInput);
+        const hard = applyAdapterToolHardening(adapter, tc.toolName, rawInput, undefined, {
+          upperHarness: oaiUpperHarness,
+          clientKind: oaiClientKind,
+          recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+        });
+        recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai", hard.upperHarnessDecision);
         if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
         if (hard.repairedWrite) {
           toolArgHardeningStats.repairedWriteCount += 1;
@@ -10922,7 +11040,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
                     return {};
                   }
                 })();
-          const hard = applyAdapterToolHardening(adapter, tc.toolName ?? "", parsedInput);
+          const hard = applyAdapterToolHardening(adapter, tc.toolName ?? "", parsedInput, undefined, {
+            upperHarness: oaiUpperHarness,
+            clientKind: oaiClientKind,
+            recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+          });
+          recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
           if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
           if (hard.repairedWrite) {
             toolArgHardeningStats.repairedWriteCount += 1;
@@ -13066,6 +13189,17 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
   const { adapter: claudeAdapter } = resolved;
+  const claudeResolvedTierForHarness = tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const claudeUpperHarness = buildYarnUpperHarnessContext({
+    surface: "claude",
+    modelId: claudeResolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+    requestedModel: body.model,
+    adapter: claudeAdapter,
+    baseUrl: claudeResolvedTierForHarness?.baseUrl,
+    provider: claudeResolvedTierForHarness
+      ? resolveEndpointCapabilityId(claudeResolvedTierForHarness.baseUrl)
+      : "anthropic",
+  });
   let claudeRawTools = (processedTools as unknown[]) ?? [];
 
   const claudeToolBudget = adjustToolSchemaBudgetForSession(
@@ -13590,6 +13724,16 @@ app.post("/v1/messages", async (req, reply) => {
     config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
     config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
   );
+  const claudeUpperBudgetDecision = evaluateUpperHarnessBudget({
+    context: claudeUpperHarness,
+    estimatedInputTokens: claudeContextAdmission.estimatedTokens,
+    ceilingTokens: claudeResolvedTierForHarness?.contextCeilingTokens
+      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
+        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
+        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS),
+    outputReserveTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE,
+  });
+  recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-budget", claudeUpperBudgetDecision.decision, { recordAllow: true });
   contextAdmissionStats.checked += 1;
   contextAdmissionStats.byPath.claude += 1;
   if (claudeContextAdmission.decision === "warn") {
@@ -14214,7 +14358,13 @@ app.post("/v1/messages", async (req, reply) => {
             tcFull.toolName ?? "",
             rawToolInput,
             buf?.toolName,
+            {
+              upperHarness: claudeUpperHarness,
+              clientKind: claudeClientKind,
+              recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+            },
           );
+          recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", hard.upperHarnessDecision);
           if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
           if (hard.repairedWrite) {
             toolArgHardeningStats.repairedWriteCount += 1;
@@ -14980,7 +15130,12 @@ app.post("/v1/messages", async (req, reply) => {
         typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
           ? (tc.input as Record<string, unknown>)
           : {};
-      const hard = applyAdapterToolHardening(claudeAdapter, tc.toolName, rawInput);
+      const hard = applyAdapterToolHardening(claudeAdapter, tc.toolName, rawInput, undefined, {
+        upperHarness: claudeUpperHarness,
+        clientKind: claudeClientKind,
+        recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+      });
+      recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", hard.upperHarnessDecision);
       if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
       if (hard.repairedWrite) {
         toolArgHardeningStats.repairedWriteCount += 1;

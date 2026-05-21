@@ -10,5 +10,6 @@ npm run build --workspace=packages/synesis-context-trust
 npm run build --workspace=packages/synesis-manifest
 npm run build --workspace=packages/synesis-mcp-tools
 npm run build --workspace=packages/synesis-agent-orchestration
+npm run build --workspace=packages/synesis-upper-harness
 npm run build --workspace=base/yarn-ts
 echo "ok: yarn-ts build parity (Containerfile order)"
