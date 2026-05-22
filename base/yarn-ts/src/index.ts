@@ -2838,6 +2838,7 @@ const toolArgHardeningStats = {
   blockedUnsafeShellCount: 0,
   blockedWriteCapableToolCount: 0,
   remappedArgsCount: 0,
+  repairedWriteContentCount: 0,
   repairedWriteCount: 0,
   repairedBashCount: 0,
   validationFailedCount: 0,
@@ -4337,6 +4338,7 @@ import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js"
 import {
   adapterUsesToolLoopSteering,
   repairBashToolCall,
+  repairWriteContentArray,
   repairWriteToolCall,
 } from "./providers/model-adapter.js";
 import {
@@ -4517,6 +4519,7 @@ function applyAdapterToolHardening(
   toolName: string;
   input: Record<string, unknown>;
   remapped: boolean;
+  repairedWriteContent: boolean;
   repairedWrite: boolean;
   repairedBash: boolean;
   upperHarnessDecision?: UpperHarnessDecision;
@@ -4552,6 +4555,7 @@ function applyAdapterToolHardening(
           toolName: "Synesis_Error_UpperHarnessBlocked",
           input: payload,
           remapped,
+          repairedWriteContent: false,
           repairedWrite: false,
           repairedBash: false,
           upperHarnessDecision,
@@ -4566,6 +4570,7 @@ function applyAdapterToolHardening(
           description: "Blocked by Synesis upper harness",
         },
         remapped,
+        repairedWriteContent: false,
         repairedWrite: false,
         repairedBash: false,
         upperHarnessDecision,
@@ -4581,6 +4586,13 @@ function applyAdapterToolHardening(
     remapped = remapped || r.remapped;
   }
   let emitToolName = (streamToolName ?? toolNameForCall).trim() || toolNameForCall;
+
+  let repairedWriteContent = false;
+  const writeContentRepair = repairWriteContentArray(emitToolName, finalInput);
+  if (writeContentRepair) {
+    finalInput = writeContentRepair.input;
+    repairedWriteContent = writeContentRepair.repaired;
+  }
 
   let repairedWrite = false;
   const writeRepair = repairWriteToolCall(emitToolName, finalInput);
@@ -4601,6 +4613,7 @@ function applyAdapterToolHardening(
     toolName: emitToolName,
     input: finalInput,
     remapped,
+    repairedWriteContent,
     repairedWrite,
     repairedBash,
     upperHarnessDecision,
@@ -10579,6 +10592,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         });
         recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai", hard.upperHarnessDecision);
         if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+        if (hard.repairedWriteContent) {
+          toolArgHardeningStats.repairedWriteContentCount += 1;
+          app.log.warn(
+            {
+              reqId,
+              originalTool: tc.toolName,
+              filePath: rawInput.file_path ?? rawInput.path,
+            },
+            "write_tool_content_array_repaired",
+          );
+        }
         if (hard.repairedWrite) {
           toolArgHardeningStats.repairedWriteCount += 1;
           app.log.warn(
@@ -11267,6 +11291,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
           });
           recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
           if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+          if (hard.repairedWriteContent) {
+            toolArgHardeningStats.repairedWriteContentCount += 1;
+            oaiStreamToolRepairs += 1;
+            app.log.warn(
+              {
+                reqId,
+                originalTool: tc.toolName,
+                filePath: parsedInput.file_path ?? parsedInput.path,
+              },
+              "write_tool_content_array_repaired",
+            );
+          }
           if (hard.repairedWrite) {
             toolArgHardeningStats.repairedWriteCount += 1;
             oaiStreamToolRepairs += 1;
@@ -11337,6 +11373,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             app.log.debug({
               reqId, toolName: governed.toolName, toolCallId: tc.toolCallId,
               argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
+              repairedWriteContent: hard.repairedWriteContent,
               adapterFamily: adapter.family,
             }, "tool_call_streamed");
           }
@@ -14660,6 +14697,15 @@ app.post("/v1/messages", async (req, reply) => {
           );
           recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", hard.upperHarnessDecision);
           if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+          if (hard.repairedWriteContent) {
+            toolArgHardeningStats.repairedWriteContentCount += 1;
+            requestToolRepairs += 1;
+            app.log.warn({
+              reqId: traceReqId,
+              originalTool: tcFull.toolName,
+              filePath: rawToolInput.file_path ?? rawToolInput.path,
+            }, "write_tool_content_array_repaired");
+          }
           if (hard.repairedWrite) {
             toolArgHardeningStats.repairedWriteCount += 1;
             requestToolRepairs += 1;
@@ -14767,6 +14813,7 @@ app.post("/v1/messages", async (req, reply) => {
               argsLen: JSON.stringify(finalInput).length,
               argsPreview: JSON.stringify(finalInput).slice(0, 300),
               remapped: hard.remapped,
+              repairedWriteContent: hard.repairedWriteContent,
               repairedWrite: hard.repairedWrite,
               repairedBash: hard.repairedBash,
               adapterFamily: claudeAdapter.family,
@@ -15431,6 +15478,17 @@ app.post("/v1/messages", async (req, reply) => {
       });
       recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", hard.upperHarnessDecision);
       if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
+      if (hard.repairedWriteContent) {
+        toolArgHardeningStats.repairedWriteContentCount += 1;
+        app.log.warn(
+          {
+            reqId,
+            originalTool: tc.toolName,
+            filePath: rawInput.file_path ?? rawInput.path,
+          },
+          "write_tool_content_array_repaired",
+        );
+      }
       if (hard.repairedWrite) {
         toolArgHardeningStats.repairedWriteCount += 1;
         app.log.warn(

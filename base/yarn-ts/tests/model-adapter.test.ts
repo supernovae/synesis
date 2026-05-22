@@ -11,6 +11,7 @@ import {
   constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
   validateToolArgs,
+  repairWriteContentArray,
   repairWriteToolCall,
   repairBashToolCall,
   fingerprintToolCall,
@@ -256,6 +257,16 @@ describe("Qwen3CoderAdapter", () => {
     expect(result.input).toEqual({ file_path: "hello.go", content: "code" });
   });
 
+  it("remaps aliases for OpenCode-style tool names", () => {
+    const write = adapter.remapToolArgs!("write_file", { path: "hello.go", content: "code" });
+    expect(write.remapped).toBe(true);
+    expect(write.input).toEqual({ file_path: "hello.go", content: "code" });
+
+    const bash = adapter.remapToolArgs!("bash", { cmd: "ls -la" });
+    expect(bash.remapped).toBe(true);
+    expect(bash.input).toEqual({ command: "ls -la" });
+  });
+
   it("remaps 'cmd' to 'command' for Bash", () => {
     const result = adapter.remapToolArgs!("Bash", { cmd: "ls -la" });
     expect(result.remapped).toBe(true);
@@ -463,6 +474,7 @@ describe("DeepSeekAdapter", () => {
 describe("repairBashToolCall", () => {
   it("returns null when command is already set", () => {
     expect(repairBashToolCall("Bash", { command: "ls -la" })).toBeNull();
+    expect(repairBashToolCall("bash", { command: "ls -la" })).toBeNull();
     expect(repairBashToolCall("Read", { file_path: "x" })).toBeNull();
   });
 
@@ -470,6 +482,9 @@ describe("repairBashToolCall", () => {
     const r = repairBashToolCall("Bash", { wrong_key: "echo ok" });
     expect(r?.repaired).toBe(true);
     expect(r?.input).toEqual({ command: "echo ok" });
+
+    const alias = repairBashToolCall("bash", { wrong_key: "echo alias" });
+    expect(alias?.input).toEqual({ command: "echo alias" });
   });
 
   it("replaces stray empty-value key (Qwen garbage) with explanatory failing command", () => {
@@ -536,6 +551,28 @@ describe("repairWriteToolCall", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.rewrittenInput.command).toContain("'my file (1).go'");
+  });
+});
+
+describe("repairWriteContentArray", () => {
+  it("rejoins comma-split Write content before clients validate tool args", () => {
+    const result = repairWriteContentArray("write_file", {
+      file_path: "taskpulse/app/models.py",
+      content: [
+        "description: Optional[str] = None\n    category: str = Field(..., min_length=1, max_length=50)\n    priority: str = Field(default=\"medium\"",
+        "pattern=\"^(low|medium|high)$\"",
+        "due_date: Optional[datetime] = None\n",
+      ],
+    });
+
+    expect(result?.repaired).toBe(true);
+    expect(result?.input.content).toBe(
+      "description: Optional[str] = None\n    category: str = Field(..., min_length=1, max_length=50)\n    priority: str = Field(default=\"medium\", pattern=\"^(low|medium|high)$\", due_date: Optional[datetime] = None\n",
+    );
+  });
+
+  it("ignores non-string content arrays", () => {
+    expect(repairWriteContentArray("Write", { file_path: "x.py", content: ["ok", 1] })).toBeNull();
   });
 });
 
@@ -684,6 +721,11 @@ describe("validateToolArgs", () => {
   it("reports missing required keys", () => {
     expect(validateToolArgs("Bash", { description: "run thing" }))
       .toEqual({ valid: false, missing: ["command"] });
+  });
+
+  it("reports wrong-type required string keys", () => {
+    expect(validateToolArgs("write_file", { file_path: "main.py", content: ["print('x')"] }))
+      .toEqual({ valid: false, missing: ["content"] });
   });
 
   it("passes through unknown tools as valid", () => {

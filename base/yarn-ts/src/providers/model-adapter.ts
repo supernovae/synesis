@@ -1,4 +1,5 @@
 import path from "node:path";
+import { canonicalValidationToolName } from "../tool-aliases.js";
 
 /**
  * Model-specific adapters for upstream LLM behavioral differences.
@@ -289,7 +290,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   }
 
   remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
-    const aliases = CLAUDE_CODE_PARAM_ALIASES[toolName];
+    const aliases = CLAUDE_CODE_PARAM_ALIASES[toolName] ?? CLAUDE_CODE_PARAM_ALIASES[canonicalValidationToolName(toolName)];
     if (!aliases) return { input, remapped: false };
 
     let remapped = false;
@@ -909,7 +910,7 @@ export function repairBashToolCall(
   toolName: string,
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; repaired: boolean } | null {
-  if (toolName !== "Bash") return null;
+  if (canonicalValidationToolName(toolName) !== "Bash") return null;
 
   const ALLOWED = new Set(["command", "description", "is_background", "timeout"]);
   const cmd = input.command;
@@ -951,7 +952,7 @@ export function repairWriteToolCall(
   toolName: string,
   input: Record<string, unknown>,
 ): { rewrittenToolName: string; rewrittenInput: Record<string, unknown> } | null {
-  if (toolName !== "Write") return null;
+  if (canonicalValidationToolName(toolName) !== "Write") return null;
 
   const filePath = input.file_path as string | undefined;
   const content = input.content as string | undefined;
@@ -987,11 +988,33 @@ export function repairWriteToolCall(
   };
 }
 
+export function repairWriteContentArray(
+  toolName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; repaired: boolean } | null {
+  if (canonicalValidationToolName(toolName) !== "Write") return null;
+  const filePath = input.file_path;
+  const content = input.content;
+  if (typeof filePath !== "string" || !filePath.trim()) return null;
+  if (!Array.isArray(content)) return null;
+  if (!content.every((part) => typeof part === "string")) return null;
+
+  // Some OpenAI-compatible tool parsers split large Write.content strings at
+  // commas inside source code, producing a string[] that clients correctly
+  // reject. Join with commas to reconstruct the intended file text.
+  const repairedContent = content.join(", ");
+  if (!repairedContent.trim()) return null;
+  return {
+    input: { ...input, content: repairedContent },
+    repaired: true,
+  };
+}
+
 export function normalizeFileToolArgs(
   toolName: string,
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; normalized: boolean } {
-  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) {
+  if (!["Write", "Read", "Edit", "Update"].includes(canonicalValidationToolName(toolName))) {
     return { input, normalized: false };
   }
   const filePath = input.file_path;
@@ -1086,7 +1109,7 @@ export function validateToolArgs(
     Grep: ["pattern"],
     WebFetch: ["url"],
   };
-  const required = requiredByTool[toolName];
+  const required = requiredByTool[canonicalValidationToolName(toolName)];
   if (!required) return { valid: true, missing: [] };
 
   const alternates: Record<string, string[]> = {
@@ -1095,13 +1118,11 @@ export function validateToolArgs(
   const missing = required.filter((k) => {
     const v = input[k];
     if (typeof v === "string") return v.trim().length > 0 ? false : true;
-    if (v !== undefined && v !== null) return false;
     const alts = alternates[k];
     if (alts) {
       for (const alt of alts) {
         const av = input[alt];
         if (typeof av === "string" && av.trim().length > 0) return false;
-        if (av !== undefined && av !== null) return false;
       }
     }
     return true;
