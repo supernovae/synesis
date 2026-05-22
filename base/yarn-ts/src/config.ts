@@ -209,6 +209,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED: z
     .string()
     .optional()

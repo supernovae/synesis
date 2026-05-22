@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+import {
+  evaluateYarnPromptIntakeSteer,
+  readPromptIntakeRequestOptions,
+} from "../src/upper-harness/bridge.js";
+
+describe("Yarn prompt intake bridge", () => {
+  it("leaves micro prompts unmodified", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "fix the missing import in src/auth.ts",
+      metadata: {},
+    });
+
+    expect(result.decision.scope).toBe("micro");
+    expect(result.shouldAppend).toBe(false);
+    expect(result.systemBlock).toBeUndefined();
+  });
+
+  it("adds an advisory block for macro prompts", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "build a new app with auth, billing, and an admin UI",
+      metadata: {},
+    });
+
+    expect(result.decision.scope).toBe("macro");
+    expect(result.shouldAppend).toBe(true);
+    expect(result.systemBlock).toContain("planning_suggested");
+    expect(result.systemBlock).toContain("Keep this advisory");
+    expect(result.metadataSnapshot.planning_steered).toBe(true);
+  });
+
+  it("honors metadata override", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "build a new app with auth, billing, and an admin UI",
+      metadata: { synesis_planning_override: true },
+    });
+
+    expect(result.decision.scope).toBe("macro");
+    expect(result.decision.override).toBe(true);
+    expect(result.shouldAppend).toBe(false);
+  });
+
+  it("honors natural-language refusal without requiring metadata", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "skip planning and build the new app now",
+      metadata: {},
+    });
+
+    expect(result.decision.scope).toBe("macro");
+    expect(result.decision.override).toBe(true);
+    expect(result.shouldAppend).toBe(false);
+  });
+
+  it("honors extra_body override and style text", () => {
+    const opts = readPromptIntakeRequestOptions({
+      metadata: {},
+      extraBody: {
+        synesis_planning_override: "yes",
+        synesis_custom_style: "Skip explanations.",
+      },
+    });
+
+    expect(opts.planningOverride).toBe(true);
+    expect(opts.customStyle).toBe("Skip explanations.");
+  });
+
+  it("feature flag disables the block without losing classification metadata", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: false,
+      latestUserPrompt: "build a new app with auth, billing, and an admin UI",
+      metadata: {},
+    });
+
+    expect(result.decision.scope).toBe("macro");
+    expect(result.decision.action).toBe("steer");
+    expect(result.shouldAppend).toBe(false);
+    expect(result.metadataSnapshot.enabled).toBe(false);
+  });
+});

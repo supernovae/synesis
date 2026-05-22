@@ -19,6 +19,17 @@ export {
   evaluateUpperHarness,
 } from "./engine.js";
 export {
+  PROMPT_INTAKE_DECISION_SCHEMA_VERSION,
+  buildPromptIntakeSystemBlock,
+  evaluatePromptIntake,
+  hashPromptSignal,
+  sanitizePromptIntakeCustomStyle,
+  type PromptIntakeAction,
+  type PromptIntakeDecision,
+  type PromptIntakeInput,
+  type PromptScopeDecision,
+} from "./prompt-intake.js";
+export {
   HARNESS_CARD_SCHEMA_VERSION,
   MASTER_HARNESS_POLICY_SCHEMA_VERSION,
   UPPER_HARNESS_DECISION_SCHEMA_VERSION,

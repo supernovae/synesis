@@ -185,9 +185,11 @@ import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-styl
 import {
   applyUpperHarnessToolCall,
   buildYarnUpperHarnessContext,
+  evaluateYarnPromptIntakeSteer,
   evaluateUpperHarnessBudget,
   formatUpperHarnessDecisionSummary,
   upperHarnessBlockPayload,
+  type YarnPromptIntakeResult,
   type UpperHarnessDecision,
   type YarnUpperHarnessContext,
 } from "./upper-harness/bridge.js";
@@ -1361,6 +1363,38 @@ function buildTaskIntakeSnapshot(intake: TaskIntake): Record<string, unknown> {
     rubric: intake.rubric,
     updatedAt: Date.now(),
   };
+}
+
+function persistPromptIntakeSnapshot(
+  state: SessionState,
+  result: YarnPromptIntakeResult,
+): void {
+  state.record.metadata.prompt_intake = result.metadataSnapshot;
+  state.record.metadata.prompt_scope = result.decision.scope;
+  state.record.metadata.prompt_intake_source_hash = result.decision.source_hash;
+  state.record.metadata.prompt_intake_planning_steered = result.shouldAppend;
+  state.record.metadata.prompt_intake_override = result.decision.override;
+}
+
+function recordPromptIntakeEvent(
+  sessionKey: string,
+  userId: string,
+  orgId: string,
+  requestId: string,
+  surface: string,
+  result: YarnPromptIntakeResult,
+): void {
+  if (result.decision.scope === "micro" && !result.shouldAppend && !result.decision.override) return;
+  recordSessionEvent(
+    sessionKey,
+    userId,
+    orgId,
+    "prompt_intake_evaluated",
+    "upper-harness",
+    `${surface} scope=${result.decision.scope} action=${result.decision.action} steered=${result.shouldAppend} override=${result.decision.override}`,
+    requestId,
+    result.metadataSnapshot,
+  );
 }
 
 function refreshTaskIntake(state: SessionState): TaskIntake | null {
@@ -7327,6 +7361,7 @@ app.get("/health/telemetry", async (req, reply) => {
       workerPool: config.SYNESIS_YARN_WORKER_POOL_ENABLED,
       contentDispatch: config.SYNESIS_YARN_CONTENT_DISPATCH_ENABLED,
       transcriptPruning: config.SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED,
+      promptIntakeSteer: config.SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED,
       patternRecall: config.SYNESIS_YARN_PATTERN_RECALL_ENABLED,
       recallBypass: config.SYNESIS_YARN_RECALL_BYPASS_ENABLED,
       verificationPlan: config.SYNESIS_YARN_VERIFICATION_PLAN_ENABLED,
@@ -8198,6 +8233,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiTaskIntake,
     normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
     oaiVerificationAssessment.failingSignals,
+  );
+  const oaiPromptIntake = evaluateYarnPromptIntakeSteer({
+    enabled: config.SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    latestUserPrompt: oaiTaskCue,
+    metadata: oaiBodyMeta,
+    extraBody: request.extra_body ?? null,
+  });
+  persistPromptIntakeSnapshot(session, oaiPromptIntake);
+  recordPromptIntakeEvent(
+    sessionKey,
+    identity.userId,
+    identity.orgId,
+    oaiTraceReqId,
+    "openai",
+    oaiPromptIntake,
   );
   if (oaiRequirementChecklist && oaiRequirementChecklist.sourceHash !== priorOaiChecklistHash) {
     recordSessionEvent(
@@ -9667,6 +9717,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelMessages = appendSystemMessageAndNormalize(
       modelMessages as Array<{ role: string; content?: unknown }>,
       regroundPrompt,
+    ) as typeof modelMessages;
+  }
+  if (oaiPromptIntake.systemBlock) {
+    modelMessages = appendSystemMessageAndNormalize(
+      modelMessages as Array<{ role: string; content?: unknown }>,
+      oaiPromptIntake.systemBlock,
     ) as typeof modelMessages;
   }
 
@@ -11986,6 +12042,20 @@ app.post("/v1/messages", async (req, reply) => {
     normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
     claudeVerificationAssessment.failingSignals,
   );
+  const claudePromptIntake = evaluateYarnPromptIntakeSteer({
+    enabled: config.SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    latestUserPrompt: claudeTaskCue,
+    metadata: body.metadata ?? null,
+  });
+  persistPromptIntakeSnapshot(session, claudePromptIntake);
+  recordPromptIntakeEvent(
+    claudeSessionKey,
+    claudeIdentity.userId,
+    claudeIdentity.orgId,
+    traceReqId,
+    "claude",
+    claudePromptIntake,
+  );
   if (claudeRequirementChecklist && claudeRequirementChecklist.sourceHash !== priorClaudeChecklistHash) {
     recordSessionEvent(
       claudeSessionKey,
@@ -13278,6 +13348,12 @@ app.post("/v1/messages", async (req, reply) => {
     claudeModelMessages = appendSystemMessageAndNormalize(
       claudeModelMessages as Array<{ role: string; content?: unknown }>,
       regroundPrompt,
+    ) as typeof claudeModelMessages;
+  }
+  if (claudePromptIntake.systemBlock) {
+    claudeModelMessages = appendSystemMessageAndNormalize(
+      claudeModelMessages as Array<{ role: string; content?: unknown }>,
+      claudePromptIntake.systemBlock,
     ) as typeof claudeModelMessages;
   }
 

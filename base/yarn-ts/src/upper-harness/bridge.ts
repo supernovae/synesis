@@ -1,7 +1,10 @@
 import {
   DEFAULT_MASTER_HARNESS_POLICY,
+  buildPromptIntakeSystemBlock,
+  evaluatePromptIntake,
   evaluateUpperHarness,
   type MasterHarnessPolicyV1,
+  type PromptIntakeDecision,
   type UpperHarnessDecision,
 } from "@synesis/upper-harness";
 import type { ModelAdapter } from "../providers/model-adapter.js";
@@ -39,9 +42,58 @@ export interface UpperHarnessBudgetResult {
   blocked: boolean;
 }
 
+export interface YarnPromptIntakeResult {
+  decision: PromptIntakeDecision;
+  systemBlock?: string;
+  shouldAppend: boolean;
+  metadataSnapshot: Record<string, unknown>;
+}
+
 function clean(value: string | null | undefined): string | undefined {
   const trimmed = String(value ?? "").trim();
   return trimmed ? trimmed : undefined;
+}
+
+function cleanStyle(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 500) : undefined;
+}
+
+function truthy(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  return /^(true|1|yes|on)$/i.test(value.trim());
+}
+
+function objectOrUndefined(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function firstStyle(...records: Array<Record<string, unknown> | undefined>): string | undefined {
+  for (const record of records) {
+    const style = cleanStyle(record?.synesis_custom_style ?? record?.custom_style);
+    if (style) return style;
+  }
+  return undefined;
+}
+
+export function readPromptIntakeRequestOptions(options: {
+  metadata?: Record<string, unknown> | null;
+  extraBody?: Record<string, unknown> | null;
+}): { planningOverride: boolean; customStyle?: string } {
+  const metadata = objectOrUndefined(options.metadata);
+  const extraBody = objectOrUndefined(options.extraBody);
+  return {
+    planningOverride: truthy(metadata?.synesis_planning_override)
+      || truthy(metadata?.planning_override)
+      || truthy(extraBody?.synesis_planning_override)
+      || truthy(extraBody?.planning_override),
+    customStyle: firstStyle(metadata, extraBody),
+  };
 }
 
 function inferProvider(baseUrl: string | null | undefined, explicitProvider?: string | null): string | undefined {
@@ -138,6 +190,40 @@ export function evaluateUpperHarnessBudget(options: {
   return {
     decision,
     blocked: decision.action === "block",
+  };
+}
+
+export function evaluateYarnPromptIntakeSteer(options: {
+  enabled: boolean;
+  latestUserPrompt: string | undefined;
+  metadata?: Record<string, unknown> | null;
+  extraBody?: Record<string, unknown> | null;
+}): YarnPromptIntakeResult {
+  const requestOptions = readPromptIntakeRequestOptions({
+    metadata: options.metadata,
+    extraBody: options.extraBody,
+  });
+  const decision = evaluatePromptIntake({
+    prompt: options.latestUserPrompt ?? "",
+    planningOverride: requestOptions.planningOverride,
+    customStyle: requestOptions.customStyle,
+  });
+  const systemBlock = options.enabled ? buildPromptIntakeSystemBlock(decision) ?? undefined : undefined;
+  return {
+    decision,
+    systemBlock,
+    shouldAppend: Boolean(systemBlock),
+    metadataSnapshot: {
+      schema_version: decision.schema_version,
+      scope: decision.scope,
+      action: decision.action,
+      planning_steered: Boolean(systemBlock),
+      override: decision.override,
+      source_hash: decision.source_hash,
+      reasons: decision.reasons,
+      enabled: options.enabled,
+      ...(decision.custom_style ? { custom_style_present: true } : {}),
+    },
   };
 }
 
