@@ -285,6 +285,9 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "project_root is the broader workspace/repo boundary for context. shell_cwd is the file-tool execution root for client-native tools; when both are set and shell_cwd is a subdirectory, do not include that subdirectory prefix in file_path.",
     );
+    lines.push(
+      "Do not request access to parent/sibling directories such as ../, ~/src, or the parent of project_root just to discover files. If a file is missing, inspect the current workspace root with pwd/ls and then create or edit only inside shell_cwd/project_root.",
+    );
     const pr = ctx.projectRoot?.trim();
     const cw = ctx.shellCwd?.trim();
     if (pr && cw && pr !== cw) {

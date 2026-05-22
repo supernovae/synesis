@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { governToolCall } from "../src/path-governance/tool-call-governance.js";
+import { buildDefaultPolicy } from "../src/path-governance/path-sandbox.js";
 
 describe("governToolCall", () => {
   it("normalizes duplicate leading file segments for write tools", () => {
@@ -254,6 +255,53 @@ describe("governToolCall", () => {
       restrictDiscoveryForPlanWork: true,
     });
     expect(out.toolName).toBe("Glob");
+  });
+
+  it("blocks opencode Glob patterns that target a parent workspace directory", () => {
+    const out = governToolCall({
+      toolName: "glob",
+      input: { pattern: "/home/byron/src/*" },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+      pathSandboxPolicy: buildDefaultPolicy("/home/byron/src/test"),
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedPathSandbox).toBe(true);
+    expect(String(out.input.command)).toContain("path_sandbox_violation");
+    expect(String(out.input.command)).toContain("/home/byron/src");
+  });
+
+  it("allows scoped opencode Glob patterns inside the project root", () => {
+    const out = governToolCall({
+      toolName: "glob",
+      input: { pattern: "taskpulse/**/*.py" },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+      pathSandboxPolicy: buildDefaultPolicy("/home/byron/src/test"),
+    });
+    expect(out.toolName).toBe("glob");
+    expect(out.blockedPathSandbox).toBeUndefined();
+  });
+
+  it("blocks Grep target directories outside the project root", () => {
+    const out = governToolCall({
+      toolName: "grep",
+      input: { pattern: "categorizer", path: "/home/byron/src" },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+      pathSandboxPolicy: buildDefaultPolicy("/home/byron/src/test"),
+    });
+    expect(out.blockedPathSandbox).toBe(true);
+    expect(String(out.input.command)).toContain("path_sandbox_violation");
   });
 
   it("blocks git-status churn bash in plan-execution mode", () => {

@@ -1067,59 +1067,105 @@ function detectBashPathDrift(command: string): { reason: string } | null {
   return null;
 }
 
+function globPatternDirectory(pattern: string): string | null {
+  const normalized = pattern.trim().replace(/\\/g, "/");
+  if (!normalized) return null;
+  const wildcardIdx = normalized.search(/[*?[\]{}]/);
+  const beforeWildcard = wildcardIdx >= 0 ? normalized.slice(0, wildcardIdx) : normalized;
+  const candidate = beforeWildcard.replace(/\/+$/g, "");
+  if (!candidate) return normalized.startsWith("/") ? "/" : null;
+  if (path.isAbsolute(candidate) || candidate.startsWith("~") || candidate.startsWith(".") || candidate.includes("/")) {
+    return candidate;
+  }
+  return null;
+}
+
+function sandboxPathsForNonBashTool(
+  logicalName: string,
+  input: Record<string, unknown>,
+): Array<{ path: string; operation: PathOperation }> {
+  const operation: PathOperation = WRITE_CAPABLE_LOGICAL.has(logicalName) ? "write" : "read";
+  const directPath = typeof input.file_path === "string" ? input.file_path.trim()
+    : typeof input.path === "string" ? input.path.trim()
+      : "";
+  const paths: Array<{ path: string; operation: PathOperation }> = [];
+  if (directPath) paths.push({ path: directPath, operation });
+
+  if (logicalName === "Glob" || logicalName === "Grep") {
+    const targetDirectory = typeof input.target_directory === "string" ? input.target_directory.trim()
+      : typeof input.directory === "string" ? input.directory.trim()
+        : typeof input.dir === "string" ? input.dir.trim()
+          : "";
+    if (targetDirectory) paths.push({ path: targetDirectory, operation: "read" });
+
+    if (logicalName === "Glob") {
+      const pattern = typeof input.glob_pattern === "string" ? input.glob_pattern.trim()
+        : typeof input.pattern === "string" ? input.pattern.trim()
+          : typeof input.glob === "string" ? input.glob.trim()
+            : typeof input.query === "string" ? input.query.trim()
+              : "";
+      const patternDir = pattern ? globPatternDirectory(pattern) : null;
+      if (patternDir) paths.push({ path: patternDir, operation: "read" });
+    }
+  }
+
+  const seen = new Set<string>();
+  return paths.filter((entry) => {
+    const key = `${entry.operation}:${entry.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function maybeBlockPathSandbox(
   logicalName: string,
   input: Record<string, unknown>,
   policy: PathSandboxPolicy,
   clientKind?: string,
 ): { toolName: string; input: Record<string, unknown>; nudge?: string } | null {
-  // Determine operation type and extract paths
-  const isWrite = WRITE_CAPABLE_LOGICAL.has(logicalName);
-  const operation: PathOperation = isWrite ? "write" : "read";
-
-  // File tool paths (Read, Write, Edit, Glob target)
-  const filePath = typeof input.file_path === "string" ? input.file_path.trim()
-    : typeof input.path === "string" ? input.path.trim() : "";
-
-  if (filePath && logicalName !== "Bash") {
-    const result = evaluatePathAccess(filePath, operation, policy);
-    if (!result.allowed) {
-      const message = result.nudge
-        ?? `Path "${filePath}" is outside the project sandbox. ${result.reason}. Use files within ${policy.projectRoot} or ~/.claude/ instead.`;
-      if (clientKind === "claude-code") {
+  // File/search tool paths, including absolute Glob patterns like /repo-parent/*
+  if (logicalName !== "Bash") {
+    for (const entry of sandboxPathsForNonBashTool(logicalName, input)) {
+      const result = evaluatePathAccess(entry.path, entry.operation, policy);
+      if (!result.allowed) {
+        const message = result.nudge
+          ?? `Path "${entry.path}" is outside the project sandbox. ${result.reason}. Use files within ${policy.projectRoot} or ~/.claude/ instead.`;
+        if (clientKind === "claude-code") {
+          return {
+            toolName: "Synesis_Error_PathSandbox",
+            input: {
+              synesis_error: true,
+              reason: "path_sandbox_violation",
+              detail: result.reason,
+              blocked_path: entry.path,
+              resolved_path: result.resolvedPath,
+              operation: entry.operation,
+              message,
+              retryable: true,
+            },
+            nudge: result.nudge,
+          };
+        }
         return {
-          toolName: "Synesis_Error_PathSandbox",
+          toolName: "Bash",
           input: {
-            synesis_error: true,
-            reason: "path_sandbox_violation",
-            detail: result.reason,
-            blocked_path: filePath,
-            resolved_path: result.resolvedPath,
-            operation,
-            message,
-            retryable: true,
+            command: buildStructuredErrorBashCommand({
+              synesis_error: true,
+              schema_version: 1,
+              category: "security",
+              reason: "path_sandbox_violation",
+              detail: result.reason,
+              blocked_path: entry.path,
+              operation: entry.operation,
+              message,
+              retryable: true,
+            }),
+            description: `Blocked ${entry.operation} outside sandbox: ${result.reason}`,
           },
           nudge: result.nudge,
         };
       }
-      return {
-        toolName: "Bash",
-        input: {
-          command: buildStructuredErrorBashCommand({
-            synesis_error: true,
-            schema_version: 1,
-            category: "security",
-            reason: "path_sandbox_violation",
-            detail: result.reason,
-            blocked_path: filePath,
-            operation,
-            message,
-            retryable: true,
-          }),
-          description: `Blocked ${operation} outside sandbox: ${result.reason}`,
-        },
-        nudge: result.nudge,
-      };
     }
   }
 
