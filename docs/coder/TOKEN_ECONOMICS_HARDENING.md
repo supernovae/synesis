@@ -155,6 +155,12 @@ This is the CI-safe contract. Live provider canaries should reuse these packet
 fixtures and only add real upstream calls when credentials, spend limits, and
 provider-specific telemetry assertions are configured.
 
+The same test suite also runs golden-packet cache-stability checks over the
+existing client profile fixtures for Claude Code, Codex CLI, Cursor, OpenCode,
+and Roo/OpenCode. These checks prove that representative harness payloads keep
+append-only stable prefixes, stable toolset hashes, and volatile environment
+metadata outside the stable core hash.
+
 ### Retry visibility
 
 The endpoint transport retry wrapper now logs final retry exhaustion and final
@@ -193,6 +199,7 @@ This runs:
 - `tests/usage-telemetry-fetch.test.ts`
 - `tests/dashscope-endpoint-adapter.test.ts`
 - `tests/provider-cache-canary.test.ts`
+- `tests/golden-packet-cache-stability.test.ts`
 
 Admin rollup test:
 
@@ -218,5 +225,5 @@ npm run test:token-economics
 
 - Add opt-in live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes using the offline canary packets.
 - Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
-- Add golden packet fixtures for Claude Code, Codex, Roo, Windsurf, VS Code, OpenCode, Hermes/Claw-style, and generic OpenAI-compatible harnesses.
+- Expand golden packet fixtures for Windsurf, VS Code, Hermes/Claw-style, and generic homegrown OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.

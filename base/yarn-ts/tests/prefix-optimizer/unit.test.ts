@@ -34,6 +34,9 @@ describe("volatility classifier", () => {
 
   it("classifies cwd and OS info as volatile", () => {
     expect(classifyVolatility("cwd: /Users/test/project")).toBe("volatile");
+    expect(classifyVolatility("Working directory: /Users/test/project")).toBe("volatile");
+    expect(classifyVolatility("Workspace root folder: /Users/test/project")).toBe("volatile");
+    expect(classifyVolatility("Platform: darwin")).toBe("volatile");
     expect(classifyVolatility("OS Version: darwin 25.4.0")).toBe("volatile");
     expect(classifyVolatility("Shell: zsh")).toBe("volatile");
   });
@@ -98,6 +101,8 @@ describe("isVolatileLine", () => {
   it("detects volatile patterns", () => {
     expect(isVolatileLine("Today's date: Apr 8, 2026")).toBe(true);
     expect(isVolatileLine("cwd: /Users/me/project")).toBe(true);
+    expect(isVolatileLine("Working directory: /Users/me/project")).toBe(true);
+    expect(isVolatileLine("Workspace root folder: /Users/me/project")).toBe(true);
     expect(isVolatileLine("OS Version: darwin 25.4.0")).toBe(true);
     expect(isVolatileLine("Do not rewrite files")).toBe(false);
   });
