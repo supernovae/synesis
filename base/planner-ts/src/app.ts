@@ -32,7 +32,13 @@ import { SessionManager } from "./context/session-manager.js";
 import { selectConversationContext } from "./context/context-selector.js";
 import { createSessionStore } from "./context/session-store.js";
 import { invokeGraph, streamGraph } from "./graph.js";
-import { getLlmResilienceStats, setPricingContext } from "./llm/client.js";
+import {
+  chatCompletionOpenAICompat,
+  chatCompletionOpenAICompatStream,
+  getLlmResilienceStats,
+  setPricingContext,
+  type OpenAICompatChatRequest,
+} from "./llm/client.js";
 import { setRetrievalClient, directStreamPipeline, isRetrievalClientRegistered } from "./pipeline.js";
 import { UnifiedRetrievalClient } from "./retrieval/client.js";
 import { resolvePacks, retrieveContext, retrieveKnowledgeBundle } from "./retrieval/rag-client.js";
@@ -312,6 +318,69 @@ function requestGenerationParams(body: ParsedChatRequest): GenerationParams {
   if (typeof body.parallel_tool_calls === "boolean") out.parallel_tool_calls = body.parallel_tool_calls;
   if (body.extra_body && typeof body.extra_body === "object") out.extra_body = body.extra_body;
   return out;
+}
+
+function hasNativeToolTraffic(body: ParsedChatRequest): boolean {
+  if (Array.isArray(body.tools) && body.tools.length > 0) return true;
+  return body.messages.some((message) => {
+    const raw = message as unknown as Record<string, unknown>;
+    return (
+      message.role === "tool"
+      || (message.role === "assistant" && Array.isArray(raw.tool_calls) && raw.tool_calls.length > 0)
+    );
+  });
+}
+
+function toOpenAICompatMessages(body: ParsedChatRequest): OpenAICompatChatRequest["messages"] {
+  return body.messages.map((message) => {
+    const raw = message as unknown as Record<string, unknown>;
+    const out: Record<string, unknown> = {
+      role: message.role,
+      content: message.content ?? "",
+    };
+    if (typeof raw.name === "string" && raw.name.trim()) out.name = raw.name;
+    if (typeof raw.tool_call_id === "string" && raw.tool_call_id.trim()) out.tool_call_id = raw.tool_call_id;
+    if (Array.isArray(raw.tool_calls)) out.tool_calls = raw.tool_calls;
+    return out as OpenAICompatChatRequest["messages"][number];
+  });
+}
+
+function firstChoiceContent(body: Record<string, unknown>): string {
+  const choices = Array.isArray(body.choices) ? body.choices as Array<Record<string, unknown>> : [];
+  const message = choices[0]?.message;
+  if (!message || typeof message !== "object") return "";
+  const content = (message as Record<string, unknown>).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const raw = part as Record<string, unknown>;
+        if (typeof raw.text === "string") return raw.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+async function pipeOpenAICompatStream(reply: FastifyReply, upstream: Response): Promise<void> {
+  const contentType = upstream.headers.get("content-type") || "text/event-stream; charset=utf-8";
+  reply.raw.statusCode = upstream.status;
+  reply.raw.setHeader("Content-Type", contentType);
+  reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+  reply.raw.setHeader("Connection", "keep-alive");
+
+  if (!upstream.body) {
+    reply.raw.end();
+    return;
+  }
+  for await (const chunk of upstream.body as unknown as AsyncIterable<Uint8Array>) {
+    if (reply.raw.writableEnded || reply.raw.destroyed) break;
+    reply.raw.write(Buffer.from(chunk));
+  }
+  if (!reply.raw.writableEnded) reply.raw.end();
 }
 
 export function resolvePlannerSessionKey(
@@ -2066,6 +2135,99 @@ export function buildApp(config: AppConfig): FastifyInstance {
           throw err;
         }
         streamRelease = admission.release;
+      }
+
+      if (hasNativeToolTraffic(effectiveBody)) {
+        const nativeReqStart = Date.now();
+        const tierSettings = resolveTierSettings(effectiveBody.model);
+        const generation = {
+          ...(tierSettings.writer_generation_params ?? {}),
+          ...requestGenerationParams(effectiveBody),
+        };
+        const responseModel = tierSettings.responseModel || effectiveBody.model;
+        const writerModel =
+          tierSettings.resolved_writer_model?.trim()
+          || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+          || "synesis-writer";
+        const nativeMessages = toOpenAICompatMessages(effectiveBody);
+        const latestUser = [...effectiveBody.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        const nativeRequest: OpenAICompatChatRequest = {
+          model: writerModel,
+          route: tierSettings.resolved_writer_route,
+          messages: nativeMessages,
+          stream: effectiveBody.stream,
+          stream_options: effectiveBody.stream_options,
+          ...generation,
+          max_tokens: generation.max_tokens ?? tierSettings.writerMaxTokens,
+          pricingRates: pricingRegistry.getRates(tierSettings.registry_writer_role ?? "writer"),
+          request_id: completionId,
+          authz_trace_id: authzTraceId,
+          traceparent: outboundTraceparent,
+          response_format: effectiveBody.response_format,
+        };
+        request.log.info(
+          {
+            authzTraceId,
+            model: effectiveBody.model,
+            responseModel,
+            writerModel,
+            stream: Boolean(effectiveBody.stream),
+          },
+          "native tool chat passthrough",
+        );
+
+        if (effectiveBody.stream) {
+          const upstream = await chatCompletionOpenAICompatStream(nativeRequest);
+          reply.raw.setHeader("x-synesis-authz-trace-id", authzTraceId);
+          reply.raw.setHeader("x-synesis-run-id", completionId);
+          await pipeOpenAICompatStream(reply, upstream);
+          streamRelease?.();
+          requestSpan.setStatus("ok");
+          return reply;
+        }
+
+        const result = await chatCompletionOpenAICompat(nativeRequest);
+        const usage = result.usage;
+        const content = firstChoiceContent(result.body);
+        const nativeState: GraphState = {
+          messages: nativeMessages.map((m) => ({
+            role: m.role,
+            content: typeof m.content === "string" ? m.content : "",
+          })),
+          user_id: auth.userEmail || auth.userId,
+          org_id: auth.orgId,
+          tenant_ids: auth.tenantIds,
+          token_scopes: auth.tokenScopes,
+          acl_groups: auth.aclGroups,
+          auth_method: auth.authMethod,
+          conversation_id: effectiveBody.conversation_id ?? undefined,
+          rag_authz_mode: config.SYNESIS_RAG_AUTHZ_MODE,
+          authz_trace_id: authzTraceId,
+          authz_engine: authzPolicyEngine.engineName,
+          authz_rules: policyDecision.matchedRules,
+          requested_model: tierSettings.requestedModel || effectiveBody.model,
+          response_model: responseModel,
+          registry_writer_role: tierSettings.registry_writer_role,
+          resolved_writer_model: writerModel,
+          resolved_writer_route: tierSettings.resolved_writer_route,
+          model_tier: tierSettings.tier,
+          task_description: latestUser,
+          generated_code: content,
+          llm_usage: usage,
+          run_id: completionId,
+          traceparent: outboundTraceparent,
+        };
+        const latencyMs = Date.now() - nativeReqStart;
+        recordUsageMetrics(metrics, responseModel, tierSettings.tier, usage, latencyMs / 1000);
+        emitPlannerTrace(nativeState, usage, latencyMs, auth, { mode: "non-streaming" });
+        emitPlannerUsageMeteringRow(nativeState, usage, latencyMs, auth);
+        requestSpan.setStatus("ok");
+        return {
+          ...result.body,
+          model: typeof result.body.model === "string" ? result.body.model : responseModel,
+          run_id: (result.body.run_id as string | undefined) ?? completionId,
+          authz_trace_id: (result.body.authz_trace_id as string | undefined) ?? authzTraceId,
+        };
       }
 
       const initialState = await toState(

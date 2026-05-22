@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -26,6 +27,12 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
 MAX_ASSISTANT_TOOL_ROUNDS = 8
 
+TRACE_UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+TRACE_LABEL_RE = re.compile(
+    r"\btrace(?:[_\s-]?id)?\s*(?:[:=#]|for|is|of)?\s*([A-Za-z0-9][A-Za-z0-9._:-]{7,127})\b",
+    re.IGNORECASE,
+)
+
 ADMIN_SYSTEM_PROMPT = """You are the Synesis Admin Assistant. You help operators understand
 system behavior, analyze traces, debug issues, and tune configuration.
 Be concise and actionable. When analyzing data provided in context,
@@ -42,7 +49,9 @@ appropriate tools instead of guessing. Prefer ``unified_usage_snapshot`` for
 cost/spend questions when a broad picture is needed; use ``usage_time_series`` for
 trends; use Yarn tools for IDE session utilization and performance.
 When debugging transition quality, prefer ``yarn_transition_incident_brief`` first,
-then drill into ``yarn_transition_events_tail`` and ``yarn_transition_watch``."""
+then drill into ``yarn_transition_events_tail`` and ``yarn_transition_watch``.
+If the prompt contains a trace ID and context includes an Admin MCP get_trace
+result, treat that context as live trace data and summarize it directly."""
 
 SUPPORT_SYSTEM_PROMPT = """You are the Synesis Support Assistant. You help authenticated
 users with account-safe guidance, usage questions, and product assistance.
@@ -131,6 +140,67 @@ def _message_content_text(msg: dict[str, Any]) -> str | None:
     return str(c)
 
 
+def _extract_trace_lookup_id(text: str) -> str | None:
+    """Extract an explicit trace identifier from operator prompts."""
+    raw = (text or "").strip()
+    if "trace" not in raw.lower():
+        return None
+    uuid_match = TRACE_UUID_RE.search(raw)
+    if uuid_match:
+        return uuid_match.group(0)
+    label_match = TRACE_LABEL_RE.search(raw)
+    if not label_match:
+        return None
+    return label_match.group(1).strip(".,;)'\"`[]{}<>")[:128] or None
+
+
+def _trace_lookup_context_from_admin_mcp(trace_id: str, tool_text: str) -> str:
+    try:
+        payload = json.loads(tool_text)
+    except json.JSONDecodeError:
+        return f"Admin MCP get_trace returned non-JSON for trace_id={trace_id}:\n{tool_text[:4000]}"
+
+    if isinstance(payload, dict) and payload.get("error"):
+        return f"Admin MCP get_trace failed for trace_id={trace_id}: {json.dumps(payload, default=str)[:4000]}"
+    if isinstance(payload, dict):
+        return (
+            "Admin MCP get_trace result for the requested trace. Use this live "
+            "trace data as authoritative context:\n"
+            f"{_trace_context_text(payload)}"
+        )
+    return (
+        f"Admin MCP get_trace returned an unexpected payload for trace_id={trace_id}:\n"
+        f"{json.dumps(payload, default=str)[:4000]}"
+    )
+
+
+async def _load_prompt_trace_context_via_admin_mcp(
+    user_message: str,
+    auth_header: str,
+    org_headers: dict[str, str],
+    *,
+    session_cookie: str,
+    csrf_cookie: str,
+    csrf_token: str,
+) -> str | None:
+    trace_lookup_id = _extract_trace_lookup_id(user_message)
+    if not trace_lookup_id:
+        return None
+    if not (auth_header.lower().startswith("bearer ") or session_cookie):
+        return f"Trace ID {trace_lookup_id} was detected, but no delegated admin session was available."
+
+    tool_text = await invoke_admin_mcp_tool(
+        auth_header,
+        org_headers,
+        "get_trace",
+        {"trace_id": trace_lookup_id},
+        session_cookie=session_cookie,
+        csrf_cookie=csrf_cookie,
+        csrf_token=csrf_token,
+    )
+    return _trace_lookup_context_from_admin_mcp(trace_lookup_id, tool_text)
+
+
 async def _assistant_chat_impl(
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
@@ -151,6 +221,18 @@ async def _assistant_chat_impl(
     if not user_message:
         return {"error": "message is required"}
 
+    role = resolve_role(_user)
+    auth_header = (request.headers.get("authorization") if request else "") or ""
+    session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) if request else "") or ""
+    csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) if request else "") or ""
+    csrf_token = (request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "") if request else ""
+    org_headers: dict[str, str] = {}
+    if request:
+        for header_name in ("x-synesis-org-id", "x-active-org-id"):
+            value = (request.headers.get(header_name) or "").strip()
+            if value:
+                org_headers[header_name] = value
+
     if trace_id and support_mode:
         context = (context or "") + "\n\n(trace_id context is only available in Admin Assistant mode.)"
     elif trace_id:
@@ -161,6 +243,17 @@ async def _assistant_chat_impl(
             context = _trace_context_text(record, span_index if span_index is not None else None)
         else:
             context = (context or "") + "\n\n(Loaded trace_id not found.)"
+    elif not support_mode:
+        prompt_trace_context = await _load_prompt_trace_context_via_admin_mcp(
+            user_message,
+            auth_header,
+            org_headers,
+            session_cookie=session_cookie,
+            csrf_cookie=csrf_cookie,
+            csrf_token=csrf_token,
+        )
+        if prompt_trace_context:
+            context = f"{context}\n\n{prompt_trace_context}".strip()
     elif context:
         pass  # use provided context
 
@@ -171,18 +264,6 @@ async def _assistant_chat_impl(
         messages.append({"role": "user", "content": f"Context:\n{context}\n\n---\n\n{user_message}"})
     else:
         messages.append({"role": "user", "content": user_message})
-
-    role = resolve_role(_user)
-    auth_header = (request.headers.get("authorization") if request else "") or ""
-    session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) if request else "") or ""
-    csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) if request else "") or ""
-    csrf_token = request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "" if request else ""
-    org_headers: dict[str, str] = {}
-    if request:
-        for header_name in ("x-synesis-org-id", "x-active-org-id"):
-            value = (request.headers.get(header_name) or "").strip()
-            if value:
-                org_headers[header_name] = value
 
     if support_mode:
         tools = openai_function_tools_for_role(role, allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES)

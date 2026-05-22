@@ -17,6 +17,14 @@ export { ZERO_USAGE, mergeUsage };
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+export type OpenAICompatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: unknown;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: unknown[];
+};
+
 export interface StructuredOutputRequest {
   schema: ZodType;
   name?: string;
@@ -59,6 +67,17 @@ export interface ChatRequest {
 
 export interface ChatResult {
   content: string;
+  usage: LlmUsage;
+}
+
+export interface OpenAICompatChatRequest extends Omit<ChatRequest, "messages" | "structuredOutput"> {
+  messages: OpenAICompatMessage[];
+  stream?: boolean;
+  stream_options?: unknown;
+}
+
+export interface OpenAICompatChatResult {
+  body: Record<string, unknown>;
   usage: LlmUsage;
 }
 
@@ -466,12 +485,70 @@ function mutateOpenAICompatBody(body: BodyInit | null | undefined, request: Chat
   return JSON.stringify(parsed);
 }
 
-function buildHeaders(request?: ChatRequest): Record<string, string> {
+function buildHeaders(request?: { request_id?: string; authz_trace_id?: string; traceparent?: string }): Record<string, string> {
   return {
     ...(request?.request_id ? { "x-request-id": request.request_id } : {}),
     ...(request?.authz_trace_id ? { "x-synesis-authz-trace-id": request.authz_trace_id } : {}),
     ...(request?.traceparent ? { traceparent: request.traceparent } : {}),
   };
+}
+
+function buildOpenAICompatHeaders(
+  target: ResolvedLlmTarget,
+  request?: { request_id?: string; authz_trace_id?: string; traceparent?: string },
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${target.apiKey || "unused"}`,
+    ...buildHeaders(request),
+  };
+}
+
+function chatCompletionsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, "");
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
+}
+
+function openAICompatBody(
+  request: OpenAICompatChatRequest,
+  model: string,
+  prefixCacheMode: string,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: request.messages,
+  };
+  if (request.stream !== undefined) body.stream = request.stream;
+  if (request.stream_options !== undefined) body.stream_options = request.stream_options;
+  if (request.max_tokens !== undefined) body.max_tokens = request.max_tokens;
+  if (request.temperature !== undefined) body.temperature = request.temperature;
+  if (request.top_p !== undefined) body.top_p = request.top_p;
+  if (request.presence_penalty !== undefined) body.presence_penalty = request.presence_penalty;
+  if (request.frequency_penalty !== undefined) body.frequency_penalty = request.frequency_penalty;
+  if (request.stop !== undefined) body.stop = request.stop;
+  if (request.seed !== undefined) body.seed = request.seed;
+  if (request.logit_bias !== undefined) body.logit_bias = request.logit_bias;
+  if (request.logprobs !== undefined) body.logprobs = request.logprobs;
+  if (request.top_logprobs !== undefined) body.top_logprobs = request.top_logprobs;
+  if (request.n !== undefined) body.n = request.n;
+  if (request.tools !== undefined) body.tools = request.tools;
+  if (request.tool_choice !== undefined) body.tool_choice = request.tool_choice;
+  if (request.parallel_tool_calls !== undefined) body.parallel_tool_calls = request.parallel_tool_calls;
+  if (request.response_format !== undefined) body.response_format = request.response_format;
+
+  const extraBody =
+    request.extra_body && typeof request.extra_body === "object"
+      ? { ...request.extra_body }
+      : {};
+  addExtraBodyOption(extraBody, "top_k", request.top_k);
+  addExtraBodyOption(extraBody, "min_p", request.min_p);
+  addExtraBodyOption(extraBody, "repetition_penalty", request.repetition_penalty);
+  addExtraBodyOption(extraBody, "enable_thinking", request.enable_thinking);
+  if (prefixCacheMode === "strict") {
+    extraBody.enable_prefix_caching = true;
+  }
+  if (Object.keys(extraBody).length > 0) body.extra_body = extraBody;
+  return body;
 }
 
 function buildProviderOptions(request: ChatRequest): AiProviderOptions | undefined {
@@ -589,6 +666,79 @@ export async function chatCompletion(request: ChatRequest): Promise<ChatResult> 
       content,
       usage: usage.total_tokens > 0 ? usage : estimateUsage(effectiveRequest, content),
     };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function chatCompletionOpenAICompat(request: OpenAICompatChatRequest): Promise<OpenAICompatChatResult> {
+  const config = llmConfig();
+  if (!llmEnabled()) {
+    throw new Error("LLM is not enabled");
+  }
+
+  const target = resolveLlmTarget(request as unknown as ChatRequest, config);
+  const effectiveRequest = mergeRouteDefaults(
+    { ...(request as unknown as ChatRequest), model: target.model },
+    target.route,
+  ) as OpenAICompatChatRequest;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * 4);
+  try {
+    const resp = await resilientFetch(chatCompletionsUrl(target.baseUrl), {
+      method: "POST",
+      headers: buildOpenAICompatHeaders(target, effectiveRequest),
+      body: JSON.stringify(openAICompatBody(effectiveRequest, target.model, config.prefixCacheMode)),
+      signal: controller.signal,
+    }, {
+      modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
+      timeoutMs: config.timeoutMs,
+      retryMaxAttempts: config.retryMaxAttempts,
+      retryBaseDelayMs: config.retryBaseDelayMs,
+      circuitBreakerRecoveryTimeoutMs: config.circuitBreakerRecoveryTimeoutMs,
+      externalSignal: controller.signal,
+    });
+    const body = await resp.json() as Record<string, unknown>;
+    const rawUsage = body.usage && typeof body.usage === "object" ? body.usage as ProviderUsage : undefined;
+    return {
+      body,
+      usage: extractUsage(rawUsage, effectiveRequest.pricingRates),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function chatCompletionOpenAICompatStream(request: OpenAICompatChatRequest): Promise<Response> {
+  const config = llmConfig();
+  if (!llmEnabled()) {
+    throw new Error("LLM is not enabled");
+  }
+
+  const target = resolveLlmTarget(request as unknown as ChatRequest, config);
+  const streamRequest = { ...(request as unknown as ChatRequest), model: target.model, stream: true } as ChatRequest;
+  const effectiveRequest = mergeRouteDefaults(
+    streamRequest,
+    target.route,
+  ) as OpenAICompatChatRequest;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * 4);
+  try {
+    return await resilientFetch(chatCompletionsUrl(target.baseUrl), {
+      method: "POST",
+      headers: buildOpenAICompatHeaders(target, effectiveRequest),
+      body: JSON.stringify(
+        openAICompatBody({ ...effectiveRequest, stream: true }, target.model, config.prefixCacheMode),
+      ),
+      signal: controller.signal,
+    }, {
+      modelId: `${target.provider}:${target.model}:${target.baseUrl}`,
+      timeoutMs: config.timeoutMs,
+      retryMaxAttempts: config.retryMaxAttempts,
+      retryBaseDelayMs: config.retryBaseDelayMs,
+      circuitBreakerRecoveryTimeoutMs: config.circuitBreakerRecoveryTimeoutMs,
+      externalSignal: controller.signal,
+    });
   } finally {
     clearTimeout(timer);
   }
