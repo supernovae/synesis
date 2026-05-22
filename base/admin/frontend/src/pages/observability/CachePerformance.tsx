@@ -13,6 +13,7 @@ import {
 import {
   useCacheMetrics,
   useCacheHistory,
+  useCacheCanaryReport,
   useTokenEconomicsMetrics,
   useYarnReducerTelemetryHistory,
 } from "../../api/hooks";
@@ -21,7 +22,7 @@ import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { Database, Zap, Target, Server, Key, Activity, BarChart3, ShieldCheck, AlertTriangle } from "lucide-react";
-import type { PrefixCacheServiceMetrics, TokenEconomicsObservability } from "../../types";
+import type { CacheCanaryReportObservability, PrefixCacheServiceMetrics, TokenEconomicsObservability } from "../../types";
 
 const PERIOD_OPTIONS = [
   { label: "1h", hours: 1 },
@@ -373,12 +374,152 @@ function TokenEconomicsCard({ metrics }: { metrics: TokenEconomicsObservability 
   );
 }
 
+function reportTime(value: string | null | undefined): string {
+  if (!value) return "unknown";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString();
+}
+
+function alertClass(severity: "info" | "warning" | "error"): string {
+  if (severity === "error") {
+    return "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200";
+  }
+  if (severity === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200";
+  }
+  return "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200";
+}
+
+function CacheCanaryReportCard({ report }: { report: CacheCanaryReportObservability | undefined }) {
+  if (!report) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+          <ShieldCheck className="h-4 w-4" />
+          Provider cache canaries
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-300">Loading cache canary report status...</p>
+      </div>
+    );
+  }
+
+  const errors = report.alerts.filter((alert) => alert.severity === "error").length;
+  const warnings = report.alerts.filter((alert) => alert.severity === "warning").length;
+  const passedOffline = Math.max(0, report.summary.total - report.summary.failed);
+  const passedLive = Math.max(0, report.live_summary.total - report.live_summary.failed - report.live_summary.skipped);
+  const status = !report.configured ? "not configured" : !report.present ? "missing" : report.stale ? "stale" : "fresh";
+  const notableLiveResults = report.live_results
+    .filter((result) => result.status !== "skipped" || result.warnings.length > 0 || result.failures.length > 0)
+    .slice(0, 8);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+        <ShieldCheck className="h-4 w-4" />
+        Provider cache canaries
+      </h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard
+          label="Report status"
+          value={status}
+          icon={report.stale || !report.present ? AlertTriangle : ShieldCheck}
+          subtitle={report.generated_at ? `Generated ${reportTime(report.generated_at)}` : "Latest generated_at unavailable"}
+        />
+        <MetricCard
+          label="Offline canaries"
+          value={report.summary.total > 0 ? `${passedOffline}/${report.summary.total}` : "none"}
+          icon={Database}
+          subtitle={`${report.summary.failed} failed`}
+        />
+        <MetricCard
+          label="Live canaries"
+          value={report.live_summary.total > 0 ? `${passedLive}/${report.live_summary.total}` : "none"}
+          icon={Activity}
+          subtitle={`${report.live_summary.skipped} skipped, ${report.live_summary.failed} failed`}
+        />
+        <MetricCard
+          label="Canary mode"
+          value={report.mode}
+          icon={Key}
+          subtitle={report.modified_at ? `Modified ${reportTime(report.modified_at)}` : undefined}
+        />
+        <MetricCard
+          label="Warnings"
+          value={warnings.toLocaleString()}
+          icon={AlertTriangle}
+          subtitle="Cache uncertainty and skipped live probes"
+        />
+        <MetricCard
+          label="Errors"
+          value={errors.toLocaleString()}
+          icon={AlertTriangle}
+          subtitle="Failed offline/live probes or unreadable report"
+        />
+      </div>
+
+      {report.path ? (
+        <p className="mt-3 break-all text-xs text-gray-500 dark:text-gray-400">
+          Report path: <code>{report.path}</code>
+        </p>
+      ) : null}
+
+      {report.alerts.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {report.alerts.slice(0, 10).map((alert, idx) => (
+            <div key={`${alert.code}-${alert.provider_id ?? "global"}-${idx}`} className={`rounded border px-3 py-2 text-xs ${alertClass(alert.severity)}`}>
+              <div className="font-mono">
+                {alert.severity.toUpperCase()} / {alert.code}
+                {alert.provider_id ? ` / ${alert.provider_id}` : ""}
+              </div>
+              <div className="mt-1">{alert.message}</div>
+            </div>
+          ))}
+          {report.alerts.length > 10 ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {report.alerts.length - 10} more alert(s) hidden.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="mt-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200">
+          Cache canary report is present and no operator alerts were produced.
+        </p>
+      )}
+
+      {notableLiveResults.length > 0 ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            Live canary result details
+          </summary>
+          <div className="mt-2 grid gap-2 text-xs text-gray-600 dark:text-gray-300">
+            {notableLiveResults.map((result) => (
+              <div key={result.id} className="rounded border border-gray-200 px-3 py-2 dark:border-gray-700">
+                <div className="font-mono">
+                  {result.id} / {result.status}
+                  {result.reason ? ` / ${result.reason}` : ""}
+                </div>
+                <div className="mt-1">
+                  hit {result.cache_hit_pct.toFixed(1)}% / cached {result.cached_prompt_tokens.toLocaleString()} /{" "}
+                  recommendation {result.recommendation}
+                </div>
+                {result.warnings.length > 0 ? <div className="mt-1">warnings: {result.warnings.join(", ")}</div> : null}
+                {result.failures.length > 0 ? <div className="mt-1">failures: {result.failures.join(", ")}</div> : null}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CachePerformance() {
   const { data: cache, isLoading, isError, error } = useCacheMetrics();
   const [period, setPeriod] = useState(24);
   const { data: history } = useCacheHistory(period);
   const { data: tokenEconomics, isError: isTokenEconomicsError, error: tokenEconomicsError } =
     useTokenEconomicsMetrics(period);
+  const { data: cacheCanaryReport, isError: isCacheCanaryError, error: cacheCanaryError } = useCacheCanaryReport();
   const { data: reducerHistory } = useYarnReducerTelemetryHistory(period);
 
   const initialLoading = isLoading && cache === undefined && !isError;
@@ -414,6 +555,7 @@ export default function CachePerformance() {
 
       <ApiErrorBanner error={isError ? error : undefined} />
       <ApiErrorBanner error={isTokenEconomicsError ? tokenEconomicsError : undefined} />
+      <ApiErrorBanner error={isCacheCanaryError ? cacheCanaryError : undefined} />
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Time window:</span>
@@ -453,6 +595,7 @@ export default function CachePerformance() {
       )}
 
       <TokenEconomicsCard metrics={tokenEconomics} />
+      <CacheCanaryReportCard report={cacheCanaryReport} />
 
       {/* Coder: persisted reducer / char totals (windowed, restart-tolerant) */}
       {hasCoderEfficiencyDb && cum && roll ? (

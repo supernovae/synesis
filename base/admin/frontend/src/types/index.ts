@@ -646,6 +646,68 @@ export interface TokenEconomicsObservability {
   };
 }
 
+export interface CacheCanaryFailure {
+  id: string;
+  failures: string[];
+}
+
+export interface CacheCanarySummary {
+  passed: boolean;
+  total: number;
+  failed: number;
+  skipped: number;
+  failures: CacheCanaryFailure[];
+}
+
+export interface CacheCanaryAlert {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  provider_id?: string;
+  count?: number;
+}
+
+export interface CacheCanaryOfflineResult {
+  id: string;
+  display_name: string;
+  passed: boolean;
+  failures: string[];
+  marker_backend: string;
+  provider_strategy: string;
+  cache_hint_strategy: string;
+  prefix_stable_bytes: number;
+}
+
+export interface CacheCanaryLiveResult {
+  id: string;
+  display_name: string;
+  status: "passed" | "failed" | "skipped" | string;
+  reason: string | null;
+  failures: string[];
+  warnings: string[];
+  http_statuses: number[];
+  prompt_tokens: number;
+  cached_prompt_tokens: number;
+  cache_creation_tokens: number;
+  cache_hit_pct: number;
+  recommendation: string;
+}
+
+export interface CacheCanaryReportObservability {
+  configured: boolean;
+  present: boolean;
+  stale: boolean;
+  path: string | null;
+  generated_at: string | null;
+  modified_at: string | null;
+  mode: string;
+  summary: CacheCanarySummary;
+  results: CacheCanaryOfflineResult[];
+  live_summary: CacheCanarySummary;
+  live_results: CacheCanaryLiveResult[];
+  alerts: CacheCanaryAlert[];
+}
+
 export interface CircuitBreakerState {
   name: string;
   state: "closed" | "open" | "half_open";

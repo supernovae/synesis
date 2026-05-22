@@ -170,12 +170,33 @@ Equivalent CLI flags:
 npm run verify:cache-canaries -- --live --ack-cost --allow=openrouter
 ```
 
+To publish a report for admin observability, add `--json` with the target path:
+
+```bash
+npm run verify:cache-canaries -- --json /var/lib/synesis/cache-canary-report.json
+```
+
 Live canaries skip providers that are not allow-listed or configured. They fail
 on transport errors, and only fail cache misses when
 `SYNESIS_CACHE_CANARY_REQUIRE_HIT=1` or `--require-cache-hit` is set. Otherwise
 they report cache-hit uncertainty as warnings so operators can observe provider
 behavior without accidentally blocking deployments because an upstream does not
 report cache telemetry.
+
+Admin observability can read the latest JSON report directly from disk:
+
+```bash
+SYNESIS_CACHE_CANARY_REPORT_PATH=/var/lib/synesis/cache-canary-report.json
+SYNESIS_CACHE_CANARY_REPORT_STALE_HOURS=24
+```
+
+When that path is set, org admins can inspect the report through
+`GET /api/v1/observability/cache/canary-report` and the Prefix Cache
+Performance page. The admin surface treats missing reports, stale reports,
+offline failures, live transport failures, all-skipped live probes, missing
+provider usage telemetry, and unverified cache hits as operator-visible alerts.
+Leaving `SYNESIS_CACHE_CANARY_REPORT_PATH` unset disables the feature cleanly and
+shows a non-blocking "not configured" status.
 
 The same test suite also runs golden-packet cache-stability checks over the
 existing client profile fixtures for Claude Code, Codex CLI, Cursor, OpenCode,
@@ -245,7 +266,6 @@ npm run test:token-economics
 
 ## Next hardening steps
 
-- Wire opt-in live canary output into admin observability and alerting.
 - Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
 - Expand golden packet fixtures for Windsurf, VS Code, Hermes/Claw-style, and generic homegrown OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.

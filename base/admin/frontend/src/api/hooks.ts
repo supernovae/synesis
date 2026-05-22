@@ -17,6 +17,7 @@ import type {
   ServiceHealthSnapshot,
   FailureRecord,
   CacheMetrics,
+  CacheCanaryReportObservability,
   TokenEconomicsObservability,
   CircuitBreakerState,
   BenchmarkResults,
@@ -1680,6 +1681,15 @@ export function useTokenEconomicsMetrics(sinceHours = 24) {
       client
         .get("/observability/cache/token-economics", { params: { since_hours: sinceHours } })
         .then((r) => r.data),
+    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCacheCanaryReport() {
+  return useQuery<CacheCanaryReportObservability>({
+    queryKey: ["observability", "cache-canary-report"],
+    queryFn: () => client.get("/observability/cache/canary-report").then((r) => r.data),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
