@@ -1,0 +1,65 @@
+{
+  "model": "synesis-core",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an AI coding assistant running inside VS Code.\nWorkspace: /workspaces/acme-service\nActive file: src/server.ts\nOpen editors: src/server.ts, package.json\nPlatform: linux\nSession started: 2026-05-22T14:11:00Z"
+    },
+    {
+      "role": "user",
+      "content": "Refactor the health endpoint to include build metadata."
+    },
+    {
+      "role": "assistant",
+      "content": "I will inspect the current route.",
+      "tool_calls": [
+        {
+          "id": "call_vscode_read_1",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\":\"src/server.ts\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_vscode_read_1",
+      "name": "read_file",
+      "content": "app.get('/health', (_req, res) => res.json({ ok: true }));"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a workspace file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "apply_patch",
+        "description": "Apply a patch to the workspace",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patch": { "type": "string" }
+          },
+          "required": ["patch"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}

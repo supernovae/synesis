@@ -90,6 +90,16 @@ For explicit premium cache providers such as DashScope, repeated cache writes
 without reads suppress explicit cache markers for that session. This avoids
 paying for cache creation when the host is not producing useful hits.
 
+Yarn also aggregates provider cache observations into short-lived
+org/provider/client windows. These windows let the controller distinguish a
+single noisy session from a provider and harness combination that is
+consistently returning cache hits, missing cache hits, or failing to report
+usable cache telemetry. If the window shows known-good provider cache hits,
+Yarn preserves stable prefixes. If the window shows enough misses, telemetry
+gaps, or premium writes without reads, Yarn can pivot toward safe
+token-efficiency mode unless the session is showing retry-loop or
+comprehension-risk signals.
+
 Controller knobs:
 
 - `SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED` default `true`
@@ -97,6 +107,33 @@ Controller knobs:
 - `SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD` default `2`
 - `SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD` default `2`
 - `SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES` default `2`
+- `SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS` default `24`
+- `SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_MIN_REQUESTS` default `8`
+
+### User runtime controls
+
+Logged-in users can set runtime preferences from their account page. The admin
+API proxies these settings to Yarn internal endpoints:
+
+- `GET /api/v1/yarn/runtime-preferences`
+- `PUT /api/v1/yarn/runtime-preferences`
+
+Yarn stores the normalized preferences in Redis under a TTL, then applies them
+to subsequent requests for that user. Supported controls:
+
+- loop break mode: `standard`, `assertive`, or `hands_off`
+- cache policy bias: `auto`, `cache_first`, `balanced`, or `efficiency_first`
+- whether aggressive compaction is allowed when provider cache hits are absent
+- an optional tool-loop soft-fail limit
+
+This keeps the default policy protective while giving advanced users a way to
+choose sharper loop breaking, cache-first behavior, or hands-off behavior when
+Yarn cannot infer the right preference safely.
+
+Runtime preference knobs:
+
+- `SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED` default `true`
+- `SYNESIS_YARN_USER_RUNTIME_PREFERENCES_TTL_MS` default `2592000000`
 
 ### Durable trace and session visibility
 
@@ -198,9 +235,10 @@ provider usage telemetry, and unverified cache hits as operator-visible alerts.
 Leaving `SYNESIS_CACHE_CANARY_REPORT_PATH` unset disables the feature cleanly and
 shows a non-blocking "not configured" status.
 
-The same test suite also runs golden-packet cache-stability checks over the
-existing client profile fixtures for Claude Code, Codex CLI, Cursor, OpenCode,
-and Roo/OpenCode. These checks prove that representative harness payloads keep
+The same test suite also runs golden-packet cache-stability checks over client
+profile fixtures for Claude Code, Codex CLI, Cursor, Hermes/Claw-style agents,
+homegrown OpenAI-compatible harnesses, OpenCode, Roo/OpenCode, VS Code, and
+Windsurf. These checks prove that representative harness payloads keep
 append-only stable prefixes, stable toolset hashes, and volatile environment
 metadata outside the stable core hash.
 
@@ -239,6 +277,7 @@ This runs:
 
 - `tests/token-economics.test.ts`
 - `tests/cache-policy-controller.test.ts`
+- `tests/user-runtime-preferences.test.ts`
 - `tests/usage-telemetry-fetch.test.ts`
 - `tests/dashscope-endpoint-adapter.test.ts`
 - `tests/provider-cache-canary.test.ts`
@@ -266,6 +305,4 @@ npm run test:token-economics
 
 ## Next hardening steps
 
-- Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
-- Expand golden packet fixtures for Windsurf, VS Code, Hermes/Claw-style, and generic homegrown OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.

@@ -1,0 +1,68 @@
+{
+  "model": "synesis-core",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Cascade, a coding agent in Windsurf.\nRepository root: /Users/dev/src/payments\nCurrently viewed file: services/refunds.py\nRelevant rules: prefer small diffs, run focused tests first.\nLocal time: 2026-05-22 09:15:00 -0500"
+    },
+    {
+      "role": "user",
+      "content": "Implement idempotent refund retries without changing public API names."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_windsurf_search_1",
+          "type": "function",
+          "function": {
+            "name": "grep_search",
+            "arguments": "{\"query\":\"refund\",\"includePattern\":\"services/**/*.py\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_windsurf_search_1",
+      "name": "grep_search",
+      "content": "services/refunds.py:22:def refund_payment(payment_id):\nservices/tests/test_refunds.py:7:def test_refund_payment():"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "grep_search",
+        "description": "Search files using an indexed workspace search",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string" },
+            "includePattern": { "type": "string" }
+          },
+          "required": ["query"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit_file",
+        "description": "Edit a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "target_file": { "type": "string" },
+            "instructions": { "type": "string" },
+            "code_edit": { "type": "string" }
+          },
+          "required": ["target_file", "code_edit"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}

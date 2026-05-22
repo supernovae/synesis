@@ -1,0 +1,66 @@
+{
+  "model": "qwen-coder",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a company-internal coding harness. Keep architecture notes stable. Runtime request id: req-local-123."
+    },
+    {
+      "role": "user",
+      "content": "Optimize this loop in src/rank.ts without changing behavior."
+    },
+    {
+      "role": "assistant",
+      "content": "I will read the target file.",
+      "tool_calls": [
+        {
+          "id": "call_homegrown_1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"file\":\"src/rank.ts\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_homegrown_1",
+      "name": "read",
+      "content": "export function rank(items) { return items.map((x, i) => ({ x, i })).sort((a, b) => b.x.score - a.x.score); }"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file": { "type": "string" }
+          },
+          "required": ["file"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "patch",
+        "description": "Patch a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file": { "type": "string" },
+            "diff": { "type": "string" }
+          },
+          "required": ["file", "diff"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}

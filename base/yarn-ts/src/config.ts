@@ -253,6 +253,13 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD: z.coerce.number().default(2),
   SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD: z.coerce.number().default(2),
   SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES: z.coerce.number().default(2),
+  SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS: z.coerce.number().default(24),
+  SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_MIN_REQUESTS: z.coerce.number().default(8),
+  SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_USER_RUNTIME_PREFERENCES_TTL_MS: z.coerce.number().default(30 * 24 * 60 * 60 * 1000),
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),

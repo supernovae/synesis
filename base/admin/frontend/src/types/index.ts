@@ -708,6 +708,23 @@ export interface CacheCanaryReportObservability {
   alerts: CacheCanaryAlert[];
 }
 
+export interface UserRuntimePreferences {
+  loopBreakMode: "standard" | "assertive" | "hands_off";
+  cachePolicyBias: "auto" | "cache_first" | "balanced" | "efficiency_first";
+  allowAggressiveCompactionWithoutCacheHits: boolean;
+  maxToolLoopSoftFails: number | null;
+  updatedAt: number;
+}
+
+export interface UserRuntimePreferencesResponse {
+  preferences: UserRuntimePreferences;
+  options: {
+    loopBreakMode: string[];
+    cachePolicyBias: string[];
+    maxToolLoopSoftFails: { min: number; max: number; nullable: boolean };
+  };
+}
+
 export interface CircuitBreakerState {
   name: string;
   state: "closed" | "open" | "half_open";

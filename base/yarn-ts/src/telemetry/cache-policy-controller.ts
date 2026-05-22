@@ -23,6 +23,27 @@ export interface CachePolicyState {
   lastProviderCacheStrategy: ProviderCacheStrategy;
 }
 
+export interface ProviderCachePolicyWindow {
+  windowHours: number;
+  clientKind?: string;
+  requests: number;
+  hits: number;
+  misses: number;
+  writeWithoutRead: number;
+  telemetryMissing: number;
+  promptTokens: number;
+  cachedPromptTokens: number;
+  cacheCreationTokens: number;
+  cacheHitPct: number;
+  telemetryMissingPct: number;
+  writeWithoutReadPct: number;
+}
+
+export interface RuntimeCachePolicyPreferences {
+  cachePolicyBias?: "auto" | "cache_first" | "balanced" | "efficiency_first";
+  allowAggressiveCompactionWithoutCacheHits?: boolean;
+}
+
 export interface CachePolicyControllerInput {
   enabled: boolean;
   metadata: Record<string, unknown>;
@@ -37,6 +58,9 @@ export interface CachePolicyControllerInput {
   toolLoopNoUserAckCount: number;
   consecutiveRecoveryFires: number;
   consecutiveEditContextMisses: number;
+  providerWindow?: ProviderCachePolicyWindow | null;
+  providerWindowMinRequests?: number;
+  runtimePreferences?: RuntimeCachePolicyPreferences | null;
 }
 
 export interface CachePolicyControllerDecision {
@@ -50,6 +74,7 @@ export interface CachePolicyControllerDecision {
   provider: string;
   providerCacheStrategy: ProviderCacheStrategy;
   state: CachePolicyState;
+  providerWindow: ProviderCachePolicyWindow | null;
   reasons: string[];
 }
 
@@ -128,9 +153,32 @@ export function evaluateCachePolicyController(input: CachePolicyControllerInput)
   const telemetryThreshold = Math.max(1, input.telemetryMissingThreshold);
   const premiumThreshold = Math.max(1, input.premiumWriteWithoutReadThreshold);
   const retryRiskThreshold = Math.max(1, input.retryRiskStagnantCycles);
+  const providerWindow = input.providerWindow ?? null;
+  const providerWindowMinRequests = Math.max(1, input.providerWindowMinRequests ?? 8);
+  const providerWindowUsable = Boolean(providerWindow && providerWindow.requests >= providerWindowMinRequests);
+  const providerWindowHitObserved = Boolean(
+    providerWindowUsable
+    && providerWindow
+    && (providerWindow.hits > 0 || providerWindow.cachedPromptTokens > 0 || providerWindow.cacheHitPct > 0),
+  );
+  const providerWindowCacheUnavailable = Boolean(
+    providerWindowUsable
+    && providerWindow
+    && providerWindow.hits === 0
+    && (providerWindow.misses + providerWindow.writeWithoutRead + providerWindow.telemetryMissing) >= providerWindowMinRequests,
+  );
+  const providerWindowPremiumWriteWithoutRead = Boolean(
+    providerWindowUsable
+    && providerWindow
+    && providerCacheStrategy === "explicit_premium"
+    && providerWindow.writeWithoutRead >= premiumThreshold,
+  );
+  const cachePreference = input.runtimePreferences?.cachePolicyBias ?? "auto";
+  const allowAggressiveWithoutHits = input.runtimePreferences?.allowAggressiveCompactionWithoutCacheHits !== false;
   const cacheUnavailable =
     state.cacheMissStreak >= missThreshold
-    || state.telemetryMissingStreak >= telemetryThreshold;
+    || state.telemetryMissingStreak >= telemetryThreshold
+    || providerWindowCacheUnavailable;
   const retryLoopRisk =
     input.stagnantToolCycles >= retryRiskThreshold
     || input.awaitingToolLoopUserAck
@@ -139,7 +187,7 @@ export function evaluateCachePolicyController(input: CachePolicyControllerInput)
     || input.consecutiveEditContextMisses >= 2;
   const premiumCacheWriteSuppressed =
     providerCacheStrategy === "explicit_premium"
-    && state.premiumWriteWithoutReadStreak >= premiumThreshold;
+    && (state.premiumWriteWithoutReadStreak >= premiumThreshold || providerWindowPremiumWriteWithoutRead);
 
   const reasons: string[] = [];
   if (!input.enabled) {
@@ -154,13 +202,17 @@ export function evaluateCachePolicyController(input: CachePolicyControllerInput)
       provider: input.provider,
       providerCacheStrategy,
       state,
+      providerWindow,
       reasons: ["controller_disabled"],
     };
   }
 
   if (cacheUnavailable) reasons.push("cache_unavailable_or_unreported");
+  if (providerWindowHitObserved) reasons.push("provider_window_cache_hit_observed");
+  if (providerWindowCacheUnavailable) reasons.push("provider_window_cache_unavailable_or_unreported");
   if (retryLoopRisk) reasons.push("retry_loop_or_comprehension_risk");
   if (premiumCacheWriteSuppressed) reasons.push("premium_cache_write_without_read_streak");
+  if (cachePreference !== "auto") reasons.push(`user_cache_policy_bias_${cachePreference}`);
 
   let action: CachePolicyAction = "observe";
   let compactionMode = input.configuredCompactionMode;
@@ -168,13 +220,29 @@ export function evaluateCachePolicyController(input: CachePolicyControllerInput)
   if (retryLoopRisk) {
     action = "safety_backoff";
     compactionMode = "minimal";
-  } else if (cacheUnavailable) {
-    action = "safe_efficiency";
-    compactionMode = "aggressive";
-  } else if (state.cacheHitStreak > 0) {
+  } else if (
+    (cachePreference === "cache_first" || !allowAggressiveWithoutHits)
+    && !providerWindowCacheUnavailable
+    && (providerWindowHitObserved || state.cacheHitStreak > 0)
+  ) {
     action = "preserve_cache";
     compactionMode = "minimal";
-    reasons.push("provider_cache_hit_observed");
+  } else if (cacheUnavailable) {
+    if (allowAggressiveWithoutHits || cachePreference === "efficiency_first") {
+      action = "safe_efficiency";
+      compactionMode = "aggressive";
+    } else {
+      action = "preserve_cache";
+      compactionMode = "minimal";
+      reasons.push("user_prefers_cache_first_until_proven");
+    }
+  } else if (state.cacheHitStreak > 0 || providerWindowHitObserved) {
+    action = "preserve_cache";
+    compactionMode = "minimal";
+    if (state.cacheHitStreak > 0) reasons.push("provider_cache_hit_observed");
+  } else if (cachePreference === "efficiency_first" && providerWindowUsable) {
+    action = "safe_efficiency";
+    compactionMode = "aggressive";
   }
 
   return {
@@ -188,6 +256,7 @@ export function evaluateCachePolicyController(input: CachePolicyControllerInput)
     provider: input.provider,
     providerCacheStrategy,
     state,
+    providerWindow,
     reasons,
   };
 }
@@ -213,5 +282,6 @@ export function cachePolicyLogRecord(decision: CachePolicyControllerDecision): R
       last_recommendation: decision.state.lastRecommendation,
       last_provider_cache_strategy: decision.state.lastProviderCacheStrategy,
     },
+    provider_window: decision.providerWindow,
   };
 }

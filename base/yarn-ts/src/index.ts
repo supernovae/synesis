@@ -125,7 +125,15 @@ import {
   evaluateCachePolicyController,
   updateCachePolicyStateFromTokenEconomics,
   type CachePolicyControllerDecision,
+  type ProviderCachePolicyWindow,
 } from "./telemetry/cache-policy-controller.js";
+import {
+  DEFAULT_USER_RUNTIME_PREFERENCES,
+  applyRuntimePreferenceLoopLimits,
+  normalizeUserRuntimePreferences,
+  userRuntimePreferencesResponse,
+  type UserRuntimePreferences,
+} from "./runtime/user-preferences.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -4404,10 +4412,44 @@ function markerBackendForRequest(
   return "dashscope";
 }
 
+async function loadUserRuntimePreferences(userId: string): Promise<UserRuntimePreferences> {
+  if (!config.SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED || !userId || userId === "anon") {
+    return DEFAULT_USER_RUNTIME_PREFERENCES;
+  }
+  try {
+    const raw = await sessionStore.loadUserRuntimePreferences(userId);
+    return normalizeUserRuntimePreferences(raw);
+  } catch (err) {
+    app.log.warn({ err, userId }, "user_runtime_preferences_load_failed");
+    return DEFAULT_USER_RUNTIME_PREFERENCES;
+  }
+}
+
+async function loadProviderCachePolicyWindow(
+  orgId: string,
+  provider: string,
+  clientKind: string,
+): Promise<ProviderCachePolicyWindow | null> {
+  if (!config.SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED) return null;
+  try {
+    return await sessionStore.loadProviderCacheWindow(
+      orgId || "no-org",
+      provider || "unknown",
+      config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS,
+      clientKind || "unknown-client",
+    );
+  } catch (err) {
+    app.log.warn({ err, orgId, provider, clientKind }, "provider_cache_policy_window_load_failed");
+    return null;
+  }
+}
+
 function evaluateCachePolicyForSession(
   session: SessionState,
   provider: string,
   configuredCompactionMode: CompactionMode,
+  providerWindow?: ProviderCachePolicyWindow | null,
+  runtimePreferences?: UserRuntimePreferences | null,
 ): CachePolicyControllerDecision {
   return evaluateCachePolicyController({
     enabled: config.SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED,
@@ -4423,6 +4465,9 @@ function evaluateCachePolicyForSession(
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
     consecutiveRecoveryFires: session.consecutiveRecoveryFires,
     consecutiveEditContextMisses: session.consecutiveEditContextMisses,
+    providerWindow,
+    providerWindowMinRequests: config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_MIN_REQUESTS,
+    runtimePreferences,
   });
 }
 
@@ -4766,6 +4811,18 @@ function persistSessionAndUsage(
     state.record.metadata,
     tokenEconomicsDecision,
   );
+  void sessionStore.recordProviderCacheObservation(
+    state.record.orgId || "no-org",
+    {
+      provider: endpointProvider,
+      clientKind: state.record.clientKind || "unknown-client",
+      cacheOutcome: tokenEconomicsDecision.cacheOutcome,
+      promptTokens: tokenEconomicsDecision.promptTokens,
+      cachedTokens: tokenEconomicsDecision.cachedTokens,
+      cacheCreationTokens: tokenEconomicsDecision.cacheCreationTokens,
+    },
+    Math.max(2, config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS + 1) * 3_600_000,
+  ).catch((err) => app.log.warn({ err, provider: endpointProvider }, "provider_cache_observation_record_failed"));
   const tokenEconomics = {
     ...tokenEconomicsLogRecord(tokenEconomicsDecision),
     cache_policy_state: {
@@ -7757,6 +7814,30 @@ app.get("/v1/adapter-packs", async () => ({
   catalog: clientAdapterPacks.getCatalog()
 }));
 
+app.get("/v1/user-runtime-preferences/:userId", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Internal service token required" } });
+  }
+  const { userId } = req.params as { userId: string };
+  const preferences = await loadUserRuntimePreferences(userId);
+  return userRuntimePreferencesResponse(preferences);
+});
+
+app.put("/v1/user-runtime-preferences/:userId", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Internal service token required" } });
+  }
+  const { userId } = req.params as { userId: string };
+  const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+  const preferences = normalizeUserRuntimePreferences({ ...body, updatedAt: Date.now() });
+  await sessionStore.saveUserRuntimePreferences(
+    userId,
+    preferences,
+    config.SYNESIS_YARN_USER_RUNTIME_PREFERENCES_TTL_MS,
+  );
+  return userRuntimePreferencesResponse(preferences);
+});
+
 app.get("/v1/artifacts/:id", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({
@@ -8079,6 +8160,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  const oaiRuntimePreferences = await loadUserRuntimePreferences(identity.userId);
 
   if (!session.taskCapabilities) {
     session.taskCapabilities = detectClientTaskCapabilities(
@@ -9032,6 +9114,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiRepeatAwareHardReject = oaiAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
     : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
+  const oaiLoopLimits = applyRuntimePreferenceLoopLimits({
+    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    consecutiveToolCallsPivot: oaiRepeatAwarePivot,
+    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
+    hardRejectAfter: oaiRepeatAwareHardReject,
+  }, oaiRuntimePreferences);
   const distToolCalls = await distributedCounters.getConsecutiveToolCalls(sessionKey);
   if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = distToolCalls;
@@ -9059,18 +9148,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
     sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
-    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-    consecutiveToolCallsPivot: oaiRepeatAwarePivot,
+    consecutiveToolCallsLimit: oaiLoopLimits.consecutiveToolCallsLimit,
+    consecutiveToolCallsPivot: oaiLoopLimits.consecutiveToolCallsPivot,
     toolProgressState: oaiLatestToolProgress.hasRecentWriteSuccess
       ? "progress"
       : (oaiLatestToolProgress.hasRecentFailure ? "stagnant" : oaiToolProgress.state),
     stagnantToolCycles: oaiLatestToolProgress.hasRecentWriteSuccess
       ? 0
       : (oaiLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
-    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    stagnantToolCyclesLimit: oaiLoopLimits.stagnantToolCyclesLimit,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
-    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: oaiRepeatAwareHardReject,
+    toolLoopNoUserAckHardLimit: oaiLoopLimits.toolLoopNoUserAckHardLimit,
+    hardRejectAfter: oaiLoopLimits.hardRejectAfter,
     governanceRules: governanceClient?.getRules(),
   }));
   if (!policyPrecheck.allow) {
@@ -9444,10 +9533,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiCachePolicyProvider = oaiCachePolicyTier
     ? resolveEndpointCapabilityId(oaiCachePolicyTier.baseUrl)
     : "generic";
+  const oaiProviderCacheWindow = await loadProviderCachePolicyWindow(
+    identity.orgId,
+    oaiCachePolicyProvider,
+    identity.clientKind,
+  );
   const oaiCachePolicy = evaluateCachePolicyForSession(
     session,
     oaiCachePolicyProvider,
     oaiConfiguredCompactionMode,
+    oaiProviderCacheWindow,
+    oaiRuntimePreferences,
   );
   if (oaiCachePolicy.action !== "observe" || oaiCachePolicy.reasons.length > 0) {
     recordSessionEvent(
@@ -11940,6 +12036,7 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  const claudeRuntimePreferences = await loadUserRuntimePreferences(claudeIdentity.userId);
   const claudeCapabilityHash = crypto
     .createHash("sha256")
     .update(
@@ -12852,6 +12949,13 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeRepeatAwareHardReject = claudeAggressiveRepeatGuard
     ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
     : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
+  const claudeLoopLimits = applyRuntimePreferenceLoopLimits({
+    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
+    consecutiveToolCallsPivot: claudeRepeatAwarePivot,
+    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
+    hardRejectAfter: claudeRepeatAwareHardReject,
+  }, claudeRuntimePreferences);
   const claudeDistToolCalls = await distributedCounters.getConsecutiveToolCalls(claudeSessionKey);
   if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
     session.consecutiveToolCalls = claudeDistToolCalls;
@@ -12879,18 +12983,18 @@ app.post("/v1/messages", async (req, reply) => {
     hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
     sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
     consecutiveToolCalls: session.consecutiveToolCalls,
-    consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-    consecutiveToolCallsPivot: claudeRepeatAwarePivot,
+    consecutiveToolCallsLimit: claudeLoopLimits.consecutiveToolCallsLimit,
+    consecutiveToolCallsPivot: claudeLoopLimits.consecutiveToolCallsPivot,
     toolProgressState: claudeLatestToolProgress.hasRecentWriteSuccess
       ? "progress"
       : (claudeLatestToolProgress.hasRecentFailure ? "stagnant" : claudeToolProgress.state),
     stagnantToolCycles: claudeLatestToolProgress.hasRecentWriteSuccess
       ? 0
       : (claudeLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
-    stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
+    stagnantToolCyclesLimit: claudeLoopLimits.stagnantToolCyclesLimit,
     toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
-    toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-    hardRejectAfter: claudeRepeatAwareHardReject,
+    toolLoopNoUserAckHardLimit: claudeLoopLimits.toolLoopNoUserAckHardLimit,
+    hardRejectAfter: claudeLoopLimits.hardRejectAfter,
     governanceRules: governanceClient?.getRules(),
   }));
   if (!claudePolicyPrecheck.allow) {
@@ -13255,10 +13359,17 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeCachePolicyProvider = claudeCachePolicyTier
     ? resolveEndpointCapabilityId(claudeCachePolicyTier.baseUrl)
     : "anthropic";
+  const claudeProviderCacheWindow = await loadProviderCachePolicyWindow(
+    claudeIdentity.orgId,
+    claudeCachePolicyProvider,
+    claudeIdentity.clientKind,
+  );
   const claudeCachePolicy = evaluateCachePolicyForSession(
     session,
     claudeCachePolicyProvider,
     claudeConfiguredCompactionMode,
+    claudeProviderCacheWindow,
+    claudeRuntimePreferences,
   );
   if (claudeCachePolicy.action !== "observe" || claudeCachePolicy.reasons.length > 0) {
     recordSessionEvent(

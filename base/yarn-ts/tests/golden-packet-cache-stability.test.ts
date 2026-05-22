@@ -29,8 +29,12 @@ const GOLDEN_PACKET_FIXTURES: GoldenPacketFixture[] = [
   { profile: "claude-code", file: "tool_use_payload.json", protocol: "anthropic" },
   { profile: "codex-cli", file: "openai_malformed_tool_payload.json", protocol: "openai" },
   { profile: "cursor", file: "openai_function_tools_payload.json", protocol: "openai" },
+  { profile: "hermes-claw", file: "openai_agent_payload.json", protocol: "openai" },
+  { profile: "homegrown", file: "openai_minimal_harness_payload.json", protocol: "openai" },
   { profile: "opencode", file: "openai_function_choice_payload.json", protocol: "openai" },
   { profile: "roo-opencode", file: "openai_tool_history_payload.json", protocol: "openai" },
+  { profile: "vscode", file: "openai_extension_payload.json", protocol: "openai" },
+  { profile: "windsurf", file: "openai_workspace_payload.json", protocol: "openai" },
 ];
 
 function loadFixture<T = Record<string, unknown>>(profile: string, file: string): T {

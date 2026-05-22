@@ -1,5 +1,8 @@
 import { Redis } from "ioredis";
 import type { AppConfig } from "../config.js";
+import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
+import type { ProviderCachePolicyWindow } from "../telemetry/cache-policy-controller.js";
+import type { TokenEconomicsDecision } from "../telemetry/token-economics.js";
 
 export interface SessionContinuity {
   currentTask: string;
@@ -68,6 +71,15 @@ export interface SessionRecord {
   metadata: Record<string, unknown>;
   continuity?: SessionContinuity;
   version: number;
+}
+
+export interface ProviderCacheObservation {
+  provider: string;
+  clientKind?: string;
+  cacheOutcome: TokenEconomicsDecision["cacheOutcome"];
+  promptTokens: number;
+  cachedTokens: number;
+  cacheCreationTokens: number;
 }
 
 /**
@@ -176,6 +188,98 @@ export class SessionStore {
     }
   }
 
+  async saveUserRuntimePreferences(
+    userId: string,
+    preferences: UserRuntimePreferences,
+    ttlMs: number,
+  ): Promise<void> {
+    await this.redis.set(
+      this.userPreferencesKey(userId),
+      JSON.stringify(preferences),
+      "EX",
+      Math.ceil(ttlMs / 1000),
+    );
+  }
+
+  async loadUserRuntimePreferences(userId: string): Promise<unknown | null> {
+    const raw = await this.redis.get(this.userPreferencesKey(userId));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  async recordProviderCacheObservation(
+    orgId: string,
+    observation: ProviderCacheObservation,
+    ttlMs: number,
+  ): Promise<void> {
+    const key = this.providerCacheWindowKey(
+      orgId,
+      observation.provider,
+      observation.clientKind,
+      this.providerWindowBucket(),
+    );
+    const multi = this.redis.multi();
+    multi.hincrby(key, "requests", 1);
+    if (observation.cacheOutcome === "hit") multi.hincrby(key, "hits", 1);
+    if (observation.cacheOutcome === "miss") multi.hincrby(key, "misses", 1);
+    if (observation.cacheOutcome === "write_without_read") multi.hincrby(key, "write_without_read", 1);
+    if (observation.cacheOutcome === "no_usage") multi.hincrby(key, "telemetry_missing", 1);
+    multi.hincrby(key, "prompt_tokens", Math.max(0, Math.floor(observation.promptTokens)));
+    multi.hincrby(key, "cached_prompt_tokens", Math.max(0, Math.floor(observation.cachedTokens)));
+    multi.hincrby(key, "cache_creation_tokens", Math.max(0, Math.floor(observation.cacheCreationTokens)));
+    multi.expire(key, Math.ceil(ttlMs / 1000));
+    await multi.exec();
+  }
+
+  async loadProviderCacheWindow(
+    orgId: string,
+    provider: string,
+    windowHours: number,
+    clientKind?: string,
+  ): Promise<ProviderCachePolicyWindow | null> {
+    const hours = Math.max(1, Math.min(720, Math.floor(windowHours)));
+    const currentBucket = this.providerWindowBucket();
+    const keys = Array.from({ length: hours }, (_value, idx) =>
+      this.providerCacheWindowKey(orgId, provider, clientKind, currentBucket - idx)
+    );
+    const rows = await Promise.all(keys.map((key) => this.redis.hgetall(key)));
+    const totals = {
+      requests: 0,
+      hits: 0,
+      misses: 0,
+      writeWithoutRead: 0,
+      telemetryMissing: 0,
+      promptTokens: 0,
+      cachedPromptTokens: 0,
+      cacheCreationTokens: 0,
+    };
+    for (const row of rows) {
+      totals.requests += this.safeWindowInt(row.requests);
+      totals.hits += this.safeWindowInt(row.hits);
+      totals.misses += this.safeWindowInt(row.misses);
+      totals.writeWithoutRead += this.safeWindowInt(row.write_without_read);
+      totals.telemetryMissing += this.safeWindowInt(row.telemetry_missing);
+      totals.promptTokens += this.safeWindowInt(row.prompt_tokens);
+      totals.cachedPromptTokens += this.safeWindowInt(row.cached_prompt_tokens);
+      totals.cacheCreationTokens += this.safeWindowInt(row.cache_creation_tokens);
+    }
+    if (totals.requests <= 0) return null;
+    return {
+      windowHours: hours,
+      clientKind: clientKind || "unknown",
+      ...totals,
+      cacheHitPct: totals.promptTokens > 0
+        ? Math.round((totals.cachedPromptTokens / totals.promptTokens) * 10000) / 100
+        : 0,
+      telemetryMissingPct: Math.round((totals.telemetryMissing / totals.requests) * 10000) / 100,
+      writeWithoutReadPct: Math.round((totals.writeWithoutRead / totals.requests) * 10000) / 100,
+    };
+  }
+
   /**
    * Persist the full proxy-side session state (history + governor counters)
    * to a separate Redis key so sessions survive pod migration.
@@ -219,5 +323,37 @@ export class SessionStore {
 
   private activeKey(baseKey: string): string {
     return `yarn-ts:active-session:${baseKey}`;
+  }
+
+  private userPreferencesKey(userId: string): string {
+    return `yarn-ts:user-runtime-preferences:${this.safeKeyPart(userId || "anon")}`;
+  }
+
+  private providerCacheWindowKey(
+    orgId: string,
+    provider: string,
+    clientKind: string | undefined,
+    bucket: number,
+  ): string {
+    return [
+      "yarn-ts:cache-policy-window",
+      this.safeKeyPart(orgId || "no-org"),
+      this.safeKeyPart(provider || "unknown"),
+      this.safeKeyPart(clientKind || "unknown-client"),
+      String(bucket),
+    ].join(":");
+  }
+
+  private providerWindowBucket(): number {
+    return Math.floor(Date.now() / 3_600_000);
+  }
+
+  private safeWindowInt(value: unknown): number {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+  }
+
+  private safeKeyPart(value: string): string {
+    return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_").slice(0, 160) || "unknown";
   }
 }

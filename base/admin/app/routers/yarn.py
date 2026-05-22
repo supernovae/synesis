@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -48,6 +49,13 @@ class YarnSessionBulkDeleteRequest(BaseModel):
     session_keys: list[str] = Field(..., min_length=1, max_length=500)
 
 
+class RuntimePreferencesRequest(BaseModel):
+    loopBreakMode: str = Field("standard", pattern="^(standard|assertive|hands_off)$")
+    cachePolicyBias: str = Field("auto", pattern="^(auto|cache_first|balanced|efficiency_first)$")
+    allowAggressiveCompactionWithoutCacheHits: bool = True
+    maxToolLoopSoftFails: int | None = Field(None, ge=1, le=20)
+
+
 def _scope(user: UserInfo) -> tuple[str, str, str]:
     """Return (scope_user_id, scope_org_id, scope_tenant_id) for Yarn data filters."""
     role = resolve_role(user)
@@ -58,6 +66,59 @@ def _scope(user: UserInfo) -> tuple[str, str, str]:
     tenant_ids = getattr(user, "tenant_ids", None) or []
     scope_tenant = (tenant_ids[0].strip()[:64]) if tenant_ids else ""
     return user.user_id or user.username, "", scope_tenant
+
+
+def _internal_headers() -> dict[str, str]:
+    token = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "").strip()
+    if not token:
+        raise HTTPException(503, "SYNESIS_INTERNAL_SERVICE_TOKEN is required for Yarn runtime preferences")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _user_pref_id(user: UserInfo) -> str:
+    return quote((user.user_id or user.username or "").strip(), safe="")
+
+
+@router.get("/runtime-preferences")
+async def get_runtime_preferences(user: UserInfo = Depends(get_current_user)):
+    """Current user's advanced Coder runtime preferences."""
+    user_id = _user_pref_id(user)
+    if not user_id:
+        raise HTTPException(400, "User identity is unavailable")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{_YARN_URL.rstrip('/')}/v1/user-runtime-preferences/{user_id}",
+                headers=_internal_headers(),
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Yarn runtime preferences service is unavailable") from exc
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, resp.text[:500] or "Yarn runtime preferences request failed")
+    return resp.json()
+
+
+@router.put("/runtime-preferences")
+async def update_runtime_preferences(
+    body: RuntimePreferencesRequest,
+    user: UserInfo = Depends(get_current_user),
+):
+    """Update current user's advanced Coder runtime preferences."""
+    user_id = _user_pref_id(user)
+    if not user_id:
+        raise HTTPException(400, "User identity is unavailable")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.put(
+                f"{_YARN_URL.rstrip('/')}/v1/user-runtime-preferences/{user_id}",
+                headers={**_internal_headers(), "Content-Type": "application/json"},
+                json=body.model_dump(),
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, "Yarn runtime preferences service is unavailable") from exc
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, resp.text[:500] or "Yarn runtime preferences update failed")
+    return resp.json()
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────

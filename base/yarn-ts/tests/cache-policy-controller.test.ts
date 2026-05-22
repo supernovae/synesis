@@ -113,4 +113,73 @@ describe("cache policy controller", () => {
     expect(decision.allowExplicitCacheMarkers).toBe(false);
     expect(decision.reasons).toContain("premium_cache_write_without_read_streak");
   });
+
+  it("uses longer-window provider observations to preserve known-good cache hits", () => {
+    const decision = evaluateCachePolicyController({
+      ...baseInput,
+      metadata: { cache_policy_cache_miss_streak: 3 },
+      provider: "openrouter",
+      providerWindowMinRequests: 4,
+      providerWindow: {
+        windowHours: 24,
+        requests: 12,
+        hits: 9,
+        misses: 3,
+        writeWithoutRead: 0,
+        telemetryMissing: 0,
+        promptTokens: 120_000,
+        cachedPromptTokens: 80_000,
+        cacheCreationTokens: 0,
+        cacheHitPct: 66.67,
+        telemetryMissingPct: 0,
+        writeWithoutReadPct: 0,
+      },
+      runtimePreferences: { cachePolicyBias: "cache_first", allowAggressiveCompactionWithoutCacheHits: true },
+    });
+
+    expect(decision.action).toBe("preserve_cache");
+    expect(decision.compactionMode).toBe("minimal");
+    expect(decision.reasons).toContain("provider_window_cache_hit_observed");
+  });
+
+  it("uses longer-window provider misses to move to safe efficiency when loop risk is absent", () => {
+    const decision = evaluateCachePolicyController({
+      ...baseInput,
+      metadata: {},
+      provider: "vllm",
+      providerWindowMinRequests: 4,
+      providerWindow: {
+        windowHours: 24,
+        requests: 9,
+        hits: 0,
+        misses: 9,
+        writeWithoutRead: 0,
+        telemetryMissing: 0,
+        promptTokens: 90_000,
+        cachedPromptTokens: 0,
+        cacheCreationTokens: 0,
+        cacheHitPct: 0,
+        telemetryMissingPct: 0,
+        writeWithoutReadPct: 0,
+      },
+    });
+
+    expect(decision.cacheUnavailable).toBe(true);
+    expect(decision.action).toBe("safe_efficiency");
+    expect(decision.compactionMode).toBe("aggressive");
+    expect(decision.reasons).toContain("provider_window_cache_unavailable_or_unreported");
+  });
+
+  it("honors a user cache-first preference when cache misses are not proven across the provider window", () => {
+    const decision = evaluateCachePolicyController({
+      ...baseInput,
+      metadata: { cache_policy_cache_miss_streak: 2 },
+      provider: "openrouter",
+      runtimePreferences: { cachePolicyBias: "cache_first", allowAggressiveCompactionWithoutCacheHits: false },
+    });
+
+    expect(decision.action).toBe("preserve_cache");
+    expect(decision.compactionMode).toBe("minimal");
+    expect(decision.reasons).toContain("user_prefers_cache_first_until_proven");
+  });
 });

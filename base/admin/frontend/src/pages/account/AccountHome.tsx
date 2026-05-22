@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useUpdateUserRuntimePreferences, useUserRuntimePreferences } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import type { UserRuntimePreferences } from "../../types";
 import {
   buildKeycloakAccountUrl,
   buildKeycloakPasswordUrl,
@@ -15,6 +18,7 @@ import {
   ExternalLink,
   Globe,
   KeyRound,
+  SlidersHorizontal,
   Shield,
   User,
 } from "lucide-react";
@@ -35,9 +39,25 @@ function yarnUrl(): string {
   return hostUrl("coder.kybern.dev");
 }
 
+const DEFAULT_RUNTIME_DRAFT: UserRuntimePreferences = {
+  loopBreakMode: "standard",
+  cachePolicyBias: "auto",
+  allowAggressiveCompactionWithoutCacheHits: true,
+  maxToolLoopSoftFails: null,
+  updatedAt: 0,
+};
+
 export default function AccountHome() {
   const { user, oidcConfig } = useAuth();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const { data: runtimePrefs, isError: runtimePrefsError, error: runtimePrefsLoadError } = useUserRuntimePreferences(Boolean(user));
+  const updateRuntimePrefs = useUpdateUserRuntimePreferences();
+  const [runtimeDraftOverride, setRuntimeDraftOverride] = useState<Partial<UserRuntimePreferences> | null>(null);
+  const runtimeDraft: UserRuntimePreferences = {
+    ...(runtimePrefs?.preferences ?? DEFAULT_RUNTIME_DRAFT),
+    ...(runtimeDraftOverride ?? {}),
+  };
+
   if (!user) return null;
 
   const kcUrl = buildKeycloakAccountUrl(oidcConfig?.issuer);
@@ -62,6 +82,17 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
       setCopiedKey(key);
       window.setTimeout(() => setCopiedKey((curr) => (curr === key ? null : curr)), 1200);
     });
+  }
+
+  function updateRuntimeDraft<K extends keyof UserRuntimePreferences>(key: K, value: UserRuntimePreferences[K]) {
+    setRuntimeDraftOverride((curr) => ({ ...(curr ?? {}), [key]: value }));
+  }
+
+  function saveRuntimePreferences() {
+    updateRuntimePrefs.mutate(
+      { ...runtimeDraft, updatedAt: Date.now() },
+      { onSuccess: (response) => setRuntimeDraftOverride(response.preferences) },
+    );
   }
 
   return (
@@ -249,6 +280,91 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
           >
             Create and manage tokens →
           </Link>
+        </div>
+
+        <div className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-50 dark:bg-sky-900/20">
+              <SlidersHorizontal className="h-5 w-5 text-sky-700 dark:text-sky-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+                Coder runtime controls
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Advanced loop and token-economics behavior for your Coder sessions
+              </p>
+            </div>
+          </div>
+          <ApiErrorBanner error={runtimePrefsError ? runtimePrefsLoadError : undefined} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Loop break mode</span>
+              <select
+                value={runtimeDraft.loopBreakMode}
+                onChange={(event) => updateRuntimeDraft("loopBreakMode", event.target.value as UserRuntimePreferences["loopBreakMode"])}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value="standard">Standard</option>
+                <option value="assertive">Assertive</option>
+                <option value="hands_off">Hands off</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Cache policy bias</span>
+              <select
+                value={runtimeDraft.cachePolicyBias}
+                onChange={(event) => updateRuntimeDraft("cachePolicyBias", event.target.value as UserRuntimePreferences["cachePolicyBias"])}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value="auto">Auto</option>
+                <option value="cache_first">Cache first</option>
+                <option value="balanced">Balanced</option>
+                <option value="efficiency_first">Efficiency first</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Loop soft-fail limit</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={runtimeDraft.maxToolLoopSoftFails ?? ""}
+                placeholder="Default"
+                onChange={(event) => {
+                  const value = event.target.value.trim();
+                  updateRuntimeDraft("maxToolLoopSoftFails", value ? Number(value) : null);
+                }}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              />
+            </label>
+            <label className="flex items-start gap-3 rounded border border-gray-200 p-3 text-sm dark:border-gray-700">
+              <input
+                type="checkbox"
+                checked={runtimeDraft.allowAggressiveCompactionWithoutCacheHits}
+                onChange={(event) => updateRuntimeDraft("allowAggressiveCompactionWithoutCacheHits", event.target.checked)}
+                className="mt-1"
+              />
+              <span className="text-gray-700 dark:text-gray-300">
+                Allow aggressive compaction when provider cache hits are unavailable and loop risk is low
+              </span>
+            </label>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={saveRuntimePreferences}
+              disabled={updateRuntimePrefs.isPending}
+              className="inline-flex items-center gap-2 rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Check className="h-4 w-4" />
+              {updateRuntimePrefs.isPending ? "Saving" : "Save controls"}
+            </button>
+            {updateRuntimePrefs.isSuccess ? (
+              <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved</span>
+            ) : null}
+          </div>
+          <ApiErrorBanner error={updateRuntimePrefs.isError ? updateRuntimePrefs.error : undefined} />
         </div>
 
         <div className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">

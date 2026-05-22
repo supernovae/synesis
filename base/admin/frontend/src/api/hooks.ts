@@ -30,6 +30,8 @@ import type {
   StagedIngestionDocument,
   CapabilityMatrixEffective,
   CapabilitySelectorType,
+  UserRuntimePreferences,
+  UserRuntimePreferencesResponse,
 } from "../types";
 
 // --- Dashboard ---
@@ -2827,6 +2829,26 @@ export function useYarnOverview(sinceHours: number) {
     queryFn: () =>
       client.get("/yarn/overview", { params: { since_hours: sinceHours } }).then((r) => r.data),
     refetchInterval: 60_000,
+  });
+}
+
+export function useUserRuntimePreferences(enabled = true) {
+  return useQuery<UserRuntimePreferencesResponse>({
+    queryKey: ["yarn", "runtime-preferences"],
+    queryFn: () => client.get("/yarn/runtime-preferences").then((r) => r.data),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useUpdateUserRuntimePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UserRuntimePreferences) =>
+      client.put("/yarn/runtime-preferences", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["yarn", "runtime-preferences"] });
+    },
   });
 }
 
