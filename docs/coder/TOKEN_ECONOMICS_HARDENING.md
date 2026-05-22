@@ -151,9 +151,31 @@ verify:
   cache-first investigations, and DashScope premium writes without reads as a
   premium-cache suppression signal
 
-This is the CI-safe contract. Live provider canaries should reuse these packet
-fixtures and only add real upstream calls when credentials, spend limits, and
-provider-specific telemetry assertions are configured.
+This is the CI-safe contract. Live provider canaries reuse the same packets but
+are disabled unless the caller opts into cost-bearing upstream calls:
+
+```bash
+cd base/yarn-ts
+SYNESIS_CACHE_CANARY_LIVE=1 \
+SYNESIS_CACHE_CANARY_ACK_COST=1 \
+SYNESIS_CACHE_CANARY_ALLOW=openrouter \
+SYNESIS_CACHE_CANARY_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 \
+SYNESIS_CACHE_CANARY_OPENROUTER_API_KEY=... \
+npm run verify:cache-canaries
+```
+
+Equivalent CLI flags:
+
+```bash
+npm run verify:cache-canaries -- --live --ack-cost --allow=openrouter
+```
+
+Live canaries skip providers that are not allow-listed or configured. They fail
+on transport errors, and only fail cache misses when
+`SYNESIS_CACHE_CANARY_REQUIRE_HIT=1` or `--require-cache-hit` is set. Otherwise
+they report cache-hit uncertainty as warnings so operators can observe provider
+behavior without accidentally blocking deployments because an upstream does not
+report cache telemetry.
 
 The same test suite also runs golden-packet cache-stability checks over the
 existing client profile fixtures for Claude Code, Codex CLI, Cursor, OpenCode,
@@ -223,7 +245,7 @@ npm run test:token-economics
 
 ## Next hardening steps
 
-- Add opt-in live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes using the offline canary packets.
+- Wire opt-in live canary output into admin observability and alerting.
 - Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
 - Expand golden packet fixtures for Windsurf, VS Code, Hermes/Claw-style, and generic homegrown OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.

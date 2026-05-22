@@ -1,7 +1,8 @@
 import { annotateCacheBreakpoints, detectCacheStrategy, type CacheStrategy } from "../context/provider-cache-hints.js";
+import { extractUsage } from "@synesis/telemetry";
 import { getEndpointTransportAdapter } from "../providers/endpoint-capabilities/registry.js";
 import type { EndpointCapabilityId } from "../providers/endpoint-capabilities/types.js";
-import { PrefixOptimizer } from "../providers/prefix-optimizer/index.js";
+import { PrefixOptimizer, type OptimizedRequest } from "../providers/prefix-optimizer/index.js";
 import type { ChatMessage, MarkerBackend, ToolDefinition } from "../providers/prefix-optimizer/types.js";
 import {
   buildTokenEconomicsDecision,
@@ -54,6 +55,56 @@ export interface ProviderCacheCanaryResult {
 export interface ProviderCacheCanarySummary {
   passed: boolean;
   total: number;
+  failed: number;
+  failures: Array<{ id: string; failures: string[] }>;
+}
+
+export interface ProviderCacheCanaryPacket {
+  canary: ProviderCacheCanaryCase;
+  sessionKey: string;
+  first: OptimizedRequest;
+  second: OptimizedRequest;
+}
+
+export interface ProviderCacheLiveEndpoint {
+  baseUrl: string;
+  apiKey?: string;
+  model?: string;
+  headers?: Record<string, string>;
+}
+
+export interface ProviderCacheLiveCanaryOptions {
+  enabled: boolean;
+  costAck: boolean;
+  allowedProviderIds: string[];
+  endpoints: Record<string, ProviderCacheLiveEndpoint | undefined>;
+  fetchImpl?: typeof fetch;
+  maxCompletionTokens?: number;
+  timeoutMs?: number;
+  requireCacheHit?: boolean;
+}
+
+export type ProviderCacheLiveCanaryStatus = "skipped" | "passed" | "failed";
+
+export interface ProviderCacheLiveCanaryResult {
+  id: string;
+  displayName: string;
+  status: ProviderCacheLiveCanaryStatus;
+  reason?: string;
+  failures: string[];
+  warnings: string[];
+  httpStatuses: number[];
+  promptTokens: number;
+  cachedPromptTokens: number;
+  cacheCreationTokens: number;
+  cacheHitPct: number;
+  recommendation: TokenEconomicsDecision["recommendation"] | "not_run";
+}
+
+export interface ProviderCacheLiveCanarySummary {
+  passed: boolean;
+  total: number;
+  skipped: number;
   failed: number;
   failures: Array<{ id: string; failures: string[] }>;
 }
@@ -217,6 +268,22 @@ function canaryMessages(turn: number): ChatMessage[] {
   ];
 }
 
+export function buildProviderCacheCanaryPacket(canary: ProviderCacheCanaryCase): ProviderCacheCanaryPacket {
+  const optimizer = new PrefixOptimizer({
+    markerBackend: canary.markerBackend,
+    maxMarkers: 3,
+    enableDiagnosticLogging: false,
+  });
+  const sessionKey = `cache-canary-${canary.id}`;
+  const first = optimizer.optimize(canaryMessages(1), canaryTools(), sessionKey, {
+    markerBackend: canary.markerBackend,
+  });
+  const second = optimizer.optimize(canaryMessages(2), canaryTools(), sessionKey, {
+    markerBackend: canary.markerBackend,
+  });
+  return { canary, sessionKey, first, second };
+}
+
 function sameNumberArray(left: number[], right: number[]): boolean {
   return left.length === right.length && left.every((value, idx) => value === right[idx]);
 }
@@ -279,6 +346,60 @@ function evaluateDashScopeAnnotations(
   return countDashScopeAnnotations(body.messages ?? [], body.tools);
 }
 
+function augmentDashScopeOpenAiBody(
+  canary: ProviderCacheCanaryCase,
+  body: Record<string, unknown>,
+  markerIndices: number[],
+): Record<string, unknown> {
+  if (canary.endpointCapability !== "dashscope") {
+    return body;
+  }
+
+  const adapter = getEndpointTransportAdapter("dashscope", {
+    dashscope: { mode: "auto", canaryPct: 0, maxMarkers: 3 },
+  });
+  const originalLog = console.log;
+  let augmented: { input: RequestInfo | URL; init?: RequestInit };
+  try {
+    console.log = () => undefined;
+    augmented = adapter.augmentRequest(
+      canary.baseUrl,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      () => `cache-canary-${canary.id}`,
+      () => markerIndices,
+    );
+  } finally {
+    console.log = originalLog;
+  }
+
+  if (!augmented.init?.body || typeof augmented.init.body !== "string") {
+    return body;
+  }
+  return JSON.parse(augmented.init.body) as Record<string, unknown>;
+}
+
+export function buildProviderCacheOpenAiProbeBody(
+  canary: ProviderCacheCanaryCase,
+  optimized: OptimizedRequest,
+  options?: { model?: string; maxCompletionTokens?: number },
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: options?.model ?? canary.model,
+    messages: optimized.messages,
+    temperature: 0,
+    max_tokens: Math.max(1, options?.maxCompletionTokens ?? 32),
+  };
+  if (optimized.tools && optimized.tools.length > 0) {
+    body.tools = optimized.tools;
+    body.tool_choice = "none";
+  }
+  return augmentDashScopeOpenAiBody(canary, body, optimized.markerIndices);
+}
+
 function evaluateAnthropicAnnotations(canary: ProviderCacheCanaryCase, messages: ChatMessage[]): number {
   if (canary.markerBackend !== "anthropic") return 0;
   const annotated = annotateCacheBreakpoints(messages, "anthropic_explicit", { volatileTailSize: 2 });
@@ -325,18 +446,7 @@ function buildDecisions(canary: ProviderCacheCanaryCase, prefixStableBytes: numb
 
 export function runProviderCacheCanary(canary: ProviderCacheCanaryCase): ProviderCacheCanaryResult {
   const failures: string[] = [];
-  const optimizer = new PrefixOptimizer({
-    markerBackend: canary.markerBackend,
-    maxMarkers: 3,
-    enableDiagnosticLogging: false,
-  });
-  const sessionKey = `cache-canary-${canary.id}`;
-  const first = optimizer.optimize(canaryMessages(1), canaryTools(), sessionKey, {
-    markerBackend: canary.markerBackend,
-  });
-  const second = optimizer.optimize(canaryMessages(2), canaryTools(), sessionKey, {
-    markerBackend: canary.markerBackend,
-  });
+  const { first, second } = buildProviderCacheCanaryPacket(canary);
   const markerStable = sameNumberArray(first.markerIndices, second.markerIndices);
   const prefixStableBytes = second.diagnostics.prefixStableBytes;
   const providerStrategy = inferProviderCacheStrategy(canary.providerTag);
@@ -421,6 +531,178 @@ export function summarizeProviderCacheCanaries(results: ProviderCacheCanaryResul
   return {
     passed: failures.length === 0,
     total: results.length,
+    failed: failures.length,
+    failures,
+  };
+}
+
+function liveSkipped(canary: ProviderCacheCanaryCase, reason: string): ProviderCacheLiveCanaryResult {
+  return {
+    id: canary.id,
+    displayName: canary.displayName,
+    status: "skipped",
+    reason,
+    failures: [],
+    warnings: [],
+    httpStatuses: [],
+    promptTokens: 0,
+    cachedPromptTokens: 0,
+    cacheCreationTokens: 0,
+    cacheHitPct: 0,
+    recommendation: "not_run",
+  };
+}
+
+function chatCompletionsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/chat/completions`;
+}
+
+function responseJson(text: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+async function postOpenAiProbe(
+  fetchImpl: typeof fetch,
+  endpoint: ProviderCacheLiveEndpoint,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<{ status: number; json: Record<string, unknown>; text: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("cache_canary_timeout")), timeoutMs);
+  try {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...endpoint.headers,
+    };
+    if (endpoint.apiKey) {
+      headers.authorization = `Bearer ${endpoint.apiKey}`;
+    }
+    const response = await fetchImpl(chatCompletionsUrl(endpoint.baseUrl), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    return { status: response.status, json: responseJson(text), text };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runOneLiveCanary(
+  canary: ProviderCacheCanaryCase,
+  options: ProviderCacheLiveCanaryOptions,
+): Promise<ProviderCacheLiveCanaryResult> {
+  if (!options.enabled) return liveSkipped(canary, "live_disabled");
+  if (!options.costAck) return liveSkipped(canary, "cost_ack_required");
+  if (!options.allowedProviderIds.includes(canary.id)) return liveSkipped(canary, "provider_not_allowed");
+  const endpoint = options.endpoints[canary.id];
+  if (!endpoint?.baseUrl) return liveSkipped(canary, "endpoint_not_configured");
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? 30_000);
+  const maxCompletionTokens = Math.max(1, options.maxCompletionTokens ?? 32);
+  const packet = buildProviderCacheCanaryPacket(canary);
+  const firstBody = buildProviderCacheOpenAiProbeBody(canary, packet.first, {
+    model: endpoint.model,
+    maxCompletionTokens,
+  });
+  const secondBody = buildProviderCacheOpenAiProbeBody(canary, packet.second, {
+    model: endpoint.model,
+    maxCompletionTokens,
+  });
+  const failures: string[] = [];
+  const warnings: string[] = [];
+
+  try {
+    const first = await postOpenAiProbe(fetchImpl, endpoint, firstBody, timeoutMs);
+    const second = await postOpenAiProbe(fetchImpl, endpoint, secondBody, timeoutMs);
+    if (first.status < 200 || first.status >= 300) failures.push(`first_http_status:${first.status}`);
+    if (second.status < 200 || second.status >= 300) failures.push(`second_http_status:${second.status}`);
+
+    const secondUsage = extractUsage(second.json.usage as never);
+    const cacheCreationTokens = secondUsage.cache_creation_tokens ?? 0;
+    const decision = buildTokenEconomicsDecision({
+      provider: canary.providerTag,
+      tier: "live-cache-canary",
+      model: endpoint.model ?? canary.model,
+      promptTokens: secondUsage.prompt_tokens,
+      completionTokens: secondUsage.completion_tokens,
+      cachedTokens: secondUsage.cached_prompt_tokens,
+      cacheCreationTokens,
+      prefixStableBytes: packet.second.diagnostics.prefixStableBytes,
+    });
+
+    if (secondUsage.prompt_tokens <= 0 && secondUsage.completion_tokens <= 0) {
+      warnings.push("provider_usage_missing");
+    }
+    if (decision.cacheOutcome !== "hit") {
+      warnings.push(`cache_hit_unverified:${decision.cacheOutcome}`);
+    }
+    if (options.requireCacheHit && decision.cacheOutcome !== "hit") {
+      failures.push(`required_cache_hit_missing:${decision.cacheOutcome}`);
+    }
+    for (const warning of decision.warnings) warnings.push(warning);
+
+    return {
+      id: canary.id,
+      displayName: canary.displayName,
+      status: failures.length > 0 ? "failed" : "passed",
+      failures,
+      warnings: [...new Set(warnings)],
+      httpStatuses: [first.status, second.status],
+      promptTokens: secondUsage.prompt_tokens,
+      cachedPromptTokens: secondUsage.cached_prompt_tokens,
+      cacheCreationTokens,
+      cacheHitPct: decision.cacheHitPct,
+      recommendation: decision.recommendation,
+    };
+  } catch (error) {
+    return {
+      id: canary.id,
+      displayName: canary.displayName,
+      status: "failed",
+      failures: [`request_error:${error instanceof Error ? error.message : String(error)}`],
+      warnings,
+      httpStatuses: [],
+      promptTokens: 0,
+      cachedPromptTokens: 0,
+      cacheCreationTokens: 0,
+      cacheHitPct: 0,
+      recommendation: "not_run",
+    };
+  }
+}
+
+export async function runProviderCacheLiveCanaries(
+  options: ProviderCacheLiveCanaryOptions,
+  canaries: ProviderCacheCanaryCase[] = PROVIDER_CACHE_CANARY_CASES,
+): Promise<ProviderCacheLiveCanaryResult[]> {
+  const results: ProviderCacheLiveCanaryResult[] = [];
+  for (const canary of canaries) {
+    results.push(await runOneLiveCanary(canary, options));
+  }
+  return results;
+}
+
+export function summarizeProviderCacheLiveCanaries(
+  results: ProviderCacheLiveCanaryResult[],
+): ProviderCacheLiveCanarySummary {
+  const failures = results
+    .filter((result) => result.status === "failed")
+    .map((result) => ({ id: result.id, failures: result.failures }));
+  return {
+    passed: failures.length === 0,
+    total: results.length,
+    skipped: results.filter((result) => result.status === "skipped").length,
     failed: failures.length,
     failures,
   };
