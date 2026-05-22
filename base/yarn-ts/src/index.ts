@@ -292,6 +292,15 @@ import {
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import {
+  buildGovernorPauseContextSnapshot,
+  buildGovernorPauseResumeBlock,
+  GOVERNOR_PAUSE_CONTEXT_METADATA_KEY,
+  GOVERNOR_PAUSE_PENDING_METADATA_KEY,
+  isGovernorPauseSummaryRequest,
+  parseGovernorPauseContextSnapshot,
+  type GovernorPauseSurface,
+} from "./governance/governor-pause-context.js";
+import {
   evaluateSensemakingGovernor,
   compareSensemakingWithLegacy,
   buildSensemakingPauseMessage,
@@ -1077,6 +1086,42 @@ function getMetadataObject(meta: Record<string, unknown>, key: string): Record<s
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function persistGovernorPauseContextMetadata(params: {
+  session: SessionState;
+  surface: GovernorPauseSurface;
+  requestId: string;
+  pauseEnvelope: GovernorPauseEnvelope;
+  pauseContent: string;
+  clientToolCapabilities: ClientToolCapabilities;
+}): void {
+  const snapshot = buildGovernorPauseContextSnapshot({
+    surface: params.surface,
+    requestId: params.requestId,
+    envelope: params.pauseEnvelope,
+    pauseMessage: params.pauseContent,
+    questionToolName: params.clientToolCapabilities.hasQuestionTool
+      ? params.clientToolCapabilities.questionToolName
+      : null,
+  });
+  params.session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY] = snapshot as unknown as Record<string, unknown>;
+  params.session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] = true;
+}
+
+function clearGovernorPauseContextMetadata(session: SessionState): void {
+  delete session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY];
+  delete session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY];
+}
+
+function buildGovernorPauseResumeBlockForUser(session: SessionState, latestUserPrompt: string): string | null {
+  if (!isGovernorPauseSummaryRequest(latestUserPrompt)) return null;
+  const rawSnapshot = session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY];
+  const pending = session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] === true;
+  const snapshot = parseGovernorPauseContextSnapshot(rawSnapshot);
+  if (!pending || !snapshot) return null;
+  session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] = false;
+  return buildGovernorPauseResumeBlock(snapshot, latestUserPrompt);
 }
 
 function normalizeStateTransitionQualityThresholds(
@@ -6812,6 +6857,8 @@ function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
     "planner_todo_packet_todos",
     "planner_todo_packet_questions",
     "planner_todo_packet_carrier",
+    GOVERNOR_PAUSE_CONTEXT_METADATA_KEY,
+    GOVERNOR_PAUSE_PENDING_METADATA_KEY,
   ]) {
     delete meta[key];
   }
@@ -9105,6 +9152,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   session.record.metadata.file_state_snapshot = oaiFileStateSnapshot as unknown as Record<string, unknown>;
   const oaiChatStateBlock = formatChatStateBlock(oaiChatState);
   const oaiFileStateBlock = formatFileStateBlock(oaiFileState);
+  const oaiGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
+    session,
+    typeof oaiTaskCue === "string" ? oaiTaskCue : "",
+  );
+  const oaiGovernorPauseSummaryRequested = Boolean(oaiGovernorPauseResumeBlock);
   const oaiGovernorCooldownActive =
     session.lastGovernorCachedResult
     && !session.lastGovernorCachedResult.pause
@@ -9203,6 +9255,30 @@ app.post("/v1/chat/completions", async (req, reply) => {
         edit_miss_failures: oaiEditMissFailureCount,
         consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
         matched_rules: oaiExecutionGovernor.matchedRules,
+      },
+    );
+  }
+  if (oaiGovernorPauseSummaryRequested && oaiExecutionGovernor.pause) {
+    const priorRules = oaiExecutionGovernor.matchedRules;
+    oaiExecutionGovernor = {
+      ...oaiExecutionGovernor,
+      pause: false,
+      reason: "user_requested_governor_summary",
+      matchedRules: ["user_requested_governor_summary"],
+      suggestedNextStep: "Summarize current status without tool calls, edits, or command retries.",
+    };
+    session.lastGovernorCachedResult = null;
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "governor_pause_summary_resume",
+      "execution-governor",
+      `Allowed explicit summarize/status reply after pause (prior_rules=${priorRules.slice(0, 3).join(",") || "unknown"})`,
+      oaiTraceReqId,
+      {
+        prior_matched_rules: priorRules,
+        summary_resume: true,
       },
     );
   }
@@ -9500,10 +9576,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     && oaiExecutionGovernor.pause
     && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
   ) {
+    const pauseStarted = Date.now();
     session.consecutiveRecoveryFires += 1;
     const pauseContent = buildExecutionGovernorHardStopUserMessage({
       consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       matchedRules: oaiExecutionGovernor.matchedRules,
+      questionToolName: oaiClientToolCapabilities.questionToolName,
     });
     const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
       matchedRules: oaiExecutionGovernor.matchedRules,
@@ -9514,6 +9592,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       artifactContext: oaiArtifactContext,
       chatStateSummary: oaiPauseChatSummary,
       fileStateSummary: oaiPauseFileSummary,
+      questionToolName: oaiClientToolCapabilities.questionToolName,
+    });
+    persistGovernorPauseContextMetadata({
+      session,
+      surface: "openai",
+      requestId: oaiTraceReqId,
+      pauseEnvelope,
+      pauseContent,
+      clientToolCapabilities: oaiClientToolCapabilities,
     });
     recordSessionEvent(
       sessionKey, identity.userId, identity.orgId,
@@ -9527,6 +9614,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       },
     );
+    session.history.push({ role: "assistant", content: pauseContent });
+    persistSessionAndUsage(
+      session,
+      oaiTraceReqId,
+      orchestration.selectedModel,
+      { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      Date.now() - pauseStarted,
+      "stop",
+      0,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      request.model,
+    );
     maybeCheckpoint(session);
     return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pauseContent, !!request.stream, pauseEnvelope);
   }
@@ -9535,6 +9637,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (oaiSensemakingPrimaryEnabled && oaiSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     if (oaiSensemakingDecision.shouldPause) {
       // Chaotic domain — hard pause
+      const pauseStarted = Date.now();
       session.consecutiveRecoveryFires += 1;
       const pauseContent = buildSensemakingPauseMessage(oaiSensemakingDecision);
       const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
@@ -9546,6 +9649,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
         artifactContext: oaiArtifactContext,
         chatStateSummary: oaiPauseChatSummary,
         fileStateSummary: oaiPauseFileSummary,
+        questionToolName: oaiClientToolCapabilities.questionToolName,
+      });
+      persistGovernorPauseContextMetadata({
+        session,
+        surface: "openai",
+        requestId: oaiTraceReqId,
+        pauseEnvelope,
+        pauseContent,
+        clientToolCapabilities: oaiClientToolCapabilities,
       });
       recordSessionEvent(
         sessionKey, identity.userId, identity.orgId,
@@ -9559,6 +9671,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
           matchedRules: oaiSensemakingDecision.matchedRules,
           consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         },
+      );
+      session.history.push({ role: "assistant", content: pauseContent });
+      persistSessionAndUsage(
+        session,
+        oaiTraceReqId,
+        orchestration.selectedModel,
+        { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+        Date.now() - pauseStarted,
+        "stop",
+        0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        request.model,
       );
       maybeCheckpoint(session);
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pauseContent, !!request.stream, pauseEnvelope);
@@ -9588,6 +9715,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     // Reset recovery counters on non-pause outcomes
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    clearGovernorPauseContextMetadata(session);
     if (!oaiHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -9595,6 +9723,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   } else if (!oaiExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    clearGovernorPauseContextMetadata(session);
     if (!oaiHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -9665,6 +9794,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
       ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
       ...(oaiClientToolBlock ? [oaiClientToolBlock] : []),
+      ...(oaiGovernorPauseResumeBlock ? [oaiGovernorPauseResumeBlock] : []),
       ...(oaiPlannerTodoPacketBlock ? [oaiPlannerTodoPacketBlock] : []),
       ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],
@@ -12996,6 +13126,11 @@ app.post("/v1/messages", async (req, reply) => {
   session.record.metadata.file_state_snapshot = claudeFileStateSnapshot as unknown as Record<string, unknown>;
   const claudeChatStateBlock = formatChatStateBlock(claudeChatState);
   const claudeFileStateBlock = formatFileStateBlock(claudeFileState);
+  const claudeGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
+    session,
+    typeof claudeTaskCue === "string" ? claudeTaskCue : "",
+  );
+  const claudeGovernorPauseSummaryRequested = Boolean(claudeGovernorPauseResumeBlock);
   const claudeGovernorCooldownActive =
     session.lastGovernorCachedResult
     && !session.lastGovernorCachedResult.pause
@@ -13094,6 +13229,30 @@ app.post("/v1/messages", async (req, reply) => {
         edit_miss_failures: claudeEditMissFailureCount,
         consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
         matched_rules: claudeExecutionGovernor.matchedRules,
+      },
+    );
+  }
+  if (claudeGovernorPauseSummaryRequested && claudeExecutionGovernor.pause) {
+    const priorRules = claudeExecutionGovernor.matchedRules;
+    claudeExecutionGovernor = {
+      ...claudeExecutionGovernor,
+      pause: false,
+      reason: "user_requested_governor_summary",
+      matchedRules: ["user_requested_governor_summary"],
+      suggestedNextStep: "Summarize current status without tool calls, edits, or command retries.",
+    };
+    session.lastGovernorCachedResult = null;
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "governor_pause_summary_resume",
+      "execution-governor",
+      `Allowed explicit summarize/status reply after pause (prior_rules=${priorRules.slice(0, 3).join(",") || "unknown"})`,
+      traceReqId,
+      {
+        prior_matched_rules: priorRules,
+        summary_resume: true,
       },
     );
   }
@@ -13391,10 +13550,12 @@ app.post("/v1/messages", async (req, reply) => {
     && claudeExecutionGovernor.pause
     && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
   ) {
+    const pauseStarted = Date.now();
     session.consecutiveRecoveryFires += 1;
     const pauseContent = buildExecutionGovernorHardStopUserMessage({
       consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       matchedRules: claudeExecutionGovernor.matchedRules,
+      questionToolName: claudeClientToolCapabilities.questionToolName,
     });
     const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
       matchedRules: claudeExecutionGovernor.matchedRules,
@@ -13405,6 +13566,15 @@ app.post("/v1/messages", async (req, reply) => {
       artifactContext: claudeArtifactContext,
       chatStateSummary: claudePauseChatSummary,
       fileStateSummary: claudePauseFileSummary,
+      questionToolName: claudeClientToolCapabilities.questionToolName,
+    });
+    persistGovernorPauseContextMetadata({
+      session,
+      surface: "claude",
+      requestId: traceReqId,
+      pauseEnvelope,
+      pauseContent,
+      clientToolCapabilities: claudeClientToolCapabilities,
     });
     recordSessionEvent(
       claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
@@ -13418,6 +13588,21 @@ app.post("/v1/messages", async (req, reply) => {
         consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       },
     );
+    session.history.push({ role: "assistant", content: pauseContent });
+    persistSessionAndUsage(
+      session,
+      traceReqId,
+      claudeOrchestration.selectedModel,
+      { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      Date.now() - pauseStarted,
+      "end_turn",
+      0,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      body.model,
+    );
     maybeCheckpoint(session);
     return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pauseContent, !!body.stream, pauseEnvelope);
   }
@@ -13425,6 +13610,7 @@ app.post("/v1/messages", async (req, reply) => {
   // Sensemaking-driven response: graduated allow/nudge/guide/intervene
   if (claudeSensemakingPrimaryEnabled && claudeSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
     if (claudeSensemakingDecision.shouldPause) {
+      const pauseStarted = Date.now();
       session.consecutiveRecoveryFires += 1;
       const pauseContent = buildSensemakingPauseMessage(claudeSensemakingDecision);
       const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
@@ -13436,6 +13622,15 @@ app.post("/v1/messages", async (req, reply) => {
         artifactContext: claudeArtifactContext,
         chatStateSummary: claudePauseChatSummary,
         fileStateSummary: claudePauseFileSummary,
+        questionToolName: claudeClientToolCapabilities.questionToolName,
+      });
+      persistGovernorPauseContextMetadata({
+        session,
+        surface: "claude",
+        requestId: traceReqId,
+        pauseEnvelope,
+        pauseContent,
+        clientToolCapabilities: claudeClientToolCapabilities,
       });
       recordSessionEvent(
         claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
@@ -13449,6 +13644,21 @@ app.post("/v1/messages", async (req, reply) => {
           matchedRules: claudeSensemakingDecision.matchedRules,
           consecutiveRecoveryFires: session.consecutiveRecoveryFires,
         },
+      );
+      session.history.push({ role: "assistant", content: pauseContent });
+      persistSessionAndUsage(
+        session,
+        traceReqId,
+        claudeOrchestration.selectedModel,
+        { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+        Date.now() - pauseStarted,
+        "end_turn",
+        0,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        body.model,
       );
       maybeCheckpoint(session);
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pauseContent, !!body.stream, pauseEnvelope);
@@ -13477,6 +13687,7 @@ app.post("/v1/messages", async (req, reply) => {
 
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    clearGovernorPauseContextMetadata(session);
     if (!claudeHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -13484,6 +13695,7 @@ app.post("/v1/messages", async (req, reply) => {
   } else if (!claudeExecutionGovernor.pause) {
     session.consecutiveRecoveryFires = 0;
     session.governorPrePauseAttemptsByRule.clear();
+    clearGovernorPauseContextMetadata(session);
     if (!claudeHasActiveEditMissFailure) {
       session.editReplayHardStopGraceUsed = false;
       session.editMissForceReadPending = false;
@@ -13555,6 +13767,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudeObjectiveScope.artifactBridgeBlock ? [claudeObjectiveScope.artifactBridgeBlock] : []),
       ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
       ...(claudeClientToolBlock ? [claudeClientToolBlock] : []),
+      ...(claudeGovernorPauseResumeBlock ? [claudeGovernorPauseResumeBlock] : []),
       ...(claudePlannerTodoPacketBlock ? [claudePlannerTodoPacketBlock] : []),
       ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],

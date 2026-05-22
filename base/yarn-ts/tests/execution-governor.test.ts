@@ -1549,11 +1549,13 @@ describe("execution governor", () => {
     const message = buildExecutionGovernorHardStopUserMessage({
       consecutiveRecoveryFires: 5,
       matchedRules: ["verification_churn_no_edit"],
+      questionToolName: "question",
     });
     expect(message).toContain("Many verification or build steps in a row");
     expect(message).toContain("Reason: verification_churn_no_edit");
     expect(message).toContain("Continue with one focused fix");
     expect(message).toContain("targeted verification command");
+    expect(message).toContain("question tool");
   });
 
   it("builds transport-agnostic pause envelope for intent loops", () => {
@@ -1581,6 +1583,7 @@ describe("execution governor", () => {
         partial_files: ["src/parser.ts"],
         evicted_files: [],
       },
+      questionToolName: "question",
     });
     expect(envelope.status).toBe("paused");
     expect(envelope.required_user_action).toBe(true);
@@ -1596,6 +1599,8 @@ describe("execution governor", () => {
     expect(envelope.artifact_context?.stale_files).toContain("src/handler.go");
     expect(envelope.chat_state_summary?.active_objective).toContain("Implement parser fix");
     expect(envelope.file_state_summary?.files_total).toBe(2);
+    expect(envelope.interactive_question?.tool_name).toBe("question");
+    expect(envelope.interactive_question?.options.map((option) => option.id)).toContain("summarize_and_stop");
   });
 
   it("builds transport-agnostic pause envelope for general loops", () => {

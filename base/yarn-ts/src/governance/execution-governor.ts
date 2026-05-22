@@ -3249,8 +3249,9 @@ function hardStopPlainCopy(matchedRules: string[]): { what: string; nudge: strin
 export function buildExecutionGovernorHardStopUserMessage(params: {
   consecutiveRecoveryFires: number;
   matchedRules: string[];
+  questionToolName?: string | null;
 }): string {
-  const { consecutiveRecoveryFires, matchedRules } = params;
+  const { consecutiveRecoveryFires, matchedRules, questionToolName } = params;
   const { what, nudge, primary: primaryRule } = hardStopPlainCopy(matchedRules);
   const needsDirectionChoice = matchedRules.some((r) =>
     r === "verification_intent_without_action"
@@ -3287,6 +3288,9 @@ export function buildExecutionGovernorHardStopUserMessage(params: {
 
   const guidance = [
     "",
+    ...(questionToolName
+      ? [`Interactive clients may present these options through the ${questionToolName} question tool.`]
+      : []),
     "Tip: provide the exact command or file to edit in your reply for fastest recovery.",
   ];
 
@@ -3341,6 +3345,15 @@ export interface GovernorPauseEnvelope {
   };
   chat_state_summary?: GovernorPauseChatStateSummary;
   file_state_summary?: GovernorPauseFileStateSummary;
+  interactive_question?: {
+    tool_name: string;
+    prompt: string;
+    options: Array<{
+      id: string;
+      label: string;
+      description: string;
+    }>;
+  };
   resume_hint: string;
 }
 
@@ -3353,6 +3366,7 @@ export function buildExecutionGovernorPauseEnvelope(params: {
   artifactContext?: { staleFiles: string[]; partialFiles: string[] };
   chatStateSummary?: GovernorPauseChatStateSummary;
   fileStateSummary?: GovernorPauseFileStateSummary;
+  questionToolName?: string | null;
 }): GovernorPauseEnvelope {
   const {
     matchedRules,
@@ -3363,6 +3377,7 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     artifactContext,
     chatStateSummary,
     fileStateSummary,
+    questionToolName,
   } = params;
   const pauseReason = matchedRules[0] ?? "unknown";
   const plain = hardStopPlainCopy(matchedRules);
@@ -3425,6 +3440,9 @@ export function buildExecutionGovernorPauseEnvelope(params: {
       ];
 
   const defaultAction = isIntentLoop ? "apply_one_edit" : "continue_with_fix";
+  const interactiveQuestionTool = typeof questionToolName === "string" && questionToolName.trim()
+    ? questionToolName.trim()
+    : null;
 
   return {
     status: "paused",
@@ -3448,6 +3466,17 @@ export function buildExecutionGovernorPauseEnvelope(params: {
       : undefined,
     chat_state_summary: chatStateSummary,
     file_state_summary: fileStateSummary,
+    interactive_question: interactiveQuestionTool
+      ? {
+          tool_name: interactiveQuestionTool,
+          prompt: "Governor paused repeated progress. Choose the safest recovery action.",
+          options: nextActions.map((action) => ({
+            id: action.id,
+            label: action.label,
+            description: action.description,
+          })),
+        }
+      : undefined,
     resume_hint: [
       plain.nudge,
       "",
