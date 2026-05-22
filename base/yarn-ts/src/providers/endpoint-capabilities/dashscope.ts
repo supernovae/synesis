@@ -118,6 +118,19 @@ function validMarkerIndices(messages: ChatMessage[], markerIndices: number[], ma
   return out;
 }
 
+function markerSkipReason(
+  stableSystemEnd: number,
+  stablePrefixTokens: number,
+  optimizerMarkers: number[],
+  maxMarkers: number,
+): string {
+  if (maxMarkers <= 0) return "max_markers_zero";
+  if (stableSystemEnd < 0) return "no_stable_system_prefix";
+  if (optimizerMarkers.length === 0) return "optimizer_marker_missing";
+  if (stablePrefixTokens < MIN_CACHE_TOKENS) return "stable_prefix_below_min_tokens";
+  return "marker_validation_failed";
+}
+
 /**
  * DashScope explicit context cache support.
  *
@@ -153,11 +166,33 @@ export function createDashScopeEndpointAdapter(options: DashScopeEndpointAdapter
       const messages = body.messages as ChatMessage[];
       const optimizerMarkers = getMarkerIndices?.() ?? [];
       const stableSystemEnd = actualStableSystemEnd(messages);
+      const stablePrefixTokens = stableSystemEnd >= 0
+        ? markerTokenEstimate(messages, stableSystemEnd)
+        : 0;
       const markerCandidates = optimizerMarkers.length > 0 && stableSystemEnd >= 0
         ? [stableSystemEnd]
         : [];
       const markerIndices = validMarkerIndices(messages, markerCandidates, options.maxMarkers);
       if (markerIndices.length === 0) {
+        console.log(JSON.stringify({
+          level: 20,
+          msg: "dashscope_explicit_cache_decision",
+          mode: options.mode,
+          applied: false,
+          skip_reason: markerSkipReason(
+            stableSystemEnd,
+            stablePrefixTokens,
+            optimizerMarkers,
+            options.maxMarkers,
+          ),
+          session_key_present: Boolean(sessionKey),
+          optimizer_marker_indices: optimizerMarkers,
+          stable_system_end: stableSystemEnd,
+          stable_prefix_tokens: stablePrefixTokens,
+          message_count: messages.length,
+          cache_strategy: "explicit_premium",
+          recommendation: "preserve_stable_prefix",
+        }));
         return { input, init };
       }
 
@@ -179,6 +214,10 @@ export function createDashScopeEndpointAdapter(options: DashScopeEndpointAdapter
         marker_count: markerIndices.length,
         message_count: messages.length,
         tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
+        stable_system_end: stableSystemEnd,
+        stable_prefix_tokens: stablePrefixTokens,
+        cache_strategy: "explicit_premium",
+        recommendation: "observe_provider_cache_hits",
       }));
       return {
         input,

@@ -12,6 +12,7 @@
     "build": "tsc",
     "start": "node --enable-source-maps dist/index.js",
     "test": "vitest run",
+    "test:token-economics": "vitest run tests/token-economics.test.ts tests/usage-telemetry-fetch.test.ts tests/dashscope-endpoint-adapter.test.ts",
     "bench:reducers": "tsx scripts/bench-reducers.ts",
     "verify:live": "tsx scripts/live-verify.ts",
     "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",

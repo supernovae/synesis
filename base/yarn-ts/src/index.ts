@@ -119,6 +119,7 @@ import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normali
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
+import { buildTokenEconomicsDecision, tokenEconomicsLogRecord } from "./telemetry/token-economics.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -4714,6 +4715,20 @@ function persistSessionAndUsage(
   }
   const normalizedEstimatedCostUsd = Number.isFinite(estimatedCostUsd) ? Math.max(0, estimatedCostUsd) : 0;
   const normalizedActualCostUsd = Number.isFinite(actualCostUsd) ? Math.max(0, actualCostUsd) : 0;
+  const endpointProvider = tier?.baseUrl ? resolveEndpointCapabilityId(tier.baseUrl) : "generic";
+  const tokenEconomicsDecision = buildTokenEconomicsDecision({
+    provider: endpointProvider,
+    tier: resolvedModelId,
+    model: traceModel,
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    cachedTokens: usage.cachedTokens,
+    cacheCreationTokens: usage.cacheCreationTokens,
+    prefixStableBytes: optimizationLedger?.prefixStableBytes,
+    inputCharsOriginal: optimizationLedger?.inputCharsOriginal,
+    inputCharsFinal: optimizationLedger?.inputCharsFinal,
+  });
+  const tokenEconomics = tokenEconomicsLogRecord(tokenEconomicsDecision);
 
   if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
     app.log.info({
@@ -4742,6 +4757,11 @@ function persistSessionAndUsage(
   const parentTraceId = previousTraceId || undefined;
   state.record.metadata.root_trace_id = rootTraceId;
   state.record.metadata.last_trace_id = requestId;
+  state.record.metadata.last_cache_hit_ratio = usage.inputTokens > 0
+    ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4))
+    : 0;
+  state.record.metadata.last_token_economics_recommendation = tokenEconomicsDecision.recommendation;
+  state.record.metadata.last_token_economics_warnings = tokenEconomicsDecision.warnings;
 
   if (finishReason === "tool_calls" || finishReason === "tool_use") {
     state.consecutiveToolCalls += 1;
@@ -4778,6 +4798,19 @@ function persistSessionAndUsage(
 
   void casSessionSave(state);
   usageWriter.enqueueSessionUpsert(state.record);
+
+  if (tokenEconomicsDecision.warnings.length > 0 && (usage.inputTokens + usage.outputTokens) > 0) {
+    usageWriter.enqueueSessionEvent({
+      sessionKey: state.record.sessionKey,
+      requestId,
+      userId: state.record.userId,
+      orgId: state.record.orgId,
+      eventKind: "token_economics_warning_v1",
+      component: "token-economics",
+      detail: `${tokenEconomicsDecision.recommendation}: ${tokenEconomicsDecision.warnings.join(",")}`,
+      metadataJson: tokenEconomics,
+    });
+  }
 
   if (config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED && state.record.continuity) {
     usageWriter.enqueueContinuityUpsert(
@@ -5123,6 +5156,7 @@ function persistSessionAndUsage(
         tokens_saved_by_reduction: tokensSavedByReduction,
         latency_ms: latencyMs,
         tool_latency_ms_total: undefined,
+        token_economics: tokenEconomics,
       },
       outcome: {
         state: outcomeState,
@@ -5294,6 +5328,7 @@ function persistSessionAndUsage(
       objective_scope: objectiveScopeSummary,
       state_confidence: stateConfidenceSummary,
       state_transition: stateTransitionSummary,
+      token_economics: tokenEconomics,
     },
     ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
     has_error: finishReason === "error" || undefined,

@@ -111,6 +111,18 @@ export function composeEndpointTransportFetch(
           && isRetryableStatus(response.status);
 
         if (!shouldRetry) {
+          if (retryPolicy.enabled && replayable && attempt >= retryPolicy.maxAttempts && isRetryableStatus(response.status)) {
+            console.log(JSON.stringify({
+              level: 40,
+              msg: "upstream_retry_exhausted",
+              provider: adapter.telemetryProviderTag,
+              attempt,
+              max_attempts: retryPolicy.maxAttempts,
+              status: response.status,
+              reason: "retryable_status",
+              safe_to_retry: replayable,
+            }));
+          }
           return adapter.transformResponse(response, augmented.init);
         }
 
@@ -140,6 +152,16 @@ export function composeEndpointTransportFetch(
           && attempt < retryPolicy.maxAttempts
           && isRetryableError(err);
         if (!shouldRetry) {
+          console.log(JSON.stringify({
+            level: 40,
+            msg: "upstream_request_failed_final",
+            provider: adapter.telemetryProviderTag,
+            attempt,
+            max_attempts: retryPolicy.maxAttempts,
+            reason: retryPolicy.enabled && replayable ? "retry_not_applicable_or_exhausted" : "not_replayable_or_disabled",
+            safe_to_retry: replayable,
+            error: err instanceof Error ? err.message : String(err),
+          }));
           throw err;
         }
         const delayMs = computeBackoffDelayMs(attempt, retryPolicy);

@@ -40,6 +40,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [YARN_TS_CONTEXT_TRUST.md](./YARN_TS_CONTEXT_TRUST.md) — trust envelopes for coder
 - [YARN_OPENAI_COMPAT_AND_VALUE_ADD.md](./YARN_OPENAI_COMPAT_AND_VALUE_ADD.md) — OpenAI compatibility (retired-path notice + pointer to `base/yarn-ts`)
 - [YARN_TOOL_COLLAPSE.md](./YARN_TOOL_COLLAPSE.md) — tool-call batching
+- [TOKEN_ECONOMICS_HARDENING.md](./TOKEN_ECONOMICS_HARDENING.md) — provider-cache economics, telemetry, and validation
 - [YARN_SESSION_DEBUGGING.md](./YARN_SESSION_DEBUGGING.md) — troubleshooting
 - [YARN_COST_ANALYSIS.md](./YARN_COST_ANALYSIS.md) — cost notes
 - [YARN_PERFORMANCE_REVIEW_FINDINGS.md](./YARN_PERFORMANCE_REVIEW_FINDINGS.md) — performance review

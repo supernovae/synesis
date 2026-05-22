@@ -8,7 +8,7 @@ interface ProviderUsage {
   completionTokens?: number;
   total_tokens?: number;
   cached_tokens?: number;
-  prompt_tokens_details?: { cached_tokens?: number };
+  prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number; cache_creation_tokens?: number };
   prompt_cache_hit_tokens?: number;
   cached_prompt_tokens?: number;
   inputTokens?: number;
@@ -60,7 +60,9 @@ export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
       0,
   );
   const cacheCreation = Number(
-    raw.cache_creation_input_tokens ??
+    raw.prompt_tokens_details?.cache_creation_input_tokens ??
+      raw.prompt_tokens_details?.cache_creation_tokens ??
+      raw.cache_creation_input_tokens ??
       raw.cache_creation_tokens ??
       raw.inputTokenDetails?.cacheWriteTokens ??
       0,
