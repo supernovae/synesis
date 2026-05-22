@@ -127,6 +127,34 @@ This gives operators a direct signal when the proxy is preserving cache
 efficiency, switching to safe efficiency because cache is unavailable or
 unreported, or backing off compaction because the session shows retry-loop risk.
 
+### Provider cache canaries
+
+`base/yarn-ts` includes offline provider-cache canaries that can run in CI
+without provider credentials or token spend:
+
+```bash
+cd base/yarn-ts
+npm run verify:cache-canaries
+```
+
+The canaries build deterministic two-turn packets for Anthropic, DashScope,
+generic OpenAI-compatible, OpenRouter, DeepSeek, and vLLM-style routes. They
+verify:
+
+- stable-prefix bytes stay high across turns
+- Anthropic and DashScope explicit cache markers remain stable
+- DashScope provider-facing payloads include message and tool `cache_control`
+  annotations when explicit cache is enabled
+- implicit-cache providers avoid explicit annotations while still preserving
+  stable prefix ordering
+- token-economics decisions classify cache hits as healthy, cache misses as
+  cache-first investigations, and DashScope premium writes without reads as a
+  premium-cache suppression signal
+
+This is the CI-safe contract. Live provider canaries should reuse these packet
+fixtures and only add real upstream calls when credentials, spend limits, and
+provider-specific telemetry assertions are configured.
+
 ### Retry visibility
 
 The endpoint transport retry wrapper now logs final retry exhaustion and final
@@ -164,6 +192,7 @@ This runs:
 - `tests/cache-policy-controller.test.ts`
 - `tests/usage-telemetry-fetch.test.ts`
 - `tests/dashscope-endpoint-adapter.test.ts`
+- `tests/provider-cache-canary.test.ts`
 
 Admin rollup test:
 
@@ -187,7 +216,7 @@ npm run test:token-economics
 
 ## Next hardening steps
 
-- Add live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes.
+- Add opt-in live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes using the offline canary packets.
 - Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
 - Add golden packet fixtures for Claude Code, Codex, Roo, Windsurf, VS Code, OpenCode, Hermes/Claw-style, and generic OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.
