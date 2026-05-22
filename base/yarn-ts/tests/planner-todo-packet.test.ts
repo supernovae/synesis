@@ -52,7 +52,7 @@ describe("planner todo packet", () => {
     })).toBe(true);
   });
 
-  it("does not generate when the user overrides planning or no native planning tool exists", () => {
+  it("does not generate when the user overrides planning", () => {
     expect(shouldGeneratePlannerTodoPacket({
       enabled: true,
       promptScope: "macro",
@@ -60,10 +60,19 @@ describe("planner todo packet", () => {
       planningOverride: true,
       capabilities: opencodeCaps(),
     })).toBe(false);
+  });
 
+  it("can generate without native planning tools unless strict native-tool mode is enabled", () => {
     const genericCaps = detectClientToolCapabilities([{ name: "write" }], "generic", "build a feature");
     expect(shouldGeneratePlannerTodoPacket({
       enabled: true,
+      promptScope: "macro",
+      planningSteered: true,
+      capabilities: genericCaps,
+    })).toBe(true);
+    expect(shouldGeneratePlannerTodoPacket({
+      enabled: true,
+      requireClientPlanningTool: true,
       promptScope: "macro",
       planningSteered: true,
       capabilities: genericCaps,
@@ -142,6 +151,20 @@ describe("planner todo packet", () => {
     expect(block).toContain("todo_tool=todowrite");
     expect(block).toContain("next_action=ask_question_then_todowrite");
     expect(block).toContain("Which database should back the new API?");
+  });
+
+  it("formats a prompt-block fallback when no native todo tool exists", () => {
+    const genericCaps = detectClientToolCapabilities([{ name: "write" }], "generic", "build a feature");
+    const block = formatPlannerTodoPacketBlock({
+      packet: packet(),
+      sourceHash: "abc123",
+      modelId: "synesis-horizon",
+      capabilities: genericCaps,
+    });
+
+    expect(block).toContain("todo_tool=unavailable");
+    expect(block).toContain("next_action=write_short_plan_then_execute");
+    expect(block).toContain("use this packet as the working plan");
   });
 
   it("maps planner todos into harness-inferred task ledger entries", () => {

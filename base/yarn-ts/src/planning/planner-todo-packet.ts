@@ -59,6 +59,7 @@ function stripSlashPlan(prompt: string): string {
 export function shouldGeneratePlannerTodoPacket(options: {
   enabled: boolean;
   governanceDisabled?: boolean;
+  requireClientPlanningTool?: boolean;
   promptScope: string;
   planningSteered: boolean;
   planningOverride?: boolean;
@@ -68,7 +69,9 @@ export function shouldGeneratePlannerTodoPacket(options: {
 }): boolean {
   if (!options.enabled || options.governanceDisabled) return false;
   if (options.planningOverride) return false;
-  if (!options.capabilities.hasTodoTool && !options.capabilities.hasQuestionTool) return false;
+  if (options.requireClientPlanningTool && !options.capabilities.hasTodoTool && !options.capabilities.hasQuestionTool) {
+    return false;
+  }
   if ((options.existingTaskCount ?? 0) > 0) return false;
   if (options.planModeRequested) return true;
   return options.promptScope === "macro" && options.planningSteered;
@@ -109,6 +112,7 @@ export function buildPlannerTodoPacketPrompt(input: PlannerTodoPacketGenerateInp
     "- Generate 3-7 todos for macro tasks; use fewer only for very small /plan requests.",
     "- Todos must be concrete, ordered, and safe for a coding agent to execute.",
     "- Include questions only for blocking ambiguity. If there is a reasonable default, set ambiguity low and include no questions.",
+    "- If no native question tool is available but a decision is blocking, include one concise question with options so the working model can ask in normal text.",
     "- Prefer implementation-neutral wording. Do not assume files that were not provided.",
     "- Include verification as one todo when tests/build/lint are likely relevant.",
     "- Keep every todo under 180 characters.",
@@ -170,8 +174,8 @@ export function formatPlannerTodoPacketBlock(options: {
     `<synesis_planner_todo_packet source_hash="${options.sourceHash}" model="${options.modelId}" ambiguity="${packet.ambiguity}">`,
     `objective=${packet.objective}`,
   ];
-  if (packet.questions.length > 0 && capabilities.questionToolName) {
-    lines.push(`question_tool=${capabilities.questionToolName}`);
+  if (packet.questions.length > 0) {
+    lines.push(`question_tool=${capabilities.questionToolName ?? "unavailable"}`);
     lines.push("blocking_questions:");
     for (const q of packet.questions) {
       const optionsText = q.options.map((o) => `${o.label}: ${o.description}`).join(" | ");
@@ -181,6 +185,14 @@ export function formatPlannerTodoPacketBlock(options: {
   if (capabilities.todoToolName) {
     lines.push(`todo_tool=${capabilities.todoToolName}`);
     lines.push(`next_action=${packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_todowrite" : "call_todowrite"}`);
+  } else {
+    lines.push("todo_tool=unavailable");
+    if (packet.questions.length > 0) {
+      lines.push(`next_action=${capabilities.questionToolName ? "ask_question_then_write_short_plan" : "ask_question_in_text_then_wait"}`);
+    } else {
+      lines.push("next_action=write_short_plan_then_execute");
+    }
+    lines.push("- No native todo tool was detected; use this packet as the working plan in the response before editing.");
   }
   lines.push("todos:");
   for (const todo of packet.todos) {

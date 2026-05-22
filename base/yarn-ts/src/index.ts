@@ -1452,6 +1452,7 @@ async function maybeBuildPlannerTodoPacketBlock(options: {
   const basePlannerTodoDecision = {
     enabled: config.SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED,
     governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    requireClientPlanningTool: config.SYNESIS_YARN_PLANNER_TODO_REQUIRE_NATIVE_TOOL,
     promptScope: options.promptIntake.decision.scope,
     planningSteered: options.promptIntake.shouldAppend,
     planningOverride: options.promptIntake.decision.override,
@@ -1529,6 +1530,9 @@ async function maybeBuildPlannerTodoPacketBlock(options: {
     options.session.record.metadata.planner_todo_packet_ambiguity = parsed.packet.ambiguity;
     options.session.record.metadata.planner_todo_packet_todos = parsed.packet.todos.length;
     options.session.record.metadata.planner_todo_packet_questions = parsed.packet.questions.length;
+    options.session.record.metadata.planner_todo_packet_carrier = options.clientToolCapabilities.hasTodoTool
+      ? "native_todo_tool"
+      : "prompt_block";
 
     if (!options.session.taskLedger || options.session.taskLedger.tasks.length === 0) {
       options.session.taskLedger = createEmptyLedger(
@@ -1560,6 +1564,7 @@ async function maybeBuildPlannerTodoPacketBlock(options: {
         ambiguity: parsed.packet.ambiguity,
         todo_tool: options.clientToolCapabilities.todoToolName,
         question_tool: options.clientToolCapabilities.questionToolName,
+        carrier: options.clientToolCapabilities.hasTodoTool ? "native_todo_tool" : "prompt_block",
       },
     );
 
@@ -6806,6 +6811,7 @@ function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
     "planner_todo_packet_ambiguity",
     "planner_todo_packet_todos",
     "planner_todo_packet_questions",
+    "planner_todo_packet_carrier",
   ]) {
     delete meta[key];
   }
@@ -7709,6 +7715,7 @@ app.get("/health/telemetry", async (req, reply) => {
       completionGateSkipClarification: config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION,
       planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
       plannerTodoPacket: config.SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED,
+      plannerTodoRequireNativeTool: config.SYNESIS_YARN_PLANNER_TODO_REQUIRE_NATIVE_TOOL,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
       diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,

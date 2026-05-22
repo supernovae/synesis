@@ -442,6 +442,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Require native todo/question tools before generating planner packets. Default false so generic clients still receive prompt-block planning. */
+  SYNESIS_YARN_PLANNER_TODO_REQUIRE_NATIVE_TOOL: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   /** Model id resolved through the tier registry for planner todo packets. */
   SYNESIS_YARN_PLANNER_TODO_MODEL: z.string().default("coder-horizon"),
   /** Bound the planner model call so it cannot stall the developer flow. */
