@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from asyncio import Lock, create_task
 from datetime import UTC, datetime, timedelta
 
@@ -362,6 +363,49 @@ def _gap_to_dict(g: KnowledgeGap) -> dict:
         "resolution_note": g.resolution_note,
         "web_search_fallback": g.web_search_fallback,
         "timestamp": g.timestamp,
+    }
+
+
+class KnowledgeGapReportRequest(BaseModel):
+    query: str
+    context: str = ""
+    language: str = ""
+    platform_context: str = "generic"
+
+
+@router.post("/knowledge-gaps/report")
+async def report_knowledge_gap(
+    req: KnowledgeGapReportRequest,
+    user: UserInfo = Depends(get_current_user),
+):
+    """Record a user-reported retrieval gap without requiring admin privileges."""
+    query = (req.query or "").strip()
+    if not query:
+        return {"recorded": False, "error": "query_required"}
+
+    context = (req.context or "").strip()
+    now = time.time()
+    gap_id = f"gap-{uuid.uuid4().hex[:24]}"
+    gap = KnowledgeGap(
+        gap_id=gap_id,
+        query=query[:2000],
+        task_description=context[:2000],
+        collections_queried="",
+        max_score=0.0,
+        platform_context=(req.platform_context or "generic").strip()[:64] or "generic",
+        language=(req.language or "").strip()[:32],
+        status="open",
+        web_search_fallback=False,
+        timestamp=now,
+    )
+    async with async_session() as session:
+        session.add(gap)
+        await session.commit()
+    return {
+        "recorded": True,
+        "gap_id": gap_id,
+        "query": query[:200],
+        "reported_by": user.user_id or user.username,
     }
 
 

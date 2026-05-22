@@ -16,6 +16,27 @@ logger = logging.getLogger("synesis.admin.mcp.ts_client")
 
 _SESSION_COOKIE_VALUE_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 _CSRF_COOKIE_VALUE_RE = re.compile(r"^[A-Fa-f0-9]{32,128}$")
+_SENSITIVE_ARG_PARTS = ("token", "secret", "password", "authorization", "cookie", "session", "key")
+
+
+def _redact_tool_arguments(value: Any, depth: int = 0) -> Any:
+    """Best-effort redaction for MCP tool argument audit records."""
+    if depth > 4:
+        return "<redacted:nested>"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if any(part in key_text.lower() for part in _SENSITIVE_ARG_PARTS):
+                out[key_text] = "<redacted>"
+            else:
+                out[key_text] = _redact_tool_arguments(item, depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_redact_tool_arguments(item, depth + 1) for item in value[:25]]
+    if isinstance(value, str):
+        return value[:500]
+    return value
 
 
 def build_delegated_cookie_header(session_cookie: str = "", csrf_cookie: str = "") -> str:

@@ -13,7 +13,6 @@ import { loadConfig, type AdminMcpConfig } from "./config.js";
 import {
   AdminMcpToolError,
   invokeTool,
-  isOrgAdminOrHigher,
   type SessionUser,
   visibleToolDescriptorsForRole,
 } from "./tools.js";
@@ -177,9 +176,6 @@ async function authenticateAdminRequest(
   const delegatedHeaders = delegatedAdminHeaders(req);
   const orgHeaders = forwardOrgHeaders(req);
   const user = await validateSession(cfg, delegatedHeaders, orgHeaders);
-  if (!isOrgAdminOrHigher(user.role)) {
-    throw new Error("forbidden");
-  }
   return { delegatedHeaders, orgHeaders, user };
 }
 
@@ -199,6 +195,7 @@ export function buildAdminMcpServer(
     orgHeaders: authCtx.orgHeaders,
     userId: authCtx.user.user_id ?? authCtx.user.username ?? "unknown",
     role: authCtx.user.role ?? "",
+    user: authCtx.user,
   };
 
   for (const tool of tools) {
@@ -285,9 +282,6 @@ export function createApp(cfg: AdminMcpConfig) {
         mcpAuthFailures++;
         return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
-      if (msg === "forbidden") {
-        return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
-      }
       app.log.error({ err: msg }, "admin_tools_catalog_failed");
       return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
     }
@@ -315,9 +309,6 @@ export function createApp(cfg: AdminMcpConfig) {
         mcpAuthFailures++;
         return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
-      if (msg === "forbidden") {
-        return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
-      }
       app.log.error({ err: msg }, "admin_tools_invoke_auth_failed");
       return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
     }
@@ -344,6 +335,7 @@ export function createApp(cfg: AdminMcpConfig) {
           orgHeaders: authCtx.orgHeaders,
           userId: authCtx.user.user_id ?? authCtx.user.username ?? "unknown",
           role: authCtx.user.role ?? "",
+          user: authCtx.user,
         },
         authCtx.user.role,
         parsed.name,
@@ -389,9 +381,6 @@ export function createApp(cfg: AdminMcpConfig) {
         if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
           mcpAuthFailures++;
           return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
-        }
-        if (msg === "forbidden") {
-          return reply.code(403).send({ error: "forbidden", message: "Admin role required for admin MCP tools" });
         }
         return reply.code(502).send({ error: "bad_gateway", message: "Admin auth validation failed" });
       }

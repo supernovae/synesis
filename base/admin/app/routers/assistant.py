@@ -19,7 +19,6 @@ from ..services.admin_mcp_ts_client import (
     list_admin_mcp_tools,
     openai_function_tools_from_admin_mcp_catalog,
 )
-from .admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role
 
 logger = logging.getLogger("synesis.admin.assistant")
 
@@ -61,12 +60,16 @@ Be concise, practical, and explicit about any limits.
 When usage or account metrics are needed, call user-safe tools instead of guessing."""
 
 SUPPORT_ALLOWED_TOOL_NAMES = {
-    "service_health",
-    "list_models",
-    "unified_usage_snapshot",
+    "authz_stats",
+    "compaction_metrics",
+    "governance_effective",
+    "provider_catalog",
     "synesis_search",
     "synesis_classify_intent",
     "synesis_retrieval_gaps",
+    "token_fga_explain",
+    "yarn_runtime_preferences",
+    "yarn_user_usage",
 }
 
 
@@ -221,7 +224,6 @@ async def _assistant_chat_impl(
     if not user_message:
         return {"error": "message is required"}
 
-    role = resolve_role(_user)
     auth_header = (request.headers.get("authorization") if request else "") or ""
     session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) if request else "") or ""
     csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) if request else "") or ""
@@ -265,25 +267,25 @@ async def _assistant_chat_impl(
     else:
         messages.append({"role": "user", "content": user_message})
 
-    if support_mode:
-        tools = openai_function_tools_for_role(role, allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES)
-    else:
-        tools = []
-        if auth_header.lower().startswith("bearer ") or session_cookie:
-            try:
-                catalog = await list_admin_mcp_tools(
-                    auth_header,
-                    org_headers,
-                    session_cookie=session_cookie,
-                    csrf_cookie=csrf_cookie,
-                    csrf_token=csrf_token,
-                )
-                tools = openai_function_tools_from_admin_mcp_catalog(catalog)
-            except PermissionError:
-                tools = []
-            except Exception:
-                logger.warning("assistant_admin_mcp_catalog_failed", exc_info=True)
-                tools = []
+    tools = []
+    if auth_header.lower().startswith("bearer ") or session_cookie:
+        try:
+            catalog = await list_admin_mcp_tools(
+                auth_header,
+                org_headers,
+                session_cookie=session_cookie,
+                csrf_cookie=csrf_cookie,
+                csrf_token=csrf_token,
+            )
+            tools = openai_function_tools_from_admin_mcp_catalog(
+                catalog,
+                allowed_tool_names=SUPPORT_ALLOWED_TOOL_NAMES if support_mode else None,
+            )
+        except PermissionError:
+            tools = []
+        except Exception:
+            logger.warning("assistant_admin_mcp_catalog_failed", exc_info=True)
+            tools = []
     tool_rounds = 0
     total_usage_tokens = 0
     last_model = ASSISTANT_MODEL
@@ -353,9 +355,7 @@ async def _assistant_chat_impl(
                             args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
                         except json.JSONDecodeError:
                             args = {}
-                        if support_mode:
-                            tool_text = await invoke_mcp_tool_for_chat(_user, tname, args, audit_source="assistant")
-                        elif auth_header.lower().startswith("bearer ") or session_cookie:
+                        if auth_header.lower().startswith("bearer ") or session_cookie:
                             tool_text = await invoke_admin_mcp_tool(
                                 auth_header,
                                 org_headers,

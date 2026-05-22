@@ -6,6 +6,10 @@ const ConfigSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   /** Admin FastAPI base URL (same cluster — internal tools + auth). */
   SYNESIS_ADMIN_API_URL: z.string().default("http://synesis-admin.synesis-admin.svc.cluster.local:8080"),
+  /** Planner base URL for developer value-add tools such as knowledge search. */
+  SYNESIS_PLANNER_URL: z.string().default("http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"),
+  /** Optional planner-specific internal token; falls back to SYNESIS_INTERNAL_SERVICE_TOKEN. */
+  SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: z.string().default(""),
   /** Streamable HTTP path for MCP (match synesis-mcp pattern). */
   SYNESIS_ADMIN_MCP_HTTP_PATH: z.string().default("/mcp"),
   SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().default(1200),

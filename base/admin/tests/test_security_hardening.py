@@ -100,7 +100,7 @@ def test_admin_mcp_client_uses_internal_token_and_delegated_cookie(monkeypatch):
 
 
 def test_admin_mcp_audit_argument_redaction():
-    from app.routers.admin_mcp import _redact_tool_arguments
+    from app.services.admin_mcp_ts_client import _redact_tool_arguments
 
     redacted = _redact_tool_arguments(
         {

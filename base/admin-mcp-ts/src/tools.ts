@@ -21,7 +21,7 @@ export interface SessionUser {
 export interface AdminToolDescriptor {
   name: string;
   description: string;
-  min_role: "org_admin" | "platform_admin";
+  min_role: AdminRole;
   inputSchema: Record<string, unknown>;
 }
 
@@ -31,6 +31,7 @@ interface ToolContext {
   orgHeaders: Record<string, string>;
   userId: string;
   role: string;
+  user?: SessionUser;
 }
 
 interface AdminToolDefinition extends AdminToolDescriptor {
@@ -103,6 +104,21 @@ function asStringArray(v: unknown): string[] {
     if (out.length >= 50) break;
   }
   return out;
+}
+
+function optionalInt(v: unknown, defaultValue: number, min: number, max: number): number | undefined {
+  if (v === undefined || v === null || asString(v).trim() === "") return undefined;
+  return asInt(v, defaultValue, min, max);
+}
+
+function optionalBool(v: unknown): boolean | undefined {
+  if (v === undefined || v === null || asString(v).trim() === "") return undefined;
+  return asBool(v, false);
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  return v as Record<string, unknown>;
 }
 
 function isHttpNotFoundError(error: unknown): boolean {
@@ -306,6 +322,47 @@ async function apiRequest(
   return parsed;
 }
 
+async function plannerRequest(ctx: ToolContext, path: string, body: Record<string, unknown>): Promise<unknown> {
+  const token = ctx.cfg.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN || ctx.cfg.SYNESIS_INTERNAL_SERVICE_TOKEN;
+  if (!token.trim()) {
+    throw new AdminMcpToolError("planner_token_unconfigured", 503);
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+    "x-synesis-service-token": token,
+    "x-synesis-service-name": "synesis-admin-mcp-ts",
+  };
+  if (ctx.userId) headers["x-openwebui-user-id"] = ctx.userId;
+  const orgId = ctx.orgHeaders["x-synesis-org-id"] || ctx.orgHeaders["x-active-org-id"] || ctx.user?.org_id || "";
+  if (orgId) headers["x-synesis-org-id"] = orgId;
+
+  const url = `${ctx.cfg.SYNESIS_PLANNER_URL.replace(/\/$/, "")}${path}`;
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    },
+    ctx.cfg.SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS,
+  );
+  const text = await response.text();
+  let parsed: unknown = {};
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { raw: text };
+    }
+  }
+  if (!response.ok) {
+    throw new AdminMcpToolError("planner_request_failed", response.status, { path, status: response.status, parsed });
+  }
+  return parsed;
+}
+
 function validateToolArgs(tool: AdminToolDefinition, args: Record<string, unknown>): Record<string, unknown> {
   const properties = tool.inputSchema.properties;
   const allowed = properties && typeof properties === "object" && !Array.isArray(properties)
@@ -365,6 +422,61 @@ async function getTransitionEvents(
     },
   );
 }
+
+function getTool(
+  name: string,
+  description: string,
+  minRole: AdminRole,
+  inputSchema: Record<string, unknown>,
+  path: string | ((args: Record<string, unknown>) => string),
+  params?: (args: Record<string, unknown>) => Record<string, unknown>,
+): AdminToolDefinition {
+  return {
+    name,
+    description,
+    min_role: minRole,
+    inputSchema,
+    invoke: async (ctx, args) => {
+      const resolvedPath = typeof path === "function" ? path(args) : path;
+      return apiRequest(ctx, "GET", resolvedPath, params ? params(args) : undefined);
+    },
+  };
+}
+
+function postTool(
+  name: string,
+  description: string,
+  minRole: AdminRole,
+  inputSchema: Record<string, unknown>,
+  path: string | ((args: Record<string, unknown>) => string),
+  body?: (args: Record<string, unknown>) => Record<string, unknown>,
+  params?: (args: Record<string, unknown>) => Record<string, unknown>,
+): AdminToolDefinition {
+  return {
+    name,
+    description,
+    min_role: minRole,
+    inputSchema,
+    invoke: async (ctx, args) => {
+      const resolvedPath = typeof path === "function" ? path(args) : path;
+      return apiRequest(ctx, "POST", resolvedPath, params ? params(args) : undefined, body ? body(args) : {});
+    },
+  };
+}
+
+const EMPTY_SCHEMA = { type: "object", properties: {} };
+const SINCE_HOURS_SCHEMA = {
+  type: "object",
+  properties: {
+    since_hours: { type: "integer", default: 24, description: "Lookback hours" },
+  },
+};
+const DAYS_SCHEMA = {
+  type: "object",
+  properties: {
+    days: { type: "integer", default: 7, description: "Lookback days" },
+  },
+};
 
 const TOOL_DEFINITIONS: AdminToolDefinition[] = [
   {
@@ -483,6 +595,196 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         since_hours: asInt(args.since_hours, 24, 1, 720),
       }),
   },
+  {
+    name: "synesis_search",
+    description: "Search the Synesis knowledge corpus through Planner knowledge search.",
+    min_role: "user",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Natural language search query" },
+        top_k: { type: "integer", default: 5, description: "Max results" },
+        domain: { type: "string", description: "Optional domain filter" },
+      },
+      required: ["query"],
+    },
+    invoke: async (ctx, args) => {
+      const query = boundedString(args.query, 4000);
+      if (!query) throw new AdminMcpToolError("invalid_arguments", 400, { reason: "query_required" });
+      return plannerRequest(ctx, "/v1/knowledge/search", {
+        query,
+        top_k: asInt(args.top_k, 5, 1, 50),
+        domain: boundedString(args.domain, 128),
+      });
+    },
+  },
+  {
+    name: "synesis_classify_intent",
+    description: "Classify a developer query into task, complexity, and domain hints for routing and support.",
+    min_role: "user",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The developer query to classify" },
+      },
+      required: ["query"],
+    },
+    invoke: async (_ctx, args) => {
+      const query = boundedString(args.query, 8000).toLowerCase();
+      if (!query) throw new AdminMcpToolError("invalid_arguments", 400, { reason: "query_required" });
+
+      const categories: string[] = [];
+      const hasAny = (words: string[]) => words.some((word) => query.includes(word));
+      if (hasAny(["debug", "error", "fix", "crash", "traceback", "exception"])) categories.push("debugging");
+      if (hasAny(["deploy", "kubernetes", "openshift", "helm", "container"])) categories.push("operations");
+      if (hasAny(["test", "pytest", "coverage", "assert", "vitest"])) categories.push("testing");
+      if (hasAny(["refactor", "rename", "extract", "clean"])) categories.push("refactoring");
+      if (hasAny(["api", "endpoint", "route", "rest", "graphql"])) categories.push("api_design");
+      if (hasAny(["security", "auth", "rbac", "token", "jwt"])) categories.push("security");
+      if (categories.length === 0) categories.push("general_coding");
+
+      const wordCount = query.split(/\s+/).filter(Boolean).length;
+      let complexity = "simple";
+      if (wordCount > 20) complexity = "moderate";
+      if (wordCount > 50 || hasAny(["architecture", "architect", "design", "system"])) complexity = "complex";
+      return { categories, complexity, query_length: query.length, word_count: wordCount };
+    },
+  },
+  postTool(
+    "synesis_retrieval_gaps",
+    "Report a retrieval gap to the curator pipeline when the corpus could not answer a user question.",
+    "user",
+    {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The question that had no good answer" },
+        context: { type: "string", description: "What the user was trying to do" },
+        language: { type: "string", description: "Optional language or technology label" },
+        platform_context: { type: "string", description: "Optional platform/domain context" },
+      },
+      required: ["query"],
+    },
+    "/api/v1/observability/knowledge-gaps/report",
+    (args) => ({
+      query: boundedString(args.query, 2000),
+      context: boundedString(args.context, 2000),
+      language: boundedString(args.language, 32),
+      platform_context: boundedString(args.platform_context, 64) || "generic",
+    }),
+  ),
+  getTool(
+    "cache_history",
+    "Time-series prefix-cache snapshots from Admin observability.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        since_hours: { type: "integer", default: 24 },
+        service: { type: "string", description: "Optional service filter: planner or yarn" },
+      },
+    },
+    "/api/v1/observability/cache/history",
+    (args) => ({
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      service: boundedString(args.service, 32),
+    }),
+  ),
+  getTool(
+    "cache_token_economics",
+    "Roll up Yarn token-economics and cache-policy decision events.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        since_hours: { type: "integer", default: 24 },
+        limit: { type: "integer", default: 5000 },
+      },
+    },
+    "/api/v1/observability/cache/token-economics",
+    (args) => ({
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      limit: asInt(args.limit, 5000, 100, 50000),
+    }),
+  ),
+  getTool(
+    "cache_canary_report",
+    "Latest provider cache canary report generated by CI or operator automation.",
+    "org_admin",
+    EMPTY_SCHEMA,
+    "/api/v1/observability/cache/canary-report",
+  ),
+  getTool(
+    "compaction_metrics",
+    "Time-series prompt/output/log compaction snapshots.",
+    "user",
+    {
+      type: "object",
+      properties: {
+        since_hours: { type: "integer", default: 24 },
+        service: { type: "string", description: "Optional service filter: planner or yarn" },
+      },
+    },
+    "/api/v1/observability/compaction",
+    (args) => ({
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      service: boundedString(args.service, 32),
+    }),
+  ),
+  getTool("authz_stats", "Authorization engine stats for the current authenticated context.", "user", EMPTY_SCHEMA, "/api/v1/observability/authz"),
+  getTool(
+    "failure_list",
+    "List coding/runtime failure records with filters.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        language: { type: "string" },
+        error_type: { type: "string" },
+        page: { type: "integer", default: 1 },
+        page_size: { type: "integer", default: 20 },
+      },
+    },
+    "/api/v1/observability/failures",
+    (args) => ({
+      language: boundedString(args.language, 64),
+      error_type: boundedString(args.error_type, 128),
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 20, 1, 100),
+    }),
+  ),
+  getTool("failure_stats", "Aggregate failure counts by language, error type, and resolution status.", "org_admin", EMPTY_SCHEMA, "/api/v1/observability/failures/stats"),
+  getTool(
+    "failure_detail",
+    "Fetch a single failure record by failure_id.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { failure_id: { type: "string", description: "Failure identifier" } },
+      required: ["failure_id"],
+    },
+    (args) => `/api/v1/observability/failures/${encodeURIComponent(boundedString(args.failure_id, 128))}`,
+  ),
+  getTool(
+    "knowledge_gaps",
+    "List open/resolved retrieval knowledge gaps.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        page: { type: "integer", default: 1 },
+        page_size: { type: "integer", default: 20 },
+        status: { type: "string", description: "open, resolved, or reopened" },
+      },
+    },
+    "/api/v1/observability/knowledge-gaps",
+    (args) => ({
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 20, 1, 100),
+      status: boundedString(args.status, 32),
+    }),
+  ),
+  getTool("fga_status", "OpenFGA authorization engine status and recent evaluation events. Platform admin only.", "platform_admin", EMPTY_SCHEMA, "/api/v1/observability/fga-status"),
+  getTool("token_fga_explain", "Explain the current user's token scopes and FGA relationship implications.", "user", EMPTY_SCHEMA, "/api/v1/observability/token-fga-explain"),
   {
     name: "yarn_overview",
     description: "Yarn ops overview: sessions, tokens, costs (GET /api/v1/yarn/overview).",
@@ -614,6 +916,72 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         since_hours: asInt(args.since_hours, 24, 1, 720),
       }),
   },
+  getTool(
+    "yarn_runtime_preferences",
+    "Read the current user's advanced Coder runtime preferences.",
+    "user",
+    EMPTY_SCHEMA,
+    "/api/v1/yarn/runtime-preferences",
+  ),
+  getTool(
+    "yarn_diagnostics",
+    "Fetch a Yarn diagnostics snapshot by request_id.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { request_id: { type: "string", description: "Yarn request id" } },
+      required: ["request_id"],
+    },
+    (args) => `/api/v1/yarn/diagnostics/${encodeURIComponent(boundedString(args.request_id, 256))}`,
+  ),
+  getTool("yarn_health", "Direct health probe of the Yarn service.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/health"),
+  getTool("yarn_runtime_telemetry", "Yarn runtime telemetry from /health/telemetry.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/runtime-telemetry"),
+  getTool(
+    "yarn_reducer_telemetry_history",
+    "Historical Yarn reducer telemetry snapshots and rollups.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { since_hours: { type: "integer", default: 168 } },
+    },
+    "/api/v1/yarn/reducer-telemetry-history",
+    (args) => ({ since_hours: asInt(args.since_hours, 168, 1, 720) }),
+  ),
+  getTool("yarn_language_packs", "Yarn language pack conformance matrix.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/language-packs"),
+  postTool("yarn_verify", "Run a quick Yarn health/model smoke verification.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/verify"),
+  getTool(
+    "yarn_safety_events",
+    "List Yarn safety/policy events.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        page: { type: "integer", default: 1 },
+        page_size: { type: "integer", default: 50 },
+        since_hours: { type: "integer", default: 24 },
+        event_kind: { type: "string" },
+      },
+    },
+    "/api/v1/yarn/safety-events",
+    (args) => ({
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 50, 1, 200),
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      event_kind: boundedString(args.event_kind, 128),
+    }),
+  ),
+  getTool("yarn_diagnostics_recent", "Recent Yarn request diagnostics snapshots.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/diagnostics/recent"),
+  getTool(
+    "yarn_user_usage",
+    "Return Yarn usage for the current authenticated user.",
+    "user",
+    {
+      type: "object",
+      properties: { since_hours: { type: "integer", default: 720 } },
+    },
+    "/api/v1/yarn/user-usage",
+    (args) => ({ since_hours: asInt(args.since_hours, 720, 1, 8760) }),
+  ),
   {
     name: "yarn_transition_quality",
     description: "Transition quality calibration trends and alerts (GET /api/v1/yarn/transition-quality).",
@@ -887,6 +1255,304 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     inputSchema: { type: "object", properties: {} },
     invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/models/roles"),
   },
+  getTool("model_topology", "Model registry topology and route graph.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/topology"),
+  getTool("model_pipeline_services", "Operational health visibility for model-adjacent pipeline services.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/pipeline-services"),
+  getTool("model_public_offerings", "Public model offerings catalog.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/public-offerings"),
+  getTool("model_prompt_profiles", "Prompt profile library entries.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/prompts/profiles"),
+  getTool("model_prompt_assignments", "Prompt profile assignments by service/role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/prompts/assignments"),
+  getTool("model_deployments", "Model deployment records and routing metadata.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/deployments"),
+  getTool("model_active_costs", "Rate configuration for active model role assignments.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/costs/active"),
+  getTool("model_costs", "Configured model cost estimates by role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/costs"),
+  getTool(
+    "model_costs_by_model",
+    "Per-model cost breakdown from recent trace LLM calls.",
+    "org_admin",
+    DAYS_SCHEMA,
+    "/api/v1/models/costs/by-model",
+    (args) => ({ days: asInt(args.days, 7, 1, 90) }),
+  ),
+  getTool(
+    "model_costs_by_role",
+    "Per-role cost breakdown from recent trace LLM calls.",
+    "org_admin",
+    DAYS_SCHEMA,
+    "/api/v1/models/costs/by-role",
+    (args) => ({ days: asInt(args.days, 7, 1, 90) }),
+  ),
+  getTool(
+    "model_costs_daily",
+    "Daily cost trend from recent trace LLM calls.",
+    "org_admin",
+    DAYS_SCHEMA,
+    "/api/v1/models/costs/daily",
+    (args) => ({ days: asInt(args.days, 7, 1, 90) }),
+  ),
+  getTool("model_performance_summary", "Legacy Prometheus model performance summary.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/performance"),
+  getTool(
+    "model_performance_detailed",
+    "Trace-based per-model latency, token, cost, and cache-hit metrics.",
+    "org_admin",
+    DAYS_SCHEMA,
+    "/api/v1/models/performance/detailed",
+    (args) => ({ days: asInt(args.days, 7, 1, 90) }),
+  ),
+  getTool(
+    "model_latency_trend",
+    "Per-model daily latency trend.",
+    "org_admin",
+    { type: "object", properties: { days: { type: "integer", default: 14 } } },
+    "/api/v1/models/performance/latency-trend",
+    (args) => ({ days: asInt(args.days, 14, 1, 90) }),
+  ),
+  getTool(
+    "model_performance_by_role",
+    "Trace-based model performance grouped by role.",
+    "org_admin",
+    DAYS_SCHEMA,
+    "/api/v1/models/performance/by-role",
+    (args) => ({ days: asInt(args.days, 7, 1, 90) }),
+  ),
+  postTool(
+    "model_effort_recommend",
+    "Preview planner effort recommendation for a prompt.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Prompt to evaluate" },
+        effort_mode: { type: "string" },
+        include_frame: { type: "boolean", default: true },
+        operational_health: { type: "object" },
+      },
+      required: ["prompt"],
+    },
+    "/api/v1/models/effort/recommend",
+    (args) => ({
+      prompt: boundedString(args.prompt, 12000),
+      effort_mode: boundedString(args.effort_mode, 64),
+      include_frame: args.include_frame === undefined ? true : asBool(args.include_frame, true),
+      operational_health: asRecord(args.operational_health),
+    }),
+  ),
+  getTool("model_policies", "Active model policies grouped by role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/policies"),
+  getTool(
+    "model_role_policies",
+    "Ordered policy rules for one model role.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { role: { type: "string", description: "Model role" } },
+      required: ["role"],
+    },
+    (args) => `/api/v1/models/policies/${encodeURIComponent(boundedString(args.role, 128))}`,
+  ),
+  getTool(
+    "model_role_history",
+    "Change history for a model role assignment.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { role: { type: "string", description: "Model role" } },
+      required: ["role"],
+    },
+    (args) => `/api/v1/models/roles/${encodeURIComponent(boundedString(args.role, 128))}/history`,
+  ),
+  getTool("provider_catalog", "Provider catalog and canonical model roles.", "user", EMPTY_SCHEMA, "/api/v1/providers/catalog"),
+  getTool("provider_discovery_supported", "Provider keys that support model discovery.", "org_admin", EMPTY_SCHEMA, "/api/v1/providers/discovery/supported"),
+  getTool(
+    "provider_discovery_models",
+    "Discover available models for a provider.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        provider_key: { type: "string" },
+        bypass_cache: { type: "boolean", default: false },
+      },
+      required: ["provider_key"],
+    },
+    (args) => `/api/v1/providers/discovery/${encodeURIComponent(boundedString(args.provider_key, 64))}/models`,
+    (args) => ({ bypass_cache: asBool(args.bypass_cache, false) }),
+  ),
+  getTool(
+    "provider_discovery_defaults",
+    "Recommended route defaults for a provider/model pair.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        provider_key: { type: "string" },
+        model_id: { type: "string" },
+        context_window: { type: "integer" },
+      },
+      required: ["provider_key"],
+    },
+    (args) => `/api/v1/providers/discovery/${encodeURIComponent(boundedString(args.provider_key, 64))}/defaults`,
+    (args) => ({
+      model_id: boundedString(args.model_id, 256),
+      context_window: optionalInt(args.context_window, 0, 1, 10_000_000),
+    }),
+  ),
+  postTool(
+    "provider_discovery_validate",
+    "Validate a model ID for a provider and return hints.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        provider: { type: "string" },
+        model: { type: "string" },
+      },
+      required: ["provider", "model"],
+    },
+    "/api/v1/providers/discovery/validate",
+    (args) => ({ provider: boundedString(args.provider, 64), model: boundedString(args.model, 256) }),
+  ),
+  getTool("provider_keys_status", "Provider API key names and configured status; never returns secret values.", "platform_admin", EMPTY_SCHEMA, "/api/v1/providers/keys"),
+  getTool("provider_consumers_restart_status", "Rollout status for provider key consumer deployments.", "platform_admin", EMPTY_SCHEMA, "/api/v1/providers/consumers/restart-status"),
+  getTool("provider_governance_list", "Provider governance overlay, enablement, defaults, policies, and key status.", "org_admin", EMPTY_SCHEMA, "/api/v1/provider-governance"),
+  getTool(
+    "provider_governance_detail",
+    "Single provider governance config and catalog overlay.",
+    "org_admin",
+    {
+      type: "object",
+      properties: { provider_key: { type: "string" } },
+      required: ["provider_key"],
+    },
+    (args) => `/api/v1/provider-governance/${encodeURIComponent(boundedString(args.provider_key, 64))}`,
+  ),
+  getTool(
+    "governance_effective",
+    "Merged effective governance rules for an org/scope/category/language.",
+    "user",
+    {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        scope: { type: "string" },
+        category: { type: "string" },
+        language: { type: "string" },
+      },
+    },
+    "/api/v1/governance/effective",
+    (args) => ({
+      org_id: boundedString(args.org_id, 128),
+      scope: boundedString(args.scope, 64),
+      category: boundedString(args.category, 64),
+      language: boundedString(args.language, 32),
+    }),
+  ),
+  getTool(
+    "capability_matrix_effective",
+    "Effective capability matrix and supported optimization capabilities.",
+    "user",
+    {
+      type: "object",
+      properties: { org_id: { type: "string" } },
+    },
+    "/api/v1/governance/capability-matrix/effective",
+    (args) => ({ org_id: boundedString(args.org_id, 128) }),
+  ),
+  getTool("governance_summary", "Governance dashboard summary and recent constitution changes.", "org_admin", EMPTY_SCHEMA, "/api/v1/governance/summary"),
+  getTool(
+    "audit_events",
+    "Newest-first admin audit event stream. Platform admin only.",
+    "platform_admin",
+    {
+      type: "object",
+      properties: {
+        limit: { type: "integer", default: 100 },
+        before_id: { type: "integer" },
+      },
+    },
+    "/api/v1/audit/events",
+    (args) => ({ limit: asInt(args.limit, 100, 1, 500), before_id: optionalInt(args.before_id, 0, 1, Number.MAX_SAFE_INTEGER) }),
+  ),
+  getTool(
+    "security_events",
+    "List security guardrail events scoped by org observability access.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        limit: { type: "integer", default: 100 },
+        before_id: { type: "integer" },
+        severity: { type: "string" },
+        event_type: { type: "string" },
+        service: { type: "string" },
+        resolved: { type: "boolean" },
+        since_hours: { type: "integer" },
+      },
+    },
+    "/api/v1/security/events",
+    (args) => ({
+      limit: asInt(args.limit, 100, 1, 500),
+      before_id: optionalInt(args.before_id, 0, 1, Number.MAX_SAFE_INTEGER),
+      severity: boundedString(args.severity, 64),
+      event_type: boundedString(args.event_type, 128),
+      service: boundedString(args.service, 64),
+      resolved: optionalBool(args.resolved),
+      since_hours: optionalInt(args.since_hours, 24, 1, 8760),
+    }),
+  ),
+  getTool(
+    "security_summary",
+    "Security guardrail summary for a lookback window.",
+    "org_admin",
+    SINCE_HOURS_SCHEMA,
+    "/api/v1/security/summary",
+    (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 8760) }),
+  ),
+  getTool("web_search_stats", "Aggregate web-search stats from Prometheus or Postgres fallback.", "org_admin", EMPTY_SCHEMA, "/api/v1/integrations/web-search"),
+  getTool(
+    "web_search_log",
+    "Search web-search event logs with filters.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        domain: { type: "string" },
+        outcome: { type: "string" },
+        source_surface: { type: "string" },
+        org_id: { type: "string" },
+        user_id: { type: "string" },
+        session_key: { type: "string" },
+        request_id: { type: "string" },
+        trace_id: { type: "string" },
+        tool_name: { type: "string" },
+        engine: { type: "string" },
+        q: { type: "string" },
+        page: { type: "integer", default: 1 },
+        page_size: { type: "integer", default: 30 },
+      },
+    },
+    "/api/v1/integrations/web-search/log",
+    (args) => ({
+      domain: boundedString(args.domain, 256),
+      outcome: boundedString(args.outcome, 32),
+      source_surface: boundedString(args.source_surface, 64),
+      org_id: boundedString(args.org_id, 128),
+      user_id: boundedString(args.user_id, 128),
+      session_key: boundedString(args.session_key, 256),
+      request_id: boundedString(args.request_id, 128),
+      trace_id: boundedString(args.trace_id, 128),
+      tool_name: boundedString(args.tool_name, 128),
+      engine: boundedString(args.engine, 64),
+      q: boundedString(args.q, 256),
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 30, 1, 100),
+    }),
+  ),
+  getTool(
+    "web_search_domain_summary",
+    "Domain-level web-search usage and error summary.",
+    "org_admin",
+    { type: "object", properties: { limit: { type: "integer", default: 50 } } },
+    "/api/v1/integrations/web-search/log/domains",
+    (args) => ({ limit: asInt(args.limit, 50, 1, 200) }),
+  ),
+  getTool("web_search_policies", "List web-search URL HITL policies.", "org_admin", EMPTY_SCHEMA, "/api/v1/integrations/web-search/policies"),
   {
     name: "cache_metrics",
     description: "Prefix cache hit rates, token savings, and session stats.",

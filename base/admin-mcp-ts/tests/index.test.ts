@@ -60,7 +60,7 @@ describe("admin MCP internal auth", () => {
     expect(res.json().tools.length).toBeGreaterThan(10);
   });
 
-  it("denies trusted calls when delegated user is not an admin", async () => {
+  it("allows trusted non-admin sessions but only returns user-safe tools", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ username: "user", role: "user", user_id: "u1" }), {
         status: 200,
@@ -78,7 +78,9 @@ describe("admin MCP internal auth", () => {
     });
     await app.close();
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    const names = new Set(res.json().tools.map((tool: { name: string }) => tool.name));
+    expect(names.has("synesis_classify_intent")).toBe(true);
+    expect(names.has("get_trace")).toBe(false);
   });
 });
-

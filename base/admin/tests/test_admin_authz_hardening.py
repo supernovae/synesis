@@ -160,63 +160,6 @@ class TestSafeQueryOrgScope:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# P0: synesis_search MCP — identity forwarding + min_role
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestSynesisSearchMcp:
-    def test_min_role_is_org_admin(self):
-        from app.routers.admin_mcp import _TOOLS
-
-        search_tool = next(t for t in _TOOLS if t["name"] == "synesis_search")
-        from app.rbac import Role
-
-        assert search_tool["min_role"] >= Role.org_admin
-
-    def test_search_forwards_identity_headers(self, monkeypatch):
-        """Verify _synesis_search sends caller identity headers to planner."""
-        import asyncio
-
-        captured_headers: dict = {}
-
-        class FakeResponse:
-            status_code = 200
-
-            def json(self):
-                return {"results": []}
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                pass
-
-            async def post(self, url, *, json, headers):
-                captured_headers.update(headers)
-                return FakeResponse()
-
-        monkeypatch.setattr("httpx.AsyncClient", lambda **kw: FakeClient())
-        monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "test-svc-token")
-
-        import importlib
-
-        import app.deps
-
-        importlib.reload(app.deps)
-
-        from app.routers.admin_mcp import _synesis_search
-
-        user = _org_admin()
-        asyncio.run(_synesis_search(user, {"query": "test query"}))
-
-        assert captured_headers.get("x-openwebui-user-id") == "orgadm-1"
-        assert captured_headers.get("x-synesis-org-id") == "org-alpha"
-        assert captured_headers.get("x-synesis-service-name") == "synesis-admin"
-        assert "x-synesis-service-token" in captured_headers
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # P0: Taxonomy write endpoints — require platform_admin
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -448,28 +391,3 @@ class TestSseEventsScoping:
         src = main_src.read_text()
         assert "trace_scope_filters" in src, "main.py must import trace_scope_filters"
         assert "org_id" in src, "SSE handler must filter by org_id"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Regression: MCP tool visibility
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestMcpToolVisibility:
-    """synesis_search should not be visible to regular users."""
-
-    def test_regular_user_cannot_see_synesis_search(self):
-        from app.rbac import Role
-        from app.routers.admin_mcp import _visible_tools
-
-        tools = _visible_tools(Role.user)
-        tool_names = [t["name"] for t in tools]
-        assert "synesis_search" not in tool_names
-
-    def test_org_admin_can_see_synesis_search(self):
-        from app.rbac import Role
-        from app.routers.admin_mcp import _visible_tools
-
-        tools = _visible_tools(Role.org_admin)
-        tool_names = [t["name"] for t in tools]
-        assert "synesis_search" in tool_names

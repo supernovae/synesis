@@ -135,7 +135,6 @@ app.add_middleware(
 app.add_middleware(RateLimitMiddleware)
 
 from app.routers.acl import router as acl_router
-from app.routers.admin_mcp import internal_router as admin_mcp_internal_router
 from app.routers.assistant import router as assistant_router
 from app.routers.audit import router as audit_router
 from app.routers.auth_router import router as auth_router
@@ -169,7 +168,6 @@ from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
 from app.routers.yarn import router as yarn_router
 
-app.include_router(admin_mcp_internal_router)
 app.include_router(acl_router)
 app.include_router(assistant_router)
 app.include_router(authz_router)

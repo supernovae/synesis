@@ -15,10 +15,10 @@ TypeScript-owned MCP transport and tool orchestration layer for Synesis Admin.
 
 - Requires `SYNESIS_INTERNAL_SERVICE_TOKEN` from the Admin API before processing requests.
 - Validates the delegated Admin UI session/PAT via `GET /api/v1/auth/me`.
-- Enforces **admin-only** access (`org_admin` / `platform_admin`) for all Admin MCP tools.
+- Exposes a small authenticated user-safe tool set (`user`) plus curated Admin Ops tools (`org_admin` / `platform_admin`).
 - Direct user bearer/PAT calls to `synesis-admin-mcp-ts` are rejected; callers must go through the Admin API.
 - Per-tool role checks still apply (`platform_admin` for privileged operations like reconcile/purge/ingestion edits).
-- Legacy Python compatibility endpoints (`/api/v1/internal/mcp/*`) are retained for older callers but are no longer the primary source of truth.
+- Legacy Python compatibility endpoints (`/api/v1/internal/mcp/*`) have been removed; this service is the source of truth for Admin Assistant and support-safe MCP tools.
 
 ## Transition Calibration Tooling
 

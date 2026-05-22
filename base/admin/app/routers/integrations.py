@@ -11,8 +11,7 @@ from sqlalchemy import case, delete, func, select
 from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
-from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
-from ..routers import admin_mcp
+from ..rbac import RouteGroup, can_access_route_group
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 
@@ -76,20 +75,7 @@ async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_
         csrf_cookie=csrf_cookie,
         csrf_token=csrf_token,
     )
-    if ts_tools:
-        return {"tools": ts_tools, "scope": "synesis-admin-mcp-ts"}
-
-    role = resolve_role(user)
-    if role >= Role.platform_admin:
-        return {"tools": admin_mcp.catalog_all_tools(), "scope": "fallback-python-catalog"}
-    return {
-        "tools": admin_mcp.visible_tools_for_role(role),
-        "scope": "fallback-python-visible",
-        "note": (
-            "Fallback catalog from legacy Python MCP helpers. "
-            "Use synesis-admin-mcp-ts Streamable HTTP (SYNESIS_ADMIN_MCP_URL) for the full TS-owned admin toolset."
-        ),
-    }
+    return {"tools": ts_tools, "scope": "synesis-admin-mcp-ts"}
 
 
 # ── Web search: aggregate stats (Prometheus) ──
