@@ -245,6 +245,14 @@ const EnvSchema = z.object({
     .default("off"),
   SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT: z.coerce.number().default(10),
   SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS: z.coerce.number().default(3),
+  SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_CACHE_POLICY_MISS_STREAK_THRESHOLD: z.coerce.number().default(2),
+  SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD: z.coerce.number().default(2),
+  SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD: z.coerce.number().default(2),
+  SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES: z.coerce.number().default(2),
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),

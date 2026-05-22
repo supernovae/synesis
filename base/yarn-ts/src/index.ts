@@ -120,6 +120,12 @@ import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/hi
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
 import { buildTokenEconomicsDecision, tokenEconomicsLogRecord } from "./telemetry/token-economics.js";
+import {
+  cachePolicyLogRecord,
+  evaluateCachePolicyController,
+  updateCachePolicyStateFromTokenEconomics,
+  type CachePolicyControllerDecision,
+} from "./telemetry/cache-policy-controller.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -4381,7 +4387,13 @@ function dashscopeCanaryEnabledForSession(sessionKey: string): boolean {
   return hash.readUInt32BE(0) % 100 < pct;
 }
 
-function markerBackendForRequest(modelId: string, fallbackModelId: string, sessionKey: string): MarkerBackend {
+function markerBackendForRequest(
+  modelId: string,
+  fallbackModelId: string,
+  sessionKey: string,
+  cachePolicy?: CachePolicyControllerDecision,
+): MarkerBackend {
+  if (cachePolicy && !cachePolicy.allowExplicitCacheMarkers) return "none";
   const mode = config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE;
   if (mode === "off") return "none";
   if (mode === "canary" && !dashscopeCanaryEnabledForSession(sessionKey)) return "none";
@@ -4390,6 +4402,28 @@ function markerBackendForRequest(modelId: string, fallbackModelId: string, sessi
   const tier = primary ?? fallback;
   if (!tier || resolveEndpointCapabilityId(tier.baseUrl) !== "dashscope") return "none";
   return "dashscope";
+}
+
+function evaluateCachePolicyForSession(
+  session: SessionState,
+  provider: string,
+  configuredCompactionMode: CompactionMode,
+): CachePolicyControllerDecision {
+  return evaluateCachePolicyController({
+    enabled: config.SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED,
+    metadata: session.record.metadata,
+    provider,
+    configuredCompactionMode,
+    missStreakThreshold: config.SYNESIS_YARN_CACHE_POLICY_MISS_STREAK_THRESHOLD,
+    telemetryMissingThreshold: config.SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD,
+    premiumWriteWithoutReadThreshold: config.SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD,
+    retryRiskStagnantCycles: config.SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES,
+    stagnantToolCycles: session.stagnantToolCycles,
+    awaitingToolLoopUserAck: session.awaitingToolLoopUserAck,
+    toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
+    consecutiveRecoveryFires: session.consecutiveRecoveryFires,
+    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
+  });
 }
 
 function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
@@ -4728,7 +4762,22 @@ function persistSessionAndUsage(
     inputCharsOriginal: optimizationLedger?.inputCharsOriginal,
     inputCharsFinal: optimizationLedger?.inputCharsFinal,
   });
-  const tokenEconomics = tokenEconomicsLogRecord(tokenEconomicsDecision);
+  const cachePolicyState = updateCachePolicyStateFromTokenEconomics(
+    state.record.metadata,
+    tokenEconomicsDecision,
+  );
+  const tokenEconomics = {
+    ...tokenEconomicsLogRecord(tokenEconomicsDecision),
+    cache_policy_state: {
+      cache_miss_streak: cachePolicyState.cacheMissStreak,
+      cache_hit_streak: cachePolicyState.cacheHitStreak,
+      premium_write_without_read_streak: cachePolicyState.premiumWriteWithoutReadStreak,
+      telemetry_missing_streak: cachePolicyState.telemetryMissingStreak,
+      last_cache_outcome: cachePolicyState.lastCacheOutcome,
+      last_recommendation: cachePolicyState.lastRecommendation,
+      last_provider_cache_strategy: cachePolicyState.lastProviderCacheStrategy,
+    },
+  };
 
   if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
     app.log.info({
@@ -4760,7 +4809,6 @@ function persistSessionAndUsage(
   state.record.metadata.last_cache_hit_ratio = usage.inputTokens > 0
     ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4))
     : 0;
-  state.record.metadata.last_token_economics_recommendation = tokenEconomicsDecision.recommendation;
   state.record.metadata.last_token_economics_warnings = tokenEconomicsDecision.warnings;
 
   if (finishReason === "tool_calls" || finishReason === "tool_use") {
@@ -9389,6 +9437,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
 
+  const oaiConfiguredCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+  const oaiCachePolicyTier =
+    tierRegistry.getTierConfig(normalizedRequest.model)
+    ?? tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
+  const oaiCachePolicyProvider = oaiCachePolicyTier
+    ? resolveEndpointCapabilityId(oaiCachePolicyTier.baseUrl)
+    : "generic";
+  const oaiCachePolicy = evaluateCachePolicyForSession(
+    session,
+    oaiCachePolicyProvider,
+    oaiConfiguredCompactionMode,
+  );
+  if (oaiCachePolicy.action !== "observe" || oaiCachePolicy.reasons.length > 0) {
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "cache_policy_controller_decision_v1",
+      "cache-policy-controller",
+      `action=${oaiCachePolicy.action} compaction=${oaiCachePolicy.compactionMode} provider=${oaiCachePolicyProvider}`,
+      reqId,
+      cachePolicyLogRecord(oaiCachePolicy),
+    );
+  }
+
   if (prefixOptimizer) {
     try {
       tierRegistry.setCurrentSessionKey(sessionKey);
@@ -9396,7 +9469,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
         normalizedRequest.messages as never,
         normalizedRequest.tools as never,
         sessionKey,
-        { markerBackend: markerBackendForRequest(normalizedRequest.model, config.SYNESIS_YARN_DEFAULT_TIER, sessionKey) },
+        {
+          markerBackend: markerBackendForRequest(
+            normalizedRequest.model,
+            config.SYNESIS_YARN_DEFAULT_TIER,
+            sessionKey,
+            oaiCachePolicy,
+          ),
+        },
       );
       oaiOptLedger.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
       normalizedRequest.messages = optimized.messages as never;
@@ -9970,7 +10050,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const oaiCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+    const oaiCompactionMode: CompactionMode = oaiCachePolicy.compactionMode;
     const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, oaiCompactionMode);
     const oaiPlanPaths = session.record.metadata.plan_file_path
       ? [session.record.metadata.plan_file_path as string]
@@ -10004,7 +10084,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "context_budget_evaluated", "context-budget",
       `zone=${oaiBudgetResult.evaluation.zone} tokens=${oaiBudgetResult.evaluation.estimate.totalTokens} headroom=${oaiBudgetResult.evaluation.headroomTokens} compaction=${oaiBudgetResult.evaluation.compactionApplied} recovered=${oaiBudgetResult.evaluation.tokensRecovered}`,
       reqId,
-      { zone: oaiBudgetResult.evaluation.zone, estimatedTokens: oaiBudgetResult.evaluation.estimate.totalTokens, headroomTokens: oaiBudgetResult.evaluation.headroomTokens, compactionApplied: oaiBudgetResult.evaluation.compactionApplied, tokensRecovered: oaiBudgetResult.evaluation.tokensRecovered },
+      {
+        zone: oaiBudgetResult.evaluation.zone,
+        estimatedTokens: oaiBudgetResult.evaluation.estimate.totalTokens,
+        headroomTokens: oaiBudgetResult.evaluation.headroomTokens,
+        compactionApplied: oaiBudgetResult.evaluation.compactionApplied,
+        tokensRecovered: oaiBudgetResult.evaluation.tokensRecovered,
+        cachePolicy: cachePolicyLogRecord(oaiCachePolicy),
+      },
     );
     if (oaiBudgetResult.evaluation.checkpoint) {
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "context_checkpoint_created", "context-budget",
@@ -13161,6 +13248,31 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
 
+  const claudeConfiguredCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+  const claudeCachePolicyTier =
+    tierRegistry.getTierConfig(openAIShape.model)
+    ?? tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
+  const claudeCachePolicyProvider = claudeCachePolicyTier
+    ? resolveEndpointCapabilityId(claudeCachePolicyTier.baseUrl)
+    : "anthropic";
+  const claudeCachePolicy = evaluateCachePolicyForSession(
+    session,
+    claudeCachePolicyProvider,
+    claudeConfiguredCompactionMode,
+  );
+  if (claudeCachePolicy.action !== "observe" || claudeCachePolicy.reasons.length > 0) {
+    recordSessionEvent(
+      claudeSessionKey,
+      claudeIdentity.userId,
+      claudeIdentity.orgId,
+      "cache_policy_controller_decision_v1",
+      "cache-policy-controller",
+      `action=${claudeCachePolicy.action} compaction=${claudeCachePolicy.compactionMode} provider=${claudeCachePolicyProvider}`,
+      traceReqId,
+      cachePolicyLogRecord(claudeCachePolicy),
+    );
+  }
+
   if (prefixOptimizer) {
     try {
       tierRegistry.setCurrentSessionKey(claudeSessionKey);
@@ -13168,7 +13280,14 @@ app.post("/v1/messages", async (req, reply) => {
         openAIShape.messages as never,
         openAIShape.tools as never,
         claudeSessionKey,
-        { markerBackend: markerBackendForRequest(openAIShape.model, config.SYNESIS_YARN_DEFAULT_TIER, claudeSessionKey) },
+        {
+          markerBackend: markerBackendForRequest(
+            openAIShape.model,
+            config.SYNESIS_YARN_DEFAULT_TIER,
+            claudeSessionKey,
+            claudeCachePolicy,
+          ),
+        },
       );
       openAIShape.messages = optimized.messages as never;
       if (optimized.tools) {
@@ -13732,7 +13851,7 @@ app.post("/v1/messages", async (req, reply) => {
       ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
         ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
         : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const claudeCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
+    const claudeCompactionMode: CompactionMode = claudeCachePolicy.compactionMode;
     const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, claudeCompactionMode);
     const claudePlanPaths = session.record.metadata.plan_file_path
       ? [session.record.metadata.plan_file_path as string]
@@ -13766,7 +13885,14 @@ app.post("/v1/messages", async (req, reply) => {
       "context_budget_evaluated", "context-budget",
       `zone=${claudeBudgetResult.evaluation.zone} tokens=${claudeBudgetResult.evaluation.estimate.totalTokens} headroom=${claudeBudgetResult.evaluation.headroomTokens} compaction=${claudeBudgetResult.evaluation.compactionApplied} recovered=${claudeBudgetResult.evaluation.tokensRecovered}`,
       traceReqId,
-      { zone: claudeBudgetResult.evaluation.zone, estimatedTokens: claudeBudgetResult.evaluation.estimate.totalTokens, headroomTokens: claudeBudgetResult.evaluation.headroomTokens, compactionApplied: claudeBudgetResult.evaluation.compactionApplied, tokensRecovered: claudeBudgetResult.evaluation.tokensRecovered },
+      {
+        zone: claudeBudgetResult.evaluation.zone,
+        estimatedTokens: claudeBudgetResult.evaluation.estimate.totalTokens,
+        headroomTokens: claudeBudgetResult.evaluation.headroomTokens,
+        compactionApplied: claudeBudgetResult.evaluation.compactionApplied,
+        tokensRecovered: claudeBudgetResult.evaluation.tokensRecovered,
+        cachePolicy: cachePolicyLogRecord(claudeCachePolicy),
+      },
     );
     if (claudeBudgetResult.evaluation.checkpoint) {
       recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "context_checkpoint_created", "context-budget",

@@ -18,6 +18,7 @@ decision records:
 Primary implementation:
 
 - `base/yarn-ts/src/telemetry/token-economics.ts`
+- `base/yarn-ts/src/telemetry/cache-policy-controller.ts`
 - `base/yarn-ts/src/providers/usage-telemetry-fetch.ts`
 - `base/yarn-ts/src/providers/endpoint-capabilities/dashscope.ts`
 - `base/yarn-ts/src/index.ts`
@@ -61,14 +62,52 @@ skip reason such as:
 This keeps premium cache writes auditable and makes it easier to detect cases
 where cache creation is happening without downstream cache reads.
 
+### Cache Policy Controller
+
+The Cache Policy Controller consumes the previous turn's token-economics state
+from session metadata and chooses the next request's cache/efficiency posture:
+
+- `preserve_cache`: provider cache hits were observed, so Yarn uses minimal
+  compaction and protects stable prefixes.
+- `safe_efficiency`: cache is unavailable, unreported, or repeatedly missing,
+  and the agent flow is stable, so Yarn may use aggressive context-budget
+  compaction to reduce token demand.
+- `safety_backoff`: cache is unavailable but the agent shows retry-loop or
+  comprehension-risk signals, so Yarn falls back to minimal compaction to avoid
+  making the model's recovery context harder to understand.
+- `observe`: insufficient signal or controller disabled; use configured
+  compaction behavior.
+
+Retry-loop/comprehension risk is inferred from existing session counters:
+
+- stagnant tool cycles
+- pending tool-loop acknowledgement
+- no-ack tool-loop count
+- recent recovery fires
+- repeated edit-context misses
+
+For explicit premium cache providers such as DashScope, repeated cache writes
+without reads suppress explicit cache markers for that session. This avoids
+paying for cache creation when the host is not producing useful hits.
+
+Controller knobs:
+
+- `SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED` default `true`
+- `SYNESIS_YARN_CACHE_POLICY_MISS_STREAK_THRESHOLD` default `2`
+- `SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD` default `2`
+- `SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD` default `2`
+- `SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES` default `2`
+
 ### Durable trace and session visibility
 
 `persistSessionAndUsage` now records the token-economics summary in:
 
 - session metadata: last cache-hit ratio, last recommendation, last warnings
+- cache-policy streak metadata: cache misses, cache hits, premium writes without reads, telemetry misses
 - `request_trajectory_v1.cost.token_economics`
 - trace context: `trace_context.token_economics`
 - warning session events: `token_economics_warning_v1`
+- controller session events: `cache_policy_controller_decision_v1`
 
 This gives the admin/control-plane side queryable signals before adding a
 dedicated dashboard view or database migration.
@@ -107,6 +146,7 @@ npm run test:token-economics
 This runs:
 
 - `tests/token-economics.test.ts`
+- `tests/cache-policy-controller.test.ts`
 - `tests/usage-telemetry-fetch.test.ts`
 - `tests/dashscope-endpoint-adapter.test.ts`
 
@@ -127,6 +167,6 @@ npm run test:token-economics
 
 - Add admin dashboard rollups for `token_economics_warning_v1` and poor cache-hit cohorts.
 - Add live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes.
-- Feed observed hit rates back into provider policy so premium cache writes can auto-disable after repeated write-without-read outcomes.
+- Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
 - Add golden packet fixtures for Claude Code, Codex, Roo, Windsurf, VS Code, OpenCode, Hermes/Claw-style, and generic OpenAI-compatible harnesses.
 - Extend cost gates so CI can block regressions in stable-prefix length, cache-marker placement, cached-token reporting, and compaction economics.
