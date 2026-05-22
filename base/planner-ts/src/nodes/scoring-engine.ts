@@ -284,7 +284,7 @@ export class ScoringEngine {
     const breakdown: Record<string, number> = {};
     const activeDomains: string[] = [];
     const domainRefCounts: Record<string, number> = {};
-    let hitsByCategory: Record<string, string[]> = {};
+    const hitsByCategory: Record<string, string[]> = {};
 
     // 1. Complexity
     let complexityScore = 0;

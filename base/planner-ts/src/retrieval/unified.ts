@@ -21,7 +21,6 @@ import type {
   UnifiedResult,
   UnifiedRetrievalRequest,
 } from "./types.js";
-import { AUTHORITY_BOOST } from "./types.js";
 import { retrieveContext, type RagClientConfig } from "./rag-client.js";
 import {
   freshnessScore as _freshnessScore,

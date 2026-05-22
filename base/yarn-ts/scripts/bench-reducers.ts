@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { ReducerRegistry, registeredFamilies } from "../src/reduction/registry.js";
+import { ReducerRegistry } from "../src/reduction/registry.js";
 
 const root = join(process.cwd(), "tests", "fixtures", "reducers");
 const files = readdirSync(root).filter((f) => f.endsWith(".txt"));

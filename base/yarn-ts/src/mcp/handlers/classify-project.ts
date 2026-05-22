@@ -8,13 +8,11 @@ const InputSchema = z.object({
   fileCount: z.number().int().min(0).optional().describe("Number of files in the project (helps complexity assessment)"),
 });
 
-const OutputSchema = z.object({
-  classification: ClassificationResultSchema,
-  complexity: ComplexityAssessmentSchema,
-});
-
 type Input = z.infer<typeof InputSchema>;
-type Output = z.infer<typeof OutputSchema>;
+type Output = {
+  classification: z.infer<typeof ClassificationResultSchema>;
+  complexity: z.infer<typeof ComplexityAssessmentSchema>;
+};
 
 export const classifyProjectTool: McpToolDefinition<Input, Output> = {
   name: "synesis_classify_project",

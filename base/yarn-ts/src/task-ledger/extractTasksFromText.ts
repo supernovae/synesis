@@ -42,15 +42,10 @@ function extractCheckboxTasks(text: string): ExtractedTask[] {
 function extractNumberedPlanTasks(text: string): ExtractedTask[] {
   const results: ExtractedTask[] = [];
   const lines = text.split("\n");
-  let consecutiveNumbered = 0;
 
   for (const line of lines) {
     const m = NUMBERED_STEP_RE.exec(line);
-    if (!m) {
-      consecutiveNumbered = 0;
-      continue;
-    }
-    consecutiveNumbered++;
+    if (!m) continue;
     const title = m[2].trim();
     if (title.length < 8) continue;
     if (!ACTIONABLE_VERB_RE.test(title)) continue;

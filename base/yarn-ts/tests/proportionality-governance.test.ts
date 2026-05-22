@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   classifyIntentScope,
   getScopeThresholds,
-  type ScopeEnvelope,
 } from "../src/governance/intent-scope-classifier.js";
 import {
   createDiffStats,
@@ -15,11 +14,9 @@ import {
   proportionalityToSignal,
 } from "../src/governance/diff-accumulator.js";
 import {
-  computeFriction,
   evaluateSensemakingGovernor,
-  type FrictionInput,
 } from "../src/governance/sensemaking-governor.js";
-import type { CommandEvent, ExecutionGovernorDecision, SessionPhase } from "../src/governance/execution-governor.js";
+import type { ExecutionGovernorDecision, SessionPhase } from "../src/governance/execution-governor.js";
 
 // ─── Intent Scope Classifier ──────────────────────────────────────────────────
 

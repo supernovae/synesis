@@ -13,7 +13,7 @@
 
 import crypto from "crypto";
 import type { ChatState } from "./chat-state.js";
-import type { FileState, FileStateEntry } from "./file-state.js";
+import type { FileState } from "./file-state.js";
 import type { ObjectiveEpochState } from "./objective-scope.js";
 import type { ClassifiedMessage } from "./context-retention.js";
 

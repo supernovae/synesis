@@ -36,9 +36,6 @@ const OUTPUT_CAPTURE_WRAPPERS = [
   /\s*-v\s+2>&1\s*$/,
 ];
 
-const REDIRECT_TO_FILE_RE =
-  /\s*>\s*(\S+)\s*2>&1/;
-
 function stripCaptureWrapper(cmd: string): string {
   let stripped = cmd.trim();
   for (const re of OUTPUT_CAPTURE_WRAPPERS) {

@@ -15,7 +15,6 @@ import {
 import {
   evaluatePathAccess,
   extractBashFilePaths,
-  buildDefaultPolicy,
   type PathSandboxPolicy,
   type PathOperation,
 } from "./path-sandbox.js";

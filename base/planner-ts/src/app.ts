@@ -442,11 +442,11 @@ function resolveIncomingConversationId(
 
 function isLikelyQuizOptionAnswer(answer: string): boolean {
   const trimmed = answer.trim();
-  return /^([a-d]|[1-4])[\)\.\:]?$/i.test(trimmed);
+  return /^([a-d]|[1-4])[).:]?$/i.test(trimmed);
 }
 
 function hasMultipleChoiceOptions(text: string): boolean {
-  const optionMatches = text.match(/\b([A-D]|[1-4])[\)\.\:]\s*/gi) ?? [];
+  const optionMatches = text.match(/\b([A-D]|[1-4])[).:]\s*/gi) ?? [];
   const unique = new Set(optionMatches.map((m) => m.trim().charAt(0).toUpperCase()));
   return unique.size >= 2;
 }
@@ -648,7 +648,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   function spawnBackgroundCritic(state: GraphState, requestLog: FastifyInstance["log"]): void {
     const executionPolicy = state.execution_policy ?? {};
-    if (!Boolean((executionPolicy as Record<string, unknown>).critic_background)) return;
+    if (!(executionPolicy as Record<string, unknown>).critic_background) return;
     if (!(state.generated_code ?? "").trim()) return;
     const criticStartTime = Date.now() / 1000;
     void evaluateCritic({ ...state, next_node: "critic" })

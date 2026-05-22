@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { EnrichmentPool, type EnrichmentPoolStats } from "../src/workers/pool.js";
 import { compactJsonArray } from "../src/reduction/json-compactor.js";
 import {

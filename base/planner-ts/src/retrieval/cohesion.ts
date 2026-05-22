@@ -72,7 +72,6 @@ const CONFLICT_GROUPS: Record<string, ConflictGroup> = {
 };
 
 let _entityExclusionMap: Record<string, string[]> | null = null;
-let _memberToGroup: Map<string, string[]> | null = null;
 
 function entityExclusionMap(): Record<string, string[]> {
   if (_entityExclusionMap) return _entityExclusionMap;
@@ -93,32 +92,6 @@ function entityExclusionMap(): Record<string, string[]> {
   }
   _entityExclusionMap = map;
   return map;
-}
-
-function memberToGroupMap(): Map<string, string[]> {
-  if (_memberToGroup) return _memberToGroup;
-
-  const m = new Map<string, string[]>();
-  for (const [groupName, group] of Object.entries(CONFLICT_GROUPS)) {
-    for (const member of group.members) {
-      const key = member.toLowerCase();
-      const existing = m.get(key) ?? [];
-      existing.push(groupName);
-      m.set(key, existing);
-    }
-    if (group.aliases) {
-      for (const aliases of Object.values(group.aliases)) {
-        for (const alias of aliases) {
-          const key = alias.toLowerCase();
-          const existing = m.get(key) ?? [];
-          existing.push(groupName);
-          m.set(key, existing);
-        }
-      }
-    }
-  }
-  _memberToGroup = m;
-  return m;
 }
 
 export function getConflictGroups(): Record<string, Set<string>> {

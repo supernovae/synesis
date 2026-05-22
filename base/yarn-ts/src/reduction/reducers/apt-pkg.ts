@@ -16,7 +16,7 @@ export class AptPkgReducer implements Reducer {
       if (/^E:\s|^Error:|Unable to locate package|conflicting packages|broken package|NO_PUBKEY|nothing provides/i.test(t)) {
         errors.push(t.slice(0, 220));
       } else if (/^Upgrading\s/i.test(t) || /^Upgrade\s+\d+/i.test(t)) upgraded++;
-      else if (/^Removing\s|^  Removing /i.test(t)) removed++;
+      else if (/^Removing\s|^ {2}Removing /i.test(t)) removed++;
       else if (/^Fetched\s+[\d.]+\s*(MB|kB|GB)/i.test(t)) {
         const m = t.match(/Fetched\s+([\d.]+\s*(?:MB|kB|GB)[^\n]*)/i);
         if (m) fetched = m[1]!.trim();

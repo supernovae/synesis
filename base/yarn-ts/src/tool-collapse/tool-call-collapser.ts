@@ -7,7 +7,6 @@ import type {
   MergePatchCollapsed,
   ParsedToolCall,
   RepoContextCollapsed,
-  RunTestsCollapsed,
   ToolKind,
 } from "./types.js";
 import { normalizeToolAlias } from "../tool-aliases.js";

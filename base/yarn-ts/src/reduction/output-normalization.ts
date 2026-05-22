@@ -1,4 +1,5 @@
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+const ESC = String.fromCharCode(27);
+const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*[A-Za-z]`, "g");
 const ISO_TS_RE = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g;
 const CLOCK_TS_RE = /\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/g;
 const DATE_RE = /\b\d{4}-\d{2}-\d{2}\b/g;
@@ -26,4 +27,3 @@ export function normalizeCommandOutputForComparison(raw: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
-

@@ -34,13 +34,13 @@ export class IntegrityReport {
 // ---------------------------------------------------------------------------
 
 const _SECRET_PATTERNS: RegExp[] = [
-  /(?:api[_-]?key|secret|password|token)\s*=\s*['"]?[a-zA-Z0-9_\-]{8,}['"]?/i,
+  /(?:api[_-]?key|secret|password|token)\s*=\s*['"]?[a-zA-Z0-9_-]{8,}['"]?/i,
   /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/m,
   /-----BEGIN\s+[A-Z]+\s+PRIVATE\s+KEY-----/m,
 ];
 
 function maskSecretEvidence(value: string): string {
-  return value.replace(/(=)\s*['"]?[a-zA-Z0-9_\-]{4,}/g, "$1 ***").replace(/-----BEGIN[\s\S]+?PRIVATE KEY-----/g, "-----BEGIN *** PRIVATE KEY-----");
+  return value.replace(/(=)\s*['"]?[a-zA-Z0-9_-]{4,}/g, "$1 ***").replace(/-----BEGIN[\s\S]+?PRIVATE KEY-----/g, "-----BEGIN *** PRIVATE KEY-----");
 }
 
 export function checkSecrets(code: string): IntegrityResult | null {

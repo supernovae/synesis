@@ -136,7 +136,7 @@ function generateForwardPath(
 
 function actionsForUnknownGap(
   gap: { domain: string; description: string },
-  ctx: GapAnalysisContext,
+  _ctx: GapAnalysisContext,
 ): ExplorationAction[] {
   const actions: ExplorationAction[] = [];
 

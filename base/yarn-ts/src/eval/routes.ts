@@ -6,10 +6,10 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
-import { runScenario, runScenarios } from "./scenario-runner.js";
+import { runScenarios } from "./scenario-runner.js";
 import { ALL_SCENARIOS, getScenariosByCategory, getScenarioById, listScenarios } from "./scenarios/index.js";
 import { enableObserver, disableObserver, getObserverConfig } from "./session-observer.js";
-import { materialize, toJsonl, scenarioResultToTrajectoryRow } from "./training-materializer.js";
+import { materialize, toJsonl } from "./training-materializer.js";
 import type { EvalCategory, EvalRunnerConfig, TrainingFormat } from "./types.js";
 
 function stripTrailingSlashes(value: string): string {

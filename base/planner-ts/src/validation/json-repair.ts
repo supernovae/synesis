@@ -83,7 +83,7 @@ function extractJson(raw: string): string {
 }
 
 export function validateWithRepair<T>(raw: string, schema: z.ZodType<T>): T {
-  let extracted = raw;
+  let extracted: string;
   try {
     extracted = extractJson(raw);
   } catch {
@@ -98,7 +98,7 @@ export function validateWithRepair<T>(raw: string, schema: z.ZodType<T>): T {
     } catch (error) {
       if (attempt === 2) {
         const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`Schema validation failed after repair: ${reason}`);
+        throw new Error(`Schema validation failed after repair: ${reason}`, { cause: error });
       }
     }
   }

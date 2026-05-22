@@ -44,13 +44,6 @@ const STUB_PHRASES = [
   "(cached)",
 ];
 
-const ANNOTATION_MARKERS = [
-  "SYNESIS_PLAN_LOADED",
-  "SYNESIS_PLAN_ALREADY_UPDATED",
-  "SYNESIS_PLAN_UPDATED",
-  "SYNESIS_VERIFICATION_GAP",
-];
-
 const EDIT_TOOL_NAMES = new Set([
   "write",
   "edit",

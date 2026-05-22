@@ -8,7 +8,6 @@
  */
 
 import type { LanguagePackRegistry } from "../language-packs/registry.js";
-import type { VerificationCommand } from "../language-packs/types.js";
 import type { PlannedVerification, VerificationPlan } from "./types.js";
 
 const PRIORITY_TOOLS = new Set([

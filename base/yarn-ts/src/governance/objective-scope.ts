@@ -738,7 +738,7 @@ export function applyObjectiveScope<TMessage extends ObjectiveScopeMessage>(
   );
 
   let boundaryIndex: number;
-  let anchorUserIndex = -1;
+  let anchorUserIndex: number;
   let reanchored: boolean;
 
   if (needsReanchor) {

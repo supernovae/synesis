@@ -33,7 +33,7 @@ export function isLikelyClarificationAnswer(
 ): boolean {
   const trimmed = answer.trim();
   if (!trimmed) return false;
-  if (/^([a-z]|[0-9]{1,2})[\)\.]?$/i.test(trimmed)) return false;
+  if (/^([a-z]|[0-9]{1,2})[).]?$/i.test(trimmed)) return false;
   if (/\b(proceed|go ahead|use assumptions|continue)\b/i.test(trimmed)) return true;
   if (AFFIRM_RE.test(trimmed)) return true;
   if (trimmed.length >= 24) return true;

@@ -7,7 +7,6 @@ import {
   applySoftCompaction,
   applyHeavyCompaction,
   type ContextBudgetMessage,
-  type CompactionMode,
 } from "../src/governance/context-budget-manager.js";
 import {
   classifyMessages,
@@ -19,7 +18,8 @@ import {
   renderCheckpointMessage,
 } from "../src/governance/context-checkpoint.js";
 import type { ChatState } from "../src/governance/chat-state.js";
-import type { FileState } from "../src/governance/file-state.js";
+import type { FileState, FileStateEntry } from "../src/governance/file-state.js";
+import type { GovernorInputMessage } from "../src/governance/execution-governor.js";
 import type { ObjectiveEpochState } from "../src/governance/objective-scope.js";
 
 function msg(role: string, content: string, extra?: {
@@ -63,7 +63,7 @@ function makeChatState(overrides?: Partial<ChatState>): ChatState {
 }
 
 function makeFileState(paths: string[]): FileState {
-  const filesByPath: Record<string, any> = {};
+  const filesByPath: Record<string, FileStateEntry> = {};
   for (const p of paths) {
     filesByPath[p] = {
       path: p, status: "available", lastContent: "content", fullContentAvailable: true,
@@ -635,12 +635,12 @@ describe("governor budget signal integration", () => {
     const { evaluateSensemakingGovernor } = await import("../src/governance/sensemaking-governor.js");
     const { evaluateExecutionGovernor } = await import("../src/governance/execution-governor.js");
 
-    const msgs = [
-      { role: "user" as const, content: "Hello" },
-      { role: "assistant" as const, content: "Hi there" },
+    const msgs: GovernorInputMessage[] = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi there" },
     ];
 
-    const legacyDecision = evaluateExecutionGovernor(msgs as any, {
+    const legacyDecision = evaluateExecutionGovernor(msgs, {
       profile: "balanced_completion",
       activePlanStage: null,
       taskCompleted: false,

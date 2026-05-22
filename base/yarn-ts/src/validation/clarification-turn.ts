@@ -17,7 +17,7 @@ export function looksLikeClarificationTurnAssistantMessage(text: string): boolea
   if (/\bbefore I (?:start|implement|begin|write|code|create|build)\b/i.test(t)) return true;
   if (/\b(?:a few|some) questions\b/i.test(t) && linesWithQuestion >= 1) return true;
 
-  const numberedQuestionBlocks = (t.match(/(?:^|\n)\s*(?:\d+[\.\)]|[*•-])\s+[^\n]*\?/g) ?? []).length;
+  const numberedQuestionBlocks = (t.match(/(?:^|\n)\s*(?:\d+[.)]|[*•-])\s+[^\n]*\?/g) ?? []).length;
   if (numberedQuestionBlocks >= 2) return true;
 
   return false;

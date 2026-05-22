@@ -127,7 +127,6 @@ export function classifyMessages(
     const tokens = estimateMessageTokens(msg as { role: string; content: unknown });
     const tags: string[] = [];
     let tier: MemoryTier;
-    let score: number;
 
     // Tier classification
     if (msg.role === "system") {
@@ -185,7 +184,7 @@ export function classifyMessages(
     }
 
     // Retention scoring
-    score = computeRetentionScore(i, msg, raw, tags, tier, ctx);
+    const score = computeRetentionScore(i, msg, raw, tags, tier, ctx);
 
     result.push({ index: i, tier, retentionScore: score, estimatedTokens: tokens, tags });
   }

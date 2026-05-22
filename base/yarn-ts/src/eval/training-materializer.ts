@@ -44,7 +44,6 @@ export function materializeSft(result: ScenarioResult): SftExample[] {
     const assistantMsgs = turn.messages.filter(m => m.role === "assistant");
     if (assistantMsgs.length === 0) continue;
 
-    const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
     const isPositive = result.passed && turn.anomalies.filter(a => a.severity === "error").length === 0;
 
     examples.push({
@@ -97,7 +96,7 @@ export function materializeDpo(result: ScenarioResult): DpoExample[] {
   return examples;
 }
 
-function buildIdealResponse(rules: string[], turn: TurnResult): string {
+function buildIdealResponse(rules: string[], _turn: TurnResult): string {
   const parts: string[] = [];
 
   if (rules.includes("verification_stall_no_edit")) {

@@ -851,9 +851,11 @@ function parseArgsToObject(args: unknown): Record<string, unknown> | null {
 function normalizeResultSignature(content: unknown): string {
   const text = contentToText(content);
   if (!text.trim()) return "";
+  const esc = String.fromCharCode(27);
+  const ansiEscapeRe = new RegExp(`${esc}\\[[0-9;]*m`, "g");
   return text
     .toLowerCase()
-    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(ansiEscapeRe, "")
     .replace(/\b\d+(\.\d+)?\s*(ms|s|sec|seconds|m)\b/g, "<t>")
     .replace(/\b0x[0-9a-f]+\b/g, "<hex>")
     .replace(/\b\d+\b/g, "<n>")
@@ -1585,9 +1587,6 @@ export function evaluateExecutionGovernor(
     || opts.chatState?.completionStatus === "ready_to_finalize"
     || hasActiveCompletionClaim(messages)
   );
-  // Full-turn claim: any completion text in the entire turn (for phase-independent rules)
-  const hasTurnCompletionClaim = hasCompletionClaim
-    || hasCompletionClaimInAssistantText(turnMessages);
   let sessionPhase = detectSessionPhase(
     events,
     latestUserText,
@@ -1916,14 +1915,12 @@ export function evaluateExecutionGovernor(
   let trailingNoProgressHasRepeats = false;
   let trailingProductiveCount = 0;
   const trailingNoProgressCommands = new Set<string>();
-  let editFailureCount = 0;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const c = events[i].command;
     if (isEditCommand(c)
       || c.startsWith("taskcreate:") || c.startsWith("taskupdate:") || c.startsWith("todowrite:")) {
       const sig = events[i].resultSignature;
       if (sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match"))) {
-        editFailureCount += 1;
         trailingNoProgressLength += 1;
         trailingNoProgressCommands.add(c);
         continue;

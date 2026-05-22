@@ -15,7 +15,8 @@ const CONFUSABLE_MAP: Record<string, string> = {
   "\uff52": "r", "\uff45": "e",
 };
 
-const ZERO_WIDTH_RE = /[\u200b\u200c\u200d\u2060\ufeff]/g;
+const ZERO_WIDTH_CHARS = String.fromCodePoint(0x200b, 0x200c, 0x200d, 0x2060, 0xfeff);
+const ZERO_WIDTH_RE = new RegExp(`(?:${Array.from(ZERO_WIDTH_CHARS).join("|")})`, "g");
 const B64_CANDIDATE_RE = /[A-Za-z0-9+/]{40,}={0,2}/g;
 
 export function normalizeConfusables(text: string): string {

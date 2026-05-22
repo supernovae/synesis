@@ -1,7 +1,6 @@
 import type { AppConfig } from "../config.js";
 import { ArtifactStore } from "../state/artifact-store.js";
 import { ReducerRegistry, registeredFamilies } from "./registry.js";
-import type { ReducerFamily } from "./types.js";
 import { compactJsonArray } from "./json-compactor.js";
 import { ContentDispatchService } from "./content-dispatch.js";
 import { makeRecallDecision } from "../recall/routing.js";

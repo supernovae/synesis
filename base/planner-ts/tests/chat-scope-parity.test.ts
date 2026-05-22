@@ -32,7 +32,7 @@ const { retrieveUnified } = await import("../src/retrieval/unified.js");
 const { setFgaCheckOverride } = await import("../src/auth/openfga-client.js");
 
 import type { RagClientConfig } from "../src/retrieval/rag-client.js";
-import type { ScopeFilterOptions, UnifiedRetrievalRequest } from "../src/retrieval/types.js";
+import type { UnifiedRetrievalRequest } from "../src/retrieval/types.js";
 import type { RetrievalSettings } from "../src/retrieval/unified.js";
 import type { GraphState } from "../src/state/types.js";
 

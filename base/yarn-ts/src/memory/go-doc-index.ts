@@ -11,7 +11,6 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { FileInput } from "./structural-index.js";
 import type { StructuralIndex, FileIndexEntry, SymbolEntry } from "./types.js";
 
 const execFileAsync = promisify(execFile);

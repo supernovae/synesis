@@ -166,7 +166,7 @@ export function fingerprintToolCall(call: RecentToolCall): string {
   for (const key of FINGERPRINT_ARG_KEYS) {
     const raw = canonicalArgs[key];
     if (raw === undefined || raw === null) continue;
-    let normalized = "";
+    let normalized: string;
     if (key === "file_path" && typeof raw === "string") {
       normalized = normalizeWorkspaceRelativeFilePath(raw).toLowerCase();
     } else if (typeof raw === "string") {

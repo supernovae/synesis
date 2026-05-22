@@ -336,7 +336,7 @@ export class KnowledgeSearchService {
 
   injectToolOpenAI(tools: unknown[] | undefined): unknown[] | undefined {
     if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_OPENAI, CONTEXT_BUNDLE_TOOL_SCHEMA_OPENAI, DEV_DOCS_TOOL_SCHEMA_OPENAI];
-    let newTools = [...tools];
+    const newTools = [...tools];
     const existsKnowledge = (tools as Array<{ function?: { name?: string } }>).some(
       (t) => t.function?.name === KNOWLEDGE_TOOL_NAME,
     );
@@ -357,7 +357,7 @@ export class KnowledgeSearchService {
 
   injectToolClaude(tools: unknown[] | undefined): unknown[] | undefined {
     if (!tools) return [KNOWLEDGE_TOOL_SCHEMA_CLAUDE, CONTEXT_BUNDLE_TOOL_SCHEMA_CLAUDE, DEV_DOCS_TOOL_SCHEMA_CLAUDE];
-    let newTools = [...tools];
+    const newTools = [...tools];
     const existsKnowledge = (tools as Array<{ name?: string }>).some(
       (t) => t.name === KNOWLEDGE_TOOL_NAME,
     );

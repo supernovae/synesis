@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { StreamAdmissionController } from "../src/middleware/stream-admission.js";
 
 describe("StreamAdmissionController", () => {

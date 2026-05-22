@@ -9,10 +9,9 @@ import {
 } from "../src/verification/planner.js";
 import { VerificationLoopTracker } from "../src/verification/loop-tracker.js";
 import { createEmptyVerificationStats } from "../src/verification/types.js";
-import type { VerificationStats } from "../src/verification/types.js";
 import type { EnrichedItem } from "../src/reduction/types.js";
 import { formatSelfRepairBlock } from "../src/recall/formatter.js";
-import type { RecallResolution, ResolvedFinding } from "../src/recall/types.js";
+import type { RecallResolution } from "../src/recall/types.js";
 import type { VerificationLoopState } from "../src/verification/types.js";
 
 function loadRegistry(): LanguagePackRegistry {
@@ -456,7 +455,6 @@ describe("End-to-End Verification Loop", () => {
   });
 
   it("full flow with self-repair block generation", () => {
-    const registry = loadRegistry();
     const tracker = new VerificationLoopTracker(5, 60_000);
     const stats = createEmptyVerificationStats();
 

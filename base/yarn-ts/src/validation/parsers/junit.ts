@@ -8,9 +8,7 @@
  */
 import type { ValidationFamily, ValidationFinding, ValidationSeverity } from "../types.js";
 
-const TESTSUITE_RE = /<testsuite\b[^>]*>/g;
 const TESTCASE_RE = /<testcase\b([^>]*[^/])>([\s\S]*?)<\/testcase>/g;
-const SELF_CLOSING_TESTCASE_RE = /<testcase\b([^>]*)\/>/g;
 const FAILURE_RE = /<failure\b([^>]*)(?:\/>|>([\s\S]*?)<\/failure>)/;
 const ERROR_RE = /<error\b([^>]*)(?:\/>|>([\s\S]*?)<\/error>)/;
 const ATTR_RE = /(\w+)="([^"]*)"/g;

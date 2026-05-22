@@ -1,18 +1,15 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { LanguagePackRegistry, resetLanguagePackRegistry, getLanguagePackRegistry } from "../src/language-packs/registry.js";
-import { ALL_PACKS } from "../src/language-packs/packs/index.js";
 import { loadAllPacks, resetLoader } from "../src/language-packs/loader.js";
 import { resolveRecipes } from "../src/recall/recipe-resolver.js";
 import { makeRecallDecision } from "../src/recall/routing.js";
 import type { RecallRoutingConfig } from "../src/recall/routing.js";
 import { formatSyntheticResponse, formatEnrichmentBlock } from "../src/recall/formatter.js";
 import { createEmptyRecallStats } from "../src/recall/types.js";
-import type { RecallStats } from "../src/recall/types.js";
 import type { EnrichedItem } from "../src/reduction/types.js";
 import { computeEvidenceConfidence, formatEvidenceBlock } from "../src/evidence/fast-path.js";
 import type { FastPathResult } from "../src/evidence/fast-path.js";
 import type { KnowledgeSearchResult } from "../src/state/knowledge-search.js";
-import type { LanguagePackManifest } from "../src/language-packs/types.js";
 
 function loadRegistry(): LanguagePackRegistry {
   resetLanguagePackRegistry();

@@ -8,8 +8,8 @@
  */
 
 import crypto from "node:crypto";
-import type { ChatMessage, ParsedSegment, SegmentCategory, ToolDefinition } from "./types.js";
-import { classifyVolatility, splitAtVolatileBoundary } from "./volatility.js";
+import type { ChatMessage, ParsedSegment, ToolDefinition } from "./types.js";
+import { splitAtVolatileBoundary } from "./volatility.js";
 import { canonicalStringify, normalizeWhitespace } from "./serializer.js";
 
 function hashContent(text: string): string {
@@ -161,15 +161,6 @@ function splitSystemMessage(text: string): Array<{ text: string; type: SectionTy
   }
 
   return sections;
-}
-
-function categoryFromSectionType(type: SectionType): SegmentCategory {
-  switch (type) {
-    case "core": return "core_instructions";
-    case "project_guidance": return "project_guidance";
-    case "task_frame": return "task_frame";
-    case "live_context": return "live_context";
-  }
 }
 
 function hasStableCoreMarker(text: string): boolean {

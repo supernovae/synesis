@@ -353,7 +353,7 @@ export function applyHeavyCompaction(
     classified,
   );
 
-  let currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
+  const currentTokens = classified.reduce((s, c) => s + c.estimatedTokens, 0);
   const retentionThreshold = currentTokens > targetTokens * 1.1 ? 0.5 : 0.4;
 
   const checkpointMsg = renderCheckpointMessage(checkpoint);

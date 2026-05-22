@@ -3,7 +3,6 @@ import {
   storeObservationTool,
   recallFindingsTool,
   clearSessionMemory,
-  clearProjectMemory,
   getSessionMemoryCount,
   initMemoryToolStore,
 } from "../src/mcp/handlers/memory-tools.js";

@@ -16,7 +16,6 @@
 
 import type {
   ChatMessage,
-  ClientMetadata,
   MarkerBackend,
   OptimizedRequest,
   PrefixDiagnostics,

@@ -119,7 +119,6 @@ export function computeEvidenceDelta(
   }
 
   for (const e of events) {
-    const c = e.command.toLowerCase();
     if (/\b(write|edit|str_replace|create)\b/.test(e.toolName.toLowerCase())) {
       const target = e.argsObject
         ? String((e.argsObject as Record<string, unknown>).path ?? (e.argsObject as Record<string, unknown>).file_path ?? "")

@@ -121,7 +121,7 @@ function nextGraphNode(nodeName: GraphNodeName, state: GraphState): GraphNodeNam
       return state.next_node === "respond" ? "respond" : "writer";
     case "writer":
       if (state.next_node === "respond") return "respond";
-      return Boolean((state.execution_policy ?? {}).critic_background) ? "final_scrubber" : "critic";
+      return (state.execution_policy ?? {}).critic_background ? "final_scrubber" : "critic";
     case "critic":
       if (state.next_node === "router") return "router";
       if (state.next_node === "writer") return "writer";

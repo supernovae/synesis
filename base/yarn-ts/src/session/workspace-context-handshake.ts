@@ -31,7 +31,7 @@ export function buildWorkspaceHandshakeBashCommand(): string {
     "os=\"$(uname -s 2>/dev/null || echo unknown)\"",
     "arch=\"$(uname -m 2>/dev/null || echo unknown)\"",
     "[ -z \"$root\" ] && root=\"$cwd\"",
-    `printf '${MARKER}\\ncwd=%s\\nproject_root=%s\\nshell=%s\\nos=%s\\narch=%s\\n' \"$cwd\" \"$root\" \"$shell\" \"$os\" \"$arch\"`,
+    `printf '${MARKER}\\ncwd=%s\\nproject_root=%s\\nshell=%s\\nos=%s\\narch=%s\\n' "$cwd" "$root" "$shell" "$os" "$arch"`,
   ].join("; ");
 }
 

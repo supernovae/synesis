@@ -14,9 +14,7 @@ import {
   writeFileTool,
   strReplaceTool,
   searchCodeTool,
-  runTestTool,
   runBuildTool,
-  gitStatusTool,
 } from "../src/mcp/handlers/coding-tools.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";

@@ -223,9 +223,9 @@ export function buildAdminMcpServer(
 }
 
 export function createApp(cfg: AdminMcpConfig) {
-  let mcpRequests = 0;
-  let mcpAuthFailures = 0;
-  let directToolInvocations = 0;
+  let _mcpRequests = 0;
+  let _mcpAuthFailures = 0;
+  let _directToolInvocations = 0;
 
   const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
   void app.register(fastifyRateLimit, {
@@ -275,11 +275,11 @@ export function createApp(cfg: AdminMcpConfig) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "service_token_unconfigured") {
-        mcpAuthFailures++;
+        _mcpAuthFailures++;
         return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
       }
       if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-        mcpAuthFailures++;
+        _mcpAuthFailures++;
         return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
       app.log.error({ err: msg }, "admin_tools_catalog_failed");
@@ -302,11 +302,11 @@ export function createApp(cfg: AdminMcpConfig) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "service_token_unconfigured") {
-        mcpAuthFailures++;
+        _mcpAuthFailures++;
         return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
       }
       if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-        mcpAuthFailures++;
+        _mcpAuthFailures++;
         return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
       }
       app.log.error({ err: msg }, "admin_tools_invoke_auth_failed");
@@ -341,7 +341,7 @@ export function createApp(cfg: AdminMcpConfig) {
         parsed.name,
         parsed.args,
       );
-      directToolInvocations++;
+      _directToolInvocations++;
       return reply.code(200).send({ result });
     } catch (e) {
       const safe = toSafeToolError(e, parsed.name);
@@ -368,18 +368,18 @@ export function createApp(cfg: AdminMcpConfig) {
     preHandler: adminAuthPreHandler,
     // codeql[js/missing-rate-limiting]
     handler: async (req, reply) => {
-      mcpRequests++;
+      _mcpRequests++;
       let authCtx: AuthenticatedRequestContext;
       try {
         authCtx = await authenticateAdminRequest(cfg, req);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg === "service_token_unconfigured") {
-          mcpAuthFailures++;
+          _mcpAuthFailures++;
           return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
         }
         if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-          mcpAuthFailures++;
+          _mcpAuthFailures++;
           return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
         }
         return reply.code(502).send({ error: "bad_gateway", message: "Admin auth validation failed" });

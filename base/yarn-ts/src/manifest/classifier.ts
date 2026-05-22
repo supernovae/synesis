@@ -1,7 +1,6 @@
 import type {
   ClassificationResult,
   ComplexityAssessment,
-  Complexity,
   ProjectKind,
 } from "@synesis/manifest";
 import { getAllTemplates } from "@synesis/manifest";

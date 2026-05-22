@@ -15,7 +15,6 @@
 import type {
   ChunkedEvalPlan,
   ChunkedEvalStats,
-  EvalPhase,
   FeatureFinding,
   FeatureRequirement,
 } from "./types.js";

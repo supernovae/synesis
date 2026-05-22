@@ -6,9 +6,6 @@
  * to the execution governor for rule evaluation.
  */
 
-import type { StructuralIndex } from "./types.js";
-import type { StoredObservation } from "./types.js";
-
 // ---------------------------------------------------------------------------
 // Signals the governor can evaluate
 // ---------------------------------------------------------------------------

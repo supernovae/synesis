@@ -24,13 +24,9 @@ function scoreDraft(state: GraphState): CriticOut["scores"] {
   const actionability = hasActionableContent ? 7 : 4;
   const clarity = draft.length > 200 ? 7 : 5;
 
-  let evidence_utilization = 0;
-  if (!hasEvidence) {
-    evidence_utilization = 5;
-  } else {
-    const ratio = Math.min(1, citationCount / packets.length);
-    evidence_utilization = Math.round(3 + ratio * 7);
-  }
+  const evidence_utilization = !hasEvidence
+    ? 5
+    : Math.round(3 + Math.min(1, citationCount / packets.length) * 7);
 
   const weighted_overall = Number(
     ((grounding * 0.3) + (correctness * 0.2) + (actionability * 0.15) + (clarity * 0.15) + (evidence_utilization * 0.2)).toFixed(2)

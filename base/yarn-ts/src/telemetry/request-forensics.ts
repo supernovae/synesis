@@ -217,7 +217,7 @@ function inferFirstChangedSection(
   currentPayload: Record<string, unknown>,
   previousSerialized: string,
 ): RequestForensicsRecord["firstChangedSection"] {
-  let previousPayload: Record<string, unknown> | null = null;
+  let previousPayload: Record<string, unknown>;
   try {
     previousPayload = JSON.parse(previousSerialized) as Record<string, unknown>;
   } catch {
@@ -266,4 +266,3 @@ function stringSize(input: unknown): number {
     return String(input).length;
   }
 }
-

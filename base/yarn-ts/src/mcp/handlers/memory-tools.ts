@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import type { McpToolDefinition, McpToolContext } from "../tool-registry.js";
+import type { McpToolDefinition } from "../tool-registry.js";
 import { MemoryStore } from "../../memory/memory-store.js";
 import type { MemoryScope } from "../../memory/types.js";
 

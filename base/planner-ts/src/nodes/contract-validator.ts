@@ -15,7 +15,7 @@ export function validateStyleCompliance(state: GraphState): ValidationResult {
   if (!contract || draft.length === 0) return { passed: true, violations: [] };
 
   const violations: string[] = [];
-  if (Boolean(contract.direct_answer_first ?? true)) {
+  if (contract.direct_answer_first ?? true) {
     const firstParagraph = draft.trim().split("\n\n")[0]?.toLowerCase() ?? "";
     const preamble = ["before we begin", "let me start by", "first, let's", "in this response"];
     if (preamble.some((marker) => firstParagraph.includes(marker))) {

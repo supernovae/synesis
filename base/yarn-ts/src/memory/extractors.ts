@@ -198,7 +198,6 @@ export function extractPythonSymbols(content: string, filePath: string): { symbo
 
 const RUST_FN_RE = /^(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?\s*\{?/gm;
 const RUST_TYPE_RE = /^(?:pub(?:\(crate\))?\s+)?(?:struct|enum|trait)\s+(\w+)/gm;
-const RUST_IMPL_RE = /^impl(?:<[^>]*>)?\s+(?:(\w+)\s+for\s+)?(\w+)/gm;
 const RUST_USE_RE = /^use\s+([^;]+);/gm;
 
 function extractRustSymbols(content: string, filePath: string): { symbols: SymbolEntry[]; imports: string[] } {

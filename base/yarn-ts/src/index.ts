@@ -166,7 +166,6 @@ import {
   serializePlannerTodoPacket,
   shouldGeneratePlannerTodoPacket,
 } from "./planning/planner-todo-packet.js";
-import { VerificationLoopTracker } from "./verification/loop-tracker.js";
 import {
   assessVerificationFromMessages as assessVerificationSignals,
   evaluateDeterministicPreFinalize,
@@ -208,7 +207,7 @@ import {
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { inferModelFamily } from "./prompt/infer-model-family.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
-import { detectCacheStrategy, computePrefixFingerprint, annotateCacheBreakpoints, type CacheStrategy } from "./context/provider-cache-hints.js";
+import { detectCacheStrategy, computePrefixFingerprint, annotateCacheBreakpoints } from "./context/provider-cache-hints.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -321,7 +320,7 @@ import {
 } from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
-import { computeEvidenceDelta, summarizeEvidenceDelta, evidenceDeltaStreakAdjustment } from "./governance/evidence-delta.js";
+import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import {
   deriveChatState,
@@ -357,7 +356,6 @@ import {
   evaluateContextBudget,
   buildBudgetPolicy,
   type BudgetEvaluation,
-  type ContextBudgetPolicy,
   type CompactionMode,
 } from "./governance/context-budget-manager.js";
 import { buildRetentionContext } from "./governance/context-retention.js";
@@ -4575,15 +4573,13 @@ import {
   governToolCall,
 } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
-import { buildDefaultPolicy, type PathSandboxPolicy } from "./path-governance/path-sandbox.js";
+import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
 import { canonicalValidationToolName } from "./tool-aliases.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
 import {
   createDiffStats,
   recordEditOperation,
-  recordFileCreated,
   recordFileDeletion,
-  parseEditMetrics,
   isFileDeletion,
   assessProportionality,
   proportionalityToSignal,
@@ -5026,11 +5022,11 @@ function persistSessionAndUsage(
     },
     tierRates,
   );
-  let estimatedCostUsd = result.estimated_cost_usd;
+  const estimatedCostUsd = result.estimated_cost_usd;
   if (pricingSource === "unknown" || pricingSource === "fallback_base") {
     pricingSource = result.pricing_source;
   }
-  let actualCostUsd = usage.costUsd > 0 ? usage.costUsd : 0;
+  const actualCostUsd = usage.costUsd > 0 ? usage.costUsd : 0;
   if (actualCostUsd > 0) {
     pricingSource = "provider";
   }
@@ -6109,89 +6105,6 @@ type VerificationAssessment = {
   failures: VerificationFailure[];
   hasBlockingFailures: boolean;
 };
-
-const VERIFY_TOOL_HINTS = ["run_lint", "run_build", "run_test", "format_code"];
-
-function classifyVerificationCategory(text: string): VerificationFailure["category"] {
-  const t = text.toLowerCase();
-  if (/(pytest|jest|test\b|assert|--- fail|^fail\b)/i.test(t)) return "test";
-  if (/(format|fmt|prettier|ruff format|gofmt|clippy|eslint|lint|unused)/i.test(t)) return "format_or_lint";
-  if (/(build|compile|type|ts\d+|mypy|vet|cargo check|go build)/i.test(t)) return "build_or_typecheck";
-  return "runtime";
-}
-
-function extractBestVerificationPayload(
-  value: unknown,
-  toolNameHint: string,
-  depth = 0,
-  seen = new Set<object>(),
-): { ok: boolean; preset?: string; summary: string; errorLines: string[] } | null {
-  if (depth > 6 || value === null || value === undefined) return null;
-  if (typeof value === "string") {
-    const parsed = parseJsonIfPossible(value);
-    if (!parsed) return null;
-    return extractBestVerificationPayload(parsed, toolNameHint, depth + 1, seen);
-  }
-  if (typeof value !== "object") return null;
-  if (seen.has(value as object)) return null;
-  seen.add(value as object);
-  if (Array.isArray(value)) {
-    for (const row of value) {
-      const found = extractBestVerificationPayload(row, toolNameHint, depth + 1, seen);
-      if (found) return found;
-    }
-    return null;
-  }
-  const row = value as Record<string, unknown>;
-  const ok = typeof row.ok === "boolean" ? row.ok : undefined;
-  const preset = typeof row.preset === "string" ? row.preset : undefined;
-  const summary = typeof row.summary === "string" ? row.summary : "";
-  const errorLines = Array.isArray(row.errorLines)
-    ? row.errorLines.map((l) => String(l)).filter(Boolean)
-    : [];
-  const command = typeof row.command === "string" ? row.command : "";
-  const likelyVerify = VERIFY_TOOL_HINTS.some((x) => toolNameHint.includes(x))
-    || Boolean(preset)
-    || /(lint|build|test|format|compile|pytest|eslint|mypy|tsc|cargo|go test|go build)/i.test(command);
-  if (ok !== undefined && likelyVerify) {
-    return { ok, preset, summary: summary || command || `verification via ${toolNameHint}`, errorLines };
-  }
-  for (const key of ["result", "content", "data", "payload", "output", "text"]) {
-    if (!(key in row)) continue;
-    const nested = extractBestVerificationPayload(row[key], toolNameHint, depth + 1, seen);
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function assessVerificationFromMessages(
-  messages: Array<{ role: string; content: unknown; name?: string }>,
-): VerificationAssessment {
-  const failures: VerificationFailure[] = [];
-  let verificationSignals = 0;
-  for (const m of messages) {
-    if (m.role !== "tool" && m.role !== "tool_result") continue;
-    const toolName = String(m.name ?? "").toLowerCase();
-    const payload = extractBestVerificationPayload(m.content, toolName);
-    if (!payload) continue;
-    verificationSignals += 1;
-    if (payload.ok) continue;
-    const category = classifyVerificationCategory(`${payload.summary}\n${payload.errorLines.join("\n")}`);
-    failures.push({
-      tool: toolName || "verification_tool",
-      preset: payload.preset,
-      summary: payload.summary || "verification failed",
-      category,
-      topErrorLines: payload.errorLines.slice(0, 3),
-    });
-  }
-  return {
-    verificationSignals,
-    failingSignals: failures.length,
-    failures,
-    hasBlockingFailures: failures.length > 0,
-  };
-}
 
 type CriticAssessment = {
   blocked: boolean;
@@ -7310,66 +7223,6 @@ function getBearerToken(authHeader: string | undefined): string {
   const raw = authHeader ?? "";
   if (!raw.toLowerCase().startsWith("bearer ")) return "";
   return raw.slice(7).trim();
-}
-
-async function proxyMcpGet(
-  path: string,
-  bearer: string,
-  headers?: { requestId?: string; traceparent?: string },
-): Promise<unknown> {
-  try {
-    const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
-      signal: AbortSignal.timeout(config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
-        ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`MCP upstream error ${response.status}`);
-    }
-    return response.json();
-  } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === "TimeoutError") {
-      throw new Error(`MCP upstream timeout after ${config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS}ms`);
-    }
-    throw err;
-  }
-}
-
-async function proxyMcpPost(
-  path: string,
-  bearer: string,
-  body: unknown,
-  headers?: { requestId?: string; traceparent?: string },
-): Promise<unknown> {
-  try {
-    const response = await fetch(`${config.SYNESIS_YARN_ADMIN_API_URL}${path}`, {
-      method: "POST",
-      signal: AbortSignal.timeout(config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        "Content-Type": "application/json",
-        ...(headers?.requestId ? { "x-request-id": headers.requestId } : {}),
-        ...(headers?.traceparent ? { traceparent: headers.traceparent } : {}),
-      },
-      body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-      throw new Error(`MCP upstream error ${response.status}`);
-    }
-    return response.json();
-  } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === "TimeoutError") {
-      throw new Error(`MCP upstream timeout after ${config.SYNESIS_YARN_MCP_PROXY_TIMEOUT_MS}ms`);
-    }
-    throw err;
-  }
-}
-
-function sse(reply: { raw: { write(data: string): boolean } }, event: string, data: unknown): void {
-  reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 function safeWrite(raw: NodeJS.WritableStream & { destroyed?: boolean }, data: string): boolean {
@@ -11032,15 +10885,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
         }
         return unavailableRewrite.call;
       });
-    let oaiBlockedBroadDiscovery = 0;
-    let oaiRedirectedBroadDiscovery = 0;
-    let oaiCollapsedBroadDiscovery = 0;
     const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
     const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiGuarded.calls;
-    oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
-    oaiRedirectedBroadDiscovery = oaiGuarded.redirectedCount;
-    oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
+    const oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
+    const oaiRedirectedBroadDiscovery = oaiGuarded.redirectedCount;
+    const oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
     if (oaiRedirectedBroadDiscovery > 0) {
       recordBlockedDiscovery(sessionKey, oaiRedirectedBroadDiscovery);
       recordSessionEvent(
@@ -11141,7 +10991,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     externalToolCalls = oaiLegacyGuarded.calls;
     if (oaiLegacyGuarded.redirectedCount > 0) {
-      oaiRedirectedBroadDiscovery += oaiLegacyGuarded.redirectedCount;
       recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.redirectedCount);
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "broad_discovery_redirected", "tool-guardrails",
         `redirected=${oaiLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`, reqId,
@@ -11161,13 +11010,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       if (oaiLegacyBlockedTotal >= 2) {
         finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
       }
-      oaiBlockedBroadDiscovery += oaiLegacyGuarded.blockedCount;
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_call_blocked_broad_discovery", "tool-guardrails",
         `blocked=${oaiLegacyGuarded.blockedCount};sessionTotal=${oaiLegacyBlockedTotal}`, reqId,
         { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), sessionBlockedTotal: oaiLegacyBlockedTotal });
     }
     if (oaiLegacyGuarded.collapsedCount > 0) {
-      oaiCollapsedBroadDiscovery += oaiLegacyGuarded.collapsedCount;
       recordSessionEvent(
         sessionKey,
         identity.userId,
@@ -13976,7 +13823,7 @@ app.post("/v1/messages", async (req, reply) => {
       ? resolveEndpointCapabilityId(claudeResolvedTierForHarness.baseUrl)
       : "anthropic",
   });
-  let claudeRawTools = (processedTools as unknown[]) ?? [];
+  const claudeRawTools = (processedTools as unknown[]) ?? [];
 
   const claudeToolBudget = adjustToolSchemaBudgetForSession(
     resolveToolSchemaBudget(
@@ -15044,24 +14891,6 @@ app.post("/v1/messages", async (req, reply) => {
     );
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
-    const emitClaudeTextDelta = (delta: string): void => {
-      if (!delta) return;
-      if (!claudeStreamingTextOpen) {
-        safeSse(reply, "content_block_start", {
-          type: "content_block_start",
-          index: blockIdx,
-          content_block: { type: "text", text: "" },
-        });
-        claudeStreamingTextOpen = true;
-        inTextBlock = true;
-      }
-      safeSse(reply, "content_block_delta", {
-        type: "content_block_delta",
-        index: blockIdx,
-        delta: { type: "text_delta", text: delta },
-      });
-    };
-
     const closeClaudeStreamingTextBlock = (): void => {
       if (!claudeStreamingTextOpen) return;
       safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
@@ -15923,7 +15752,7 @@ app.post("/v1/messages", async (req, reply) => {
   circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
   claudeNonStreamSpan.setStatus("ok");
   claudeNonStreamSpan.end();
-  let allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
+  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
 
   let externalClaudeToolCalls = allToolCalls.map((tc, toolCallIndex) => {
       const rawInput =
@@ -16016,15 +15845,12 @@ app.post("/v1/messages", async (req, reply) => {
         input: governed.input,
       };
     });
-  let claudeBlockedBroadDiscovery = 0;
-  let claudeRedirectedBroadDiscovery = 0;
-  let claudeCollapsedBroadDiscovery = 0;
   const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeGuarded.calls;
-  claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;
-  claudeRedirectedBroadDiscovery = claudeGuarded.redirectedCount;
-  claudeCollapsedBroadDiscovery = claudeGuarded.collapsedCount;
+  const claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;
+  const claudeRedirectedBroadDiscovery = claudeGuarded.redirectedCount;
+  const claudeCollapsedBroadDiscovery = claudeGuarded.collapsedCount;
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
@@ -16084,7 +15910,6 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeLegacyGuarded.calls;
   if (claudeLegacyGuarded.redirectedCount > 0) {
-    claudeRedirectedBroadDiscovery += claudeLegacyGuarded.redirectedCount;
     recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.redirectedCount);
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "broad_discovery_redirected", "tool-guardrails",
       `redirected=${claudeLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`, reqId,

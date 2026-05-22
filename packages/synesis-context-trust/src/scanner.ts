@@ -11,6 +11,11 @@
 
 import { normalizeForScan, detectBase64Payloads } from "./normalizer.js";
 
+const ZERO_WIDTH_CHARS = String.fromCodePoint(0x200b, 0x200c, 0x200d, 0x2060, 0xfeff);
+const ZERO_WIDTH_PATTERN = `(?:${Array.from(ZERO_WIDTH_CHARS).join("|")})`;
+const ZERO_WIDTH_CLUSTER_RE = new RegExp(`${ZERO_WIDTH_PATTERN}{3,}`);
+const ZERO_WIDTH_CLUSTER_RE_GLOBAL = new RegExp(`${ZERO_WIDTH_PATTERN}{3,}`, "g");
+
 // ---------------------------------------------------------------------------
 // Tier 1: Core injection patterns
 // ---------------------------------------------------------------------------
@@ -44,7 +49,7 @@ const WEB_PATTERNS: RegExp[] = [
   /base64[:\s]+[A-Za-z0-9+/=]{20,}/i,
   /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/i,
   /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/i,
-  /[\u200b\u200c\u200d\u2060\ufeff]{3,}/,
+  ZERO_WIDTH_CLUSTER_RE,
   /data:text\/html[;,]/i,
   /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/i,
   /what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions)/i,
@@ -97,7 +102,7 @@ const WEB_REDACTION_PATTERNS: RegExp[] = [
   /base64[:\s]+[A-Za-z0-9+/=]{20,}/gi,
   /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/gi,
   /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/gi,
-  /[\u200b\u200c\u200d\u2060\ufeff]{3,}/g,
+  ZERO_WIDTH_CLUSTER_RE_GLOBAL,
   /data:text\/html[;,]/gi,
   /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/gi,
   /what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions)/gi,

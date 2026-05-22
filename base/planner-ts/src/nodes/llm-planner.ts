@@ -297,7 +297,7 @@ function buildClarificationQuestion(
 function normalizeQuestion(question: string): string {
   return question
     .toLowerCase()
-    .replace(/^[\d\-\)\.\s]+/, "")
+    .replace(/^[\d\-).\s]+/, "")
     .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

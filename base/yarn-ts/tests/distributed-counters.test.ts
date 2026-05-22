@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 vi.mock("ioredis", () => {
   class MockRedis {

@@ -14,10 +14,8 @@
 
 import type {
   CommandEvent,
-  GovernorInputMessage,
   SessionPhase,
   ExecutionGovernorDecision,
-  ExecutionGovernorOptions,
 } from "./execution-governor.js";
 
 // ---------------------------------------------------------------------------

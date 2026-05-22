@@ -260,7 +260,7 @@ export function sanitizeToolCalls(messages: OpenAIChatMessage[]): OpenAIChatMess
       }
 
       if (fixedCalls.length === 0) {
-        const { tool_calls, ...rest } = m;
+        const { tool_calls: _toolCalls, ...rest } = m;
         out.push(rest);
       } else {
         out.push(changed ? { ...m, tool_calls: fixedCalls } : m);

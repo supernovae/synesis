@@ -52,11 +52,9 @@ function simulate(rounds: number, pruning: boolean): { cumulativeChars: number; 
 
 describe("scripted request growth harness", () => {
   it("shows reduced growth at 10/20/40/80 rounds with pruning enabled", () => {
-    const un10 = simulate(10, false);
     const un20 = simulate(20, false);
     const un40 = simulate(40, false);
     const un80 = simulate(80, false);
-    const pr10 = simulate(10, true);
     const pr20 = simulate(20, true);
     const pr40 = simulate(40, true);
     const pr80 = simulate(80, true);
@@ -77,4 +75,3 @@ describe("scripted request growth harness", () => {
     expect(pr40.cumulativeChars).toBeLessThan(un40.cumulativeChars * 0.85);
   });
 });
-

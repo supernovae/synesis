@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { AppConfig } from "../src/config.js";
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -62,6 +62,7 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     SYNESIS_YARN_MCP_TOOLS_ENABLED: false,
     SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE: false,
     SYNESIS_YARN_DEBUG_PROTOCOL: false,
+    ...overrides,
   } as AppConfig;
 }
 
@@ -157,7 +158,7 @@ describe("Compaction failure handling", () => {
 /* ---------- OTEL spans ---------- */
 describe("OTEL span helpers", () => {
   it("withSpan returns value and ends span", async () => {
-    const { withSpan, getTracer } = await import("../src/telemetry/otel.js");
+    const { withSpan } = await import("../src/telemetry/otel.js");
     const result = withSpan("test.span", { "test.key": "value" }, (span) => {
       span.setAttribute("extra", 42);
       return 123;

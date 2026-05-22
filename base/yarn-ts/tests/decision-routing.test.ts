@@ -4,7 +4,6 @@ import {
   DEFAULT_THRESHOLDS,
   type OrchestratorContext,
   type EvidenceSignals,
-  type DecisionPath,
 } from "../src/orchestration/phase-model-orchestrator.js";
 
 function ctx(overrides: Partial<OrchestratorContext> = {}): OrchestratorContext {
