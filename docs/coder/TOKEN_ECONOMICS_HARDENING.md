@@ -112,6 +112,21 @@ Controller knobs:
 This gives the admin/control-plane side queryable signals before adding a
 dedicated dashboard view or database migration.
 
+The admin API now exposes `/api/v1/observability/cache/token-economics`, and
+the admin Prefix Cache Performance page includes a Token economics controller
+panel. The rollup is scoped by caller role/org and summarizes:
+
+- request trajectory cache outcomes, recommendations, strategies, and average cache hit percentage
+- token-economics warning events, including premium cache writes without reads
+  and unproven compaction savings
+- cache-policy controller actions, compaction mode pivots, provider strategies,
+  retry-risk backoffs, cache-unavailable detections, and suppressed premium
+  markers
+
+This gives operators a direct signal when the proxy is preserving cache
+efficiency, switching to safe efficiency because cache is unavailable or
+unreported, or backing off compaction because the session shows retry-loop risk.
+
 ### Retry visibility
 
 The endpoint transport retry wrapper now logs final retry exhaustion and final
@@ -150,6 +165,13 @@ This runs:
 - `tests/usage-telemetry-fetch.test.ts`
 - `tests/dashscope-endpoint-adapter.test.ts`
 
+Admin rollup test:
+
+```bash
+cd base/admin
+PYTHONPATH=. uv run pytest tests/test_observability_token_economics.py -q
+```
+
 Recommended pre-merge checks for this slice:
 
 ```bash
@@ -165,7 +187,6 @@ npm run test:token-economics
 
 ## Next hardening steps
 
-- Add admin dashboard rollups for `token_economics_warning_v1` and poor cache-hit cohorts.
 - Add live canaries for Anthropic, DashScope, OpenAI-compatible, DeepSeek/OpenRouter, and vLLM routes.
 - Feed longer-window observed hit rates back into provider policy so the controller can make org/provider-level decisions, not only per-session decisions.
 - Add golden packet fixtures for Claude Code, Codex, Roo, Windsurf, VS Code, OpenCode, Hermes/Claw-style, and generic OpenAI-compatible harnesses.

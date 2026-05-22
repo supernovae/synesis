@@ -10,13 +10,18 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { useCacheMetrics, useCacheHistory, useYarnReducerTelemetryHistory } from "../../api/hooks";
+import {
+  useCacheMetrics,
+  useCacheHistory,
+  useTokenEconomicsMetrics,
+  useYarnReducerTelemetryHistory,
+} from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
-import { Database, Zap, Target, Server, Key, Activity, BarChart3 } from "lucide-react";
-import type { PrefixCacheServiceMetrics } from "../../types";
+import { Database, Zap, Target, Server, Key, Activity, BarChart3, ShieldCheck, AlertTriangle } from "lucide-react";
+import type { PrefixCacheServiceMetrics, TokenEconomicsObservability } from "../../types";
 
 const PERIOD_OPTIONS = [
   { label: "1h", hours: 1 },
@@ -250,10 +255,130 @@ function OptimizationsCard({
   );
 }
 
+function topCounterEntry(counter: Record<string, number> | undefined): [string, number] | null {
+  if (!counter) return null;
+  const entries = Object.entries(counter).sort((a, b) => b[1] - a[1]);
+  return entries[0] ?? null;
+}
+
+function counterValue(counter: Record<string, number> | undefined, key: string): number {
+  return counter?.[key] ?? 0;
+}
+
+function TokenEconomicsCard({ metrics }: { metrics: TokenEconomicsObservability | undefined }) {
+  const token = metrics?.token_economics;
+  const policy = metrics?.cache_policy;
+  const topRecommendation = topCounterEntry(token?.recommendations);
+  const topAction = topCounterEntry(policy?.actions);
+  const topWarning = topCounterEntry(token?.warnings);
+  const topPolicyReason = topCounterEntry(policy?.reasons);
+  const observations = token?.request_observation_count ?? 0;
+  const decisions = policy?.decision_count ?? 0;
+  const hasEvents = Boolean((metrics?.inspected_events ?? 0) > 0);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+        <ShieldCheck className="h-4 w-4" />
+        Token economics controller
+      </h3>
+      {hasEvents ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MetricCard
+              label="Observed requests"
+              value={observations.toLocaleString()}
+              icon={Activity}
+              subtitle={`${metrics?.inspected_events.toLocaleString() ?? "0"} relevant events in ${metrics?.since_hours ?? 24}h`}
+            />
+            <MetricCard
+              label="Avg cache hit"
+              value={`${(token?.avg_cache_hit_pct ?? 0).toFixed(1)}%`}
+              icon={Target}
+              subtitle="Provider-reported hit pct from request trajectories"
+            />
+            <MetricCard
+              label="Warnings"
+              value={(token?.warning_event_count ?? 0).toLocaleString()}
+              icon={AlertTriangle}
+              subtitle={topWarning ? `${topWarning[0]} (${topWarning[1]})` : "No warning event types"}
+            />
+            <MetricCard
+              label="Top recommendation"
+              value={topRecommendation?.[0] ?? "none"}
+              icon={Key}
+              subtitle={topRecommendation ? `${topRecommendation[1]} request observations` : undefined}
+            />
+            <MetricCard
+              label="Controller decisions"
+              value={decisions.toLocaleString()}
+              icon={ShieldCheck}
+              subtitle={topAction ? `${topAction[0]} (${topAction[1]})` : "No controller decisions"}
+            />
+            <MetricCard
+              label="Safety backoffs"
+              value={(policy?.retry_loop_risk_count ?? 0).toLocaleString()}
+              icon={AlertTriangle}
+              subtitle={topPolicyReason ? `Top reason: ${topPolicyReason[0]}` : undefined}
+            />
+            <MetricCard
+              label="Cache unavailable"
+              value={(policy?.cache_unavailable_count ?? 0).toLocaleString()}
+              icon={Server}
+              subtitle="Miss streaks or missing telemetry crossed threshold"
+            />
+            <MetricCard
+              label="Premium suppressed"
+              value={(policy?.premium_write_suppressed_count ?? 0).toLocaleString()}
+              icon={Zap}
+              subtitle={`${token?.premium_write_without_read_count ?? 0} premium write-without-read warnings`}
+            />
+            <MetricCard
+              label="Cache outcomes"
+              value={`hit ${counterValue(token?.cache_outcomes, "hit")} / miss ${counterValue(token?.cache_outcomes, "miss")}`}
+              icon={Database}
+              subtitle={`write-only ${counterValue(token?.cache_outcomes, "write_without_read")}, no usage ${counterValue(token?.cache_outcomes, "no_usage")}`}
+            />
+          </div>
+          {(policy?.latest.length || token?.latest.length) ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                Latest controller and token-economics events
+              </summary>
+              <div className="mt-2 grid gap-2 text-xs text-gray-600 dark:text-gray-300">
+                {policy?.latest.slice(0, 5).map((ev, idx) => (
+                  <div key={`policy-${ev.request_id ?? ev.session_key}-${idx}`} className="font-mono">
+                    {ev.action || "observe"} / {ev.compaction_mode || "default"} / {ev.provider || "provider"}{" "}
+                    {ev.reasons?.length ? `(${ev.reasons.join(", ")})` : ""}
+                  </div>
+                ))}
+                {token?.latest.slice(0, 5).map((ev, idx) => (
+                  <div key={`token-${ev.request_id ?? ev.session_key}-${idx}`} className="font-mono">
+                    {ev.cache_outcome || "unknown"} / {ev.recommendation || "observe"} / hit{" "}
+                    {Number(ev.cache_hit_pct ?? 0).toFixed(0)}%{" "}
+                    {ev.warnings?.length ? `(${ev.warnings.join(", ")})` : ""}
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          No token-economics or cache-policy controller events in this window. Events appear after Yarn emits
+          request trajectories, token warning events, or controller decisions.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function CachePerformance() {
   const { data: cache, isLoading, isError, error } = useCacheMetrics();
   const [period, setPeriod] = useState(24);
   const { data: history } = useCacheHistory(period);
+  const { data: tokenEconomics, isError: isTokenEconomicsError, error: tokenEconomicsError } =
+    useTokenEconomicsMetrics(period);
   const { data: reducerHistory } = useYarnReducerTelemetryHistory(period);
 
   const initialLoading = isLoading && cache === undefined && !isError;
@@ -288,6 +413,7 @@ export default function CachePerformance() {
       </div>
 
       <ApiErrorBanner error={isError ? error : undefined} />
+      <ApiErrorBanner error={isTokenEconomicsError ? tokenEconomicsError : undefined} />
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Time window:</span>
@@ -325,6 +451,8 @@ export default function CachePerformance() {
           {data?.yarn && <PrefixCacheCard label="Coder (yarn-ts)" metrics={data.yarn} />}
         </div>
       )}
+
+      <TokenEconomicsCard metrics={tokenEconomics} />
 
       {/* Coder: persisted reducer / char totals (windowed, restart-tolerant) */}
       {hasCoderEfficiencyDb && cum && roll ? (

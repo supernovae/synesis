@@ -594,6 +594,58 @@ export interface CacheHistorySnapshot {
   estimated_savings_usd: number;
 }
 
+export interface TokenEconomicsEventPreview {
+  created_at: string | null;
+  event_kind?: string;
+  session_key: string;
+  request_id: string | null;
+  cache_outcome?: string;
+  recommendation?: string;
+  strategy?: string;
+  cache_hit_pct?: number;
+  warnings?: string[];
+  action?: string;
+  compaction_mode?: string;
+  provider?: string;
+  provider_cache_strategy?: string;
+  allow_explicit_cache_markers?: boolean;
+  reasons?: string[];
+}
+
+export interface TokenEconomicsObservability {
+  since_hours: number;
+  scope: string;
+  limit: number;
+  inspected_events: number;
+  counts_by_event_kind: Record<string, number>;
+  token_economics: {
+    request_observation_count: number;
+    warning_event_count: number;
+    avg_cache_hit_pct: number;
+    cache_outcomes: Record<string, number>;
+    recommendations: Record<string, number>;
+    strategies: Record<string, number>;
+    warnings: Record<string, number>;
+    premium_write_without_read_count: number;
+    compaction_savings_unproven_count: number;
+    telemetry_missing_count: number;
+    latest: TokenEconomicsEventPreview[];
+  };
+  cache_policy: {
+    decision_count: number;
+    actions: Record<string, number>;
+    compaction_modes: Record<string, number>;
+    reasons: Record<string, number>;
+    providers: Record<string, number>;
+    provider_strategies: Record<string, number>;
+    cache_unavailable_count: number;
+    retry_loop_risk_count: number;
+    premium_write_suppressed_count: number;
+    explicit_marker_disabled_count: number;
+    latest: TokenEconomicsEventPreview[];
+  };
+}
+
 export interface CircuitBreakerState {
   name: string;
   state: "closed" | "open" | "half_open";

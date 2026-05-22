@@ -17,6 +17,7 @@ import type {
   ServiceHealthSnapshot,
   FailureRecord,
   CacheMetrics,
+  TokenEconomicsObservability,
   CircuitBreakerState,
   BenchmarkResults,
   RagEvalResult,
@@ -1666,6 +1667,18 @@ export function useCacheHistory(sinceHours = 24, service = "") {
     queryFn: () =>
       client
         .get("/observability/cache/history", { params: { since_hours: sinceHours, service } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useTokenEconomicsMetrics(sinceHours = 24) {
+  return useQuery<TokenEconomicsObservability>({
+    queryKey: ["observability", "token-economics", sinceHours],
+    queryFn: () =>
+      client
+        .get("/observability/cache/token-economics", { params: { since_hours: sinceHours } })
         .then((r) => r.data),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,

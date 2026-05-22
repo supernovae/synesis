@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from asyncio import Lock, create_task
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -15,10 +15,14 @@ from sqlalchemy import delete, func, select, update
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
-from ..db.models import Failure, KnowledgeGap
-from ..rbac import require_org_admin
+from ..db.models import Failure, KnowledgeGap, YarnSessionEvent
+from ..rbac import Role, effective_role, require_org_admin
 from ..services import prometheus_client_svc as prom
 from ..services.health_prober import probe_all
+from ..services.token_economics_observability import (
+    TOKEN_ECONOMICS_EVENT_KINDS,
+    summarize_token_economics_events,
+)
 
 logger = logging.getLogger("synesis.admin.observability")
 
@@ -76,8 +80,6 @@ async def cache_history(
     _user: UserInfo = Depends(require_org_admin),
 ):
     """Time-series prefix cache snapshots from the database."""
-    from datetime import datetime, timedelta
-
     from ..db.models import PrefixCacheSnapshot
 
     cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
@@ -109,6 +111,39 @@ async def cache_history(
     }
 
 
+@router.get("/cache/token-economics")
+async def token_economics_metrics(
+    since_hours: int = Query(24, ge=1, le=720),
+    limit: int = Query(5000, ge=100, le=50000),
+    _user: UserInfo = Depends(require_org_admin),
+):
+    """Roll up Yarn token-economics and cache-policy decision events."""
+    role = effective_role(_user)
+    caller_org = (_user.org_id or "").strip()
+    scope = "platform" if role >= Role.platform_admin else f"org:{caller_org or 'none'}"
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
+
+    if role < Role.platform_admin and not caller_org:
+        summary = summarize_token_economics_events([], since_hours=since_hours, scope=scope)
+        summary["limit"] = limit
+        return summary
+
+    async with async_session() as session:
+        stmt = select(YarnSessionEvent).where(
+            YarnSessionEvent.created_at >= cutoff,
+            YarnSessionEvent.event_kind.in_(TOKEN_ECONOMICS_EVENT_KINDS),
+        )
+        if role < Role.platform_admin:
+            stmt = stmt.where(YarnSessionEvent.org_id == caller_org)
+        stmt = stmt.order_by(YarnSessionEvent.created_at.desc()).limit(limit)
+        result = await session.execute(stmt)
+        rows = list(result.scalars().all())
+
+    summary = summarize_token_economics_events(rows, since_hours=since_hours, scope=scope)
+    summary["limit"] = limit
+    return summary
+
+
 @router.get("/compaction")
 async def compaction_metrics(
     since_hours: int = Query(24, ge=1, le=720),
@@ -116,8 +151,6 @@ async def compaction_metrics(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Time-series compaction snapshots from the database."""
-    from datetime import datetime, timedelta
-
     from ..db.models import CompactionSnapshot
 
     cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
