@@ -52,6 +52,7 @@ const KNOWN_CLIENTS = [
   "roo",
   "cline",
   "codex-cli",
+  "opencode",
 ];
 
 export class ClientAdapterPacks {
@@ -123,6 +124,16 @@ export class ClientAdapterPacks {
         "Rely heavily on run_terminal_cmd and git_* tools to verify state.",
         "When presenting the user with choices or asking what to work on next, use the AskFollowupQuestion tool (if available) to present structured options. This renders an interactive selector in the terminal. Do NOT just print numbered text lists when an interactive tool is available.",
         "If a file read returns 'Unchanged since last read', the file content is already in your conversation from an earlier read. Use the existing content directly — do NOT re-read the file.",
+        "</CLIENT_SPECIFIC_RULES>",
+        ""
+      );
+    } else if (profile.client.includes("opencode")) {
+      lines.push(
+        "<CLIENT_SPECIFIC_RULES>",
+        "You are operating within OpenCode.",
+        "Use OpenCode built-in tools as native capabilities: todowrite for multi-step task tracking, question for structured clarification, apply_patch/edit for targeted changes, lsp for symbol navigation, websearch for discovery, and webfetch for known URLs.",
+        "For macro tasks or /plan mode, prefer todowrite before implementation. For ambiguous plans, prefer question with clear options instead of prose-only questions.",
+        "For micro edits, do the requested change directly without adding planning overhead.",
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );

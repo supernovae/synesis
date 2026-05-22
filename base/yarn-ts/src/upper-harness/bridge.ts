@@ -8,6 +8,7 @@ import {
   type UpperHarnessDecision,
 } from "@synesis/upper-harness";
 import type { ModelAdapter } from "../providers/model-adapter.js";
+import { isPlanModePrompt, type ClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
 
 export type { UpperHarnessDecision } from "@synesis/upper-harness";
 
@@ -84,7 +85,7 @@ function firstStyle(...records: Array<Record<string, unknown> | undefined>): str
 export function readPromptIntakeRequestOptions(options: {
   metadata?: Record<string, unknown> | null;
   extraBody?: Record<string, unknown> | null;
-}): { planningOverride: boolean; customStyle?: string } {
+}): { planningOverride: boolean; customStyle?: string; planModeRequested: boolean } {
   const metadata = objectOrUndefined(options.metadata);
   const extraBody = objectOrUndefined(options.extraBody);
   return {
@@ -92,6 +93,10 @@ export function readPromptIntakeRequestOptions(options: {
       || truthy(metadata?.planning_override)
       || truthy(extraBody?.synesis_planning_override)
       || truthy(extraBody?.planning_override),
+    planModeRequested: truthy(metadata?.synesis_plan_mode)
+      || truthy(metadata?.plan_mode)
+      || truthy(extraBody?.synesis_plan_mode)
+      || truthy(extraBody?.plan_mode),
     customStyle: firstStyle(metadata, extraBody),
   };
 }
@@ -198,17 +203,23 @@ export function evaluateYarnPromptIntakeSteer(options: {
   latestUserPrompt: string | undefined;
   metadata?: Record<string, unknown> | null;
   extraBody?: Record<string, unknown> | null;
+  clientToolCapabilities?: ClientToolCapabilities | null;
 }): YarnPromptIntakeResult {
   const requestOptions = readPromptIntakeRequestOptions({
     metadata: options.metadata,
     extraBody: options.extraBody,
   });
+  const planModeRequested = requestOptions.planModeRequested
+    || isPlanModePrompt(options.latestUserPrompt)
+    || options.clientToolCapabilities?.planModeRequested === true;
   const decision = evaluatePromptIntake({
     prompt: options.latestUserPrompt ?? "",
     planningOverride: requestOptions.planningOverride,
     customStyle: requestOptions.customStyle,
   });
-  const systemBlock = options.enabled ? buildPromptIntakeSystemBlock(decision) ?? undefined : undefined;
+  const systemBlock = options.enabled
+    ? buildYarnPromptIntakeSystemBlock(decision, options.clientToolCapabilities ?? null, planModeRequested) ?? undefined
+    : undefined;
   return {
     decision,
     systemBlock,
@@ -219,12 +230,58 @@ export function evaluateYarnPromptIntakeSteer(options: {
       action: decision.action,
       planning_steered: Boolean(systemBlock),
       override: decision.override,
+      plan_mode_requested: planModeRequested,
       source_hash: decision.source_hash,
       reasons: decision.reasons,
       enabled: options.enabled,
+      ...(options.clientToolCapabilities?.hasTodoTool ? { task_tool: options.clientToolCapabilities.todoToolName } : {}),
+      ...(options.clientToolCapabilities?.hasQuestionTool ? { question_tool: options.clientToolCapabilities.questionToolName } : {}),
       ...(decision.custom_style ? { custom_style_present: true } : {}),
     },
   };
+}
+
+function buildYarnPromptIntakeSystemBlock(
+  decision: PromptIntakeDecision,
+  capabilities: ClientToolCapabilities | null,
+  planModeRequested: boolean,
+): string | null {
+  const base = buildPromptIntakeSystemBlock(decision);
+  if (!planModeRequested && !base) return null;
+
+  const taskTool = capabilities?.hasTodoTool && capabilities.todoToolName ? capabilities.todoToolName : "";
+  const questionTool = capabilities?.hasQuestionTool && capabilities.questionToolName ? capabilities.questionToolName : "";
+  const action = planModeRequested ? "plan_mode_requested" : "planning_suggested";
+  const lines = [
+    `<synesis_prompt_intake scope="${decision.scope}" action="${action}" source_hash="${decision.source_hash}">`,
+  ];
+
+  if (planModeRequested) {
+    lines.push("The user explicitly requested plan mode. Do not perform implementation edits in this turn unless the user explicitly also requested execution.");
+    lines.push("Produce or record a concise plan, then stop after the plan/todos or after asking required clarification questions.");
+  } else {
+    lines.push("This request appears broader than a micro edit. Before coding, suggest creating or approving a short plan, task list, or todos.");
+    lines.push("Keep this advisory: do not claim planning is mandatory, do not block progress, and if the user declines or explicitly says to proceed, continue normally with small scoped steps.");
+  }
+
+  if (questionTool) {
+    lines.push(`If key requirements are ambiguous, prefer calling ${questionTool} with concise options before creating todos or editing.`);
+  }
+  if (taskTool) {
+    lines.push(`If no clarification is needed, prefer calling ${taskTool} with 3-7 concrete todos before implementation, then update todo statuses as work progresses.`);
+  } else {
+    lines.push("Prefer durable task tracking when the client supports it; otherwise keep the plan concise in the response.");
+  }
+  if (capabilities?.hasApplyPatchTool && capabilities.applyPatchToolName) {
+    lines.push(`When execution later begins, prefer ${capabilities.applyPatchToolName} or targeted edit for existing files after reading context.`);
+  }
+  const reasons = decision.reasons.slice(0, 6).join(",");
+  lines.push(`classifier_reasons=${reasons || "macro"}`);
+  if (decision.custom_style) {
+    lines.push(`User style preference: ${decision.custom_style}`);
+  }
+  lines.push("</synesis_prompt_intake>");
+  return lines.join("\n");
 }
 
 export function upperHarnessBlockPayload(

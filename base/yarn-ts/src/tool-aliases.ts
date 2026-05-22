@@ -5,7 +5,14 @@ export type CanonicalValidationTool =
   | "Update"
   | "Glob"
   | "Grep"
-  | "Bash";
+  | "Bash"
+  | "ApplyPatch"
+  | "Skill"
+  | "TodoWrite"
+  | "Question"
+  | "WebFetch"
+  | "WebSearch"
+  | "Lsp";
 
 const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   read: "Read",
@@ -44,6 +51,33 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   run_build: "Bash",
   run_lint: "Bash",
   format_code: "Bash",
+
+  apply_patch: "ApplyPatch",
+  applypatch: "ApplyPatch",
+  patch: "ApplyPatch",
+
+  skill: "Skill",
+  load_skill: "Skill",
+
+  todowrite: "TodoWrite",
+  todo_write: "TodoWrite",
+  update_todo: "TodoWrite",
+
+  question: "Question",
+  ask_question: "Question",
+  ask_user_question: "Question",
+  ask_followup_question: "Question",
+
+  webfetch: "WebFetch",
+  web_fetch: "WebFetch",
+  fetch: "WebFetch",
+
+  websearch: "WebSearch",
+  web_search: "WebSearch",
+  search_web: "WebSearch",
+
+  lsp: "Lsp",
+  language_server: "Lsp",
 };
 
 export function normalizeToolAlias(name: string): string {
@@ -54,4 +88,3 @@ export function canonicalValidationToolName(name: string): string {
   const n = normalizeToolAlias(name);
   return ALIAS_TO_CANONICAL[n] ?? name;
 }
-

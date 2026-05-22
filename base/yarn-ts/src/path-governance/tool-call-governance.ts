@@ -257,7 +257,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   }
 
   if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
-    const message = `Synesis Yarn blocked write-capable tool '${logicalName}' for this client safety profile.`;
+    const message = `Synesis Yarn blocked write-capable tool '${logicalName}' for the current session policy.`;
     if (opts.clientKind === "claude-code") {
       out.toolName = "Synesis_Error_WriteCapableBlocked";
       out.input = {

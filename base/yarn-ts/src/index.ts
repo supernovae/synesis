@@ -134,6 +134,12 @@ import {
   userRuntimePreferencesResponse,
   type UserRuntimePreferences,
 } from "./runtime/user-preferences.js";
+import {
+  buildClientToolCapabilityBlock,
+  detectClientToolCapabilities,
+  enrichToolSchemasForClient,
+  type ClientToolCapabilities,
+} from "./adapters/client-tool-capabilities.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -151,6 +157,15 @@ import { scanForManifest as manifestScan } from "./manifest/repo-scanner.js";
 import { compareManifests as manifestCompare } from "./manifest/comparator.js";
 import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
 import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
+import {
+  buildPlannerTodoPacketPrompt,
+  deserializePlannerTodoPacket,
+  formatPlannerTodoPacketBlock,
+  parsePlannerTodoPacket,
+  plannerTodoPacketToHarnessTasks,
+  serializePlannerTodoPacket,
+  shouldGeneratePlannerTodoPacket,
+} from "./planning/planner-todo-packet.js";
 import { VerificationLoopTracker } from "./verification/loop-tracker.js";
 import {
   assessVerificationFromMessages as assessVerificationSignals,
@@ -1400,16 +1415,180 @@ function recordPromptIntakeEvent(
   result: YarnPromptIntakeResult,
 ): void {
   if (result.decision.scope === "micro" && !result.shouldAppend && !result.decision.override) return;
+  const planMode = result.metadataSnapshot.plan_mode_requested === true ? " plan_mode=true" : "";
   recordSessionEvent(
     sessionKey,
     userId,
     orgId,
     "prompt_intake_evaluated",
     "upper-harness",
-    `${surface} scope=${result.decision.scope} action=${result.decision.action} steered=${result.shouldAppend} override=${result.decision.override}`,
+    `${surface} scope=${result.decision.scope} action=${result.decision.action} steered=${result.shouldAppend} override=${result.decision.override}${planMode}`,
     requestId,
     result.metadataSnapshot,
   );
+}
+
+async function maybeBuildPlannerTodoPacketBlock(options: {
+  session: SessionState;
+  sessionKey: string;
+  identity: SessionIdentity;
+  requestId: string;
+  surface: "openai" | "claude";
+  latestUserPrompt: string;
+  promptIntake: YarnPromptIntakeResult;
+  clientToolCapabilities: ClientToolCapabilities;
+}): Promise<string | null> {
+  const sourceHash = options.promptIntake.decision.source_hash || hashTextSignal(options.latestUserPrompt);
+  if (!sourceHash) return null;
+  const cachedSourceHash = getMetadataString(options.session.record.metadata, "planner_todo_packet_source_hash");
+  const cachedPacket = cachedSourceHash === sourceHash
+    ? deserializePlannerTodoPacket(options.session.record.metadata.planner_todo_packet)
+    : null;
+  const cachedModelId = getMetadataString(options.session.record.metadata, "planner_todo_packet_model");
+  const effectiveExistingTaskCount = cachedSourceHash === sourceHash
+    ? options.session.taskLedger?.tasks.length ?? 0
+    : 0;
+
+  const basePlannerTodoDecision = {
+    enabled: config.SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    promptScope: options.promptIntake.decision.scope,
+    planningSteered: options.promptIntake.shouldAppend,
+    planningOverride: options.promptIntake.decision.override,
+    planModeRequested: options.promptIntake.metadataSnapshot.plan_mode_requested === true
+      || options.clientToolCapabilities.planModeRequested,
+    capabilities: options.clientToolCapabilities,
+  };
+  const cachedPacketAllowed = shouldGeneratePlannerTodoPacket({
+    ...basePlannerTodoDecision,
+    existingTaskCount: 0,
+  });
+  if (cachedPacket && cachedPacketAllowed) {
+    return formatPlannerTodoPacketBlock({
+      packet: cachedPacket,
+      sourceHash,
+      modelId: cachedModelId || config.SYNESIS_YARN_PLANNER_TODO_MODEL,
+      capabilities: options.clientToolCapabilities,
+    });
+  }
+
+  const shouldGenerate = shouldGeneratePlannerTodoPacket({
+    ...basePlannerTodoDecision,
+    existingTaskCount: effectiveExistingTaskCount,
+  });
+  if (!shouldGenerate) return null;
+
+  try {
+    tierRegistry.setCurrentSessionKey(options.sessionKey);
+    const plannerModelId = (config.SYNESIS_YARN_PLANNER_TODO_MODEL || "coder-horizon").trim() || "coder-horizon";
+    const resolved = tierRegistry.resolve(plannerModelId, "synesis-horizon");
+    const plannerPrompt = buildPlannerTodoPacketPrompt({
+      prompt: options.latestUserPrompt,
+      sourceHash,
+      capabilities: options.clientToolCapabilities,
+      maxPromptChars: Math.max(1000, config.SYNESIS_YARN_PLANNER_TODO_MAX_PROMPT_CHARS),
+    });
+    const result = await generateText({
+      model: resolved.model as never,
+      maxOutputTokens: clampMaxOutputTokensForSafety(
+        Math.max(300, config.SYNESIS_YARN_PLANNER_TODO_MAX_OUTPUT_TOKENS),
+      ),
+      messages: [
+        {
+          role: "system",
+          content: "Return strict JSON only. You are planning for another coding model; never write implementation code.",
+        },
+        { role: "user", content: plannerPrompt },
+      ] as never,
+      abortSignal: AbortSignal.timeout(Math.max(500, config.SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS)),
+    });
+    const parsed = parsePlannerTodoPacket(result.text);
+    if (!parsed.packet) {
+      recordSessionEvent(
+        options.sessionKey,
+        options.identity.userId,
+        options.identity.orgId,
+        "planner_todo_packet_failed",
+        "planner-todo",
+        `surface=${options.surface} model=${resolved.resolvedModelId} parse_error=${parsed.parseError ?? "unknown"}`,
+        options.requestId,
+        {
+          surface: options.surface,
+          source_hash: sourceHash,
+          model_id: resolved.resolvedModelId,
+          parse_error: parsed.parseError ?? "unknown",
+        },
+      );
+      return null;
+    }
+
+    options.session.record.metadata.planner_todo_packet = serializePlannerTodoPacket(parsed.packet);
+    options.session.record.metadata.planner_todo_packet_source_hash = sourceHash;
+    options.session.record.metadata.planner_todo_packet_model = resolved.resolvedModelId;
+    options.session.record.metadata.planner_todo_packet_updated_at = Date.now();
+    options.session.record.metadata.planner_todo_packet_ambiguity = parsed.packet.ambiguity;
+    options.session.record.metadata.planner_todo_packet_todos = parsed.packet.todos.length;
+    options.session.record.metadata.planner_todo_packet_questions = parsed.packet.questions.length;
+
+    if (!options.session.taskLedger || options.session.taskLedger.tasks.length === 0) {
+      options.session.taskLedger = createEmptyLedger(
+        options.session.record.sessionKey,
+        Boolean(options.session.taskCapabilities?.hasExplicitTodoTool ?? options.clientToolCapabilities.hasTodoTool),
+        Boolean(options.session.taskCapabilities?.hasExplicitPlanMode ?? options.clientToolCapabilities.planModeRequested),
+      );
+      options.session.taskLedger = reconcileFromText(
+        options.session.taskLedger,
+        plannerTodoPacketToHarnessTasks(parsed.packet, options.session.record.requestCount),
+        options.session.record.requestCount,
+      );
+    }
+
+    recordSessionEvent(
+      options.sessionKey,
+      options.identity.userId,
+      options.identity.orgId,
+      "planner_todo_packet_generated",
+      "planner-todo",
+      `surface=${options.surface} model=${resolved.resolvedModelId} todos=${parsed.packet.todos.length} questions=${parsed.packet.questions.length} ambiguity=${parsed.packet.ambiguity}`,
+      options.requestId,
+      {
+        surface: options.surface,
+        source_hash: sourceHash,
+        model_id: resolved.resolvedModelId,
+        todo_count: parsed.packet.todos.length,
+        question_count: parsed.packet.questions.length,
+        ambiguity: parsed.packet.ambiguity,
+        todo_tool: options.clientToolCapabilities.todoToolName,
+        question_tool: options.clientToolCapabilities.questionToolName,
+      },
+    );
+
+    return formatPlannerTodoPacketBlock({
+      packet: parsed.packet,
+      sourceHash,
+      modelId: resolved.resolvedModelId,
+      capabilities: options.clientToolCapabilities,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    app.log.warn({ err, sessionKey: options.sessionKey, surface: options.surface }, "planner_todo_packet_failed");
+    recordSessionEvent(
+      options.sessionKey,
+      options.identity.userId,
+      options.identity.orgId,
+      "planner_todo_packet_failed",
+      "planner-todo",
+      `surface=${options.surface} ${detail.slice(0, 240)}`,
+      options.requestId,
+      {
+        surface: options.surface,
+        source_hash: sourceHash,
+        model_id: config.SYNESIS_YARN_PLANNER_TODO_MODEL,
+        error: detail.slice(0, 500),
+      },
+    );
+    return null;
+  }
 }
 
 function refreshTaskIntake(state: SessionState): TaskIntake | null {
@@ -6620,6 +6799,13 @@ function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
     "state_confidence_reasons",
     "latest_user_prompt",
     "trace_root_prompt",
+    "planner_todo_packet",
+    "planner_todo_packet_source_hash",
+    "planner_todo_packet_model",
+    "planner_todo_packet_updated_at",
+    "planner_todo_packet_ambiguity",
+    "planner_todo_packet_todos",
+    "planner_todo_packet_questions",
   ]) {
     delete meta[key];
   }
@@ -7522,6 +7708,7 @@ app.get("/health/telemetry", async (req, reply) => {
       completionGateHardFail: config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL,
       completionGateSkipClarification: config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION,
       planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
+      plannerTodoPacket: config.SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED,
       decisionMatrix: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
       sensemaking: config.SYNESIS_YARN_SENSEMAKING_ENABLED,
       diagnosticPersistence: config.SYNESIS_YARN_DIAGNOSTIC_PERSISTENCE_ENABLED,
@@ -8174,12 +8361,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const session = await getSessionState(sessionKey, identity);
   const oaiRuntimePreferences = await loadUserRuntimePreferences(identity.userId);
+  const oaiToolDefs = (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
+  const oaiClientToolCapabilities = detectClientToolCapabilities(oaiToolDefs, oaiClientKind, oaiTaskCue);
+  const detectedOaiTaskCapabilities = detectClientTaskCapabilities(oaiToolDefs, oaiClientKind);
 
-  if (!session.taskCapabilities) {
-    session.taskCapabilities = detectClientTaskCapabilities(
-      (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined,
-      oaiClientKind,
-    );
+  if (
+    !session.taskCapabilities
+    || detectedOaiTaskCapabilities.hasExplicitTodoTool
+    || detectedOaiTaskCapabilities.hasExplicitPlanMode
+    || (!session.taskCapabilities.hasExplicitTodoTool && !session.taskCapabilities.hasExplicitPlanMode)
+  ) {
+    session.taskCapabilities = detectedOaiTaskCapabilities;
   }
 
   const oaiCapabilityHash = crypto
@@ -8417,6 +8609,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserPrompt: oaiTaskCue,
     metadata: oaiBodyMeta,
     extraBody: request.extra_body ?? null,
+    clientToolCapabilities: oaiClientToolCapabilities,
   });
   persistPromptIntakeSnapshot(session, oaiPromptIntake);
   recordPromptIntakeEvent(
@@ -8427,6 +8620,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
     "openai",
     oaiPromptIntake,
   );
+  const oaiPlannerTodoPacketBlock = await maybeBuildPlannerTodoPacketBlock({
+    session,
+    sessionKey,
+    identity,
+    requestId: oaiTraceReqId,
+    surface: "openai",
+    latestUserPrompt: oaiTaskCue,
+    promptIntake: oaiPromptIntake,
+    clientToolCapabilities: oaiClientToolCapabilities,
+  });
   if (oaiRequirementChecklist && oaiRequirementChecklist.sourceHash !== priorOaiChecklistHash) {
     recordSessionEvent(
       sessionKey,
@@ -9440,6 +9643,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiMemBlocks = oaiMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
+  const oaiClientToolBlock = buildClientToolCapabilityBlock(oaiClientToolCapabilities);
   const oaiEnriched = await enrichWithFrameAndManifest(
     oaiScopedMessages as never,
     sessionKey,
@@ -9453,6 +9657,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
       ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
       ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
+      ...(oaiClientToolBlock ? [oaiClientToolBlock] : []),
+      ...(oaiPlannerTodoPacketBlock ? [oaiPlannerTodoPacketBlock] : []),
       ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],
     oaiSeedDirs,
@@ -9743,6 +9949,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const prioritizedTools = prioritizeWriteCapableTools(prunedTools.tools, qwenLoopRiskOpenAI);
   let effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
+  effectiveTools = enrichToolSchemasForClient(effectiveTools as unknown[], oaiClientToolCapabilities);
   const clientToolChoice = mapToolChoice(normalizedRequest.tool_choice);
   if (normalizedRequest.tool_choice !== undefined && clientToolChoice === undefined) {
     return reply.code(400).send({
@@ -10631,7 +10838,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
           blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
           strictBashBlock: openClawStrictGovernance,
-          blockWriteCapableTools: openClawStrictGovernance,
+          blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
           clientKind: oaiClientKind,
           sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
           restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
@@ -11333,7 +11540,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
             strictBashBlock: openClawStrictGovernance,
-            blockWriteCapableTools: openClawStrictGovernance,
+            blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
             clientKind: oaiClientKind,
             sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
             restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
@@ -12074,6 +12281,23 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
   const claudeRuntimePreferences = await loadUserRuntimePreferences(claudeIdentity.userId);
+  const claudeClientToolCapabilities = detectClientToolCapabilities(
+    processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
+    claudeClientKind,
+    claudeTaskCue,
+  );
+  const detectedClaudeTaskCapabilities = detectClientTaskCapabilities(
+    processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
+    claudeClientKind,
+  );
+  if (
+    !session.taskCapabilities
+    || detectedClaudeTaskCapabilities.hasExplicitTodoTool
+    || detectedClaudeTaskCapabilities.hasExplicitPlanMode
+    || (!session.taskCapabilities.hasExplicitTodoTool && !session.taskCapabilities.hasExplicitPlanMode)
+  ) {
+    session.taskCapabilities = detectedClaudeTaskCapabilities;
+  }
   const claudeCapabilityHash = crypto
     .createHash("sha256")
     .update(
@@ -12302,6 +12526,7 @@ app.post("/v1/messages", async (req, reply) => {
     enabled: config.SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED,
     latestUserPrompt: claudeTaskCue,
     metadata: body.metadata ?? null,
+    clientToolCapabilities: claudeClientToolCapabilities,
   });
   persistPromptIntakeSnapshot(session, claudePromptIntake);
   recordPromptIntakeEvent(
@@ -12312,6 +12537,16 @@ app.post("/v1/messages", async (req, reply) => {
     "claude",
     claudePromptIntake,
   );
+  const claudePlannerTodoPacketBlock = await maybeBuildPlannerTodoPacketBlock({
+    session,
+    sessionKey: claudeSessionKey,
+    identity: claudeIdentity,
+    requestId: traceReqId,
+    surface: "claude",
+    latestUserPrompt: claudeTaskCue,
+    promptIntake: claudePromptIntake,
+    clientToolCapabilities: claudeClientToolCapabilities,
+  });
   if (claudeRequirementChecklist && claudeRequirementChecklist.sourceHash !== priorClaudeChecklistHash) {
     recordSessionEvent(
       claudeSessionKey,
@@ -13298,6 +13533,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeMemBlocks = claudeMemRules.filter((r) => r.fired).map((r) =>
     `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
   );
+  const claudeClientToolBlock = buildClientToolCapabilityBlock(claudeClientToolCapabilities);
   const claudeEnriched = await enrichWithFrameAndManifest(
     claudeScopedMessages as never,
     claudeSessionKey,
@@ -13311,6 +13547,8 @@ app.post("/v1/messages", async (req, reply) => {
       ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
       ...(claudeObjectiveScope.artifactBridgeBlock ? [claudeObjectiveScope.artifactBridgeBlock] : []),
       ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
+      ...(claudeClientToolBlock ? [claudeClientToolBlock] : []),
+      ...(claudePlannerTodoPacketBlock ? [claudePlannerTodoPacketBlock] : []),
       ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
     ],
     claudeSeedDirs,
@@ -13598,6 +13836,7 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const prioritizedClaudeTools = prioritizeWriteCapableTools(prunedClaudeTools.tools, qwenLoopRiskClaude);
   let effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
+  effectiveClaudeTools = enrichToolSchemasForClient(effectiveClaudeTools as unknown[], claudeClientToolCapabilities);
   const clientClaudeToolChoice = mapToolChoice(body.tool_choice);
   if (body.tool_choice !== undefined && clientClaudeToolChoice === undefined) {
     return reply.code(400).send({
@@ -14739,7 +14978,7 @@ app.post("/v1/messages", async (req, reply) => {
             enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
             blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
             strictBashBlock: claudeOpenClawStrictGovernance,
-            blockWriteCapableTools: claudeOpenClawStrictGovernance,
+            blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
             clientKind: claudeClientKind,
             sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
             restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
@@ -15517,7 +15756,7 @@ app.post("/v1/messages", async (req, reply) => {
         enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
         blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
         strictBashBlock: claudeOpenClawStrictGovernance,
-        blockWriteCapableTools: claudeOpenClawStrictGovernance,
+        blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
         clientKind: claudeClientKind,
         sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
         restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),

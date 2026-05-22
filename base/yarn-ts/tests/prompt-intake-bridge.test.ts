@@ -31,6 +31,65 @@ describe("Yarn prompt intake bridge", () => {
     expect(result.metadataSnapshot.planning_steered).toBe(true);
   });
 
+  it("uses native OpenCode planning tools when available", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "build a new app with auth, billing, and an admin UI",
+      metadata: {},
+      clientToolCapabilities: {
+        clientKind: "opencode",
+        toolNames: ["todowrite", "question", "apply_patch"],
+        isOpenCode: true,
+        planModeRequested: false,
+        hasTodoTool: true,
+        todoToolName: "todowrite",
+        hasQuestionTool: true,
+        questionToolName: "question",
+        hasApplyPatchTool: true,
+        applyPatchToolName: "apply_patch",
+        hasLspTool: false,
+        hasSkillTool: false,
+        hasWebFetchTool: false,
+        hasWebSearchTool: false,
+      },
+    });
+
+    expect(result.systemBlock).toContain("calling question");
+    expect(result.systemBlock).toContain("calling todowrite");
+    expect(result.systemBlock).toContain("3-7 concrete todos");
+    expect(result.metadataSnapshot.task_tool).toBe("todowrite");
+    expect(result.metadataSnapshot.question_tool).toBe("question");
+  });
+
+  it("treats /plan as explicit plan-only mode even for micro-looking prompts", () => {
+    const result = evaluateYarnPromptIntakeSteer({
+      enabled: true,
+      latestUserPrompt: "/plan fix the missing import in src/auth.ts",
+      metadata: {},
+      clientToolCapabilities: {
+        clientKind: "opencode",
+        toolNames: ["todowrite", "question"],
+        isOpenCode: true,
+        planModeRequested: true,
+        hasTodoTool: true,
+        todoToolName: "todowrite",
+        hasQuestionTool: true,
+        questionToolName: "question",
+        hasApplyPatchTool: false,
+        applyPatchToolName: null,
+        hasLspTool: false,
+        hasSkillTool: false,
+        hasWebFetchTool: false,
+        hasWebSearchTool: false,
+      },
+    });
+
+    expect(result.shouldAppend).toBe(true);
+    expect(result.systemBlock).toContain('action="plan_mode_requested"');
+    expect(result.systemBlock).toContain("Do not perform implementation edits");
+    expect(result.metadataSnapshot.plan_mode_requested).toBe(true);
+  });
+
   it("honors metadata override", () => {
     const result = evaluateYarnPromptIntakeSteer({
       enabled: true,

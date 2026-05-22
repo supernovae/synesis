@@ -437,6 +437,17 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Generate a compact planner todo packet with the configured planning model for macro or explicit plan-mode turns. */
+  SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** Model id resolved through the tier registry for planner todo packets. */
+  SYNESIS_YARN_PLANNER_TODO_MODEL: z.string().default("coder-horizon"),
+  /** Bound the planner model call so it cannot stall the developer flow. */
+  SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS: z.coerce.number().default(4500),
+  SYNESIS_YARN_PLANNER_TODO_MAX_OUTPUT_TOKENS: z.coerce.number().default(1400),
+  SYNESIS_YARN_PLANNER_TODO_MAX_PROMPT_CHARS: z.coerce.number().default(6000),
 
   // Response style flavor — markdown guidance + optional guardrail normalization.
   SYNESIS_YARN_RESPONSE_STYLE_MODE: z
