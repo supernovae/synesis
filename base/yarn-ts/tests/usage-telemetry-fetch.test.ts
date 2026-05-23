@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUsageTelemetryFetch } from "../src/providers/usage-telemetry-fetch.js";
+import { resetCacheDebugTraceState } from "../src/telemetry/cache-debug-trace.js";
 
 describe("createUsageTelemetryFetch", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetCacheDebugTraceState();
   });
 
   it("emits token economics telemetry for non-streaming JSON responses", async () => {
@@ -79,5 +81,130 @@ describe("createUsageTelemetryFetch", () => {
 
     expect(await response.text()).toBe("not-json");
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("emits hashed cache debug traces without prompt text", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const wrapped = createUsageTelemetryFetch(
+      async () => new Response(JSON.stringify({
+        id: "chatcmpl-test",
+        choices: [],
+        usage: {
+          prompt_tokens: 8_000,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        provider: "openrouter",
+        tier: "synesis-core",
+        model: "qwen/test",
+        cacheDebugTraceMode: "hashed",
+        getCacheDebugTraceContext: () => ({
+          sessionKey: "session-secret",
+          requestId: "req-1",
+          clientKind: "opencode",
+        }),
+      },
+    );
+    const stableSystem = `SECRET_PROMPT_DO_NOT_LOG\n${"stable rule\n".repeat(500)}`;
+
+    await wrapped("https://example.test/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: false,
+        messages: [
+          { role: "system", content: stableSystem },
+          { role: "user", content: "first turn" },
+        ],
+      }),
+    });
+
+    const serializedLogs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(serializedLogs).not.toContain("SECRET_PROMPT_DO_NOT_LOG");
+    expect(serializedLogs).not.toContain("stable rule");
+    const trace = logSpy.mock.calls
+      .map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
+      .find((record) => record.msg === "provider_cache_debug_trace");
+    expect(trace).toMatchObject({
+      schema_version: "provider_cache_debug_trace_v1",
+      provider: "openrouter",
+      tier: "synesis-core",
+      model: "qwen/test",
+      request_id: "req-1",
+      client_kind: "opencode",
+      prompt_tokens: 8_000,
+      cached_tokens: 0,
+      cache_miss_reason: "first_request",
+    });
+    expect(trace?.session_key_hash).not.toBe("session-secret");
+    expect(Array.isArray(trace?.first_message_hashes)).toBe(true);
+  });
+
+  it("classifies high-stability zero-cache follow-up as provider routing or ttl", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    let requestId = "req-1";
+    const wrapped = createUsageTelemetryFetch(
+      async () => new Response(JSON.stringify({
+        id: "chatcmpl-test",
+        choices: [],
+        usage: {
+          prompt_tokens: 8_000,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        provider: "openrouter",
+        tier: "synesis-core",
+        model: "qwen/test",
+        cacheDebugTraceMode: "hashed",
+        getCacheDebugTraceContext: () => ({
+          sessionKey: "stable-session",
+          requestId,
+          clientKind: "codex-cli",
+        }),
+      },
+    );
+    const stableSystem = "stable-prefix\n".repeat(500);
+
+    await wrapped("https://example.test/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: false,
+        messages: [
+          { role: "system", content: stableSystem },
+          { role: "user", content: "first turn" },
+        ],
+      }),
+    });
+    requestId = "req-2";
+    await wrapped("https://example.test/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: false,
+        messages: [
+          { role: "system", content: stableSystem },
+          { role: "user", content: "second turn" },
+        ],
+      }),
+    });
+
+    const traces = logSpy.mock.calls
+      .map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
+      .filter((record) => record.msg === "provider_cache_debug_trace");
+    expect(traces).toHaveLength(2);
+    expect(traces[1]).toMatchObject({
+      request_id: "req-2",
+      cache_miss_reason: "provider_cache_ttl_or_routing",
+    });
+    expect(Number(traces[1]?.shared_prefix_bytes)).toBeGreaterThan(4_000);
+    expect(Number(traces[1]?.first_divergence_message_index)).toBe(1);
   });
 });

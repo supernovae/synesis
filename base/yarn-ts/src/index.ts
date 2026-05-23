@@ -1524,7 +1524,11 @@ async function maybeBuildPlannerTodoPacketBlock(options: {
   if (!shouldGenerate) return null;
 
   try {
-    tierRegistry.setCurrentSessionKey(options.sessionKey);
+    tierRegistry.setCurrentRequestContext({
+      sessionKey: options.sessionKey,
+      requestId: options.requestId,
+      clientKind: options.identity.clientKind,
+    });
     const plannerModelId = (config.SYNESIS_YARN_PLANNER_TODO_MODEL || "coder-horizon").trim() || "coder-horizon";
     const resolved = tierRegistry.resolve(plannerModelId, "synesis-horizon");
     const plannerPrompt = buildPlannerTodoPacketPrompt({
@@ -3228,6 +3232,7 @@ const tierRegistry = new SynesisProviderRegistry({
     canaryPct: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT,
     maxMarkers: config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS,
   },
+  cacheDebugTraceMode: config.SYNESIS_YARN_CACHE_DEBUG_TRACE,
 });
 
 // Prefix optimizer always builds stable-first layouts. Explicit markers are selected per request
@@ -9811,9 +9816,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
 
+  tierRegistry.setCurrentRequestContext({
+    sessionKey,
+    requestId: reqId,
+    clientKind: identity.clientKind,
+  });
+
   if (prefixOptimizer) {
     try {
-      tierRegistry.setCurrentSessionKey(sessionKey);
       const optimized = prefixOptimizer.optimize(
         normalizedRequest.messages as never,
         normalizedRequest.tools as never,
@@ -13771,9 +13781,14 @@ app.post("/v1/messages", async (req, reply) => {
     );
   }
 
+  tierRegistry.setCurrentRequestContext({
+    sessionKey: claudeSessionKey,
+    requestId: traceReqId,
+    clientKind: claudeIdentity.clientKind,
+  });
+
   if (prefixOptimizer) {
     try {
-      tierRegistry.setCurrentSessionKey(claudeSessionKey);
       const optimized = prefixOptimizer.optimize(
         openAIShape.messages as never,
         openAIShape.tools as never,

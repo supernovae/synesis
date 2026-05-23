@@ -78,4 +78,15 @@ describe("token economics", () => {
     expect(usage.cached_prompt_tokens).toBe(2_500);
     expect(usage.cache_creation_tokens).toBe(1_500);
   });
+
+  it("normalizes DeepSeek prompt cache hit tokens", () => {
+    const usage = extractUsage({
+      completion_tokens: 120,
+      prompt_cache_hit_tokens: 9_500,
+      prompt_cache_miss_tokens: 2_500,
+    });
+
+    expect(usage.prompt_tokens).toBe(12_000);
+    expect(usage.cached_prompt_tokens).toBe(9_500);
+  });
 });

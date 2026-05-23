@@ -14,11 +14,19 @@ import {
   buildTokenEconomicsDecision,
   tokenEconomicsLogRecord,
 } from "../telemetry/token-economics.js";
+import {
+  buildAndRememberCacheDebugTrace,
+  buildCacheDebugRequestSnapshot,
+  type CacheDebugTraceContext,
+  type CacheDebugTraceMode,
+} from "../telemetry/cache-debug-trace.js";
 
 interface TelemetryOpts {
   provider: string;
   tier: string;
   model: string;
+  cacheDebugTraceMode?: CacheDebugTraceMode;
+  getCacheDebugTraceContext?: () => CacheDebugTraceContext;
 }
 
 interface RequestTelemetry {
@@ -162,6 +170,26 @@ function emitUsageTelemetry(
   }));
 }
 
+function emitCacheDebugTrace(
+  opts: TelemetryOpts,
+  bodyText: string,
+  usage: UsageTelemetry,
+  source: "stream" | "non_stream",
+): void {
+  if (opts.cacheDebugTraceMode !== "hashed") return;
+  const snapshot = buildCacheDebugRequestSnapshot(bodyText, opts.getCacheDebugTraceContext?.());
+  if (!snapshot) return;
+  const record = buildAndRememberCacheDebugTrace({
+    provider: opts.provider,
+    tier: opts.tier,
+    model: opts.model,
+    source,
+    snapshot,
+    usage,
+  });
+  console.log(JSON.stringify(record));
+}
+
 export function createUsageTelemetryFetch(
   nativeFetch: typeof globalThis.fetch,
   opts: TelemetryOpts,
@@ -172,6 +200,7 @@ export function createUsageTelemetryFetch(
     }
 
     const requestTelemetry = inspectRequestBody(init.body);
+    const requestBodyText = init.body;
 
     const resp = await nativeFetch(input, init);
 
@@ -189,6 +218,9 @@ export function createUsageTelemetryFetch(
         const usage = usageFromPayload(payload, resp.headers, opts.provider);
         if (usage) {
           emitUsageTelemetry(opts, requestTelemetry, usage, "non_stream");
+          emitCacheDebugTrace(opts, requestBodyText, usage, "non_stream");
+        } else {
+          emitCacheDebugTrace(opts, requestBodyText, { prompt: 0, completion: 0, cached: 0, creation: 0 }, "non_stream");
         }
       } catch {
         // Preserve malformed JSON exactly as received.
@@ -226,8 +258,13 @@ export function createUsageTelemetryFetch(
             const usage = usageFromPayload(parsed, resp.headers, opts.provider);
             if (usage) {
               emitUsageTelemetry(opts, requestTelemetry, usage, "stream");
+              emitCacheDebugTrace(opts, requestBodyText, usage, "stream");
+            } else {
+              emitCacheDebugTrace(opts, requestBodyText, { prompt: 0, completion: 0, cached: 0, creation: 0 }, "stream");
             }
           } catch { /* ignore parse error */ }
+        } else {
+          emitCacheDebugTrace(opts, requestBodyText, { prompt: 0, completion: 0, cached: 0, creation: 0 }, "stream");
         }
       } catch { /* ignore stream read error */ }
     })();

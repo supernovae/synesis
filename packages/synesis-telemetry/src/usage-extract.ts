@@ -22,6 +22,7 @@ interface ProviderUsage {
   cache_hit_tokens?: number;
   prefix_cache_hit_tokens?: number;
   num_cached_tokens?: number;
+  prompt_cache_miss_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_creation_tokens?: number;
   inputTokenDetails?: { cacheReadTokens?: number; cachedTokens?: number; cacheWriteTokens?: number };
@@ -37,8 +38,9 @@ interface ProviderUsage {
 export function extractUsage(raw?: ProviderUsage | null): LlmUsage {
   if (!raw) return { ...ZERO_USAGE };
 
+  const deepseekPromptFromCacheParts = Number(raw.prompt_cache_hit_tokens ?? 0) + Number(raw.prompt_cache_miss_tokens ?? 0);
   const prompt = Number(
-    raw.prompt_tokens ?? raw.promptTokens ?? raw.inputTokens ?? raw.input_tokens ?? 0,
+    raw.prompt_tokens ?? raw.promptTokens ?? raw.inputTokens ?? raw.input_tokens ?? (deepseekPromptFromCacheParts || 0),
   );
   const completion = Number(
     raw.completion_tokens ?? raw.completionTokens ?? raw.outputTokens ?? raw.output_tokens ?? 0,

@@ -6,6 +6,7 @@ import {
   runProviderCacheLiveCanaries,
   summarizeProviderCacheCanaries,
   summarizeProviderCacheLiveCanaries,
+  type ProviderCacheCanaryCase,
   type ProviderCacheLiveEndpoint,
 } from "../src/telemetry/provider-cache-canary.js";
 
@@ -47,9 +48,33 @@ function endpointFromEnv(providerId: string): ProviderCacheLiveEndpoint | undefi
 
 function liveEndpointsFromEnv(): Record<string, ProviderCacheLiveEndpoint | undefined> {
   return Object.fromEntries(
-    PROVIDER_CACHE_CANARY_CASES.map((canary) => [canary.id, endpointFromEnv(canary.id)]),
+    liveCanaries.map((canary) => [canary.id, endpointFromEnv(canary.id)]),
   );
 }
+
+function currentProviderCanaryFromEnv(): ProviderCacheCanaryCase | null {
+  const baseUrl = process.env.SYNESIS_CACHE_CANARY_CURRENT_BASE_URL;
+  const model = process.env.SYNESIS_CACHE_CANARY_CURRENT_MODEL;
+  if (!baseUrl || !model) return null;
+  return {
+    id: "current",
+    displayName: process.env.SYNESIS_CACHE_CANARY_CURRENT_DISPLAY_NAME || "Current configured provider",
+    baseUrl,
+    model,
+    providerTag: process.env.SYNESIS_CACHE_CANARY_CURRENT_PROVIDER_TAG || "generic",
+    endpointCapability: "none",
+    markerBackend: "none",
+    expectedProviderStrategy: "unknown",
+    requiresExplicitMarkers: false,
+    premiumCache: false,
+    minPrefixStableBytes: Number(process.env.SYNESIS_CACHE_CANARY_CURRENT_MIN_PREFIX_BYTES ?? 8_000),
+  };
+}
+
+const currentProviderCanary = currentProviderCanaryFromEnv();
+const liveCanaries = currentProviderCanary
+  ? [currentProviderCanary, ...PROVIDER_CACHE_CANARY_CASES]
+  : PROVIDER_CACHE_CANARY_CASES;
 
 const results = runProviderCacheCanaries();
 const summary = summarizeProviderCacheCanaries(results);

@@ -3,6 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { normalizeOpenAICompatTierModelId, type TierConfig } from "./admin-tier-registry.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
+import type { CacheDebugTraceMode } from "../telemetry/cache-debug-trace.js";
 import type { PrefixOptimizer } from "./prefix-optimizer/index.js";
 import {
   composeEndpointTransportFetch,
@@ -21,12 +22,16 @@ export class SynesisProviderRegistry {
   private tierMap = new Map<string, TierConfig>();
   private prefixOptimizer: PrefixOptimizer | null = null;
   private currentSessionKey: string | null = null;
+  private currentRequestId: string | null = null;
+  private currentClientKind: string | null = null;
   private readonly upstreamRetryPolicy: EndpointTransportRetryPolicy;
   private readonly dashscopeOptions: DashScopeEndpointAdapterOptions;
+  private readonly cacheDebugTraceMode: CacheDebugTraceMode;
 
   constructor(opts?: {
     upstreamRetryPolicy?: EndpointTransportRetryPolicy;
     dashscopeOptions?: DashScopeEndpointAdapterOptions;
+    cacheDebugTraceMode?: CacheDebugTraceMode;
   }) {
     this.upstreamRetryPolicy = opts?.upstreamRetryPolicy ?? {
       enabled: true,
@@ -36,6 +41,7 @@ export class SynesisProviderRegistry {
       jitterMs: 125,
     };
     this.dashscopeOptions = opts?.dashscopeOptions ?? { mode: "off", canaryPct: 0, maxMarkers: 3 };
+    this.cacheDebugTraceMode = opts?.cacheDebugTraceMode ?? "off";
   }
 
   updateTiers(tiers: TierConfig[]): void {
@@ -60,6 +66,20 @@ export class SynesisProviderRegistry {
    */
   setCurrentSessionKey(sessionKey: string): void {
     this.currentSessionKey = sessionKey;
+  }
+
+  setCurrentRequestContext(context: { sessionKey: string; requestId?: string | null; clientKind?: string | null }): void {
+    this.currentSessionKey = context.sessionKey;
+    this.currentRequestId = context.requestId ?? null;
+    this.currentClientKind = context.clientKind ?? null;
+  }
+
+  private cacheDebugTraceContext() {
+    return {
+      sessionKey: this.currentSessionKey,
+      requestId: this.currentRequestId,
+      clientKind: this.currentClientKind,
+    };
   }
 
   getAvailableModels(): Array<{ id: string; object: "model"; owned_by: string; created: number }> {
@@ -105,8 +125,15 @@ export class SynesisProviderRegistry {
     }
     const capabilityId = resolveEndpointCapabilityId(selected.baseUrl);
     const transportAdapter = getEndpointTransportAdapter(capabilityId, { dashscope: this.dashscopeOptions });
+    const telemetryFetch = createUsageTelemetryFetch(globalThis.fetch, {
+      provider: transportAdapter.telemetryProviderTag,
+      tier: selected.id,
+      model: selected.backendModel,
+      cacheDebugTraceMode: this.cacheDebugTraceMode,
+      getCacheDebugTraceContext: () => this.cacheDebugTraceContext(),
+    });
     const transportFetch = composeEndpointTransportFetch(
-      globalThis.fetch,
+      telemetryFetch,
       transportAdapter,
       () => this.currentSessionKey,
       {
@@ -120,11 +147,7 @@ export class SynesisProviderRegistry {
     const upstream = createOpenAI({
       baseURL: selected.baseUrl,
       apiKey: selected.apiKey,
-      fetch: createUsageTelemetryFetch(transportFetch, {
-        provider: transportAdapter.telemetryProviderTag,
-        tier: selected.id,
-        model: selected.backendModel,
-      }),
+      fetch: transportFetch,
     });
     const provider = customProvider({
       languageModels: {
@@ -153,8 +176,15 @@ export class SynesisProviderRegistry {
   ): { model: unknown; resolvedModelId: string; adapter: ModelAdapter } {
     const capabilityId = resolveEndpointCapabilityId(baseUrl);
     const transportAdapter = getEndpointTransportAdapter(capabilityId, { dashscope: this.dashscopeOptions });
+    const telemetryFetch = createUsageTelemetryFetch(globalThis.fetch, {
+      provider: transportAdapter.telemetryProviderTag,
+      tier: modelId,
+      model: backendModel,
+      cacheDebugTraceMode: this.cacheDebugTraceMode,
+      getCacheDebugTraceContext: () => this.cacheDebugTraceContext(),
+    });
     const transportFetch = composeEndpointTransportFetch(
-      globalThis.fetch,
+      telemetryFetch,
       transportAdapter,
       () => this.currentSessionKey,
       {
@@ -167,11 +197,7 @@ export class SynesisProviderRegistry {
     const upstream = createOpenAI({
       baseURL: baseUrl,
       apiKey,
-      fetch: createUsageTelemetryFetch(transportFetch, {
-        provider: transportAdapter.telemetryProviderTag,
-        tier: modelId,
-        model: backendModel,
-      }),
+      fetch: transportFetch,
     });
     const provider = customProvider({
       languageModels: {

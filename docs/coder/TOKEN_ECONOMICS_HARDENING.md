@@ -135,6 +135,16 @@ Runtime preference knobs:
 - `SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED` default `true`
 - `SYNESIS_YARN_USER_RUNTIME_PREFERENCES_TTL_MS` default `2592000000`
 
+### Hashed cache debug traces
+
+Set `SYNESIS_YARN_CACHE_DEBUG_TRACE=hashed` to emit one hashed-only
+`provider_cache_debug_trace` record for each provider request that returns
+usage telemetry. The trace includes provider/model/client context, stable
+prefix bytes, shared prefix bytes with the previous request in the same
+session, first divergent message index, request/tool/message hashes, normalized
+usage, cache hit percentage, and a cache miss reason. It does not log prompt
+text, tool-result text, or payload excerpts.
+
 ### Durable trace and session visibility
 
 `persistSessionAndUsage` now records the token-economics summary in:
@@ -198,6 +208,21 @@ SYNESIS_CACHE_CANARY_ACK_COST=1 \
 SYNESIS_CACHE_CANARY_ALLOW=openrouter \
 SYNESIS_CACHE_CANARY_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 \
 SYNESIS_CACHE_CANARY_OPENROUTER_API_KEY=... \
+npm run verify:cache-canaries
+```
+
+To probe the currently configured provider before the built-in provider cases,
+provide the `current` endpoint and allow-list it:
+
+```bash
+cd base/yarn-ts
+SYNESIS_CACHE_CANARY_LIVE=1 \
+SYNESIS_CACHE_CANARY_ACK_COST=1 \
+SYNESIS_CACHE_CANARY_ALLOW=current \
+SYNESIS_CACHE_CANARY_CURRENT_BASE_URL=https://provider.example/v1 \
+SYNESIS_CACHE_CANARY_CURRENT_MODEL=my-model \
+SYNESIS_CACHE_CANARY_CURRENT_API_KEY=... \
+SYNESIS_CACHE_CANARY_CURRENT_PROVIDER_TAG=openrouter \
 npm run verify:cache-canaries
 ```
 
