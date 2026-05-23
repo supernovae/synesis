@@ -1,7 +1,7 @@
 """Add cache billing breakdown columns for usage audit.
 
 Revision ID: 062
-Revises: 061
+Revises: 061_admin_sessions
 Create Date: 2026-05-22
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "062"
-down_revision: str | None = "061"
+down_revision: str | None = "061_admin_sessions"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
