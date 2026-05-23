@@ -121,6 +121,8 @@ describe("client tool capabilities", () => {
 
     expect(enrichToolDescriptionForClient("todowrite", "Manage todos", caps))
       .toContain("3-7 concrete todos");
+    expect(enrichToolDescriptionForClient("todowrite", "Manage todos", caps))
+      .toContain("as each component finishes");
     expect(enrichToolDescriptionForClient("question", "Ask the user", caps))
       .toContain("real ambiguity");
   });

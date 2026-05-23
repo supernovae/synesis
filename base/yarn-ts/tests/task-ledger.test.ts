@@ -873,6 +873,7 @@ describe("task-ledger", () => {
       const nudge = buildTaskLedgerNudge(ledger, caps);
       expect(nudge).toContain("todowrite");
       expect(nudge).toContain("task ledger");
+      expect(nudge).toContain("as each component finishes");
     });
 
     it("asks for checklist summary when no todo tool", () => {

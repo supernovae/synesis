@@ -57,6 +57,7 @@ export function buildTaskLedgerNudge(
     "Before final response, reconcile the task ledger.",
     `${openTasks.length} task(s) remain open.`,
     "For each open task: mark it completed with evidence, mark it obsolete/not applicable with a reason, mark it blocked, or explicitly state it remains unfinished.",
+    "During implementation, update task statuses as each component finishes; do not batch all status changes only at the end.",
     "Do not claim all work is complete while open tasks remain.",
     todoToolInstruction,
   ].join(" ");

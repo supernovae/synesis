@@ -7102,6 +7102,14 @@ function sendOpenAISoftFail(
     object: "chat.completion.chunk",
     created: ts,
     model,
+    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
+  })}\n\n`);
+  safeWrite(reply.raw, `data: ${JSON.stringify({
+    id: requestId,
+    object: "chat.completion.chunk",
+    created: ts,
+    model,
     choices: [{ index: 0, delta: { content }, finish_reason: null }],
     ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
   })}\n\n`);

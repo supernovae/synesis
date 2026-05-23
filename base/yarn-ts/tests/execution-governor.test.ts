@@ -1459,6 +1459,20 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("identical_tool_repeat");
   });
 
+  it("does not hard-pause on compacted narration residue before a fresh continue turn acts", () => {
+    const messages = [
+      { role: "user", content: "continue" },
+    ];
+    const out = evaluateExecutionGovernor(messages, {
+      chatState: {
+        pendingUserDirective: "continue",
+        narrationResidueSummary: "assistant previously repeated the same opening",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("repeated_assistant_intro");
+  });
+
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without any tool calls", () => {
     // verbal_intent_without_action targets pure narration — model says "I'll..." but
     // calls NO tools at all. If tools are called, no_progress_loop handles unproductive loops.

@@ -2083,7 +2083,8 @@ export function evaluateExecutionGovernor(
     countRepeatedAssistantIntroEdges(recentMessagesForIntent),
     directiveAckReplayEdges,
   );
-  if (opts.chatState?.narrationResidueSummary) {
+  const hasRecentAssistantAfterUserRedirect = recentMessagesForIntent.some((m) => m.role === "assistant");
+  if (opts.chatState?.narrationResidueSummary && hasRecentAssistantAfterUserRedirect) {
     // State-derived residue indicates repeated intent narration happened even if
     // the current transcript window has been compacted.
     repeatedAssistantIntroEdges = Math.max(repeatedAssistantIntroEdges, 2);
