@@ -105,8 +105,9 @@ export default function CorpusOverview() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-5">
           <MetricCard
-            label="Total Chunks"
+            label="Content Nodes"
             value={corpus?.total_chunks?.toLocaleString() ?? 0}
+            subtitle="text/content-bearing"
             icon={Database}
           />
           <MetricCard
@@ -151,7 +152,7 @@ export default function CorpusOverview() {
           <div>
             <div className="font-medium">Content graph contains non-searchable graph nodes</div>
             <div className="mt-1">
-              {malformedGraphNodes.toLocaleString()} graph nodes are missing chunk text or embeddings and are excluded from corpus totals.
+              {malformedGraphNodes.toLocaleString()} graph nodes are missing searchable text/content and are excluded from corpus totals.
             </div>
           </div>
         </div>
@@ -303,7 +304,7 @@ function SchemaView({ data }: { data: CorpusSchemaData }) {
                     {h.domain}
                   </span>
                   <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
-                    {h.total_chunks.toLocaleString()} chunks
+                    {h.total_chunks.toLocaleString()} nodes
                   </span>
                   <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700">
                     {h.sources.length} sources
@@ -317,7 +318,7 @@ function SchemaView({ data }: { data: CorpusSchemaData }) {
                         className="flex items-center justify-between rounded px-3 py-1 text-sm text-gray-600 dark:text-gray-400"
                       >
                         <span className="truncate">{s.source}</span>
-                        <span className="ml-2 text-xs text-gray-400">{s.chunks} chunks</span>
+                        <span className="ml-2 text-xs text-gray-400">{s.chunks} nodes</span>
                       </div>
                     ))}
                   </div>

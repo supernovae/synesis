@@ -18,6 +18,20 @@ _FILTER_EQ_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"\s*$')
 _FILTER_NE_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*!=\s*"([^"]*)"\s*$')
 _FILTER_IN_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\s+\[([^\]]*)\]\s*$")
 
+_CONTENT_TEXT_CYPHER = (
+    "CASE "
+    "WHEN n.text IS NOT NULL AND trim(toString(n.text)) <> '' THEN trim(toString(n.text)) "
+    "WHEN n.content IS NOT NULL AND trim(toString(n.content)) <> '' THEN trim(toString(n.content)) "
+    "WHEN n.chunk_summary IS NOT NULL AND trim(toString(n.chunk_summary)) <> '' "
+    "THEN trim(toString(n.chunk_summary)) "
+    "WHEN n.summary IS NOT NULL AND trim(toString(n.summary)) <> '' THEN trim(toString(n.summary)) "
+    "ELSE '' END"
+)
+_CONTENT_NODE_CASE_CYPHER = f"CASE WHEN {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END"
+_STRICT_CHUNK_CASE_CYPHER = (
+    f"CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END"
+)
+
 
 def expected_graph_schema_version() -> int:
     return int(os.environ.get("SYNESIS_EXPECTED_GRAPH_SCHEMA_VERSION", str(SCHEMA_VERSION)))
@@ -351,13 +365,11 @@ def collection_stats(collection: str) -> dict[str, Any]:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             stats = session.run(
-                """
+                f"""
                 MATCH (n:ContentNode)
                 RETURN count(n) AS total_nodes,
-                       sum(CASE
-                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
-                           ELSE 0
-                       END) AS chunk_count,
+                       sum({_CONTENT_NODE_CASE_CYPHER}) AS content_node_count,
+                       sum({_STRICT_CHUNK_CASE_CYPHER}) AS strict_chunk_count,
                        count(n.embedding) AS embedding_count,
                        count(DISTINCT CASE
                            WHEN coalesce(n.pack, n.pack_id, '') <> '' THEN coalesce(n.pack, n.pack_id, '')
@@ -367,14 +379,16 @@ def collection_stats(collection: str) -> dict[str, Any]:
             ).single()
             edge_count = session.run("MATCH (:ContentNode)-[r]->(:ContentNode) RETURN count(r) AS c").single()["c"]
             node_count = int(stats["total_nodes"] or 0) if stats else 0
-            chunk_count = int(stats["chunk_count"] or 0) if stats else 0
+            content_node_count = int(stats["content_node_count"] or 0) if stats else 0
+            strict_chunk_count = int(stats["strict_chunk_count"] or 0) if stats else 0
             embedding_count = int(stats["embedding_count"] or 0) if stats else 0
             pack_count = int(stats["pack_count"] or 0) if stats else 0
         return {
-            "row_count": chunk_count,
-            "chunk_count": chunk_count,
+            "row_count": content_node_count,
+            "chunk_count": content_node_count,
+            "strict_chunk_count": strict_chunk_count,
             "node_count": node_count,
-            "malformed_node_count": max(0, node_count - chunk_count),
+            "malformed_node_count": max(0, node_count - content_node_count),
             "embedding_count": embedding_count,
             "edge_count": int(edge_count),
             "pack_count": pack_count,
@@ -394,24 +408,23 @@ def collection_corpus_summary(collection: str) -> dict[str, Any]:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
-                """
+                f"""
                 MATCH (n:ContentNode)
                 RETURN n.domain AS domain,
-                       n.doc_id AS doc_id,
-                       n.document_name AS document_name,
-                       n.source_url AS source_url,
+                       coalesce(n.doc_id, n.document_id, '') AS doc_id,
+                       coalesce(n.document_name, n.name, '') AS document_name,
+                       coalesce(n.source_url, n.url, '') AS source_url,
                        coalesce(n.pack, n.pack_id, '') AS pack,
-                       sum(CASE
-                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
-                           ELSE 0
-                       END) AS chunks
+                       sum({_CONTENT_NODE_CASE_CYPHER}) AS chunks
                 """
             )
             for row in rows:
                 if int(row["chunks"] or 0) <= 0:
                     continue
                 domain = str(row.get("domain") or "").strip()
-                doc_id = str(row.get("doc_id") or "").strip()
+                doc_id = str(
+                    row.get("doc_id") or row.get("document_name") or row.get("source_url") or row.get("pack") or ""
+                ).strip()
                 source = str(
                     row.get("document_name") or row.get("source_url") or row.get("doc_id") or row.get("pack") or ""
                 ).strip()
@@ -438,7 +451,7 @@ def collection_installed_packs(collection: str) -> list[dict[str, Any]]:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
-                """
+                f"""
                 MATCH (n:ContentNode)
                 RETURN coalesce(n.pack, n.pack_id, '') AS pack_id,
                        max(n.pack_version) AS pack_version,
@@ -446,10 +459,7 @@ def collection_installed_packs(collection: str) -> list[dict[str, Any]]:
                        max(n.language) AS language,
                        max(n.domain) AS domain,
                        max(n.pack_artifact_hash) AS pack_artifact_hash,
-                       sum(CASE
-                           WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1
-                           ELSE 0
-                       END) AS row_count
+                       sum({_CONTENT_NODE_CASE_CYPHER}) AS row_count
                 ORDER BY pack_id
                 """
             )
@@ -482,13 +492,13 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
-                """
+                f"""
                 MATCH (n:ContentNode)
                 WITH coalesce(n.pack, n.pack_id, '') AS pack_id, n
                 WHERE pack_id <> ''
                 WITH pack_id,
                      count(n) AS node_count,
-                     sum(CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND n.text IS NOT NULL THEN 1 ELSE 0 END) AS chunk_count,
+                     sum(CASE WHEN {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END) AS chunk_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'Example' THEN 1 ELSE 0 END) AS example_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'ContextCard' THEN 1 ELSE 0 END) AS context_card_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'PackCard' THEN 1 ELSE 0 END) AS pack_card_count,
@@ -673,14 +683,14 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
             rows = session.run(
-                """
+                f"""
                 MATCH (n:ContentNode)
                 RETURN n.domain AS domain,
-                       n.source_url AS source_url,
-                       n.document_name AS document_name,
-                       n.doc_id AS doc_id,
-                       n.pack AS pack,
-                       count(n.text) AS chunks
+                       coalesce(n.source_url, n.url, '') AS source_url,
+                       coalesce(n.document_name, n.name, '') AS document_name,
+                       coalesce(n.doc_id, n.document_id, '') AS doc_id,
+                       coalesce(n.pack, n.pack_id, '') AS pack,
+                       sum({_CONTENT_NODE_CASE_CYPHER}) AS chunks
                 """
             )
             for row in rows:
