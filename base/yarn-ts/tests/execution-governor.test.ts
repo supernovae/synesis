@@ -1461,6 +1461,24 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("verbal_intent_without_action");
   });
 
+  it("does not fire verbal_intent_without_action during concrete empty-repo discovery", () => {
+    const messages = [
+      { role: "user", content: "build the complete TaskPulse application" },
+      { role: "assistant", content: "I'll start by reading categorizer.py to understand the current state of the codebase." },
+      assistantCall("1", "Read", { file_path: "categorizer.py" }),
+      toolResult("1", "File not found: /home/byron/src/test/categorizer.py"),
+      { role: "assistant", content: "I need to check the current project structure first. Let me explore what files exist in the repository." },
+      assistantCall("2", "bash", { command: "ls -la" }),
+      toolResult("2", "total 8\ndrwxrwxr-x 2 byron byron 4096 May 23 00:19 .\ndrwxrwxr-x 6 byron byron 4096 May 21 16:35 .."),
+      { role: "assistant", content: "I see the current directory is empty. Let me check if there's a repository root or if I need to create the project from scratch." },
+      assistantCall("3", "bash", { command: "pwd" }),
+      toolResult("3", "/home/byron/src/test"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("verbal_intent_without_action");
+  });
+
   it("does not fire completion_claim_requires_task_update from task words alone without active task context", () => {
     const messages = [
       { role: "user", content: "implement bundle files" },
@@ -1931,6 +1949,16 @@ describe("execution governor", () => {
       { role: "assistant", content: "Let me implement the keychain now." },
       assistantCall("3", "read_file", { path: "pkg/keychain/keychain.go" }),
       toolResult("3", "package keychain"),
+      assistantCall("4", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("4", "package keychain"),
+      assistantCall("5", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("5", "package keychain"),
+      assistantCall("6", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("6", "package keychain"),
+      assistantCall("7", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("7", "package keychain"),
+      assistantCall("8", "read_file", { path: "pkg/keychain/keychain.go" }),
+      toolResult("8", "package keychain"),
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.matchedRules).toContain("verbal_intent_without_action");

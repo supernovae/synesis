@@ -2157,7 +2157,19 @@ export function evaluateExecutionGovernor(
   if (!isInvestigationOnly && verificationIntentStreak >= 2 && !hasRunTest && effectiveNoEditEvidence) {
     pushRule("verification_intent_without_action");
   }
-  if (!isInvestigationOnly && verbalIntentStreak >= 3 && effectiveNoEditEvidence) {
+  const verbalIntentHasNoToolActions = recentEventsForIntent.length === 0;
+  const verbalIntentHasDiscoveryChurn =
+    discoveryChurnLikely
+    || discoveryChurnRunaway
+    || repeatedReadSearchCalls >= thresholds.repeatedReadSearchPauseThreshold
+    || repeatedBroadDiscoveryCalls >= thresholds.repeatedBroadDiscoveryPauseThreshold
+    || totalBroadDiscoveryCalls >= thresholds.totalBroadDiscoveryPauseThreshold;
+  if (
+    !isInvestigationOnly
+    && verbalIntentStreak >= 3
+    && effectiveNoEditEvidence
+    && (verbalIntentHasNoToolActions || verbalIntentHasDiscoveryChurn)
+  ) {
     pushRule("verbal_intent_without_action");
   }
   // Failed edits still populate extractEditedFileHints, clearing noEditEvidence — but duplicate
@@ -2646,7 +2658,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verbal_intent_without_action",
       suggestedNextStep:
-        `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without taking a concrete action. Stop narrating and do ONE of: (1) run ONE test/build command with Bash now, (2) make one code edit (Write/Edit/Write), or (3) call TaskUpdate/TodoWrite to mark completed tasks done.`,
+        `You have declared intent to act ${verbalIntentStreak} times ("I'll ...", "Let me ...") without making progress. Stop narrating and do ONE of: (1) run ONE test/build command with Bash now, (2) make one code edit (Write/Edit/Write), or (3) call TaskUpdate/TodoWrite to mark completed tasks done.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -3167,7 +3179,7 @@ const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
     nudge: "Run exactly one narrow command (for example one `go test` for the package you changed), or make a single code edit first—then continue from the real output.",
   },
   verbal_intent_without_action: {
-    what: "The assistant kept opening with 'I'll' / 'let me' style phrases without the next real tool call actually happening, so the run was not making forward progress.",
+    what: "The assistant kept opening with 'I'll' / 'let me' style phrases without an edit, task update, verification command, or other progress signal in recent history.",
     nudge: "Next turn: do exactly one of—one Bash test/build, one file edit, or one task/plan update—then stop and read the result before anything else.",
   },
   no_progress_loop: {
