@@ -101,6 +101,31 @@ function gateFeedback(errors: string[]): string {
   ].join("\n");
 }
 
+function fallbackExecutionPlan(state: GraphState): Record<string, unknown> {
+  const task = (state.task_description ?? "the user request").trim() || "the user request";
+  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
+  const requestedFormat = String(taskFrame.requested_format ?? "prose");
+  const outputSchema = Array.isArray(taskFrame.output_schema)
+    ? (taskFrame.output_schema as unknown[]).map(String).filter(Boolean)
+    : [];
+  const schemaHint = outputSchema.length > 0
+    ? ` Include requested schema fields: ${outputSchema.join(", ")}.`
+    : "";
+
+  return {
+    steps: [{
+      id: 1,
+      action: `Produce a best-effort ${requestedFormat} answer for the latest user request: ${task}.${schemaHint}`,
+      files: [],
+      dependencies: [],
+    }],
+    open_questions: [],
+    assumptions: [
+      "Plan validation exhausted retries; proceeding with a direct best-effort answer instead of returning an empty response.",
+    ],
+  };
+}
+
 export function planGate(state: GraphState): GraphState {
   if (state.next_node === "respond") return state;
 
@@ -132,7 +157,9 @@ export function planGate(state: GraphState): GraphState {
   const passed = errors.length === 0;
   const plannerErrorCount = passed ? state.planner_error_count ?? 0 : (state.planner_error_count ?? 0) + 1;
   const maxRetries = 2;
-  const nextNode = passed ? "router" : plannerErrorCount > maxRetries ? "respond" : "planner";
+  const exhausted = !passed && plannerErrorCount > maxRetries;
+  const nextNode = passed ? "router" : exhausted ? "router" : "planner";
+  const feedback = gateFeedback(errors);
 
   collector?.endSpan("plan_gate", {
     outcome: passed ? "passed" : "failed",
@@ -140,15 +167,19 @@ export function planGate(state: GraphState): GraphState {
       errors_count: errors.length,
       errors: errors.slice(0, 5),
       planner_error_count: plannerErrorCount,
+      exhausted,
       routed_to: nextNode,
     },
   });
 
   return {
     ...state,
+    execution_plan: exhausted ? fallbackExecutionPlan(state) : state.execution_plan,
     plan_gate_passed: passed,
     plan_gate_errors: errors,
-    plan_gate_feedback: gateFeedback(errors),
+    plan_gate_feedback: exhausted
+      ? `${feedback}\nPlanner retries exhausted; proceed with a direct best-effort answer.`
+      : feedback,
     planner_error_count: plannerErrorCount,
     next_node: nextNode
   };

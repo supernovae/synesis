@@ -14,13 +14,19 @@ describe("plan gate", () => {
     expect(state.plan_gate_errors?.some((e) => e.includes("plan_empty"))).toBe(true);
   });
 
-  it("routes to respond after max retries", () => {
+  it("falls forward to a best-effort plan after max retries", () => {
     const state = planGate({
       execution_plan: { steps: [] },
       task_frame: {},
+      task_description: "Explain whether Claude Code is a harness around a raw model API.",
       planner_error_count: 3
     });
-    expect(state.next_node).toBe("respond");
+    expect(state.next_node).toBe("router");
+    expect(state.plan_gate_passed).toBe(false);
+    expect(String(state.plan_gate_feedback ?? "")).toContain("Planner retries exhausted");
+    const steps = (state.execution_plan?.steps ?? []) as Array<Record<string, unknown>>;
+    expect(steps.length).toBe(1);
+    expect(String(steps[0]?.action ?? "")).toContain("best-effort");
   });
 
   it("passes valid plan with format references", () => {
