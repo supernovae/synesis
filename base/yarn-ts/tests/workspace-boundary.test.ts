@@ -99,6 +99,8 @@ describe("workspace boundary", () => {
     expect(prompt).toContain("Do not create CLAUDE.md automatically");
     expect(prompt).toContain("Do not invent SYNOPSIS_* labels");
     expect(prompt).toContain("Do not claim prior task frames");
+    expect(prompt).toContain("Do not inspect parent or sibling directories");
+    expect(prompt).toContain("create it here");
     expect(prompt).toContain("/init is the explicit path");
   });
 });

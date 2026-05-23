@@ -318,9 +318,29 @@ export function evaluatePathAccess(
 export function extractBashFilePaths(command: string): string[] {
   const paths: string[] = [];
 
+  // Directory navigation/discovery. These are read-like filesystem accesses
+  // and must not escape the project root via `..` or absolute parent paths.
+  const cdCmd = /(?:^|[;&|]\s*)cd\s+([^\s|;&><]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = cdCmd.exec(command)) !== null) {
+    const p = m[1].replace(/^["']|["']$/g, "");
+    if (p && !p.startsWith("-")) paths.push(p);
+  }
+
+  const lsCmd = /(?:^|[;&|]\s*)ls(?:\s+-[A-Za-z0-9-]+)*\s+([^\s|;&><]+)/g;
+  while ((m = lsCmd.exec(command)) !== null) {
+    const p = m[1].replace(/^["']|["']$/g, "");
+    if (p && !p.startsWith("-")) paths.push(p);
+  }
+
+  const findCmd = /(?:^|[;&|]\s*)find\s+([^\s|;&><]+)/g;
+  while ((m = findCmd.exec(command)) !== null) {
+    const p = m[1].replace(/^["']|["']$/g, "");
+    if (p && !p.startsWith("-")) paths.push(p);
+  }
+
   // cat/head/tail/less/more with file args
   const fileReadCmd = /\b(?:cat|head|tail|less|more|source|\.)\s+([^\s|;&><]+)/g;
-  let m: RegExpExecArray | null;
   while ((m = fileReadCmd.exec(command)) !== null) {
     const p = m[1].replace(/^["']|["']$/g, "");
     if (p && !p.startsWith("-")) paths.push(p);
@@ -340,5 +360,5 @@ export function extractBashFilePaths(command: string): string[] {
     paths.push(m[2].replace(/^["']|["']$/g, ""));
   }
 
-  return paths.filter((p) => p.length > 0 && p !== "." && p !== "..");
+  return paths.filter((p) => p.length > 0 && p !== ".");
 }

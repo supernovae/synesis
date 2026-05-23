@@ -138,8 +138,9 @@ export function buildEmptyWorkspaceSystemPrompt(root: string | null): string {
     rootLine,
     "status=empty_root_without_project_instructions",
     "message=This workspace is empty. No project instruction file exists yet.",
-    "guidance=Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript. Do not surface internal TASK_FRAME or SYNESIS_* tag names to the user. Do not invent SYNOPSIS_* labels.",
-    "normal_start=Do not create CLAUDE.md automatically. Ask what to create, or create first project files only when the user's request is specific enough.",
+    "guidance=Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript. Do not read implementation filenames from old sessions before confirming they exist in this workspace. Do not surface internal TASK_FRAME or SYNESIS_* tag names to the user. Do not invent SYNOPSIS_* labels.",
+    "workspace_boundary=Stay inside workspace_root. Do not inspect parent or sibling directories with `..`, absolute parent paths, ~/src, or find/glob searches outside workspace_root. If this root is empty and the user asked for a new project/codebase, create it here.",
+    "normal_start=Do not create CLAUDE.md automatically. Ask what to create, or create first project files only when the user's request is specific enough. For explicit new-codebase prompts, start by creating the requested project files under workspace_root rather than searching sibling projects.",
     "init_command=/init is the explicit path for helping create CLAUDE.md; when used, return or apply bootstrap content safely without overwriting existing guidance unless the user explicitly confirms.",
     "</SYNESIS_EMPTY_WORKSPACE>",
   ].join("\n");

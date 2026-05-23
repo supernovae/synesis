@@ -273,6 +273,28 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("/home/byron/src");
   });
 
+  it("blocks Bash parent-directory discovery from an empty opencode workspace", () => {
+    for (const command of [
+      "ls -la ..",
+      "find .. -name \"categorizer.py\" -o -name \"main.py\"",
+      "cd /home/byron/src && mkdir -p taskpulse",
+    ]) {
+      const out = governToolCall({
+        toolName: "Bash",
+        input: { command },
+        projectRoot: "/home/byron/src/test",
+        shellCwd: "/home/byron/src/test",
+        enforcePathRoot: true,
+        blockBashPathDrift: true,
+        clientKind: "opencode",
+        pathSandboxPolicy: buildDefaultPolicy("/home/byron/src/test"),
+      });
+      expect(out.toolName).toBe("Bash");
+      expect(out.blockedPathSandbox).toBe(true);
+      expect(String(out.input.command)).toContain("path_sandbox_violation");
+    }
+  });
+
   it("allows scoped opencode Glob patterns inside the project root", () => {
     const out = governToolCall({
       toolName: "glob",
