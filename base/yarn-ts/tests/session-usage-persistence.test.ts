@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionUsagePersistenceMutation,
+  buildHourlyTokenThrottleEvents,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
   buildRequestTrajectoryEvent,
@@ -672,6 +673,57 @@ describe("session usage persistence mutation", () => {
     expect(summary.objectiveScopeBoundaryIndex).toBe(-1);
     expect(summary.stateConfidenceNeedsReground).toBe(false);
     expect(summary.stateConfidenceReasons).toEqual([]);
+  });
+
+  it("builds hourly token throttle events only on threshold crossings", () => {
+    const events = buildHourlyTokenThrottleEvents({
+      record: record(),
+      requestId: "req1",
+      snapshot: {
+        sessionTokensInWindow: 1_500,
+        userTokensInWindow: 3_000,
+      },
+      previousSessionWindowTokens: 900,
+      previousUserWindowTokens: 2_500,
+      windowMs: 3_600_000,
+      sessionLimit: 1_000,
+      userLimit: 2_000,
+    });
+
+    expect(events.map((event) => event.metadataJson?.scope)).toEqual(["session"]);
+    expect(events[0]).toMatchObject({
+      sessionKey: "s1",
+      requestId: "req1",
+      eventKind: "hourly_token_throttle_warn",
+      component: "token-throttle",
+      detail: "Session input tokens in rolling 60m window exceeded 1,000 (used: 1,500)",
+      metadataJson: {
+        scope: "session",
+        mode: "audit",
+        window_ms: 3_600_000,
+        limit_tokens: 1_000,
+        observed_tokens: 1_500,
+      },
+    });
+  });
+
+  it("builds both hourly throttle events when both scopes cross limits", () => {
+    const events = buildHourlyTokenThrottleEvents({
+      record: record(),
+      requestId: "req1",
+      snapshot: {
+        sessionTokensInWindow: 1_500,
+        userTokensInWindow: 3_000,
+      },
+      previousSessionWindowTokens: 900,
+      previousUserWindowTokens: 1_900,
+      windowMs: 60_000,
+      sessionLimit: 1_000,
+      userLimit: 2_000,
+    });
+
+    expect(events.map((event) => event.metadataJson?.scope)).toEqual(["session", "user"]);
+    expect(events[1].detail).toBe("User input tokens in rolling 1m window exceeded 2,000 (used: 3,000)");
   });
 
   it("builds state transition event set with optional calibration events", () => {

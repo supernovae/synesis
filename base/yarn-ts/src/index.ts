@@ -296,6 +296,7 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
+  buildHourlyTokenThrottleEvents,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryEvent,
   buildRequestTrajectoryMetrics,
@@ -4912,7 +4913,6 @@ function persistSessionAndUsage(
     const prevSessionWindowTokens = Number(state.record.metadata.hourly_tokens_session ?? 0) || 0;
     const prevUserWindowTokens = Number(state.record.metadata.hourly_tokens_user ?? 0) || 0;
     const windowMs = Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS);
-    const windowMinutes = Math.max(1, Math.ceil(windowMs / 60_000));
     const sessionLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT);
     const userLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT);
     void distributedCounters.addInputTokensAndReadHourlyWindow(
@@ -4923,40 +4923,25 @@ function persistSessionAndUsage(
       if (!snapshot) return;
       state.record.metadata.hourly_tokens_session = snapshot.sessionTokensInWindow;
       state.record.metadata.hourly_tokens_user = snapshot.userTokensInWindow;
-      if (snapshot.sessionTokensInWindow > sessionLimit && prevSessionWindowTokens <= sessionLimit) {
+      for (const event of buildHourlyTokenThrottleEvents({
+        record: state.record,
+        requestId,
+        snapshot,
+        previousSessionWindowTokens: prevSessionWindowTokens,
+        previousUserWindowTokens: prevUserWindowTokens,
+        windowMs,
+        sessionLimit,
+        userLimit,
+      })) {
         recordSessionEvent(
-          state.record.sessionKey,
-          state.record.userId,
-          state.record.orgId,
-          "hourly_token_throttle_warn",
-          "token-throttle",
-          `Session input tokens in rolling ${windowMinutes}m window exceeded ${sessionLimit.toLocaleString()} (used: ${snapshot.sessionTokensInWindow.toLocaleString()})`,
-          requestId,
-          {
-            scope: "session",
-            mode: "audit",
-            window_ms: windowMs,
-            limit_tokens: sessionLimit,
-            observed_tokens: snapshot.sessionTokensInWindow,
-          },
-        );
-      }
-      if (snapshot.userTokensInWindow > userLimit && prevUserWindowTokens <= userLimit) {
-        recordSessionEvent(
-          state.record.sessionKey,
-          state.record.userId,
-          state.record.orgId,
-          "hourly_token_throttle_warn",
-          "token-throttle",
-          `User input tokens in rolling ${windowMinutes}m window exceeded ${userLimit.toLocaleString()} (used: ${snapshot.userTokensInWindow.toLocaleString()})`,
-          requestId,
-          {
-            scope: "user",
-            mode: "audit",
-            window_ms: windowMs,
-            limit_tokens: userLimit,
-            observed_tokens: snapshot.userTokensInWindow,
-          },
+          event.sessionKey,
+          event.userId,
+          event.orgId,
+          event.eventKind,
+          event.component,
+          event.detail,
+          event.requestId,
+          event.metadataJson,
         );
       }
       void casSessionSave(state);

@@ -206,6 +206,22 @@ export interface PersistenceStateChannelSummary {
   stateConfidenceSummary?: Record<string, unknown>;
 }
 
+export interface HourlyTokenWindowSnapshot {
+  sessionTokensInWindow: number;
+  userTokensInWindow: number;
+}
+
+export interface BuildHourlyTokenThrottleEventsInput {
+  record: SessionRecord;
+  requestId: string;
+  snapshot: HourlyTokenWindowSnapshot;
+  previousSessionWindowTokens: number;
+  previousUserWindowTokens: number;
+  windowMs: number;
+  sessionLimit: number;
+  userLimit: number;
+}
+
 export interface StateTransitionSummary {
   changed_fields: string[];
   objective_epoch_advanced: boolean;
@@ -506,6 +522,59 @@ export function buildPersistenceStateChannelSummary(
     stateConfidenceReasons,
     stateConfidenceSummary,
   };
+}
+
+export function buildHourlyTokenThrottleEvents(
+  input: BuildHourlyTokenThrottleEventsInput,
+): SessionEventInsert[] {
+  const events: SessionEventInsert[] = [];
+  const windowMinutes = Math.max(1, Math.ceil(input.windowMs / 60_000));
+
+  if (
+    input.snapshot.sessionTokensInWindow > input.sessionLimit
+    && input.previousSessionWindowTokens <= input.sessionLimit
+  ) {
+    events.push({
+      sessionKey: input.record.sessionKey,
+      requestId: input.requestId,
+      userId: input.record.userId,
+      orgId: input.record.orgId,
+      eventKind: "hourly_token_throttle_warn",
+      component: "token-throttle",
+      detail: `Session input tokens in rolling ${windowMinutes}m window exceeded ${input.sessionLimit.toLocaleString()} (used: ${input.snapshot.sessionTokensInWindow.toLocaleString()})`,
+      metadataJson: {
+        scope: "session",
+        mode: "audit",
+        window_ms: input.windowMs,
+        limit_tokens: input.sessionLimit,
+        observed_tokens: input.snapshot.sessionTokensInWindow,
+      },
+    });
+  }
+
+  if (
+    input.snapshot.userTokensInWindow > input.userLimit
+    && input.previousUserWindowTokens <= input.userLimit
+  ) {
+    events.push({
+      sessionKey: input.record.sessionKey,
+      requestId: input.requestId,
+      userId: input.record.userId,
+      orgId: input.record.orgId,
+      eventKind: "hourly_token_throttle_warn",
+      component: "token-throttle",
+      detail: `User input tokens in rolling ${windowMinutes}m window exceeded ${input.userLimit.toLocaleString()} (used: ${input.snapshot.userTokensInWindow.toLocaleString()})`,
+      metadataJson: {
+        scope: "user",
+        mode: "audit",
+        window_ms: input.windowMs,
+        limit_tokens: input.userLimit,
+        observed_tokens: input.snapshot.userTokensInWindow,
+      },
+    });
+  }
+
+  return events;
 }
 
 export function applySessionUsagePersistenceMutation(
