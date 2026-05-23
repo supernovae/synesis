@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyGovernorTelemetryMetadata,
   applySessionUsagePersistenceMutation,
   blendStateTransitionQualityThresholds,
   buildHourlyTokenThrottleEvents,
@@ -113,6 +114,56 @@ function calibration(applied: boolean) {
 }
 
 describe("session usage persistence mutation", () => {
+  it("applies governor telemetry metadata when a governor snapshot exists", () => {
+    const session = record({ governor_pause_count: 2 });
+
+    applyGovernorTelemetryMetadata({
+      record: session,
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+        governor: {
+          pause: true,
+          reason: "needs verification",
+          matchedRules: ["verification_after_completion_claim"],
+          telemetry: {} as never,
+        },
+      },
+    });
+
+    expect(session.metadata).toMatchObject({
+      last_governor_pause: true,
+      last_governor_rules: ["verification_after_completion_claim"],
+      governor_pause_count: 3,
+    });
+  });
+
+  it("leaves governor telemetry metadata unchanged without a governor snapshot", () => {
+    const session = record({ governor_pause_count: 2 });
+
+    applyGovernorTelemetryMetadata({
+      record: session,
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+      },
+    });
+
+    expect(session.metadata).toEqual({ governor_pause_count: 2 });
+  });
+
   it("updates usage counters, cost totals, and trace links", () => {
     vi.useFakeTimers();
     vi.setSystemTime(123_456);

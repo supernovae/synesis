@@ -61,6 +61,11 @@ export interface ApplySessionUsagePersistenceInput {
   tokenEconomicsWarnings: unknown;
 }
 
+export interface ApplyGovernorTelemetryMetadataInput {
+  record: SessionRecord;
+  snapshot?: DecisionSnapshot;
+}
+
 export interface SessionTraceLinks {
   previousTraceId: string | undefined;
   parentTraceId: string | undefined;
@@ -858,6 +863,17 @@ export function runHourlyTokenThrottleUpdate(
     }
     console.warn("[throttle] token window update failed:", (err as Error).message ?? err);
   });
+}
+
+export function applyGovernorTelemetryMetadata(
+  input: ApplyGovernorTelemetryMetadataInput,
+): void {
+  const governor = input.snapshot?.governor;
+  if (!governor) return;
+  input.record.metadata.last_governor_pause = governor.pause;
+  input.record.metadata.last_governor_rules = governor.matchedRules;
+  const previousPauseCount = Number(input.record.metadata.governor_pause_count ?? 0);
+  input.record.metadata.governor_pause_count = previousPauseCount + (governor.pause ? 1 : 0);
 }
 
 export function applySessionUsagePersistenceMutation(

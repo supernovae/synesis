@@ -296,6 +296,7 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
+  applyGovernorTelemetryMetadata,
   buildPersistenceTelemetryEventBundle,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
@@ -4812,12 +4813,7 @@ function persistSessionAndUsage(
     tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
   });
 
-  if (snapshot?.governor) {
-    state.record.metadata.last_governor_pause = snapshot.governor.pause;
-    state.record.metadata.last_governor_rules = snapshot.governor.matchedRules;
-    const prevPauseCount = Number(state.record.metadata.governor_pause_count ?? 0);
-    state.record.metadata.governor_pause_count = prevPauseCount + (snapshot.governor.pause ? 1 : 0);
-  }
+  applyGovernorTelemetryMetadata({ record: state.record, snapshot });
   const previousTransitionSnapshot = decodeStateTransitionSnapshot(
     getMetadataObject(state.record.metadata, "state_transition_prev_snapshot"),
   );
