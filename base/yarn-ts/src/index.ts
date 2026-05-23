@@ -301,9 +301,8 @@ import {
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
   buildTelemetryUsage,
-  buildTokenEconomicsWarningEvent,
-  buildUsageEvent,
   buildYarnTraceRecord,
+  runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
   runHourlyTokenThrottleUpdate,
   type RequestTrajectoryInput,
@@ -4825,37 +4824,19 @@ function persistSessionAndUsage(
     state.consecutiveToolCalls
   );
 
-  void casSessionSave(state);
-  usageWriter.enqueueSessionUpsert(state.record);
-
-  const tokenEconomicsWarningEvent = buildTokenEconomicsWarningEvent({
+  runInitialSessionPersistenceWrites({
     record: state.record,
     requestId,
-    recommendation: tokenEconomicsDecision.recommendation,
-    warnings: tokenEconomicsDecision.warnings,
-    metadataJson: tokenEconomics,
-    usage,
-  });
-  if (tokenEconomicsWarningEvent) {
-    usageWriter.enqueueSessionEvent(tokenEconomicsWarningEvent);
-  }
-
-  if (config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED && state.record.continuity) {
-    usageWriter.enqueueContinuityUpsert(
-      state.record.userId,
-      state.record.orgId,
-      state.record.sessionKey,
-      state.record.continuity,
-    );
-  }
-
-  usageWriter.enqueueUsageInsert(buildUsageEvent({
-    record: state.record,
-    requestId,
-    resolvedModelId,
-    traceModel,
+    writer: usageWriter,
+    saveSession: () => casSessionSave(state),
+    conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
+    tokenEconomicsRecommendation: tokenEconomicsDecision.recommendation,
+    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
+    tokenEconomicsMetadata: tokenEconomics,
     usage,
     costBreakdown,
+    resolvedModelId,
+    traceModel,
     tokensSavedByReduction,
     latencyMs,
     normalizedEstimatedCostUsd,
@@ -4864,7 +4845,7 @@ function persistSessionAndUsage(
     escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason,
-  }));
+  });
 
   void runHourlyTokenThrottleUpdate({
     enabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,

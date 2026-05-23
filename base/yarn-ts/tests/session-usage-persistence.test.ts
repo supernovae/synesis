@@ -20,6 +20,7 @@ import {
   inferPrematureStopSignalsFromGovernor,
   inferTrajectoryBucket,
   runHourlyTokenThrottleUpdate,
+  runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
 } from "../src/state/session-usage-persistence.js";
 import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
@@ -372,6 +373,115 @@ describe("session usage persistence mutation", () => {
       metadataJson: {},
       usage: { inputTokens: 0, outputTokens: 0 },
     })).toBeNull();
+  });
+
+  it("runs initial session persistence writes in the existing order", () => {
+    const calls: string[] = [];
+    const session = record({
+      auth_method: "bearer",
+      auth_key_id: "key1",
+    });
+    session.continuity = {
+      currentTask: "task",
+      keyFindings: ["finding"],
+      decisions: [],
+      recentFiles: [],
+      updatedAt: 123,
+    };
+    const writer = {
+      enqueueSessionUpsert: vi.fn(() => calls.push("session")),
+      enqueueSessionEvent: vi.fn(() => calls.push("event")),
+      enqueueContinuityUpsert: vi.fn(() => calls.push("continuity")),
+      enqueueUsageInsert: vi.fn(() => calls.push("usage")),
+    };
+    const saveSession = vi.fn(() => calls.push("save"));
+
+    runInitialSessionPersistenceWrites({
+      record: session,
+      requestId: "req1",
+      writer,
+      saveSession,
+      conversationMemoryEnabled: true,
+      tokenEconomicsRecommendation: "stable",
+      tokenEconomicsWarnings: ["low_cache"],
+      tokenEconomicsMetadata: { cache: "low" },
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 50 },
+      costBreakdown: { tokens_uncached_input: 50 },
+      resolvedModelId: "pulse",
+      traceModel: "gpt-test",
+      tokensSavedByReduction: 30,
+      latencyMs: 123,
+      normalizedEstimatedCostUsd: 0.04,
+      normalizedActualCostUsd: 0.03,
+      pricingSource: "provider",
+      escalated: false,
+      toolCallsCount: 2,
+      finishReason: "stop",
+    });
+
+    expect(calls).toEqual(["save", "session", "event", "continuity", "usage"]);
+    expect(saveSession).toHaveBeenCalledTimes(1);
+    expect(writer.enqueueSessionUpsert).toHaveBeenCalledWith(session);
+    expect(writer.enqueueSessionEvent.mock.calls[0][0]).toMatchObject({
+      eventKind: "token_economics_warning_v1",
+      detail: "stable: low_cache",
+      metadataJson: { cache: "low" },
+    });
+    expect(writer.enqueueContinuityUpsert).toHaveBeenCalledWith(
+      "u1",
+      "o1",
+      "s1",
+      session.continuity,
+    );
+    expect(writer.enqueueUsageInsert.mock.calls[0][0]).toMatchObject({
+      sessionKey: "s1",
+      requestId: "req1",
+      provider: "pulse",
+      model: "gpt-test",
+      tokensIn: 100,
+      tokensCached: 50,
+      tokensSavedByReduction: 30,
+      estimatedCostUsd: 0.04,
+      actualCostUsd: 0.03,
+      toolCallsCount: 2,
+    });
+  });
+
+  it("skips optional initial persistence writes when warning and continuity are absent", () => {
+    const writer = {
+      enqueueSessionUpsert: vi.fn(),
+      enqueueSessionEvent: vi.fn(),
+      enqueueContinuityUpsert: vi.fn(),
+      enqueueUsageInsert: vi.fn(),
+    };
+
+    runInitialSessionPersistenceWrites({
+      record: record(),
+      requestId: "req1",
+      writer,
+      saveSession: vi.fn(),
+      conversationMemoryEnabled: true,
+      tokenEconomicsRecommendation: "stable",
+      tokenEconomicsWarnings: [],
+      tokenEconomicsMetadata: {},
+      usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+      costBreakdown: {},
+      resolvedModelId: "pulse",
+      traceModel: "gpt-test",
+      tokensSavedByReduction: 0,
+      latencyMs: 0,
+      normalizedEstimatedCostUsd: 0,
+      normalizedActualCostUsd: 0,
+      pricingSource: "provider",
+      escalated: false,
+      toolCallsCount: 0,
+      finishReason: "stop",
+    });
+
+    expect(writer.enqueueSessionUpsert).toHaveBeenCalledTimes(1);
+    expect(writer.enqueueUsageInsert).toHaveBeenCalledTimes(1);
+    expect(writer.enqueueSessionEvent).not.toHaveBeenCalled();
+    expect(writer.enqueueContinuityUpsert).not.toHaveBeenCalled();
   });
 
   it("builds yarn trace records with snapshot and optimization context", () => {

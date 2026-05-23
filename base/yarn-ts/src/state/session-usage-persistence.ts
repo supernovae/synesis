@@ -1,4 +1,4 @@
-import type { SessionRecord } from "./session-store.js";
+import type { SessionContinuity, SessionRecord } from "./session-store.js";
 import type { SessionEventInsert, UsageEvent } from "./usage-writer.js";
 import type { LlmUsage, PricingRates, TraceRecord } from "@synesis/telemetry";
 import type { DecisionSnapshot } from "../telemetry/decision-snapshot.js";
@@ -91,6 +91,41 @@ export interface BuildUsageEventInput {
   traceModel: string;
   usage: SessionUsageSummary;
   costBreakdown: UsageCostBreakdown;
+  tokensSavedByReduction: number;
+  latencyMs: number;
+  normalizedEstimatedCostUsd: number;
+  normalizedActualCostUsd: number;
+  pricingSource: string;
+  escalated: boolean;
+  toolCallsCount: number;
+  finishReason: string;
+}
+
+export interface InitialSessionPersistenceWriter {
+  enqueueSessionUpsert(record: SessionRecord): void;
+  enqueueSessionEvent(event: SessionEventInsert): void;
+  enqueueContinuityUpsert(
+    userId: string,
+    orgId: string,
+    sessionKey: string,
+    continuity: SessionContinuity,
+  ): void;
+  enqueueUsageInsert(event: UsageEvent): void;
+}
+
+export interface RunInitialSessionPersistenceWritesInput {
+  record: SessionRecord;
+  requestId: string;
+  writer: InitialSessionPersistenceWriter;
+  saveSession: () => void | Promise<void>;
+  conversationMemoryEnabled: boolean;
+  tokenEconomicsRecommendation: string;
+  tokenEconomicsWarnings: string[];
+  tokenEconomicsMetadata: Record<string, unknown>;
+  usage: SessionUsageSummary;
+  costBreakdown: UsageCostBreakdown;
+  resolvedModelId: string;
+  traceModel: string;
   tokensSavedByReduction: number;
   latencyMs: number;
   normalizedEstimatedCostUsd: number;
@@ -991,6 +1026,51 @@ export function buildTokenEconomicsWarningEvent(
     detail: `${input.recommendation}: ${input.warnings.join(",")}`,
     metadataJson: input.metadataJson,
   };
+}
+
+export function runInitialSessionPersistenceWrites(
+  input: RunInitialSessionPersistenceWritesInput,
+): void {
+  void input.saveSession();
+  input.writer.enqueueSessionUpsert(input.record);
+
+  const tokenEconomicsWarningEvent = buildTokenEconomicsWarningEvent({
+    record: input.record,
+    requestId: input.requestId,
+    recommendation: input.tokenEconomicsRecommendation,
+    warnings: input.tokenEconomicsWarnings,
+    metadataJson: input.tokenEconomicsMetadata,
+    usage: input.usage,
+  });
+  if (tokenEconomicsWarningEvent) {
+    input.writer.enqueueSessionEvent(tokenEconomicsWarningEvent);
+  }
+
+  if (input.conversationMemoryEnabled && input.record.continuity) {
+    input.writer.enqueueContinuityUpsert(
+      input.record.userId,
+      input.record.orgId,
+      input.record.sessionKey,
+      input.record.continuity,
+    );
+  }
+
+  input.writer.enqueueUsageInsert(buildUsageEvent({
+    record: input.record,
+    requestId: input.requestId,
+    resolvedModelId: input.resolvedModelId,
+    traceModel: input.traceModel,
+    usage: input.usage,
+    costBreakdown: input.costBreakdown,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    latencyMs: input.latencyMs,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+    normalizedActualCostUsd: input.normalizedActualCostUsd,
+    pricingSource: input.pricingSource,
+    escalated: input.escalated,
+    toolCallsCount: input.toolCallsCount,
+    finishReason: input.finishReason,
+  }));
 }
 
 export function buildYarnTraceRecord(input: BuildYarnTraceRecordInput): YarnTraceRecord {
