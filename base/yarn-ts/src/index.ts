@@ -296,11 +296,9 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
+  buildPersistenceTelemetryEventBundle,
   buildPersistenceStateChannelSummary,
-  buildRequestTrajectoryEvent,
   buildRequestTrajectoryMetrics,
-  buildStateTransitionEvents,
-  buildStateTransitionSummary,
   buildTelemetryUsage,
   buildTokenEconomicsWarningEvent,
   buildUsageEvent,
@@ -4902,29 +4900,7 @@ function persistSessionAndUsage(
     snapshot,
     finishReason,
   });
-  const {
-    toolSequence,
-    patchOpsCount,
-    wholeWriteOpsCount,
-    filesWrittenCount,
-    filesReadCount,
-    bytesReadTotal,
-    readEditRatio,
-    patchRatio,
-    wholeWriteRatio,
-    prematureStopSignals,
-    verificationSteps,
-    countsByKind,
-    taskBucket,
-    firstPassVerifyOk,
-    structuredErrorsCount,
-    diagnosticLinesCount,
-    structuredErrorCoverage,
-    completionGateBlocked,
-    criticBlocked,
-    outcomeState,
-    failureStage,
-  } = trajectoryMetrics;
+  const { toolSequence, outcomeState } = trajectoryMetrics;
   const persistedChatSnapshot = readPersistedChatStateSnapshot(state.record.metadata);
   const persistedFileSnapshot = readPersistedFileStateSnapshot(state.record.metadata);
   const chatStateSummaryForTelemetry = summarizeChatSnapshotForGovernor(persistedChatSnapshot);
@@ -4933,14 +4909,7 @@ function persistSessionAndUsage(
     : undefined;
   const stateChannelSummary = buildPersistenceStateChannelSummary(state.record.metadata);
   const {
-    objectiveEpochId,
-    objectiveScopeBoundaryIndex,
-    objectiveScopeRetainedEvidence,
-    objectiveScopeDroppedPreBoundary,
     objectiveScopeSummary,
-    stateConfidenceOverall,
-    stateConfidenceNeedsReground,
-    stateConfidenceReasons,
     stateConfidenceSummary,
   } = stateChannelSummary;
   const stateTransitionCalibrationRun = runStateTransitionCalibration({
@@ -4957,98 +4926,34 @@ function persistSessionAndUsage(
     outcomeState,
     globalCalibrator: stateTransitionGlobalCalibrator,
   });
-  const {
-    globalThresholdResolutionAfter,
-    globalCalibrationObservation,
-    globalSampleCountAfter,
-    globalWeightAfter,
-    activeQualityThresholds,
-    stateTransitionRecord,
-    stateTransitionTrainingRow,
-    stateTransitionCalibration,
-    thresholdShift,
-    globalThresholdShift,
-  } = stateTransitionCalibrationRun;
-  const stateTransitionSummary = buildStateTransitionSummary({
-    stateTransitionRecord,
-    activeQualityThresholds,
-    stateTransitionCalibration,
-    globalThresholdResolutionAfter,
-    globalSampleCountAfter,
-    globalWeightAfter,
-  });
-
-  usageWriter.enqueueSessionEvent(buildRequestTrajectoryEvent({
+  const telemetryEventBundle = buildPersistenceTelemetryEventBundle({
     record: state.record,
     requestId,
     traceModel,
     snapshot,
     escalated,
-    toolSequence,
-    taskBucket,
-    countsByKind,
-    retryCountTotal: trajectory?.retryCountTotal ?? state.stagnantToolCycles,
+    trajectory,
+    trajectoryMetrics,
     blindRetryCount: state.stagnantToolCycles,
-    filesReadCount,
-    bytesReadTotal,
-    filesWrittenCount,
-    readEditRatio,
-    patchOpsCount,
-    wholeWriteOpsCount,
-    patchRatio,
-    wholeWriteRatio,
-    verificationSteps,
-    firstPassVerifyOk,
-    structuredErrorsCount,
-    diagnosticLinesCount,
-    structuredErrorCoverage,
-    completionGateBlocked,
-    criticBlocked,
     usage,
     tokensSavedByReduction,
     latencyMs,
     tokenEconomics,
-    outcomeState,
-    failureStage,
     chatStateSummary: chatStateSummaryForTelemetry,
     fileStateSummary: fileStateSummaryForTelemetry,
     objectiveScopeSummary,
     stateConfidenceSummary,
-    stateTransitionSummary,
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     chatPhase: persistedChatSnapshot?.phase,
     chatCompletionStatus: chatStateSummaryForTelemetry?.completion_status,
     fileStatusCounts: persistedFileSnapshot?.statusCounts,
-    objectiveEpochId,
-    objectiveScopeBoundaryIndex,
-    objectiveScopeRetainedEvidence,
-    objectiveScopeDroppedPreBoundary,
-    stateConfidenceOverall,
-    stateConfidenceNeedsReground,
-    stateConfidenceReasons,
-    stateTransitionRecord,
-    activeQualityThresholds,
-    stateTransitionCalibration,
-    globalThresholdResolutionAfter,
-    globalSampleCountAfter,
-    prematureStopSignals,
-  }));
-
-  for (const event of buildStateTransitionEvents({
-    record: state.record,
-    requestId,
-    stateTransitionRecord,
-    stateTransitionTrainingRow,
-    activeQualityThresholds,
-    stateTransitionCalibration,
-    globalThresholdResolutionAfter,
-    globalCalibrationObservation,
-    thresholdShift,
-    globalThresholdShift,
-    globalSampleCountAfter,
-  })) {
+    stateChannelSummary,
+    stateTransitionCalibrationRun,
+  });
+  for (const event of telemetryEventBundle.sessionEvents) {
     usageWriter.enqueueSessionEvent(event);
   }
+  const { stateTransitionSummary } = telemetryEventBundle;
 
   const telemetryUsage = buildTelemetryUsage({ usage, normalizedEstimatedCostUsd });
   recordUsageMetrics(svcMetrics, traceModel, resolvedModelId, telemetryUsage, latencyMs / 1000);

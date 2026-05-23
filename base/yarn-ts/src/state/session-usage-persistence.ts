@@ -359,6 +359,40 @@ export interface BuildStateTransitionEventsInput {
   globalSampleCountAfter: number;
 }
 
+export interface BuildPersistenceTelemetryEventBundleInput {
+  record: SessionRecord;
+  requestId: string;
+  traceModel: string;
+  snapshot?: DecisionSnapshot;
+  escalated: boolean;
+  trajectory?: RequestTrajectoryInput;
+  trajectoryMetrics: RequestTrajectoryMetrics;
+  blindRetryCount: number;
+  usage: SessionUsageWithCost;
+  tokensSavedByReduction: number;
+  latencyMs: number;
+  tokenEconomics: Record<string, unknown>;
+  chatStateSummary?: Record<string, unknown>;
+  fileStateSummary?: Record<string, unknown>;
+  objectiveScopeSummary?: Record<string, unknown>;
+  stateConfidenceSummary?: Record<string, unknown>;
+  evidenceDelta: EvidenceDeltaSummary;
+  chatPhase?: string;
+  chatCompletionStatus?: string;
+  fileStatusCounts?: {
+    stale?: number;
+    partial?: number;
+    evicted?: number;
+  };
+  stateChannelSummary: PersistenceStateChannelSummary;
+  stateTransitionCalibrationRun: StateTransitionCalibrationRun;
+}
+
+export interface PersistenceTelemetryEventBundle {
+  stateTransitionSummary: StateTransitionSummary;
+  sessionEvents: SessionEventInsert[];
+}
+
 export interface RunStateTransitionCalibrationInput {
   metadata: Record<string, unknown>;
   requestId: string;
@@ -1150,6 +1184,106 @@ export function buildRequestTrajectoryEvent(input: BuildRequestTrajectoryEventIn
         premature_stop_signals: input.prematureStopSignals || undefined,
       },
     },
+  };
+}
+
+export function buildPersistenceTelemetryEventBundle(
+  input: BuildPersistenceTelemetryEventBundleInput,
+): PersistenceTelemetryEventBundle {
+  const {
+    globalThresholdResolutionAfter,
+    globalCalibrationObservation,
+    globalSampleCountAfter,
+    globalWeightAfter,
+    activeQualityThresholds,
+    stateTransitionRecord,
+    stateTransitionTrainingRow,
+    stateTransitionCalibration,
+    thresholdShift,
+    globalThresholdShift,
+  } = input.stateTransitionCalibrationRun;
+  const stateTransitionSummary = buildStateTransitionSummary({
+    stateTransitionRecord,
+    activeQualityThresholds,
+    stateTransitionCalibration,
+    globalThresholdResolutionAfter,
+    globalSampleCountAfter,
+    globalWeightAfter,
+  });
+  const trajectoryMetrics = input.trajectoryMetrics;
+  const stateChannelSummary = input.stateChannelSummary;
+  const requestTrajectoryEvent = buildRequestTrajectoryEvent({
+    record: input.record,
+    requestId: input.requestId,
+    traceModel: input.traceModel,
+    snapshot: input.snapshot,
+    escalated: input.escalated,
+    toolSequence: trajectoryMetrics.toolSequence,
+    taskBucket: trajectoryMetrics.taskBucket,
+    countsByKind: trajectoryMetrics.countsByKind,
+    retryCountTotal: input.trajectory?.retryCountTotal ?? input.blindRetryCount,
+    blindRetryCount: input.blindRetryCount,
+    filesReadCount: trajectoryMetrics.filesReadCount,
+    bytesReadTotal: trajectoryMetrics.bytesReadTotal,
+    filesWrittenCount: trajectoryMetrics.filesWrittenCount,
+    readEditRatio: trajectoryMetrics.readEditRatio,
+    patchOpsCount: trajectoryMetrics.patchOpsCount,
+    wholeWriteOpsCount: trajectoryMetrics.wholeWriteOpsCount,
+    patchRatio: trajectoryMetrics.patchRatio,
+    wholeWriteRatio: trajectoryMetrics.wholeWriteRatio,
+    verificationSteps: trajectoryMetrics.verificationSteps,
+    firstPassVerifyOk: trajectoryMetrics.firstPassVerifyOk,
+    structuredErrorsCount: trajectoryMetrics.structuredErrorsCount,
+    diagnosticLinesCount: trajectoryMetrics.diagnosticLinesCount,
+    structuredErrorCoverage: trajectoryMetrics.structuredErrorCoverage,
+    completionGateBlocked: trajectoryMetrics.completionGateBlocked,
+    criticBlocked: trajectoryMetrics.criticBlocked,
+    usage: input.usage,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    latencyMs: input.latencyMs,
+    tokenEconomics: input.tokenEconomics,
+    outcomeState: trajectoryMetrics.outcomeState,
+    failureStage: trajectoryMetrics.failureStage,
+    chatStateSummary: input.chatStateSummary,
+    fileStateSummary: input.fileStateSummary,
+    objectiveScopeSummary: input.objectiveScopeSummary,
+    stateConfidenceSummary: input.stateConfidenceSummary,
+    stateTransitionSummary,
+    evidenceDelta: input.evidenceDelta,
+    chatPhase: input.chatPhase,
+    chatCompletionStatus: input.chatCompletionStatus,
+    fileStatusCounts: input.fileStatusCounts,
+    objectiveEpochId: stateChannelSummary.objectiveEpochId,
+    objectiveScopeBoundaryIndex: stateChannelSummary.objectiveScopeBoundaryIndex,
+    objectiveScopeRetainedEvidence: stateChannelSummary.objectiveScopeRetainedEvidence,
+    objectiveScopeDroppedPreBoundary: stateChannelSummary.objectiveScopeDroppedPreBoundary,
+    stateConfidenceOverall: stateChannelSummary.stateConfidenceOverall,
+    stateConfidenceNeedsReground: stateChannelSummary.stateConfidenceNeedsReground,
+    stateConfidenceReasons: stateChannelSummary.stateConfidenceReasons,
+    stateTransitionRecord,
+    activeQualityThresholds,
+    stateTransitionCalibration,
+    globalThresholdResolutionAfter,
+    globalSampleCountAfter,
+    prematureStopSignals: trajectoryMetrics.prematureStopSignals,
+  });
+  const stateTransitionEvents = buildStateTransitionEvents({
+    record: input.record,
+    requestId: input.requestId,
+    stateTransitionRecord,
+    stateTransitionTrainingRow,
+    activeQualityThresholds,
+    stateTransitionCalibration,
+    globalThresholdResolutionAfter,
+    globalCalibrationObservation,
+    thresholdShift,
+    globalThresholdShift,
+    globalSampleCountAfter,
+  });
+
+  return {
+    stateTransitionSummary,
+    sessionEvents: [requestTrajectoryEvent, ...stateTransitionEvents],
   };
 }
 

@@ -3,6 +3,7 @@ import {
   applySessionUsagePersistenceMutation,
   blendStateTransitionQualityThresholds,
   buildHourlyTokenThrottleEvents,
+  buildPersistenceTelemetryEventBundle,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
   buildRequestTrajectoryEvent,
@@ -608,6 +609,134 @@ describe("session usage persistence mutation", () => {
       false_green_detected: true,
       premature_stop_signals: 1,
       file_state_stale_count: 2,
+    });
+  });
+
+  it("builds persistence telemetry event bundles in enqueue order", () => {
+    const stateChannelSummary = buildPersistenceStateChannelSummary({
+      objective_epoch_id: 1,
+      objective_scope_boundary_index: 2,
+      objective_scope_retained_evidence: 3,
+      state_confidence_overall: 0.8,
+      state_confidence_reasons: ["stable"],
+    });
+    const trajectoryMetrics = buildRequestTrajectoryMetrics({
+      trajectory: {
+        toolSequence: ["Read", "apply_patch"],
+        retryCountTotal: 4,
+        diagnostics: { structuredErrorsCount: 1, diagnosticLinesCount: 2 },
+      },
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "rule_a",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+      },
+      finishReason: "stop",
+    });
+    const bundle = buildPersistenceTelemetryEventBundle({
+      record: record(),
+      requestId: "req1",
+      traceModel: "pulse",
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "rule_a",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+      },
+      escalated: false,
+      trajectory: { retryCountTotal: 4 },
+      trajectoryMetrics,
+      blindRetryCount: 1,
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 50, cacheCreationTokens: 5, costUsd: 0 },
+      tokensSavedByReduction: 30,
+      latencyMs: 123,
+      tokenEconomics: { cache_policy_state: { last_recommendation: "stable" } },
+      chatStateSummary: { completion_status: "partial" },
+      fileStateSummary: { status: "ok" },
+      objectiveScopeSummary: stateChannelSummary.objectiveScopeSummary,
+      stateConfidenceSummary: stateChannelSummary.stateConfidenceSummary,
+      evidenceDelta: "changed",
+      chatPhase: "implement",
+      chatCompletionStatus: "partial",
+      fileStatusCounts: { stale: 2, partial: 1, evicted: 0 },
+      stateChannelSummary,
+      stateTransitionCalibrationRun: {
+        persistedQualityThresholds: thresholds,
+        globalThresholdResolutionBefore: {
+          selected_scope: "none",
+          selected_thresholds: thresholds,
+          org_model_sample_count: 0,
+          model_sample_count: 0,
+        },
+        globalThresholdResolutionAfter: {
+          selected_scope: "model",
+          selected_thresholds: thresholds,
+          org_model_sample_count: 2,
+          model_sample_count: 20,
+        },
+        globalCalibrationObservation: {
+          resolution: {
+            selected_scope: "model",
+            selected_thresholds: thresholds,
+            org_model_sample_count: 2,
+            model_sample_count: 20,
+          },
+          org_model_calibration: calibration(false),
+          model_calibration: calibration(false),
+        },
+        globalSampleCountAfter: 20,
+        globalWeightAfter: 0.33,
+        activeQualityThresholds: thresholds,
+        stateTransitionRecord: transitionRecord(),
+        stateTransitionTrainingRow: {
+          schema_version: "state_transition_training_v1",
+          request_id: "req1",
+          quality_label: "forward_progress",
+          quality_score: 0.8,
+          quality_reasons: [],
+          recommended_action: "continue",
+          outcome_state: "verified",
+          evidence_delta: "changed",
+          governor_pause: false,
+          objective_epoch_advanced: true,
+          objective_changed: false,
+          confidence_delta: 0.2,
+          stale_files_delta: -1,
+          partial_files_delta: 0,
+          evicted_files_delta: 0,
+          unresolved_corrections_delta: 0,
+          resolved_corrections_delta: 0,
+        },
+        stateTransitionCalibration: calibration(false),
+        thresholdShift: 0,
+        globalThresholdShift: 0,
+      },
+    });
+
+    expect(bundle.stateTransitionSummary).toMatchObject({
+      quality_label: "forward_progress",
+      quality_global_scope: "model",
+      quality_global_sample_count: 20,
+    });
+    expect(bundle.sessionEvents.map((event) => event.eventKind)).toEqual([
+      "request_trajectory_v1",
+      "state_transition_v1",
+    ]);
+    expect(bundle.sessionEvents[0].metadataJson.tools).toMatchObject({
+      retry_count_total: 4,
+    });
+    expect(bundle.sessionEvents[0].metadataJson.training_signals).toMatchObject({
+      evidence_delta: "changed",
+      state_transition_quality_label: "forward_progress",
     });
   });
 
