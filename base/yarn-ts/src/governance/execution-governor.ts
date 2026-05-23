@@ -1243,7 +1243,7 @@ function isGovernorRecoveryAnswerText(text: string): boolean {
   if (!value) return false;
   if (/\bcontinue with one (focused fix|targeted verification command)\b/.test(value)) return true;
   if (/\bstop and summarize current status\b/.test(value)) return true;
-  if (/^(?:option\s*)?[123][\).:\s-]/.test(value)) {
+  if (/^(?:option\s*)?[123][).:\s-]/.test(value)) {
     return /\b(focused fix|targeted verification|summarize|pytest|compileall|go test|npm test|pnpm test|yarn test|vitest|cargo test|git diff|edit|fix)\b/.test(value);
   }
   return false;
