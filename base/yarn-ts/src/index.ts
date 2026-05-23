@@ -298,6 +298,10 @@ import {
   runSessionUsagePersistence,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
+import {
+  readPersistedChatStateSnapshot,
+  summarizeFileStateForGovernor,
+} from "./state/persistence-state-channels.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
@@ -374,14 +378,12 @@ import {
   toChatStateSnapshot,
   type ChatPhase,
   type ChatState,
-  type ChatStateSnapshot,
 } from "./governance/chat-state.js";
 import {
   deriveFileState,
   formatFileStateBlock,
   toFileStateSnapshot,
   type FileState,
-  type FileStateSnapshot,
 } from "./governance/file-state.js";
 import {
   applyObjectiveScope,
@@ -1018,13 +1020,6 @@ function getMetadataString(meta: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function getMetadataObject(meta: Record<string, unknown>, key: string): Record<string, unknown> | null {
-  const value = meta[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
 function persistGovernorPauseContextMetadata(params: {
   session: SessionState;
   surface: GovernorPauseSurface;
@@ -1065,67 +1060,6 @@ function trimSnippet(text: string, max = 2000): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-function readPersistedChatStateSnapshot(meta: Record<string, unknown>): Partial<ChatStateSnapshot> | null {
-  const raw = getMetadataObject(meta, "chat_state_snapshot");
-  if (!raw) return null;
-
-  const phase = typeof raw.phase === "string" ? raw.phase.trim().toLowerCase() : "";
-  const completionStatus = typeof raw.completionStatus === "string" ? raw.completionStatus.trim().toLowerCase() : "";
-  const verificationOutcome = typeof raw.lastVerificationOutcome === "string"
-    ? raw.lastVerificationOutcome.trim().toLowerCase()
-    : "";
-  const updatedAt = Number(raw.updatedAt ?? 0);
-
-  const snapshot: Partial<ChatStateSnapshot> = {};
-  if (typeof raw.activeObjective === "string") snapshot.activeObjective = raw.activeObjective;
-  if (typeof raw.pendingUserDirective === "string") snapshot.pendingUserDirective = raw.pendingUserDirective;
-  if (phase === "interpret" || phase === "inspect" || phase === "edit" || phase === "verify" || phase === "recover" || phase === "finalize") {
-    snapshot.phase = phase as ChatStateSnapshot["phase"];
-  }
-  if (completionStatus === "in_progress" || completionStatus === "blocked" || completionStatus === "ready_to_finalize" || completionStatus === "complete_claimed") {
-    snapshot.completionStatus = completionStatus as ChatStateSnapshot["completionStatus"];
-  }
-  if (verificationOutcome === "pass" || verificationOutcome === "fail" || verificationOutcome === "unknown") {
-    snapshot.lastVerificationOutcome = verificationOutcome as ChatStateSnapshot["lastVerificationOutcome"];
-  }
-  if (typeof raw.transcriptSummary === "string") snapshot.transcriptSummary = raw.transcriptSummary;
-  if (Number.isFinite(Number(raw.unresolvedCorrectionCount))) {
-    snapshot.unresolvedCorrectionCount = Number(raw.unresolvedCorrectionCount);
-  }
-  if (Number.isFinite(Number(raw.resolvedCorrectionCount))) {
-    snapshot.resolvedCorrectionCount = Number(raw.resolvedCorrectionCount);
-  }
-  if (Number.isFinite(updatedAt) && updatedAt > 0) snapshot.updatedAt = updatedAt;
-  return Object.keys(snapshot).length > 0 ? snapshot : null;
-}
-
-function readPersistedFileStateSnapshot(meta: Record<string, unknown>): FileStateSnapshot | null {
-  const raw = getMetadataObject(meta, "file_state_snapshot");
-  if (!raw) return null;
-  const fileCount = Number(raw.fileCount ?? 0);
-  const statusCountsRaw = getMetadataObject(raw, "statusCounts") ?? {};
-  const staleFiles = Array.isArray(raw.staleFiles) ? raw.staleFiles.map((value) => String(value)).slice(0, 8) : [];
-  const partialFiles = Array.isArray(raw.partialFiles) ? raw.partialFiles.map((value) => String(value)).slice(0, 8) : [];
-  const evictedFiles = Array.isArray(raw.evictedFiles) ? raw.evictedFiles.map((value) => String(value)).slice(0, 8) : [];
-  const updatedAt = Number(raw.updatedAt ?? Date.now());
-  const statusCounts = {
-    available: Number(statusCountsRaw.available ?? 0),
-    partial: Number(statusCountsRaw.partial ?? 0),
-    unchanged: Number(statusCountsRaw.unchanged ?? 0),
-    stale: Number(statusCountsRaw.stale ?? 0),
-    evicted: Number(statusCountsRaw.evicted ?? 0),
-    missing: Number(statusCountsRaw.missing ?? 0),
-  };
-  return {
-    fileCount: Number.isFinite(fileCount) ? fileCount : 0,
-    statusCounts,
-    staleFiles,
-    partialFiles,
-    evictedFiles,
-    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
-  };
-}
-
 function summarizeChatStateForGovernor(chatState: ChatState): {
   active_objective: string | null;
   pending_user_directive: string | null;
@@ -1139,56 +1073,6 @@ function summarizeChatStateForGovernor(chatState: ChatState): {
     completion_status: chatState.completionStatus,
     last_verification_outcome: chatState.lastVerificationOutcome,
     narration_residue_present: Boolean(chatState.narrationResidueSummary),
-  };
-}
-
-function summarizeChatSnapshotForGovernor(snapshot: Partial<ChatStateSnapshot> | null): {
-  active_objective: string | null;
-  pending_user_directive: string | null;
-  completion_status: ChatState["completionStatus"];
-  last_verification_outcome: ChatState["lastVerificationOutcome"];
-  narration_residue_present: boolean;
-} | undefined {
-  if (!snapshot) return undefined;
-  const completionStatus = snapshot.completionStatus;
-  const verificationOutcome = snapshot.lastVerificationOutcome;
-  if (
-    completionStatus !== "in_progress"
-    && completionStatus !== "blocked"
-    && completionStatus !== "ready_to_finalize"
-    && completionStatus !== "complete_claimed"
-  ) {
-    return undefined;
-  }
-  if (
-    verificationOutcome !== "pass"
-    && verificationOutcome !== "fail"
-    && verificationOutcome !== "unknown"
-  ) {
-    return undefined;
-  }
-  return {
-    active_objective: typeof snapshot.activeObjective === "string" ? trimSnippet(snapshot.activeObjective, 220) : null,
-    pending_user_directive: typeof snapshot.pendingUserDirective === "string" ? trimSnippet(snapshot.pendingUserDirective, 220) : null,
-    completion_status: completionStatus,
-    last_verification_outcome: verificationOutcome,
-    narration_residue_present: false,
-  };
-}
-
-function summarizeFileStateForGovernor(snapshot: FileStateSnapshot): {
-  files_total: number;
-  status_counts: Record<string, number>;
-  stale_files: string[];
-  partial_files: string[];
-  evicted_files: string[];
-} {
-  return {
-    files_total: snapshot.fileCount,
-    status_counts: snapshot.statusCounts,
-    stale_files: snapshot.staleFiles,
-    partial_files: snapshot.partialFiles,
-    evicted_files: snapshot.evictedFiles,
   };
 }
 
@@ -4419,7 +4303,6 @@ import {
 import { governToolCall } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
-import { canonicalValidationToolName } from "./tool-aliases.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
 import {
   createDiffStats,
