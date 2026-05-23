@@ -341,6 +341,11 @@ import {
   applyAdapterToolHardening,
   prepareGovernedToolCall,
 } from "./governance/tool-call-governor-service.js";
+import {
+  isGitInspectionChurnBlock,
+  recordAdapterToolRepairObservations,
+  recordGovernedToolHardeningStats,
+} from "./governance/tool-call-observability.js";
 import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
 import { detectPythonRuntimeDiscoveryLoop } from "./governance/python-runtime-discovery-loop.js";
 import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
@@ -4699,40 +4704,6 @@ function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   } catch {
     return { ok: false, error: "No model configuration available — the service may still be initializing" };
   }
-}
-
-function trackGovernedHardening(governed: GovernedToolCall): void {
-  if (governed.normalizedPath) toolArgHardeningStats.normalizedPathCount += 1;
-  if (governed.constrainedToRoot) toolArgHardeningStats.projectRootConstrainedCount += 1;
-  if (governed.envelopeUnwrapped) {
-    toolArgHardeningStats.envelopeUnwrappedCount += 1;
-    switch (governed.envelopeSource) {
-      case "args_object":
-        toolArgHardeningStats.envelopeUnwrappedArgsObjectCount += 1;
-        break;
-      case "args_json_string":
-        toolArgHardeningStats.envelopeUnwrappedArgsJsonStringCount += 1;
-        break;
-      case "arguments_object":
-        toolArgHardeningStats.envelopeUnwrappedArgumentsObjectCount += 1;
-        break;
-      case "arguments_json_string":
-        toolArgHardeningStats.envelopeUnwrappedArgumentsJsonStringCount += 1;
-        break;
-      case "input_object":
-        toolArgHardeningStats.envelopeUnwrappedInputObjectCount += 1;
-        break;
-      case "input_json_string":
-        toolArgHardeningStats.envelopeUnwrappedInputJsonStringCount += 1;
-        break;
-      default:
-        break;
-    }
-  }
-  if (governed.blockedBashDrift) toolArgHardeningStats.blockedBashPathDriftCount += 1;
-  if (governed.blockedUnsafeShell) toolArgHardeningStats.blockedUnsafeShellCount += 1;
-  if (governed.blockedWriteCapable) toolArgHardeningStats.blockedWriteCapableToolCount += 1;
-  if (governed.validationMissing.length > 0) toolArgHardeningStats.validationFailedCount += 1;
 }
 
 /**
@@ -10703,42 +10674,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const hard = prepared.hardening;
         const governed = prepared.governed;
         recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai", hard.upperHarnessDecision);
-        if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-        if (hard.repairedWriteContent) {
-          toolArgHardeningStats.repairedWriteContentCount += 1;
-          app.log.warn(
-            {
-              reqId,
-              originalTool: tc.toolName,
-              filePath: rawInput.file_path ?? rawInput.path,
-            },
-            "write_tool_content_array_repaired",
-          );
-        }
-        if (hard.repairedWrite) {
-          toolArgHardeningStats.repairedWriteCount += 1;
-          app.log.warn(
-            {
-              reqId,
-              originalTool: tc.toolName,
-              rewrittenTo: "Bash",
-              filePath: rawInput.file_path ?? rawInput.path,
-            },
-            "write_tool_repaired_to_bash_heredoc",
-          );
-        }
-        if (hard.repairedBash) {
-          toolArgHardeningStats.repairedBashCount += 1;
-          app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
-        }
+        recordAdapterToolRepairObservations({
+          stats: toolArgHardeningStats,
+          hardening: hard,
+          logger: app.log,
+          requestId: reqId,
+          originalToolName: tc.toolName,
+          originalInput: rawInput,
+        });
         if (isWriteCapableToolName(hard.toolName)) {
           session.blockBroadVerificationUntilEdit = false;
           session.blockFailingVerificationUntilEdit = false;
         }
-        if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+        if (isGitInspectionChurnBlock(governed)) {
           session.gitInspectionBlockCount += 1;
         }
-        trackGovernedHardening(governed);
+        recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
         updateDiffAccumulator(session, governed);
         maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, (normalizedOpenAI.messages as unknown[]).length + toolCallIndex);
         if (governed.planWriteAudit) {
@@ -11382,45 +11333,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
           const hard = prepared.hardening;
           const governed = prepared.governed;
           recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
-          if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-          if (hard.repairedWriteContent) {
-            toolArgHardeningStats.repairedWriteContentCount += 1;
-            oaiStreamToolRepairs += 1;
-            app.log.warn(
-              {
-                reqId,
-                originalTool: event.toolName,
-                filePath: parsedInput.file_path ?? parsedInput.path,
-              },
-              "write_tool_content_array_repaired",
-            );
-          }
-          if (hard.repairedWrite) {
-            toolArgHardeningStats.repairedWriteCount += 1;
-            oaiStreamToolRepairs += 1;
-            app.log.warn(
-              {
-                reqId,
-                originalTool: event.toolName,
-                rewrittenTo: "Bash",
-                filePath: parsedInput.file_path ?? parsedInput.path,
-              },
-              "write_tool_repaired_to_bash_heredoc",
-            );
-          }
-          if (hard.repairedBash) {
-            toolArgHardeningStats.repairedBashCount += 1;
-            oaiStreamToolRepairs += 1;
-            app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
-          }
+          oaiStreamToolRepairs += recordAdapterToolRepairObservations({
+            stats: toolArgHardeningStats,
+            hardening: hard,
+            logger: app.log,
+            requestId: reqId,
+            originalToolName: event.toolName,
+            originalInput: parsedInput,
+          }).repairCountDelta;
           if (isWriteCapableToolName(hard.toolName)) {
             session.blockBroadVerificationUntilEdit = false;
             session.blockFailingVerificationUntilEdit = false;
           }
-          if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+          if (isGitInspectionChurnBlock(governed)) {
             session.gitInspectionBlockCount += 1;
           }
-          trackGovernedHardening(governed);
+          recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
           updateDiffAccumulator(session, governed);
           maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
           if (governed.planWriteAudit) {
@@ -14848,34 +14776,14 @@ app.post("/v1/messages", async (req, reply) => {
             },
           );
           recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", hard.upperHarnessDecision);
-          if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-          if (hard.repairedWriteContent) {
-            toolArgHardeningStats.repairedWriteContentCount += 1;
-            requestToolRepairs += 1;
-            app.log.warn({
-              reqId: traceReqId,
-              originalTool: event.toolName,
-              filePath: rawToolInput.file_path ?? rawToolInput.path,
-            }, "write_tool_content_array_repaired");
-          }
-          if (hard.repairedWrite) {
-            toolArgHardeningStats.repairedWriteCount += 1;
-            requestToolRepairs += 1;
-            app.log.warn({
-              reqId: traceReqId,
-              originalTool: event.toolName,
-              rewrittenTo: "Bash",
-              filePath: rawToolInput.file_path ?? rawToolInput.path,
-            }, "write_tool_repaired_to_bash_heredoc");
-          }
-          if (hard.repairedBash) {
-            toolArgHardeningStats.repairedBashCount += 1;
-            requestToolRepairs += 1;
-            app.log.warn(
-              { reqId: traceReqId, toolName: hard.toolName, bashRepaired: true },
-              "bash_tool_args_repaired",
-            );
-          }
+          requestToolRepairs += recordAdapterToolRepairObservations({
+            stats: toolArgHardeningStats,
+            hardening: hard,
+            logger: app.log,
+            requestId: traceReqId,
+            originalToolName: event.toolName,
+            originalInput: rawToolInput,
+          }).repairCountDelta;
           let emitToolName = hard.toolName;
           let finalInput = hard.input;
           if (isWriteCapableToolName(emitToolName)) {
@@ -14906,12 +14814,12 @@ app.post("/v1/messages", async (req, reply) => {
             pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
               ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
           });
-          if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+          if (isGitInspectionChurnBlock(governed)) {
             session.gitInspectionBlockCount += 1;
           }
           emitToolName = governed.toolName;
           finalInput = governed.input;
-          trackGovernedHardening(governed);
+          recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
           updateDiffAccumulator(session, governed);
           maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
           if (governed.planWriteAudit) {
@@ -15628,34 +15536,14 @@ app.post("/v1/messages", async (req, reply) => {
         recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
       });
       recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", hard.upperHarnessDecision);
-      if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
-      if (hard.repairedWriteContent) {
-        toolArgHardeningStats.repairedWriteContentCount += 1;
-        app.log.warn(
-          {
-            reqId,
-            originalTool: tc.toolName,
-            filePath: rawInput.file_path ?? rawInput.path,
-          },
-          "write_tool_content_array_repaired",
-        );
-      }
-      if (hard.repairedWrite) {
-        toolArgHardeningStats.repairedWriteCount += 1;
-        app.log.warn(
-          {
-            reqId,
-            originalTool: tc.toolName,
-            rewrittenTo: "Bash",
-            filePath: rawInput.file_path ?? rawInput.path,
-          },
-          "write_tool_repaired_to_bash_heredoc",
-        );
-      }
-      if (hard.repairedBash) {
-        toolArgHardeningStats.repairedBashCount += 1;
-        app.log.warn({ reqId, toolName: hard.toolName, bashRepaired: true }, "bash_tool_args_repaired");
-      }
+      recordAdapterToolRepairObservations({
+        stats: toolArgHardeningStats,
+        hardening: hard,
+        logger: app.log,
+        requestId: reqId,
+        originalToolName: tc.toolName,
+        originalInput: rawInput,
+      });
       if (isWriteCapableToolName(hard.toolName)) {
         session.blockBroadVerificationUntilEdit = false;
         session.blockFailingVerificationUntilEdit = false;
@@ -15683,10 +15571,10 @@ app.post("/v1/messages", async (req, reply) => {
         pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
           ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
       });
-      if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
+      if (isGitInspectionChurnBlock(governed)) {
         session.gitInspectionBlockCount += 1;
       }
-      trackGovernedHardening(governed);
+      recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
       updateDiffAccumulator(session, governed);
       maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
       if (governed.planWriteAudit) {
