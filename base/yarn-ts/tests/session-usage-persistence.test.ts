@@ -19,6 +19,7 @@ import {
   buildYarnTraceRecord,
   inferPrematureStopSignalsFromGovernor,
   inferTrajectoryBucket,
+  preparePersistenceStateChannels,
   runHourlyTokenThrottleUpdate,
   runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
@@ -1198,6 +1199,101 @@ describe("session usage persistence mutation", () => {
     expect(summary.objectiveScopeBoundaryIndex).toBe(-1);
     expect(summary.stateConfidenceNeedsReground).toBe(false);
     expect(summary.stateConfidenceReasons).toEqual([]);
+  });
+
+  it("prepares persistence state channels from persisted metadata", () => {
+    const prepared = preparePersistenceStateChannels({
+      chat_state_snapshot: {
+        activeObjective: "Ship the persistence extraction",
+        pendingUserDirective: "keep going",
+        phase: "verify",
+        completionStatus: "blocked",
+        lastVerificationOutcome: "fail",
+        unresolvedCorrectionCount: 2,
+        resolvedCorrectionCount: 1,
+        transcriptSummary: "summary",
+        updatedAt: 10,
+      },
+      file_state_snapshot: {
+        fileCount: 3,
+        statusCounts: {
+          available: 1,
+          partial: 1,
+          unchanged: 0,
+          stale: 1,
+          evicted: 0,
+          missing: 0,
+        },
+        staleFiles: ["src/a.ts", "src/b.ts"],
+        partialFiles: ["src/c.ts"],
+        evictedFiles: [],
+        updatedAt: 11,
+      },
+      objective_epoch_id: 2,
+      objective_scope_boundary_index: 4,
+      objective_scope_retained_evidence: 5,
+      objective_scope_dropped_pre_boundary: 1,
+      state_confidence_overall: 0.7,
+      state_confidence_needs_reground: true,
+      state_confidence_reasons: ["stale"],
+    });
+
+    expect(prepared.persistedChatSnapshot).toMatchObject({
+      phase: "verify",
+      completionStatus: "blocked",
+      lastVerificationOutcome: "fail",
+      unresolvedCorrectionCount: 2,
+      resolvedCorrectionCount: 1,
+    });
+    expect(prepared.chatStateSummary).toMatchObject({
+      active_objective: "Ship the persistence extraction",
+      pending_user_directive: "keep going",
+      completion_status: "blocked",
+      last_verification_outcome: "fail",
+      narration_residue_present: false,
+    });
+    expect(prepared.fileStateSummary).toMatchObject({
+      files_total: 3,
+      stale_files: ["src/a.ts", "src/b.ts"],
+      partial_files: ["src/c.ts"],
+    });
+    expect(prepared.objectiveScopeSummary).toMatchObject({
+      epoch_id: 2,
+      boundary_index: 4,
+      retained_evidence: 5,
+      dropped_pre_boundary: 1,
+    });
+    expect(prepared.stateConfidenceSummary).toMatchObject({
+      overall: 0.7,
+      needs_reground: true,
+      reasons: ["stale"],
+    });
+  });
+
+  it("omits invalid persisted chat summaries while retaining file and state summaries", () => {
+    const prepared = preparePersistenceStateChannels({
+      chat_state_snapshot: {
+        phase: "implement",
+        completionStatus: "done",
+        lastVerificationOutcome: "passed",
+      },
+      file_state_snapshot: {
+        fileCount: "bad",
+        statusCounts: { stale: 2 },
+        staleFiles: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+      },
+    });
+
+    expect(prepared.persistedChatSnapshot).toBeNull();
+    expect(prepared.chatStateSummary).toBeUndefined();
+    expect(prepared.persistedFileSnapshot).toMatchObject({
+      fileCount: 0,
+      staleFiles: ["a", "b", "c", "d", "e", "f", "g", "h"],
+    });
+    expect(prepared.fileStateSummary).toMatchObject({
+      files_total: 0,
+      stale_files: ["a", "b", "c", "d", "e", "f", "g", "h"],
+    });
   });
 
   it("builds hourly token throttle events only on threshold crossings", () => {

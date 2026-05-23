@@ -298,8 +298,8 @@ import {
   applySessionUsagePersistenceMutation,
   applyGovernorTelemetryMetadata,
   buildPersistenceTelemetryEventBundle,
-  buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
+  preparePersistenceStateChannels,
   runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
   runHourlyTokenThrottleUpdate,
@@ -4874,17 +4874,15 @@ function persistSessionAndUsage(
     finishReason,
   });
   const { toolSequence, outcomeState } = trajectoryMetrics;
-  const persistedChatSnapshot = readPersistedChatStateSnapshot(state.record.metadata);
-  const persistedFileSnapshot = readPersistedFileStateSnapshot(state.record.metadata);
-  const chatStateSummaryForTelemetry = summarizeChatSnapshotForGovernor(persistedChatSnapshot);
-  const fileStateSummaryForTelemetry = persistedFileSnapshot
-    ? summarizeFileStateForGovernor(persistedFileSnapshot)
-    : undefined;
-  const stateChannelSummary = buildPersistenceStateChannelSummary(state.record.metadata);
   const {
+    persistedChatSnapshot,
+    persistedFileSnapshot,
+    chatStateSummary: chatStateSummaryForTelemetry,
+    fileStateSummary: fileStateSummaryForTelemetry,
+    stateChannelSummary,
     objectiveScopeSummary,
     stateConfidenceSummary,
-  } = stateChannelSummary;
+  } = preparePersistenceStateChannels(state.record.metadata);
   const stateTransitionCalibrationRun = runStateTransitionCalibration({
     metadata: state.record.metadata,
     requestId,
@@ -4918,7 +4916,9 @@ function persistSessionAndUsage(
     stateConfidenceSummary,
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     chatPhase: persistedChatSnapshot?.phase,
-    chatCompletionStatus: chatStateSummaryForTelemetry?.completion_status,
+    chatCompletionStatus: typeof chatStateSummaryForTelemetry?.completion_status === "string"
+      ? chatStateSummaryForTelemetry.completion_status
+      : undefined,
     fileStatusCounts: persistedFileSnapshot?.statusCounts,
     stateChannelSummary,
     stateTransitionCalibrationRun,
