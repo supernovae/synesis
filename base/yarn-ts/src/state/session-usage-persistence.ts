@@ -3,7 +3,17 @@ import type { SessionEventInsert, UsageEvent } from "./usage-writer.js";
 import type { LlmUsage, PricingRates, TraceRecord } from "@synesis/telemetry";
 import type { DecisionSnapshot } from "../telemetry/decision-snapshot.js";
 import {
+  DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
+  buildStateTransitionCalibrationSample,
+  buildStateTransitionRecord,
+  calibrateStateTransitionQualityThresholds,
+  decodeStateTransitionCalibrationSamples,
+  decodeStateTransitionQualityThresholds,
+  encodeStateTransitionCalibrationSamples,
+  encodeStateTransitionQualityThresholds,
+  materializeStateTransitionTrainingRow,
   summarizeStateTransition,
+  type StateTransitionSnapshot,
   type StateTransitionQualityCalibrationReport,
   type StateTransitionQualityThresholds,
   type StateTransitionRecord,
@@ -12,7 +22,9 @@ import {
 import type {
   GlobalCalibrationObservation,
   GlobalThresholdResolution,
+  StateTransitionGlobalCalibrator,
 } from "../governance/state-transition-global-calibrator.js";
+import type { EvidenceDeltaSummary } from "../governance/evidence-delta.js";
 
 export interface SessionUsageSummary {
   inputTokens: number;
@@ -325,9 +337,188 @@ export interface BuildStateTransitionEventsInput {
   globalSampleCountAfter: number;
 }
 
+export interface RunStateTransitionCalibrationInput {
+  metadata: Record<string, unknown>;
+  requestId: string;
+  orgId: string;
+  modelId: string;
+  previousSnapshot: StateTransitionSnapshot | null;
+  currentSnapshot: StateTransitionSnapshot;
+  toolSequence: string[];
+  governorRules: string[];
+  governorPause: boolean;
+  evidenceDelta: EvidenceDeltaSummary;
+  outcomeState: string;
+  globalCalibrator: StateTransitionGlobalCalibrator;
+}
+
+export interface StateTransitionCalibrationRun {
+  persistedQualityThresholds: StateTransitionQualityThresholds;
+  globalThresholdResolutionBefore: GlobalThresholdResolution;
+  globalThresholdResolutionAfter: GlobalThresholdResolution;
+  globalCalibrationObservation: GlobalCalibrationObservation;
+  globalSampleCountAfter: number;
+  globalWeightAfter: number;
+  activeQualityThresholds: StateTransitionQualityThresholds;
+  stateTransitionRecord: StateTransitionRecord;
+  stateTransitionTrainingRow: StateTransitionTrainingRow;
+  stateTransitionCalibration: StateTransitionQualityCalibrationReport;
+  thresholdShift: number;
+  globalThresholdShift: number;
+}
+
 function metadataString(metadata: Record<string, unknown>, key: string): string {
   const value = metadata[key];
   return typeof value === "string" ? value : "";
+}
+
+function normalizeStateTransitionQualityThresholds(
+  thresholds: StateTransitionQualityThresholds,
+): StateTransitionQualityThresholds {
+  return decodeStateTransitionQualityThresholds(encodeStateTransitionQualityThresholds(thresholds))
+    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
+}
+
+export function blendStateTransitionQualityThresholds(
+  localThresholds: StateTransitionQualityThresholds,
+  globalThresholds: StateTransitionQualityThresholds,
+  globalWeight: number,
+): StateTransitionQualityThresholds {
+  const normalizedLocal = normalizeStateTransitionQualityThresholds(localThresholds);
+  const normalizedGlobal = normalizeStateTransitionQualityThresholds(globalThresholds);
+  const weight = Math.max(0, Math.min(1, Number.isFinite(globalWeight) ? globalWeight : 0));
+  return normalizeStateTransitionQualityThresholds({
+    forward_progress_min: Number(
+      (normalizedLocal.forward_progress_min * (1 - weight) + normalizedGlobal.forward_progress_min * weight).toFixed(3),
+    ),
+    regressed_max: Number(
+      (normalizedLocal.regressed_max * (1 - weight) + normalizedGlobal.regressed_max * weight).toFixed(3),
+    ),
+    minimum_gap: Number(
+      (normalizedLocal.minimum_gap * (1 - weight) + normalizedGlobal.minimum_gap * weight).toFixed(3),
+    ),
+  });
+}
+
+function metadataObject(metadata: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = metadata[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+export function runStateTransitionCalibration(
+  input: RunStateTransitionCalibrationInput,
+): StateTransitionCalibrationRun {
+  const persistedQualityThresholds =
+    decodeStateTransitionQualityThresholds(
+      metadataObject(input.metadata, "state_transition_quality_thresholds"),
+    )
+    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
+  const globalThresholdResolutionBefore = input.globalCalibrator.resolveThresholds({
+    orgId: input.orgId,
+    modelId: input.modelId,
+    fallbackThresholds: persistedQualityThresholds,
+  });
+  const globalSampleCountBefore = Math.max(
+    globalThresholdResolutionBefore.org_model_sample_count,
+    globalThresholdResolutionBefore.model_sample_count,
+  );
+  const globalWeightBefore = globalThresholdResolutionBefore.selected_scope === "none"
+    ? 0
+    : Math.min(0.55, Math.max(0.2, globalSampleCountBefore / 80));
+  const seededQualityThresholds = blendStateTransitionQualityThresholds(
+    persistedQualityThresholds,
+    globalThresholdResolutionBefore.selected_thresholds,
+    globalWeightBefore,
+  );
+  const stateTransitionRecord = buildStateTransitionRecord({
+    requestId: input.requestId,
+    previousSnapshot: input.previousSnapshot,
+    currentSnapshot: input.currentSnapshot,
+    toolSequence: input.toolSequence,
+    governorRules: input.governorRules,
+    governorPause: input.governorPause,
+    evidenceDelta: input.evidenceDelta,
+    outcomeState: input.outcomeState,
+    qualityThresholds: seededQualityThresholds,
+  });
+  const stateTransitionSample = buildStateTransitionCalibrationSample(stateTransitionRecord);
+  const storedCalibrationSamples = decodeStateTransitionCalibrationSamples(
+    input.metadata.state_transition_quality_samples,
+    64,
+  );
+  const nextCalibrationSamples = [
+    ...storedCalibrationSamples,
+    stateTransitionSample,
+  ].slice(-64);
+  input.metadata.state_transition_quality_samples = encodeStateTransitionCalibrationSamples(
+    nextCalibrationSamples,
+    64,
+  );
+  const stateTransitionCalibration = calibrateStateTransitionQualityThresholds({
+    samples: nextCalibrationSamples,
+    baseThresholds: seededQualityThresholds,
+    minSamples: 12,
+    minPositive: 3,
+    minNegative: 3,
+    smoothing: 0.45,
+  });
+  const sessionCalibratedThresholds = stateTransitionCalibration.calibrated_thresholds;
+  const globalCalibrationObservation = input.globalCalibrator.observeAndCalibrate({
+    orgId: input.orgId,
+    modelId: input.modelId,
+    sample: stateTransitionSample,
+    fallbackThresholds: sessionCalibratedThresholds,
+  });
+  const globalThresholdResolutionAfter = globalCalibrationObservation.resolution;
+  const globalSampleCountAfter = Math.max(
+    globalThresholdResolutionAfter.org_model_sample_count,
+    globalThresholdResolutionAfter.model_sample_count,
+  );
+  const globalWeightAfter = globalThresholdResolutionAfter.selected_scope === "none"
+    ? 0
+    : Math.min(0.65, Math.max(0.25, globalSampleCountAfter / 96));
+  const activeQualityThresholds = blendStateTransitionQualityThresholds(
+    sessionCalibratedThresholds,
+    globalThresholdResolutionAfter.selected_thresholds,
+    globalWeightAfter,
+  );
+  input.metadata.state_transition_quality_thresholds = encodeStateTransitionQualityThresholds(
+    activeQualityThresholds,
+  );
+  input.metadata.state_transition_quality_global_scope = globalThresholdResolutionAfter.selected_scope;
+  input.metadata.state_transition_quality_global_sample_count = globalSampleCountAfter;
+  if (stateTransitionCalibration.applied) {
+    input.metadata.state_transition_quality_calibrated_at = Date.now();
+  }
+  const stateTransitionTrainingRow = materializeStateTransitionTrainingRow(stateTransitionRecord);
+  const thresholdShift = Math.abs(
+    activeQualityThresholds.forward_progress_min - persistedQualityThresholds.forward_progress_min,
+  ) + Math.abs(
+    activeQualityThresholds.regressed_max - persistedQualityThresholds.regressed_max,
+  );
+  const globalThresholdShift = Math.abs(
+    globalThresholdResolutionAfter.selected_thresholds.forward_progress_min
+      - globalThresholdResolutionBefore.selected_thresholds.forward_progress_min,
+  ) + Math.abs(
+    globalThresholdResolutionAfter.selected_thresholds.regressed_max
+      - globalThresholdResolutionBefore.selected_thresholds.regressed_max,
+  );
+
+  return {
+    persistedQualityThresholds,
+    globalThresholdResolutionBefore,
+    globalThresholdResolutionAfter,
+    globalCalibrationObservation,
+    globalSampleCountAfter,
+    globalWeightAfter,
+    activeQualityThresholds,
+    stateTransitionRecord,
+    stateTransitionTrainingRow,
+    stateTransitionCalibration,
+    thresholdShift,
+    globalThresholdShift,
+  };
 }
 
 const PATCH_STYLE_TOOL_NAMES = new Set(["str_replace", "apply_patch", "edit", "str_replace_editor"]);

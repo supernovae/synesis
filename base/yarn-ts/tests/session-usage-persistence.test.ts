@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionUsagePersistenceMutation,
+  blendStateTransitionQualityThresholds,
   buildHourlyTokenThrottleEvents,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
@@ -16,7 +17,9 @@ import {
   buildYarnTraceRecord,
   inferPrematureStopSignalsFromGovernor,
   inferTrajectoryBucket,
+  runStateTransitionCalibration,
 } from "../src/state/session-usage-persistence.js";
+import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
 import type { SessionRecord } from "../src/state/session-store.js";
 
 function record(metadata: Record<string, unknown> = {}): SessionRecord {
@@ -423,6 +426,63 @@ describe("session usage persistence mutation", () => {
       quality_global_sample_count: 22,
       quality_global_weight: 0.333,
     });
+  });
+
+  it("blends state transition quality thresholds with normalized weight", () => {
+    expect(blendStateTransitionQualityThresholds(
+      thresholds,
+      { forward_progress_min: 0.4, regressed_max: -0.1, minimum_gap: 0.2 },
+      0.5,
+    )).toEqual({
+      forward_progress_min: 0.3,
+      regressed_max: -0.225,
+      minimum_gap: 0.14,
+    });
+  });
+
+  it("runs state transition calibration and persists metadata updates", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const metadata: Record<string, unknown> = {};
+    const globalCalibrator = new StateTransitionGlobalCalibrator({
+      activationSampleCount: 1,
+      backingStore: null,
+    });
+
+    const result = runStateTransitionCalibration({
+      metadata,
+      requestId: "req1",
+      orgId: "o1",
+      modelId: "pulse",
+      previousSnapshot: null,
+      currentSnapshot: transitionRecord().to_state,
+      toolSequence: ["Read", "apply_patch", "run_test"],
+      governorRules: ["verification_after_completion_claim"],
+      governorPause: false,
+      evidenceDelta: "changed",
+      outcomeState: "verified",
+      globalCalibrator,
+    });
+
+    expect(metadata.state_transition_quality_samples).toEqual([
+      expect.objectContaining({
+        outcome_state: "verified",
+        evidence_delta: "changed",
+        governor_pause: false,
+      }),
+    ]);
+    expect(metadata.state_transition_quality_thresholds).toEqual(expect.objectContaining({
+      forward_progress_min: expect.any(Number),
+      regressed_max: expect.any(Number),
+      minimum_gap: expect.any(Number),
+    }));
+    expect(metadata.state_transition_quality_global_scope).toBe("org_model");
+    expect(metadata.state_transition_quality_global_sample_count).toBe(1);
+    expect(result.stateTransitionRecord.request_id).toBe("req1");
+    expect(result.stateTransitionTrainingRow.schema_version).toBe("state_transition_training_v1");
+    expect(result.globalSampleCountAfter).toBe(1);
+    expect(result.globalWeightAfter).toBe(0.25);
+    vi.useRealTimers();
   });
 
   it("builds request trajectory events with training signals", () => {

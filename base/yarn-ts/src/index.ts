@@ -306,6 +306,7 @@ import {
   buildTokenEconomicsWarningEvent,
   buildUsageEvent,
   buildYarnTraceRecord,
+  runStateTransitionCalibration,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -416,19 +417,9 @@ import {
 } from "./governance/context-budget-manager.js";
 import { buildRetentionContext } from "./governance/context-retention.js";
 import {
-  buildStateTransitionCalibrationSample,
-  calibrateStateTransitionQualityThresholds,
-  buildStateTransitionRecord,
   buildStateTransitionSnapshotFromMetadata,
-  decodeStateTransitionCalibrationSamples,
-  decodeStateTransitionQualityThresholds,
   decodeStateTransitionSnapshot,
-  DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
-  encodeStateTransitionCalibrationSamples,
-  encodeStateTransitionQualityThresholds,
   encodeStateTransitionSnapshot,
-  materializeStateTransitionTrainingRow,
-  type StateTransitionQualityThresholds,
 } from "./governance/state-transition-ledger.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
@@ -1084,34 +1075,6 @@ function buildGovernorPauseResumeBlockForUser(session: SessionState, latestUserP
   if (!pending || !snapshot) return null;
   session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] = false;
   return buildGovernorPauseResumeBlock(snapshot, latestUserPrompt);
-}
-
-function normalizeStateTransitionQualityThresholds(
-  thresholds: StateTransitionQualityThresholds,
-): StateTransitionQualityThresholds {
-  return decodeStateTransitionQualityThresholds(encodeStateTransitionQualityThresholds(thresholds))
-    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
-}
-
-function blendStateTransitionQualityThresholds(
-  localThresholds: StateTransitionQualityThresholds,
-  globalThresholds: StateTransitionQualityThresholds,
-  globalWeight: number,
-): StateTransitionQualityThresholds {
-  const normalizedLocal = normalizeStateTransitionQualityThresholds(localThresholds);
-  const normalizedGlobal = normalizeStateTransitionQualityThresholds(globalThresholds);
-  const weight = Math.max(0, Math.min(1, Number.isFinite(globalWeight) ? globalWeight : 0));
-  return normalizeStateTransitionQualityThresholds({
-    forward_progress_min: Number(
-      (normalizedLocal.forward_progress_min * (1 - weight) + normalizedGlobal.forward_progress_min * weight).toFixed(3),
-    ),
-    regressed_max: Number(
-      (normalizedLocal.regressed_max * (1 - weight) + normalizedGlobal.regressed_max * weight).toFixed(3),
-    ),
-    minimum_gap: Number(
-      (normalizedLocal.minimum_gap * (1 - weight) + normalizedGlobal.minimum_gap * weight).toFixed(3),
-    ),
-  });
 }
 
 function trimSnippet(text: string, max = 2000): string {
@@ -4994,30 +4957,11 @@ function persistSessionAndUsage(
     stateConfidenceReasons,
     stateConfidenceSummary,
   } = stateChannelSummary;
-  const persistedQualityThresholds =
-    decodeStateTransitionQualityThresholds(
-      getMetadataObject(state.record.metadata, "state_transition_quality_thresholds"),
-    )
-    ?? DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS;
-  const globalThresholdResolutionBefore = stateTransitionGlobalCalibrator.resolveThresholds({
+  const stateTransitionCalibrationRun = runStateTransitionCalibration({
+    metadata: state.record.metadata,
+    requestId,
     orgId: state.record.orgId,
     modelId: resolvedModelId,
-    fallbackThresholds: persistedQualityThresholds,
-  });
-  const globalSampleCountBefore = Math.max(
-    globalThresholdResolutionBefore.org_model_sample_count,
-    globalThresholdResolutionBefore.model_sample_count,
-  );
-  const globalWeightBefore = globalThresholdResolutionBefore.selected_scope === "none"
-    ? 0
-    : Math.min(0.55, Math.max(0.2, globalSampleCountBefore / 80));
-  const seededQualityThresholds = blendStateTransitionQualityThresholds(
-    persistedQualityThresholds,
-    globalThresholdResolutionBefore.selected_thresholds,
-    globalWeightBefore,
-  );
-  const stateTransitionRecord = buildStateTransitionRecord({
-    requestId,
     previousSnapshot: previousTransitionSnapshot,
     currentSnapshot: currentTransitionSnapshot,
     toolSequence,
@@ -5025,70 +4969,20 @@ function persistSessionAndUsage(
     governorPause: snapshot?.governor?.pause ?? false,
     evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
     outcomeState,
-    qualityThresholds: seededQualityThresholds,
+    globalCalibrator: stateTransitionGlobalCalibrator,
   });
-  const stateTransitionSample = buildStateTransitionCalibrationSample(stateTransitionRecord);
-  const storedCalibrationSamples = decodeStateTransitionCalibrationSamples(
-    state.record.metadata.state_transition_quality_samples,
-    64,
-  );
-  const nextCalibrationSamples = [
-    ...storedCalibrationSamples,
-    stateTransitionSample,
-  ].slice(-64);
-  state.record.metadata.state_transition_quality_samples = encodeStateTransitionCalibrationSamples(
-    nextCalibrationSamples,
-    64,
-  );
-  const stateTransitionCalibration = calibrateStateTransitionQualityThresholds({
-    samples: nextCalibrationSamples,
-    baseThresholds: seededQualityThresholds,
-    minSamples: 12,
-    minPositive: 3,
-    minNegative: 3,
-    smoothing: 0.45,
-  });
-  const sessionCalibratedThresholds = stateTransitionCalibration.calibrated_thresholds;
-  const globalCalibrationObservation = stateTransitionGlobalCalibrator.observeAndCalibrate({
-    orgId: state.record.orgId,
-    modelId: resolvedModelId,
-    sample: stateTransitionSample,
-    fallbackThresholds: sessionCalibratedThresholds,
-  });
-  const globalThresholdResolutionAfter = globalCalibrationObservation.resolution;
-  const globalSampleCountAfter = Math.max(
-    globalThresholdResolutionAfter.org_model_sample_count,
-    globalThresholdResolutionAfter.model_sample_count,
-  );
-  const globalWeightAfter = globalThresholdResolutionAfter.selected_scope === "none"
-    ? 0
-    : Math.min(0.65, Math.max(0.25, globalSampleCountAfter / 96));
-  const activeQualityThresholds = blendStateTransitionQualityThresholds(
-    sessionCalibratedThresholds,
-    globalThresholdResolutionAfter.selected_thresholds,
+  const {
+    globalThresholdResolutionAfter,
+    globalCalibrationObservation,
+    globalSampleCountAfter,
     globalWeightAfter,
-  );
-  state.record.metadata.state_transition_quality_thresholds = encodeStateTransitionQualityThresholds(
     activeQualityThresholds,
-  );
-  state.record.metadata.state_transition_quality_global_scope = globalThresholdResolutionAfter.selected_scope;
-  state.record.metadata.state_transition_quality_global_sample_count = globalSampleCountAfter;
-  if (stateTransitionCalibration.applied) {
-    state.record.metadata.state_transition_quality_calibrated_at = Date.now();
-  }
-  const stateTransitionTrainingRow = materializeStateTransitionTrainingRow(stateTransitionRecord);
-  const thresholdShift = Math.abs(
-    activeQualityThresholds.forward_progress_min - persistedQualityThresholds.forward_progress_min,
-  ) + Math.abs(
-    activeQualityThresholds.regressed_max - persistedQualityThresholds.regressed_max,
-  );
-  const globalThresholdShift = Math.abs(
-    globalThresholdResolutionAfter.selected_thresholds.forward_progress_min
-      - globalThresholdResolutionBefore.selected_thresholds.forward_progress_min,
-  ) + Math.abs(
-    globalThresholdResolutionAfter.selected_thresholds.regressed_max
-      - globalThresholdResolutionBefore.selected_thresholds.regressed_max,
-  );
+    stateTransitionRecord,
+    stateTransitionTrainingRow,
+    stateTransitionCalibration,
+    thresholdShift,
+    globalThresholdShift,
+  } = stateTransitionCalibrationRun;
   const stateTransitionSummary = buildStateTransitionSummary({
     stateTransitionRecord,
     activeQualityThresholds,
