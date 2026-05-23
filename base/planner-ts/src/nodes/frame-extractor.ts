@@ -328,9 +328,24 @@ function buildDeterministicFrame(taskDescription: string, taxonomyKey: string): 
   const firstLine = taskDescription.trim().split("\n")[0].slice(0, 200);
   const { requested, embedded } = detectFormat(taskDescription, []);
   const outputSchema = detectOutputSchema(taskDescription, requested, embedded);
-  const domainTags = taxonomyKey && taxonomyKey !== "generic" && taxonomyKey !== "general"
+  const lower = taskDescription.toLowerCase();
+  const technologies: string[] = [];
+  const inferredDomainTags: string[] = [];
+  if (/\b(?:golang|go\s+(?:http|service|server|context|request|module|mod|test|build|program|code)|net\/http|goroutine)\b/i.test(taskDescription)) {
+    technologies.push("go");
+    inferredDomainTags.push("golang");
+  }
+  if (/\b(?:http\s+(?:service|server)|server\s+timeouts?|request\s+context|context\s+cancellation|graceful\s+shutdown|api|endpoint|rest)\b/i.test(taskDescription)) {
+    inferredDomainTags.push("web_backend");
+  }
+  if (/\b(?:context\s+cancellation|graceful\s+shutdown|timeouts?)\b/i.test(taskDescription)) {
+    inferredDomainTags.push("software_development");
+  }
+  if (lower.includes("net/http")) technologies.push("net/http");
+  const taxonomyDomainTags = taxonomyKey && taxonomyKey !== "generic" && taxonomyKey !== "general"
     ? [taxonomyKey]
     : [];
+  const domainTags = [...new Set([...inferredDomainTags, ...taxonomyDomainTags])];
 
   return {
     goals: firstLine ? [firstLine] : [],
@@ -344,7 +359,7 @@ function buildDeterministicFrame(taskDescription: string, taxonomyKey: string): 
     output_schema: outputSchema,
     embedded_formats: embedded,
     domain_tags: domainTags,
-    technologies: [],
+    technologies: [...new Set(technologies)],
     needs_web: false,
     persona: detectPersona(taskDescription),
     topic_frame: firstLine,

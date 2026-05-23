@@ -1720,6 +1720,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
   function buildSensemakingTrace(state: GraphState): TraceSensemaking {
     return {
       domain_profile: state.domain_profile,
+      task_frame: state.task_frame,
       planner_confidence: state.planner_confidence ?? 0,
       clarification_triggered: Boolean(state.clarification_question),
       clarification_question: state.clarification_question,
@@ -1988,6 +1989,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       phase_timings: phaseTimings,
       decision_ledger: state.decision_ledger,
       sensemaking: buildSensemakingTrace(state),
+      task_frame: state.task_frame,
       classification,
       critic_result: inlineCritic,
       critic_scores: Object.keys(criticScores).length > 0 ? criticScores : undefined,

@@ -113,10 +113,19 @@ domain_keywords:
   go_ecosystem:
     domain: golang
     keywords:
+      - golang
+      - go http
+      - go service
+      - go server
+      - go context
+      - net/http
+      - context.Context
       - go mod
       - go build
       - goroutine
       - go test
+      - gin
+      - echo
   rust_ecosystem:
     domain: rust
     keywords:

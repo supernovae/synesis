@@ -185,9 +185,10 @@ const DEFAULT_CONFIG: ScoringConfig = {
     cloud_azure:  { domain: "azure", keywords: ["azure", "arm template", "azure devops", "aks", "cosmos db"], minHits: 1 },
     python:       { domain: "python", keywords: ["python", "pip", "pytest", "django", "flask", "fastapi", "pydantic"], minHits: 1 },
     typescript:   { domain: "typescript", keywords: ["typescript", "ts", "tsx", "node.js", "nodejs", "express", "fastify", "npm"], minHits: 1 },
+    web_backend:  { domain: "web_backend", keywords: ["http service", "http server", "server timeout", "server timeouts", "request context", "graceful shutdown", "fastapi", "flask", "django", "express", "spring", "gin", "actix"], minHits: 1 },
     react:        { domain: "react", keywords: ["react", "jsx", "next.js", "nextjs", "remix", "react native"], minHits: 1 },
     rust:         { domain: "rust", keywords: ["rust", "cargo", "tokio", "async-std", "wasm"], minHits: 1 },
-    go:           { domain: "go", keywords: ["golang", "go", "goroutine", "gin", "echo framework"], minHits: 2 },
+    go:           { domain: "golang", keywords: ["golang", "go http", "go service", "go server", "go context", "net/http", "context.Context", "goroutine", "gin", "echo framework"], minHits: 1 },
   },
   brevityWeights: {
     snippet_cue: { weight: -4, keywords: ["snippet", "code snippet", "show me a snippet"] },

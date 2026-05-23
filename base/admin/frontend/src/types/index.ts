@@ -1093,6 +1093,7 @@ export interface TraceSensemaking {
     domains: Array<{ key: string; weight: number }>;
     frameCoherence: string;
   };
+  task_frame?: Record<string, unknown>;
   planner_confidence: number;
   clarification_triggered: boolean;
   clarification_question?: string;
@@ -1182,6 +1183,7 @@ export interface TraceRecord {
   };
   short_circuit_reason?: string;
   sensemaking?: TraceSensemaking;
+  task_frame?: Record<string, unknown>;
   classification?: TraceClassification;
   streaming?: {
     mode: string;

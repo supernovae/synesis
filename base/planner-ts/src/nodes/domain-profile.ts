@@ -31,8 +31,10 @@ interface DomainPattern {
 }
 
 const DOMAIN_PATTERNS: DomainPattern[] = [
+  { key: "golang", re: /\b(?:golang|go\s+(?:http|service|server|context|request|module|mod|test|build|routine|program|code|package)|net\/http|goroutine|context\.Context)\b/gi, baseWeight: 0.7 },
+  { key: "software_development", re: /\b(?:programming|developer|code|runtime|library|framework|request\s+context|context\s+cancellation|server\s+timeouts?|graceful\s+shutdown)\b/gi, baseWeight: 0.5 },
   { key: "web_frontend", re: /\b(html|css|react|vue|angular|frontend|ui|ux|sticky\s*header|responsive|layout|tailwind)\b/gi, baseWeight: 0.4 },
-  { key: "backend_api", re: /\b(api|rest|graphql|endpoint|microservice|fastify|express|flask|django)\b/gi, baseWeight: 0.45 },
+  { key: "backend_api", re: /\b(api|rest|graphql|endpoint|microservice|http\s+(?:service|server)|server\s+timeouts?|request\s+context|graceful\s+shutdown|fastify|express|flask|django|gin|echo)\b/gi, baseWeight: 0.55 },
   { key: "cloud_infra", re: /\b(kubernetes|k8s|aws|gcp|azure|terraform|docker|container|infra|cluster|pod|deployment|openshift)\b/gi, baseWeight: 0.55 },
   { key: "data_engineering", re: /\b(database|sql|nosql|etl|pipeline|milvus|postgres|redis|kafka|data\s*lake)\b/gi, baseWeight: 0.5 },
   { key: "ml_ai", re: /\b(model|embedding|rag|inference|transformer|llm|training|fine.?tun|neural|bert|gpt)\b/gi, baseWeight: 0.6 },

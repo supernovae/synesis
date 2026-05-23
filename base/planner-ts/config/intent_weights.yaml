@@ -166,7 +166,10 @@ domain_keywords:
     keywords: ["react", "vue", "svelte", "angular", "next", "nuxt", "tailwind", "component"]
   web_backend:
     domain: web_backend
-    keywords: ["fastapi", "flask", "django", "express", "spring", "gin", "actix"]
+    keywords: ["http service", "http server", "server timeout", "server timeouts", "request context", "graceful shutdown", "fastapi", "flask", "django", "express", "spring", "gin", "actix"]
+  go_ecosystem:
+    domain: golang
+    keywords: ["golang", "go http", "go service", "go server", "go context", "net/http", "context.Context", "goroutine", "go mod", "go build", "go test", "gin", "echo"]
   mobile:
     domain: mobile
     keywords: ["ios", "android", "swift", "kotlin", "react native", "flutter", "mobile app"]

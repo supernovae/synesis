@@ -52,4 +52,18 @@ describe("entry classifier and effort routing", () => {
     expect(state.next_node).toBe("planner");
     expect(state.rag_mode).not.toBe("disabled");
   });
+
+  it("classifies Go HTTP service guidance as Go/backend instead of generic", async () => {
+    const state = await classifyEntry({
+      task_description:
+        "For a Go HTTP service, how should I configure server timeouts, request context cancellation, and graceful shutdown?",
+    });
+
+    const activeDomains = (state.taxonomy_metadata?.active_domains as string[] | undefined) ?? [];
+    const profileDomains = state.domain_profile?.domains.map((d) => d.key) ?? [];
+    expect(activeDomains).toContain("golang");
+    expect(activeDomains).toContain("web_backend");
+    expect(profileDomains).toContain("golang");
+    expect(state.taxonomy_metadata?.taxonomy_key).not.toBe("generic");
+  });
 });

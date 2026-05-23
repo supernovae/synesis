@@ -453,6 +453,12 @@ domain_keywords:
   web_backend:
     domain: web_backend
     keywords:
+      - http service
+      - http server
+      - server timeout
+      - server timeouts
+      - request context
+      - graceful shutdown
       - fastapi
       - flask
       - django
@@ -460,6 +466,22 @@ domain_keywords:
       - spring
       - gin
       - actix
+  go_ecosystem:
+    domain: golang
+    keywords:
+      - golang
+      - go http
+      - go service
+      - go server
+      - go context
+      - net/http
+      - context.Context
+      - goroutine
+      - go mod
+      - go build
+      - go test
+      - gin
+      - echo
   mobile:
     domain: mobile
     keywords:
