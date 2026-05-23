@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeCost,
+  computeCostBreakdown,
   resolveEffectiveCost,
   FALLBACK_BASE_RATES,
   hasNonZeroRates,
@@ -88,6 +89,35 @@ describe("computeCost", () => {
     );
     expect(result.estimated_cost_usd).toBe(0);
     expect(result.pricing_source).toBe("fallback_base");
+  });
+
+  it("returns transparent cache read/write breakdown and no-cache baseline", () => {
+    const result = computeCostBreakdown(
+      {
+        ...ZERO_USAGE,
+        prompt_tokens: 1_000_000,
+        cached_prompt_tokens: 800_000,
+        completion_tokens: 100_000,
+        total_tokens: 1_100_000,
+        cache_creation_tokens: 50_000,
+      },
+      {
+        input_per_million: 1.0,
+        output_per_million: 5.0,
+        cached_input_per_million: 0.1,
+        cache_write_input_per_million: 1.25,
+      },
+    );
+
+    expect(result.tokens_uncached_input).toBe(200_000);
+    expect(result.tokens_cache_read).toBe(800_000);
+    expect(result.tokens_cache_write).toBe(50_000);
+    expect(result.input_cost_usd).toBeCloseTo(0.2, 8);
+    expect(result.cache_read_cost_usd).toBeCloseTo(0.08, 8);
+    expect(result.cache_write_cost_usd).toBeCloseTo(0.0625, 8);
+    expect(result.output_cost_usd).toBeCloseTo(0.5, 8);
+    expect(result.estimated_no_cache_cost_usd).toBeCloseTo(1.5, 8);
+    expect(result.cache_savings_usd).toBeCloseTo(0.6575, 8);
   });
 });
 

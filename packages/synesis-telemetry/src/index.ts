@@ -17,8 +17,10 @@ export {
   FALLBACK_BASE_RATES,
   hasNonZeroRates,
   computeCost,
+  computeCostBreakdown,
   resolveEffectiveCost,
   mergeUsage,
+  type CostBreakdown,
 } from "./cost.js";
 
 export { extractUsage } from "./usage-extract.js";

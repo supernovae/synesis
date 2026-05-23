@@ -94,10 +94,9 @@ export default function YarnTransitionCalibration() {
   const [bucketMinutes, setBucketMinutes] = useState(60);
   const { data, isLoading, error } = useYarnTransitionQualityTelemetry(sinceHours, bucketMinutes);
 
-  const buckets = data?.buckets ?? [];
   const chartData = useMemo(
     () =>
-      buckets.map((b) => ({
+      (data?.buckets ?? []).map((b) => ({
         ...b,
         label: fmtBucketLabel(b.bucket),
         forward_progress_pct: Number((b.forward_progress_rate * 100).toFixed(2)),
@@ -106,7 +105,7 @@ export default function YarnTransitionCalibration() {
         reground_required_pct: Number((b.reground_required_rate * 100).toFixed(2)),
         global_scope_coverage_pct: Number((b.global_scope_coverage * 100).toFixed(2)),
       })),
-    [buckets],
+    [data?.buckets],
   );
 
   const recentAlerts = data?.alert_buckets ?? [];

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { lazy } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import PageShell from "./components/layout/PageShell";
@@ -11,6 +12,7 @@ const AccountHome = lazy(() => import("./pages/account/AccountHome"));
 const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
 const Organization = lazy(() => import("./pages/account/Organization"));
 const AccountUsage = lazy(() => import("./pages/account/Usage"));
+const AccountUsageAudit = lazy(() => import("./pages/account/UsageAudit"));
 
 const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
 const ModelsCostsOverview = lazy(() => import("./pages/models/ModelsCostsOverview"));
@@ -255,6 +257,7 @@ export const router = createBrowserRouter([
       { path: "account", element: <AccountHome /> },
       { path: "account/tokens", element: <ApiTokens /> },
       { path: "account/usage", element: <AccountUsage /> },
+      { path: "account/usage/audit", element: <AccountUsageAudit /> },
       { path: "account/organization", element: <Organization /> },
 
       {

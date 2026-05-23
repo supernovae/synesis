@@ -2018,6 +2018,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const model = state.requested_model ?? state.response_model ?? "unknown";
     const requestId = state.authz_trace_id ?? "";
     if (!requestId) return;
+    const writerRole = state.registry_writer_role ?? "writer";
+    const rates = state.pricing_rates_by_role?.writer ?? pricingRegistry.getRates(writerRole);
     emitPlannerUsageMetering(
       {
         request_id: requestId,
@@ -2030,6 +2032,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         estimated_cost_usd: usage.estimated_cost_usd,
         actual_cost_usd: usage.actual_cost_usd,
         pricing_source: "registry",
+        rates_snapshot: rates,
         latency_ms: latencyMs,
         has_error: Boolean(state.error),
       },

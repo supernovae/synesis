@@ -363,6 +363,57 @@ export interface ModelCostByModel {
   cost_usd: number;
 }
 
+export interface UsageAuditBreakdown {
+  tokens_uncached_input: number;
+  tokens_cache_read: number;
+  tokens_cache_write: number;
+  tokens_output: number;
+  input_cost_usd: number;
+  cache_read_cost_usd: number;
+  cache_write_cost_usd: number;
+  output_cost_usd: number;
+  estimated_no_cache_cost_usd: number;
+  cache_savings_usd: number;
+  cache_hit_rate: number;
+}
+
+export interface UsageAuditRequest {
+  source: "chat" | "coder";
+  request_id: string;
+  trace_id: string;
+  created_at: string;
+  timestamp: number;
+  model: string;
+  provider: string;
+  status: "ok" | "error" | string;
+  has_error: boolean;
+  latency_ms: number;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cached: number;
+  tokens_saved_by_reduction?: number;
+  tool_calls_count?: number;
+  finish_reason?: string;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+  effective_cost_usd: number;
+  pricing_source: string;
+  billing_breakdown: UsageAuditBreakdown;
+  privacy_mode: string;
+  redaction_status: string;
+  training_allowed: boolean;
+  raw_text_visible: boolean;
+}
+
+export interface UsageAuditResponse {
+  since_hours: number;
+  total: number;
+  offset: number;
+  limit: number;
+  requests: UsageAuditRequest[];
+}
+
 export interface CorpusStats {
   collection: string;
   total_chunks: number;

@@ -84,3 +84,27 @@ class TestEstimateLlmCallCostFromPayload:
             input_cache_write_per_million=0.5,
         )
         assert cost == 0.5
+
+    def test_breakdown_reports_cache_read_write_and_savings(self):
+        from app.services.token_cost import estimate_llm_cost_breakdown
+
+        breakdown = estimate_llm_cost_breakdown(
+            prompt_tokens=1_000_000,
+            completion_tokens=100_000,
+            cached_prompt_tokens=800_000,
+            cache_creation_tokens=50_000,
+            input_per_million=1.0,
+            output_per_million=5.0,
+            input_cached_per_million=0.1,
+            input_cache_write_per_million=1.25,
+        )
+
+        assert breakdown["tokens_uncached_input"] == 200_000
+        assert breakdown["tokens_cache_read"] == 800_000
+        assert breakdown["tokens_cache_write"] == 50_000
+        assert breakdown["input_cost_usd"] == 0.2
+        assert breakdown["cache_read_cost_usd"] == 0.08
+        assert breakdown["cache_write_cost_usd"] == 0.0625
+        assert breakdown["output_cost_usd"] == 0.5
+        assert breakdown["estimated_no_cache_cost_usd"] == 1.5
+        assert breakdown["cache_savings_usd"] == 0.6575

@@ -8,6 +8,7 @@ import {
   createServiceMetrics,
   recordUsageMetrics,
   computeCost,
+  computeCostBreakdown,
   extractUsage,
   emitTrace,
   type LlmUsage as TelemetryLlmUsage,
@@ -5022,6 +5023,18 @@ function persistSessionAndUsage(
     },
     tierRates,
   );
+  const costBreakdown = computeCostBreakdown(
+    {
+      prompt_tokens: usage.inputTokens,
+      completion_tokens: usage.outputTokens,
+      total_tokens: usage.inputTokens + usage.outputTokens,
+      cached_prompt_tokens: usage.cachedTokens,
+      cache_creation_tokens: usage.cacheCreationTokens,
+      estimated_cost_usd: 0,
+      actual_cost_usd: 0,
+    },
+    tierRates,
+  );
   const estimatedCostUsd = result.estimated_cost_usd;
   if (pricingSource === "unknown" || pricingSource === "fallback_base") {
     pricingSource = result.pricing_source;
@@ -5174,6 +5187,15 @@ function persistSessionAndUsage(
     tokensIn: usage.inputTokens,
     tokensOut: usage.outputTokens,
     tokensCached: usage.cachedTokens,
+    tokensUncachedInput: costBreakdown.tokens_uncached_input,
+    tokensCacheRead: costBreakdown.tokens_cache_read,
+    tokensCacheWrite: costBreakdown.tokens_cache_write,
+    inputCostUsd: costBreakdown.input_cost_usd,
+    cacheReadCostUsd: costBreakdown.cache_read_cost_usd,
+    cacheWriteCostUsd: costBreakdown.cache_write_cost_usd,
+    outputCostUsd: costBreakdown.output_cost_usd,
+    estimatedNoCacheCostUsd: costBreakdown.estimated_no_cache_cost_usd,
+    cacheSavingsUsd: costBreakdown.cache_savings_usd,
     tokensSavedByReduction,
     latencyMs,
     estimatedCostUsd: normalizedEstimatedCostUsd,

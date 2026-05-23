@@ -8,6 +8,7 @@ from ..auth import UserInfo, get_current_user
 from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role, trace_scope_filters
 from ..services.planner_usage_service import aggregate_planner_usage_period, planner_usage_time_series
 from ..services.trace_store import aggregate_traces_period, trace_time_series
+from ..services.usage_audit_service import get_user_usage_audit_request, list_user_usage_audit
 from ..services.usage_unified import get_summary_unified
 
 router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
@@ -35,7 +36,12 @@ def _normalize_usage_summary(pl: dict, trace_fb: dict | None) -> dict:
         "period_hours": src.get("period_hours", pl.get("period_hours", 24)),
         "trace_count": n,
         "total_tokens": int(src.get("total_tokens", 0)),
+        "tokens_in": int(src.get("tokens_in", 0)),
+        "tokens_cached": int(src.get("tokens_cached", 0)),
+        "tokens_cache_write": int(src.get("tokens_cache_write", 0)),
         "estimated_cost_usd": float(src.get("estimated_cost_usd", 0) or 0),
+        "estimated_no_cache_cost_usd": float(src.get("estimated_no_cache_cost_usd", 0) or 0),
+        "cache_savings_usd": float(src.get("cache_savings_usd", 0) or 0),
         "actual_cost_usd": float(src.get("actual_cost_usd", 0) or 0),
         "avg_duration_ms": float(src.get("avg_duration_ms", 0) or 0),
         "error_count": int(src.get("error_count", 0)),
@@ -137,6 +143,35 @@ async def usage_me_series(
     if pl_series and sum(b.get("requests", 0) for b in pl_series) > 0:
         return pl_series
     return []
+
+
+@router.get("/me/requests")
+async def usage_me_requests(
+    since_hours: int = Query(720, ge=1, le=8760),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: UserInfo = Depends(get_current_user),
+):
+    """Privacy-safe per-request usage audit for the authenticated user."""
+    if resolve_role(user) < Role.user:
+        raise HTTPException(status_code=403, detail="Authentication required")
+    uid = user.user_id or user.username
+    return await list_user_usage_audit(uid, since_hours=since_hours, limit=limit, offset=offset)
+
+
+@router.get("/me/requests/{request_id}")
+async def usage_me_request_detail(
+    request_id: str,
+    user: UserInfo = Depends(get_current_user),
+):
+    """Privacy-safe request audit detail for one authenticated user's request."""
+    if resolve_role(user) < Role.user:
+        raise HTTPException(status_code=403, detail="Authentication required")
+    uid = user.user_id or user.username
+    row = await get_user_usage_audit_request(uid, request_id[:64])
+    if row is None:
+        raise HTTPException(status_code=404, detail="Usage request not found")
+    return row
 
 
 @router.get("/summary-unified")

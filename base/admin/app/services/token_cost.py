@@ -48,6 +48,52 @@ def estimate_llm_call_cost_usd(
     )
 
 
+def estimate_llm_cost_breakdown(
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_prompt_tokens: int,
+    cache_creation_tokens: int = 0,
+    *,
+    input_per_million: float,
+    output_per_million: float,
+    input_cached_per_million: float | None = None,
+    input_cache_write_per_million: float | None = None,
+) -> dict[str, float | int]:
+    """Return a transparent per-component estimate for cache-aware billing."""
+    pt = max(0, int(prompt_tokens or 0))
+    cached = min(max(0, int(cached_prompt_tokens or 0)), pt)
+    uncached = pt - cached
+    ct = max(0, int(completion_tokens or 0))
+    cw = max(0, int(cache_creation_tokens or 0))
+    input_rate = float(input_per_million)
+    output_rate = float(output_per_million)
+    cached_rate = effective_cached_input_rate(input_rate, input_cached_per_million)
+    write_rate = (
+        float(input_cache_write_per_million)
+        if input_cache_write_per_million is not None and input_cache_write_per_million >= 0
+        else input_rate
+    )
+    input_cost = (uncached / 1_000_000) * input_rate
+    cache_read_cost = (cached / 1_000_000) * cached_rate
+    cache_write_cost = (cw / 1_000_000) * write_rate
+    output_cost = (ct / 1_000_000) * output_rate
+    estimated = input_cost + cache_read_cost + cache_write_cost + output_cost
+    no_cache = (pt / 1_000_000) * input_rate + (ct / 1_000_000) * output_rate
+    return {
+        "tokens_uncached_input": uncached,
+        "tokens_cache_read": cached,
+        "tokens_cache_write": cw,
+        "tokens_output": ct,
+        "input_cost_usd": round(input_cost, 8),
+        "cache_read_cost_usd": round(cache_read_cost, 8),
+        "cache_write_cost_usd": round(cache_write_cost, 8),
+        "output_cost_usd": round(output_cost, 8),
+        "estimated_cost_usd": round(estimated, 8),
+        "estimated_no_cache_cost_usd": round(no_cache, 8),
+        "cache_savings_usd": round(no_cache - estimated, 8),
+    }
+
+
 def parse_recorded_estimated_cost(call: Mapping[str, object]) -> float | None:
     """Return estimated cost from trace call payload when present and valid."""
     raw = call.get("estimated_cost")

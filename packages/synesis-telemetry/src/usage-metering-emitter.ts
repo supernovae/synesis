@@ -1,4 +1,4 @@
-import type { LlmUsage } from "./types.js";
+import type { LlmUsage, PricingRates } from "./types.js";
 
 export interface UsageMeteringEmitterConfig {
   adminUrl: string;
@@ -19,6 +19,7 @@ export function emitPlannerUsageMetering(
     estimated_cost_usd: number;
     actual_cost_usd: number;
     pricing_source: string;
+    rates_snapshot?: PricingRates;
     latency_ms: number;
     has_error: boolean;
   },
@@ -38,9 +39,11 @@ export function emitPlannerUsageMetering(
     tokens_in: payload.tokens.prompt_tokens,
     tokens_out: payload.tokens.completion_tokens,
     tokens_cached: payload.tokens.cached_prompt_tokens ?? 0,
+    tokens_cache_write: payload.tokens.cache_creation_tokens ?? 0,
     estimated_cost_usd: payload.estimated_cost_usd,
     actual_cost_usd: payload.actual_cost_usd,
     pricing_source: payload.pricing_source,
+    rates_snapshot: payload.rates_snapshot,
     latency_ms: payload.latency_ms,
     has_error: payload.has_error,
   });

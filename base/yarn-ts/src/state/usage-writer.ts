@@ -12,11 +12,21 @@ export interface UsageEvent {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
-  tokensSavedByReduction: number;
+  tokensUncachedInput?: number;
+  tokensCacheRead?: number;
+  tokensCacheWrite?: number;
+  inputCostUsd?: number;
+  cacheReadCostUsd?: number;
+  cacheWriteCostUsd?: number;
+  outputCostUsd?: number;
+  estimatedNoCacheCostUsd?: number;
+  cacheSavingsUsd?: number;
+  tokensSavedByReduction?: number;
   latencyMs: number;
-  estimatedCostUsd: number;
-  actualCostUsd: number;
-  pricingSource: string;
+  estimatedCostUsd?: number;
+  actualCostUsd?: number;
+  pricingSource?: string;
+  costUsd?: number;
   escalated: boolean;
   toolCallsCount: number;
   finishReason: string;
@@ -293,18 +303,30 @@ export class UsageWriter {
 
   private async insertUsage(event: UsageEvent): Promise<void> {
     if (!this.pool) return;
+    const estimatedCostUsd = event.estimatedCostUsd ?? event.costUsd ?? 0;
+    const actualCostUsd = event.actualCostUsd ?? 0;
+    const pricingSource = event.pricingSource ?? "unknown";
+    const tokensSavedByReduction = event.tokensSavedByReduction ?? 0;
     await this.pool.query(
       `
       INSERT INTO yarn_usage_log (
         session_key, request_id, user_id, org_id, provider, model,
-        tokens_in, tokens_out, tokens_cached, tokens_saved_by_reduction,
+        tokens_in, tokens_out, tokens_cached,
+        tokens_uncached_input, tokens_cache_read, tokens_cache_write,
+        input_cost_usd, cache_read_cost_usd, cache_write_cost_usd,
+        output_cost_usd, estimated_no_cache_cost_usd, cache_savings_usd,
+        tokens_saved_by_reduction,
         latency_ms, estimated_cost_usd, actual_cost_usd, pricing_source,
         escalated, tool_calls_count, finish_reason
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10,
-        $11, $12, $13, $14,
-        $15, $16, $17
+        $7, $8, $9,
+        $10, $11, $12,
+        $13, $14, $15,
+        $16, $17, $18,
+        $19,
+        $20, $21, $22, $23,
+        $24, $25, $26
       )
       ON CONFLICT (request_id) DO NOTHING
       `,
@@ -318,11 +340,20 @@ export class UsageWriter {
         event.tokensIn,
         event.tokensOut,
         event.tokensCached,
-        event.tokensSavedByReduction,
+        event.tokensUncachedInput ?? Math.max(0, event.tokensIn - event.tokensCached),
+        event.tokensCacheRead ?? event.tokensCached,
+        event.tokensCacheWrite ?? 0,
+        event.inputCostUsd ?? 0,
+        event.cacheReadCostUsd ?? 0,
+        event.cacheWriteCostUsd ?? 0,
+        event.outputCostUsd ?? 0,
+        event.estimatedNoCacheCostUsd ?? 0,
+        event.cacheSavingsUsd ?? 0,
+        tokensSavedByReduction,
         event.latencyMs,
-        event.estimatedCostUsd,
-        event.actualCostUsd,
-        event.pricingSource,
+        estimatedCostUsd,
+        actualCostUsd,
+        pricingSource,
         event.escalated,
         event.toolCallsCount,
         event.finishReason.slice(0, 32)

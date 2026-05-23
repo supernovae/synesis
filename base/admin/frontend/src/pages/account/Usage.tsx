@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useUsageMeSummary, useUsageMeSeries, useYarnUserUsage } from "../../api/hooks";
 import type { UsageTimeSeriesEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
@@ -85,6 +86,8 @@ export default function Usage() {
   const coderCost = yarnUsage?.actual_cost_usd && yarnUsage.actual_cost_usd > 0 ? yarnUsage.actual_cost_usd : (yarnUsage?.estimated_cost_usd ?? 0);
   const coderLatency = yarnUsage?.avg_latency_ms ?? 0;
   const coderCached = yarnUsage?.tokens_cached ?? 0;
+  const coderCacheWrite = yarnUsage?.tokens_cache_write ?? 0;
+  const coderCacheSavings = yarnUsage?.cache_savings_usd ?? 0;
   const coderErrors = yarnUsage?.errors ?? 0;
   const coderEscalations = yarnUsage?.escalations ?? 0;
   const coderHasData = coderRequests > 0;
@@ -92,6 +95,9 @@ export default function Usage() {
   const totalRequests = plannerRequests + coderRequests;
   const totalTokens = plannerTokens + coderTokens;
   const totalCost = plannerCost + coderCost;
+  const totalCacheReads = (summary?.tokens_cached ?? 0) + coderCached;
+  const totalCacheWrites = (summary?.tokens_cache_write ?? 0) + coderCacheWrite;
+  const totalCacheSavings = (summary?.cache_savings_usd ?? 0) + coderCacheSavings;
   const totalLatency =
     totalRequests > 0
       ? (plannerLatency * plannerRequests + coderLatency * coderRequests) / totalRequests
@@ -111,7 +117,11 @@ export default function Usage() {
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Chat and Coder usage for your account over the selected period. Coder cached tokens are
             provider-reported cache reads; reduction savings are estimated separately on the server
-            and are not summed into token totals here.
+            and are not summed into token totals here. See the{" "}
+            <Link to="/account/usage/audit" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              request audit
+            </Link>{" "}
+            for per-request cache billing.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -164,11 +174,12 @@ export default function Usage() {
                 coderHasData
                   ? [
                       coderCached > 0 ? `${fmtTokens(coderCached)} cached` : null,
+                      coderCacheWrite > 0 ? `${fmtTokens(coderCacheWrite)} cache write` : null,
                       coderErrors > 0 ? `${coderErrors} errors` : null,
                       coderEscalations > 0 ? `${coderEscalations} escalations` : null,
                     ]
                       .filter(Boolean)
-                      .join(" · ") || "Coder metering data is available."
+                      .join(" / ") || "Coder metering data is available."
                   : "No coder usage recorded for this period."
               }
             />
@@ -186,6 +197,13 @@ export default function Usage() {
               }
             />
           </div>
+
+          {totalHasData && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-4 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-100">
+              Cache billing: {fmtTokens(totalCacheReads)} cache-read tokens, {fmtTokens(totalCacheWrites)} cache-write tokens,
+              and {fmtCost(totalCacheSavings)} estimated savings against uncached input pricing.
+            </div>
+          )}
 
           {summary?.note && (
             <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">

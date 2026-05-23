@@ -446,6 +446,11 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
                 func.coalesce(func.sum(YarnUsageLog.tokens_in), 0).label("tokens_in"),
                 func.coalesce(func.sum(YarnUsageLog.tokens_out), 0).label("tokens_out"),
                 func.coalesce(func.sum(YarnUsageLog.tokens_cached), 0).label("tokens_cached"),
+                func.coalesce(func.sum(YarnUsageLog.tokens_cache_write), 0).label("tokens_cache_write"),
+                func.coalesce(func.sum(YarnUsageLog.estimated_no_cache_cost_usd), 0).label(
+                    "estimated_no_cache_cost_usd"
+                ),
+                func.coalesce(func.sum(YarnUsageLog.cache_savings_usd), 0).label("cache_savings_usd"),
                 func.coalesce(func.sum(YarnUsageLog.estimated_cost_usd), 0).label("estimated_cost_usd"),
                 func.coalesce(func.sum(YarnUsageLog.actual_cost_usd), 0).label("actual_cost_usd"),
                 func.coalesce(func.avg(YarnUsageLog.latency_ms), 0).label("avg_latency_ms"),
@@ -470,6 +475,9 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
         "tokens_in": int(row.tokens_in),
         "tokens_out": int(row.tokens_out),
         "tokens_cached": int(row.tokens_cached),
+        "tokens_cache_write": int(row.tokens_cache_write),
+        "estimated_no_cache_cost_usd": round(float(row.estimated_no_cache_cost_usd), 4),
+        "cache_savings_usd": round(float(row.cache_savings_usd), 4),
         "estimated_cost_usd": round(float(row.estimated_cost_usd), 4),
         "actual_cost_usd": round(float(row.actual_cost_usd), 4),
         "avg_latency_ms": round(float(row.avg_latency_ms), 1),

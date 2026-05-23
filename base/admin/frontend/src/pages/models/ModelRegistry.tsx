@@ -1697,10 +1697,12 @@ function EditModal({
     input_per_million: string;
     output_per_million: string;
     input_cached_per_million: string;
+    input_cache_write_per_million: string;
   }>({
     input_per_million: cost?.input_per_million?.toString() ?? "",
     output_per_million: cost?.output_per_million?.toString() ?? "",
     input_cached_per_million: cost?.input_cached_per_million?.toString() ?? "",
+    input_cache_write_per_million: cost?.input_cache_write_per_million?.toString() ?? "",
   });
   const prov = providers[editing.provider];
   const supportsDiscovery = prov?.supports_discovery ?? false;
@@ -2058,7 +2060,7 @@ function EditModal({
                 <span>Using fallback rates ($1.00/$5.00) — costs are over-reported. Set real provider rates below.</span>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div>
                 <label className="mb-0.5 block text-[10px] font-medium text-gray-500 dark:text-gray-400">Input</label>
                 <input
@@ -2092,9 +2094,20 @@ function EditModal({
                   className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                 />
               </div>
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-gray-500 dark:text-gray-400">Cache Write</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={pricingEdit.input_cache_write_per_million}
+                  onChange={(e) => setPricingEdit({ ...pricingEdit, input_cache_write_per_million: e.target.value })}
+                  placeholder="input"
+                  className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                />
+              </div>
             </div>
             <p className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500">
-              Cached rate defaults to 10% of input if blank. Saved independently from model assignment.
+              Cached reads default to 10% of input if blank. Cache writes default to input rate if blank.
             </p>
             <button
               type="button"
@@ -2104,12 +2117,16 @@ function EditModal({
                 const cached = pricingEdit.input_cached_per_million.trim()
                   ? parseFloat(pricingEdit.input_cached_per_million)
                   : null;
+                const cacheWrite = pricingEdit.input_cache_write_per_million.trim()
+                  ? parseFloat(pricingEdit.input_cache_write_per_million)
+                  : null;
                 if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) return;
                 updateCostMut.mutate({
                   role: editing.role,
                   input_per_million: inp,
                   output_per_million: out,
                   input_cached_per_million: cached,
+                  input_cache_write_per_million: cacheWrite,
                 });
               }}
               disabled={updateCostMut.isPending}

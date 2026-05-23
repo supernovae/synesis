@@ -32,6 +32,8 @@ import type {
   CapabilitySelectorType,
   UserRuntimePreferences,
   UserRuntimePreferencesResponse,
+  UsageAuditRequest,
+  UsageAuditResponse,
 } from "../types";
 
 // --- Dashboard ---
@@ -2446,6 +2448,8 @@ export interface UsageTimeSeriesEntry {
   requests: number;
   total_tokens: number;
   estimated_cost_usd: number;
+  estimated_no_cache_cost_usd?: number;
+  cache_savings_usd?: number;
   actual_cost_usd: number;
   avg_duration_ms: number;
   error_count: number;
@@ -2455,7 +2459,12 @@ export interface UsageSummary {
   period_hours: number;
   trace_count: number;
   total_tokens: number;
+  tokens_in?: number;
+  tokens_cached?: number;
+  tokens_cache_write?: number;
   estimated_cost_usd: number;
+  estimated_no_cache_cost_usd?: number;
+  cache_savings_usd?: number;
   actual_cost_usd: number;
   avg_duration_ms: number;
   error_count: number;
@@ -2496,6 +2505,25 @@ export function useUsageMeSeries(sinceHours = 24) {
   });
 }
 
+export function useUsageMeRequests(sinceHours = 720, limit = 50, offset = 0) {
+  return useQuery<UsageAuditResponse>({
+    queryKey: ["usage", "me-requests", sinceHours, limit, offset],
+    queryFn: () =>
+      client
+        .get("/usage/me/requests", { params: { since_hours: sinceHours, limit, offset } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useUsageMeRequest(requestId: string | undefined) {
+  return useQuery<UsageAuditRequest>({
+    queryKey: ["usage", "me-request", requestId],
+    queryFn: () => client.get(`/usage/me/requests/${requestId}`).then((r) => r.data),
+    enabled: Boolean(requestId),
+  });
+}
+
 // --- Yarn Ops ---
 
 export interface YarnOverview {
@@ -2521,6 +2549,9 @@ export interface YarnPerformanceBucket {
   tokens_in: number;
   tokens_out: number;
   tokens_cached: number;
+  tokens_cache_write?: number;
+  estimated_no_cache_cost_usd?: number;
+  cache_savings_usd?: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
   avg_latency_ms: number;
@@ -3095,8 +3126,11 @@ export interface YarnUserUsage {
   tokens_in: number;
   tokens_out: number;
   tokens_cached: number;
+  tokens_cache_write?: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
+  estimated_no_cache_cost_usd?: number;
+  cache_savings_usd?: number;
   avg_latency_ms: number;
   escalations: number;
   errors: number;

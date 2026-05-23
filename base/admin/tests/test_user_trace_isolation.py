@@ -72,3 +72,71 @@ def test_usage_me_series_does_not_use_trace_fallback(monkeypatch):
         assert resp.json() == []
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_usage_me_requests_returns_safe_metering_only(monkeypatch):
+    async def _override_user() -> UserInfo:
+        return UserInfo(username="u1", role="user", user_id="u1")
+
+    async def _audit_rows(user_id: str, *, since_hours: int, limit: int, offset: int):
+        assert user_id == "u1"
+        return {
+            "since_hours": since_hours,
+            "total": 1,
+            "offset": offset,
+            "limit": limit,
+            "requests": [
+                {
+                    "source": "coder",
+                    "request_id": "req-1",
+                    "trace_id": "req-1",
+                    "created_at": "2026-05-22T00:00:00+00:00",
+                    "timestamp": 1,
+                    "model": "coder",
+                    "provider": "test",
+                    "status": "ok",
+                    "has_error": False,
+                    "latency_ms": 10,
+                    "tokens_in": 100,
+                    "tokens_out": 20,
+                    "tokens_cached": 80,
+                    "total_tokens": 120,
+                    "estimated_cost_usd": 0.001,
+                    "actual_cost_usd": 0.0,
+                    "effective_cost_usd": 0.001,
+                    "pricing_source": "manual",
+                    "billing_breakdown": {
+                        "tokens_uncached_input": 20,
+                        "tokens_cache_read": 80,
+                        "tokens_cache_write": 0,
+                        "tokens_output": 20,
+                        "input_cost_usd": 0.00002,
+                        "cache_read_cost_usd": 0.000008,
+                        "cache_write_cost_usd": 0,
+                        "output_cost_usd": 0.0001,
+                        "estimated_no_cache_cost_usd": 0.0002,
+                        "cache_savings_usd": 0.000072,
+                        "cache_hit_rate": 0.8,
+                    },
+                    "privacy_mode": "metering_audit",
+                    "redaction_status": "no_text_fields",
+                    "training_allowed": False,
+                    "raw_text_visible": False,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.routers.usage.list_user_usage_audit", _audit_rows)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/v1/usage/me/requests?since_hours=24")
+        assert resp.status_code == 200
+        body = resp.json()
+        row = body["requests"][0]
+        assert row["training_allowed"] is False
+        assert row["raw_text_visible"] is False
+        forbidden = {"query_snippet", "full_record", "spans", "prompt_snippet", "completion_snippet", "diagnostics"}
+        assert forbidden.isdisjoint(row.keys())
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

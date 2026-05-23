@@ -180,6 +180,7 @@ const navigation: NavItem[] = [
     children: [
       { label: "Home", path: "/account" },
       { label: "Usage", path: "/account/usage" },
+      { label: "Usage audit", path: "/account/usage/audit" },
       { label: "Organization", path: "/account/organization" },
       { label: "API Tokens", path: "/account/tokens" },
     ],

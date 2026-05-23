@@ -81,6 +81,11 @@ function EditCostModal({
       ? cost.input_cached_per_million
       : "",
   );
+  const [cacheWriteRate, setCacheWriteRate] = useState<number | "">(
+    cost.input_cache_write_per_million != null && cost.input_cache_write_per_million !== undefined
+      ? cost.input_cache_write_per_million
+      : "",
+  );
   const [outputRate, setOutputRate] = useState(cost.output_per_million || 0);
 
   const handleSave = () => {
@@ -92,6 +97,7 @@ function EditCostModal({
         source: cost.source,
         input_per_million: inputRate,
         input_cached_per_million: cachedInputRate === "" ? null : cachedInputRate,
+        input_cache_write_per_million: cacheWriteRate === "" ? null : cacheWriteRate,
         output_per_million: outputRate,
         monthly_fixed_cost: monthly,
         cost_formula: formula,
@@ -123,6 +129,20 @@ function EditCostModal({
                 setCachedInputRate(v === "" ? "" : parseFloat(v) || 0);
               }}
               placeholder="Blank → server uses ~10% of input rate"
+              className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Cache write $/M (optional)</span>
+            <input
+              type="number"
+              step="0.01"
+              value={cacheWriteRate}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCacheWriteRate(v === "" ? "" : parseFloat(v) || 0);
+              }}
+              placeholder="Blank → server uses input rate"
               className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             />
           </label>
@@ -281,10 +301,17 @@ export default function CostTracker() {
                   { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${r.input_per_million.toFixed(2)}` },
                   {
                     key: "input_cached_per_million",
-                    label: "Cached in $/M",
+                    label: "Cache read $/M",
                     sortable: true,
                     render: (r: ModelCost) =>
                       r.input_cached_per_million != null ? `$${Number(r.input_cached_per_million).toFixed(2)}` : "—",
+                  },
+                  {
+                    key: "input_cache_write_per_million",
+                    label: "Cache write $/M",
+                    sortable: true,
+                    render: (r: ModelCost) =>
+                      r.input_cache_write_per_million != null ? `$${Number(r.input_cache_write_per_million).toFixed(2)}` : "input",
                   },
                   { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${r.output_per_million.toFixed(2)}` },
                   {
