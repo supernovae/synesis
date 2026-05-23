@@ -695,6 +695,20 @@ describe("governToolCall", () => {
     expect(cmd).not.toContain("\"synesis_error\":true");
   });
 
+  it("normalizes OpenCode-style Write aliases before validation", () => {
+    const out = governToolCall({
+      toolName: "write_file",
+      input: { path: "requirements.txt", contents: "fastapi\nuvicorn\n" },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+    expect(out.toolName).toBe("write_file");
+    expect(out.validationMissing).toEqual([]);
+    expect(out.input).toEqual({ file_path: "requirements.txt", content: "fastapi\nuvicorn\n" });
+  });
+
   it("rewrites validation failure to synthetic error tool for claude-code", () => {
     const out = governToolCall({
       toolName: "Write",
@@ -723,6 +737,22 @@ describe("governToolCall", () => {
     expect(out.toolName).toBe("Write");
     expect(out.validationMissing).toEqual([]);
     expect(out.input).toEqual({ file_path: "main.go", content: "package main" });
+    expect(out.envelopeUnwrapped).toBe(true);
+    expect(out.envelopeSource).toBe("args_object");
+  });
+
+  it("unwraps and normalizes aliased envelope args for Write", () => {
+    const out = governToolCall({
+      toolName: "write_file",
+      input: { args: { path: "pyproject.toml", file_text: "[project]\n" } },
+      projectRoot: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+    expect(out.toolName).toBe("write_file");
+    expect(out.validationMissing).toEqual([]);
+    expect(out.input).toEqual({ file_path: "pyproject.toml", content: "[project]\n" });
     expect(out.envelopeUnwrapped).toBe(true);
     expect(out.envelopeSource).toBe("args_object");
   });

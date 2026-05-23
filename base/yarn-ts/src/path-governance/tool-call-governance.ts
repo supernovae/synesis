@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
+  remapCommonToolArgAliases,
   validateToolArgs,
 } from "../providers/model-adapter.js";
 import { canonicalValidationToolName } from "../tool-aliases.js";
@@ -152,7 +153,6 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
 
 function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
-  const requestedFilePath = typeof opts.input.file_path === "string" ? opts.input.file_path.trim() : "";
   const out: GovernedToolCall = {
     toolName: opts.toolName,
     input: { ...opts.input },
@@ -170,6 +170,11 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   out.input = envelope.input;
   out.envelopeUnwrapped = envelope.unwrapped;
   out.envelopeSource = envelope.source;
+
+  const aliasRemap = remapCommonToolArgAliases(logicalName, out.input);
+  if (aliasRemap.remapped) {
+    out.input = aliasRemap.input;
+  }
 
   // Path sandbox: block file operations outside allowed boundaries
   if (opts.pathSandboxPolicy) {
@@ -242,6 +247,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
 
   const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
   if (opts.enforcePathRoot && anchorRoot) {
+    const requestedFilePath = typeof out.input.file_path === "string" ? out.input.file_path.trim() : "";
     const rootClamp = constrainFileToolPathToProjectRoot(anchorRoot, logicalName, out.input);
     if (rootClamp.constrained) {
       out.input = rootClamp.input;
@@ -580,16 +586,20 @@ function unwrapCommonToolEnvelope(
   if (inputObj) nestedCandidates.push(inputObj);
 
   for (const candidate of nestedCandidates) {
-    const nestedValidation = validateToolArgs(logicalName, candidate.input);
-    if (nestedValidation.valid) return { input: candidate.input, unwrapped: true, source: candidate.source };
+    const remapped = remapCommonToolArgAliases(logicalName, candidate.input);
+    const candidateInput = remapped.input;
+    const nestedValidation = validateToolArgs(logicalName, candidateInput);
+    if (nestedValidation.valid) return { input: candidateInput, unwrapped: true, source: candidate.source };
   }
 
   for (const candidate of nestedCandidates) {
     const required = expectedToolSchema(logicalName);
     if (required.length === 0) continue;
-    const present = required.filter((k) => candidate.input[k] !== undefined && candidate.input[k] !== null);
+    const remapped = remapCommonToolArgAliases(logicalName, candidate.input);
+    const candidateInput = remapped.input;
+    const present = required.filter((k) => candidateInput[k] !== undefined && candidateInput[k] !== null);
     if (present.length > 0) {
-      return { input: candidate.input, unwrapped: true, source: candidate.source };
+      return { input: candidateInput, unwrapped: true, source: candidate.source };
     }
   }
   return { input, unwrapped: false, source: null };

@@ -92,7 +92,25 @@ export interface ToolArgValidationResult {
  * Maps { wrongName: correctName } per tool.
  */
 const CLAUDE_CODE_PARAM_ALIASES: Record<string, Record<string, string>> = {
-  Write: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", text: "content", code: "content", file_content: "content", body: "content" },
+  Write: {
+    path: "file_path",
+    filename: "file_path",
+    file: "file_path",
+    filepath: "file_path",
+    target_path: "file_path",
+    targetFile: "file_path",
+    target_file: "file_path",
+    text: "content",
+    code: "content",
+    body: "content",
+    contents: "content",
+    fileContent: "content",
+    file_content: "content",
+    fileContents: "content",
+    file_contents: "content",
+    fileText: "content",
+    file_text: "content",
+  },
   Read: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path" },
   Edit: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", find: "old_string", search: "old_string", replace: "new_string", replacement: "new_string" },
   Update: { path: "file_path", filename: "file_path", file: "file_path", filepath: "file_path", find: "old_string", search: "old_string", replace: "new_string", replacement: "new_string" },
@@ -112,6 +130,33 @@ const CLAUDE_CODE_PARAM_ALIASES: Record<string, Record<string, string>> = {
   Grep: { query: "pattern", search: "pattern", regex: "pattern", path: "target_directory", directory: "target_directory" },
   WebFetch: { url: "url" },
 };
+
+export function remapCommonToolArgAliases(
+  toolName: string,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; remapped: boolean } {
+  const aliases = CLAUDE_CODE_PARAM_ALIASES[toolName] ?? CLAUDE_CODE_PARAM_ALIASES[canonicalValidationToolName(toolName)];
+  if (!aliases) return { input, remapped: false };
+
+  let remapped = false;
+  const result: Record<string, unknown> = { ...input };
+  for (const [alias, correctName] of Object.entries(aliases)) {
+    if (alias === correctName || !(alias in input)) continue;
+
+    if (!hasUsableToolArg(result[correctName]) && hasUsableToolArg(input[alias])) {
+      result[correctName] = input[alias];
+    }
+    delete result[alias];
+    remapped = true;
+  }
+  return { input: result, remapped };
+}
+
+function hasUsableToolArg(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  return true;
+}
 
 const IMPLEMENT_INTENT_RE =
   /\b(i('| a)?ll|let me|i need to|i should|i can)\b.{0,40}\b(implement|add|fix|update|enhance|complete|continue)\b/i;
@@ -290,21 +335,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
   }
 
   remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
-    const aliases = CLAUDE_CODE_PARAM_ALIASES[toolName] ?? CLAUDE_CODE_PARAM_ALIASES[canonicalValidationToolName(toolName)];
-    if (!aliases) return { input, remapped: false };
-
-    let remapped = false;
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(input)) {
-      const correctName = aliases[key];
-      if (correctName && !(correctName in input)) {
-        result[correctName] = value;
-        remapped = true;
-      } else {
-        result[key] = value;
-      }
-    }
-    return { input: result, remapped };
+    return remapCommonToolArgAliases(toolName, input);
   }
 
   getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {

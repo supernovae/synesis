@@ -24,7 +24,7 @@ def _ensure_org_content_admin(user: UserInfo) -> None:
 
 
 def _sanitize_probe_payload(payload: dict) -> dict:
-    allowed_errors = {"upstream_unhealthy", "request_failed", None}
+    allowed_errors = {"not_ready", "upstream_unhealthy", "request_failed", None}
     raw_error = payload.get("error")
     error = raw_error if raw_error in allowed_errors else "request_failed"
     return {

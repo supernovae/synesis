@@ -16,6 +16,36 @@ afterEach(() => {
 });
 
 describe("admin MCP internal auth", () => {
+  it("reports ready from local configuration without probing the Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("should_not_probe"));
+    const app = createApp(cfg());
+    const res = await app.inject({ method: "GET", url: "/ready" });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      status: "ready",
+      checks: {
+        internal_service_token_configured: true,
+        admin_api_url_configured: true,
+        mcp_http_path_configured: true,
+      },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports not ready when the internal service token is not configured", async () => {
+    const app = createApp(cfg({ SYNESIS_INTERNAL_SERVICE_TOKEN: "" }));
+    const res = await app.inject({ method: "GET", url: "/ready" });
+    await app.close();
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({
+      status: "not_ready",
+      checks: { internal_service_token_configured: false },
+    });
+  });
+
   it("rejects direct user bearer calls without the internal service token", async () => {
     const app = createApp(cfg());
     const res = await app.inject({
@@ -58,6 +88,31 @@ describe("admin MCP internal auth", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().tools.length).toBeGreaterThan(10);
+  });
+
+  it("normalizes the Admin API root before validating delegated sessions", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ username: "admin", role: "org_admin", user_id: "u1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const app = createApp(cfg({ SYNESIS_ADMIN_API_URL: "http://admin.local/api/v1" }));
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: {
+        "x-synesis-service-token": "internal-secret",
+        "x-synesis-delegated-cookie": "synesis_admin_session=session",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://admin.local/api/v1/auth/me",
+      expect.objectContaining({ headers: expect.objectContaining({ Cookie: "synesis_admin_session=session" }) }),
+    );
   });
 
   it("allows trusted non-admin sessions but only returns user-safe tools", async () => {

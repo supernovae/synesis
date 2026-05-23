@@ -4578,6 +4578,7 @@ import {
   repairBashToolCall,
   repairWriteContentArray,
   repairWriteToolCall,
+  remapCommonToolArgAliases,
 } from "./providers/model-adapter.js";
 import {
   buildUserSafeErrorBashCommand,
@@ -4814,6 +4815,12 @@ function applyAdapterToolHardening(
         upperHarnessBlocked,
       };
     }
+  }
+
+  const commonAliases = remapCommonToolArgAliases(toolNameForCall, finalInput);
+  if (commonAliases.remapped) {
+    finalInput = commonAliases.input;
+    remapped = true;
   }
 
   if (adapter.remapToolArgs) {

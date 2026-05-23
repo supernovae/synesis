@@ -130,6 +130,43 @@ describe("admin MCP tool catalog", () => {
     expect(JSON.parse(captured.body ?? "{}")).toMatchObject({ query: "test query", top_k: 3 });
   });
 
+  it("normalizes the Admin API root before forwarding Admin API tools", async () => {
+    const captured: { url?: string; headers?: HeadersInit } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      captured.url = String(url);
+      captured.headers = init?.headers;
+      return new Response(JSON.stringify({ services: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const result = await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local/api/v1/",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: { "x-synesis-org-id": "org-alpha" },
+        userId: "orgadm-1",
+        role: "org_admin",
+      },
+      "org_admin",
+      "service_health",
+      {},
+    );
+
+    expect(result).toEqual({ services: [] });
+    expect(captured.url).toBe("http://admin.local/api/v1/observability/health");
+    expect(captured.headers).toMatchObject({
+      Cookie: "synesis_admin_session=session",
+      "x-synesis-org-id": "org-alpha",
+    });
+  });
+
   it("rejects extra tool arguments before forwarding to Admin API", async () => {
     await expect(
       invokeTool(

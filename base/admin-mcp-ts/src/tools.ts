@@ -1,4 +1,4 @@
-import type { AdminMcpConfig } from "./config.js";
+import { adminApiBaseUrl, type AdminMcpConfig } from "./config.js";
 
 export type AdminRole = "readonly" | "user" | "org_admin" | "platform_admin" | "admin";
 
@@ -257,7 +257,7 @@ function nowUnixSeconds(): number {
 }
 
 function buildApiUrl(ctx: ToolContext, path: string, params?: Record<string, unknown>): string {
-  const base = ctx.cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
+  const base = adminApiBaseUrl(ctx.cfg);
   return `${base}${path}${queryString(params ?? {})}`;
 }
 

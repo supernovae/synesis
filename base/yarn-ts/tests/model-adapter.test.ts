@@ -257,6 +257,26 @@ describe("Qwen3CoderAdapter", () => {
     expect(result.input).toEqual({ file_path: "hello.go", content: "code" });
   });
 
+  it("remaps common Write content aliases", () => {
+    const contents = adapter.remapToolArgs!("write_file", { file_path: "requirements.txt", contents: "fastapi\n" });
+    expect(contents.remapped).toBe(true);
+    expect(contents.input).toEqual({ file_path: "requirements.txt", content: "fastapi\n" });
+
+    const fileText = adapter.remapToolArgs!("Write", { file_path: "pyproject.toml", file_text: "[project]\n" });
+    expect(fileText.remapped).toBe(true);
+    expect(fileText.input).toEqual({ file_path: "pyproject.toml", content: "[project]\n" });
+  });
+
+  it("uses a non-empty Write content alias when content is empty", () => {
+    const result = adapter.remapToolArgs!("write_file", {
+      file_path: "README.md",
+      content: "",
+      fileContent: "# TaskPulse\n",
+    });
+    expect(result.remapped).toBe(true);
+    expect(result.input).toEqual({ file_path: "README.md", content: "# TaskPulse\n" });
+  });
+
   it("remaps aliases for OpenCode-style tool names", () => {
     const write = adapter.remapToolArgs!("write_file", { path: "hello.go", content: "code" });
     expect(write.remapped).toBe(true);

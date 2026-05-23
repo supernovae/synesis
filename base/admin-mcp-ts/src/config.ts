@@ -24,6 +24,10 @@ const ConfigSchema = z.object({
 
 export type AdminMcpConfig = z.infer<typeof ConfigSchema>;
 
+export function adminApiBaseUrl(cfg: Pick<AdminMcpConfig, "SYNESIS_ADMIN_API_URL">): string {
+  return cfg.SYNESIS_ADMIN_API_URL.trim().replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
+}
+
 export function loadConfig(): AdminMcpConfig {
   return ConfigSchema.parse(process.env);
 }

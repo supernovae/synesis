@@ -13,6 +13,20 @@ from .admin_mcp_ts_client import build_delegated_cookie_header
 logger = logging.getLogger("synesis.admin.mcp")
 
 
+def _probe_error_from_response(resp: httpx.Response) -> str:
+    try:
+        payload = resp.json()
+    except Exception:
+        return "upstream_unhealthy"
+    if isinstance(payload, dict):
+        if payload.get("status") == "not_ready":
+            return "not_ready"
+        error = payload.get("error")
+        if isinstance(error, str) and error.strip():
+            return error.strip()
+    return "upstream_unhealthy"
+
+
 async def get_mcp_tools() -> list[dict]:
     """Catalog from synesis-mcp (Streamable HTTP); public ``GET /v1/synesis-tools``."""
     try:
@@ -48,7 +62,7 @@ async def probe_mcp_health() -> dict:
                 "status_code": resp.status_code,
                 "latency_ms": ms,
                 "url": url,
-                "error": None if ok else "upstream_unhealthy",
+                "error": None if ok else _probe_error_from_response(resp),
             }
     except Exception as exc:
         ms = round((time.perf_counter() - t0) * 1000, 1)
@@ -76,7 +90,7 @@ async def probe_admin_mcp_health() -> dict:
                 "status_code": resp.status_code,
                 "latency_ms": ms,
                 "url": url,
-                "error": None if ok else "upstream_unhealthy",
+                "error": None if ok else _probe_error_from_response(resp),
             }
     except Exception as exc:
         ms = round((time.perf_counter() - t0) * 1000, 1)

@@ -9,7 +9,7 @@ import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
-import { loadConfig, type AdminMcpConfig } from "./config.js";
+import { adminApiBaseUrl, loadConfig, type AdminMcpConfig } from "./config.js";
 import {
   AdminMcpToolError,
   invokeTool,
@@ -122,7 +122,7 @@ async function validateSession(
   delegatedHeaders: Record<string, string>,
   orgHeaders: Record<string, string>,
 ): Promise<SessionUser> {
-  const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
+  const base = adminApiBaseUrl(cfg);
   if (!delegatedHeaders.Authorization && !delegatedHeaders.Cookie) {
     throw new Error("missing_delegated_admin_session");
   }
@@ -244,17 +244,14 @@ export function createApp(cfg: AdminMcpConfig) {
   }));
 
   app.get("/ready", async (_req, reply) => {
-    if (!cfg.SYNESIS_INTERNAL_SERVICE_TOKEN.trim()) {
-      return reply.code(503).send({ status: "not_ready", service: "synesis-admin-mcp-ts" });
-    }
-    try {
-      const base = cfg.SYNESIS_ADMIN_API_URL.replace(/\/$/, "");
-      const response = await fetchWithTimeout(`${base}/api/v1/health`, {}, cfg.SYNESIS_ADMIN_MCP_AUTH_TIMEOUT_MS);
-      if (!response.ok) throw new Error(`admin_health_${response.status}`);
-      return reply.code(200).send({ status: "ready", service: "synesis-admin-mcp-ts" });
-    } catch {
-      return reply.code(503).send({ status: "not_ready", service: "synesis-admin-mcp-ts" });
-    }
+    const checks = {
+      internal_service_token_configured: Boolean(cfg.SYNESIS_INTERNAL_SERVICE_TOKEN.trim()),
+      admin_api_url_configured: Boolean(adminApiBaseUrl(cfg)),
+      mcp_http_path_configured: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH.startsWith("/"),
+    };
+    const ready = Object.values(checks).every(Boolean);
+    const payload = { status: ready ? "ready" : "not_ready", service: "synesis-admin-mcp-ts", checks };
+    return reply.code(ready ? 200 : 503).send(payload);
   });
 
   app.get(
