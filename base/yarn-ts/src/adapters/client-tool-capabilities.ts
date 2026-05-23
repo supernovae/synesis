@@ -124,6 +124,10 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
   if (capabilities.hasTodoTool && capabilities.todoToolName) {
     lines.push(`task_tool=${capabilities.todoToolName}`);
     lines.push("- For macro tasks, explicit plan mode, or multi-step work, prefer the task tool for a 3-7 item plan before editing. Preserve existing completed todos and update statuses instead of duplicating tasks.");
+    if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
+      lines.push('- OpenCode todowrite exact shape: {"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}. Each item must include id, content, status, and priority.');
+      lines.push("- Never call todowrite with arrays of strings, title-only items, or status-only updates.");
+    }
   }
   if (capabilities.hasQuestionTool && capabilities.questionToolName) {
     lines.push(`question_tool=${capabilities.questionToolName}`);
@@ -161,7 +165,7 @@ export function enrichToolDescriptionForClient(
 
   const normalized = normalizeToolName(toolName);
   if (TODO_TOOLS.has(normalized)) {
-    return appendHint(description, " [Synesis: Use for macro tasks, /plan mode, and multi-step implementation. Create 3-7 concrete todos before edits, then update statuses as work progresses.]");
+    return appendHint(description, ' [Synesis: Use for macro tasks, /plan mode, and multi-step implementation. Create 3-7 concrete todos before edits, then update statuses as work progresses. OpenCode todowrite requires each item to include id, content, status, and priority, e.g. {"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}.]');
   }
   if (QUESTION_TOOLS.has(normalized)) {
     return appendHint(description, " [Synesis: Use only for real ambiguity or user preference choices. Ask concise questions with clear options; otherwise continue with the next safe step.]");

@@ -24,8 +24,8 @@ function packet(overrides?: Partial<PlannerTodoPacket>): PlannerTodoPacket {
     ambiguity: "low",
     questions: [],
     todos: [
-      { id: "todo_1", content: "Inspect the existing request path", status: "pending" },
-      { id: "todo_2", content: "Add focused verification", status: "pending" },
+      { id: "todo_1", content: "Inspect the existing request path", status: "pending", priority: "high" },
+      { id: "todo_2", content: "Add focused verification", status: "pending", priority: "medium" },
     ],
     success_criteria: ["Planner guidance is injected without forcing implementation"],
     ...overrides,
@@ -101,6 +101,8 @@ describe("planner todo packet", () => {
     expect(prompt).toContain("Return strict JSON only");
     expect(prompt).toContain("Native todo tool available: todowrite");
     expect(prompt).toContain("Native question tool available: question");
+    expect(prompt).toContain('"priority":"high"');
+    expect(prompt).toContain("every todo object must include id, content, status, and priority");
     expect(prompt).toContain("source_hash=abc123");
     expect(prompt).not.toContain("/plan build");
   });
@@ -122,6 +124,7 @@ describe("planner todo packet", () => {
 
     expect(parsed.parseError).toBeUndefined();
     expect(parsed.packet?.todos[0]?.id).toBe("todo_1");
+    expect(parsed.packet?.todos[0]?.priority).toBe("medium");
     expect(parsed.packet?.todos[1]?.id).toBe("todo_1_2");
   });
 
@@ -149,6 +152,8 @@ describe("planner todo packet", () => {
     expect(block).toContain("<synesis_planner_todo_packet");
     expect(block).toContain("question_tool=question");
     expect(block).toContain("todo_tool=todowrite");
+    expect(block).toContain("required_todowrite_shape=");
+    expect(block).toContain('"priority":"high"');
     expect(block).toContain("next_action=ask_question_then_todowrite");
     expect(block).toContain("Which database should back the new API?");
   });

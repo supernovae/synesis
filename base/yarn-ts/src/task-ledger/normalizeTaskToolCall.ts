@@ -88,7 +88,7 @@ export function normalizeTaskToolCall(
 
 /**
  * OpenCode / Claude / Cursor TodoWrite shape:
- * { todos: [{ id, content, status }], merge?: boolean }
+ * { todos: [{ id, content, status, priority? }], merge?: boolean }
  */
 function normalizeTodoWriteCall(input: ToolCallInput, source: TaskSource): HarnessTask[] {
   const todos = Array.isArray(input.args.todos) ? input.args.todos : [];

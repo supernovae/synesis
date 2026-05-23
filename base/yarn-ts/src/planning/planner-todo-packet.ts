@@ -8,6 +8,7 @@ const PlannerTodoSchema = z.object({
   id: z.string().min(1).max(40),
   content: z.string().min(3).max(180),
   status: z.enum(["pending", "in_progress", "completed", "blocked"]).default("pending"),
+  priority: z.enum(["high", "medium", "low"]).default("medium"),
 });
 
 const PlannerQuestionOptionSchema = z.object({
@@ -103,7 +104,7 @@ export function buildPlannerTodoPacketPrompt(input: PlannerTodoPacketGenerateInp
         },
       ],
       todos: [
-        { id: "todo_1", content: "Concrete implementation or verification step", status: "pending" },
+        { id: "todo_1", content: "Concrete implementation or verification step", status: "pending", priority: "high" },
       ],
       success_criteria: ["Observable done condition"],
     }),
@@ -116,6 +117,7 @@ export function buildPlannerTodoPacketPrompt(input: PlannerTodoPacketGenerateInp
     "- Prefer implementation-neutral wording. Do not assume files that were not provided.",
     "- Include verification as one todo when tests/build/lint are likely relevant.",
     "- Keep every todo under 180 characters.",
+    "- If calling OpenCode todowrite, every todo object must include id, content, status, and priority. Do not pass arrays of strings or status-only updates.",
     `- Native todo tool available: ${todoTool}. Native question tool available: ${questionTool}.`,
     "",
     `source_hash=${input.sourceHash}`,
@@ -184,6 +186,10 @@ export function formatPlannerTodoPacketBlock(options: {
   }
   if (capabilities.todoToolName) {
     lines.push(`todo_tool=${capabilities.todoToolName}`);
+    if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
+      lines.push('required_todowrite_shape={"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}');
+      lines.push("- OpenCode todowrite requires id, content, status, and priority on every todo item, including updates.");
+    }
     lines.push(`next_action=${packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_todowrite" : "call_todowrite"}`);
   } else {
     lines.push("todo_tool=unavailable");
@@ -196,7 +202,7 @@ export function formatPlannerTodoPacketBlock(options: {
   }
   lines.push("todos:");
   for (const todo of packet.todos) {
-    lines.push(`- [${todo.status}] ${todo.id}: ${todo.content}`);
+    lines.push(`- [${todo.status}/${todo.priority}] ${todo.id}: ${todo.content}`);
   }
   lines.push("success_criteria:");
   for (const criteria of packet.success_criteria) {
