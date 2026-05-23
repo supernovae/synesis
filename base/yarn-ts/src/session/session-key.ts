@@ -39,6 +39,30 @@ export function hasExplicitConversationId(conversationId: string): boolean {
   return conversationId.trim().length > 0;
 }
 
+function isFreshClientTranscript(messages: Array<{ role?: unknown }>): boolean {
+  if (messages.length === 0) return false;
+  let hasUser = false;
+  for (const message of messages) {
+    const role = typeof message.role === "string" ? message.role.trim().toLowerCase() : "";
+    if (role === "user") hasUser = true;
+    if (role === "assistant" || role === "tool") return false;
+  }
+  return hasUser;
+}
+
+export function shouldResetImplicitSessionForFreshTranscript(options: {
+  clientKind: string;
+  conversationId: string;
+  messages: Array<{ role?: unknown }>;
+  hasPersistedState: boolean;
+}): boolean {
+  if (hasExplicitConversationId(options.conversationId)) return false;
+  if (!options.hasPersistedState) return false;
+  const client = options.clientKind.trim().toLowerCase();
+  if (!client.includes("opencode")) return false;
+  return isFreshClientTranscript(options.messages);
+}
+
 export function buildRotatedSessionKey(baseKey: string, nowMs: number): string {
   return `${baseKey}:r${nowMs}`;
 }

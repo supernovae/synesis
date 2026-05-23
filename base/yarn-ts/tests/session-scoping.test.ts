@@ -130,6 +130,51 @@ describe("Canonical session key", () => {
     expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r3000");
     expect(decision.reason).toBe("new_implicit_conversation");
   });
+
+  it("resets OpenCode implicit sessions when a fresh transcript arrives over persisted state", async () => {
+    const { shouldResetImplicitSessionForFreshTranscript } = await import("../src/session/session-key.js");
+
+    expect(shouldResetImplicitSessionForFreshTranscript({
+      clientKind: "opencode",
+      conversationId: "",
+      hasPersistedState: true,
+      messages: [
+        { role: "system" },
+        { role: "user" },
+      ],
+    })).toBe(true);
+  });
+
+  it("keeps OpenCode implicit sessions when transcript history is present", async () => {
+    const { shouldResetImplicitSessionForFreshTranscript } = await import("../src/session/session-key.js");
+
+    expect(shouldResetImplicitSessionForFreshTranscript({
+      clientKind: "opencode",
+      conversationId: "",
+      hasPersistedState: true,
+      messages: [
+        { role: "system" },
+        { role: "user" },
+        { role: "assistant" },
+        { role: "tool" },
+        { role: "user" },
+      ],
+    })).toBe(false);
+  });
+
+  it("does not reset explicit conversation sessions on fresh-looking transcripts", async () => {
+    const { shouldResetImplicitSessionForFreshTranscript } = await import("../src/session/session-key.js");
+
+    expect(shouldResetImplicitSessionForFreshTranscript({
+      clientKind: "opencode",
+      conversationId: "oc-session-1",
+      hasPersistedState: true,
+      messages: [
+        { role: "system" },
+        { role: "user" },
+      ],
+    })).toBe(false);
+  });
 });
 
 describe("Session isolation — two clients, same user", () => {

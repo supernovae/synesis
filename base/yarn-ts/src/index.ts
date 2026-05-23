@@ -66,7 +66,11 @@ import {
   type CompactionSensitivity,
 } from "./context/compaction-sensitivity.js";
 import { SessionStore, type SessionRecord, type SessionStateSnapshot } from "./state/session-store.js";
-import { resolveSessionKey, type SessionIdentity } from "./session/session-key.js";
+import {
+  resolveSessionKey,
+  shouldResetImplicitSessionForFreshTranscript,
+  type SessionIdentity,
+} from "./session/session-key.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
@@ -1507,7 +1511,7 @@ async function maybeBuildPlannerTodoPacketBlock(options: {
   };
   const cachedPacketAllowed = shouldGeneratePlannerTodoPacket({
     ...basePlannerTodoDecision,
-    existingTaskCount: 0,
+    existingTaskCount: effectiveExistingTaskCount,
   });
   if (cachedPacket && cachedPacketAllowed) {
     return formatPlannerTodoPacketBlock({
@@ -8333,6 +8337,28 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const session = await getSessionState(sessionKey, identity);
   applyAuthKeyAttribution(session, authUser);
+  if (shouldResetImplicitSessionForFreshTranscript({
+    clientKind: oaiClientKind,
+    conversationId: oaiConversationId,
+    messages: request.messages as Array<{ role?: unknown }>,
+    hasPersistedState: hasPersistedWorkspaceState(session, sessionKey),
+  })) {
+    resetWorkspaceScopedSessionState(sessionKey, session);
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "implicit_session_fresh_transcript_reset",
+      "session-boundary",
+      `client=${oaiClientKind} messages=${(request.messages as unknown[]).length}`,
+      oaiTraceReqId,
+      {
+        client_kind: oaiClientKind,
+        conversation_id_present: false,
+        message_count: (request.messages as unknown[]).length,
+      },
+    );
+  }
   const oaiRuntimePreferences = await loadUserRuntimePreferences(identity.userId);
   const oaiToolDefs = (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
   const oaiClientToolCapabilities = detectClientToolCapabilities(oaiToolDefs, oaiClientKind, oaiTaskCue);
