@@ -12,11 +12,17 @@ from ..deps import CATALOG_COLLECTION, NORNIC_DATABASE, get_nornic_driver
 logger = logging.getLogger("synesis.admin.nornic")
 
 SCHEMA_VERSION = 20
+EMBEDDING_DIM = 1024
 DELETE_BATCH_SIZE = 500
 
 _FILTER_EQ_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"\s*$')
 _FILTER_NE_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*!=\s*"([^"]*)"\s*$')
 _FILTER_IN_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+in\s+\[([^\]]*)\]\s*$")
+_FILTER_FIELD_DEFAULTS = {
+    # Older rows can predate the explicit review fields. Treat missing scan state
+    # as unscanned so legacy content remains visible in the review queue.
+    "scan_status": "unscanned",
+}
 
 _CONTENT_TEXT_CYPHER = (
     "CASE "
@@ -109,16 +115,29 @@ def recreate_content_graph(collection: str = CATALOG_COLLECTION) -> dict[str, An
             deleted = _delete_content_nodes_in_batches(session)
             session.run("CREATE CONSTRAINT content_node_id IF NOT EXISTS FOR (n:ContentNode) REQUIRE n.id IS UNIQUE")
             session.run("CREATE INDEX content_node_pack IF NOT EXISTS FOR (n:ContentNode) ON (n.pack)")
-            session.run("CREATE INDEX content_node_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)")
+            session.run(
+                "CREATE INDEX content_node_source_version IF NOT EXISTS FOR (n:ContentNode) ON (n.source_version)"
+            )
             session.run("CREATE INDEX content_node_kind IF NOT EXISTS FOR (n:ContentNode) ON (n.kind)")
             session.run("CREATE INDEX content_node_domain IF NOT EXISTS FOR (n:ContentNode) ON (n.domain)")
             session.run("CREATE INDEX content_node_content_type IF NOT EXISTS FOR (n:ContentNode) ON (n.content_type)")
             session.run("CREATE INDEX content_node_language IF NOT EXISTS FOR (n:ContentNode) ON (n.language)")
             session.run("CREATE INDEX content_node_package IF NOT EXISTS FOR (n:ContentNode) ON (n.package_name)")
-            session.run("CREATE INDEX content_node_symbol IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)")
+            session.run("CREATE INDEX content_node_symbol_fqn IF NOT EXISTS FOR (n:ContentNode) ON (n.symbol_fqn)")
             session.run("CREATE INDEX content_node_artifact IF NOT EXISTS FOR (n:ContentNode) ON (n.artifact_kind)")
             session.run("CREATE INDEX content_node_deprecated IF NOT EXISTS FOR (n:ContentNode) ON (n.deprecated)")
-            session.run("CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding)")
+            session.run("CREATE INDEX content_node_path IF NOT EXISTS FOR (n:ContentNode) ON (n.path)")
+            session.run(
+                "CREATE INDEX content_node_acl IF NOT EXISTS FOR (n:ContentNode) ON (n.visibility_scope, n.org_id, n.tenant_id)"
+            )
+            session.run(
+                "CREATE INDEX content_node_authz_object IF NOT EXISTS FOR (n:ContentNode) ON (n.authz_object_id)"
+            )
+            session.run(
+                "CREATE VECTOR INDEX embeddings IF NOT EXISTS FOR (n:ContentNode) ON (n.embedding) "
+                f"OPTIONS {{ indexConfig: {{ `vector.dimensions`: {EMBEDDING_DIM}, "
+                "`vector.similarity_function`: 'cosine' }}}}"
+            )
             session.run(
                 """
                 MERGE (s:GraphSchema {name: $name})
@@ -149,6 +168,113 @@ def _org_scope_clause(
     return f"WHERE (coalesce({alias}.visibility_scope, 'global') = 'global' OR {alias}.org_id = $caller_org_id)"
 
 
+def _org_scope_predicates(
+    alias: str = "n",
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
+) -> list[str]:
+    if is_platform_admin or not caller_org_id:
+        return []
+    return [f"(coalesce({alias}.visibility_scope, 'global') = 'global' OR {alias}.org_id = $caller_org_id)"]
+
+
+def _strip_wrapping_parens(clause: str) -> str:
+    clause = clause.strip()
+    while clause.startswith("(") and clause.endswith(")"):
+        clause = clause[1:-1].strip()
+    return clause
+
+
+def _filter_value_expr(alias: str, field: str) -> str:
+    default = _FILTER_FIELD_DEFAULTS.get(field, "")
+    return f"toString(coalesce({alias}.{field}, '{default}'))"
+
+
+def _parse_filter_list(raw_values: str) -> list[str]:
+    return [v.strip().strip('"').strip("'") for v in raw_values.split(",") if v.strip()]
+
+
+def _filter_row_value(row: dict[str, Any], field: str) -> str:
+    value = row.get(field)
+    if value is None or value == "":
+        value = _FILTER_FIELD_DEFAULTS.get(field, "")
+    return str(value)
+
+
+def _filter_expr_to_cypher(
+    filter_expr: str,
+    *,
+    alias: str = "n",
+    param_prefix: str = "filter",
+) -> tuple[list[str], dict[str, Any]] | None:
+    """Translate Admin's supported filter subset into Cypher predicates.
+
+    Unknown syntax returns ``None`` so callers can fail closed instead of
+    accidentally widening a scoped query.
+    """
+    expr = (filter_expr or "").strip()
+    if not expr:
+        return [], {}
+    if len(expr) > 4096:
+        logger.warning("nornic_filter_too_long len=%s — returning empty (fail closed)", len(expr))
+        return None
+
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    for idx, raw_part in enumerate(_split_filter_clauses(expr)):
+        part = _strip_wrapping_parens(raw_part)
+        param = f"{param_prefix}_{idx}"
+
+        eq = _FILTER_EQ_RE.match(part)
+        if eq:
+            field, expected = eq.groups()
+            clauses.append(f"{_filter_value_expr(alias, field)} = ${param}")
+            params[param] = expected
+            continue
+
+        ne = _FILTER_NE_RE.match(part)
+        if ne:
+            field, expected = ne.groups()
+            clauses.append(f"{_filter_value_expr(alias, field)} <> ${param}")
+            params[param] = expected
+            continue
+
+        in_match = _FILTER_IN_RE.match(part)
+        if in_match:
+            field = in_match.group(1)
+            allowed = _parse_filter_list(in_match.group(2))
+            clauses.append(f"{_filter_value_expr(alias, field)} IN ${param}")
+            params[param] = allowed
+            continue
+
+        logger.warning(
+            "nornic_filter_unrecognized expr=%s clause=%s — returning empty (fail closed)",
+            expr[:120],
+            part[:80],
+        )
+        return None
+
+    return clauses, params
+
+
+def _where_clause(
+    *,
+    alias: str,
+    filter_expr: str = "",
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
+    param_prefix: str = "filter",
+) -> tuple[str, dict[str, Any]] | None:
+    filter_parts = _filter_expr_to_cypher(filter_expr, alias=alias, param_prefix=param_prefix)
+    if filter_parts is None:
+        return None
+    clauses, params = filter_parts
+    predicates = [*_org_scope_predicates(alias, caller_org_id, is_platform_admin), *clauses]
+    if not predicates:
+        return "", params
+    return "WHERE " + " AND ".join(predicates), params
+
+
 def safe_query(
     collection: str,
     filter_expr: str = "",
@@ -162,11 +288,20 @@ def safe_query(
     del collection
     fields = output_fields or []
     projection = "properties(n) AS props" if not fields else "n AS node"
-    where = _org_scope_clause("n", caller_org_id, is_platform_admin)
+    where_parts = _where_clause(
+        alias="n",
+        filter_expr=filter_expr,
+        caller_org_id=caller_org_id,
+        is_platform_admin=is_platform_admin,
+    )
+    if where_parts is None:
+        return []
+    where, filter_params = where_parts
     params: dict[str, Any] = {
         "offset": max(0, offset),
         "limit": max(1, min(limit, 5000)),
     }
+    params.update(filter_params)
     if caller_org_id and not is_platform_admin:
         params["caller_org_id"] = caller_org_id
     try:
@@ -188,10 +323,48 @@ def safe_query(
                 if fields:
                     props = {field: props.get(field, "") for field in fields}
                 out.append(props)
-            return _apply_filter_expr(out, filter_expr)
+            return out
     except Exception as exc:
         logger.warning("nornic_query_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:120])
         return []
+
+
+def safe_count(
+    collection: str,
+    filter_expr: str = "",
+    *,
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
+) -> int:
+    del collection
+    where_parts = _where_clause(
+        alias="n",
+        filter_expr=filter_expr,
+        caller_org_id=caller_org_id,
+        is_platform_admin=is_platform_admin,
+        param_prefix="count_filter",
+    )
+    if where_parts is None:
+        return 0
+    where, filter_params = where_parts
+    params: dict[str, Any] = dict(filter_params)
+    if caller_org_id and not is_platform_admin:
+        params["caller_org_id"] = caller_org_id
+    try:
+        driver = get_nornic_driver()
+        with driver.session(database=NORNIC_DATABASE) as session:
+            row = session.run(
+                f"""
+                MATCH (n:ContentNode)
+                {where}
+                RETURN count(n) AS count
+                """,
+                **params,
+            ).single()
+            return int(row["count"] or 0) if row else 0
+    except Exception as exc:
+        logger.warning("nornic_count_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:120])
+        return 0
 
 
 def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[str, Any]] | None:
@@ -201,25 +374,24 @@ def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[s
         return rows
 
     # Strip wrapping parens: "(scan_status == "x")" -> "scan_status == "x""
-    while clause.startswith("(") and clause.endswith(")"):
-        clause = clause[1:-1].strip()
+    clause = _strip_wrapping_parens(clause)
 
     eq = _FILTER_EQ_RE.match(clause)
     if eq:
         field, expected = eq.groups()
-        return [row for row in rows if str(row.get(field) or "") == expected]
+        return [row for row in rows if _filter_row_value(row, field) == expected]
 
     ne = _FILTER_NE_RE.match(clause)
     if ne:
         field, expected = ne.groups()
-        return [row for row in rows if str(row.get(field) or "") != expected]
+        return [row for row in rows if _filter_row_value(row, field) != expected]
 
     in_match = _FILTER_IN_RE.match(clause)
     if in_match:
         field = in_match.group(1)
         raw_values = in_match.group(2)
-        allowed = [v.strip().strip('"').strip("'") for v in raw_values.split(",") if v.strip()]
-        return [row for row in rows if str(row.get(field) or "") in allowed]
+        allowed = _parse_filter_list(raw_values)
+        return [row for row in rows if _filter_row_value(row, field) in allowed]
 
     return None
 
@@ -337,13 +509,23 @@ def safe_vector_search(
     caller_org_id: str = "",
     is_platform_admin: bool = False,
 ) -> list[dict[str, Any]]:
-    del collection, filter_expr
+    del collection
     query = vector if isinstance(vector, str) else " ".join(str(x) for x in vector[:16])
-    where = _org_scope_clause("node", caller_org_id, is_platform_admin)
+    where_parts = _where_clause(
+        alias="node",
+        filter_expr=filter_expr,
+        caller_org_id=caller_org_id,
+        is_platform_admin=is_platform_admin,
+        param_prefix="vector_filter",
+    )
+    if where_parts is None:
+        return []
+    where, filter_params = where_parts
     params: dict[str, Any] = {
         "query": query,
         "limit": max(1, min(top_k, 50)),
     }
+    params.update(filter_params)
     if caller_org_id and not is_platform_admin:
         params["caller_org_id"] = caller_org_id
     scope_filter = ""
@@ -627,42 +809,104 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
         "exists": True,
         "fields": [
             {"name": "id", "type": "string", "is_primary": True, "max_length": 128},
+            {"name": "chunk_id", "type": "string", "is_primary": False, "max_length": 128},
             {"name": "doc_id", "type": "string", "is_primary": False, "max_length": 256},
             {"name": "text", "type": "text", "is_primary": False},
-            {"name": "embedding", "type": "vector<float>", "is_primary": False},
+            {"name": "content", "type": "text", "is_primary": False},
+            {"name": "embedding", "type": "vector<float>", "is_primary": False, "dim": EMBEDDING_DIM},
+            {"name": "context_prefix", "type": "text", "is_primary": False},
+            {"name": "chunk_summary", "type": "text", "is_primary": False},
+            {"name": "summary", "type": "text", "is_primary": False},
+            {"name": "heading_path", "type": "string", "is_primary": False},
+            {"name": "section", "type": "string", "is_primary": False},
             {"name": "domain", "type": "string", "is_primary": False, "max_length": 128},
             {"name": "source_url", "type": "string", "is_primary": False},
+            {"name": "url", "type": "string", "is_primary": False},
             {"name": "document_name", "type": "string", "is_primary": False},
+            {"name": "source_type", "type": "string", "is_primary": False},
+            {"name": "handler", "type": "string", "is_primary": False},
             {"name": "authority", "type": "string", "is_primary": False, "max_length": 32},
+            {"name": "origin_type", "type": "string", "is_primary": False, "max_length": 32},
             {"name": "visibility_scope", "type": "string", "is_primary": False, "max_length": 16},
+            {"name": "org_id", "type": "string", "is_primary": False, "max_length": 64},
+            {"name": "tenant_id", "type": "string", "is_primary": False, "max_length": 64},
+            {"name": "owner_user_id", "type": "string", "is_primary": False, "max_length": 64},
+            {"name": "conversation_id", "type": "string", "is_primary": False, "max_length": 128},
+            {"name": "upload_batch_id", "type": "string", "is_primary": False, "max_length": 64},
+            {"name": "upload_mode", "type": "string", "is_primary": False, "max_length": 24},
+            {"name": "is_ephemeral", "type": "boolean", "is_primary": False},
+            {"name": "expires_at_epoch", "type": "integer", "is_primary": False},
+            {"name": "acl_mode", "type": "string", "is_primary": False, "max_length": 16},
+            {"name": "acl_groups", "type": "text", "is_primary": False},
             {"name": "acl_group_ids", "type": "list<string>", "is_primary": False},
+            {"name": "authz_object_id", "type": "string", "is_primary": False, "max_length": 192},
+            {"name": "pack", "type": "string", "is_primary": False},
             {"name": "pack_id", "type": "string", "is_primary": False},
             {"name": "pack_version", "type": "string", "is_primary": False},
+            {"name": "source_version", "type": "string", "is_primary": False},
+            {"name": "pack_source_version", "type": "string", "is_primary": False},
+            {"name": "source_release", "type": "string", "is_primary": False},
+            {"name": "upstream_commit", "type": "string", "is_primary": False},
+            {"name": "upstream_tag", "type": "string", "is_primary": False},
             {"name": "symbol_fqn", "type": "string", "is_primary": False},
+            {"name": "symbol_kind", "type": "string", "is_primary": False},
+            {"name": "symbol_type", "type": "string", "is_primary": False},
+            {"name": "symbol_name", "type": "string", "is_primary": False},
             {"name": "kind", "type": "string", "is_primary": False},
             {"name": "content_type", "type": "string", "is_primary": False},
+            {"name": "content_format", "type": "string", "is_primary": False},
             {"name": "package_name", "type": "string", "is_primary": False},
+            {"name": "language", "type": "string", "is_primary": False},
+            {"name": "repo_path", "type": "string", "is_primary": False},
+            {"name": "module_path", "type": "string", "is_primary": False},
+            {"name": "path", "type": "string", "is_primary": False},
             {"name": "retrieval_terms", "type": "text", "is_primary": False},
             {"name": "query_aliases", "type": "text", "is_primary": False},
             {"name": "task_intents", "type": "text", "is_primary": False},
+            {"name": "scan_status", "type": "string", "is_primary": False},
+            {"name": "approval_status", "type": "string", "is_primary": False},
+            {"name": "scan_signals", "type": "text", "is_primary": False},
+            {"name": "review_trace_id", "type": "string", "is_primary": False},
+            {"name": "effective_at_epoch", "type": "integer", "is_primary": False},
+            {"name": "crawl_timestamp", "type": "integer", "is_primary": False},
+            {"name": "quality_score", "type": "float", "is_primary": False},
+            {"name": "trust_score", "type": "float", "is_primary": False},
+            {"name": "freshness_score", "type": "float", "is_primary": False},
+            {"name": "content_profile", "type": "string", "is_primary": False},
+            {"name": "corpus_class", "type": "string", "is_primary": False},
+            {"name": "artifact_kind", "type": "string", "is_primary": False},
             {"name": "deprecated", "type": "boolean", "is_primary": False},
+            {"name": "deprecation_status", "type": "string", "is_primary": False},
             {"name": "replacement_api", "type": "string", "is_primary": False},
+            {"name": "graph_schema_version", "type": "integer", "is_primary": False},
+            {"name": "corpus_version", "type": "string", "is_primary": False},
         ],
         "indexes": [
             {"name": "content_node_id", "field": "id", "type": "unique_constraint", "metric": "exact"},
             {"name": "content_node_pack", "field": "pack", "type": "range", "metric": "exact"},
-            {"name": "content_node_version", "field": "source_version", "type": "range", "metric": "exact"},
+            {"name": "content_node_source_version", "field": "source_version", "type": "range", "metric": "exact"},
             {"name": "content_node_kind", "field": "kind", "type": "range", "metric": "exact"},
             {"name": "content_node_domain", "field": "domain", "type": "range", "metric": "exact"},
+            {"name": "content_node_content_type", "field": "content_type", "type": "range", "metric": "exact"},
             {"name": "content_node_language", "field": "language", "type": "range", "metric": "exact"},
             {"name": "content_node_package", "field": "package_name", "type": "range", "metric": "exact"},
-            {"name": "content_node_symbol", "field": "symbol_fqn", "type": "range", "metric": "exact"},
+            {"name": "content_node_symbol_fqn", "field": "symbol_fqn", "type": "range", "metric": "exact"},
             {"name": "content_node_artifact", "field": "artifact_kind", "type": "range", "metric": "exact"},
             {"name": "content_node_deprecated", "field": "deprecated", "type": "range", "metric": "exact"},
+            {"name": "content_node_path", "field": "path", "type": "range", "metric": "exact"},
+            {
+                "name": "content_node_acl",
+                "field": "visibility_scope, org_id, tenant_id",
+                "type": "range",
+                "metric": "exact",
+            },
+            {"name": "content_node_authz_object", "field": "authz_object_id", "type": "range", "metric": "exact"},
             {"name": "embeddings", "field": "embedding", "type": "vector", "metric": "cosine"},
         ],
         "node_labels": [
             "ContentNode",
+            "Pack",
+            "Source",
             "Document",
             "File",
             "Package",
@@ -678,9 +922,9 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             "Constraint",
             "Example",
             "ContextCard",
-            "PackCard",
             "ExternalRef",
             "EvalCase",
+            "Version",
         ],
         "edge_types": [
             "CONTAINS",

@@ -34,6 +34,7 @@ from ..services.nornic_service import (
     collection_schema_info,
     expected_graph_schema_version,
     reported_graph_schema_version,
+    safe_count,
     safe_query,
 )
 from ..services.outbound_security import validate_public_https_url
@@ -1512,6 +1513,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 _REVIEW_FIELDS = [
+    "id",
     "chunk_id",
     "doc_id",
     "text",
@@ -1595,7 +1597,11 @@ _ONE_DAY_S = 86400
 
 def _compute_freshness(row: dict) -> float:
     """Compute a 0.0–1.0 freshness score from epoch-second timestamps."""
-    ts = row.get("effective_at_epoch") or row.get("crawl_timestamp") or 0
+    raw_ts = row.get("effective_at_epoch") or row.get("crawl_timestamp") or 0
+    try:
+        ts = float(raw_ts or 0)
+    except (TypeError, ValueError):
+        return 0.0
     if not ts or ts <= 0:
         return 0.0
     age_days = max(0, (_time.time() - ts) / _ONE_DAY_S)
@@ -1612,21 +1618,63 @@ def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
     return reasons
 
 
+def _string_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list | tuple | set):
+        return ", ".join(_string_value(item) for item in value if item is not None)
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, sort_keys=True)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def _clean_review_filter_value(value: str, *, name: str) -> str:
+    value = (value or "").strip()
+    if '"' in value:
+        raise HTTPException(status_code=400, detail=f"{name} cannot contain double quotes")
+    return value
+
+
+def _review_node_for_action(chunk_id: str, user: UserInfo) -> dict[str, Any] | None:
+    chunk_id = _clean_review_filter_value(chunk_id, name="chunk_id")
+    if not chunk_id:
+        return None
+    fields = ["id", "chunk_id", "authority", "scan_status", "approval_status"]
+    scope = _nornic_scope_kwargs(user)
+    for field in ("chunk_id", "id"):
+        rows = safe_query(
+            CATALOG_COLLECTION,
+            filter_expr=f'{field} == "{chunk_id}"',
+            output_fields=fields,
+            limit=1,
+            **scope,
+        )
+        if rows:
+            return rows[0]
+    return None
+
+
+def _review_update_identity(row: dict[str, Any], fallback: str) -> tuple[str, str]:
+    node_id = _string_value(row.get("id") or row.get("chunk_id") or fallback)
+    chunk_id = _string_value(row.get("chunk_id") or node_id)
+    return node_id, chunk_id
+
+
 @router.get("/review/stats")
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
     """Counts by scan_status and approval_status for the review queue badge."""
     _ensure_org_observability(_user)
     scope = _nornic_scope_kwargs(_user)
-    flagged = safe_query(
-        CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000, **scope
-    )
-    unscanned = safe_query(
-        CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000, **scope
-    )
-    pending = safe_query(
-        CATALOG_COLLECTION, filter_expr='approval_status == "pending"', output_fields=["chunk_id"], limit=10000, **scope
-    )
-    return {"flagged": len(flagged), "unscanned": len(unscanned), "pending_approval": len(pending)}
+    return {
+        "flagged": safe_count(CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', **scope),
+        "unscanned": safe_count(CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', **scope),
+        "pending_approval": safe_count(CATALOG_COLLECTION, filter_expr='approval_status == "pending"', **scope),
+    }
 
 
 @router.get("/review")
@@ -1640,12 +1688,16 @@ async def review_queue(
 ):
     """List chunks needing review with optional sort pivots and domain filter."""
     _ensure_org_observability(_user)
+    if status not in {"flagged", "unscanned", "all"}:
+        raise HTTPException(status_code=400, detail="status must be flagged, unscanned, or all")
+    if sort and sort not in {"freshness", "authority", "scan_status"}:
+        raise HTTPException(status_code=400, detail="sort must be freshness, authority, or scan_status")
     if status == "all":
         expr = 'scan_status in ["flagged", "unscanned"]'
     else:
         expr = f'scan_status == "{status}"'
     if domain:
-        safe_domain = domain.replace('"', '\\"')
+        safe_domain = _clean_review_filter_value(domain, name="domain")[:128]
         expr = f'({expr}) and domain == "{safe_domain}"'
     rows = safe_query(
         CATALOG_COLLECTION,
@@ -1656,7 +1708,30 @@ async def review_queue(
         **_nornic_scope_kwargs(_user),
     )
     for r in rows:
-        full_text = r.pop("text", "")
+        node_id = _string_value(r.get("id") or r.get("chunk_id"))
+        chunk_id = _string_value(r.get("chunk_id") or node_id)
+        r["id"] = node_id or chunk_id
+        r["chunk_id"] = chunk_id or node_id
+        for key in (
+            "doc_id",
+            "document_name",
+            "source_url",
+            "authority",
+            "origin_type",
+            "domain",
+            "scan_status",
+            "heading_path",
+            "content_format",
+            "symbol_type",
+            "approval_status",
+            "scan_signals",
+            "review_trace_id",
+        ):
+            r[key] = _string_value(r.get(key))
+        r["scan_status"] = r["scan_status"] or "unscanned"
+        r["approval_status"] = r["approval_status"] or "auto_approved"
+        r["authority"] = r["authority"] or "community"
+        full_text = _string_value(r.pop("text", ""))
         r["text_preview"] = full_text[:500]
         if r.get("scan_status") == "flagged" and full_text:
             r["flag_reasons"] = _detect_flag_reasons(full_text)
@@ -1682,22 +1757,20 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     _ensure_org_content_admin(_user)
     import uuid
 
-    from ..services.nornic_service import safe_query as sq
     from ..services.nornic_service import safe_upsert
 
-    rows = sq(
-        CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1
-    )
-    if not rows:
+    row = _review_node_for_action(chunk_id, _user)
+    if not row:
         return {"ok": False, "error": "chunk not found"}
+    node_id, effective_chunk_id = _review_update_identity(row, chunk_id)
 
     trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
-        safe_upsert(
+        ok = safe_upsert(
             CATALOG_COLLECTION,
             {
-                "id": chunk_id,
-                "chunk_id": chunk_id,
+                "id": node_id,
+                "chunk_id": effective_chunk_id,
                 "scan_status": "vetted",
                 "authority": "vetted",
                 "approval_status": "approved",
@@ -1707,8 +1780,13 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     except Exception:
         logger.warning("review_vet_nornic_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
         return {"ok": False, "error": "graph update failed"}
-    logger.info("review_vet_chunk", extra={"chunk_id": chunk_id, "user": _user.username, "review_trace_id": trace_id})
-    return {"ok": True, "chunk_id": chunk_id, "action": "vetted", "review_trace_id": trace_id}
+    if not ok:
+        return {"ok": False, "error": "graph update failed"}
+    logger.info(
+        "review_vet_chunk",
+        extra={"chunk_id": effective_chunk_id, "node_id": node_id, "user": _user.username, "review_trace_id": trace_id},
+    )
+    return {"ok": True, "chunk_id": effective_chunk_id, "action": "vetted", "review_trace_id": trace_id}
 
 
 @router.post("/review/{chunk_id}/reject")
@@ -1717,29 +1795,38 @@ async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user
     _ensure_org_content_admin(_user)
     import uuid
 
+    row = _review_node_for_action(chunk_id, _user)
+    if not row:
+        return {"ok": False, "error": "chunk not found"}
+    node_id, effective_chunk_id = _review_update_identity(row, chunk_id)
     trace_id = f"review-{uuid.uuid4().hex[:12]}"
     try:
         from ..services.nornic_service import safe_upsert
 
-        safe_upsert(
+        ok = safe_upsert(
             CATALOG_COLLECTION,
             {
-                "id": chunk_id,
-                "chunk_id": chunk_id,
+                "id": node_id,
+                "chunk_id": effective_chunk_id,
                 "scan_status": "rejected",
                 "approval_status": "rejected",
                 "review_trace_id": trace_id,
             },
         )
-        ok = True
     except Exception:
         logger.warning("review_reject_nornic_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
         ok = False
     logger.info(
         "review_reject_chunk",
-        extra={"chunk_id": chunk_id, "user": _user.username, "ok": ok, "review_trace_id": trace_id},
+        extra={
+            "chunk_id": effective_chunk_id,
+            "node_id": node_id,
+            "user": _user.username,
+            "ok": ok,
+            "review_trace_id": trace_id,
+        },
     )
-    return {"ok": ok, "chunk_id": chunk_id, "action": "rejected", "review_trace_id": trace_id}
+    return {"ok": ok, "chunk_id": effective_chunk_id, "action": "rejected", "review_trace_id": trace_id}
 
 
 @router.post("/review/bulk/{action}")
@@ -1768,12 +1855,17 @@ async def bulk_review_action(
 
     for chunk_id in chunk_ids:
         try:
+            row = _review_node_for_action(str(chunk_id), _user)
+            if not row:
+                results["errors"] += 1
+                continue
+            node_id, effective_chunk_id = _review_update_identity(row, str(chunk_id))
             if action == "vet":
-                safe_upsert(
+                ok = safe_upsert(
                     CATALOG_COLLECTION,
                     {
-                        "id": chunk_id,
-                        "chunk_id": chunk_id,
+                        "id": node_id,
+                        "chunk_id": effective_chunk_id,
                         "scan_status": "vetted",
                         "authority": "vetted",
                         "approval_status": "approved",
@@ -1781,17 +1873,20 @@ async def bulk_review_action(
                     },
                 )
             else:
-                safe_upsert(
+                ok = safe_upsert(
                     CATALOG_COLLECTION,
                     {
-                        "id": chunk_id,
-                        "chunk_id": chunk_id,
+                        "id": node_id,
+                        "chunk_id": effective_chunk_id,
                         "scan_status": "rejected",
                         "approval_status": "rejected",
                         "review_trace_id": batch_trace_id,
                     },
                 )
-            results["processed"] += 1
+            if ok:
+                results["processed"] += 1
+            else:
+                results["errors"] += 1
         except Exception:
             logger.warning("review_bulk_%s_failed", action, extra={"chunk_id": chunk_id}, exc_info=True)
             results["errors"] += 1
@@ -1806,4 +1901,5 @@ async def bulk_review_action(
             "review_trace_id": batch_trace_id,
         },
     )
+    results["ok"] = results["errors"] == 0
     return results

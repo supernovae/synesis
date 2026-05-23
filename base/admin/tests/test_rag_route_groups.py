@@ -82,6 +82,8 @@ def _patch_runtime(monkeypatch):
     monkeypatch.setattr("app.routers.rag.collection_installed_packs", lambda *a, **kw: [])
     monkeypatch.setattr("app.services.nornic_service.safe_query", lambda *a, **kw: [])
     monkeypatch.setattr("app.routers.rag.safe_query", lambda *a, **kw: [])
+    monkeypatch.setattr("app.services.nornic_service.safe_count", lambda *a, **kw: 0)
+    monkeypatch.setattr("app.routers.rag.safe_count", lambda *a, **kw: 0)
     monkeypatch.setattr("app.services.nornic_service.collection_stats", lambda *a, **kw: {"row_count": 0})
     _auth_ctx["user"] = _user(role="org_admin", org_id="org-a")
 

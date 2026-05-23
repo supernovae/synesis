@@ -107,6 +107,28 @@ class _FakeDriver:
         return self._session
 
 
+class _QuerySession:
+    def __init__(self, *, rows: list[dict[str, Any]] | None = None, count: int = 0):
+        self.rows = rows or []
+        self.count = count
+        self.queries: list[str] = []
+        self.params: list[dict[str, Any]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def run(self, query: str, *args, **kwargs):
+        del args
+        self.queries.append(query)
+        self.params.append(kwargs)
+        if "RETURN count(n) AS count" in query:
+            return _FakeResult(single={"count": self.count})
+        return _FakeResult(rows=self.rows)
+
+
 def test_collection_stats_counts_content_bearing_nodes(monkeypatch):
     from app.services import nornic_service
 
@@ -190,3 +212,54 @@ def test_collection_pack_quality_reports_exposes_pack_level_quality(monkeypatch)
             "edge_type_counts": {"REFERENCES": 900},
         }
     ]
+
+
+def test_safe_query_pushes_filters_into_cypher(monkeypatch):
+    from app.services import nornic_service
+
+    session = _QuerySession(
+        rows=[
+            {
+                "node": {
+                    "id": "node-1",
+                    "chunk_id": "chunk-1",
+                    "scan_status": "flagged",
+                    "domain": "python",
+                }
+            }
+        ]
+    )
+    monkeypatch.setattr(nornic_service, "get_nornic_driver", lambda: _FakeDriver(session))
+
+    rows = nornic_service.safe_query(
+        "content_graph",
+        filter_expr='(scan_status == "flagged") and domain == "python"',
+        output_fields=["id", "chunk_id", "scan_status", "domain"],
+        limit=5,
+        offset=10,
+        caller_org_id="org-a",
+    )
+
+    assert rows == [{"id": "node-1", "chunk_id": "chunk-1", "scan_status": "flagged", "domain": "python"}]
+    query = session.queries[0]
+    assert "WHERE" in query
+    assert "toString(coalesce(n.scan_status, 'unscanned')) = $filter_0" in query
+    assert "toString(coalesce(n.domain, '')) = $filter_1" in query
+    assert query.index("WHERE") < query.index("SKIP")
+    assert session.params[0]["filter_0"] == "flagged"
+    assert session.params[0]["filter_1"] == "python"
+    assert session.params[0]["caller_org_id"] == "org-a"
+
+
+def test_safe_count_uses_cypher_count_with_filters(monkeypatch):
+    from app.services import nornic_service
+
+    session = _QuerySession(count=17)
+    monkeypatch.setattr(nornic_service, "get_nornic_driver", lambda: _FakeDriver(session))
+
+    count = nornic_service.safe_count("content_graph", filter_expr='scan_status == "unscanned"')
+
+    assert count == 17
+    assert "RETURN count(n) AS count" in session.queries[0]
+    assert "toString(coalesce(n.scan_status, 'unscanned')) = $count_filter_0" in session.queries[0]
+    assert session.params[0]["count_filter_0"] == "unscanned"

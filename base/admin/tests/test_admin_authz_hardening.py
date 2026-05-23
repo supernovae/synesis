@@ -125,6 +125,13 @@ class TestApplyFilterExpr:
         assert len(result) == 2
         assert all(r["domain"] == "python" for r in result)
 
+    def test_missing_scan_status_counts_as_unscanned(self):
+        from app.services.nornic_service import _apply_filter_expr
+
+        rows = [{}, {"scan_status": ""}, {"scan_status": "flagged"}]
+        result = _apply_filter_expr(rows, 'scan_status == "unscanned"')
+        assert len(result) == 2
+
     def test_overlong_filter_fails_closed(self):
         from app.services.nornic_service import _apply_filter_expr
 
