@@ -145,7 +145,6 @@ import {
   enrichToolSchemasForClient,
   type ClientToolCapabilities,
 } from "./adapters/client-tool-capabilities.js";
-import { restoreToolArgsToClientSchema } from "./adapters/client-tool-args.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -261,6 +260,7 @@ import {
 } from "./retrieval-tool-policy.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
+import { executePhaseRequiredProviderCall } from "./providers/openai-provider-executor.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
@@ -297,6 +297,9 @@ import {
   type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
+import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
+import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
+import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
   buildGovernorPauseResumeBlock,
@@ -327,6 +330,15 @@ import {
 } from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
+import {
+  buildOfferedToolNameSet,
+  findOfferedToolNameByCanonical,
+  listOfferedToolNames,
+  restoreGuardrailCallForClient,
+  rewriteUnavailableToolCall,
+  toolDefinitionName,
+  type GuardrailToolCall,
+} from "./tools/tool-call-availability.js";
 import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import {
@@ -462,8 +474,6 @@ type SessionState = {
   /** Detected client task/todo capabilities (set once per session). */
   taskCapabilities: ClientTaskCapabilities | null;
 };
-
-type GuardrailToolCall = { toolCallId: string; toolName: string; input: Record<string, unknown> };
 
 type DiscoveryRecoverySnapshot = {
   text: string;
@@ -2537,103 +2547,6 @@ function isReadToolName(toolName: string): boolean {
   return lowered === "read" || lowered === "read_file" || lowered === "readfile" || lowered === "file_read";
 }
 
-function toolDefinitionName(tool: unknown): string {
-  if (!tool || typeof tool !== "object") return "";
-  const row = tool as Record<string, unknown>;
-  const nested = row.function && typeof row.function === "object" ? (row.function as Record<string, unknown>) : null;
-  return ((typeof row.name === "string" ? row.name : "")
-    || (nested && typeof nested.name === "string" ? nested.name : "")).trim();
-}
-
-function listOfferedToolNames(tools: unknown[] | undefined): string[] {
-  if (!Array.isArray(tools) || tools.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const tool of tools) {
-    const name = toolDefinitionName(tool);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    out.push(name);
-  }
-  return out;
-}
-
-function buildOfferedToolNameSet(tools: unknown[] | undefined): Set<string> {
-  const offered = new Set<string>();
-  if (!Array.isArray(tools) || tools.length === 0) return offered;
-  for (const tool of tools) {
-    const name = toolDefinitionName(tool);
-    if (!name) continue;
-    offered.add(name.toLowerCase());
-    offered.add(canonicalValidationToolName(name).toLowerCase());
-  }
-  return offered;
-}
-
-function findOfferedToolNameByCanonical(tools: unknown[] | undefined, canonicalToolName: string): string | null {
-  if (!Array.isArray(tools) || tools.length === 0) return null;
-  const wanted = canonicalToolName.trim().toLowerCase();
-  if (!wanted) return null;
-  for (const tool of tools) {
-    const name = toolDefinitionName(tool);
-    if (!name) continue;
-    if (canonicalValidationToolName(name).toLowerCase() === wanted) {
-      return name;
-    }
-  }
-  return null;
-}
-
-function rewriteUnavailableToolCall(
-  call: GuardrailToolCall,
-  offeredToolSet: Set<string>,
-  offeredToolNames: string[],
-  fallbackBashToolName: string | null,
-): { call: GuardrailToolCall; rewritten: boolean; requestedTool?: string } {
-  const requestedTool = String(call.toolName ?? "").trim();
-  if (!requestedTool) return { call, rewritten: false };
-  const requestedLower = requestedTool.toLowerCase();
-  const requestedCanonical = canonicalValidationToolName(requestedTool).toLowerCase();
-  if (offeredToolSet.has(requestedLower) || offeredToolSet.has(requestedCanonical)) {
-    return { call, rewritten: false };
-  }
-  if (!fallbackBashToolName) {
-    return { call, rewritten: false };
-  }
-  const preview = offeredToolNames.slice(0, 12).join(", ");
-  const message = preview
-    ? `Tool call blocked: requested unavailable tool "${requestedTool}". Available tools: ${preview}.`
-    : `Tool call blocked: requested unavailable tool "${requestedTool}". Use only tools provided for this session.`;
-  return {
-    call: {
-      toolCallId: call.toolCallId,
-      toolName: fallbackBashToolName,
-      input: {
-        command: buildUserSafeErrorBashCommand(message),
-        description: "Blocked unavailable tool call",
-      },
-    },
-    rewritten: true,
-    requestedTool,
-  };
-}
-
-function restoreGuardrailCallForClient(
-  call: GuardrailToolCall,
-  tools: unknown[] | undefined,
-  clientKind: string | undefined,
-): GuardrailToolCall {
-  return {
-    ...call,
-    input: restoreToolArgsToClientSchema(
-      call.toolName,
-      call.input,
-      tools as never,
-      clientKind,
-    ),
-  };
-}
-
 function findReadToolDefinition(tools: unknown[] | undefined): unknown | undefined {
   if (!Array.isArray(tools)) return undefined;
   for (const tool of tools) {
@@ -3190,6 +3103,12 @@ function pushDiagnostic(d: RequestDiagnostic): void {
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
 
 const config = loadConfig();
+const governorService = new GovernorService({
+  enabled: config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED,
+  governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+  defaultProfile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+});
+const openAiChatPipeline = new OpenAIChatPipeline({ governorService });
 
 function clampMaxOutputTokensForSafety(n: number): number {
   const c = config.SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING;
@@ -8141,6 +8060,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const request = parsed.data;
+  const oaiPipelineModeResolution = openAiChatPipeline.resolveMode({
+    headers: req.headers as Record<string, unknown>,
+    body: request as unknown as Record<string, unknown>,
+    config,
+  });
+  const oaiPipelineMode = oaiPipelineModeResolution.mode;
+  if (!oaiPipelineModeResolution.valid) {
+    app.log.warn(
+      {
+        reqId: oaiTraceReqId,
+        requestedMode: oaiPipelineModeResolution.requested,
+        source: oaiPipelineModeResolution.source,
+        fallbackMode: oaiPipelineMode,
+      },
+      "invalid_pipeline_mode",
+    );
+  }
+  const oaiCanonicalRequest = openAiChatPipeline.canonicalize(request);
   const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
   const oaiBodyMeta =
     oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
@@ -8363,6 +8300,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
 
   debugProtocolLog(app.log as never, oaiTraceReqId, "/v1/chat/completions", {
+    protocol: oaiCanonicalRequest.protocol,
+    pipelineMode: oaiPipelineMode,
     model: request.model,
     messageCount: (request.messages as unknown[]).length,
     hasTools: !!(request.tools as unknown[])?.length,
@@ -9159,29 +9098,46 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.lastGovernorCachedResult
     && !session.lastGovernorCachedResult.pause
     && (Date.now() - session.lastGovernorNoPauseAt) < GOVERNOR_COOLDOWN_MS;
-  let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
+  const oaiPipelineContext = {
+    requestId: oaiTraceReqId,
+    mode: oaiPipelineMode,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    clientKind: identity.clientKind,
+    conversationId: identity.conversationId,
+    sessionKey,
+    startedAt: Date.now(),
+    headers: req.headers as Record<string, unknown>,
+  };
+  let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+    && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    && shouldRunGovernorForMode(oaiPipelineMode)
     ? (oaiGovernorCooldownActive
       ? session.lastGovernorCachedResult!
-      : withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
-        const decision = evaluateExecutionGovernor(
-          oaiScopedMessages as Array<GovernorInputMessage>,
+      : await withSpanAsync("yarn.execution_governor.evaluate", {}, async (govSpan) => {
+        const governorDecision = await governorService.beforeProviderCall(
+          oaiPipelineContext,
           {
-            profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-            activePlanStage: oaiPlanGraph?.activeStage ?? null,
-            editContextMissActive:
-              oaiEditMissGuard?.active === true
-              || oaiLatestToolProgress.hasRecentEditContextMiss
-              || session.editMissForceReadPending
-              || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
-            artifactShadows: oaiArtifactShadows,
-            chatState: oaiChatState,
-            fileState: oaiFileState,
-            orchestratorWorkflowPhase: oaiWorkingPhase,
-            taskLedgerOpenCount: session.taskLedger
-              ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-              : undefined,
+            messages: oaiScopedMessages as Array<GovernorInputMessage>,
+            options: {
+              profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+              activePlanStage: oaiPlanGraph?.activeStage ?? null,
+              editContextMissActive:
+                oaiEditMissGuard?.active === true
+                || oaiLatestToolProgress.hasRecentEditContextMiss
+                || session.editMissForceReadPending
+                || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
+              artifactShadows: oaiArtifactShadows,
+              chatState: oaiChatState,
+              fileState: oaiFileState,
+              orchestratorWorkflowPhase: oaiWorkingPhase,
+              taskLedgerOpenCount: session.taskLedger
+                ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
+                : undefined,
+            },
           },
         );
+        const decision = governorDecision.execution ?? disabledExecutionGovernorDecision();
         if (!decision.pause) {
           session.lastGovernorNoPauseAt = Date.now();
           session.lastGovernorCachedResult = decision;
@@ -9197,21 +9153,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
         return decision;
       }))
-    : {
-        pause: false,
-        reason: "disabled",
-        matchedRules: ["disabled"],
-        telemetry: {
-          phase: "edit" as const,
-          repeatedTestCommands: 0,
-          repeatedReadSearchCalls: 0,
-          repeatedBroadDiscoveryCalls: 0,
-          totalBroadDiscoveryCalls: 0,
-          broadTestRepeat: false,
-          noEditEvidence: false,
-          trailingVerificationRunLength: 0,
-        },
-      };
+    : disabledExecutionGovernorDecision();
   if (
     oaiExecutionGovernor.matchedRules.includes("verification_green_repeat_block")
     || oaiExecutionGovernor.matchedRules.includes("verification_already_green")
@@ -9340,7 +9282,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   // Sensemaking governor — primary decision-maker
   let oaiSensemakingDecision: SensemakingDecision | null = null;
   let oaiBudgetEvaluation: BudgetEvaluation | null = null;
-  if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
+  if (
+    config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
+    && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
+    && shouldRunGovernorForMode(oaiPipelineMode)
+  ) {
     const oaiGovEvents = extractCommandEvents(
       (oaiScopedMessages as GovernorInputMessage[]).slice(
         Math.max(0, (oaiScopedMessages as GovernorInputMessage[]).length - 50),
@@ -10656,127 +10602,84 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     const otelSpan = getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey });
     const started = Date.now();
-    let finalResult;
+    let finalResult: Awaited<ReturnType<typeof generateText>>;
     let lastOpenAiForensics: RequestForensicsRecord | undefined;
     try {
       let currentMessages = modelMessages;
-      const firstForensics = captureRequestForensics(
-        sessionKey,
-        reqId,
-        "/v1/chat/completions",
-        resolved.resolvedModelId,
-        false,
-        currentMessages as Array<{ role: string; content: unknown }>,
-        effectiveTools as unknown[],
-        effectiveToolChoice,
-        oaiProviderOptions,
-        oaiForensicsPhasePolicy,
-        oaiForensicsCapabilityMatrix,
-      );
-      finalResult = await generateText({
-        model: resolved.model as never,
+      const providerCall = await executePhaseRequiredProviderCall<
+        Awaited<ReturnType<typeof generateText>>,
+        typeof modelMessages,
+        ReturnType<typeof captureRequestForensics>
+      >({
         messages: currentMessages,
-        maxOutputTokens: clampMaxOutputTokensForSafety(
-          Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-        ),
-        ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
-        ...oaiSamplingOptions,
-        ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-        ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {})
-      });
-      const firstCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-      let firstValidation = validateRequiredToolCalls(firstCalls, oaiPhasePolicy);
-      if (!firstValidation.valid && oaiPhasePolicy.toolChoice === "required") {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "phase_required_validation_retry",
-          "execution-governor",
-          `reasons=${firstValidation.reasons.join(",") || "unknown"}`,
-          reqId,
-        );
-        currentMessages = appendSystemMessageAndNormalize(
-          currentMessages as Array<{ role: string; content?: unknown }>,
-          buildRequiredRepairPrompt(oaiGovernorPhase, oaiPhasePolicy.allowedCanonicalTools),
-        ) as typeof currentMessages;
-        const repairForensics = captureRequestForensics(
-          sessionKey,
-          reqId,
-          "/v1/chat/completions",
-          resolved.resolvedModelId,
-          false,
-          currentMessages as Array<{ role: string; content: unknown }>,
-          effectiveTools as unknown[],
-          effectiveToolChoice,
-          oaiProviderOptions,
-          oaiForensicsPhasePolicy,
-          oaiForensicsCapabilityMatrix,
-        );
-        finalResult = await generateText({
-          model: resolved.model as never,
-          messages: currentMessages,
-          maxOutputTokens: clampMaxOutputTokensForSafety(
-            Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-          ),
-          ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
-          ...oaiSamplingOptions,
-          ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-          ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
-        });
-        const repairedUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-        lastOpenAiForensics = finalizeRequestForensics(session, reqId, repairForensics, repairedUsage);
-        const repairedCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-        firstValidation = validateRequiredToolCalls(repairedCalls, oaiPhasePolicy);
-        if (!firstValidation.valid) {
-          recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            "phase_required_validation_fallback",
-            "execution-governor",
-            `fallback_after_retry reasons=${firstValidation.reasons.join(",") || "unknown"}`,
-            reqId,
-          );
-          effectiveToolChoice = "auto";
-          currentMessages = appendSystemMessageAndNormalize(
-            currentMessages as Array<{ role: string; content?: unknown }>,
-            "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-          ) as typeof currentMessages;
-          const fallbackForensics = captureRequestForensics(
+        toolChoice: effectiveToolChoice as PhaseAwareToolChoice | undefined,
+        phasePolicy: oaiPhasePolicy,
+        governorPhase: oaiGovernorPhase,
+        appendSystemMessage: (messages, content) =>
+          appendSystemMessageAndNormalize(
+            messages as Array<{ role: string; content?: unknown }>,
+            content,
+          ) as typeof messages,
+        getToolCalls: (result) =>
+          (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [],
+        runAttempt: async (messages, toolChoice) => {
+          const forensics = captureRequestForensics(
             sessionKey,
             reqId,
             "/v1/chat/completions",
             resolved.resolvedModelId,
             false,
-            currentMessages as Array<{ role: string; content: unknown }>,
+            messages as Array<{ role: string; content: unknown }>,
             effectiveTools as unknown[],
-            effectiveToolChoice,
+            toolChoice,
             oaiProviderOptions,
             oaiForensicsPhasePolicy,
             oaiForensicsCapabilityMatrix,
           );
-          finalResult = await generateText({
+          const result = await generateText({
             model: resolved.model as never,
-            messages: currentMessages,
+            messages,
             maxOutputTokens: clampMaxOutputTokensForSafety(
               Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
             ),
             ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
             ...oaiSamplingOptions,
             ...(sdkTools ? { tools: sdkTools } : {}),
-            ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
+            ...(toolChoice ? { toolChoice } : {}),
             ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
           });
-          const fallbackUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-          lastOpenAiForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
-        }
-      } else {
-        const firstUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-        lastOpenAiForensics = finalizeRequestForensics(session, reqId, firstForensics, firstUsage);
-      }
+          return { result, context: forensics, messages, toolChoice };
+        },
+        finalizeAttempt: (attempt) => {
+          const usage = readUsage((attempt.result as unknown as { usage?: unknown }).usage);
+          lastOpenAiForensics = finalizeRequestForensics(session, reqId, attempt.context ?? null, usage);
+        },
+        onValidationRetry: (reasons) => {
+          recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            "phase_required_validation_retry",
+            "execution-governor",
+            `reasons=${reasons.join(",") || "unknown"}`,
+            reqId,
+          );
+        },
+        onValidationFallback: (reasons) => {
+          recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            "phase_required_validation_fallback",
+            "execution-governor",
+            `fallback_after_retry reasons=${reasons.join(",") || "unknown"}`,
+            reqId,
+          );
+        },
+      });
+      finalResult = providerCall.result;
+      currentMessages = providerCall.messages;
+      effectiveToolChoice = providerCall.toolChoice;
 
       const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, DEV_DOCS_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
       for (let round = 0; round < 3; round++) {
