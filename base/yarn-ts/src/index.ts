@@ -297,12 +297,14 @@ import {
 import {
   applySessionUsagePersistenceMutation,
   buildRequestTrajectoryEvent,
+  buildRequestTrajectoryMetrics,
   buildStateTransitionEvents,
   buildStateTransitionSummary,
   buildTelemetryUsage,
   buildTokenEconomicsWarningEvent,
   buildUsageEvent,
   buildYarnTraceRecord,
+  type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
@@ -1022,95 +1024,6 @@ function extractLatestUserPromptFromMessages(
     if (text) return text.slice(0, 4000);
   }
   return "";
-}
-
-type TrajectoryBucket = "micro" | "repo" | "feature" | "investigation";
-
-type RequestTrajectoryInput = {
-  toolSequence?: string[];
-  retryCountTotal?: number;
-  taskBucket?: TrajectoryBucket;
-  filesReadCount?: number;
-  bytesReadTotal?: number;
-  prematureStopSignals?: number;
-  verificationSteps?: string[];
-  diagnostics?: {
-    structuredErrorsCount?: number;
-    diagnosticLinesCount?: number;
-    structuredErrorCoverage?: number;
-  };
-  completionGateBlocked?: boolean;
-  criticBlocked?: boolean;
-  patchOpsCount?: number;
-  wholeWriteOpsCount?: number;
-  outcomeState?: "verified" | "partial" | "stalled" | "policy_reject" | "user_abort";
-  failureStage?: "discovery" | "mutation" | "verification" | "policy" | null;
-};
-
-function classifyToolKind(name: string): "discovery" | "evidence" | "mutation" | "verification" | "other" {
-  const n = name.toLowerCase();
-  if (n.includes("search") || n.includes("inspect") || n.includes("classify")) return "discovery";
-  if (n.includes("read") || n.includes("diff") || n.includes("status")) return "evidence";
-  if (n.includes("patch") || n.includes("write") || n.includes("format") || n.includes("git_add") || n.includes("git_commit")) {
-    return "mutation";
-  }
-  if (n.includes("run_test") || n.includes("run_build") || n.includes("run_lint")) return "verification";
-  return "other";
-}
-
-function inferTrajectoryBucket(sequence: string[], patchOps: number, wholeWriteOps: number): TrajectoryBucket {
-  const edits = patchOps + wholeWriteOps;
-  if (edits === 0) return "investigation";
-  if (edits === 1 && sequence.length <= 5) return "micro";
-  if (edits >= 4 || sequence.length >= 12) return "feature";
-  return "repo";
-}
-
-const PATCH_STYLE_TOOL_NAMES = new Set(["str_replace", "apply_patch", "edit", "str_replace_editor"]);
-const WHOLE_WRITE_TOOL_NAMES = new Set(["write_file", "file_write", "write"]);
-const READ_STYLE_TOOL_NAMES = new Set(["read", "read_file", "readfile", "file_read"]);
-const PREMATURE_STOP_GOVERNOR_RULES = new Set([
-  "completion_claim_requires_task_update",
-  "verification_after_completion_claim",
-  "verbal_intent_without_action",
-]);
-
-function normalizeTrajectoryToolName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-function countEditsFromToolSequence(sequence: string[]): { patchOps: number; wholeWriteOps: number } {
-  let patchOps = 0;
-  let wholeWriteOps = 0;
-  for (const name of sequence) {
-    const normalized = normalizeTrajectoryToolName(name);
-    if (PATCH_STYLE_TOOL_NAMES.has(normalized)) patchOps += 1;
-    if (WHOLE_WRITE_TOOL_NAMES.has(normalized)) wholeWriteOps += 1;
-  }
-  return { patchOps, wholeWriteOps };
-}
-
-function countReadOpsFromToolSequence(sequence: string[]): number {
-  let readOps = 0;
-  for (const name of sequence) {
-    if (READ_STYLE_TOOL_NAMES.has(normalizeTrajectoryToolName(name))) {
-      readOps += 1;
-    }
-  }
-  return readOps;
-}
-
-function inferPrematureStopSignalsFromGovernor(matchedRules: readonly string[] | undefined): number {
-  if (!Array.isArray(matchedRules) || matchedRules.length === 0) return 0;
-  const seen = new Set<string>();
-  let matched = 0;
-  for (const rule of matchedRules) {
-    const normalized = String(rule ?? "").trim().toLowerCase();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    if (PREMATURE_STOP_GOVERNOR_RULES.has(normalized)) matched += 1;
-  }
-  return matched;
 }
 
 function inferVerificationSteps(sequence: string[]): string[] {
@@ -5049,50 +4962,34 @@ function persistSessionAndUsage(
     }).catch((err) => { console.warn("[throttle] token window update failed:", (err as Error).message ?? err); });
   }
 
-  const toolSequence = trajectory?.toolSequence ?? [];
-  const inferredEdits = countEditsFromToolSequence(toolSequence);
-  const patchOpsCount = trajectory?.patchOpsCount ?? inferredEdits.patchOps;
-  const wholeWriteOpsCount = trajectory?.wholeWriteOpsCount ?? inferredEdits.wholeWriteOps;
-  const filesWrittenCount = patchOpsCount + wholeWriteOpsCount;
-  const inferredFilesReadCount = countReadOpsFromToolSequence(toolSequence);
-  const filesReadCount = Math.max(0, trajectory?.filesReadCount ?? inferredFilesReadCount);
-  const bytesReadTotal = Number.isFinite(Number(trajectory?.bytesReadTotal))
-    ? Math.max(0, Number(trajectory?.bytesReadTotal))
-    : undefined;
-  const readEditRatio = filesWrittenCount > 0
-    ? Number((filesReadCount / filesWrittenCount).toFixed(3))
-    : undefined;
-  const patchRatio = filesWrittenCount > 0
-    ? Number((patchOpsCount / filesWrittenCount).toFixed(3))
-    : undefined;
-  const wholeWriteRatio = filesWrittenCount > 0
-    ? Number((wholeWriteOpsCount / filesWrittenCount).toFixed(3))
-    : undefined;
-  const inferredPrematureStopSignals = inferPrematureStopSignalsFromGovernor(snapshot?.governor?.matchedRules);
-  const prematureStopSignals = Math.max(0, trajectory?.prematureStopSignals ?? inferredPrematureStopSignals);
-  const verificationSteps = trajectory?.verificationSteps ?? [];
-  const countsByKind = { discovery: 0, evidence: 0, mutation: 0, verification: 0, other: 0 };
-  for (const name of toolSequence) {
-    const kind = classifyToolKind(name);
-    countsByKind[kind] += 1;
-  }
-  const taskBucket = trajectory?.taskBucket ?? inferTrajectoryBucket(toolSequence, patchOpsCount, wholeWriteOpsCount);
-  const firstPassVerifyOk =
-    finishReason !== "error"
-    && !snapshot?.verificationStalled
-    && (snapshot?.verificationRound === undefined || snapshot.verificationRound <= 1);
-  const structuredErrorsCount = trajectory?.diagnostics?.structuredErrorsCount ?? 0;
-  const diagnosticLinesCount = trajectory?.diagnostics?.diagnosticLinesCount ?? 0;
-  const structuredErrorCoverage = trajectory?.diagnostics?.structuredErrorCoverage
-    ?? (diagnosticLinesCount > 0
-      ? Number((structuredErrorsCount / diagnosticLinesCount).toFixed(3))
-      : (structuredErrorsCount > 0 ? 1 : 0));
-  const completionGateBlocked = trajectory?.completionGateBlocked ?? false;
-  const criticBlocked = trajectory?.criticBlocked ?? false;
-  const outcomeState = trajectory?.outcomeState
-    ?? (finishReason === "error" ? "stalled" : snapshot?.verificationStalled ? "stalled" : (completionGateBlocked || criticBlocked) ? "partial" : "verified");
-  const failureStage = trajectory?.failureStage
-    ?? (finishReason === "error" ? "verification" : snapshot?.verificationStalled ? "verification" : completionGateBlocked ? "verification" : criticBlocked ? "policy" : null);
+  const trajectoryMetrics = buildRequestTrajectoryMetrics({
+    trajectory,
+    snapshot,
+    finishReason,
+  });
+  const {
+    toolSequence,
+    patchOpsCount,
+    wholeWriteOpsCount,
+    filesWrittenCount,
+    filesReadCount,
+    bytesReadTotal,
+    readEditRatio,
+    patchRatio,
+    wholeWriteRatio,
+    prematureStopSignals,
+    verificationSteps,
+    countsByKind,
+    taskBucket,
+    firstPassVerifyOk,
+    structuredErrorsCount,
+    diagnosticLinesCount,
+    structuredErrorCoverage,
+    completionGateBlocked,
+    criticBlocked,
+    outcomeState,
+    failureStage,
+  } = trajectoryMetrics;
   const persistedChatSnapshot = readPersistedChatStateSnapshot(state.record.metadata);
   const persistedFileSnapshot = readPersistedFileStateSnapshot(state.record.metadata);
   const chatStateSummaryForTelemetry = summarizeChatSnapshotForGovernor(persistedChatSnapshot);

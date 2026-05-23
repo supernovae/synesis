@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionUsagePersistenceMutation,
+  buildRequestTrajectoryMetrics,
   buildRequestTrajectoryEvent,
   buildStateTransitionEvents,
   buildStateTransitionSummary,
+  classifyTrajectoryToolKind,
+  countEditsFromToolSequence,
+  countReadOpsFromToolSequence,
   buildTelemetryUsage,
   buildTokenEconomicsWarningEvent,
   buildUsageEvent,
   buildYarnTraceRecord,
+  inferPrematureStopSignalsFromGovernor,
+  inferTrajectoryBucket,
 } from "../src/state/session-usage-persistence.js";
 import type { SessionRecord } from "../src/state/session-store.js";
 
@@ -539,6 +545,78 @@ describe("session usage persistence mutation", () => {
       false_green_detected: true,
       premature_stop_signals: 1,
       file_state_stale_count: 2,
+    });
+  });
+
+  it("classifies and infers request trajectory metrics", () => {
+    expect(classifyTrajectoryToolKind("search_repo")).toBe("discovery");
+    expect(classifyTrajectoryToolKind("Read")).toBe("evidence");
+    expect(classifyTrajectoryToolKind("apply_patch")).toBe("mutation");
+    expect(classifyTrajectoryToolKind("run_test")).toBe("verification");
+    expect(classifyTrajectoryToolKind("Question")).toBe("other");
+    expect(countEditsFromToolSequence(["Read", "apply_patch", "write", "edit"])).toEqual({
+      patchOps: 2,
+      wholeWriteOps: 1,
+    });
+    expect(countReadOpsFromToolSequence(["Read", "read_file", "Bash"])).toBe(2);
+    expect(inferTrajectoryBucket(["Read"], 0, 0)).toBe("investigation");
+    expect(inferTrajectoryBucket(["Read", "apply_patch"], 1, 0)).toBe("micro");
+    expect(inferTrajectoryBucket(Array.from({ length: 12 }, (_, index) => `tool_${index}`), 0, 1)).toBe("feature");
+    expect(inferPrematureStopSignalsFromGovernor([
+      "verbal_intent_without_action",
+      "verbal_intent_without_action",
+      "other",
+      "completion_claim_requires_task_update",
+    ])).toBe(2);
+  });
+
+  it("builds request trajectory metrics with explicit overrides and defaults", () => {
+    const metrics = buildRequestTrajectoryMetrics({
+      trajectory: {
+        toolSequence: ["Read", "apply_patch", "run_test"],
+        bytesReadTotal: -10,
+        diagnostics: { structuredErrorsCount: 2, diagnosticLinesCount: 4 },
+        completionGateBlocked: true,
+      },
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+        verificationRound: 2,
+        governor: {
+          pause: true,
+          reason: "stop",
+          matchedRules: ["verification_after_completion_claim"],
+          telemetry: {} as never,
+        },
+      },
+      finishReason: "stop",
+    });
+
+    expect(metrics).toMatchObject({
+      toolSequence: ["Read", "apply_patch", "run_test"],
+      patchOpsCount: 1,
+      wholeWriteOpsCount: 0,
+      filesWrittenCount: 1,
+      filesReadCount: 1,
+      bytesReadTotal: 0,
+      readEditRatio: 1,
+      patchRatio: 1,
+      wholeWriteRatio: 0,
+      prematureStopSignals: 1,
+      verificationSteps: [],
+      countsByKind: { evidence: 1, mutation: 1, verification: 1 },
+      taskBucket: "micro",
+      firstPassVerifyOk: false,
+      structuredErrorCoverage: 0.5,
+      completionGateBlocked: true,
+      outcomeState: "partial",
+      failureStage: "verification",
     });
   });
 
