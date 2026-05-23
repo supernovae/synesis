@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionUsagePersistenceMutation,
+  buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
   buildRequestTrajectoryEvent,
   buildStateTransitionEvents,
@@ -618,6 +619,59 @@ describe("session usage persistence mutation", () => {
       outcomeState: "partial",
       failureStage: "verification",
     });
+  });
+
+  it("builds persistence state channel summaries from session metadata", () => {
+    const summary = buildPersistenceStateChannelSummary({
+      objective_epoch_id: 3,
+      objective_scope_boundary_index: 9,
+      objective_scope_retained_evidence: 4,
+      objective_scope_dropped_pre_boundary: 2,
+      state_confidence_chat: "0.75",
+      state_confidence_file: 0.5,
+      state_confidence_overall: 0.66,
+      state_confidence_needs_reground: true,
+      state_confidence_recommended_path: "src/index.ts",
+      state_confidence_reasons: ["stale-file", 42],
+    });
+
+    expect(summary).toMatchObject({
+      objectiveEpochId: 3,
+      objectiveScopeBoundaryIndex: 9,
+      objectiveScopeRetainedEvidence: 4,
+      objectiveScopeDroppedPreBoundary: 2,
+      objectiveScopeSummary: {
+        epoch_id: 3,
+        boundary_index: 9,
+        retained_evidence: 4,
+        dropped_pre_boundary: 2,
+      },
+      stateConfidenceChat: 0.75,
+      stateConfidenceFile: 0.5,
+      stateConfidenceOverall: 0.66,
+      stateConfidenceNeedsReground: true,
+      stateConfidenceRecommendedPath: "src/index.ts",
+      stateConfidenceReasons: ["stale-file", "42"],
+      stateConfidenceSummary: {
+        chat: 0.75,
+        file: 0.5,
+        overall: 0.66,
+        needs_reground: true,
+        recommended_path: "src/index.ts",
+        reasons: ["stale-file", "42"],
+      },
+    });
+  });
+
+  it("omits objective and confidence summaries when metadata is absent", () => {
+    const summary = buildPersistenceStateChannelSummary({});
+
+    expect(summary.objectiveScopeSummary).toBeUndefined();
+    expect(summary.stateConfidenceSummary).toBeUndefined();
+    expect(summary.objectiveEpochId).toBe(0);
+    expect(summary.objectiveScopeBoundaryIndex).toBe(-1);
+    expect(summary.stateConfidenceNeedsReground).toBe(false);
+    expect(summary.stateConfidenceReasons).toEqual([]);
   });
 
   it("builds state transition event set with optional calibration events", () => {

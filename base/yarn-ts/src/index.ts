@@ -296,6 +296,7 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
+  buildPersistenceStateChannelSummary,
   buildRequestTrajectoryEvent,
   buildRequestTrajectoryMetrics,
   buildStateTransitionEvents,
@@ -4996,38 +4997,18 @@ function persistSessionAndUsage(
   const fileStateSummaryForTelemetry = persistedFileSnapshot
     ? summarizeFileStateForGovernor(persistedFileSnapshot)
     : undefined;
-  const objectiveEpochId = Number(state.record.metadata.objective_epoch_id ?? 0);
-  const objectiveScopeBoundaryIndex = Number(state.record.metadata.objective_scope_boundary_index ?? -1);
-  const objectiveScopeRetainedEvidence = Number(state.record.metadata.objective_scope_retained_evidence ?? 0);
-  const objectiveScopeDroppedPreBoundary = Number(state.record.metadata.objective_scope_dropped_pre_boundary ?? 0);
-  const stateConfidenceChat = Number(state.record.metadata.state_confidence_chat ?? NaN);
-  const stateConfidenceFile = Number(state.record.metadata.state_confidence_file ?? NaN);
-  const stateConfidenceOverall = Number(state.record.metadata.state_confidence_overall ?? NaN);
-  const stateConfidenceNeedsReground = state.record.metadata.state_confidence_needs_reground === true;
-  const stateConfidenceRecommendedPath = typeof state.record.metadata.state_confidence_recommended_path === "string"
-    ? state.record.metadata.state_confidence_recommended_path
-    : "";
-  const stateConfidenceReasons = Array.isArray(state.record.metadata.state_confidence_reasons)
-    ? state.record.metadata.state_confidence_reasons.map((value) => String(value))
-    : [];
-  const objectiveScopeSummary = objectiveEpochId > 0
-    ? {
-        epoch_id: objectiveEpochId,
-        boundary_index: objectiveScopeBoundaryIndex,
-        retained_evidence: objectiveScopeRetainedEvidence,
-        dropped_pre_boundary: objectiveScopeDroppedPreBoundary,
-      }
-    : undefined;
-  const stateConfidenceSummary = Number.isFinite(stateConfidenceOverall)
-    ? {
-        chat: Number.isFinite(stateConfidenceChat) ? stateConfidenceChat : undefined,
-        file: Number.isFinite(stateConfidenceFile) ? stateConfidenceFile : undefined,
-        overall: stateConfidenceOverall,
-        needs_reground: stateConfidenceNeedsReground,
-        recommended_path: stateConfidenceRecommendedPath || undefined,
-        reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
-      }
-    : undefined;
+  const stateChannelSummary = buildPersistenceStateChannelSummary(state.record.metadata);
+  const {
+    objectiveEpochId,
+    objectiveScopeBoundaryIndex,
+    objectiveScopeRetainedEvidence,
+    objectiveScopeDroppedPreBoundary,
+    objectiveScopeSummary,
+    stateConfidenceOverall,
+    stateConfidenceNeedsReground,
+    stateConfidenceReasons,
+    stateConfidenceSummary,
+  } = stateChannelSummary;
   const persistedQualityThresholds =
     decodeStateTransitionQualityThresholds(
       getMetadataObject(state.record.metadata, "state_transition_quality_thresholds"),

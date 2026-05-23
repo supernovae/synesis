@@ -191,6 +191,21 @@ export interface RequestTrajectoryMetrics {
   failureStage: TrajectoryFailureStage;
 }
 
+export interface PersistenceStateChannelSummary {
+  objectiveEpochId: number;
+  objectiveScopeBoundaryIndex: number;
+  objectiveScopeRetainedEvidence: number;
+  objectiveScopeDroppedPreBoundary: number;
+  objectiveScopeSummary?: Record<string, unknown>;
+  stateConfidenceChat: number;
+  stateConfidenceFile: number;
+  stateConfidenceOverall: number;
+  stateConfidenceNeedsReground: boolean;
+  stateConfidenceRecommendedPath: string;
+  stateConfidenceReasons: string[];
+  stateConfidenceSummary?: Record<string, unknown>;
+}
+
 export interface StateTransitionSummary {
   changed_fields: string[];
   objective_epoch_advanced: boolean;
@@ -438,6 +453,58 @@ export function buildRequestTrajectoryMetrics(input: BuildRequestTrajectoryMetri
     criticBlocked,
     outcomeState,
     failureStage,
+  };
+}
+
+export function buildPersistenceStateChannelSummary(
+  metadata: Record<string, unknown>,
+): PersistenceStateChannelSummary {
+  const objectiveEpochId = Number(metadata.objective_epoch_id ?? 0);
+  const objectiveScopeBoundaryIndex = Number(metadata.objective_scope_boundary_index ?? -1);
+  const objectiveScopeRetainedEvidence = Number(metadata.objective_scope_retained_evidence ?? 0);
+  const objectiveScopeDroppedPreBoundary = Number(metadata.objective_scope_dropped_pre_boundary ?? 0);
+  const stateConfidenceChat = Number(metadata.state_confidence_chat ?? NaN);
+  const stateConfidenceFile = Number(metadata.state_confidence_file ?? NaN);
+  const stateConfidenceOverall = Number(metadata.state_confidence_overall ?? NaN);
+  const stateConfidenceNeedsReground = metadata.state_confidence_needs_reground === true;
+  const stateConfidenceRecommendedPath = typeof metadata.state_confidence_recommended_path === "string"
+    ? metadata.state_confidence_recommended_path
+    : "";
+  const stateConfidenceReasons = Array.isArray(metadata.state_confidence_reasons)
+    ? metadata.state_confidence_reasons.map((value) => String(value))
+    : [];
+  const objectiveScopeSummary = objectiveEpochId > 0
+    ? {
+        epoch_id: objectiveEpochId,
+        boundary_index: objectiveScopeBoundaryIndex,
+        retained_evidence: objectiveScopeRetainedEvidence,
+        dropped_pre_boundary: objectiveScopeDroppedPreBoundary,
+      }
+    : undefined;
+  const stateConfidenceSummary = Number.isFinite(stateConfidenceOverall)
+    ? {
+        chat: Number.isFinite(stateConfidenceChat) ? stateConfidenceChat : undefined,
+        file: Number.isFinite(stateConfidenceFile) ? stateConfidenceFile : undefined,
+        overall: stateConfidenceOverall,
+        needs_reground: stateConfidenceNeedsReground,
+        recommended_path: stateConfidenceRecommendedPath || undefined,
+        reasons: stateConfidenceReasons.length > 0 ? stateConfidenceReasons : undefined,
+      }
+    : undefined;
+
+  return {
+    objectiveEpochId,
+    objectiveScopeBoundaryIndex,
+    objectiveScopeRetainedEvidence,
+    objectiveScopeDroppedPreBoundary,
+    objectiveScopeSummary,
+    stateConfidenceChat,
+    stateConfidenceFile,
+    stateConfidenceOverall,
+    stateConfidenceNeedsReground,
+    stateConfidenceRecommendedPath,
+    stateConfidenceReasons,
+    stateConfidenceSummary,
   };
 }
 
