@@ -261,6 +261,13 @@ import {
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { executePhaseRequiredProviderCall } from "./providers/openai-provider-executor.js";
+import {
+  buildAssistantReplayParts,
+  resolveServerSideToolResults,
+  serverSideToolNameSet,
+  splitServerSideToolCalls,
+  type ServerSideToolCall,
+} from "./providers/server-side-tool-replay.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
@@ -279,6 +286,14 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
+import {
+  openAIDoneLine,
+  openAIFinalChunk,
+  openAIReasoningDeltaChunk,
+  openAITextDeltaChunk,
+  openAIToolCallDeltaChunk,
+  type OpenAIChunkBase,
+} from "./streaming/openai-sse-writer.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
@@ -10681,72 +10696,48 @@ app.post("/v1/chat/completions", async (req, reply) => {
       currentMessages = providerCall.messages;
       effectiveToolChoice = providerCall.toolChoice;
 
-      const SERVER_SIDE_TOOLS = new Set([ARTIFACT_TOOL_NAME, KNOWLEDGE_TOOL_NAME, DEV_DOCS_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_ALIAS]);
+      const serverSideTools = serverSideToolNameSet({
+        artifactToolName: ARTIFACT_TOOL_NAME,
+        knowledgeToolName: KNOWLEDGE_TOOL_NAME,
+        devDocsToolName: DEV_DOCS_TOOL_NAME,
+        webSearchToolName: WEB_SEARCH_TOOL_NAME,
+        webSearchToolAlias: WEB_SEARCH_TOOL_ALIAS,
+      });
       for (let round = 0; round < 3; round++) {
-        const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-        const serverCalls = allCalls.filter((tc) => SERVER_SIDE_TOOLS.has(tc.toolName));
+        const allCalls = ((finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? []) as ServerSideToolCall[];
+        const { serverCalls, clientCalls } = splitServerSideToolCalls(allCalls, serverSideTools);
         if (serverCalls.length === 0) break;
-        const clientCalls = allCalls.filter((tc) => !SERVER_SIDE_TOOLS.has(tc.toolName));
-
-        const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
-        for (const ac of serverCalls) {
-          if (ac.toolName === ARTIFACT_TOOL_NAME) {
-            const inp = ac.input as { artifact_handle?: string; query?: string };
-            const result = await artifactRetrieval.retrieve(inp.artifact_handle ?? "", inp.query);
-            toolResults.push({
-              type: "tool-result",
-              toolCallId: ac.toolCallId,
-              toolName: ARTIFACT_TOOL_NAME,
-              output: { type: "text", value: result.content }
-            });
-          } else if (ac.toolName === KNOWLEDGE_TOOL_NAME) {
-            const inp = ac.input as Record<string, unknown>;
-            const result = await knowledgeSearch.resolve(inp, knowledgeResolveContext(authUser, req));
-            toolResults.push({
-              type: "tool-result",
-              toolCallId: ac.toolCallId,
-              toolName: KNOWLEDGE_TOOL_NAME,
-              output: { type: "text", value: JSON.stringify(result) }
-            });
-          } else if (ac.toolName === DEV_DOCS_TOOL_NAME) {
-            const inp = ac.input as Record<string, unknown>;
-            const result = await knowledgeSearch.resolveDevDocs(inp, knowledgeResolveContext(authUser, req));
-            toolResults.push({
-              type: "tool-result",
-              toolCallId: ac.toolCallId,
-              toolName: DEV_DOCS_TOOL_NAME,
-              output: { type: "text", value: JSON.stringify(result) }
-            });
-          } else if (ac.toolName === WEB_SEARCH_TOOL_NAME || ac.toolName === WEB_SEARCH_TOOL_ALIAS) {
-            const inp = ac.input as Record<string, unknown>;
-            const result = await webSearch.resolve(
-              inp,
-              webSearchResolveContext(authUser, req, {
-                requestId: reqId,
-                sessionKey,
-                conversationId: session.record.conversationId || undefined,
-                traceId: reqId,
-                sourceSurface: "yarn_chat",
-                toolName: WEB_SEARCH_TOOL_NAME,
-              }),
-            );
-            toolResults.push({
-              type: "tool-result",
-              toolCallId: ac.toolCallId,
-              toolName: WEB_SEARCH_TOOL_NAME,
-              output: { type: "text", value: JSON.stringify(result) },
-            });
-          }
-        }
 
         if (clientCalls.length > 0) break;
 
-        const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
-        if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
-        for (const ac of serverCalls) {
-          assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, input: ac.input });
-        }
-        if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
+        const toolResults = await resolveServerSideToolResults(serverCalls, {
+          artifactToolName: ARTIFACT_TOOL_NAME,
+          knowledgeToolName: KNOWLEDGE_TOOL_NAME,
+          devDocsToolName: DEV_DOCS_TOOL_NAME,
+          webSearchToolName: WEB_SEARCH_TOOL_NAME,
+          webSearchToolAlias: WEB_SEARCH_TOOL_ALIAS,
+          retrieveArtifact: async (input) => {
+            const result = await artifactRetrieval.retrieve(
+              typeof input.artifact_handle === "string" ? input.artifact_handle : "",
+              typeof input.query === "string" ? input.query : undefined,
+            );
+            return result.content;
+          },
+          resolveKnowledge: (input) => knowledgeSearch.resolve(input, knowledgeResolveContext(authUser, req)),
+          resolveDevDocs: (input) => knowledgeSearch.resolveDevDocs(input, knowledgeResolveContext(authUser, req)),
+          resolveWebSearch: (input) => webSearch.resolve(
+            input,
+            webSearchResolveContext(authUser, req, {
+              requestId: reqId,
+              sessionKey,
+              conversationId: session.record.conversationId || undefined,
+              traceId: reqId,
+              sourceSurface: "yarn_chat",
+              toolName: WEB_SEARCH_TOOL_NAME,
+            }),
+          ),
+        });
+        const assistantParts = buildAssistantReplayParts(finalResult.text, serverCalls);
 
         currentMessages = [
           ...currentMessages,
@@ -11454,22 +11445,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiPrefixFingerprint = computePrefixFingerprint(
     modelMessages as Array<{ role: string; content: unknown }>,
   );
+  const openAiChunkBase = (created = Math.floor(Date.now() / 1000)): OpenAIChunkBase => ({
+    id: reqId,
+    created,
+    model: resolved.resolvedModelId,
+  });
 
   const flushOpenAIText = (text: string): void => {
     if (!text) return;
-    safeWrite(reply.raw, `data: ${JSON.stringify({
-      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-      choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
-    })}\n\n`);
+    safeWrite(reply.raw, openAITextDeltaChunk(openAiChunkBase(), text));
   };
 
   /** OpenAI-compatible extension (DeepSeek, OpenRouter, many proxies): stream model reasoning separate from `content`. */
   const flushOpenAIReasoningDelta = (text: string): void => {
     if (!text) return;
-    safeWrite(reply.raw, `data: ${JSON.stringify({
-      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-      choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }],
-    })}\n\n`);
+    safeWrite(reply.raw, openAIReasoningDeltaChunk(openAiChunkBase(), text));
   };
   const scrubAndFlushOpenAIText = (text: string): void => {
     const scrubbed = scrubTaskLedgerOutput(text);
@@ -11693,16 +11683,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
             existing.name = clientCandidateCall.toolName;
-            safeWrite(reply.raw, `data: ${JSON.stringify({
-              id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-              choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
-            })}\n\n`);
+            safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
+              index: existing.index,
+              function: { arguments: argsStr },
+            }));
             oaiStreamEmittedToolCalls += 1;
           } else {
-            safeWrite(reply.raw, `data: ${JSON.stringify({
-              id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: clientCandidateCall.toolName, arguments: argsStr } }] }, finish_reason: null }]
-            })}\n\n`);
+            safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
+              index: pendingToolCalls.length,
+              id: tc.toolCallId,
+              type: "function",
+              function: { name: clientCandidateCall.toolName, arguments: argsStr },
+            }));
             oaiStreamEmittedToolCalls += 1;
           }
         }
@@ -11826,14 +11818,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
         : "\n\n[Upstream provider error — retrying may help]";
     finishReason = "error";
-    safeWrite(reply.raw, `data: ${JSON.stringify({
-      id: reqId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: resolved.resolvedModelId,
-      choices: [{
-        index: 0,
-        delta: { content: errorHint },
-        finish_reason: null,
-      }]
-    })}\n\n`);
+    safeWrite(reply.raw, openAITextDeltaChunk(openAiChunkBase(), errorHint));
   }
   clearTimeout(oaiStreamHardTimeout);
 
@@ -11897,18 +11882,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let streamedText = "";
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
-  const finalChunkPayload: Record<string, unknown> = {
-    id: reqId,
-    object: "chat.completion.chunk",
-    created: Math.floor(Date.now() / 1000),
-    model: resolved.resolvedModelId,
-    choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
-  };
-  if (shouldIncludeStreamUsage(request.stream_options)) {
-    finalChunkPayload.usage = toOpenAiUsage(oaiStreamUsage);
-  }
-  safeWrite(reply.raw, `data: ${JSON.stringify(finalChunkPayload)}\n\n`);
-  safeWrite(reply.raw, "data: [DONE]\n\n");
+  safeWrite(reply.raw, openAIFinalChunk(
+    openAiChunkBase(),
+    finishReason,
+    shouldIncludeStreamUsage(request.stream_options) ? toOpenAiUsage(oaiStreamUsage) : undefined,
+  ));
+  safeWrite(reply.raw, openAIDoneLine());
   safeEnd(reply.raw);
   oaiHeartbeat.stop();
   if (streamedText) {
