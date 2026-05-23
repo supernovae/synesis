@@ -296,7 +296,10 @@ import {
   parseToolInput,
   serializeToolInput,
 } from "./streaming/ai-sdk-stream-events.js";
-import { applySessionUsagePersistenceMutation } from "./state/session-usage-persistence.js";
+import {
+  applySessionUsagePersistenceMutation,
+  buildUsageEvent,
+} from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
@@ -5001,38 +5004,22 @@ function persistSessionAndUsage(
     );
   }
 
-  usageWriter.enqueueUsageInsert({
-    sessionKey: state.record.sessionKey,
+  usageWriter.enqueueUsageInsert(buildUsageEvent({
+    record: state.record,
     requestId,
-    userId: state.record.userId,
-    orgId: state.record.orgId,
-    provider: resolvedModelId,
-    model: traceModel,
-    tokensIn: usage.inputTokens,
-    tokensOut: usage.outputTokens,
-    tokensCached: usage.cachedTokens,
-    tokensUncachedInput: costBreakdown.tokens_uncached_input,
-    tokensCacheRead: costBreakdown.tokens_cache_read,
-    tokensCacheWrite: costBreakdown.tokens_cache_write,
-    inputCostUsd: costBreakdown.input_cost_usd,
-    cacheReadCostUsd: costBreakdown.cache_read_cost_usd,
-    cacheWriteCostUsd: costBreakdown.cache_write_cost_usd,
-    outputCostUsd: costBreakdown.output_cost_usd,
-    estimatedNoCacheCostUsd: costBreakdown.estimated_no_cache_cost_usd,
-    cacheSavingsUsd: costBreakdown.cache_savings_usd,
+    resolvedModelId,
+    traceModel,
+    usage,
+    costBreakdown,
     tokensSavedByReduction,
     latencyMs,
-    estimatedCostUsd: normalizedEstimatedCostUsd,
-    actualCostUsd: normalizedActualCostUsd,
+    normalizedEstimatedCostUsd,
+    normalizedActualCostUsd,
     pricingSource,
-    authMethod: String(state.record.metadata.auth_method ?? ""),
-    authKeyId: String(state.record.metadata.auth_key_id ?? ""),
-    authKeyName: String(state.record.metadata.auth_key_name ?? ""),
-    authKeyPrefix: String(state.record.metadata.auth_key_prefix ?? ""),
     escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,
-    finishReason
-  });
+    finishReason,
+  }));
 
   if (config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED && usage.inputTokens > 0) {
     const prevSessionWindowTokens = Number(state.record.metadata.hourly_tokens_session ?? 0) || 0;
@@ -14817,47 +14804,41 @@ app.post("/v1/messages", async (req, reply) => {
 
     try {
       for await (const part of streamed.fullStream) {
-        if (part.type === "text-delta") {
-          const delta = (part as unknown as { text?: string }).text ?? "";
-          pendingClaudeTextDeltas.push(delta);
-        } else if (part.type === "reasoning-start") {
+        const event = classifyAiSdkStreamPart(part);
+        if (event.type === "text_delta") {
+          pendingClaudeTextDeltas.push(event.text);
+        } else if (event.type === "reasoning_start") {
           if (pendingClaudeTextDeltas.length > 0) {
             scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
             pendingClaudeTextDeltas.length = 0;
           }
-          const text = (part as unknown as { text?: string }).text ?? "";
           safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
-          if (text) {
-            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
+          if (event.text) {
+            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: event.text } });
           }
-        } else if (part.type === "reasoning-delta") {
-          const text = (part as unknown as { textDelta?: string }).textDelta ?? "";
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: text } });
-        } else if (part.type === "reasoning-end") {
+        } else if (event.type === "reasoning_delta") {
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: event.text } });
+        } else if (event.type === "reasoning_end") {
           safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
           blockIdx++;
-        } else if (part.type === "tool-input-start") {
-          const tc = part as unknown as { toolCallId?: string; toolName?: string };
+        } else if (event.type === "tool_input_start") {
           if (pendingClaudeTextDeltas.length > 0) {
             scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
             pendingClaudeTextDeltas.length = 0;
           }
-          claudeToolBuffer.set(tc.toolCallId ?? "", { toolName: tc.toolName ?? "", toolCallId: tc.toolCallId ?? "", chunks: [] });
+          claudeToolBuffer.set(event.toolCallId, { toolName: event.toolName, toolCallId: event.toolCallId, chunks: [] });
           stopReason = "tool_use";
-        } else if (part.type === "tool-input-delta") {
-          const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
-          const tdId = td.toolCallId ?? "";
-          const buf = claudeToolBuffer.get(tdId);
+        } else if (event.type === "tool_input_delta") {
+          const buf = claudeToolBuffer.get(event.toolCallId);
           if (buf) {
-            buf.chunks.push(td.inputTextDelta ?? "");
+            buf.chunks.push(event.inputTextDelta);
           }
-        } else if (part.type === "tool-call") {
-          const tcFull = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
-          const buf = claudeToolBuffer.get(tcFull.toolCallId ?? "");
-          const rawToolInput = (tcFull.input ?? {}) as Record<string, unknown>;
+        } else if (event.type === "tool_call") {
+          const buf = claudeToolBuffer.get(event.toolCallId);
+          const rawToolInput = parseToolInput(event.input, serializeToolInput(event.input));
           const hard = applyAdapterToolHardening(
             claudeAdapter,
-            tcFull.toolName ?? "",
+            event.toolName,
             rawToolInput,
             buf?.toolName,
             {
@@ -14873,7 +14854,7 @@ app.post("/v1/messages", async (req, reply) => {
             requestToolRepairs += 1;
             app.log.warn({
               reqId: traceReqId,
-              originalTool: tcFull.toolName,
+              originalTool: event.toolName,
               filePath: rawToolInput.file_path ?? rawToolInput.path,
             }, "write_tool_content_array_repaired");
           }
@@ -14882,7 +14863,7 @@ app.post("/v1/messages", async (req, reply) => {
             requestToolRepairs += 1;
             app.log.warn({
               reqId: traceReqId,
-              originalTool: tcFull.toolName,
+              originalTool: event.toolName,
               rewrittenTo: "Bash",
               filePath: rawToolInput.file_path ?? rawToolInput.path,
             }, "write_tool_repaired_to_bash_heredoc");
@@ -14936,28 +14917,28 @@ app.post("/v1/messages", async (req, reply) => {
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, governed.planWriteAudit);
           }
-          maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, emitToolName, claudeClientKind, governed, tcFull.toolCallId ?? undefined);
+          maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, emitToolName, claudeClientKind, governed, event.toolCallId);
           if (governed.constrainedToRoot) {
             app.log.info(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
               "file_tool_path_constrained_to_project_root",
             );
           }
           if (governed.blockedBashDrift) {
             app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
               "bash_path_drift_blocked",
             );
           }
           if (governed.blockedUnsafeShell) {
             app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
               "unsafe_shell_command_blocked",
             );
           }
           if (governed.blockedWriteCapable) {
             app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId },
+              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
               "write_capable_tool_blocked",
             );
           }
@@ -14974,13 +14955,13 @@ app.post("/v1/messages", async (req, reply) => {
               "tool_args_validation_failed",
             );
           }
-          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(tcFull.toolName ?? "") && governed.toolName === "Bash") {
+          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(event.toolName) && governed.toolName === "Bash") {
             openClawProfileStats.strictGovernanceRewrites += 1;
           }
 
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
             app.log.debug({
-              reqId: traceReqId, toolName: emitToolName, toolCallId: tcFull.toolCallId,
+              reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId,
               argsLen: JSON.stringify(finalInput).length,
               argsPreview: JSON.stringify(finalInput).slice(0, 300),
               remapped: hard.remapped,
@@ -14991,7 +14972,7 @@ app.post("/v1/messages", async (req, reply) => {
             }, "claude_tool_call_streamed");
           }
           let candidateCall: GuardrailToolCall = {
-            toolCallId: tcFull.toolCallId ?? "",
+            toolCallId: event.toolCallId,
             toolName: emitToolName,
             input: finalInput,
           };
@@ -15009,7 +14990,7 @@ app.post("/v1/messages", async (req, reply) => {
           if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
             claudeStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
-            const blockedToolCallId = tcFull.toolCallId ?? "";
+            const blockedToolCallId = event.toolCallId;
             if (blockedToolCallId) {
               claudeToolBuffer.delete(blockedToolCallId);
             }
@@ -15040,7 +15021,7 @@ app.post("/v1/messages", async (req, reply) => {
           claudeStreamGuardrailAccepted.push(candidateCall);
           claudeStreamToolSequence.push(emitToolName);
 
-          const toolCallId = tcFull.toolCallId ?? "";
+          const toolCallId = event.toolCallId;
           const normalizedJson = JSON.stringify(finalInput);
 
           safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
@@ -15050,12 +15031,11 @@ app.post("/v1/messages", async (req, reply) => {
           claudeToolBuffer.delete(toolCallId);
           claudeStreamEmittedToolCalls += 1;
           stopReason = "tool_use";
-        } else if ((part as Record<string, unknown>).type === "error") {
-          throw (part as Record<string, unknown>).error;
-        } else if ((part as Record<string, unknown>).type === "finish") {
-          const fr = (part as Record<string, unknown>).finishReason;
-          if (fr === "length") stopReason = "max_tokens";
-          else if (fr === "stop" && claudeToolBuffer.size > 0) stopReason = "end_turn";
+        } else if (event.type === "error") {
+          throw event.error;
+        } else if (event.type === "finish") {
+          if (event.finishReason === "length") stopReason = "max_tokens";
+          else if (event.finishReason === "stop" && claudeToolBuffer.size > 0) stopReason = "end_turn";
         }
       }
       if (

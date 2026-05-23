@@ -1,4 +1,5 @@
 import type { SessionRecord } from "./session-store.js";
+import type { UsageEvent } from "./usage-writer.js";
 
 export interface SessionUsageSummary {
   inputTokens: number;
@@ -34,6 +35,35 @@ export interface SessionTraceLinks {
   previousTraceId: string | undefined;
   parentTraceId: string | undefined;
   rootTraceId: string;
+}
+
+export interface UsageCostBreakdown {
+  tokens_uncached_input?: number;
+  tokens_cache_read?: number;
+  tokens_cache_write?: number;
+  input_cost_usd?: number;
+  cache_read_cost_usd?: number;
+  cache_write_cost_usd?: number;
+  output_cost_usd?: number;
+  estimated_no_cache_cost_usd?: number;
+  cache_savings_usd?: number;
+}
+
+export interface BuildUsageEventInput {
+  record: SessionRecord;
+  requestId: string;
+  resolvedModelId: string;
+  traceModel: string;
+  usage: SessionUsageSummary;
+  costBreakdown: UsageCostBreakdown;
+  tokensSavedByReduction: number;
+  latencyMs: number;
+  normalizedEstimatedCostUsd: number;
+  normalizedActualCostUsd: number;
+  pricingSource: string;
+  escalated: boolean;
+  toolCallsCount: number;
+  finishReason: string;
 }
 
 function metadataString(metadata: Record<string, unknown>, key: string): string {
@@ -90,5 +120,40 @@ export function applySessionUsagePersistenceMutation(
     previousTraceId,
     parentTraceId: previousTraceId,
     rootTraceId,
+  };
+}
+
+export function buildUsageEvent(input: BuildUsageEventInput): UsageEvent {
+  return {
+    sessionKey: input.record.sessionKey,
+    requestId: input.requestId,
+    userId: input.record.userId,
+    orgId: input.record.orgId,
+    provider: input.resolvedModelId,
+    model: input.traceModel,
+    tokensIn: input.usage.inputTokens,
+    tokensOut: input.usage.outputTokens,
+    tokensCached: input.usage.cachedTokens,
+    tokensUncachedInput: input.costBreakdown.tokens_uncached_input,
+    tokensCacheRead: input.costBreakdown.tokens_cache_read,
+    tokensCacheWrite: input.costBreakdown.tokens_cache_write,
+    inputCostUsd: input.costBreakdown.input_cost_usd,
+    cacheReadCostUsd: input.costBreakdown.cache_read_cost_usd,
+    cacheWriteCostUsd: input.costBreakdown.cache_write_cost_usd,
+    outputCostUsd: input.costBreakdown.output_cost_usd,
+    estimatedNoCacheCostUsd: input.costBreakdown.estimated_no_cache_cost_usd,
+    cacheSavingsUsd: input.costBreakdown.cache_savings_usd,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    latencyMs: input.latencyMs,
+    estimatedCostUsd: input.normalizedEstimatedCostUsd,
+    actualCostUsd: input.normalizedActualCostUsd,
+    pricingSource: input.pricingSource,
+    authMethod: String(input.record.metadata.auth_method ?? ""),
+    authKeyId: String(input.record.metadata.auth_key_id ?? ""),
+    authKeyName: String(input.record.metadata.auth_key_name ?? ""),
+    authKeyPrefix: String(input.record.metadata.auth_key_prefix ?? ""),
+    escalated: input.escalated,
+    toolCallsCount: input.toolCallsCount,
+    finishReason: input.finishReason,
   };
 }

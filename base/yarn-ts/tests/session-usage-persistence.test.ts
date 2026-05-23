@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { applySessionUsagePersistenceMutation } from "../src/state/session-usage-persistence.js";
+import {
+  applySessionUsagePersistenceMutation,
+  buildUsageEvent,
+} from "../src/state/session-usage-persistence.js";
 import type { SessionRecord } from "../src/state/session-store.js";
 
 function record(metadata: Record<string, unknown> = {}): SessionRecord {
@@ -113,6 +116,65 @@ describe("session usage persistence mutation", () => {
       tool_loop_ack_anchor_user_hash: "anchor",
       tool_loop_no_user_ack_count: 3,
       last_cache_hit_ratio: 0,
+    });
+  });
+
+  it("builds usage writer payloads from session record metadata", () => {
+    const payload = buildUsageEvent({
+      record: record({
+        auth_method: "bearer",
+        auth_key_id: "key1",
+        auth_key_name: "dev",
+        auth_key_prefix: "sk-",
+      }),
+      requestId: "req1",
+      resolvedModelId: "pulse",
+      traceModel: "gpt-test",
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 75 },
+      costBreakdown: {
+        tokens_uncached_input: 25,
+        tokens_cache_read: 75,
+        tokens_cache_write: 10,
+        input_cost_usd: 0.01,
+        cache_read_cost_usd: 0.001,
+        cache_write_cost_usd: 0.002,
+        output_cost_usd: 0.03,
+        estimated_no_cache_cost_usd: 0.06,
+        cache_savings_usd: 0.017,
+      },
+      tokensSavedByReduction: 300,
+      latencyMs: 1234,
+      normalizedEstimatedCostUsd: 0.043,
+      normalizedActualCostUsd: 0.04,
+      pricingSource: "provider",
+      escalated: true,
+      toolCallsCount: 4,
+      finishReason: "stop",
+    });
+
+    expect(payload).toMatchObject({
+      sessionKey: "s1",
+      requestId: "req1",
+      userId: "u1",
+      orgId: "o1",
+      provider: "pulse",
+      model: "gpt-test",
+      tokensIn: 100,
+      tokensOut: 20,
+      tokensCached: 75,
+      tokensUncachedInput: 25,
+      tokensCacheRead: 75,
+      tokensCacheWrite: 10,
+      estimatedCostUsd: 0.043,
+      actualCostUsd: 0.04,
+      pricingSource: "provider",
+      authMethod: "bearer",
+      authKeyId: "key1",
+      authKeyName: "dev",
+      authKeyPrefix: "sk-",
+      escalated: true,
+      toolCallsCount: 4,
+      finishReason: "stop",
     });
   });
 });
