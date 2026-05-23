@@ -740,6 +740,42 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("broad_discovery_repeat");
   });
 
+  it("does not hard-pause three repeated shell file inventories as identical tool repeats", () => {
+    const cmd = 'find . -type f \\( -name "*.py" -o -name "*.html" -o -name "*.js" -o -name "*.txt" -o -name "*.md" \\) 2>/dev/null | sort';
+    const messages = [
+      assistantCall("1", "bash", { command: cmd }),
+      toolResult("1", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+      assistantCall("2", "bash", { command: cmd }),
+      toolResult("2", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+      assistantCall("3", "bash", { command: cmd }),
+      toolResult("3", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.telemetry.totalBroadDiscoveryCalls).toBe(3);
+    expect(out.telemetry.repeatedBroadDiscoveryCalls).toBe(2);
+  });
+
+  it("routes runaway shell file inventories through broad discovery recovery", () => {
+    const cmd = 'find . -type f \\( -name "*.py" -o -name "*.html" -o -name "*.js" -o -name "*.txt" -o -name "*.md" \\) 2>/dev/null | sort';
+    const messages = [
+      assistantCall("1", "bash", { command: cmd }),
+      toolResult("1", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+      assistantCall("2", "bash", { command: cmd }),
+      toolResult("2", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+      assistantCall("3", "bash", { command: cmd }),
+      toolResult("3", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+      assistantCall("4", "bash", { command: cmd }),
+      toolResult("4", "./src/taskpulse/app/main.py\n./src/taskpulse/README.md"),
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.reason).not.toBe("identical_tool_repeat");
+  });
+
   it("treats synesis_inspect_repo(list_dir=.) as broad discovery", () => {
     const messages = [
       assistantCall("1", "synesis_inspect_repo", { list_dir: "." }),

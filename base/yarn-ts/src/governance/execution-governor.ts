@@ -919,6 +919,9 @@ export function extractCommandEvents(messages: GovernorInputMessage[]): CommandE
 function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
   const tool = normalizeString(toolName).toLowerCase();
   const cmd = normalizeString(command).toLowerCase();
+  if (tool === "bash" || tool === "shell" || tool.includes("bash")) {
+    return isBroadShellDiscoveryCommand(cmd);
+  }
   if (tool.includes("glob")) {
     return cmd === "glob:*" || cmd === "glob:**/*" || cmd.startsWith("glob:**/");
   }
@@ -932,6 +935,19 @@ function isBroadDiscoveryCommand(toolName: string, command: string): boolean {
   ) {
     return cmd === "list:." || cmd === "list:/" || cmd === "list:";
   }
+  return false;
+}
+
+function isBroadShellDiscoveryCommand(command: string): boolean {
+  const cmd = normalizeString(command).toLowerCase();
+  if (!cmd) return false;
+  // Root-level inventories are broad discovery even when wrapped in shell
+  // pipelines/redirections, e.g. `find . -type f (...) | sort`.
+  const rootFind = /\bfind\s+(?:\.|\.\/)\s+[^;&|]*(?:-type\s+[fd]\b|-name\s+["']?\*)/.test(cmd);
+  if (rootFind) return true;
+  if (/\bgit\s+ls-files\b/.test(cmd)) return true;
+  if (/\bls\s+-[a-z]*r[a-z]*\b/.test(cmd) || /\bls\s+\.\s+-[a-z]*r[a-z]*\b/.test(cmd)) return true;
+  if (/^tree(?:\s|$)/.test(cmd) || /\btree\s+(?:\.|\.\/)\b/.test(cmd)) return true;
   return false;
 }
 
@@ -2933,7 +2949,9 @@ export function evaluateExecutionGovernor(
     ?? (noEditEvidence
       ? "Apply one focused code change for a single root-cause hypothesis, then run one narrow verification command."
       : "State one root-cause hypothesis and run one narrow verification command.");
-  if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) {
+  if (sessionPhase === "finalize" && (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2)) {
+    suggestedNextStep = "Stop listing files. Run one targeted test/build command if needed; otherwise mark tasks complete and summarize what passed.";
+  } else if (totalBroadDiscoveryCalls >= 4 || repeatedBroadDiscoveryCalls >= 2) {
     suggestedNextStep = "Run one targeted repo summary (for example synesis_inspect_repo), then read only 1-3 likely files; do not repeat Glob(\"*\") again.";
   } else if (matchedRules.includes("test_entry_contract")) {
     suggestedNextStep =
