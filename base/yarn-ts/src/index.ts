@@ -266,7 +266,7 @@ import {
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
-import { buildDecisionSnapshot, snapshotToTraceFields, type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
+import { buildDecisionSnapshot, type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
 import {
   buildRequestForensics,
   withUsage as withForensicsUsage,
@@ -300,11 +300,10 @@ import {
   buildPersistenceTelemetryEventBundle,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryMetrics,
-  buildTelemetryUsage,
-  buildYarnTraceRecord,
   runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
   runHourlyTokenThrottleUpdate,
+  runTraceFinalization,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -4932,13 +4931,7 @@ function persistSessionAndUsage(
   }
   const { stateTransitionSummary } = telemetryEventBundle;
 
-  const telemetryUsage = buildTelemetryUsage({ usage, normalizedEstimatedCostUsd });
-  recordUsageMetrics(svcMetrics, traceModel, resolvedModelId, telemetryUsage, latencyMs / 1000);
-  const rootPromptSnippet = getMetadataString(state.record.metadata, "trace_root_prompt");
-  const latestPromptSnippet = getMetadataString(state.record.metadata, "latest_user_prompt");
-
-  const snapshotTraceFields = snapshot ? snapshotToTraceFields(snapshot) : undefined;
-  const trace = buildYarnTraceRecord({
+  runTraceFinalization({
     requestId,
     record: state.record,
     parentTraceId,
@@ -4947,13 +4940,11 @@ function persistSessionAndUsage(
     resolvedModelId,
     backendModel: tier?.backendModel,
     clientRequestedModel,
-    telemetryUsage,
+    usage,
     normalizedEstimatedCostUsd,
     latencyMs,
     tierRates,
-    rootPromptSnippet,
-    latestPromptSnippet,
-    snapshotTraceFields,
+    snapshot,
     chatStateSummary: chatStateSummaryForTelemetry,
     fileStateSummary: fileStateSummaryForTelemetry,
     objectiveScopeSummary,
@@ -4962,8 +4953,24 @@ function persistSessionAndUsage(
     tokenEconomics,
     optimizationLedger,
     finishReason,
+    recordUsageMetrics: (
+      metricsTraceModel,
+      metricsResolvedModelId,
+      telemetryUsage,
+      latencySeconds,
+    ) => {
+      recordUsageMetrics(
+        svcMetrics,
+        metricsTraceModel,
+        metricsResolvedModelId,
+        telemetryUsage,
+        latencySeconds,
+      );
+    },
+    emitTrace: (trace) => {
+      emitTrace(trace, traceEmitterConfig, app.log);
+    },
   });
-  emitTrace(trace, traceEmitterConfig, app.log);
   persistSpan.setStatus("ok");
   persistSpan.end();
 }

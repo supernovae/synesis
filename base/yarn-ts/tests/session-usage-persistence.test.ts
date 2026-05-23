@@ -22,6 +22,7 @@ import {
   runHourlyTokenThrottleUpdate,
   runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
+  runTraceFinalization,
 } from "../src/state/session-usage-persistence.js";
 import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
 import type { SessionRecord } from "../src/state/session-store.js";
@@ -558,6 +559,85 @@ describe("session usage persistence mutation", () => {
       optimization_ledger: { prefix_hash: "abc" },
     });
     expect(trace.has_error).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("runs trace finalization with metrics and emit callbacks", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(3_000);
+    const metrics = vi.fn();
+    const emit = vi.fn();
+    const session = record({
+      trace_root_prompt: "root prompt",
+      latest_user_prompt: "latest prompt",
+    });
+
+    const result = runTraceFinalization({
+      requestId: "req1",
+      record: session,
+      parentTraceId: "parent",
+      rootTraceId: "root",
+      traceModel: "gpt-test",
+      resolvedModelId: "pulse",
+      backendModel: "backend-test",
+      clientRequestedModel: "auto",
+      usage: {
+        inputTokens: 100,
+        outputTokens: 25,
+        cachedTokens: 75,
+        cacheCreationTokens: 10,
+        costUsd: 0.42,
+      },
+      normalizedEstimatedCostUsd: 0.5,
+      latencyMs: 250,
+      tierRates: { inputPerM: 1, outputPerM: 2, cacheReadPerM: 0.1, cacheWritePerM: 0.2 },
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "rule_a",
+        reducedToolResults: 1,
+        tokensSavedByReduction: 12,
+        isStreaming: true,
+      },
+      chatStateSummary: { phase: "implement" },
+      fileStateSummary: { stale: 0 },
+      objectiveScopeSummary: { epoch_id: 1 },
+      stateConfidenceSummary: { overall: 0.9 },
+      stateTransitionSummary: { quality_label: "forward" },
+      tokenEconomics: { cache: "hit" },
+      optimizationLedger: { prefix_hash: "abc" },
+      finishReason: "stop",
+      recordUsageMetrics: metrics,
+      emitTrace: emit,
+    });
+
+    expect(result.telemetryUsage).toMatchObject({
+      prompt_tokens: 100,
+      completion_tokens: 25,
+      cached_prompt_tokens: 75,
+      estimated_cost_usd: 0.5,
+      actual_cost_usd: 0.42,
+    });
+    expect(metrics).toHaveBeenCalledWith("gpt-test", "pulse", result.telemetryUsage, 0.25);
+    expect(emit).toHaveBeenCalledWith(result.trace);
+    expect(result.trace).toMatchObject({
+      trace_id: "req1",
+      query_snippet: "root prompt",
+      parent_trace_id: "parent",
+      root_trace_id: "root",
+      streaming: { mode: "streaming" },
+      trace_context: {
+        phase: "implement",
+        root_user_prompt: "root prompt",
+        latest_user_prompt: "latest prompt",
+        resolved_backend_model: "backend-test",
+        registry_tier_id: "pulse",
+        state_transition: { quality_label: "forward" },
+      },
+      optimization_ledger: { prefix_hash: "abc" },
+    });
     vi.useRealTimers();
   });
 

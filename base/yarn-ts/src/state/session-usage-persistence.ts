@@ -1,7 +1,7 @@
 import type { SessionContinuity, SessionRecord } from "./session-store.js";
 import type { SessionEventInsert, UsageEvent } from "./usage-writer.js";
 import type { LlmUsage, PricingRates, TraceRecord } from "@synesis/telemetry";
-import type { DecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import { snapshotToTraceFields, type DecisionSnapshot } from "../telemetry/decision-snapshot.js";
 import {
   DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
   buildStateTransitionCalibrationSample,
@@ -179,6 +179,42 @@ export interface BuildYarnTraceRecordInput {
 export type YarnTraceRecord = TraceRecord & {
   optimization_ledger?: unknown;
 };
+
+export interface RunTraceFinalizationInput {
+  requestId: string;
+  record: SessionRecord;
+  parentTraceId?: string;
+  rootTraceId: string;
+  traceModel: string;
+  resolvedModelId: string;
+  backendModel?: string;
+  clientRequestedModel?: string;
+  usage: SessionUsageWithCost;
+  normalizedEstimatedCostUsd: number;
+  latencyMs: number;
+  tierRates: PricingRates;
+  snapshot?: DecisionSnapshot;
+  chatStateSummary?: unknown;
+  fileStateSummary?: unknown;
+  objectiveScopeSummary?: unknown;
+  stateConfidenceSummary?: unknown;
+  stateTransitionSummary?: unknown;
+  tokenEconomics?: unknown;
+  optimizationLedger?: unknown;
+  finishReason: string;
+  recordUsageMetrics: (
+    traceModel: string,
+    resolvedModelId: string,
+    telemetryUsage: LlmUsage,
+    latencySeconds: number,
+  ) => void;
+  emitTrace: (trace: YarnTraceRecord) => void;
+}
+
+export interface TraceFinalizationResult {
+  telemetryUsage: LlmUsage;
+  trace: YarnTraceRecord;
+}
 
 export type TrajectoryOutcomeState = "verified" | "partial" | "stalled" | "policy_reject" | "user_abort";
 export type TrajectoryFailureStage = "discovery" | "mutation" | "verification" | "policy" | null;
@@ -1124,6 +1160,49 @@ export function buildYarnTraceRecord(input: BuildYarnTraceRecordInput): YarnTrac
     },
     ...(input.optimizationLedger ? { optimization_ledger: input.optimizationLedger } : {}),
     has_error: input.finishReason === "error" || undefined,
+  };
+}
+
+export function runTraceFinalization(input: RunTraceFinalizationInput): TraceFinalizationResult {
+  const telemetryUsage = buildTelemetryUsage({
+    usage: input.usage,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+  });
+  input.recordUsageMetrics(
+    input.traceModel,
+    input.resolvedModelId,
+    telemetryUsage,
+    input.latencyMs / 1000,
+  );
+  const trace = buildYarnTraceRecord({
+    requestId: input.requestId,
+    record: input.record,
+    parentTraceId: input.parentTraceId,
+    rootTraceId: input.rootTraceId,
+    traceModel: input.traceModel,
+    resolvedModelId: input.resolvedModelId,
+    backendModel: input.backendModel,
+    clientRequestedModel: input.clientRequestedModel,
+    telemetryUsage,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+    latencyMs: input.latencyMs,
+    tierRates: input.tierRates,
+    rootPromptSnippet: metadataString(input.record.metadata, "trace_root_prompt"),
+    latestPromptSnippet: metadataString(input.record.metadata, "latest_user_prompt"),
+    snapshotTraceFields: input.snapshot ? snapshotToTraceFields(input.snapshot) : undefined,
+    chatStateSummary: input.chatStateSummary,
+    fileStateSummary: input.fileStateSummary,
+    objectiveScopeSummary: input.objectiveScopeSummary,
+    stateConfidenceSummary: input.stateConfidenceSummary,
+    stateTransitionSummary: input.stateTransitionSummary,
+    tokenEconomics: input.tokenEconomics,
+    optimizationLedger: input.optimizationLedger,
+    finishReason: input.finishReason,
+  });
+  input.emitTrace(trace);
+  return {
+    telemetryUsage,
+    trace,
   };
 }
 
