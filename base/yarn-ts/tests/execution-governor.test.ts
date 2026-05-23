@@ -1651,6 +1651,23 @@ describe("execution governor", () => {
     expect(message).toContain("question tool");
   });
 
+  it("builds task-aware hard stop message when the ledger has a current task", () => {
+    const message = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: 2,
+      matchedRules: ["repeated_assistant_intro"],
+      questionToolName: "question",
+      taskContext: {
+        current_task: "Write tests (test_tasks.py and test_summary.py)",
+        current_task_status: "in_progress",
+        open_task_count: 2,
+        recommended_next_step: "Create or edit the test file, then run one targeted pytest command.",
+      },
+    });
+    expect(message).toContain("Current task: Write tests");
+    expect(message).toContain("Create or edit the test file");
+    expect(message).toContain("Continue the current task now");
+  });
+
   it("builds transport-agnostic pause envelope for intent loops", () => {
     const envelope = buildExecutionGovernorPauseEnvelope({
       matchedRules: ["verification_intent_without_action", "no_progress_loop"],
@@ -1694,6 +1711,30 @@ describe("execution governor", () => {
     expect(envelope.file_state_summary?.files_total).toBe(2);
     expect(envelope.interactive_question?.tool_name).toBe("question");
     expect(envelope.interactive_question?.options.map((option) => option.id)).toContain("summarize_and_stop");
+  });
+
+  it("builds task-aware pause envelope actions for recovery UI", () => {
+    const envelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: ["repeated_assistant_intro"],
+      consecutiveRecoveryFires: 2,
+      hardStopThreshold: 5,
+      questionToolName: "question",
+      taskContext: {
+        current_task: "Write tests (test_tasks.py and test_summary.py)",
+        current_task_status: "in_progress",
+        open_task_count: 2,
+        recommended_next_step: "Create or edit the test file, then run one targeted pytest command.",
+      },
+    });
+    expect(envelope.default_recommended_action).toBe("continue_current_task");
+    expect(envelope.next_actions.map((action) => action.id)).toEqual([
+      "continue_current_task",
+      "verify_current_task",
+      "summarize_and_stop",
+    ]);
+    expect(envelope.task_context?.current_task).toContain("Write tests");
+    expect(envelope.concrete_nudge).toContain("test file");
+    expect(envelope.interactive_question?.prompt).toContain("Current task");
   });
 
   it("builds transport-agnostic pause envelope for general loops", () => {

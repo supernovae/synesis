@@ -292,6 +292,7 @@ import {
   extractEditedFileHints,
   type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
+  type GovernorPauseTaskContext,
   type GovernorInputMessage,
   type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
@@ -6846,6 +6847,44 @@ function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
   }
 }
 
+function buildFreshImplicitSessionNotice(clientKind: string, messageCount: number): string {
+  const safeClientKind = clientKind.replace(/[<>&"]/g, (ch) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "\"": "&quot;",
+  })[ch] ?? ch);
+  return [
+    `<SESSION_BOUNDARY_NOTICE client="${safeClientKind}" mode="fresh_transcript">`,
+    `The client sent a fresh transcript without an explicit resume id (${messageCount} message${messageCount === 1 ? "" : "s"}).`,
+    "Prior implicit harness state for this workspace was cleared. Treat this as a fresh run: rely only on the current transcript and filesystem, not older tasks or conclusions.",
+    "</SESSION_BOUNDARY_NOTICE>",
+  ].join("\n");
+}
+
+function buildGovernorPauseTaskContext(ledger: TaskLedger | null): GovernorPauseTaskContext | undefined {
+  if (!ledger || ledger.tasks.length === 0) return undefined;
+  const openTasks = ledger.tasks.filter((task) =>
+    task.status === "pending" || task.status === "in_progress" || task.status === "unknown"
+  );
+  const currentTask = openTasks.find((task) => task.status === "in_progress") ?? openTasks[0];
+  if (!currentTask) return undefined;
+  const title = currentTask.title.trim();
+  const titleLower = title.toLowerCase();
+  let recommended = `Continue the current task: ${title}. Make exactly one concrete edit or task update before any repeated narration.`;
+  if (/\b(test|pytest|spec)\b/.test(titleLower)) {
+    recommended = `Continue the current test task: ${title}. Create or edit the relevant test file, then run one targeted test command.`;
+  } else if (/\b(readme|doc|documentation)\b/.test(titleLower)) {
+    recommended = `Continue the current documentation task: ${title}. Edit the documentation file directly, then verify the file exists.`;
+  }
+  return {
+    current_task: title,
+    current_task_status: currentTask.status,
+    open_task_count: openTasks.length,
+    recommended_next_step: recommended,
+  };
+}
+
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
   clearWorkspaceScopedMetadata(state.record.metadata);
   contentDedupBySession.delete(sessionKey);
@@ -8345,6 +8384,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const session = await getSessionState(sessionKey, identity);
   applyAuthKeyAttribution(session, authUser);
+  let oaiFreshImplicitSessionNotice: string | null = null;
   if (shouldResetImplicitSessionForFreshTranscript({
     clientKind: oaiClientKind,
     conversationId: oaiConversationId,
@@ -8352,6 +8392,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     hasPersistedState: hasPersistedWorkspaceState(session, sessionKey),
   })) {
     resetWorkspaceScopedSessionState(sessionKey, session);
+    oaiFreshImplicitSessionNotice = buildFreshImplicitSessionNotice(
+      oaiClientKind,
+      (request.messages as unknown[]).length,
+    );
     recordSessionEvent(
       sessionKey,
       identity.userId,
@@ -9101,6 +9145,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiChatStateSnapshot = toChatStateSnapshot(oaiChatState);
   const oaiPauseChatSummary = summarizeChatStateForGovernor(oaiChatState);
   const oaiPauseFileSummary = summarizeFileStateForGovernor(oaiFileStateSnapshot);
+  const oaiPauseTaskContext = buildGovernorPauseTaskContext(session.taskLedger);
   session.record.metadata.chat_state_snapshot = oaiChatStateSnapshot as unknown as Record<string, unknown>;
   session.record.metadata.file_state_snapshot = oaiFileStateSnapshot as unknown as Record<string, unknown>;
   const oaiChatStateBlock = formatChatStateBlock(oaiChatState);
@@ -9535,6 +9580,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       matchedRules: oaiExecutionGovernor.matchedRules,
       questionToolName: oaiClientToolCapabilities.questionToolName,
+      taskContext: oaiPauseTaskContext,
     });
     const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
       matchedRules: oaiExecutionGovernor.matchedRules,
@@ -9545,6 +9591,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       artifactContext: oaiArtifactContext,
       chatStateSummary: oaiPauseChatSummary,
       fileStateSummary: oaiPauseFileSummary,
+      taskContext: oaiPauseTaskContext,
       questionToolName: oaiClientToolCapabilities.questionToolName,
     });
     persistGovernorPauseContextMetadata({
@@ -9602,6 +9649,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         artifactContext: oaiArtifactContext,
         chatStateSummary: oaiPauseChatSummary,
         fileStateSummary: oaiPauseFileSummary,
+        taskContext: oaiPauseTaskContext,
         questionToolName: oaiClientToolCapabilities.questionToolName,
       });
       persistGovernorPauseContextMetadata({
@@ -9747,6 +9795,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
       ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
       ...(oaiClientToolBlock ? [oaiClientToolBlock] : []),
+      ...(oaiFreshImplicitSessionNotice ? [oaiFreshImplicitSessionNotice] : []),
       ...(oaiGovernorPauseResumeBlock ? [oaiGovernorPauseResumeBlock] : []),
       ...(oaiPlannerTodoPacketBlock ? [oaiPlannerTodoPacketBlock] : []),
       ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
@@ -13084,6 +13133,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeChatStateSnapshot = toChatStateSnapshot(claudeChatState);
   const claudePauseChatSummary = summarizeChatStateForGovernor(claudeChatState);
   const claudePauseFileSummary = summarizeFileStateForGovernor(claudeFileStateSnapshot);
+  const claudePauseTaskContext = buildGovernorPauseTaskContext(session.taskLedger);
   session.record.metadata.chat_state_snapshot = claudeChatStateSnapshot as unknown as Record<string, unknown>;
   session.record.metadata.file_state_snapshot = claudeFileStateSnapshot as unknown as Record<string, unknown>;
   const claudeChatStateBlock = formatChatStateBlock(claudeChatState);
@@ -13518,6 +13568,7 @@ app.post("/v1/messages", async (req, reply) => {
       consecutiveRecoveryFires: session.consecutiveRecoveryFires,
       matchedRules: claudeExecutionGovernor.matchedRules,
       questionToolName: claudeClientToolCapabilities.questionToolName,
+      taskContext: claudePauseTaskContext,
     });
     const pauseEnvelope = buildExecutionGovernorPauseEnvelope({
       matchedRules: claudeExecutionGovernor.matchedRules,
@@ -13528,6 +13579,7 @@ app.post("/v1/messages", async (req, reply) => {
       artifactContext: claudeArtifactContext,
       chatStateSummary: claudePauseChatSummary,
       fileStateSummary: claudePauseFileSummary,
+      taskContext: claudePauseTaskContext,
       questionToolName: claudeClientToolCapabilities.questionToolName,
     });
     persistGovernorPauseContextMetadata({
@@ -13584,6 +13636,7 @@ app.post("/v1/messages", async (req, reply) => {
         artifactContext: claudeArtifactContext,
         chatStateSummary: claudePauseChatSummary,
         fileStateSummary: claudePauseFileSummary,
+        taskContext: claudePauseTaskContext,
         questionToolName: claudeClientToolCapabilities.questionToolName,
       });
       persistGovernorPauseContextMetadata({

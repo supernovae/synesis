@@ -3311,16 +3311,30 @@ export function buildExecutionGovernorHardStopUserMessage(params: {
   consecutiveRecoveryFires: number;
   matchedRules: string[];
   questionToolName?: string | null;
+  taskContext?: GovernorPauseTaskContext;
 }): string {
-  const { consecutiveRecoveryFires, matchedRules, questionToolName } = params;
+  const { consecutiveRecoveryFires, matchedRules, questionToolName, taskContext } = params;
   const { what, nudge, primary: primaryRule } = hardStopPlainCopy(matchedRules);
   const needsDirectionChoice = matchedRules.some((r) =>
     r === "verification_intent_without_action"
     || r === "verbal_intent_without_action"
     || r === "no_progress_loop",
   );
+  const taskNudge = taskContext?.recommended_next_step
+    ? taskContext.recommended_next_step
+    : taskContext?.current_task
+      ? `Continue the current task: ${taskContext.current_task}.`
+      : null;
 
-  const lead = [what, "", `Suggested next move: ${nudge}`, ""];
+  const lead = [
+    what,
+    "",
+    ...(taskContext?.current_task
+      ? [`Current task: ${taskContext.current_task}`, ""]
+      : []),
+    `Suggested next move: ${taskNudge ?? nudge}`,
+    "",
+  ];
 
   const header = [
     ...lead,
@@ -3333,7 +3347,14 @@ export function buildExecutionGovernorHardStopUserMessage(params: {
     "",
   ];
 
-  const options = needsDirectionChoice
+  const options = taskContext?.current_task
+    ? [
+        "Choose the next action by replying with one option:",
+        "1) Continue the current task now",
+        "2) Run one targeted verification for the current task",
+        "3) Stop and summarize current status",
+      ]
+    : needsDirectionChoice
     ? [
         "Choose the next action by replying with one option:",
         "1) Run one targeted test command now",
@@ -3383,6 +3404,13 @@ export interface GovernorPauseFileStateSummary {
   evicted_files: string[];
 }
 
+export interface GovernorPauseTaskContext {
+  current_task: string | null;
+  current_task_status: string | null;
+  open_task_count: number;
+  recommended_next_step?: string | null;
+}
+
 export interface GovernorPauseEnvelope {
   status: "paused";
   pause_reason: string;
@@ -3406,6 +3434,7 @@ export interface GovernorPauseEnvelope {
   };
   chat_state_summary?: GovernorPauseChatStateSummary;
   file_state_summary?: GovernorPauseFileStateSummary;
+  task_context?: GovernorPauseTaskContext;
   interactive_question?: {
     tool_name: string;
     prompt: string;
@@ -3427,6 +3456,7 @@ export function buildExecutionGovernorPauseEnvelope(params: {
   artifactContext?: { staleFiles: string[]; partialFiles: string[] };
   chatStateSummary?: GovernorPauseChatStateSummary;
   fileStateSummary?: GovernorPauseFileStateSummary;
+  taskContext?: GovernorPauseTaskContext;
   questionToolName?: string | null;
 }): GovernorPauseEnvelope {
   const {
@@ -3438,6 +3468,7 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     artifactContext,
     chatStateSummary,
     fileStateSummary,
+    taskContext,
     questionToolName,
   } = params;
   const pauseReason = matchedRules[0] ?? "unknown";
@@ -3448,7 +3479,35 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     || r === "no_progress_loop",
   );
 
-  const nextActions: GovernorPauseAction[] = isIntentLoop
+  const hasCurrentTask = typeof taskContext?.current_task === "string" && taskContext.current_task.trim().length > 0;
+  const currentTask = hasCurrentTask ? taskContext!.current_task!.trim() : "";
+  const nextActions: GovernorPauseAction[] = hasCurrentTask
+    ? [
+        {
+          id: "continue_current_task",
+          label: "Continue current task",
+          description: `Continue: ${currentTask}`,
+          requires_user_input: false,
+          can_auto_execute: true,
+          expected_arguments: ["file_path", "change_summary"],
+        },
+        {
+          id: "verify_current_task",
+          label: "Verify current task",
+          description: "Run one narrow verification command for the current task, then use the result.",
+          requires_user_input: true,
+          can_auto_execute: true,
+          expected_arguments: ["command"],
+        },
+        {
+          id: "summarize_and_stop",
+          label: "Summarize and stop",
+          description: "Stop execution and summarize current status.",
+          requires_user_input: false,
+          can_auto_execute: true,
+        },
+      ]
+    : isIntentLoop
     ? [
         {
           id: "run_targeted_test",
@@ -3500,7 +3559,9 @@ export function buildExecutionGovernorPauseEnvelope(params: {
         },
       ];
 
-  const defaultAction = isIntentLoop ? "apply_one_edit" : "continue_with_fix";
+  const defaultAction = hasCurrentTask ? "continue_current_task" : isIntentLoop ? "apply_one_edit" : "continue_with_fix";
+  const concreteNudge = taskContext?.recommended_next_step?.trim()
+    || (hasCurrentTask ? `Continue the current task: ${currentTask}.` : plain.nudge);
   const interactiveQuestionTool = typeof questionToolName === "string" && questionToolName.trim()
     ? questionToolName.trim()
     : null;
@@ -3516,7 +3577,6 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     next_actions: nextActions,
     default_recommended_action: defaultAction,
     user_facing_explanation: plain.what,
-    concrete_nudge: plain.nudge,
     evidence_delta: evidenceDelta,
     active_guards: activeGuards && activeGuards.length > 0 ? activeGuards : undefined,
     artifact_context: artifactContext
@@ -3527,10 +3587,13 @@ export function buildExecutionGovernorPauseEnvelope(params: {
       : undefined,
     chat_state_summary: chatStateSummary,
     file_state_summary: fileStateSummary,
+    task_context: taskContext,
     interactive_question: interactiveQuestionTool
       ? {
           tool_name: interactiveQuestionTool,
-          prompt: "Governor paused repeated progress. Choose the safest recovery action.",
+          prompt: hasCurrentTask
+            ? `Governor paused repeated progress. Current task: ${currentTask}. Choose the next concrete action.`
+            : "Governor paused repeated progress. Choose the safest recovery action.",
           options: nextActions.map((action) => ({
             id: action.id,
             label: action.label,
@@ -3538,10 +3601,13 @@ export function buildExecutionGovernorPauseEnvelope(params: {
           })),
         }
       : undefined,
+    concrete_nudge: concreteNudge,
     resume_hint: [
-      plain.nudge,
+      concreteNudge,
       "",
-      "Or reply with an action id and arguments, e.g. run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
+      hasCurrentTask
+        ? "Or reply with an action id and arguments, e.g. verify_current_task command=\"python -m pytest -q\""
+        : "Or reply with an action id and arguments, e.g. run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
     ].join("\n"),
   };
 }
