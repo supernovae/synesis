@@ -280,6 +280,9 @@ function buildYarnPromptIntakeSystemBlock(
     }
   } else if (taskTool) {
     lines.push(`If no clarification is needed, prefer calling ${taskTool} with 3-7 concrete todos before implementation, then update todo statuses as work progresses.`);
+    if (capabilities?.isOpenCode || taskTool.toLowerCase() === "todowrite") {
+      lines.push(`OpenCode ${taskTool} exact shape: {"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}. Use content, not title, for every todo item.`);
+    }
   } else {
     lines.push("Prefer durable task tracking when the client supports it; otherwise keep the plan concise in the response.");
   }

@@ -51,6 +51,8 @@ describe("client tool capabilities", () => {
     expect(block).toContain("task_tool=todowrite");
     expect(block).toContain("question_tool=question");
     expect(block).toContain("patch_tool=apply_patch");
+    expect(block).toContain('"content":"Concrete task"');
+    expect(block).toContain("Never call todowrite with arrays of strings, title-only items");
   });
 
   it("detects Claude Code native task, plan, agent, monitor, and LSP tools", () => {

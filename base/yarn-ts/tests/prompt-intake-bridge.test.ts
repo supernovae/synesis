@@ -64,6 +64,8 @@ describe("Yarn prompt intake bridge", () => {
     expect(result.systemBlock).toContain("calling question");
     expect(result.systemBlock).toContain("calling todowrite");
     expect(result.systemBlock).toContain("3-7 concrete todos");
+    expect(result.systemBlock).toContain('"content":"Concrete task"');
+    expect(result.systemBlock).toContain("Use content, not title");
     expect(result.metadataSnapshot.task_tool).toBe("todowrite");
     expect(result.metadataSnapshot.question_tool).toBe("question");
   });

@@ -141,6 +141,7 @@ import {
   enrichToolSchemasForClient,
   type ClientToolCapabilities,
 } from "./adapters/client-tool-capabilities.js";
+import { restoreToolArgsToClientSchema } from "./adapters/client-tool-args.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
@@ -2609,6 +2610,22 @@ function rewriteUnavailableToolCall(
     },
     rewritten: true,
     requestedTool,
+  };
+}
+
+function restoreGuardrailCallForClient(
+  call: GuardrailToolCall,
+  tools: unknown[] | undefined,
+  clientKind: string | undefined,
+): GuardrailToolCall {
+  return {
+    ...call,
+    input: restoreToolArgsToClientSchema(
+      call.toolName,
+      call.input,
+      tools as never,
+      clientKind,
+    ),
   };
 }
 
@@ -11270,7 +11287,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       message.reasoning_content = oaiNonStreamReasoning;
     }
     if (externalToolCalls.length > 0) {
-      message.tool_calls = sdkToolCallsToOpenAI(externalToolCalls);
+      const clientToolCalls = externalToolCalls.map((call) =>
+        restoreGuardrailCallForClient(call, effectiveTools as unknown[], oaiClientKind),
+      );
+      message.tool_calls = sdkToolCallsToOpenAI(clientToolCalls);
     }
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return reply.send({
@@ -11678,9 +11698,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
             continue;
           }
           oaiStreamGuardrailAccepted.push(candidateCall);
+          const clientCandidateCall = restoreGuardrailCallForClient(
+            candidateCall,
+            effectiveTools as unknown[],
+            oaiClientKind,
+          );
+          argsStr = JSON.stringify(clientCandidateCall.input);
           const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
           if (existing) {
-            existing.name = governed.toolName;
+            existing.name = clientCandidateCall.toolName;
             safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
               choices: [{ index: 0, delta: { tool_calls: [{ index: existing.index, function: { arguments: argsStr } }] }, finish_reason: null }]
@@ -11689,7 +11715,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           } else {
             safeWrite(reply.raw, `data: ${JSON.stringify({
               id: reqId, object: "chat.completion.chunk", created: ts, model: resolved.resolvedModelId,
-              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: governed.toolName, arguments: argsStr } }] }, finish_reason: null }]
+              choices: [{ index: 0, delta: { tool_calls: [{ index: pendingToolCalls.length, id: tc.toolCallId, type: "function", function: { name: clientCandidateCall.toolName, arguments: argsStr } }] }, finish_reason: null }]
             })}\n\n`);
             oaiStreamEmittedToolCalls += 1;
           }
