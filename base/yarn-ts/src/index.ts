@@ -305,6 +305,7 @@ import {
   runHourlyTokenThrottleUpdate,
   runTraceFinalization,
   rotateStateTransitionSnapshot,
+  runConsecutiveToolCallCounterUpdate,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -4813,10 +4814,11 @@ function persistSessionAndUsage(
     currentSnapshot: currentTransitionSnapshot,
   } = rotateStateTransitionSnapshot({ metadata: state.record.metadata });
 
-  void distributedCounters.setConsecutiveToolCalls(
-    state.record.sessionKey,
-    state.consecutiveToolCalls
-  );
+  void runConsecutiveToolCallCounterUpdate({
+    record: state.record,
+    consecutiveToolCalls: state.consecutiveToolCalls,
+    counter: distributedCounters,
+  });
 
   runInitialSessionPersistenceWrites({
     record: state.record,

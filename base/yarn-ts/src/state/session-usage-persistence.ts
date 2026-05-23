@@ -73,6 +73,17 @@ export interface RotateStateTransitionSnapshotInput {
   metadata: Record<string, unknown>;
 }
 
+export interface ConsecutiveToolCallCounter {
+  setConsecutiveToolCalls(sessionKey: string, value: number): Promise<boolean>;
+}
+
+export interface RunConsecutiveToolCallCounterUpdateInput {
+  record: SessionRecord;
+  consecutiveToolCalls: number;
+  counter: ConsecutiveToolCallCounter;
+  warn?: (err: unknown) => void;
+}
+
 export interface StateTransitionSnapshotRotation {
   previousSnapshot: StateTransitionSnapshot | null;
   currentSnapshot: StateTransitionSnapshot;
@@ -971,6 +982,21 @@ export function rotateStateTransitionSnapshot(
     previousSnapshot,
     currentSnapshot,
   };
+}
+
+export function runConsecutiveToolCallCounterUpdate(
+  input: RunConsecutiveToolCallCounterUpdateInput,
+): Promise<void> {
+  return input.counter.setConsecutiveToolCalls(
+    input.record.sessionKey,
+    input.consecutiveToolCalls,
+  ).then(() => {
+    // Counter update is best-effort; callers keep local metadata as source of truth.
+  }).catch((err) => {
+    if (input.warn) {
+      input.warn(err);
+    }
+  });
 }
 
 export function applySessionUsagePersistenceMutation(

@@ -24,6 +24,7 @@ import {
   runStateTransitionCalibration,
   runTraceFinalization,
   rotateStateTransitionSnapshot,
+  runConsecutiveToolCallCounterUpdate,
 } from "../src/state/session-usage-persistence.js";
 import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
 import type { SessionRecord } from "../src/state/session-store.js";
@@ -226,6 +227,37 @@ describe("session usage persistence mutation", () => {
       objectiveHash: "next-hash",
       chatPhase: "verify",
     });
+  });
+
+  it("runs consecutive tool call counter updates", async () => {
+    const counter = {
+      setConsecutiveToolCalls: vi.fn().mockResolvedValue(true),
+    };
+
+    await runConsecutiveToolCallCounterUpdate({
+      record: record(),
+      consecutiveToolCalls: 3,
+      counter,
+    });
+
+    expect(counter.setConsecutiveToolCalls).toHaveBeenCalledWith("s1", 3);
+  });
+
+  it("warns when consecutive tool call counter update rejects", async () => {
+    const err = new Error("redis down");
+    const counter = {
+      setConsecutiveToolCalls: vi.fn().mockRejectedValue(err),
+    };
+    const warn = vi.fn();
+
+    await runConsecutiveToolCallCounterUpdate({
+      record: record(),
+      consecutiveToolCalls: 3,
+      counter,
+      warn,
+    });
+
+    expect(warn).toHaveBeenCalledWith(err);
   });
 
   it("updates usage counters, cost totals, and trace links", () => {
