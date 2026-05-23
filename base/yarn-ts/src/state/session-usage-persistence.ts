@@ -1,6 +1,18 @@
 import type { SessionRecord } from "./session-store.js";
 import type { SessionEventInsert, UsageEvent } from "./usage-writer.js";
 import type { LlmUsage, PricingRates, TraceRecord } from "@synesis/telemetry";
+import type { DecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import {
+  summarizeStateTransition,
+  type StateTransitionQualityCalibrationReport,
+  type StateTransitionQualityThresholds,
+  type StateTransitionRecord,
+  type StateTransitionTrainingRow,
+} from "../governance/state-transition-ledger.js";
+import type {
+  GlobalCalibrationObservation,
+  GlobalThresholdResolution,
+} from "../governance/state-transition-global-calibrator.js";
 
 export interface SessionUsageSummary {
   inputTokens: number;
@@ -115,6 +127,119 @@ export interface BuildYarnTraceRecordInput {
 export type YarnTraceRecord = TraceRecord & {
   optimization_ledger?: unknown;
 };
+
+export type TrajectoryOutcomeState = "verified" | "partial" | "stalled" | "policy_reject" | "user_abort";
+export type TrajectoryFailureStage = "discovery" | "mutation" | "verification" | "policy" | null;
+export type TrajectoryToolKindCounts = {
+  discovery: number;
+  evidence: number;
+  mutation: number;
+  verification: number;
+  other: number;
+};
+
+export interface StateTransitionSummary {
+  changed_fields: string[];
+  objective_epoch_advanced: boolean;
+  objective_changed: boolean;
+  confidence_improved: boolean;
+  stale_files_delta: number;
+  partial_files_delta: number;
+  evicted_files_delta: number;
+  quality_label: string;
+  quality_score: number;
+  quality_reasons: string[];
+  recommended_action: string;
+  quality_thresholds: StateTransitionQualityThresholds;
+  quality_calibration_applied: boolean;
+  quality_calibration_sample_count: number;
+  quality_global_scope: GlobalThresholdResolution["selected_scope"];
+  quality_global_sample_count: number;
+  quality_global_weight: number;
+}
+
+export interface BuildStateTransitionSummaryInput {
+  stateTransitionRecord: StateTransitionRecord;
+  activeQualityThresholds: StateTransitionQualityThresholds;
+  stateTransitionCalibration: StateTransitionQualityCalibrationReport;
+  globalThresholdResolutionAfter: GlobalThresholdResolution;
+  globalSampleCountAfter: number;
+  globalWeightAfter: number;
+}
+
+export interface BuildRequestTrajectoryEventInput {
+  record: SessionRecord;
+  requestId: string;
+  traceModel: string;
+  snapshot?: DecisionSnapshot;
+  escalated: boolean;
+  toolSequence: string[];
+  taskBucket: string;
+  countsByKind: TrajectoryToolKindCounts;
+  retryCountTotal: number;
+  blindRetryCount: number;
+  filesReadCount: number;
+  bytesReadTotal?: number;
+  filesWrittenCount: number;
+  readEditRatio?: number;
+  patchOpsCount: number;
+  wholeWriteOpsCount: number;
+  patchRatio?: number;
+  wholeWriteRatio?: number;
+  verificationSteps: string[];
+  firstPassVerifyOk: boolean;
+  structuredErrorsCount: number;
+  diagnosticLinesCount: number;
+  structuredErrorCoverage: number;
+  completionGateBlocked: boolean;
+  criticBlocked: boolean;
+  usage: SessionUsageWithCost;
+  tokensSavedByReduction: number;
+  latencyMs: number;
+  tokenEconomics: Record<string, unknown>;
+  outcomeState: TrajectoryOutcomeState;
+  failureStage: TrajectoryFailureStage;
+  chatStateSummary?: Record<string, unknown>;
+  fileStateSummary?: Record<string, unknown>;
+  objectiveScopeSummary?: Record<string, unknown>;
+  stateConfidenceSummary?: Record<string, unknown>;
+  stateTransitionSummary?: StateTransitionSummary;
+  evidenceDelta: unknown;
+  chatPhase?: string;
+  chatCompletionStatus?: string;
+  fileStatusCounts?: {
+    stale?: number;
+    partial?: number;
+    evicted?: number;
+  };
+  objectiveEpochId: number;
+  objectiveScopeBoundaryIndex: number;
+  objectiveScopeRetainedEvidence: number;
+  objectiveScopeDroppedPreBoundary: number;
+  stateConfidenceOverall: number;
+  stateConfidenceNeedsReground: boolean;
+  stateConfidenceReasons: string[];
+  stateTransitionRecord: StateTransitionRecord;
+  activeQualityThresholds: StateTransitionQualityThresholds;
+  stateTransitionCalibration: StateTransitionQualityCalibrationReport;
+  globalThresholdResolutionAfter: GlobalThresholdResolution;
+  globalSampleCountAfter: number;
+  prematureStopSignals: number;
+}
+
+export interface BuildStateTransitionEventsInput {
+  record: SessionRecord;
+  requestId: string;
+  stateTransitionRecord: StateTransitionRecord;
+  stateTransitionTrainingRow: StateTransitionTrainingRow;
+  activeQualityThresholds: StateTransitionQualityThresholds;
+  stateTransitionCalibration: StateTransitionQualityCalibrationReport;
+  globalThresholdResolutionAfter: GlobalThresholdResolution;
+  globalCalibrationObservation: GlobalCalibrationObservation;
+  thresholdShift: number;
+  globalThresholdShift: number;
+  globalSampleCountAfter: number;
+}
 
 function metadataString(metadata: Record<string, unknown>, key: string): string {
   const value = metadata[key];
@@ -290,4 +415,218 @@ export function buildYarnTraceRecord(input: BuildYarnTraceRecordInput): YarnTrac
     ...(input.optimizationLedger ? { optimization_ledger: input.optimizationLedger } : {}),
     has_error: input.finishReason === "error" || undefined,
   };
+}
+
+export function buildStateTransitionSummary(input: BuildStateTransitionSummaryInput): StateTransitionSummary {
+  const { stateTransitionRecord } = input;
+  return {
+    changed_fields: stateTransitionRecord.delta.changed_fields,
+    objective_epoch_advanced: stateTransitionRecord.delta.objective_epoch_advanced,
+    objective_changed: stateTransitionRecord.delta.objective_changed,
+    confidence_improved: stateTransitionRecord.delta.confidence_improved,
+    stale_files_delta: stateTransitionRecord.delta.stale_files_delta,
+    partial_files_delta: stateTransitionRecord.delta.partial_files_delta,
+    evicted_files_delta: stateTransitionRecord.delta.evicted_files_delta,
+    quality_label: stateTransitionRecord.quality.label,
+    quality_score: stateTransitionRecord.quality.score,
+    quality_reasons: stateTransitionRecord.quality.reasons,
+    recommended_action: stateTransitionRecord.quality.recommended_action,
+    quality_thresholds: input.activeQualityThresholds,
+    quality_calibration_applied: input.stateTransitionCalibration.applied,
+    quality_calibration_sample_count: input.stateTransitionCalibration.sample_count,
+    quality_global_scope: input.globalThresholdResolutionAfter.selected_scope,
+    quality_global_sample_count: input.globalSampleCountAfter,
+    quality_global_weight: Number(input.globalWeightAfter.toFixed(3)),
+  };
+}
+
+export function buildRequestTrajectoryEvent(input: BuildRequestTrajectoryEventInput): SessionEventInsert {
+  const cacheHitRatio = input.usage.inputTokens > 0
+    ? Number((input.usage.cachedTokens / input.usage.inputTokens).toFixed(4))
+    : 0;
+  const stateChannels = (
+    input.chatStateSummary
+    || input.fileStateSummary
+    || input.objectiveScopeSummary
+    || input.stateConfidenceSummary
+    || input.stateTransitionSummary
+  )
+    ? {
+        chat_state: input.chatStateSummary,
+        file_state: input.fileStateSummary,
+        objective_scope: input.objectiveScopeSummary,
+        state_confidence: input.stateConfidenceSummary,
+        state_transition: input.stateTransitionSummary,
+      }
+    : undefined;
+  return {
+    sessionKey: input.record.sessionKey,
+    requestId: input.requestId,
+    userId: input.record.userId,
+    orgId: input.record.orgId,
+    eventKind: "request_trajectory_v1",
+    component: "yarn",
+    detail: `trajectory ${input.outcomeState} bucket=${input.taskBucket} tools=${input.toolSequence.length}`,
+    metadataJson: {
+      schema_version: "request_trajectory_v1",
+      request_id: input.requestId,
+      session_key: input.record.sessionKey,
+      task_bucket: input.taskBucket,
+      identity: {
+        client_kind: input.record.clientKind || "unknown",
+        model: input.traceModel,
+      },
+      workflow: {
+        decision_path: input.snapshot?.decisionPath,
+        phase: input.snapshot?.phase ?? "unknown",
+        escalated: input.escalated,
+        policy_rules_matched: input.snapshot?.policyDecision ? String(input.snapshot.policyDecision).split(",").filter(Boolean) : [],
+      },
+      tools: {
+        sequence: input.toolSequence,
+        counts_by_kind: input.countsByKind,
+        retry_count_total: input.retryCountTotal,
+        blind_retry_count: input.blindRetryCount,
+      },
+      edits: {
+        files_read_count: input.filesReadCount,
+        bytes_read_total: input.bytesReadTotal,
+        files_written_count: input.filesWrittenCount,
+        read_edit_ratio: input.readEditRatio,
+        patch_ops_count: input.patchOpsCount,
+        whole_write_ops_count: input.wholeWriteOpsCount,
+        patch_ratio: input.patchRatio,
+        whole_write_ratio: input.wholeWriteRatio,
+        patch_success_rate: input.patchRatio,
+      },
+      verification: {
+        steps: input.verificationSteps,
+        round: input.snapshot?.verificationRound,
+        stalled: input.snapshot?.verificationStalled,
+        findings: input.snapshot?.verificationFindings,
+        first_pass_verify_ok: input.firstPassVerifyOk,
+        structured_errors_count: input.structuredErrorsCount,
+        diagnostic_lines_count: input.diagnosticLinesCount,
+        structured_error_coverage: input.structuredErrorCoverage,
+        completion_gate_blocked: input.completionGateBlocked,
+        critic_blocked: input.criticBlocked,
+      },
+      cost: {
+        tokens_in: input.usage.inputTokens,
+        tokens_out: input.usage.outputTokens,
+        tokens_cached: input.usage.cachedTokens,
+        cache_creation_tokens: input.usage.cacheCreationTokens,
+        cache_hit_ratio: cacheHitRatio,
+        tokens_saved_by_reduction: input.tokensSavedByReduction,
+        latency_ms: input.latencyMs,
+        tool_latency_ms_total: undefined,
+        token_economics: input.tokenEconomics,
+      },
+      outcome: {
+        state: input.outcomeState,
+        failure_stage: input.failureStage,
+      },
+      governor: input.snapshot?.governor ? {
+        pause: input.snapshot.governor.pause,
+        reason: input.snapshot.governor.reason,
+        matched_rules: input.snapshot.governor.matchedRules,
+        telemetry: input.snapshot.governor.telemetry,
+      } : undefined,
+      state_channels: stateChannels,
+      training_signals: {
+        governor_intervened: input.snapshot?.governor?.pause ?? false,
+        governor_rules: input.snapshot?.governor?.matchedRules ?? [],
+        no_edit_evidence: input.snapshot?.governor?.telemetry?.noEditEvidence ?? false,
+        trailing_verification_stall: (input.snapshot?.governor?.telemetry?.trailingVerificationRunLength ?? 0) >= 3,
+        false_green_detected: input.snapshot?.governor?.telemetry?.activeGuards?.includes("false_green_suspected") ?? false,
+        evidence_delta: input.evidenceDelta,
+        chat_phase: input.chatPhase,
+        chat_completion_status: input.chatCompletionStatus,
+        file_state_stale_count: input.fileStatusCounts?.stale ?? 0,
+        file_state_partial_count: input.fileStatusCounts?.partial ?? 0,
+        file_state_evicted_count: input.fileStatusCounts?.evicted ?? 0,
+        objective_epoch_id: input.objectiveEpochId > 0 ? input.objectiveEpochId : undefined,
+        objective_scope_boundary_index: input.objectiveScopeBoundaryIndex >= 0 ? input.objectiveScopeBoundaryIndex : undefined,
+        objective_scope_retained_evidence: input.objectiveScopeRetainedEvidence > 0 ? input.objectiveScopeRetainedEvidence : undefined,
+        objective_scope_dropped_pre_boundary: input.objectiveScopeDroppedPreBoundary > 0 ? input.objectiveScopeDroppedPreBoundary : undefined,
+        state_confidence_overall: Number.isFinite(input.stateConfidenceOverall) ? input.stateConfidenceOverall : undefined,
+        state_confidence_needs_reground: input.stateConfidenceNeedsReground || undefined,
+        state_confidence_reasons: input.stateConfidenceReasons.length > 0 ? input.stateConfidenceReasons : undefined,
+        objective_transition_changed: input.stateTransitionRecord.delta.objective_changed || undefined,
+        objective_epoch_advanced: input.stateTransitionRecord.delta.objective_epoch_advanced || undefined,
+        confidence_improved: input.stateTransitionRecord.delta.confidence_improved || undefined,
+        stale_files_delta: input.stateTransitionRecord.delta.stale_files_delta,
+        state_transition_quality_label: input.stateTransitionRecord.quality.label,
+        state_transition_quality_score: input.stateTransitionRecord.quality.score,
+        state_transition_quality_reasons: input.stateTransitionRecord.quality.reasons,
+        state_transition_quality_forward_min: input.activeQualityThresholds.forward_progress_min,
+        state_transition_quality_regressed_max: input.activeQualityThresholds.regressed_max,
+        state_transition_quality_calibrated: input.stateTransitionCalibration.applied || undefined,
+        state_transition_quality_calibration_samples: input.stateTransitionCalibration.sample_count,
+        state_transition_quality_global_scope: input.globalThresholdResolutionAfter.selected_scope !== "none"
+          ? input.globalThresholdResolutionAfter.selected_scope
+          : undefined,
+        state_transition_quality_global_samples: input.globalSampleCountAfter || undefined,
+        premature_stop_signals: input.prematureStopSignals || undefined,
+      },
+    },
+  };
+}
+
+export function buildStateTransitionEvents(input: BuildStateTransitionEventsInput): SessionEventInsert[] {
+  const events: SessionEventInsert[] = [{
+    sessionKey: input.record.sessionKey,
+    requestId: input.requestId,
+    userId: input.record.userId,
+    orgId: input.record.orgId,
+    eventKind: "state_transition_v1",
+    component: "state-ledger",
+    detail: summarizeStateTransition(input.stateTransitionRecord),
+    metadataJson: {
+      ...input.stateTransitionRecord,
+      training_row: input.stateTransitionTrainingRow,
+      quality_thresholds: input.activeQualityThresholds,
+      quality_calibration: input.stateTransitionCalibration,
+      quality_global_resolution: input.globalThresholdResolutionAfter,
+      quality_global_calibration: {
+        org_model: input.globalCalibrationObservation.org_model_calibration,
+        model: input.globalCalibrationObservation.model_calibration,
+      },
+    } as unknown as Record<string, unknown>,
+  }];
+
+  if (input.stateTransitionCalibration.applied && input.thresholdShift > 0.01) {
+    events.push({
+      sessionKey: input.record.sessionKey,
+      requestId: input.requestId,
+      userId: input.record.userId,
+      orgId: input.record.orgId,
+      eventKind: "state_transition_quality_calibration_v1",
+      component: "state-ledger",
+      detail: input.stateTransitionCalibration.summary,
+      metadataJson: input.stateTransitionCalibration as unknown as Record<string, unknown>,
+    });
+  }
+
+  if (
+    (input.globalCalibrationObservation.org_model_calibration.applied || input.globalCalibrationObservation.model_calibration.applied)
+    && input.globalThresholdShift > 0.01
+  ) {
+    events.push({
+      sessionKey: input.record.sessionKey,
+      requestId: input.requestId,
+      userId: input.record.userId,
+      orgId: input.record.orgId,
+      eventKind: "state_transition_quality_global_calibration_v1",
+      component: "state-ledger",
+      detail: `global quality calibration scope=${input.globalThresholdResolutionAfter.selected_scope} samples=${input.globalSampleCountAfter}`,
+      metadataJson: {
+        resolution: input.globalThresholdResolutionAfter,
+        org_model: input.globalCalibrationObservation.org_model_calibration,
+        model: input.globalCalibrationObservation.model_calibration,
+      } as unknown as Record<string, unknown>,
+    });
+  }
+
+  return events;
 }

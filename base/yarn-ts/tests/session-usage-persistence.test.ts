@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySessionUsagePersistenceMutation,
+  buildRequestTrajectoryEvent,
+  buildStateTransitionEvents,
+  buildStateTransitionSummary,
   buildTelemetryUsage,
   buildTokenEconomicsWarningEvent,
   buildUsageEvent,
@@ -27,6 +30,73 @@ function record(metadata: Record<string, unknown> = {}): SessionRecord {
     metadata,
     version: 0,
   };
+}
+
+const thresholds = { forward_progress_min: 0.2, regressed_max: -0.35, minimum_gap: 0.08 };
+
+function transitionRecord() {
+  return {
+    schema_version: "state_transition_v1",
+    request_id: "req1",
+    from_state: null,
+    to_state: {
+      objectiveEpochId: 1,
+      objectiveHash: "hash",
+      chatPhase: "implement",
+      completionStatus: "in_progress",
+      verificationOutcome: "unknown",
+      unresolvedCorrectionCount: 0,
+      resolvedCorrectionCount: 0,
+      fileStatusCounts: { available: 1, partial: 0, unchanged: 0, stale: 0, evicted: 0, missing: 0 },
+      confidenceOverall: 0.8,
+      confidenceNeedsReground: false,
+      confidenceReasons: [],
+      scopeBoundaryIndex: 2,
+      scopeRetainedEvidence: 3,
+      scopeDroppedPreBoundary: 0,
+    },
+    event: {
+      tool_sequence: ["Read", "apply_patch", "run_test"],
+      governor_rules: [],
+      governor_pause: false,
+      evidence_delta: { changed: true },
+      outcome_state: "verified",
+    },
+    delta: {
+      changed_fields: ["chatPhase"],
+      objective_epoch_advanced: true,
+      objective_changed: false,
+      completion_status_changed: true,
+      verification_outcome_changed: false,
+      unresolved_corrections_delta: 0,
+      resolved_corrections_delta: 0,
+      stale_files_delta: -1,
+      partial_files_delta: 0,
+      evicted_files_delta: 0,
+      confidence_delta: 0.2,
+      confidence_improved: true,
+    },
+    quality: {
+      label: "forward_progress",
+      score: 0.8,
+      reasons: ["confidence improved"],
+      recommended_action: "continue",
+    },
+  } as const;
+}
+
+function calibration(applied: boolean) {
+  return {
+    schema_version: "state_transition_quality_calibration_v1",
+    sample_count: 13,
+    positive_count: 10,
+    negative_count: 2,
+    neutral_count: 1,
+    applied,
+    previous_thresholds: thresholds,
+    calibrated_thresholds: thresholds,
+    summary: applied ? "calibrated" : "unchanged",
+  } as const;
 }
 
 describe("session usage persistence mutation", () => {
@@ -315,5 +385,221 @@ describe("session usage persistence mutation", () => {
     });
     expect(trace.has_error).toBeUndefined();
     vi.useRealTimers();
+  });
+
+  it("builds state transition summaries", () => {
+    const summary = buildStateTransitionSummary({
+      stateTransitionRecord: transitionRecord(),
+      activeQualityThresholds: thresholds,
+      stateTransitionCalibration: calibration(true),
+      globalThresholdResolutionAfter: {
+        selected_scope: "model",
+        selected_thresholds: thresholds,
+        org_model_sample_count: 3,
+        model_sample_count: 22,
+      },
+      globalSampleCountAfter: 22,
+      globalWeightAfter: 0.3333,
+    });
+
+    expect(summary).toMatchObject({
+      changed_fields: ["chatPhase"],
+      objective_epoch_advanced: true,
+      confidence_improved: true,
+      stale_files_delta: -1,
+      quality_label: "forward_progress",
+      quality_score: 0.8,
+      quality_calibration_applied: true,
+      quality_calibration_sample_count: 13,
+      quality_global_scope: "model",
+      quality_global_sample_count: 22,
+      quality_global_weight: 0.333,
+    });
+  });
+
+  it("builds request trajectory events with training signals", () => {
+    const event = buildRequestTrajectoryEvent({
+      record: record(),
+      requestId: "req1",
+      traceModel: "gpt-test",
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "rule_a,rule_b",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 0,
+        isStreaming: false,
+        governor: {
+          pause: true,
+          reason: "needs verification",
+          matchedRules: ["verification_after_completion_claim"],
+          telemetry: {
+            noEditEvidence: true,
+            trailingVerificationRunLength: 3,
+            activeGuards: ["false_green_suspected"],
+          } as never,
+        },
+      },
+      escalated: false,
+      toolSequence: ["Read", "apply_patch"],
+      taskBucket: "micro",
+      countsByKind: { discovery: 0, evidence: 1, mutation: 1, verification: 0, other: 0 },
+      retryCountTotal: 2,
+      blindRetryCount: 1,
+      filesReadCount: 1,
+      filesWrittenCount: 1,
+      patchOpsCount: 1,
+      wholeWriteOpsCount: 0,
+      patchRatio: 1,
+      wholeWriteRatio: 0,
+      readEditRatio: 1,
+      verificationSteps: ["pytest"],
+      firstPassVerifyOk: false,
+      structuredErrorsCount: 1,
+      diagnosticLinesCount: 2,
+      structuredErrorCoverage: 0.5,
+      completionGateBlocked: true,
+      criticBlocked: false,
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 50, cacheCreationTokens: 5, costUsd: 0 },
+      tokensSavedByReduction: 30,
+      latencyMs: 123,
+      tokenEconomics: { cache_policy_state: { last_recommendation: "stable" } },
+      outcomeState: "partial",
+      failureStage: "verification",
+      chatStateSummary: { completion_status: "partial" },
+      fileStateSummary: { status: "ok" },
+      objectiveScopeSummary: { epoch_id: 1 },
+      stateConfidenceSummary: { overall: 0.8 },
+      stateTransitionSummary: {
+        changed_fields: ["chatPhase"],
+        objective_epoch_advanced: true,
+        objective_changed: false,
+        confidence_improved: true,
+        stale_files_delta: 0,
+        partial_files_delta: 0,
+        evicted_files_delta: 0,
+        quality_label: "forward_progress",
+        quality_score: 0.8,
+        quality_reasons: [],
+        recommended_action: "continue",
+        quality_thresholds: thresholds,
+        quality_calibration_applied: false,
+        quality_calibration_sample_count: 1,
+        quality_global_scope: "none",
+        quality_global_sample_count: 0,
+        quality_global_weight: 0,
+      },
+      evidenceDelta: { changed: true },
+      chatPhase: "implement",
+      chatCompletionStatus: "partial",
+      fileStatusCounts: { stale: 2, partial: 1, evicted: 0 },
+      objectiveEpochId: 1,
+      objectiveScopeBoundaryIndex: 2,
+      objectiveScopeRetainedEvidence: 3,
+      objectiveScopeDroppedPreBoundary: 4,
+      stateConfidenceOverall: 0.8,
+      stateConfidenceNeedsReground: true,
+      stateConfidenceReasons: ["stale"],
+      stateTransitionRecord: transitionRecord(),
+      activeQualityThresholds: thresholds,
+      stateTransitionCalibration: calibration(false),
+      globalThresholdResolutionAfter: {
+        selected_scope: "none",
+        selected_thresholds: thresholds,
+        org_model_sample_count: 0,
+        model_sample_count: 0,
+      },
+      globalSampleCountAfter: 0,
+      prematureStopSignals: 1,
+    });
+
+    expect(event).toMatchObject({
+      eventKind: "request_trajectory_v1",
+      component: "yarn",
+      detail: "trajectory partial bucket=micro tools=2",
+    });
+    const metadata = event.metadataJson as Record<string, Record<string, unknown>>;
+    expect(metadata.workflow).toMatchObject({
+      decision_path: "direct",
+      phase: "implement",
+      policy_rules_matched: ["rule_a", "rule_b"],
+    });
+    expect(metadata.cost).toMatchObject({
+      tokens_in: 100,
+      tokens_cached: 50,
+      cache_hit_ratio: 0.5,
+      tokens_saved_by_reduction: 30,
+    });
+    expect(metadata.training_signals).toMatchObject({
+      governor_intervened: true,
+      no_edit_evidence: true,
+      trailing_verification_stall: true,
+      false_green_detected: true,
+      premature_stop_signals: 1,
+      file_state_stale_count: 2,
+    });
+  });
+
+  it("builds state transition event set with optional calibration events", () => {
+    const events = buildStateTransitionEvents({
+      record: record(),
+      requestId: "req1",
+      stateTransitionRecord: transitionRecord(),
+      stateTransitionTrainingRow: {
+        schema_version: "state_transition_training_v1",
+        request_id: "req1",
+        quality_label: "forward_progress",
+        quality_score: 0.8,
+        quality_reasons: [],
+        recommended_action: "continue",
+        outcome_state: "verified",
+        evidence_delta: { changed: true },
+        governor_pause: false,
+        objective_epoch_advanced: true,
+        objective_changed: false,
+        confidence_delta: 0.2,
+        stale_files_delta: -1,
+        partial_files_delta: 0,
+        evicted_files_delta: 0,
+        unresolved_corrections_delta: 0,
+        resolved_corrections_delta: 0,
+      } as never,
+      activeQualityThresholds: thresholds,
+      stateTransitionCalibration: calibration(true),
+      globalThresholdResolutionAfter: {
+        selected_scope: "model",
+        selected_thresholds: thresholds,
+        org_model_sample_count: 2,
+        model_sample_count: 20,
+      },
+      globalCalibrationObservation: {
+        resolution: {
+          selected_scope: "model",
+          selected_thresholds: thresholds,
+          org_model_sample_count: 2,
+          model_sample_count: 20,
+        },
+        org_model_calibration: calibration(false),
+        model_calibration: calibration(true),
+      },
+      thresholdShift: 0.02,
+      globalThresholdShift: 0.03,
+      globalSampleCountAfter: 20,
+    });
+
+    expect(events.map((event) => event.eventKind)).toEqual([
+      "state_transition_v1",
+      "state_transition_quality_calibration_v1",
+      "state_transition_quality_global_calibration_v1",
+    ]);
+    expect(events[0].metadataJson).toMatchObject({
+      schema_version: "state_transition_v1",
+      training_row: { schema_version: "state_transition_training_v1" },
+      quality_global_calibration: {
+        model: { applied: true },
+      },
+    });
   });
 });
