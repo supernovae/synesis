@@ -11,9 +11,7 @@ import {
   computeCostBreakdown,
   extractUsage,
   emitTrace,
-  type LlmUsage as TelemetryLlmUsage,
   type PricingSource,
-  type TraceRecord,
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
@@ -298,7 +296,10 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
+  buildTelemetryUsage,
+  buildTokenEconomicsWarningEvent,
   buildUsageEvent,
+  buildYarnTraceRecord,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
@@ -4953,17 +4954,16 @@ function persistSessionAndUsage(
   void casSessionSave(state);
   usageWriter.enqueueSessionUpsert(state.record);
 
-  if (tokenEconomicsDecision.warnings.length > 0 && (usage.inputTokens + usage.outputTokens) > 0) {
-    usageWriter.enqueueSessionEvent({
-      sessionKey: state.record.sessionKey,
-      requestId,
-      userId: state.record.userId,
-      orgId: state.record.orgId,
-      eventKind: "token_economics_warning_v1",
-      component: "token-economics",
-      detail: `${tokenEconomicsDecision.recommendation}: ${tokenEconomicsDecision.warnings.join(",")}`,
-      metadataJson: tokenEconomics,
-    });
+  const tokenEconomicsWarningEvent = buildTokenEconomicsWarningEvent({
+    record: state.record,
+    requestId,
+    recommendation: tokenEconomicsDecision.recommendation,
+    warnings: tokenEconomicsDecision.warnings,
+    metadataJson: tokenEconomics,
+    usage,
+  });
+  if (tokenEconomicsWarningEvent) {
+    usageWriter.enqueueSessionEvent(tokenEconomicsWarningEvent);
   }
 
   if (config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED && state.record.continuity) {
@@ -5418,72 +5418,37 @@ function persistSessionAndUsage(
     });
   }
 
-  const telemetryUsage: TelemetryLlmUsage = {
-    prompt_tokens: usage.inputTokens,
-    completion_tokens: usage.outputTokens,
-    total_tokens: usage.inputTokens + usage.outputTokens,
-    cached_prompt_tokens: usage.cachedTokens,
-    cache_creation_tokens: usage.cacheCreationTokens,
-    estimated_cost_usd: normalizedEstimatedCostUsd,
-    actual_cost_usd: usage.costUsd > 0 ? usage.costUsd : 0,
-  };
+  const telemetryUsage = buildTelemetryUsage({ usage, normalizedEstimatedCostUsd });
   recordUsageMetrics(svcMetrics, traceModel, resolvedModelId, telemetryUsage, latencyMs / 1000);
   const rootPromptSnippet = getMetadataString(state.record.metadata, "trace_root_prompt");
   const latestPromptSnippet = getMetadataString(state.record.metadata, "latest_user_prompt");
 
-  const trace: TraceRecord = {
-    service: "yarn",
-    trace_id: requestId,
-    request_id: requestId,
-    conversation_id: state.record.sessionKey,
-    parent_trace_id: parentTraceId,
-    root_trace_id: rootTraceId,
-    timestamp: Date.now() / 1000,
-    user_id: state.record.userId,
-    org_id: state.record.orgId,
-    tenant_id: "",
-    model: traceModel,
-    query_snippet: (rootPromptSnippet || latestPromptSnippet).slice(0, 2000),
-    tokens: telemetryUsage,
-    cost: {
-      estimated_usd: normalizedEstimatedCostUsd,
-      actual_usd: usage.costUsd > 0 ? usage.costUsd : 0,
-      rates_snapshot: {
-        input_per_million: Number(tier?.inputPerM ?? 0),
-        output_per_million: Number(tier?.outputPerM ?? 0),
-        cached_input_per_million: tier?.cachedPerM ?? null,
-        cache_write_input_per_million: tier?.cacheWritePerM ?? null,
-      },
-    },
-    latency_ms: latencyMs,
-    ...(snapshot ? snapshotToTraceFields(snapshot) : {}),
-    trace_context: {
-      ...(snapshot ? snapshotToTraceFields(snapshot).trace_context : {}),
-      turn_index: state.record.requestCount,
-      root_user_prompt: rootPromptSnippet || undefined,
-      latest_user_prompt: latestPromptSnippet || undefined,
-      parent_trace_id: parentTraceId,
-      root_trace_id: rootTraceId,
-      ...(orig
-        ? {
-            client_requested_model: orig,
-            resolved_backend_model: tier?.backendModel,
-            registry_tier_id: resolvedModelId,
-          }
-        : {
-            resolved_backend_model: tier?.backendModel,
-            registry_tier_id: resolvedModelId,
-          }),
-      chat_state: chatStateSummaryForTelemetry,
-      file_state: fileStateSummaryForTelemetry,
-      objective_scope: objectiveScopeSummary,
-      state_confidence: stateConfidenceSummary,
-      state_transition: stateTransitionSummary,
-      token_economics: tokenEconomics,
-    },
-    ...(optimizationLedger ? { optimization_ledger: optimizationLedger } : {}),
-    has_error: finishReason === "error" || undefined,
-  };
+  const snapshotTraceFields = snapshot ? snapshotToTraceFields(snapshot) : undefined;
+  const trace = buildYarnTraceRecord({
+    requestId,
+    record: state.record,
+    parentTraceId,
+    rootTraceId,
+    traceModel,
+    resolvedModelId,
+    backendModel: tier?.backendModel,
+    clientRequestedModel,
+    telemetryUsage,
+    normalizedEstimatedCostUsd,
+    latencyMs,
+    tierRates,
+    rootPromptSnippet,
+    latestPromptSnippet,
+    snapshotTraceFields,
+    chatStateSummary: chatStateSummaryForTelemetry,
+    fileStateSummary: fileStateSummaryForTelemetry,
+    objectiveScopeSummary,
+    stateConfidenceSummary,
+    stateTransitionSummary,
+    tokenEconomics,
+    optimizationLedger,
+    finishReason,
+  });
   emitTrace(trace, traceEmitterConfig, app.log);
   persistSpan.setStatus("ok");
   persistSpan.end();
