@@ -267,7 +267,18 @@ function buildYarnPromptIntakeSystemBlock(
   if (questionTool) {
     lines.push(`If key requirements are ambiguous, prefer calling ${questionTool} with concise options before creating todos or editing.`);
   }
-  if (taskTool) {
+  if (capabilities?.isClaudeCode && capabilities.taskToolNames.length > 0) {
+    const createTool = capabilities.taskToolNames.find((name) => /taskcreate/i.test(name));
+    const updateTool = capabilities.taskToolNames.find((name) => /taskupdate/i.test(name));
+    const listTool = capabilities.taskToolNames.find((name) => /tasklist/i.test(name));
+    const getTool = capabilities.taskToolNames.find((name) => /taskget/i.test(name));
+    if (listTool || getTool) {
+      lines.push(`Before creating duplicate tasks, inspect existing Claude Code task state with ${[listTool, getTool].filter(Boolean).join(" or ")} when needed.`);
+    }
+    if (createTool || updateTool) {
+      lines.push(`If no clarification is needed, use Claude Code native task tools: ${createTool ?? "TaskCreate"} for missing plan tasks and ${updateTool ?? "TaskUpdate"} for status/details/dependencies as work progresses.`);
+    }
+  } else if (taskTool) {
     lines.push(`If no clarification is needed, prefer calling ${taskTool} with 3-7 concrete todos before implementation, then update todo statuses as work progresses.`);
   } else {
     lines.push("Prefer durable task tracking when the client supports it; otherwise keep the plan concise in the response.");

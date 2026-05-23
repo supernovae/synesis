@@ -18,6 +18,8 @@ const TODO_TOOL_SOURCE_MAP: ReadonlyMap<string, TaskSource> = new Map([
   ["plan_update", "unknown"],
   ["taskcreate", "unknown"],
   ["task_create", "unknown"],
+  ["taskdelete", "unknown"],
+  ["task_delete", "unknown"],
 ]);
 
 const READ_ONLY_TASK_TOOLS: ReadonlySet<string> = new Set([
@@ -34,6 +36,10 @@ const PLAN_MODE_TOOLS: ReadonlySet<string> = new Set([
   "create_plan",
   "switchmode",
   "switch_mode",
+  "enterplanmode",
+  "enter_plan_mode",
+  "exitplanmode",
+  "exit_plan_mode",
 ]);
 
 function normalize(name: string): string {
@@ -61,7 +67,20 @@ function resolveSource(normalizedName: string, clientKind: string): TaskSource {
   if (normalizedName.includes("todowrite") || normalizedName.includes("todo_write")) {
     return "opencode_todowrite";
   }
-  if (normalizedName.includes("task_create") || normalizedName.includes("task_update")) {
+  if (
+    normalizedName.includes("task_create")
+    || normalizedName.includes("taskcreate")
+    || normalizedName.includes("task_update")
+    || normalizedName.includes("taskupdate")
+    || normalizedName.includes("task_list")
+    || normalizedName.includes("tasklist")
+    || normalizedName.includes("task_get")
+    || normalizedName.includes("taskget")
+    || normalizedName.includes("enter_plan_mode")
+    || normalizedName.includes("enterplanmode")
+    || normalizedName.includes("exit_plan_mode")
+    || normalizedName.includes("exitplanmode")
+  ) {
     return "claude_todowrite";
   }
   return "unknown";
@@ -84,7 +103,10 @@ export function detectClientTaskCapabilities(
 
       if (TODO_TOOL_SOURCE_MAP.has(n)) {
         hasExplicitTodoTool = true;
-        todoToolName = rawName;
+        const isPreferredClaudeTaskMutator = n === "task_update" || n === "taskcreate" || n === "task_create";
+        if (!todoToolName || isPreferredClaudeTaskMutator || n === "task_update") {
+          todoToolName = rawName;
+        }
         detectedSource = resolveSource(n, clientKind);
       }
       if (READ_ONLY_TASK_TOOLS.has(n) && detectedSource === "unknown") {

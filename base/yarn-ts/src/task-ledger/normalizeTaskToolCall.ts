@@ -1,4 +1,5 @@
 import type { ClientTaskCapabilities, HarnessTask, TaskSource, TaskStatus } from "./types.js";
+import { extractTasksFromText } from "./extractTasksFromText.js";
 
 interface ToolCallInput {
   toolName: string;
@@ -18,6 +19,9 @@ const STATUS_MAP: Record<string, TaskStatus> = {
   obsolete: "obsolete",
   cancelled: "obsolete",
   canceled: "obsolete",
+  deleted: "obsolete",
+  delete: "obsolete",
+  removed: "obsolete",
   unknown: "unknown",
 };
 
@@ -50,7 +54,9 @@ function resolveSourceForTool(normalizedName: string, capabilities: ClientTaskCa
 const TASK_TOOL_NAMES: ReadonlySet<string> = new Set([
   "todowrite", "todo_write", "update_todo",
   "task_update", "taskcreate", "task_create",
+  "taskdelete", "task_delete",
   "plan_update", "createplan", "create_plan",
+  "enterplanmode", "enter_plan_mode", "exitplanmode", "exit_plan_mode",
 ]);
 
 const READ_ONLY_TASK_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -77,10 +83,10 @@ export function normalizeTaskToolCall(
   if (n === "todowrite" || n === "todo_write") {
     return normalizeTodoWriteCall(input, source);
   }
-  if (n === "task_update" || n === "update_todo" || n === "taskcreate" || n === "task_create") {
+  if (n === "task_update" || n === "update_todo" || n === "taskcreate" || n === "task_create" || n === "taskdelete" || n === "task_delete") {
     return normalizeGenericTaskCall(input, source);
   }
-  if (n === "plan_update" || n === "createplan" || n === "create_plan") {
+  if (n === "plan_update" || n === "createplan" || n === "create_plan" || n === "exitplanmode" || n === "exit_plan_mode") {
     return normalizePlanUpdateCall(input, source);
   }
   return [];
@@ -125,24 +131,44 @@ function normalizeTodoWriteCall(input: ToolCallInput, source: TaskSource): Harne
  * { id, title/content, status }
  */
 function normalizeGenericTaskCall(input: ToolCallInput, source: TaskSource): HarnessTask[] {
-  const deleted = input.args.deleted ?? input.args.delete ?? input.args.obsolete ?? input.args.cancelled ?? input.args.canceled;
-  const id = typeof input.args.id === "string" ? input.args.id : `auto_0`;
-  const title = typeof input.args.title === "string"
-    ? input.args.title
-    : typeof input.args.content === "string"
-      ? input.args.content
-      : typeof input.args.description === "string"
-        ? input.args.description
-        : "";
+  const n = normalize(input.toolName);
+  const args = nestedTaskArgs(input.args);
+  const deleted = truthyArg(args.deleted)
+    || truthyArg(args.delete)
+    || truthyArg(args.obsolete)
+    || truthyArg(args.cancelled)
+    || truthyArg(args.canceled)
+    || n === "taskdelete"
+    || n === "task_delete";
+  const id = stringArg(args.id)
+    ?? stringArg(args.task_id)
+    ?? stringArg(args.taskId)
+    ?? stringArg(args.uuid)
+    ?? `auto_0`;
+  const title = stringArg(args.title)
+    ?? stringArg(args.content)
+    ?? stringArg(args.description)
+    ?? stringArg(args.summary)
+    ?? stringArg(args.name)
+    ?? (id !== "auto_0" ? `Task ${id}` : "");
   if (!title) return [];
+
+  const rawStatus = deleted === true
+    ? "obsolete"
+    : args.status ?? (n === "taskcreate" || n === "task_create" ? "pending" : "unknown");
+  const evidence = [
+    typeof args.activeForm === "string" ? `activeForm: ${args.activeForm}` : "",
+    typeof args.details === "string" ? `details: ${args.details}` : "",
+    typeof args.dependencies === "string" ? `dependencies: ${args.dependencies}` : "",
+  ].filter((v) => v.length > 0);
 
   return [{
     id,
     title,
-    status: deleted === true ? "obsolete" : normalizeStatus(input.args.status),
+    status: normalizeStatus(rawStatus),
     source,
     clientTaskId: id,
-    evidence: typeof input.args.activeForm === "string" ? [`activeForm: ${input.args.activeForm}`] : [],
+    evidence,
     lastUpdatedTurn: input.turn,
     createdTurn: input.turn,
     confidence: 1.0,
@@ -153,6 +179,15 @@ function normalizeGenericTaskCall(input: ToolCallInput, source: TaskSource): Har
  * Plan update / create plan: may carry a list of steps or items.
  */
 function normalizePlanUpdateCall(input: ToolCallInput, source: TaskSource): HarnessTask[] {
+  const planText = stringArg(input.args.plan)
+    ?? stringArg(input.args.content)
+    ?? stringArg(input.args.description)
+    ?? stringArg(input.args.markdown);
+  if (planText) {
+    const fromText = extractTasksFromText(planText, source, input.turn);
+    if (fromText.length > 0) return fromText;
+  }
+
   const items = Array.isArray(input.args.steps)
     ? input.args.steps
     : Array.isArray(input.args.items)
@@ -188,4 +223,23 @@ function normalizePlanUpdateCall(input: ToolCallInput, source: TaskSource): Harn
     });
   }
   return results;
+}
+
+function nestedTaskArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const task = args.task;
+  if (task && typeof task === "object" && !Array.isArray(task)) {
+    return { ...args, ...(task as Record<string, unknown>) };
+  }
+  return args;
+}
+
+function stringArg(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function truthyArg(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  return /^(true|1|yes|delete|deleted|obsolete|cancelled|canceled)$/i.test(value.trim());
 }

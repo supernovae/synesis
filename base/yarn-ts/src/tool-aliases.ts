@@ -3,16 +3,28 @@ export type CanonicalValidationTool =
   | "Write"
   | "Edit"
   | "Update"
+  | "MultiEdit"
   | "Glob"
   | "Grep"
   | "Bash"
+  | "PowerShell"
+  | "LS"
   | "ApplyPatch"
   | "Skill"
   | "TodoWrite"
   | "Question"
+  | "Agent"
+  | "Monitor"
+  | "EnterPlanMode"
+  | "ExitPlanMode"
+  | "TaskCreate"
+  | "TaskUpdate"
+  | "TaskList"
+  | "TaskGet"
   | "WebFetch"
   | "WebSearch"
-  | "Lsp";
+  | "Lsp"
+  | "NotebookEdit";
 
 const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   read: "Read",
@@ -28,12 +40,18 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   edit: "Edit",
   edit_file: "Edit",
 
+  multiedit: "MultiEdit",
+  multi_edit: "MultiEdit",
+
   update: "Update",
   str_replace: "Update",
   search_replace: "Update",
   str_replace_editor: "Update",
 
   glob: "Glob",
+  ls: "LS",
+  list: "LS",
+  list_dir: "LS",
 
   grep: "Grep",
   rg: "Grep",
@@ -44,6 +62,8 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   file_search: "Grep",
 
   bash: "Bash",
+  powershell: "PowerShell",
+  pwsh: "PowerShell",
   shell: "Bash",
   run_terminal_cmd: "Bash",
   execute_command: "Bash",
@@ -62,6 +82,14 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   todowrite: "TodoWrite",
   todo_write: "TodoWrite",
   update_todo: "TodoWrite",
+  taskcreate: "TaskCreate",
+  task_create: "TaskCreate",
+  taskupdate: "TaskUpdate",
+  task_update: "TaskUpdate",
+  tasklist: "TaskList",
+  task_list: "TaskList",
+  taskget: "TaskGet",
+  task_get: "TaskGet",
 
   question: "Question",
   ask_question: "Question",
@@ -76,6 +104,15 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   web_search: "WebSearch",
   search_web: "WebSearch",
 
+  agent: "Agent",
+  task: "Agent",
+  monitor: "Monitor",
+  enterplanmode: "EnterPlanMode",
+  enter_plan_mode: "EnterPlanMode",
+  exitplanmode: "ExitPlanMode",
+  exit_plan_mode: "ExitPlanMode",
+  notebookedit: "NotebookEdit",
+  notebook_edit: "NotebookEdit",
   lsp: "Lsp",
   language_server: "Lsp",
 };

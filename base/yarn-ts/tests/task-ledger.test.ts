@@ -90,6 +90,16 @@ describe("task-ledger", () => {
       expect(caps.detectedSource).toBe("claude_todowrite");
     });
 
+    it("detects Claude plan mode tools", () => {
+      const caps = detectClientTaskCapabilities(
+        [{ name: "EnterPlanMode" }, { name: "ExitPlanMode" }],
+        "claude-code",
+      );
+      expect(caps.hasExplicitTodoTool).toBe(false);
+      expect(caps.hasExplicitPlanMode).toBe(true);
+      expect(caps.detectedSource).toBe("claude_todowrite");
+    });
+
     it("recognizes read-only task tools for capability detection without a write tool name", () => {
       const caps = detectClientTaskCapabilities(
         [{ name: "TodoRead" }, { name: "Bash" }],
@@ -239,6 +249,50 @@ describe("task-ledger", () => {
       expect(created[0].source).toBe("claude_todowrite");
       expect(created[0].evidence).toContain("activeForm: wiring events");
       expect(updated[0].status).toBe("obsolete");
+    });
+
+    it("normalizes Claude TaskUpdate status-only updates by client task id", () => {
+      const caps = makeCapabilities({
+        hasExplicitTodoTool: true,
+        detectedSource: "claude_todowrite",
+      });
+      const tasks = normalizeTaskToolCall(
+        {
+          toolName: "TaskUpdate",
+          args: { task_id: "c1", status: "completed" },
+          turn: 6,
+        },
+        caps,
+      );
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].id).toBe("c1");
+      expect(tasks[0].clientTaskId).toBe("c1");
+      expect(tasks[0].title).toBe("Task c1");
+      expect(tasks[0].status).toBe("completed");
+    });
+
+    it("extracts Claude ExitPlanMode checklist tasks", () => {
+      const caps = makeCapabilities({
+        hasExplicitPlanMode: true,
+        detectedSource: "claude_todowrite",
+      });
+      const tasks = normalizeTaskToolCall(
+        {
+          toolName: "ExitPlanMode",
+          args: {
+            plan: [
+              "- [ ] Add Claude Code capability detection",
+              "- [ ] Normalize task updates",
+              "- [ ] Verify focused tests",
+            ].join("\n"),
+          },
+          turn: 7,
+        },
+        caps,
+      );
+      expect(tasks).toHaveLength(3);
+      expect(tasks[0].source).toBe("claude_todowrite");
+      expect(tasks[0].title).toBe("Add Claude Code capability detection");
     });
 
     it("skips empty title", () => {

@@ -121,9 +121,14 @@ export class ClientAdapterPacks {
         "<CLIENT_SPECIFIC_RULES>",
         "You are operating within Claude Code (CLI).",
         "Be extremely concise in your explanations. The user is in a terminal.",
-        "Rely heavily on run_terminal_cmd and git_* tools to verify state.",
-        "When presenting the user with choices or asking what to work on next, use the AskFollowupQuestion tool (if available) to present structured options. This renders an interactive selector in the terminal. Do NOT just print numbered text lists when an interactive tool is available.",
-        "If a file read returns 'Unchanged since last read', the file content is already in your conversation from an earlier read. Use the existing content directly — do NOT re-read the file.",
+        "Use Claude Code built-in tools as native capabilities: TaskCreate/TaskUpdate/TaskList/TaskGet for task state, EnterPlanMode/ExitPlanMode for plan approval, AskUserQuestion for structured clarification, Agent for bounded subagent research, Monitor for background watches, LSP for code intelligence, and Read/Edit/MultiEdit/Write/Bash/Glob/Grep according to their native semantics.",
+        "Prefer TaskCreate/TaskUpdate over legacy TodoWrite when the task tools are available. Use TaskList/TaskGet to preserve existing task state, create only missing tasks, and update statuses instead of recreating duplicates.",
+        "When presenting the user with choices or asking what to work on next, use AskUserQuestion if available. Do NOT just print numbered text lists when an interactive question tool is available.",
+        "Plan mode is a real Claude Code mode: EnterPlanMode is for designing the approach without implementation edits; ExitPlanMode presents the final plan for approval and exits plan mode before coding.",
+        "Claude Code Bash commands run as separate processes; cd may persist only inside allowed project roots, environment exports do not persist, and long-running work should use run_in_background or Monitor.",
+        "Claude Code Read returns line-numbered content and supports offset/limit. Edit/MultiEdit require prior file context and exact unique old_string matches. Write creates or overwrites full files; read existing files before overwriting them.",
+        "Use Glob for file-name patterns, Grep for ripgrep content search, and LSP for definitions, references, hover/type info, symbols, implementations, call hierarchy, and post-edit diagnostics when available.",
+        "If a file read returns 'Unchanged since last read', the file content is already in your conversation from an earlier read. Use the existing content directly; do not re-read the file.",
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );

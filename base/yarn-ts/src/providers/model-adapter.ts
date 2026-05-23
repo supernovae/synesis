@@ -386,7 +386,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
     const GREP_FIND_TOOLS = new Set(["Grep", "grep", "Glob", "glob", "rg"]);
-    const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "taskcreate", "taskupdate", "todowrite"]);
+    const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "taskcreate", "taskupdate", "tasklist", "taskget", "todowrite"]);
 
     const tail = recentToolNames.slice(-6);
     let consecutiveCount = 1;
@@ -724,7 +724,7 @@ export class KimiAdapter implements ModelAdapter {
       "",
       "## Long sessions (K2.6 agent mode)",
       "- After stating a plan, take the **next concrete** Edit/Write or one verification command — do not re-gather the same context.",
-      "- Mark tasks complete before claiming done; avoid duplicate TodoWrite items with the same intent.",
+      "- Mark tasks complete before claiming done; avoid duplicate TaskCreate/TaskUpdate/TodoWrite items with the same intent.",
       SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
     ].join("\n");
   }

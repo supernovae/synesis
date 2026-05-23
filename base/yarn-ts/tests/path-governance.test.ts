@@ -202,7 +202,7 @@ describe("governToolCall", () => {
     expect(out.blockedUnsafeShell).toBe(false);
   });
 
-  it("blocks Agent subagent exploration for claude-code sessions", () => {
+  it("allows native Agent tool for claude-code sessions", () => {
     const out = governToolCall({
       toolName: "Agent",
       input: { description: "Explore recent commits", prompt: "Explore codebase" },
@@ -211,9 +211,8 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
       clientKind: "claude-code",
     });
-    expect(out.toolName).toBe("Synesis_Error_SubagentBlocked");
-    expect(out.input.synesis_error).toBe(true);
-    expect(out.input.reason).toBe("subagent_exploration_blocked");
+    expect(out.toolName).toBe("Agent");
+    expect(out.input).toEqual({ description: "Explore recent commits", prompt: "Explore codebase" });
   });
 
   it("does not block Agent tool for non-claude clients", () => {

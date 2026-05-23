@@ -794,8 +794,8 @@ function maybeBlockSubagentExploration(
 ): { toolName: string; input: Record<string, unknown> } | null {
   if (clientKind !== "claude-code") return null;
   const lower = logicalName.trim().toLowerCase();
-  if (lower !== "agent" && lower !== "explore") return null;
-  const message = "Synesis Yarn blocked subagent-style exploration for this session because it causes low-yield wandering loops. Use direct tools instead: Read specific files, then Edit/Write one concrete change.";
+  if (lower !== "explore") return null;
+  const message = "Synesis Yarn blocked hallucinated subagent-style exploration for this session. Use the native Claude Code Agent tool for bounded subagent work, or use direct tools: Read specific files, then Edit/Write one concrete change.";
   return {
     toolName: "Synesis_Error_SubagentBlocked",
     input: {
