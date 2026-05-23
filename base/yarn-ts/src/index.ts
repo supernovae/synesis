@@ -291,6 +291,12 @@ import {
   openAIToolCallDeltaChunk,
   type OpenAIChunkBase,
 } from "./streaming/openai-sse-writer.js";
+import {
+  classifyAiSdkStreamPart,
+  parseToolInput,
+  serializeToolInput,
+} from "./streaming/ai-sdk-stream-events.js";
+import { applySessionUsagePersistenceMutation } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
@@ -4941,43 +4947,17 @@ function persistSessionAndUsage(
       tierOutputPerM: tier?.outputPerM ?? null,
     }, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
   }
-  state.record.lastProvider = resolvedModelId;
-  state.record.lastModel = traceModel;
-  state.record.totalTokensIn += usage.inputTokens;
-  state.record.totalTokensOut += usage.outputTokens;
-  state.record.totalTokensCached += usage.cachedTokens;
-  state.record.totalTokensSaved = (state.record.totalTokensSaved ?? 0) + tokensSavedByReduction;
-  const prevEstimatedCost = Number(state.record.metadata.total_estimated_cost_usd ?? 0);
-  const prevActualCost = Number(state.record.metadata.total_actual_cost_usd ?? 0);
-  state.record.metadata.total_estimated_cost_usd = prevEstimatedCost + normalizedEstimatedCostUsd;
-  state.record.metadata.total_actual_cost_usd = prevActualCost + normalizedActualCostUsd;
-  state.record.requestCount += 1;
-  state.record.lastActiveAt = Date.now();
-  const previousTraceId = getMetadataString(state.record.metadata, "last_trace_id");
-  const rootTraceId = getMetadataString(state.record.metadata, "root_trace_id") || previousTraceId || requestId;
-  const parentTraceId = previousTraceId || undefined;
-  state.record.metadata.root_trace_id = rootTraceId;
-  state.record.metadata.last_trace_id = requestId;
-  state.record.metadata.last_cache_hit_ratio = usage.inputTokens > 0
-    ? Number((usage.cachedTokens / usage.inputTokens).toFixed(4))
-    : 0;
-  state.record.metadata.last_token_economics_warnings = tokenEconomicsDecision.warnings;
-
-  if (finishReason === "tool_calls" || finishReason === "tool_use") {
-    state.consecutiveToolCalls += 1;
-  } else {
-    state.consecutiveToolCalls = 0;
-    state.stagnantToolCycles = 0;
-    state.lastToolSignalHash = "";
-  }
-  state.record.metadata.consecutive_tool_calls = state.consecutiveToolCalls;
-  state.record.metadata.stagnant_tool_cycles = state.stagnantToolCycles;
-  state.record.metadata.last_tool_signal_hash = state.lastToolSignalHash;
-  state.record.metadata.awaiting_tool_loop_user_ack = state.awaitingToolLoopUserAck;
-  state.record.metadata.tool_loop_ack_anchor_user_hash = state.toolLoopAckAnchorUserHash;
-  state.record.metadata.tool_loop_no_user_ack_count = state.toolLoopNoUserAckCount;
-  state.record.metadata.block_broad_verification_until_edit = state.blockBroadVerificationUntilEdit;
-  state.record.metadata.block_failing_verification_until_edit = state.blockFailingVerificationUntilEdit;
+  const { parentTraceId, rootTraceId } = applySessionUsagePersistenceMutation(state, {
+    requestId,
+    resolvedModelId,
+    traceModel,
+    usage,
+    tokensSavedByReduction,
+    normalizedEstimatedCostUsd,
+    normalizedActualCostUsd,
+    finishReason,
+    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
+  });
 
   if (snapshot?.governor) {
     state.record.metadata.last_governor_pause = snapshot.governor.pause;
@@ -11348,53 +11328,37 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   try {
     for await (const part of streamed.fullStream) {
+      const event = classifyAiSdkStreamPart(part);
       const ts = Math.floor(Date.now() / 1000);
-      if (part.type === "text-delta") {
-        const td = (part as unknown as { text: string }).text ?? "";
-        pendingTextDeltas.push(td);
-      } else if (part.type === "reasoning-start") {
-        const rsText = (part as unknown as { text?: string }).text ?? "";
-        if (rsText) {
-          flushOpenAIReasoningDelta(rsText);
+      if (event.type === "text_delta") {
+        pendingTextDeltas.push(event.text);
+      } else if (event.type === "reasoning_start") {
+        if (event.text) {
+          flushOpenAIReasoningDelta(event.text);
         }
-      } else if (part.type === "reasoning-delta") {
-        const rd = part as unknown as { textDelta?: string; text?: string };
-        const rText = rd.textDelta ?? rd.text ?? "";
-        if (rText) {
-          flushOpenAIReasoningDelta(rText);
+      } else if (event.type === "reasoning_delta") {
+        if (event.text) {
+          flushOpenAIReasoningDelta(event.text);
         }
-      } else if (part.type === "reasoning-end") {
+      } else if (event.type === "reasoning_end") {
         /* boundary only; OpenAI format has no per-block stop for reasoning */
-      } else if (part.type === "tool-call" || part.type === "tool-input-start") {
-        const tc = part as unknown as { toolCallId?: string; toolName?: string; input?: unknown };
+      } else if (event.type === "tool_call" || event.type === "tool_input_start") {
         if (pendingTextDeltas.length > 0) {
           scrubAndFlushOpenAIText(pendingTextDeltas.join(""));
           pendingTextDeltas.length = 0;
         }
-        if (part.type === "tool-input-start") {
-          pendingToolCalls.push({ index: pendingToolCalls.length, id: tc.toolCallId ?? "", name: tc.toolName ?? "", args: "" });
-        } else if (part.type === "tool-call") {
+        if (event.type === "tool_input_start") {
+          pendingToolCalls.push({ index: pendingToolCalls.length, id: event.toolCallId, name: event.toolName, args: "" });
+        } else if (event.type === "tool_call") {
           finishReason = "tool_calls";
-          let argsStr = typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input ?? {});
+          let argsStr = serializeToolInput(event.input);
           const rawArgsLen = argsStr.length;
           if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
-          const parsedInput =
-            typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
-              ? (tc.input as Record<string, unknown>)
-              : (() => {
-                  try {
-                    const parsed = JSON.parse(argsStr) as unknown;
-                    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-                      ? (parsed as Record<string, unknown>)
-                      : {};
-                  } catch {
-                    return {};
-                  }
-                })();
+          const parsedInput = parseToolInput(event.input, argsStr);
           const prepared = prepareGovernedToolCall({
             adapter,
-            toolCallId: tc.toolCallId ?? "",
-            toolName: tc.toolName ?? "",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
             input: parsedInput,
             hardeningOptions: {
               upperHarness: oaiUpperHarness,
@@ -11438,7 +11402,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             app.log.warn(
               {
                 reqId,
-                originalTool: tc.toolName,
+                originalTool: event.toolName,
                 filePath: parsedInput.file_path ?? parsedInput.path,
               },
               "write_tool_content_array_repaired",
@@ -11450,7 +11414,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             app.log.warn(
               {
                 reqId,
-                originalTool: tc.toolName,
+                originalTool: event.toolName,
                 rewrittenTo: "Bash",
                 filePath: parsedInput.file_path ?? parsedInput.path,
               },
@@ -11475,7 +11439,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           if (governed.planWriteAudit) {
             emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
           }
-          maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, tc.toolCallId);
+          maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, event.toolCallId);
           if (governed.validationMissing.length > 0) {
             oaiStreamValidationFailures += 1;
             app.log.warn(
@@ -11483,13 +11447,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
               "tool_args_validation_failed",
             );
           }
-          if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName ?? "") && governed.toolName === "Bash") {
+          if (openClawStrictGovernance && isWriteCapableToolName(event.toolName) && governed.toolName === "Bash") {
             openClawProfileStats.strictGovernanceRewrites += 1;
           }
           argsStr = JSON.stringify(governed.input);
           if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
             app.log.debug({
-              reqId, toolName: governed.toolName, toolCallId: tc.toolCallId,
+              reqId, toolName: governed.toolName, toolCallId: event.toolCallId,
               argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
               repairedWriteContent: hard.repairedWriteContent,
               adapterFamily: adapter.family,
@@ -11521,7 +11485,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
             oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
             oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
-            const blockedId = tc.toolCallId ?? "";
+            const blockedId = event.toolCallId;
             if (blockedId) {
               const idx = pendingToolCalls.findIndex((p) => p.id === blockedId);
               if (idx >= 0) pendingToolCalls.splice(idx, 1);
@@ -11546,7 +11510,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiClientKind,
           );
           argsStr = JSON.stringify(clientCandidateCall.input);
-          const existing = pendingToolCalls.find((p) => p.id === tc.toolCallId);
+          const existing = pendingToolCalls.find((p) => p.id === event.toolCallId);
           if (existing) {
             existing.name = clientCandidateCall.toolName;
             safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
@@ -11557,24 +11521,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
           } else {
             safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
               index: pendingToolCalls.length,
-              id: tc.toolCallId,
+              id: event.toolCallId,
               type: "function",
               function: { name: clientCandidateCall.toolName, arguments: argsStr },
             }));
             oaiStreamEmittedToolCalls += 1;
           }
         }
-      } else if (part.type === "tool-input-delta") {
-        const td = part as unknown as { toolCallId?: string; inputTextDelta?: string };
-        const idx = pendingToolCalls.findIndex((p) => p.id === td.toolCallId);
+      } else if (event.type === "tool_input_delta") {
+        const idx = pendingToolCalls.findIndex((p) => p.id === event.toolCallId);
         if (idx >= 0) {
-          pendingToolCalls[idx].args += td.inputTextDelta ?? "";
+          pendingToolCalls[idx].args += event.inputTextDelta;
         }
-      } else if ((part as Record<string, unknown>).type === "error") {
-        throw (part as Record<string, unknown>).error;
-      } else if ((part as Record<string, unknown>).type === "finish") {
-        const fr = (part as Record<string, unknown>).finishReason;
-        if (fr === "length") finishReason = "length";
+      } else if (event.type === "error") {
+        throw event.error;
+      } else if (event.type === "finish") {
+        if (event.finishReason === "length") finishReason = "length";
       }
     }
     if (
