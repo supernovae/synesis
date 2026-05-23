@@ -161,8 +161,8 @@ export default function YarnEvents() {
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Tokens
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Effective Cost (Actual if available, else Estimated)">
-                      Cost
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Configured model rate-card usage price">
+                      Price
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Status / Finish
@@ -198,10 +198,17 @@ export default function YarnEvents() {
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                         {fmtTokens(row.tokens_in + row.tokens_out + row.tokens_cached)}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400" title={`Actual: ${fmtCost(row.actual_cost_usd)} | Est: ${fmtCost(row.estimated_cost_usd)}`}>
-                        <span>{fmtCost(row.actual_cost_usd > 0 ? row.actual_cost_usd : row.estimated_cost_usd)}</span>
+                      <td
+                        className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400"
+                        title={
+                          row.provider_actual_cost_usd != null
+                            ? `Provider actual: ${fmtCost(row.provider_actual_cost_usd)}`
+                            : "Configured usage price"
+                        }
+                      >
+                        <span>{fmtCost(row.price_usd)}</span>
                         {isFallbackPricing(row.pricing_source) && (
-                          <span className="ml-1 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-500/30" title="Cost derived from fallback base rates — set pricing in Model Registry">
+                          <span className="ml-1 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-500/30" title="Price derived from fallback base rates — set pricing in Model Registry">
                             {pricingSourceLabel(row.pricing_source)}
                           </span>
                         )}

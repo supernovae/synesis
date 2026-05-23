@@ -42,6 +42,70 @@ export interface TokenCreated {
   expires_at: string | null;
 }
 
+export interface AccountUsageSummary {
+  source: "chat" | "coder" | "total" | string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  tokens_cached: number;
+  tokens_cache_write: number;
+  price_usd: number;
+  no_cache_price_usd: number;
+  cache_discount_usd: number;
+  avg_latency_ms: number;
+  error_count: number;
+}
+
+export interface AccountUsageSeriesEntry {
+  bucket: string;
+  chat_requests: number;
+  coder_requests: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  tokens_cached: number;
+  tokens_cache_write: number;
+  price_usd: number;
+  no_cache_price_usd: number;
+  cache_discount_usd: number;
+  avg_latency_ms: number;
+  error_count: number;
+}
+
+export interface AccountUsageKeySummary {
+  key_id: string;
+  key_name: string;
+  key_prefix: string;
+  auth_method: string;
+  chat_requests: number;
+  coder_requests: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  tokens_cached: number;
+  tokens_cache_write: number;
+  price_usd: number;
+  no_cache_price_usd: number;
+  cache_discount_usd: number;
+  avg_latency_ms: number;
+  error_count: number;
+}
+
+export interface AccountUsageDashboard {
+  period_hours: number;
+  summary: {
+    chat: AccountUsageSummary;
+    coder: AccountUsageSummary;
+    total: AccountUsageSummary;
+  };
+  series: AccountUsageSeriesEntry[];
+  by_key: AccountUsageKeySummary[];
+  price_basis: string;
+}
+
 export interface ServiceStatus {
   name: string;
   status: "ok" | "error" | "degraded";
@@ -285,7 +349,8 @@ export interface RolePerformance {
   total_prompt_tokens?: number;
   total_cached_prompt_tokens?: number;
   cache_hit_rate?: number;
-  total_actual_cost: number;
+  total_price_usd: number;
+  total_provider_actual_cost_usd?: number;
   registry_model: string;
   registry_provider: string;
   served_name: string;
@@ -368,12 +433,12 @@ export interface UsageAuditBreakdown {
   tokens_cache_read: number;
   tokens_cache_write: number;
   tokens_output: number;
-  input_cost_usd: number;
-  cache_read_cost_usd: number;
-  cache_write_cost_usd: number;
-  output_cost_usd: number;
-  estimated_no_cache_cost_usd: number;
-  cache_savings_usd: number;
+  input_price_usd: number;
+  cache_read_price_usd: number;
+  cache_write_price_usd: number;
+  output_price_usd: number;
+  no_cache_price_usd: number;
+  cache_discount_usd: number;
   cache_hit_rate: number;
 }
 
@@ -395,10 +460,12 @@ export interface UsageAuditRequest {
   tool_calls_count?: number;
   finish_reason?: string;
   total_tokens: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
-  effective_cost_usd: number;
+  price_usd: number;
   pricing_source: string;
+  auth_method: string;
+  key_id: string;
+  key_name: string;
+  key_prefix: string;
   billing_breakdown: UsageAuditBreakdown;
   privacy_mode: string;
   redaction_status: string;

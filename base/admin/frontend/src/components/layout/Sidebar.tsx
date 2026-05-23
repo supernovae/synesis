@@ -42,14 +42,14 @@ interface NavItem {
 const navigation: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard", minRole: "org_admin" },
   {
-    label: "Models & Costs",
+    label: "Models & Pricing",
     icon: Layers,
     minRole: "org_admin",
     children: [
       { label: "Overview", path: "/models/overview" },
       { label: "Registry", path: "/models" },
       { label: "Providers & API keys", path: "/models/providers" },
-      { label: "Usage & spend", path: "/models/costs" },
+      { label: "Usage Pricing", path: "/models/costs" },
       { label: "Policies", path: "/models/policies" },
       { label: "Prompt Library", path: "/models/prompts" },
       { label: "Effort Routing", path: "/models/effort-routing" },

@@ -215,17 +215,9 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
         <span className="max-w-[min(28rem,55vw)] truncate text-xs text-gray-400" title={tokSummary}>
           {tokSummary}
         </span>
-        {typeof call.estimated_cost === "number" || typeof call.actual_cost === "number" ? (
+        {typeof call.estimated_cost === "number" ? (
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            {typeof call.estimated_cost === "number" && (
-              <span title="Estimated (Forecast)">est. {fmtCost(call.estimated_cost)}</span>
-            )}
-            {typeof call.estimated_cost === "number" && typeof call.actual_cost === "number" && (
-              <span className="mx-1 text-gray-300 dark:text-gray-600">·</span>
-            )}
-            {typeof call.actual_cost === "number" && (
-              <span title="Actual (from API)">act. {fmtCost(call.actual_cost)}</span>
-            )}
+            <span title="Configured usage price">price {fmtCost(call.estimated_cost)}</span>
           </span>
         ) : null}
         <span className="text-xs text-gray-400">
@@ -403,7 +395,7 @@ function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
       byModel[model].completion += call.completion_tokens || 0;
       byModel[model].cached += call.cached_prompt_tokens ?? 0;
       byModel[model].cacheWrite += call.cache_creation_tokens ?? 0;
-      byModel[model].cost += (call.actual_cost ?? call.estimated_cost ?? 0);
+      byModel[model].cost += call.estimated_cost ?? 0;
     }
   }
   const entries = Object.entries(byModel);
@@ -411,7 +403,7 @@ function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
-        Token usage and cost by model
+        Token usage and price by model
       </h3>
       <div className="space-y-1.5 text-sm">
         {entries.map(([model, v]) => (
@@ -976,12 +968,9 @@ export default function TraceDetail() {
           )}
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-          <p className="text-xs text-gray-500">Cost (trace row)</p>
-          <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white" title="What we forecast if API doesn't provide costs">
-            est. {fmtCost(trace.estimated_cost_usd)}
-          </p>
-          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400" title="Actual costs from API">
-            actual: {fmtCost(trace.actual_cost_usd ?? 0)}
+          <p className="text-xs text-gray-500">Usage price (trace row)</p>
+          <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white" title="Configured usage price">
+            {fmtCost(trace.estimated_cost_usd)}
           </p>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">

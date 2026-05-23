@@ -16,7 +16,7 @@ from ..db.engine import async_session
 from ..db.models import ModelPolicy, Trace
 from ..deps import PLANNER_URL
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
-from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
+from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services import public_model_offerings as public_offerings_svc
 from ..services.admin_audit import record_admin_audit
@@ -849,8 +849,9 @@ async def costs_by_model(
     _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
-    """Per-model cost breakdown including estimated and actual costs."""
+    """Per-model usage price breakdown; provider actual is platform-admin only."""
     cutoff = time.time() - days * 86400
+    include_provider_actual = resolve_role(_user) >= Role.platform_admin
     scope = trace_scope_filters(_user)
     scope_user_id = scope.get("user_id", "")
     scope_org_id = scope.get("org_id", "")
@@ -882,8 +883,8 @@ async def costs_by_model(
                             "completion_tokens": 0,
                             "cached_prompt_tokens": 0,
                             "requests": 0,
-                            "estimated_cost_usd": 0.0,
-                            "actual_cost_usd": 0.0,
+                            "price_usd": 0.0,
+                            **({"provider_actual_cost_usd": 0.0} if include_provider_actual else {}),
                         }
                     agg = model_agg[model]
                     agg["prompt_tokens"] += call.get("prompt_tokens", 0)
@@ -897,7 +898,7 @@ async def costs_by_model(
                     )
                     inp_r, out_r, ic_r, icw_r = pricing_by_role.get(role, (0.0, 0.0, None, None))
                     est = parse_recorded_estimated_cost(call)
-                    agg["estimated_cost_usd"] += (
+                    agg["price_usd"] += (
                         est
                         if est is not None
                         else estimate_llm_call_cost_from_payload(
@@ -908,16 +909,16 @@ async def costs_by_model(
                             input_cache_write_per_million=icw_r,
                         )
                     )
-                    agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
+                    if include_provider_actual:
+                        agg["provider_actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         for model, agg in model_agg.items():
-            agg["estimated_cost_usd"] = round(agg["estimated_cost_usd"], 6)
-            agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
+            agg["price_usd"] = round(agg["price_usd"], 6)
+            if include_provider_actual:
+                agg["provider_actual_cost_usd"] = round(agg["provider_actual_cost_usd"], 6)
 
         return {
-            "models": sorted(
-                model_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True
-            ),
+            "models": sorted(model_agg.values(), key=lambda x: x["price_usd"], reverse=True),
             "period_days": days,
         }
     except Exception:
@@ -930,8 +931,9 @@ async def costs_by_role(
     _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
-    """Per-role cost breakdown from trace LLM calls, with estimated and actual costs."""
+    """Per-role usage price breakdown; provider actual is platform-admin only."""
     cutoff = time.time() - days * 86400
+    include_provider_actual = resolve_role(_user) >= Role.platform_admin
     scope = trace_scope_filters(_user)
     scope_user_id = scope.get("user_id", "")
     scope_org_id = scope.get("org_id", "")
@@ -965,8 +967,8 @@ async def costs_by_role(
                             "completion_tokens": 0,
                             "cached_prompt_tokens": 0,
                             "requests": 0,
-                            "estimated_cost_usd": 0.0,
-                            "actual_cost_usd": 0.0,
+                            "price_usd": 0.0,
+                            **({"provider_actual_cost_usd": 0.0} if include_provider_actual else {}),
                         }
                     agg = role_agg[role]
                     agg["prompt_tokens"] += call.get("prompt_tokens", 0)
@@ -975,7 +977,7 @@ async def costs_by_role(
                     agg["requests"] += 1
                     inp_r, out_r, ic_r, icw_r = pricing.get(role, (0.0, 0.0, None, None))
                     est = parse_recorded_estimated_cost(call)
-                    agg["estimated_cost_usd"] += (
+                    agg["price_usd"] += (
                         est
                         if est is not None
                         else estimate_llm_call_cost_from_payload(
@@ -986,18 +988,15 @@ async def costs_by_role(
                             input_cache_write_per_million=icw_r,
                         )
                     )
-                    agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
+                    if include_provider_actual:
+                        agg["provider_actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         for role, agg in role_agg.items():
-            agg["estimated_cost_usd"] = round(agg["estimated_cost_usd"], 6)
-            agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
+            agg["price_usd"] = round(agg["price_usd"], 6)
+            if include_provider_actual:
+                agg["provider_actual_cost_usd"] = round(agg["provider_actual_cost_usd"], 6)
 
-        return {
-            "roles": sorted(
-                role_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True
-            ),
-            "period_days": days,
-        }
+        return {"roles": sorted(role_agg.values(), key=lambda x: x["price_usd"], reverse=True), "period_days": days}
     except Exception:
         logger.warning("costs_by_role_failed", exc_info=True)
         return {"roles": [], "period_days": days}
@@ -1033,8 +1032,9 @@ async def costs_daily(
     _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
-    """Per-day cost rollup with both estimated and actual costs."""
+    """Per-day usage price rollup; provider actual is platform-admin only."""
     cutoff = time.time() - days * 86400
+    include_provider_actual = resolve_role(_user) >= Role.platform_admin
     scope = trace_scope_filters(_user)
     scope_user_id = scope.get("user_id", "")
     scope_org_id = scope.get("org_id", "")
@@ -1058,19 +1058,18 @@ async def costs_daily(
                 q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
             result = await session.execute(q)
             rows = result.all()
-            return {
-                "daily": [
-                    {
-                        "date": str(r.day),
-                        "tokens": int(r.tokens or 0),
-                        "requests": r.requests,
-                        "estimated_cost_usd": round(float(r.estimated_cost or 0), 6),
-                        "actual_cost_usd": round(float(r.actual_cost or 0), 6),
-                    }
-                    for r in rows
-                ],
-                "period_days": days,
-            }
+            daily = []
+            for r in rows:
+                item = {
+                    "date": str(r.day),
+                    "tokens": int(r.tokens or 0),
+                    "requests": r.requests,
+                    "price_usd": round(float(r.estimated_cost or 0), 6),
+                }
+                if include_provider_actual:
+                    item["provider_actual_cost_usd"] = round(float(r.actual_cost or 0), 6)
+                daily.append(item)
+            return {"daily": daily, "period_days": days}
     except Exception:
         logger.warning("costs_daily_failed", exc_info=True)
         return {"daily": [], "period_days": days}
@@ -1099,6 +1098,7 @@ async def performance_detailed(
 ):
     """Per-model performance metrics aggregated from trace LLM calls."""
     cutoff = time.time() - days * 86400
+    include_provider_actual = resolve_role(_user) >= Role.platform_admin
     scope = trace_scope_filters(_user)
     scope_user_id = scope.get("user_id", "")
     scope_org_id = scope.get("org_id", "")
@@ -1112,10 +1112,12 @@ async def performance_detailed(
             result = await session.execute(q)
             rows = result.all()
 
+        pricing_by_role = _pricing_by_role_from_active_rows(await _build_active_cost_rows())
         model_stats: dict[str, dict] = {}
         for row in rows:
             full = row[0] or {}
             for span in full.get("spans", []):
+                node = span.get("node_name", "unknown")
                 for call in span.get("llm_calls", []):
                     model = call.get("model", "unknown")
                     if model not in model_stats:
@@ -1127,7 +1129,8 @@ async def performance_detailed(
                             "total_prompt_tokens": 0,
                             "total_completion_tokens": 0,
                             "total_cached_prompt_tokens": 0,
-                            "total_actual_cost": 0.0,
+                            "total_price_usd": 0.0,
+                            **({"total_provider_actual_cost_usd": 0.0} if include_provider_actual else {}),
                         }
                     ms = model_stats[model]
                     lat = call.get("latency_ms", 0)
@@ -1137,7 +1140,26 @@ async def performance_detailed(
                     ms["total_prompt_tokens"] += call.get("prompt_tokens", 0)
                     ms["total_completion_tokens"] += call.get("completion_tokens", 0)
                     ms["total_cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
-                    ms["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
+                    role = _resolve_llm_call_role(
+                        call_role=call.get("role", ""),
+                        node_name=node,
+                        model_name=call.get("model", ""),
+                    )
+                    inp_r, out_r, ic_r, icw_r = pricing_by_role.get(role, (0.0, 0.0, None, None))
+                    recorded = parse_recorded_estimated_cost(call)
+                    ms["total_price_usd"] += (
+                        recorded
+                        if recorded is not None
+                        else estimate_llm_call_cost_from_payload(
+                            call,
+                            input_per_million=inp_r,
+                            output_per_million=out_r,
+                            input_cached_per_million=ic_r,
+                            input_cache_write_per_million=icw_r,
+                        )
+                    )
+                    if include_provider_actual:
+                        ms["total_provider_actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         results = []
         for ms in model_stats.values():
@@ -1151,7 +1173,9 @@ async def performance_detailed(
             ms["cache_hit_rate"] = round(tc / tp, 4) if tp > 0 else 0.0
             ms["avg_latency_ms"] = round(avg_lat, 1)
             ms["p95_latency_ms"] = round(p95_lat, 1)
-            ms["total_actual_cost"] = round(ms["total_actual_cost"], 6)
+            ms["total_price_usd"] = round(ms["total_price_usd"], 6)
+            if include_provider_actual:
+                ms["total_provider_actual_cost_usd"] = round(ms["total_provider_actual_cost_usd"], 6)
             results.append(ms)
 
         results.sort(key=lambda x: x["request_count"], reverse=True)
@@ -1225,6 +1249,7 @@ async def performance_by_role(
 ):
     """Per-role performance metrics aggregated from trace LLM calls."""
     cutoff = time.time() - days * 86400
+    include_provider_actual = resolve_role(_user) >= Role.platform_admin
     scope = trace_scope_filters(_user)
     scope_user_id = scope.get("user_id", "")
     scope_org_id = scope.get("org_id", "")
@@ -1238,6 +1263,7 @@ async def performance_by_role(
             result = await session.execute(q)
             rows = result.all()
 
+        pricing_by_role = _pricing_by_role_from_active_rows(await _build_active_cost_rows())
         role_stats: dict[str, dict] = {}
         for row in rows:
             full = row[0] or {}
@@ -1257,7 +1283,8 @@ async def performance_by_role(
                             "total_tokens": 0,
                             "total_prompt_tokens": 0,
                             "total_cached_prompt_tokens": 0,
-                            "total_actual_cost": 0.0,
+                            "total_price_usd": 0.0,
+                            **({"total_provider_actual_cost_usd": 0.0} if include_provider_actual else {}),
                         }
                     rs = role_stats[role]
                     rs["request_count"] += 1
@@ -1265,7 +1292,21 @@ async def performance_by_role(
                     rs["total_tokens"] += call.get("total_tokens", 0)
                     rs["total_prompt_tokens"] += call.get("prompt_tokens", 0)
                     rs["total_cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
-                    rs["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
+                    inp_r, out_r, ic_r, icw_r = pricing_by_role.get(role, (0.0, 0.0, None, None))
+                    recorded = parse_recorded_estimated_cost(call)
+                    rs["total_price_usd"] += (
+                        recorded
+                        if recorded is not None
+                        else estimate_llm_call_cost_from_payload(
+                            call,
+                            input_per_million=inp_r,
+                            output_per_million=out_r,
+                            input_cached_per_million=ic_r,
+                            input_cache_write_per_million=icw_r,
+                        )
+                    )
+                    if include_provider_actual:
+                        rs["total_provider_actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         assignments = await get_role_assignments()
         reg_by_role = {a["role"]: a for a in assignments}
@@ -1281,7 +1322,8 @@ async def performance_by_role(
                     "total_tokens": 0,
                     "total_prompt_tokens": 0,
                     "total_cached_prompt_tokens": 0,
-                    "total_actual_cost": 0.0,
+                    "total_price_usd": 0.0,
+                    **({"total_provider_actual_cost_usd": 0.0} if include_provider_actual else {}),
                 }
             lats = sorted(rs.pop("latencies"))
             n = len(lats)
@@ -1297,13 +1339,15 @@ async def performance_by_role(
                     "cache_hit_rate": cache_hit,
                     "avg_latency_ms": round(avg_lat, 1),
                     "p95_latency_ms": round(lats[min(p95_idx, n - 1)] if n else 0, 1),
-                    "total_actual_cost": round(rs["total_actual_cost"], 6),
+                    "total_price_usd": round(rs["total_price_usd"], 6),
                     "registry_model": a.get("model", ""),
                     "registry_provider": a.get("provider", ""),
                     "served_name": a.get("served_name", f"synesis-{role}"),
                     "assigned": bool(a.get("assigned")),
                 }
             )
+            if include_provider_actual:
+                results[-1]["total_provider_actual_cost_usd"] = round(rs["total_provider_actual_cost_usd"], 6)
 
         return {"roles": results, "period_days": days}
 

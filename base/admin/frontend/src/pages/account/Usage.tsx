@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useUsageMeSummary, useUsageMeSeries, useYarnUserUsage } from "../../api/hooks";
-import type { UsageTimeSeriesEntry } from "../../api/hooks";
+import { useUsageMeDashboard } from "../../api/hooks";
+import type { AccountUsageKeySummary, AccountUsageSummary } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
-import { Coins, Clock, Zap, AlertTriangle, Hash } from "lucide-react";
+import { Coins, Clock, Hash, Zap } from "lucide-react";
 import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
@@ -26,12 +26,17 @@ function fmtBucket(iso: string): string {
   }
 }
 
+function n(summary: AccountUsageSummary | undefined, key: keyof AccountUsageSummary): number {
+  const value = summary?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
 type UsageSummarySectionProps = {
   title: string;
   subtitle: string;
   requests: number;
   tokens: number;
-  costUsd: number;
+  priceUsd: number;
   avgLatencyMs: number;
   details?: string | undefined;
 };
@@ -41,7 +46,7 @@ function UsageSummarySection({
   subtitle,
   requests,
   tokens,
-  costUsd,
+  priceUsd,
   avgLatencyMs,
   details,
 }: UsageSummarySectionProps) {
@@ -54,74 +59,69 @@ function UsageSummarySection({
       <div className="mt-4 grid grid-cols-2 gap-3">
         <MetricCard label="Requests" value={requests.toLocaleString()} icon={Hash} />
         <MetricCard label="Tokens" value={fmtTokens(tokens)} icon={Zap} />
-        <MetricCard label="Cost (Effective)" value={fmtCost(costUsd)} icon={Coins} />
+        <MetricCard label="Usage Price" value={fmtCost(priceUsd)} icon={Coins} />
         <MetricCard label="Avg Latency" value={fmtDurationMs(avgLatencyMs)} icon={Clock} />
       </div>
-      {details ? (
-        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">{details}</p>
-      ) : null}
+      {details ? <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">{details}</p> : null}
     </div>
   );
 }
 
+function summarySubtitle(summary: AccountUsageSummary | undefined, period: number): string {
+  return n(summary, "requests") > 0 ? `past ${period}h` : "no data";
+}
+
+function chatDetails(chat: AccountUsageSummary | undefined): string {
+  if (n(chat, "requests") === 0) {
+    return "No Chat pipeline usage recorded for this period.";
+  }
+  if (n(chat, "error_count") > 0) {
+    return `${n(chat, "error_count")} errors`;
+  }
+  return "Metered from Chat pipeline usage logs.";
+}
+
+function coderDetails(coder: AccountUsageSummary | undefined): string {
+  if (n(coder, "requests") === 0) {
+    return "No Coder usage recorded for this period.";
+  }
+  const parts = [
+    n(coder, "tokens_cached") > 0 ? `${fmtTokens(n(coder, "tokens_cached"))} cached` : null,
+    n(coder, "tokens_cache_write") > 0 ? `${fmtTokens(n(coder, "tokens_cache_write"))} cache write` : null,
+    n(coder, "error_count") > 0 ? `${n(coder, "error_count")} errors` : null,
+  ].filter(Boolean);
+  return parts.join(" / ") || "Metered from Coder proxy usage logs.";
+}
+
+function keyName(row: AccountUsageKeySummary): string {
+  if (row.key_name) return row.key_name;
+  if (row.key_prefix) return `API key ${row.key_prefix}`;
+  return row.auth_method === "pat" ? "API key" : "Account session / historical";
+}
+
 export default function Usage() {
   const [period, setPeriod] = useState(24);
-  const { data: summary, isLoading: summaryLoading } = useUsageMeSummary(period);
-  const { data: series, isLoading: seriesLoading } = useUsageMeSeries(period);
-  const { data: yarnUsage, isLoading: yarnLoading } = useYarnUserUsage(
-    period <= 24 ? 24 : period <= 168 ? 168 : 720,
-  );
+  const { data: dashboard, isLoading } = useUsageMeDashboard(period);
 
-  const loading = summaryLoading || seriesLoading;
-  const bucketRows: UsageTimeSeriesEntry[] = series ?? [];
-  const plannerRequests = summary?.trace_count ?? 0;
-  const plannerTokens = summary?.total_tokens ?? 0;
-  const plannerCost = summary?.actual_cost_usd && summary.actual_cost_usd > 0 ? summary.actual_cost_usd : (summary?.estimated_cost_usd ?? 0);
-  const plannerLatency = summary?.avg_duration_ms ?? 0;
-  const plannerErrors = summary?.error_count ?? 0;
-  const plannerHasData = plannerRequests > 0;
-
-  const coderRequests = yarnUsage?.total_requests ?? 0;
-  const coderTokens = (yarnUsage?.tokens_in ?? 0) + (yarnUsage?.tokens_out ?? 0);
-  const coderCost = yarnUsage?.actual_cost_usd && yarnUsage.actual_cost_usd > 0 ? yarnUsage.actual_cost_usd : (yarnUsage?.estimated_cost_usd ?? 0);
-  const coderLatency = yarnUsage?.avg_latency_ms ?? 0;
-  const coderCached = yarnUsage?.tokens_cached ?? 0;
-  const coderCacheWrite = yarnUsage?.tokens_cache_write ?? 0;
-  const coderCacheSavings = yarnUsage?.cache_savings_usd ?? 0;
-  const coderErrors = yarnUsage?.errors ?? 0;
-  const coderEscalations = yarnUsage?.escalations ?? 0;
-  const coderHasData = coderRequests > 0;
-
-  const totalRequests = plannerRequests + coderRequests;
-  const totalTokens = plannerTokens + coderTokens;
-  const totalCost = plannerCost + coderCost;
-  const totalCacheReads = (summary?.tokens_cached ?? 0) + coderCached;
-  const totalCacheWrites = (summary?.tokens_cache_write ?? 0) + coderCacheWrite;
-  const totalCacheSavings = (summary?.cache_savings_usd ?? 0) + coderCacheSavings;
-  const totalLatency =
-    totalRequests > 0
-      ? (plannerLatency * plannerRequests + coderLatency * coderRequests) / totalRequests
-      : 0;
-  const totalHasData = totalRequests > 0;
-
-  const hasCostVariance =
-    summary && summary.actual_cost_usd > 0 && summary.estimated_cost_usd > 0;
+  const chat = dashboard?.summary.chat;
+  const coder = dashboard?.summary.coder;
+  const total = dashboard?.summary.total;
+  const bucketRows = dashboard?.series ?? [];
+  const keyRows = dashboard?.by_key ?? [];
+  const totalHasData = n(total, "requests") > 0;
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Usage
-          </h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Chat and Coder usage for your account over the selected period. Coder cached tokens are
-            provider-reported cache reads; reduction savings are estimated separately on the server
-            and are not summed into token totals here. See the{" "}
+            Chat and Coder usage for your account over the selected period. Prices use the
+            configured model rate card and cache pricing. See the{" "}
             <Link to="/account/usage/audit" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               request audit
             </Link>{" "}
-            for per-request cache billing.
+            for per-request token and price accounting.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -141,58 +141,39 @@ export default function Usage() {
         </div>
       </div>
 
-      {loading && !summary && !yarnUsage ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading usage data…</p>
+      {isLoading && !dashboard ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading usage data...</p>
       ) : (
         <>
           <div className="grid gap-4 xl:grid-cols-3">
             <UsageSummarySection
-              title="Chat usage"
-              subtitle={plannerHasData ? `past ${period}h` : "no data"}
-              requests={plannerRequests}
-              tokens={plannerTokens}
-              costUsd={plannerCost}
-              avgLatencyMs={plannerLatency}
-              details={
-                plannerHasData
-                  ? plannerErrors > 0
-                    ? `${plannerErrors} errors`
-                    : summary?.source === "planner_usage_log"
-                      ? "metered from Chat pipeline usage logs"
-                      : undefined
-                  : "No Chat pipeline usage recorded for this period."
-              }
+              title="Chat Usage"
+              subtitle={summarySubtitle(chat, period)}
+              requests={n(chat, "requests")}
+              tokens={n(chat, "total_tokens")}
+              priceUsd={n(chat, "price_usd")}
+              avgLatencyMs={n(chat, "avg_latency_ms")}
+              details={chatDetails(chat)}
             />
             <UsageSummarySection
               title="Coder Usage"
-              subtitle={coderHasData ? `past ${period}h` : "no data"}
-              requests={coderRequests}
-              tokens={coderTokens}
-              costUsd={coderCost}
-              avgLatencyMs={coderLatency}
-              details={
-                coderHasData
-                  ? [
-                      coderCached > 0 ? `${fmtTokens(coderCached)} cached` : null,
-                      coderCacheWrite > 0 ? `${fmtTokens(coderCacheWrite)} cache write` : null,
-                      coderErrors > 0 ? `${coderErrors} errors` : null,
-                      coderEscalations > 0 ? `${coderEscalations} escalations` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" / ") || "Coder metering data is available."
-                  : "No coder usage recorded for this period."
-              }
+              subtitle={summarySubtitle(coder, period)}
+              requests={n(coder, "requests")}
+              tokens={n(coder, "total_tokens")}
+              priceUsd={n(coder, "price_usd")}
+              avgLatencyMs={n(coder, "avg_latency_ms")}
+              details={coderDetails(coder)}
             />
             <UsageSummarySection
               title="Total Usage"
-              subtitle={totalHasData ? `past ${period}h` : "no data"}
-              requests={totalRequests}
-              tokens={totalTokens}
-              costUsd={totalCost}
-              avgLatencyMs={totalLatency}
+              subtitle={summarySubtitle(total, period)}
+              requests={n(total, "requests")}
+              tokens={n(total, "total_tokens")}
+              priceUsd={n(total, "price_usd")}
+              avgLatencyMs={n(total, "avg_latency_ms")}
               details={
                 totalHasData
-                  ? `Combined Chat + Coder totals`
+                  ? `Combined Chat + Coder totals. ${dashboard?.price_basis ?? ""}`.trim()
                   : "No Chat or Coder usage recorded for this period."
               }
             />
@@ -200,35 +181,58 @@ export default function Usage() {
 
           {totalHasData && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-4 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/20 dark:text-indigo-100">
-              Cache billing: {fmtTokens(totalCacheReads)} cache-read tokens, {fmtTokens(totalCacheWrites)} cache-write tokens,
-              and {fmtCost(totalCacheSavings)} estimated savings against uncached input pricing.
+              Cache billing: {fmtTokens(n(total, "tokens_cached"))} cache-read tokens,{" "}
+              {fmtTokens(n(total, "tokens_cache_write"))} cache-write tokens, and{" "}
+              {fmtCost(n(total, "cache_discount_usd"))} discount against uncached input pricing.
             </div>
           )}
 
-          {summary?.note && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-              {summary?.note}
-            </div>
-          )}
-
-          {plannerHasData && hasCostVariance && summary && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-                <div className="text-sm text-amber-800 dark:text-amber-300">
-                  <p className="font-medium">Cost variance detected</p>
-                  <p className="mt-0.5">
-                    Estimated (Forecast) {fmtCost(summary.estimated_cost_usd)} vs Actual (from API){" "}
-                    {fmtCost(summary.actual_cost_usd)} (
-                    {(
-                      ((summary.actual_cost_usd - summary.estimated_cost_usd) /
-                        summary.estimated_cost_usd) *
-                      100
-                    ).toFixed(1)}
-                    % difference). Estimated costs use the configured pricing model;
-                    actual costs come from provider-reported values when available or reconciled.
-                  </p>
-                </div>
+          {keyRows.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Usage By Key</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-950">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400">Key</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Chat</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Coder</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Tokens</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Cache Reads</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-950">
+                    {keyRows.map((row) => (
+                      <tr key={row.key_id} className="hover:bg-gray-50 dark:hover:bg-gray-900">
+                        <td className="px-4 py-2">
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{keyName(row)}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {row.auth_method || "account"}
+                            {row.key_prefix ? ` / ${row.key_prefix}` : ""}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
+                          {row.chat_requests.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
+                          {row.coder_requests.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
+                          {fmtTokens(row.total_tokens)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                          {fmtTokens(row.tokens_cached)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                          {fmtCost(row.price_usd)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -239,49 +243,41 @@ export default function Usage() {
                 <table className="min-w-full text-sm">
                   <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
                     <tr>
-                      <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400">
-                        Time
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Requests
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Tokens
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Est. Cost
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Actual Cost
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">
-                        Avg Latency
-                      </th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400">Time</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Chat</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Coder</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Tokens</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Cache Reads</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Price</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-500 dark:text-gray-400">Avg Latency</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-950">
                     {bucketRows.slice(0, 50).map((row) => (
-                      <tr
-                        key={row.bucket}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-900"
-                      >
+                      <tr key={row.bucket} className="hover:bg-gray-50 dark:hover:bg-gray-900">
                         <td className="whitespace-nowrap px-4 py-2 text-gray-700 dark:text-gray-300">
                           {fmtBucket(row.bucket)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
-                          {row.requests}
+                          {row.chat_requests.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
+                          {row.coder_requests.toLocaleString()}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
                           {fmtTokens(row.total_tokens)}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400" title="Estimated (Forecast)">
-                          {fmtCost(row.estimated_cost_usd)}
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                          {fmtTokens(row.tokens_cached)}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400" title="Actual (from API)">
-                          {fmtCost(row.actual_cost_usd)}
+                        <td
+                          className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400"
+                          title="Configured model rate card price"
+                        >
+                          {fmtCost(row.price_usd)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtDurationMs(row.avg_duration_ms)}
+                          {fmtDurationMs(row.avg_latency_ms)}
                         </td>
                       </tr>
                     ))}
@@ -296,13 +292,10 @@ export default function Usage() {
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
-              No Chat pipeline time-series buckets for this period.
+              No Chat or Coder time-series buckets for this period.
             </div>
           )}
         </>
-      )}
-      {yarnLoading && !yarnUsage && (
-        <div className="h-24 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       )}
     </div>
   );

@@ -32,6 +32,9 @@ import type {
   CapabilitySelectorType,
   UserRuntimePreferences,
   UserRuntimePreferencesResponse,
+  AccountUsageDashboard,
+  AccountUsageSeriesEntry,
+  AccountUsageSummary,
   UsageAuditRequest,
   UsageAuditResponse,
 } from "../types";
@@ -55,8 +58,8 @@ export interface UsageUnifiedSummary {
       trace_count: number;
       request_count?: number;
       total_tokens: number;
-      estimated_cost_usd: number;
-      actual_cost_usd: number;
+      price_usd: number;
+      provider_actual_cost_usd?: number;
       avg_duration_ms: number;
       error_count: number;
       source?: string;
@@ -65,13 +68,12 @@ export interface UsageUnifiedSummary {
   };
   yarn: Record<string, number | string> | null;
   total_platform_spend?: {
-    planner_estimated_usd: number;
-    planner_actual_usd: number;
-    yarn_estimated_usd: number;
-    yarn_actual_usd: number;
-    total_estimated_usd: number;
-    total_actual_usd: number;
-    effective_total_usd: number;
+    planner_price_usd: number;
+    yarn_price_usd: number;
+    total_price_usd: number;
+    planner_provider_actual_usd?: number;
+    yarn_provider_actual_usd?: number;
+    total_provider_actual_usd?: number;
     note: string;
   };
   debug_yarn_trace_estimated_usd?: number;
@@ -820,7 +822,8 @@ export interface DetailedModelPerformance {
   total_completion_tokens: number;
   total_cached_prompt_tokens: number;
   cache_hit_rate: number;
-  total_actual_cost: number;
+  total_price_usd: number;
+  total_provider_actual_cost_usd?: number;
 }
 
 export function useDetailedPerformance(days: number = 7) {
@@ -856,8 +859,8 @@ export interface CostByModelEntry {
   completion_tokens: number;
   cached_prompt_tokens?: number;
   requests: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
 }
 
 export function useCostsByModel(days: number = 7) {
@@ -875,8 +878,8 @@ export interface CostByRoleEntry {
   completion_tokens: number;
   cached_prompt_tokens?: number;
   requests: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
 }
 
 export function useCostsByRole(days: number = 7) {
@@ -892,8 +895,8 @@ export interface DailyCostEntry {
   date: string;
   tokens: number;
   requests: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
 }
 
 export function useCostsDaily(days: number = 7) {
@@ -2447,10 +2450,13 @@ export interface UsageTimeSeriesEntry {
   bucket: string;
   requests: number;
   total_tokens: number;
-  estimated_cost_usd: number;
-  estimated_no_cache_cost_usd?: number;
-  cache_savings_usd?: number;
-  actual_cost_usd: number;
+  tokens_in?: number;
+  tokens_cached?: number;
+  tokens_cache_write?: number;
+  price_usd: number;
+  no_cache_price_usd?: number;
+  cache_discount_usd?: number;
+  provider_actual_cost_usd?: number;
   avg_duration_ms: number;
   error_count: number;
 }
@@ -2462,10 +2468,10 @@ export interface UsageSummary {
   tokens_in?: number;
   tokens_cached?: number;
   tokens_cache_write?: number;
-  estimated_cost_usd: number;
-  estimated_no_cache_cost_usd?: number;
-  cache_savings_usd?: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  no_cache_price_usd?: number;
+  cache_discount_usd?: number;
+  provider_actual_cost_usd?: number;
   avg_duration_ms: number;
   error_count: number;
   source?: string;
@@ -2490,7 +2496,7 @@ export function useUsageSummary(sinceHours = 24) {
 
 /** Account Usage — any authenticated user; planner_usage_log (+ trace fallback). */
 export function useUsageMeSummary(sinceHours = 24) {
-  return useQuery<UsageSummary>({
+  return useQuery<AccountUsageSummary & { period_hours: number; price_basis: string }>({
     queryKey: ["usage", "me-summary", sinceHours],
     queryFn: () => client.get(`/usage/me/summary?since_hours=${sinceHours}`).then((r) => r.data),
     refetchInterval: 60_000,
@@ -2498,9 +2504,20 @@ export function useUsageMeSummary(sinceHours = 24) {
 }
 
 export function useUsageMeSeries(sinceHours = 24) {
-  return useQuery<UsageTimeSeriesEntry[]>({
+  return useQuery<AccountUsageSeriesEntry[]>({
     queryKey: ["usage", "me-series", sinceHours],
     queryFn: () => client.get(`/usage/me/series?since_hours=${sinceHours}`).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useUsageMeDashboard(sinceHours = 24) {
+  return useQuery<AccountUsageDashboard>({
+    queryKey: ["usage", "me-dashboard", sinceHours],
+    queryFn: () =>
+      client
+        .get("/usage/me/dashboard", { params: { since_hours: sinceHours } })
+        .then((r) => r.data),
     refetchInterval: 60_000,
   });
 }
@@ -2532,8 +2549,8 @@ export interface YarnOverview {
   total_tokens_in: number;
   total_tokens_out: number;
   total_tokens_cached: number;
-  total_estimated_cost_usd: number;
-  total_actual_cost_usd: number;
+  total_price_usd: number;
+  total_provider_actual_cost_usd?: number;
   avg_latency_ms: number;
   p99_latency_ms: number;
   error_count: number;
@@ -2552,8 +2569,8 @@ export interface YarnPerformanceBucket {
   tokens_cache_write?: number;
   estimated_no_cache_cost_usd?: number;
   cache_savings_usd?: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
   avg_latency_ms: number;
   max_latency_ms: number;
   escalations: number;
@@ -2608,7 +2625,7 @@ export interface YarnIntelligence {
     top_reasons: Array<{ reason: string; count: number }>;
     risk_flags: string[];
   };
-  top_models: Array<{ model: string; requests: number; estimated_cost_usd: number; actual_cost_usd: number }>;
+  top_models: Array<{ model: string; requests: number; price_usd: number; provider_actual_cost_usd?: number }>;
   finish_reason_counts: Record<string, number>;
   edit_context_miss: {
     events: number;
@@ -2622,14 +2639,14 @@ export interface YarnIntelligence {
     impacted_tokens: number;
     impacted_cached_tokens: number;
     impacted_cache_hit_estimate: number;
-    impacted_cost_usd: number;
+    impacted_price_usd: number;
     top_models: Array<{
       provider: string;
       model: string;
       requests: number;
       total_tokens: number;
       cached_tokens: number;
-      effective_cost_usd: number;
+      price_usd: number;
     }>;
     top_files: Array<{
       file_path: string;
@@ -2765,8 +2782,8 @@ export interface YarnSessionRow {
   total_tokens_out: number;
   total_tokens_cached: number;
   total_tokens_saved: number;
-  total_estimated_cost_usd: number;
-  total_actual_cost_usd: number;
+  total_price_usd: number;
+  total_provider_actual_cost_usd?: number;
   request_count: number;
   escalation_count: number;
   created_at: string | null;
@@ -2783,8 +2800,8 @@ export interface YarnSessionRequestRow {
   tokens_cached: number;
   tokens_saved_by_reduction: number;
   latency_ms: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
   pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
@@ -2824,8 +2841,8 @@ export interface YarnEventRow {
   tokens_out: number;
   tokens_cached: number;
   latency_ms: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
+  price_usd: number;
+  provider_actual_cost_usd?: number;
   pricing_source: string;
   escalated: boolean;
   tool_calls_count: number;
@@ -3127,10 +3144,9 @@ export interface YarnUserUsage {
   tokens_out: number;
   tokens_cached: number;
   tokens_cache_write?: number;
-  estimated_cost_usd: number;
-  actual_cost_usd: number;
-  estimated_no_cache_cost_usd?: number;
-  cache_savings_usd?: number;
+  price_usd: number;
+  no_cache_price_usd?: number;
+  cache_discount_usd?: number;
   avg_latency_ms: number;
   escalations: number;
   errors: number;

@@ -4,6 +4,9 @@ import type { AppConfig } from "../config.js";
 import { buildPgPoolConfig } from "../db/pg-pool-config.js";
 
 export interface PatRecord {
+  id: string;
+  name: string;
+  tokenPrefix: string;
   userId: string;
   orgId: string;
   tenantIds: string[];
@@ -43,7 +46,7 @@ export async function resolvePatFromDb(
 
   const tokenHash = hashPat(token, pepper);
   const result = await pool.query(
-    `SELECT user_id, org_id, tenant_ids, role, scopes
+    `SELECT id, name, token_prefix, user_id, org_id, tenant_ids, role, scopes
      FROM personal_access_tokens
      WHERE token_hash = $1
        AND revoked = false
@@ -55,6 +58,9 @@ export async function resolvePatFromDb(
   if (result.rowCount === 0) return null;
 
   const row = result.rows[0] as {
+    id: string;
+    name: string | null;
+    token_prefix: string | null;
     user_id: string;
     org_id: string | null;
     tenant_ids: string[] | null;
@@ -72,6 +78,9 @@ export async function resolvePatFromDb(
   if (tenantIds.length > 0 && !orgId) return null;
 
   return {
+    id: row.id,
+    name: row.name ?? "API token",
+    tokenPrefix: row.token_prefix ?? "",
     userId: row.user_id,
     orgId,
     tenantIds,

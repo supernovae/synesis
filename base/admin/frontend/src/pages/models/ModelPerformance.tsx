@@ -48,7 +48,7 @@ export default function ModelPerformance() {
     displayRoles.length > 0
       ? displayRoles.reduce((a, b) => (a.p95_latency_ms > b.p95_latency_ms ? a : b))
       : null;
-  const totalCost = displayRoles.reduce((s, r) => s + r.total_actual_cost, 0);
+  const totalPrice = displayRoles.reduce((s, r) => s + r.total_price_usd, 0);
   const windowSeconds = Math.max(1, days * 24 * 60 * 60);
   const rps = totalRequests / windowSeconds;
   const tps = totalTokens / windowSeconds;
@@ -162,8 +162,8 @@ export default function ModelPerformance() {
               icon={Zap}
             />
             <MetricCard
-              label="Actual Cost"
-              value={`$${totalCost.toFixed(4)}`}
+              label="Usage Price"
+              value={`$${totalPrice.toFixed(4)}`}
               icon={DollarSign}
             />
           </div>
@@ -230,7 +230,12 @@ export default function ModelPerformance() {
               { key: "avg_latency_ms", label: "Avg Latency", sortable: true, render: (r: RolePerformance) => `${r.avg_latency_ms.toFixed(0)}ms` },
               { key: "p95_latency_ms", label: "p95 Latency", sortable: true, render: (r: RolePerformance) => `${r.p95_latency_ms.toFixed(0)}ms` },
               { key: "total_tokens", label: "Total Tokens", sortable: true, render: (r: RolePerformance) => r.total_tokens.toLocaleString() },
-              { key: "total_actual_cost", label: "Actual Cost", sortable: true, render: (r: RolePerformance) => `$${r.total_actual_cost.toFixed(4)}` },
+              {
+                key: "total_price_usd",
+                label: "Usage Price",
+                sortable: true,
+                render: (r: RolePerformance) => `$${r.total_price_usd.toFixed(4)}`,
+              },
             ]}
             data={displayRoles}
             keyField="role"

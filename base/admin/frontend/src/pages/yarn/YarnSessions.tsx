@@ -248,8 +248,8 @@ export default function YarnSessions() {
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Saved (Reduction)
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Effective Cost (Actual if available, else Estimated)">
-                      Cost
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Configured model rate-card usage price">
+                      Price
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Last Active
@@ -305,8 +305,15 @@ export default function YarnSessions() {
                         <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-green-600 dark:text-green-400">
                           {row.total_tokens_saved ? fmtTokens(row.total_tokens_saved) : "—"}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400" title={`Actual: ${fmtCost(row.total_actual_cost_usd)} | Est: ${fmtCost(row.total_estimated_cost_usd)}`}>
-                          {fmtCost(row.total_actual_cost_usd > 0 ? row.total_actual_cost_usd : row.total_estimated_cost_usd)}
+                        <td
+                          className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400"
+                          title={
+                            row.total_provider_actual_cost_usd != null
+                              ? `Provider actual: ${fmtCost(row.total_provider_actual_cost_usd)}`
+                              : "Configured usage price"
+                          }
+                        >
+                          {fmtCost(row.total_price_usd)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right text-gray-600 dark:text-gray-400">
                           {row.last_active_at

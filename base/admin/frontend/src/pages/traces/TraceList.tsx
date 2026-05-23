@@ -77,7 +77,7 @@ export default function TraceList() {
           ...t,
           _time: fmtDate(t.timestamp),
           _duration: fmtDuration(t.total_duration_ms),
-          _cost: fmtCost(t.actual_cost_usd && t.actual_cost_usd > 0 ? t.actual_cost_usd : t.estimated_cost_usd),
+          _price: fmtCost(t.estimated_cost_usd),
           _query: t.query_snippet?.slice(0, 80) || "—",
           _status: t.has_error ? "error" : "ok",
           _critic: t.critic_scores?.weighted_overall
@@ -153,7 +153,7 @@ export default function TraceList() {
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Models overview
             </Link>
-            . Table cost column is <span className="font-medium">effective</span> (actual if available, else estimated).
+            . Table price column uses configured usage pricing.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -332,9 +332,9 @@ export default function TraceList() {
             trend={stats.error_rate > 0.05 ? "down" : "neutral"}
           />
           <MetricCard
-            label="Avg cost (effective)"
+            label="Avg usage price"
             value={fmtCost(stats.avg_cost_usd)}
-            subtitle={`Total effective: ${fmtCost(stats.total_cost_usd)} · trace rows`}
+            subtitle={`Total usage price: ${fmtCost(stats.total_cost_usd)} · trace rows`}
             icon={DollarSign}
           />
         </div>
@@ -503,7 +503,7 @@ export default function TraceList() {
                   </span>
                 ),
               },
-              { key: "_cost", label: "Cost", sortable: true },
+              { key: "_price", label: "Price", sortable: true },
               { key: "difficulty", label: "Difficulty", sortable: true },
               {
                 key: "_status",

@@ -7,5 +7,8 @@ export interface AuthContext {
   role: "readonly" | "user" | "org_admin" | "platform_admin";
   tokenScopes: string[];
   authMethod: "anonymous" | "bearer" | "pat" | "internal_service";
+  authKeyId?: string;
+  authKeyName?: string;
+  authKeyPrefix?: string;
   trustedForwardedIdentity: boolean;
 }

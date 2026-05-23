@@ -217,6 +217,14 @@ def _hash_session_id(session_id: str) -> str:
     return sha256(session_id.encode()).hexdigest()
 
 
+def yarn_bearer_user_id_for_token(token: str) -> str:
+    """Return the Yarn-side opaque bearer identity for a raw bearer token."""
+    token = token.strip()
+    if not token or token.startswith("syn-"):
+        return ""
+    return f"bearer-{sha256(token.encode()).hexdigest()[:24]}"
+
+
 def _new_session_id() -> str:
     return secrets.token_urlsafe(32)
 
@@ -425,6 +433,7 @@ async def _verify_session_cookie(request: Request) -> UserInfo | None:
         row.last_seen_at = datetime.now(UTC)
         await session.commit()
         request.state.auth_kind = "session"
+        request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(row.access_token)
         return _user_from_session_row(row)
 
 
@@ -459,7 +468,9 @@ async def get_current_user(
             requested_org_id = (
                 request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or ""
             ).strip()[:128]
-            return _verify_keycloak_token(token, requested_org_id=requested_org_id)
+            user = _verify_keycloak_token(token, requested_org_id=requested_org_id)
+            request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(token)
+            return user
         except jwt.ExpiredSignatureError as err:
             raise HTTPException(status_code=401, detail="Token expired") from err
         except jwt.InvalidTokenError as err:

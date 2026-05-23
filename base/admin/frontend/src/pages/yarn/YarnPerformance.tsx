@@ -48,16 +48,16 @@ function fmtBucketLabel(iso: string | null): string {
 
 function summarize(buckets: YarnPerformanceBucket[]) {
   let requests = 0;
-  let cost = 0;
+  let price = 0;
   let latW = 0;
   for (const b of buckets) {
     requests += b.requests;
-    cost += b.actual_cost_usd > 0 ? b.actual_cost_usd : b.estimated_cost_usd;
+    price += b.price_usd;
     latW += b.avg_latency_ms * b.requests;
   }
   return {
     requests,
-    cost,
+    price,
     avgLatencyMs: requests > 0 ? latW / requests : 0,
   };
 }
@@ -73,7 +73,6 @@ export default function YarnPerformance() {
       buckets.map((b) => ({
         ...b,
         label: fmtBucketLabel(b.bucket),
-        effective_cost_usd: b.actual_cost_usd > 0 ? b.actual_cost_usd : b.estimated_cost_usd,
       })),
     [buckets],
   );
@@ -88,7 +87,7 @@ export default function YarnPerformance() {
             Performance
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Coder API — bucketed requests, latency, cost, and token volume
+            Coder API — bucketed requests, latency, usage price, and token volume
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -150,8 +149,8 @@ export default function YarnPerformance() {
               icon={Clock}
             />
             <MetricCard
-              label="Total cost (window)"
-              value={fmtCost(summary.cost)}
+              label="Usage price (window)"
+              value={fmtCost(summary.price)}
               icon={Coins}
             />
           </div>
@@ -203,8 +202,8 @@ export default function YarnPerformance() {
           </ChartCard>
 
           <ChartCard
-            title="Cost & token volume"
-            subtitle="Stacked prompt/completion tokens (left) and cost USD (right)"
+            title="Usage price & token volume"
+            subtitle="Stacked prompt/completion tokens (left) and configured usage price (right)"
           >
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -227,7 +226,7 @@ export default function YarnPerformance() {
                     contentStyle={{ fontSize: 12 }}
                     formatter={(value, name) => {
                       const n = Number(value ?? 0);
-                      if (name === "effective_cost_usd") return [fmtCost(n), "Cost (Effective)"];
+                      if (name === "price_usd") return [fmtCost(n), "Usage price"];
                       return [fmtTokens(n), String(name)];
                     }}
                   />
@@ -252,11 +251,11 @@ export default function YarnPerformance() {
                   <Line
                     yAxisId="right"
                     type="monotone"
-                    dataKey="effective_cost_usd"
+                    dataKey="price_usd"
                     stroke="#f59e0b"
                     strokeWidth={2}
                     dot={false}
-                    name="effective_cost_usd"
+                    name="price_usd"
                   />
                 </ComposedChart>
               </ResponsiveContainer>

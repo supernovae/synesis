@@ -26,25 +26,25 @@ function BillingBreakdown({ row }: { row: UsageAuditRequest }) {
       <div className="rounded-md bg-gray-50 p-2 dark:bg-gray-800">
         <div className="text-gray-500 dark:text-gray-400">Uncached input</div>
         <div className="font-medium text-gray-900 dark:text-gray-100">
-          {fmtTokens(b.tokens_uncached_input)} / {fmtCost(b.input_cost_usd)}
+          {fmtTokens(b.tokens_uncached_input)} / {fmtCost(b.input_price_usd)}
         </div>
       </div>
       <div className="rounded-md bg-emerald-50 p-2 dark:bg-emerald-950/30">
         <div className="text-emerald-700 dark:text-emerald-300">Cache reads</div>
         <div className="font-medium text-emerald-950 dark:text-emerald-100">
-          {fmtTokens(b.tokens_cache_read)} / {fmtCost(b.cache_read_cost_usd)}
+          {fmtTokens(b.tokens_cache_read)} / {fmtCost(b.cache_read_price_usd)}
         </div>
       </div>
       <div className="rounded-md bg-amber-50 p-2 dark:bg-amber-950/30">
         <div className="text-amber-700 dark:text-amber-300">Cache writes</div>
         <div className="font-medium text-amber-950 dark:text-amber-100">
-          {fmtTokens(b.tokens_cache_write)} / {fmtCost(b.cache_write_cost_usd)}
+          {fmtTokens(b.tokens_cache_write)} / {fmtCost(b.cache_write_price_usd)}
         </div>
       </div>
       <div className="rounded-md bg-gray-50 p-2 dark:bg-gray-800">
         <div className="text-gray-500 dark:text-gray-400">Output</div>
         <div className="font-medium text-gray-900 dark:text-gray-100">
-          {fmtTokens(b.tokens_output)} / {fmtCost(b.output_cost_usd)}
+          {fmtTokens(b.tokens_output)} / {fmtCost(b.output_price_usd)}
         </div>
       </div>
     </div>
@@ -60,13 +60,13 @@ export default function UsageAudit() {
     () =>
       rows.reduce(
         (acc, row) => {
-          acc.effective += row.effective_cost_usd;
-          acc.savings += row.billing_breakdown.cache_savings_usd;
+          acc.price += row.price_usd;
+          acc.discount += row.billing_breakdown.cache_discount_usd;
           acc.cacheReads += row.billing_breakdown.tokens_cache_read;
           acc.cacheWrites += row.billing_breakdown.tokens_cache_write;
           return acc;
         },
-        { effective: 0, savings: 0, cacheReads: 0, cacheWrites: 0 },
+        { price: 0, discount: 0, cacheReads: 0, cacheWrites: 0 },
       ),
     [rows],
   );
@@ -104,16 +104,16 @@ export default function UsageAudit() {
           <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{data?.total ?? 0}</div>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex items-center gap-2 text-sm text-gray-500"><Coins className="h-4 w-4" /> Effective cost</div>
-          <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{fmtCost(totals.effective)}</div>
+          <div className="flex items-center gap-2 text-sm text-gray-500"><Coins className="h-4 w-4" /> Usage price</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{fmtCost(totals.price)}</div>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-center gap-2 text-sm text-gray-500"><Zap className="h-4 w-4" /> Cache reads</div>
           <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{fmtTokens(totals.cacheReads)}</div>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex items-center gap-2 text-sm text-gray-500"><ShieldCheck className="h-4 w-4" /> Cache savings</div>
-          <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{fmtCost(totals.savings)}</div>
+          <div className="flex items-center gap-2 text-sm text-gray-500"><ShieldCheck className="h-4 w-4" /> Cache discount</div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{fmtCost(totals.discount)}</div>
         </div>
       </div>
 
@@ -129,7 +129,7 @@ export default function UsageAudit() {
               <th className="px-4 py-3 text-left">Model</th>
               <th className="px-4 py-3 text-right">Tokens</th>
               <th className="px-4 py-3 text-right">Cache</th>
-              <th className="px-4 py-3 text-right">Cost</th>
+              <th className="px-4 py-3 text-right">Price</th>
               <th className="px-4 py-3 text-right">Latency</th>
             </tr>
           </thead>
@@ -151,8 +151,11 @@ export default function UsageAudit() {
                       <div className="mt-3 max-w-3xl space-y-2">
                         <BillingBreakdown row={row} />
                         <div className="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
-                          <span>No-cache baseline: {fmtCost(row.billing_breakdown.estimated_no_cache_cost_usd)}</span>
+                          <span>No-cache baseline: {fmtCost(row.billing_breakdown.no_cache_price_usd)}</span>
                           <span>Pricing: {row.pricing_source}</span>
+                          {row.key_name || row.key_prefix ? (
+                            <span>Key: {row.key_name || row.key_prefix}</span>
+                          ) : null}
                           <span>Privacy: {row.privacy_mode}</span>
                           <span>Redaction: {row.redaction_status}</span>
                           <span>Training: {row.training_allowed ? "allowed" : "off"}</span>
@@ -168,7 +171,7 @@ export default function UsageAudit() {
                   <td className="px-4 py-3 text-right tabular-nums">
                     {Math.round(row.billing_breakdown.cache_hit_rate * 1000) / 10}% / {fmtTokens(row.tokens_cached)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">{fmtCost(row.effective_cost_usd)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium">{fmtCost(row.price_usd)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{fmtDurationMs(row.latency_ms)}</span>
                   </td>

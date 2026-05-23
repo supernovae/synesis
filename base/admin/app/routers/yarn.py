@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -18,6 +18,7 @@ from ..db.engine import async_session
 from ..db.models import YarnReducerTelemetrySnapshot
 from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role
 from ..services import yarn_service
+from ..services.account_usage_service import account_usage_identity_candidates
 from ..services.archive_store import ArchiveConfigError
 from ..services.health_prober import probe_service
 from ..services.telemetry_scraper import get_yarn_reducer_scrape_status
@@ -66,6 +67,10 @@ def _scope(user: UserInfo) -> tuple[str, str, str]:
     tenant_ids = getattr(user, "tenant_ids", None) or []
     scope_tenant = (tenant_ids[0].strip()[:64]) if tenant_ids else ""
     return user.user_id or user.username, "", scope_tenant
+
+
+def _include_provider_actual(user: UserInfo) -> bool:
+    return resolve_role(user) >= Role.platform_admin
 
 
 def _internal_headers() -> dict[str, str]:
@@ -134,6 +139,7 @@ async def yarn_overview(
         since_hours=since_hours,
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
+        include_provider_actual=_include_provider_actual(user),
     )
 
 
@@ -147,6 +153,7 @@ async def yarn_intelligence(
         since_hours=since_hours,
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
+        include_provider_actual=_include_provider_actual(user),
     )
 
 
@@ -167,6 +174,7 @@ async def yarn_sessions(
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
         active_since_hours=active_since_hours,
+        include_provider_actual=_include_provider_actual(user),
     )
 
 
@@ -180,6 +188,7 @@ async def yarn_session_detail(
         session_key,
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
+        include_provider_actual=_include_provider_actual(user),
     )
     if not detail:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -205,6 +214,7 @@ async def yarn_events(
         scope_org_id=scope_org_id,
         since_hours=since_hours,
         errors_only=errors_only,
+        include_provider_actual=_include_provider_actual(user),
     )
 
 
@@ -223,6 +233,7 @@ async def yarn_performance(
         bucket_minutes=bucket_minutes,
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
+        include_provider_actual=_include_provider_actual(user),
     )
 
 
@@ -545,9 +556,14 @@ async def yarn_diagnostics_recent(
 
 @router.get("/user-usage")
 async def yarn_user_usage(
+    request: Request,
     since_hours: int = Query(720, ge=1, le=8760),
     user: UserInfo = Depends(get_current_user),
 ):
     """Return Yarn usage for the authenticated user."""
     uid = user.user_id or user.username
-    return await yarn_service.get_user_yarn_usage(uid, since_hours=since_hours)
+    return await yarn_service.get_user_yarn_usage(
+        uid,
+        since_hours=since_hours,
+        user_ids=account_usage_identity_candidates(user, [getattr(request.state, "yarn_bearer_user_id", "")]),
+    )

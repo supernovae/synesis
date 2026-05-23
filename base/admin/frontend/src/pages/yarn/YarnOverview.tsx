@@ -77,7 +77,7 @@ const QUICK_LINKS = [
   {
     to: "/yarn/performance",
     title: "Performance",
-    description: "Time-bucketed traffic, latency, and cost",
+    description: "Time-bucketed traffic, latency, and usage price",
     icon: Activity,
   },
   {
@@ -218,10 +218,14 @@ export default function YarnOverview() {
               }
             />
             <MetricCard
-              label="Total Cost"
-              value={fmtCost(overview.total_actual_cost_usd > 0 ? overview.total_actual_cost_usd : overview.total_estimated_cost_usd)}
+              label="Usage Price"
+              value={fmtCost(overview.total_price_usd)}
               icon={Coins}
-              subtitle={overview.total_actual_cost_usd > 0 ? `Actual (Est: ${fmtCost(overview.total_estimated_cost_usd)})` : "Estimated (Forecast)"}
+              subtitle={
+                overview.total_provider_actual_cost_usd != null
+                  ? `Provider actual ${fmtCost(overview.total_provider_actual_cost_usd)}`
+                  : "Configured rate card"
+              }
             />
             <MetricCard
               label="Active Sessions"
@@ -321,8 +325,8 @@ export default function YarnOverview() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Effective cost on impacted requests</span>
-                    <span className="font-medium">{fmtCost(intelligence.edit_context_miss.impacted_cost_usd)}</span>
+                    <span>Usage price on impacted requests</span>
+                    <span className="font-medium">{fmtCost(intelligence.edit_context_miss.impacted_price_usd)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Request mapping coverage</span>
@@ -373,22 +377,21 @@ export default function YarnOverview() {
 
               <ChartCard
                 title="Top Models"
-                subtitle="Most active models by request count and cost"
+                subtitle="Most active models by request count and usage price"
               >
                 <div className="space-y-2">
                   {intelligence.top_models.length === 0 ? (
                     <p className="text-sm text-gray-500">No model data yet.</p>
                   ) : (
                     intelligence.top_models.map((m) => {
-                      const effectiveCost = m.actual_cost_usd > 0 ? m.actual_cost_usd : m.estimated_cost_usd;
-                      const avgCost = m.requests > 0 ? effectiveCost / m.requests : 0;
+                      const avgPrice = m.requests > 0 ? m.price_usd / m.requests : 0;
                       return (
                         <div key={m.model} className="flex items-center justify-between text-sm">
                           <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{m.model}</span>
                           <span className="text-right text-gray-500 dark:text-gray-400">
-                            <span className="tabular-nums">{m.requests}</span> req · {fmtCost(effectiveCost)}
+                            <span className="tabular-nums">{m.requests}</span> req · {fmtCost(m.price_usd)}
                             <span className="ml-1 text-[10px] text-gray-400 dark:text-gray-500">
-                              ({fmtCost(avgCost)}/req)
+                              ({fmtCost(avgPrice)}/req)
                             </span>
                           </span>
                         </div>

@@ -26,10 +26,8 @@ def _iso(value: datetime | None) -> str:
     return value.isoformat()
 
 
-def _effective(row: Any) -> float:
-    actual = float(getattr(row, "actual_cost_usd", 0.0) or 0.0)
-    estimated = float(getattr(row, "estimated_cost_usd", 0.0) or 0.0)
-    return actual if actual > 0 else estimated
+def _price(row: Any) -> float:
+    return float(getattr(row, "estimated_cost_usd", 0.0) or 0.0)
 
 
 def _breakdown(row: Any) -> dict[str, int | float]:
@@ -39,21 +37,32 @@ def _breakdown(row: Any) -> dict[str, int | float]:
     uncached = int(getattr(row, "tokens_uncached_input", 0) or max(0, tokens_in - cached))
     cache_read = int(getattr(row, "tokens_cache_read", 0) or cached)
     cache_write = int(getattr(row, "tokens_cache_write", 0) or 0)
-    estimated = float(getattr(row, "estimated_cost_usd", 0.0) or 0.0)
-    no_cache = float(getattr(row, "estimated_no_cache_cost_usd", 0.0) or estimated)
-    savings = float(getattr(row, "cache_savings_usd", 0.0) or (no_cache - estimated))
+    price = _price(row)
+    no_cache = float(getattr(row, "estimated_no_cache_cost_usd", 0.0) or price)
+    discount = float(getattr(row, "cache_savings_usd", 0.0) or (no_cache - price))
     return {
         "tokens_uncached_input": uncached,
         "tokens_cache_read": cache_read,
         "tokens_cache_write": cache_write,
         "tokens_output": tokens_out,
-        "input_cost_usd": round(float(getattr(row, "input_cost_usd", 0.0) or 0.0), 8),
-        "cache_read_cost_usd": round(float(getattr(row, "cache_read_cost_usd", 0.0) or 0.0), 8),
-        "cache_write_cost_usd": round(float(getattr(row, "cache_write_cost_usd", 0.0) or 0.0), 8),
-        "output_cost_usd": round(float(getattr(row, "output_cost_usd", 0.0) or 0.0), 8),
-        "estimated_no_cache_cost_usd": round(no_cache, 8),
-        "cache_savings_usd": round(savings, 8),
+        "input_price_usd": round(float(getattr(row, "input_cost_usd", 0.0) or 0.0), 8),
+        "cache_read_price_usd": round(float(getattr(row, "cache_read_cost_usd", 0.0) or 0.0), 8),
+        "cache_write_price_usd": round(float(getattr(row, "cache_write_cost_usd", 0.0) or 0.0), 8),
+        "output_price_usd": round(float(getattr(row, "output_cost_usd", 0.0) or 0.0), 8),
+        "no_cache_price_usd": round(no_cache, 8),
+        "cache_discount_usd": round(discount, 8),
         "cache_hit_rate": round(cache_read / tokens_in, 4) if tokens_in > 0 else 0.0,
+    }
+
+
+def _key_fields(row: Any) -> dict[str, str]:
+    auth_key_id = str(getattr(row, "auth_key_id", "") or "")
+    auth_method = str(getattr(row, "auth_method", "") or "")
+    return {
+        "auth_method": auth_method,
+        "key_id": auth_key_id,
+        "key_name": str(getattr(row, "auth_key_name", "") or ""),
+        "key_prefix": str(getattr(row, "auth_key_prefix", "") or ""),
     }
 
 
@@ -73,10 +82,9 @@ def _planner_row(row: PlannerUsageLog) -> dict[str, Any]:
         "tokens_out": int(row.tokens_out or 0),
         "tokens_cached": int(row.tokens_cached or 0),
         "total_tokens": int((row.tokens_in or 0) + (row.tokens_out or 0)),
-        "estimated_cost_usd": round(float(row.estimated_cost_usd or 0), 8),
-        "actual_cost_usd": round(float(row.actual_cost_usd or 0), 8),
-        "effective_cost_usd": round(_effective(row), 8),
+        "price_usd": round(_price(row), 8),
         "pricing_source": row.pricing_source,
+        **_key_fields(row),
         "billing_breakdown": _breakdown(row),
         **_SAFE_PRIVACY,
     }
@@ -101,10 +109,9 @@ def _yarn_row(row: YarnUsageLog) -> dict[str, Any]:
         "tool_calls_count": int(row.tool_calls_count or 0),
         "finish_reason": row.finish_reason,
         "total_tokens": int((row.tokens_in or 0) + (row.tokens_out or 0)),
-        "estimated_cost_usd": round(float(row.estimated_cost_usd or 0), 8),
-        "actual_cost_usd": round(float(row.actual_cost_usd or 0), 8),
-        "effective_cost_usd": round(_effective(row), 8),
+        "price_usd": round(_price(row), 8),
         "pricing_source": row.pricing_source,
+        **_key_fields(row),
         "billing_breakdown": _breakdown(row),
         **_SAFE_PRIVACY,
     }
@@ -113,18 +120,20 @@ def _yarn_row(row: YarnUsageLog) -> dict[str, Any]:
 async def list_user_usage_audit(
     user_id: str,
     *,
+    user_ids: list[str] | None = None,
     since_hours: int = 720,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     cutoff = datetime.now(tz=UTC) - timedelta(hours=since_hours)
     fetch_limit = max(1, min(5000, limit + offset))
+    scoped_user_ids = user_ids or [user_id]
     async with async_session() as session:
         planner_total = (
             await session.execute(
                 select(func.count())
                 .select_from(PlannerUsageLog)
-                .where(PlannerUsageLog.user_id == user_id)
+                .where(PlannerUsageLog.user_id.in_(scoped_user_ids))
                 .where(PlannerUsageLog.created_at >= cutoff)
             )
         ).scalar_one()
@@ -132,7 +141,7 @@ async def list_user_usage_audit(
             await session.execute(
                 select(func.count())
                 .select_from(YarnUsageLog)
-                .where(YarnUsageLog.user_id == user_id)
+                .where(YarnUsageLog.user_id.in_(scoped_user_ids))
                 .where(YarnUsageLog.created_at >= cutoff)
             )
         ).scalar_one()
@@ -140,7 +149,7 @@ async def list_user_usage_audit(
             (
                 await session.execute(
                     select(PlannerUsageLog)
-                    .where(PlannerUsageLog.user_id == user_id)
+                    .where(PlannerUsageLog.user_id.in_(scoped_user_ids))
                     .where(PlannerUsageLog.created_at >= cutoff)
                     .order_by(PlannerUsageLog.created_at.desc())
                     .limit(fetch_limit)
@@ -153,7 +162,7 @@ async def list_user_usage_audit(
             (
                 await session.execute(
                     select(YarnUsageLog)
-                    .where(YarnUsageLog.user_id == user_id)
+                    .where(YarnUsageLog.user_id.in_(scoped_user_ids))
                     .where(YarnUsageLog.created_at >= cutoff)
                     .order_by(YarnUsageLog.created_at.desc())
                     .limit(fetch_limit)
@@ -175,11 +184,15 @@ async def list_user_usage_audit(
 
 
 async def get_user_usage_audit_request(user_id: str, request_id: str) -> dict[str, Any] | None:
+    return await get_user_usage_audit_request_for_ids([user_id], request_id)
+
+
+async def get_user_usage_audit_request_for_ids(user_ids: list[str], request_id: str) -> dict[str, Any] | None:
     async with async_session() as session:
         planner = (
             await session.execute(
                 select(PlannerUsageLog)
-                .where(PlannerUsageLog.user_id == user_id)
+                .where(PlannerUsageLog.user_id.in_(user_ids))
                 .where(PlannerUsageLog.request_id == request_id)
             )
         ).scalar_one_or_none()
@@ -187,7 +200,9 @@ async def get_user_usage_audit_request(user_id: str, request_id: str) -> dict[st
             return _planner_row(planner)
         yarn = (
             await session.execute(
-                select(YarnUsageLog).where(YarnUsageLog.user_id == user_id).where(YarnUsageLog.request_id == request_id)
+                select(YarnUsageLog)
+                .where(YarnUsageLog.user_id.in_(user_ids))
+                .where(YarnUsageLog.request_id == request_id)
             )
         ).scalar_one_or_none()
         if yarn is not None:

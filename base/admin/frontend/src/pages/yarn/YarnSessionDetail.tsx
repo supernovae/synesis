@@ -304,11 +304,18 @@ export default function YarnSessionDetail() {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Effective Cost (Actual if available, else Estimated)">
-                  Total cost
+                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Configured model rate-card usage price">
+                  Total price
                 </dt>
-                <dd className="mt-1 text-sm tabular-nums text-gray-900 dark:text-gray-100" title={`Actual: ${fmtCost(data.session.total_actual_cost_usd)} | Est: ${fmtCost(data.session.total_estimated_cost_usd)}`}>
-                  {fmtCost(data.session.total_actual_cost_usd > 0 ? data.session.total_actual_cost_usd : data.session.total_estimated_cost_usd)}
+                <dd
+                  className="mt-1 text-sm tabular-nums text-gray-900 dark:text-gray-100"
+                  title={
+                    data.session.total_provider_actual_cost_usd != null
+                      ? `Provider actual: ${fmtCost(data.session.total_provider_actual_cost_usd)}`
+                      : "Configured usage price"
+                  }
+                >
+                  {fmtCost(data.session.total_price_usd)}
                 </dd>
               </div>
               <div>
@@ -485,8 +492,8 @@ export default function YarnSessionDetail() {
                         <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Latency
                         </th>
-                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Effective Cost (Actual if available, else Estimated)">
-                          Cost
+                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="Configured model rate-card usage price">
+                          Price
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           Flags
@@ -526,10 +533,17 @@ export default function YarnSessionDetail() {
                           <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                             {fmtDurationMs(rq.latency_ms)}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400" title={`Actual: ${fmtCost(rq.actual_cost_usd)} | Est: ${fmtCost(rq.estimated_cost_usd)}`}>
-                            <span>{fmtCost(rq.actual_cost_usd > 0 ? rq.actual_cost_usd : rq.estimated_cost_usd)}</span>
+                          <td
+                            className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400"
+                            title={
+                              rq.provider_actual_cost_usd != null
+                                ? `Provider actual: ${fmtCost(rq.provider_actual_cost_usd)}`
+                                : "Configured usage price"
+                            }
+                          >
+                            <span>{fmtCost(rq.price_usd)}</span>
                             {isFallbackPricing(rq.pricing_source) && (
-                              <span className="ml-1 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-500/30" title="Cost derived from fallback base rates — set pricing in Model Registry">
+                              <span className="ml-1 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-500/30" title="Price derived from fallback base rates — set pricing in Model Registry">
                                 {pricingSourceLabel(rq.pricing_source)}
                               </span>
                             )}

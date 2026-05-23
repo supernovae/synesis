@@ -20,7 +20,7 @@ import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
-import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown } from "lucide-react";
+import { DollarSign, Cloud, Server, PenLine } from "lucide-react";
 import type { ModelCost, ActiveCostEntry } from "../../types";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
 import { Link } from "react-router-dom";
@@ -187,21 +187,18 @@ export default function CostTracker() {
   const byRole: CostByRoleEntry[] = roleData?.roles ?? [];
   const daily: DailyCostEntry[] = dailyData?.daily ?? [];
 
-  const totalEstimated = byRole.reduce((s, r) => s + r.estimated_cost_usd, 0);
-  const totalActual = byRole.reduce((s, r) => s + r.actual_cost_usd, 0);
+  const totalPrice = byRole.reduce((s, r) => s + r.price_usd, 0);
+  const totalProviderActual = byRole.reduce((s, r) => s + (r.provider_actual_cost_usd ?? 0), 0);
   const totalRequests = byRole.reduce((s, r) => s + r.requests, 0);
-  const costDiff = totalActual > 0 && totalEstimated > 0
-    ? ((totalActual - totalEstimated) / totalEstimated) * 100
-    : 0;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage & spend</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage Pricing</h1>
           <p className="mt-1 text-sm text-gray-500">
             Rolled up from <span className="font-medium">trace JSON llm_calls</span> (per-role), not
-            planner_usage_log; Coder / IDE spend is on{" "}
+            planner_usage_log; Coder / IDE pricing is on{" "}
             <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Overview
             </Link>
@@ -225,28 +222,27 @@ export default function CostTracker() {
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : activeRoles.length === 0 && byRole.length === 0 ? (
-        <EmptyState title="No cost data" description="Cost data populates after requests flow through the pipeline" />
+        <EmptyState title="No pricing data" description="Usage pricing populates after requests flow through the pipeline" />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-4">
             <MetricCard
-              label="Estimated (Forecast)"
-              value={`$${totalEstimated.toFixed(4)}`}
+              label="Usage Price"
+              value={`$${totalPrice.toFixed(4)}`}
               subtitle={`${days}d · from trace llm_calls`}
               icon={DollarSign}
             />
             <MetricCard
-              label="Actual (from API)"
-              value={totalActual > 0 ? `$${totalActual.toFixed(4)}` : "N/A"}
-              subtitle={totalActual > 0 ? "provider-reported on calls" : "no provider USD yet"}
+              label="Provider Actual"
+              value={totalProviderActual > 0 ? `$${totalProviderActual.toFixed(4)}` : "Hidden"}
+              subtitle={totalProviderActual > 0 ? "platform admin only" : "not available on this view"}
               icon={DollarSign}
             />
             <MetricCard
-              label="Cost Variance"
-              value={totalActual > 0 ? `${costDiff > 0 ? "+" : ""}${costDiff.toFixed(1)}%` : "-"}
-              subtitle={totalActual > 0 ? "est. vs provider" : "needs actual USD"}
-              icon={costDiff > 0 ? TrendingUp : TrendingDown}
-              trend={costDiff > 2 ? "up" : costDiff < -2 ? "down" : "neutral"}
+              label="Cache-Aware"
+              value="Rate card"
+              subtitle="input/cache/output pricing"
+              icon={DollarSign}
             />
             <MetricCard
               label="Total Requests"
@@ -255,9 +251,9 @@ export default function CostTracker() {
             />
           </div>
 
-          {/* Cost by role (primary chart) */}
+          {/* Price by role (primary chart) */}
           {byRole.length > 0 && (
-            <ChartCard title={`Cost by Role (${days}d)`} subtitle="Estimated vs Actual per pipeline role">
+            <ChartCard title={`Price by Role (${days}d)`} subtitle="Configured usage price per pipeline role">
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={byRole}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -265,16 +261,16 @@ export default function CostTracker() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
                   <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
-                  <Bar dataKey="estimated_cost_usd" name="Estimated (Forecast)" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual_cost_usd" name="Actual (from API)" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="price_usd" name="Usage Price" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="provider_actual_cost_usd" name="Provider Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
           )}
 
-          {/* Daily cost trend */}
+          {/* Daily price trend */}
           {daily.length > 0 && (
-            <ChartCard title={`Daily Cost Trend (${days}d)`} subtitle="Estimated vs Actual cost per day">
+            <ChartCard title={`Daily Price Trend (${days}d)`} subtitle="Configured usage price per day">
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={daily}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -282,8 +278,8 @@ export default function CostTracker() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
                   <Tooltip formatter={(v) => (v == null ? "" : `$${Number(v).toFixed(6)}`)} />
                   <Legend />
-                  <Bar dataKey="estimated_cost_usd" name="Estimated (Forecast)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual_cost_usd" name="Actual (from API)" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="price_usd" name="Usage Price" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="provider_actual_cost_usd" name="Provider Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>

@@ -492,7 +492,7 @@ def test_yarn_user_usage_any_authenticated_user(client, monkeypatch):
         "tokens_in": 1,
         "tokens_out": 2,
         "tokens_cached": 0,
-        "cost_usd": 0.0,
+        "price_usd": 0.0,
         "avg_latency_ms": 0.0,
         "escalations": 0,
         "errors": 0,
@@ -502,7 +502,13 @@ def test_yarn_user_usage_any_authenticated_user(client, monkeypatch):
     resp = client.get("/api/v1/yarn/user-usage?since_hours=720")
     assert resp.status_code == 200
     assert resp.json() == usage
-    mock_usage.assert_awaited_once_with("plain-user", since_hours=720)
+    mock_usage.assert_awaited_once()
+    args = mock_usage.await_args.args
+    kwargs = mock_usage.await_args.kwargs
+    assert args == ("plain-user",)
+    assert kwargs["since_hours"] == 720
+    assert "plain-user" in kwargs["user_ids"]
+    assert "plain-user@test.local" in kwargs["user_ids"]
 
 
 def test_yarn_sessions_list_passes_active_since_hours(client, monkeypatch):

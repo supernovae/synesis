@@ -1,4 +1,5 @@
 import type { FastifyRequest } from "fastify";
+import crypto from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { AuthContext } from "./types.js";
 import { resolvePatFromDb } from "./pat-resolver.js";
@@ -71,6 +72,9 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
       role: "user",
       tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
       authMethod: "internal_service",
+      authKeyId: "internal-service",
+      authKeyName: "Internal service",
+      authKeyPrefix: "internal",
       trustedForwardedIdentity: true
     };
   }
@@ -84,6 +88,9 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
       role: "readonly",
       tokenScopes: config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH ? [] : ["model:readonly"],
       authMethod: "anonymous",
+      authKeyId: "anonymous",
+      authKeyName: "Anonymous",
+      authKeyPrefix: "anonymous",
       trustedForwardedIdentity: false
     };
   }
@@ -103,18 +110,26 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
       role: pat.role as AuthContext["role"],
       tokenScopes: pat.scopes,
       authMethod: "pat",
+      authKeyId: pat.id,
+      authKeyName: pat.name,
+      authKeyPrefix: pat.tokenPrefix,
       trustedForwardedIdentity: false
     };
   }
 
+  const bearerKeyId = `bearer-${crypto.createHash("sha256").update(token).digest("hex").slice(0, 24)}`;
+
   return {
-    userId: "bearer-user",
+    userId: bearerKeyId,
     userEmail: "",
     orgId: "",
     tenantIds: [],
     role: "user",
     tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
     authMethod: "bearer",
+    authKeyId: bearerKeyId,
+    authKeyName: "External bearer token",
+    authKeyPrefix: "bearer",
     trustedForwardedIdentity: false
   };
 }

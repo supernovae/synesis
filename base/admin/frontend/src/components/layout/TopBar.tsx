@@ -5,9 +5,9 @@ import { useState, useEffect } from "react";
 
 const breadcrumbLabels: Record<string, string> = {
   "": "Dashboard",
-  models: "Models & Costs",
+  models: "Models & Pricing",
   overview: "Overview",
-  costs: "Usage & spend",
+  costs: "Usage Pricing",
   performance: "Performance",
   providers: "Providers",
   policies: "Model Policies",

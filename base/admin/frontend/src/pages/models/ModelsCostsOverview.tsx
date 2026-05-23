@@ -24,9 +24,9 @@ export default function ModelsCostsOverview() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Models & Costs</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Models & Pricing</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Unified view of Chat pipeline usage and Coder / IDE spend.
+          Unified view of Chat pipeline usage and Coder / IDE pricing.
         </p>
       </div>
 
@@ -58,7 +58,7 @@ export default function ModelsCostsOverview() {
             <div className="rounded-lg border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-4 dark:border-indigo-800 dark:from-indigo-950/30 dark:to-violet-950/30">
               <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
                 <DollarSign className="h-5 w-5" />
-                <h2 className="font-semibold">Total Platform Spend</h2>
+                <h2 className="font-semibold">Total Usage Price</h2>
                 <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">
                   {sinceHours}h window
                 </span>
@@ -67,35 +67,35 @@ export default function ModelsCostsOverview() {
                 <dl className="space-y-1 text-sm">
                   <dt className="font-medium text-gray-700 dark:text-gray-300">Chat (pipeline)</dt>
                   <dd className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {fmtCost(Number(spend.planner_estimated_usd || 0))}
-                    <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
+                    {fmtCost(Number(spend.planner_price_usd || 0))}
+                    <span className="ml-1 text-xs font-normal text-gray-500">price</span>
                   </dd>
                   <dd className="text-xs text-gray-500 dark:text-gray-400">planner_usage_log (+ trace fallback)</dd>
-                  {Number(spend.planner_actual_usd || 0) > 0 && (
+                  {Number(spend.planner_provider_actual_usd || 0) > 0 && (
                     <dd className="text-xs text-gray-500">
-                      {fmtCost(Number(spend.planner_actual_usd))} actual
+                      {fmtCost(Number(spend.planner_provider_actual_usd))} provider actual
                     </dd>
                   )}
                 </dl>
                 <dl className="space-y-1 text-sm">
                   <dt className="font-medium text-gray-700 dark:text-gray-300">Coder</dt>
                   <dd className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {fmtCost(Number(spend.yarn_estimated_usd || 0))}
-                    <span className="ml-1 text-xs font-normal text-gray-500">est.</span>
+                    {fmtCost(Number(spend.yarn_price_usd || 0))}
+                    <span className="ml-1 text-xs font-normal text-gray-500">price</span>
                   </dd>
-                  {Number(spend.yarn_actual_usd || 0) > 0 && (
+                  {Number(spend.yarn_provider_actual_usd || 0) > 0 && (
                     <dd className="text-xs text-gray-500">
-                      {fmtCost(Number(spend.yarn_actual_usd))} actual
+                      {fmtCost(Number(spend.yarn_provider_actual_usd))} provider actual
                     </dd>
                   )}
                 </dl>
                 <dl className="space-y-1 text-sm">
-                  <dt className="font-medium text-gray-700 dark:text-gray-300">Effective Total</dt>
+                  <dt className="font-medium text-gray-700 dark:text-gray-300">Total</dt>
                   <dd className="text-lg font-semibold text-indigo-600 dark:text-indigo-400">
-                    {fmtCost(Number(spend.effective_total_usd || 0))}
+                    {fmtCost(Number(spend.total_price_usd || 0))}
                   </dd>
                   <dd className="text-xs text-gray-500">
-                    max(actual, est.) per service
+                    configured usage price
                   </dd>
                 </dl>
               </div>
@@ -118,13 +118,15 @@ export default function ModelsCostsOverview() {
                   <dd>{tr?.total_tokens != null ? fmtTokens(tr.total_tokens) : "—"}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-gray-500" title="What we forecast if API doesn't provide costs">Estimated (Forecast)</dt>
-                  <dd>{tr ? fmtCost(tr.estimated_cost_usd) : "—"}</dd>
+                  <dt className="text-gray-500" title="Configured model rate card price">Usage Price</dt>
+                  <dd>{tr ? fmtCost(tr.price_usd) : "—"}</dd>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-500" title="Actual costs from API">Actual (from API)</dt>
-                  <dd>{tr ? fmtCost(tr.actual_cost_usd) : "—"}</dd>
-                </div>
+                {tr?.provider_actual_cost_usd != null && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500" title="Platform-admin-only provider actual">Provider Actual</dt>
+                    <dd>{fmtCost(tr.provider_actual_cost_usd)}</dd>
+                  </div>
+                )}
                 {tr?.source && (
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Source: {tr.source}</p>
                 )}
@@ -156,17 +158,17 @@ export default function ModelsCostsOverview() {
                   </div>
                   {/* cached is now accurately reported via vLLM usage + extractUsage; subset of input. See usage-extract.ts and yarn session detail for full breakdown. */}
                   <div className="flex justify-between">
-                    <dt className="text-gray-500" title="What we forecast if API doesn't provide costs">Estimated (Forecast)</dt>
+                    <dt className="text-gray-500" title="Configured model rate card price">Usage Price</dt>
                     <dd>
-                      {yarn.total_estimated_cost_usd != null ? fmtCost(Number(yarn.total_estimated_cost_usd)) : "—"}
+                      {yarn.total_price_usd != null ? fmtCost(Number(yarn.total_price_usd)) : "—"}
                     </dd>
                   </div>
-                  <div className="flex justify-between">
-                    <dt className="text-gray-500" title="Actual costs from API">Actual (from API)</dt>
-                    <dd>
-                      {yarn.total_actual_cost_usd != null ? fmtCost(Number(yarn.total_actual_cost_usd)) : "—"}
-                    </dd>
-                  </div>
+                  {yarn.total_provider_actual_cost_usd != null && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500" title="Platform-admin-only provider actual">Provider Actual</dt>
+                      <dd>{fmtCost(Number(yarn.total_provider_actual_cost_usd))}</dd>
+                    </div>
+                  )}
                   <div className="pt-2">
                     <Link
                       to="/yarn"
@@ -272,7 +274,7 @@ export default function ModelsCostsOverview() {
                 to="/models/costs"
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:hover:bg-gray-800"
               >
-                <Layers className="h-4 w-4" /> Usage & spend (charts)
+                <Layers className="h-4 w-4" /> Usage pricing charts
               </Link>
               <Link
                 to="/models"

@@ -19,6 +19,10 @@ export function emitPlannerUsageMetering(
     estimated_cost_usd: number;
     actual_cost_usd: number;
     pricing_source: string;
+    auth_method?: string;
+    auth_key_id?: string;
+    auth_key_name?: string;
+    auth_key_prefix?: string;
     rates_snapshot?: PricingRates;
     latency_ms: number;
     has_error: boolean;
@@ -43,6 +47,10 @@ export function emitPlannerUsageMetering(
     estimated_cost_usd: payload.estimated_cost_usd,
     actual_cost_usd: payload.actual_cost_usd,
     pricing_source: payload.pricing_source,
+    auth_method: payload.auth_method ?? "",
+    auth_key_id: payload.auth_key_id ?? "",
+    auth_key_name: payload.auth_key_name ?? "",
+    auth_key_prefix: payload.auth_key_prefix ?? "",
     rates_snapshot: payload.rates_snapshot,
     latency_ms: payload.latency_ms,
     has_error: payload.has_error,

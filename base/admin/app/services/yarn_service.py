@@ -67,6 +67,7 @@ async def get_yarn_overview(
     since_hours: int = 24,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    include_provider_actual: bool = False,
 ) -> dict:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -114,14 +115,13 @@ async def get_yarn_overview(
         active_sessions = active_sessions_res.scalar() or 0
 
     total_reqs = int(row.total_requests)
-    return {
+    out = {
         "since_hours": since_hours,
         "total_requests": total_reqs,
         "total_tokens_in": int(row.total_tokens_in),
         "total_tokens_out": int(row.total_tokens_out),
         "total_tokens_cached": int(row.total_tokens_cached),
-        "total_estimated_cost_usd": round(float(row.total_estimated_cost_usd), 4),
-        "total_actual_cost_usd": round(float(row.total_actual_cost_usd), 4),
+        "total_price_usd": round(float(row.total_estimated_cost_usd), 4),
         "avg_latency_ms": round(float(row.avg_latency_ms), 1),
         "p99_latency_ms": round(float(row.p99_latency_ms), 1),
         "error_count": error_count,
@@ -130,6 +130,9 @@ async def get_yarn_overview(
         "total_tool_calls": int(row.total_tool_calls),
         "active_sessions": active_sessions,
     }
+    if include_provider_actual:
+        out["total_provider_actual_cost_usd"] = round(float(row.total_actual_cost_usd), 4)
+    return out
 
 
 # ── Sessions list ─────────────────────────────────────────────────────────────
@@ -141,6 +144,7 @@ async def list_yarn_sessions(
     scope_user_id: str = "",
     scope_org_id: str = "",
     active_since_hours: int | None = 168,
+    include_provider_actual: bool = False,
 ) -> dict:
     async with async_session() as session:
         base = select(YarnSession)
@@ -159,8 +163,9 @@ async def list_yarn_sessions(
         rows = result.scalars().all()
 
     pat_usernames = await _pat_usernames_for([r.user_id for r in rows])
-    sessions = [
-        {
+    sessions = []
+    for r in rows:
+        row = {
             "id": r.id,
             "session_key": r.session_key,
             "user_id": r.user_id,
@@ -176,15 +181,15 @@ async def list_yarn_sessions(
             "total_tokens_out": r.total_tokens_out,
             "total_tokens_cached": r.total_tokens_cached,
             "total_tokens_saved": getattr(r, "total_tokens_saved", 0) or 0,
-            "total_estimated_cost_usd": round(r.total_estimated_cost_usd, 4),
-            "total_actual_cost_usd": round(r.total_actual_cost_usd, 4),
+            "total_price_usd": round(r.total_estimated_cost_usd, 4),
             "request_count": r.request_count,
             "escalation_count": r.escalation_count,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "last_active_at": r.last_active_at.isoformat() if r.last_active_at else None,
         }
-        for r in rows
-    ]
+        if include_provider_actual:
+            row["total_provider_actual_cost_usd"] = round(r.total_actual_cost_usd, 4)
+        sessions.append(row)
     return {"sessions": sessions, "total": total}
 
 
@@ -195,6 +200,7 @@ async def get_yarn_session_detail(
     session_key: str,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    include_provider_actual: bool = False,
 ) -> dict | None:
     async with async_session() as session:
         stmt = select(YarnSession).where(YarnSession.session_key == session_key).limit(1)
@@ -250,51 +256,57 @@ async def get_yarn_session_detail(
         events = events_result.scalars().all()
 
     pat_usernames = await _pat_usernames_for([r.user_id])
+    session_row = {
+        "id": r.id,
+        "session_key": r.session_key,
+        "user_id": r.user_id,
+        "org_id": r.org_id,
+        "username": r.username,
+        "user_display": _user_display(r.user_id, r.username, pat_usernames),
+        "role": r.role,
+        "conversation_id": r.conversation_id,
+        "client_kind": getattr(r, "client_kind", "unknown"),
+        "provider": r.provider,
+        "model": r.model,
+        "total_tokens_in": r.total_tokens_in,
+        "total_tokens_out": r.total_tokens_out,
+        "total_tokens_cached": r.total_tokens_cached,
+        "total_tokens_saved": getattr(r, "total_tokens_saved", 0) or 0,
+        "total_price_usd": round(r.total_estimated_cost_usd, 4),
+        "request_count": r.request_count,
+        "escalation_count": r.escalation_count,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "last_active_at": r.last_active_at.isoformat() if r.last_active_at else None,
+    }
+    if include_provider_actual:
+        session_row["total_provider_actual_cost_usd"] = round(r.total_actual_cost_usd, 4)
+
+    request_rows = []
+    for rq in requests:
+        request_row = {
+            "id": rq.id,
+            "request_id": rq.request_id,
+            "provider": rq.provider,
+            "model": rq.model,
+            "tokens_in": rq.tokens_in,
+            "tokens_out": rq.tokens_out,
+            "tokens_cached": rq.tokens_cached,
+            "tokens_saved_by_reduction": getattr(rq, "tokens_saved_by_reduction", 0) or 0,
+            "latency_ms": round(rq.latency_ms, 1),
+            "price_usd": round(rq.estimated_cost_usd, 6),
+            "pricing_source": getattr(rq, "pricing_source", "unknown") or "unknown",
+            "escalated": rq.escalated,
+            "tool_calls_count": rq.tool_calls_count,
+            "finish_reason": rq.finish_reason,
+            "created_at": rq.created_at.isoformat() if rq.created_at else None,
+        }
+        if include_provider_actual:
+            request_row["provider_actual_cost_usd"] = round(rq.actual_cost_usd, 6)
+        request_rows.append(request_row)
+
     return {
-        "session": {
-            "id": r.id,
-            "session_key": r.session_key,
-            "user_id": r.user_id,
-            "org_id": r.org_id,
-            "username": r.username,
-            "user_display": _user_display(r.user_id, r.username, pat_usernames),
-            "role": r.role,
-            "conversation_id": r.conversation_id,
-            "client_kind": getattr(r, "client_kind", "unknown"),
-            "provider": r.provider,
-            "model": r.model,
-            "total_tokens_in": r.total_tokens_in,
-            "total_tokens_out": r.total_tokens_out,
-            "total_tokens_cached": r.total_tokens_cached,
-            "total_tokens_saved": getattr(r, "total_tokens_saved", 0) or 0,
-            "total_estimated_cost_usd": round(r.total_estimated_cost_usd, 4),
-            "total_actual_cost_usd": round(r.total_actual_cost_usd, 4),
-            "request_count": r.request_count,
-            "escalation_count": r.escalation_count,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "last_active_at": r.last_active_at.isoformat() if r.last_active_at else None,
-        },
-        "requests": [
-            {
-                "id": rq.id,
-                "request_id": rq.request_id,
-                "provider": rq.provider,
-                "model": rq.model,
-                "tokens_in": rq.tokens_in,
-                "tokens_out": rq.tokens_out,
-                "tokens_cached": rq.tokens_cached,
-                "tokens_saved_by_reduction": getattr(rq, "tokens_saved_by_reduction", 0) or 0,
-                "latency_ms": round(rq.latency_ms, 1),
-                "estimated_cost_usd": round(rq.estimated_cost_usd, 6),
-                "actual_cost_usd": round(rq.actual_cost_usd, 6),
-                "pricing_source": getattr(rq, "pricing_source", "unknown") or "unknown",
-                "escalated": rq.escalated,
-                "tool_calls_count": rq.tool_calls_count,
-                "finish_reason": rq.finish_reason,
-                "created_at": rq.created_at.isoformat() if rq.created_at else None,
-            }
-            for rq in requests
-        ],
+        "session": session_row,
+        "requests": request_rows,
         "events": [
             {
                 "id": ev.id,
@@ -325,6 +337,7 @@ async def list_yarn_events(
     scope_org_id: str = "",
     since_hours: int = 24,
     errors_only: bool = False,
+    include_provider_actual: bool = False,
 ) -> dict:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -346,8 +359,9 @@ async def list_yarn_events(
         result = await session.execute(stmt)
         rows = result.scalars().all()
 
-    events = [
-        {
+    events = []
+    for r in rows:
+        event = {
             "id": r.id,
             "session_key": r.session_key,
             "request_id": r.request_id,
@@ -359,16 +373,16 @@ async def list_yarn_events(
             "tokens_out": r.tokens_out,
             "tokens_cached": r.tokens_cached,
             "latency_ms": round(r.latency_ms, 1),
-            "estimated_cost_usd": round(r.estimated_cost_usd, 6),
-            "actual_cost_usd": round(r.actual_cost_usd, 6),
+            "price_usd": round(r.estimated_cost_usd, 6),
             "pricing_source": getattr(r, "pricing_source", "unknown") or "unknown",
             "escalated": r.escalated,
             "tool_calls_count": r.tool_calls_count,
             "finish_reason": r.finish_reason,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in rows
-    ]
+        if include_provider_actual:
+            event["provider_actual_cost_usd"] = round(r.actual_cost_usd, 6)
+        events.append(event)
     return {"events": events, "total": total}
 
 
@@ -380,6 +394,7 @@ async def get_yarn_performance(
     bucket_minutes: int = 15,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    include_provider_actual: bool = False,
 ) -> list[dict]:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -416,29 +431,32 @@ async def get_yarn_performance(
         )
         rows = result.mappings().all()
 
-    return [
-        {
+    out = []
+    for r in rows:
+        bucket = {
             "bucket": r["bucket"].isoformat() if r["bucket"] else None,
             "requests": r["requests"],
             "tokens_in": r["tokens_in"],
             "tokens_out": r["tokens_out"],
             "tokens_cached": r["tokens_cached"],
-            "estimated_cost_usd": round(r["estimated_cost_usd"], 4),
-            "actual_cost_usd": round(r["actual_cost_usd"], 4),
+            "price_usd": round(r["estimated_cost_usd"], 4),
             "avg_latency_ms": round(r["avg_latency_ms"], 1),
             "max_latency_ms": round(r["max_latency_ms"], 1),
             "escalations": r["escalations"],
             "errors": r["errors"],
         }
-        for r in rows
-    ]
+        if include_provider_actual:
+            bucket["provider_actual_cost_usd"] = round(r["actual_cost_usd"], 4)
+        out.append(bucket)
+    return out
 
 
 # ── User-scoped usage summary (for account page) ─────────────────────────────
 
 
-async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
+async def get_user_yarn_usage(user_id: str, since_hours: int = 720, user_ids: list[str] | None = None) -> dict:
     cutoff = _cutoff(since_hours)
+    scoped_user_ids = user_ids or [user_id]
     async with async_session() as session:
         base = (
             select(
@@ -451,8 +469,7 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
                     "estimated_no_cache_cost_usd"
                 ),
                 func.coalesce(func.sum(YarnUsageLog.cache_savings_usd), 0).label("cache_savings_usd"),
-                func.coalesce(func.sum(YarnUsageLog.estimated_cost_usd), 0).label("estimated_cost_usd"),
-                func.coalesce(func.sum(YarnUsageLog.actual_cost_usd), 0).label("actual_cost_usd"),
+                func.coalesce(func.sum(YarnUsageLog.estimated_cost_usd), 0).label("price_usd"),
                 func.coalesce(func.avg(YarnUsageLog.latency_ms), 0).label("avg_latency_ms"),
                 func.coalesce(
                     func.sum(case((YarnUsageLog.escalated == True, 1), else_=0)),
@@ -463,7 +480,7 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
                     0,
                 ).label("errors"),
             )
-            .where(YarnUsageLog.user_id == user_id)
+            .where(YarnUsageLog.user_id.in_(scoped_user_ids))
             .where(YarnUsageLog.created_at >= cutoff)
         )
         row = (await session.execute(base)).one()
@@ -476,10 +493,9 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
         "tokens_out": int(row.tokens_out),
         "tokens_cached": int(row.tokens_cached),
         "tokens_cache_write": int(row.tokens_cache_write),
-        "estimated_no_cache_cost_usd": round(float(row.estimated_no_cache_cost_usd), 4),
-        "cache_savings_usd": round(float(row.cache_savings_usd), 4),
-        "estimated_cost_usd": round(float(row.estimated_cost_usd), 4),
-        "actual_cost_usd": round(float(row.actual_cost_usd), 4),
+        "no_cache_price_usd": round(float(row.estimated_no_cache_cost_usd), 4),
+        "cache_discount_usd": round(float(row.cache_savings_usd), 4),
+        "price_usd": round(float(row.price_usd), 4),
         "avg_latency_ms": round(float(row.avg_latency_ms), 1),
         "escalations": int(row.escalations),
         "errors": int(row.errors),
@@ -493,6 +509,7 @@ async def get_yarn_intelligence(
     since_hours: int = 24,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    include_provider_actual: bool = False,
 ) -> dict:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -534,15 +551,16 @@ async def get_yarn_intelligence(
             .order_by(text("requests DESC"))
             .limit(5)
         )
-        top_models = [
-            {
+        top_models = []
+        for r in top_models_res:
+            row = {
                 "model": (r.model or "unknown"),
                 "requests": int(r.requests or 0),
-                "estimated_cost_usd": round(float(r.estimated_cost_usd or 0), 4),
-                "actual_cost_usd": round(float(r.actual_cost_usd or 0), 4),
+                "price_usd": round(float(r.estimated_cost_usd or 0), 4),
             }
-            for r in top_models_res
-        ]
+            if include_provider_actual:
+                row["provider_actual_cost_usd"] = round(float(r.actual_cost_usd or 0), 4)
+            top_models.append(row)
 
         finish_reason_res = await session.execute(
             select(YarnUsageLog.finish_reason, func.count().label("count"))
@@ -577,10 +595,7 @@ async def get_yarn_intelligence(
                 u.request_id,
                 (COALESCE(u.tokens_in, 0) + COALESCE(u.tokens_out, 0))::bigint AS total_tokens,
                 COALESCE(u.tokens_cached, 0)::bigint AS cached_tokens,
-                CASE
-                  WHEN COALESCE(u.actual_cost_usd, 0) > 0 THEN COALESCE(u.actual_cost_usd, 0)
-                  ELSE COALESCE(u.estimated_cost_usd, 0)
-                END::float AS effective_cost_usd
+                COALESCE(u.estimated_cost_usd, 0)::float AS price_usd
               FROM yarn_usage_log u
               JOIN request_hits rh ON rh.request_id = u.request_id
             )
@@ -591,7 +606,7 @@ async def get_yarn_intelligence(
               (SELECT COUNT(DISTINCT session_key)::int FROM scoped_events) AS impacted_sessions,
               (SELECT COALESCE(SUM(total_tokens), 0)::bigint FROM joined_usage) AS impacted_tokens,
               (SELECT COALESCE(SUM(cached_tokens), 0)::bigint FROM joined_usage) AS impacted_cached_tokens,
-              (SELECT COALESCE(SUM(effective_cost_usd), 0)::float FROM joined_usage) AS impacted_cost_usd
+              (SELECT COALESCE(SUM(price_usd), 0)::float FROM joined_usage) AS impacted_price_usd
             """
         )
         edit_miss_rollup_row = (
@@ -629,13 +644,10 @@ async def get_yarn_intelligence(
               COALESCE(SUM(COALESCE(u.tokens_cached, 0)), 0)::bigint AS cached_tokens,
               COALESCE(
                 SUM(
-                  CASE
-                    WHEN COALESCE(u.actual_cost_usd, 0) > 0 THEN COALESCE(u.actual_cost_usd, 0)
-                    ELSE COALESCE(u.estimated_cost_usd, 0)
-                  END
+                  COALESCE(u.estimated_cost_usd, 0)
                 ),
                 0
-              )::float AS effective_cost_usd
+              )::float AS price_usd
             FROM yarn_usage_log u
             JOIN request_hits rh ON rh.request_id = u.request_id
             GROUP BY provider, model
@@ -1052,7 +1064,7 @@ async def get_yarn_intelligence(
     edit_miss_impacted_sessions = int(edit_miss_rollup_row["impacted_sessions"] or 0)
     edit_miss_impacted_tokens = int(edit_miss_rollup_row["impacted_tokens"] or 0)
     edit_miss_impacted_cached_tokens = int(edit_miss_rollup_row["impacted_cached_tokens"] or 0)
-    edit_miss_impacted_cost_usd = float(edit_miss_rollup_row["impacted_cost_usd"] or 0.0)
+    edit_miss_impacted_price_usd = float(edit_miss_rollup_row["impacted_price_usd"] or 0.0)
     edit_miss_event_rate = (edit_miss_events / requests) if requests else 0.0
     edit_miss_request_rate = (edit_miss_impacted_requests / requests) if requests else 0.0
     edit_miss_mapping_coverage = (
@@ -1169,7 +1181,7 @@ async def get_yarn_intelligence(
             "impacted_tokens": edit_miss_impacted_tokens,
             "impacted_cached_tokens": edit_miss_impacted_cached_tokens,
             "impacted_cache_hit_estimate": round(edit_miss_cache_hit_estimate, 4),
-            "impacted_cost_usd": round(edit_miss_impacted_cost_usd, 4),
+            "impacted_price_usd": round(edit_miss_impacted_price_usd, 4),
             "top_models": [
                 {
                     "provider": str(r["provider"] or "unknown"),
@@ -1177,7 +1189,7 @@ async def get_yarn_intelligence(
                     "requests": int(r["requests"] or 0),
                     "total_tokens": int(r["total_tokens"] or 0),
                     "cached_tokens": int(r["cached_tokens"] or 0),
-                    "effective_cost_usd": round(float(r["effective_cost_usd"] or 0), 4),
+                    "price_usd": round(float(r["price_usd"] or 0), 4),
                 }
                 for r in edit_miss_top_models_rows
             ],

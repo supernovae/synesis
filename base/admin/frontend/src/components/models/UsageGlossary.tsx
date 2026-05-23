@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-/** Short definitions + link to Models & Costs overview hub. */
+/** Short definitions + link to Models & Pricing overview hub. */
 export function UsageGlossaryBanner({ className = "" }: { className?: string }) {
   return (
     <div
@@ -9,13 +9,9 @@ export function UsageGlossaryBanner({ className = "" }: { className?: string }) 
       <p className="font-medium">How we count usage</p>
       <ul className="mt-2 list-inside list-disc space-y-1 text-blue-900/90 dark:text-blue-200/90">
         <li>
-          <strong>Estimated</strong> — configured $/M rates × tokens; Chat planner-ts pipeline uses{" "}
+          <strong>Usage Price</strong> — configured $/M rates x tokens; Chat planner-ts pipeline uses{" "}
           <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">planner_usage_log</code> when
-          populated (trace rows as fallback), not a provider invoice.
-        </li>
-        <li>
-          <strong>Actual</strong> — sum of provider-reported per-call costs when present on LLM calls /
-          metering rows.
+          populated (trace rows as admin fallback), not a provider invoice.
         </li>
         <li>
           <strong>Coder / IDE</strong> — separate path (<code className="rounded bg-blue-100 px-1 dark:bg-blue-900">yarn_usage_log</code>

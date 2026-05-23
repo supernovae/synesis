@@ -4158,6 +4158,16 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
   return state;
 }
 
+function applyAuthKeyAttribution(
+  state: SessionState,
+  authUser: Pick<import("./auth.js").AuthUser, "authMethod" | "authKeyId" | "authKeyName" | "authKeyPrefix">,
+): void {
+  state.record.metadata.auth_method = authUser.authMethod;
+  state.record.metadata.auth_key_id = authUser.authKeyId ?? "";
+  state.record.metadata.auth_key_name = authUser.authKeyName ?? "";
+  state.record.metadata.auth_key_prefix = authUser.authKeyPrefix ?? "";
+}
+
 
 /**
  * Update the task ledger when a tool call is detected as a todo/task tool.
@@ -5201,6 +5211,10 @@ function persistSessionAndUsage(
     estimatedCostUsd: normalizedEstimatedCostUsd,
     actualCostUsd: normalizedActualCostUsd,
     pricingSource,
+    authMethod: String(state.record.metadata.auth_method ?? ""),
+    authKeyId: String(state.record.metadata.auth_key_id ?? ""),
+    authKeyName: String(state.record.metadata.auth_key_name ?? ""),
+    authKeyPrefix: String(state.record.metadata.auth_key_prefix ?? ""),
     escalated,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
@@ -8289,6 +8303,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
   }
   const session = await getSessionState(sessionKey, identity);
+  applyAuthKeyAttribution(session, authUser);
   const oaiRuntimePreferences = await loadUserRuntimePreferences(identity.userId);
   const oaiToolDefs = (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
   const oaiClientToolCapabilities = detectClientToolCapabilities(oaiToolDefs, oaiClientKind, oaiTaskCue);
@@ -12286,6 +12301,7 @@ app.post("/v1/messages", async (req, reply) => {
     app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
   }
   const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  applyAuthKeyAttribution(session, claudeAuthUser);
   const claudeRuntimePreferences = await loadUserRuntimePreferences(claudeIdentity.userId);
   const claudeClientToolCapabilities = detectClientToolCapabilities(
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,

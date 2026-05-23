@@ -225,17 +225,16 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
             </div>
             <div>
               <h2 className="text-lg font-medium text-gray-900 dark:text-white">
-                Usage & costs
+                Usage & pricing
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Token consumption and spend
+                Token consumption and usage price
               </p>
             </div>
           </div>
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            View your token usage, estimated costs, and latency broken down by
-            time period. Compares estimated pricing-model costs against
-            provider-reported actuals when available.
+            View your token usage, rate-card price, cache discounts, and latency
+            broken down by time period and API key.
           </p>
           <Link
             to="/account/usage"

@@ -27,6 +27,10 @@ export interface UsageEvent {
   actualCostUsd?: number;
   pricingSource?: string;
   costUsd?: number;
+  authMethod?: string;
+  authKeyId?: string;
+  authKeyName?: string;
+  authKeyPrefix?: string;
   escalated: boolean;
   toolCallsCount: number;
   finishReason: string;
@@ -317,6 +321,7 @@ export class UsageWriter {
         output_cost_usd, estimated_no_cache_cost_usd, cache_savings_usd,
         tokens_saved_by_reduction,
         latency_ms, estimated_cost_usd, actual_cost_usd, pricing_source,
+        auth_method, auth_key_id, auth_key_name, auth_key_prefix,
         escalated, tool_calls_count, finish_reason
       ) VALUES (
         $1, $2, $3, $4, $5, $6,
@@ -326,7 +331,8 @@ export class UsageWriter {
         $16, $17, $18,
         $19,
         $20, $21, $22, $23,
-        $24, $25, $26
+        $24, $25, $26, $27,
+        $28, $29, $30
       )
       ON CONFLICT (request_id) DO NOTHING
       `,
@@ -354,6 +360,10 @@ export class UsageWriter {
         estimatedCostUsd,
         actualCostUsd,
         pricingSource,
+        (event.authMethod ?? "").slice(0, 32),
+        (event.authKeyId ?? "").slice(0, 128),
+        (event.authKeyName ?? "").slice(0, 256),
+        (event.authKeyPrefix ?? "").slice(0, 32),
         event.escalated,
         event.toolCallsCount,
         event.finishReason.slice(0, 32)

@@ -628,6 +628,10 @@ class YarnUsageLog(Base):
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     pricing_source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    auth_method: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    auth_key_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    auth_key_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    auth_key_prefix: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tool_calls_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     finish_reason: Mapped[str] = mapped_column(String(32), nullable=False, default="")
@@ -639,6 +643,7 @@ class YarnUsageLog(Base):
         Index("ix_yarn_usage_org", "org_id"),
         Index("ix_yarn_usage_created", "created_at"),
         Index("ix_yarn_usage_provider", "provider"),
+        Index("ix_yarn_usage_auth_key", "auth_key_id"),
         Index("ix_yarn_usage_request_id_unique", "request_id", unique=True),
     )
 
@@ -670,6 +675,10 @@ class PlannerUsageLog(Base):
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     pricing_source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    auth_method: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    auth_key_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    auth_key_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    auth_key_prefix: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     has_error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -678,6 +687,7 @@ class PlannerUsageLog(Base):
         Index("ix_planner_usage_user", "user_id"),
         Index("ix_planner_usage_org", "org_id"),
         Index("ix_planner_usage_created", "created_at"),
+        Index("ix_planner_usage_auth_key", "auth_key_id"),
         Index("ix_planner_usage_request_id_unique", "request_id", unique=True),
     )
 
