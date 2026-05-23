@@ -217,15 +217,12 @@ import { AttentionPositioningService } from "./context/attention-positioning.js"
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
 import {
-  applyUpperHarnessToolCall,
   buildYarnUpperHarnessContext,
   evaluateYarnPromptIntakeSteer,
   evaluateUpperHarnessBudget,
   formatUpperHarnessDecisionSummary,
-  upperHarnessBlockPayload,
   type YarnPromptIntakeResult,
   type UpperHarnessDecision,
-  type YarnUpperHarnessContext,
 } from "./upper-harness/bridge.js";
 import {
   openAIToolsToSDK,
@@ -331,6 +328,10 @@ import {
   buildSensemakingGuidanceInjection,
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
+import {
+  applyAdapterToolHardening,
+  prepareGovernedToolCall,
+} from "./governance/tool-call-governor-service.js";
 import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
 import { detectPythonRuntimeDiscoveryLoop } from "./governance/python-runtime-discovery-loop.js";
 import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
@@ -350,7 +351,6 @@ import {
   findOfferedToolNameByCanonical,
   listOfferedToolNames,
   restoreGuardrailCallForClient,
-  rewriteUnavailableToolCall,
   toolDefinitionName,
   type GuardrailToolCall,
 } from "./tools/tool-call-availability.js";
@@ -4536,15 +4536,8 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
 import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js";
 import {
   adapterUsesToolLoopSteering,
-  repairBashToolCall,
-  repairWriteContentArray,
-  repairWriteToolCall,
-  remapCommonToolArgAliases,
 } from "./providers/model-adapter.js";
-import {
-  buildUserSafeErrorBashCommand,
-  governToolCall,
-} from "./path-governance/tool-call-governance.js";
+import { governToolCall } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
 import { canonicalValidationToolName } from "./tool-aliases.js";
@@ -4697,133 +4690,6 @@ function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
   } catch {
     return { ok: false, error: "No model configuration available — the service may still be initializing" };
   }
-}
-
-/**
- * Same tool pipeline for OpenAI and Claude: remap param aliases → Write/Bash repairs → governToolCall.
- * `streamToolName` is optional (Claude streaming may differ from tool-call name for edge cases).
- */
-function applyAdapterToolHardening(
-  adapter: ModelAdapter,
-  toolNameFromCall: string,
-  input: Record<string, unknown>,
-  streamToolName?: string,
-  options?: {
-    upperHarness?: YarnUpperHarnessContext;
-    clientKind?: string;
-    recentToolNames?: string[];
-  },
-): {
-  toolName: string;
-  input: Record<string, unknown>;
-  remapped: boolean;
-  repairedWriteContent: boolean;
-  repairedWrite: boolean;
-  repairedBash: boolean;
-  upperHarnessDecision?: UpperHarnessDecision;
-  upperHarnessRepaired: boolean;
-  upperHarnessBlocked: boolean;
-} {
-  let finalInput = { ...input };
-  let remapped = false;
-  let upperHarnessDecision: UpperHarnessDecision | undefined;
-  let upperHarnessRepaired = false;
-  let upperHarnessBlocked = false;
-  let toolNameForCall = toolNameFromCall;
-
-  if (options?.upperHarness) {
-    const upper = applyUpperHarnessToolCall({
-      context: options.upperHarness,
-      toolName: toolNameForCall,
-      input: finalInput,
-      recentToolNames: options.recentToolNames,
-    });
-    upperHarnessDecision = upper.decision;
-    upperHarnessRepaired = upper.repaired;
-    upperHarnessBlocked = upper.blocked;
-    toolNameForCall = upper.toolName;
-    finalInput = upper.input;
-    remapped = upper.repaired;
-
-    if (upper.blocked) {
-      const payload = upperHarnessBlockPayload(upper.decision, toolNameFromCall);
-      const clientKind = options.clientKind ?? "";
-      if (clientKind === "claude-code" || options.upperHarness.surface === "claude") {
-        return {
-          toolName: "Synesis_Error_UpperHarnessBlocked",
-          input: payload,
-          remapped,
-          repairedWriteContent: false,
-          repairedWrite: false,
-          repairedBash: false,
-          upperHarnessDecision,
-          upperHarnessRepaired,
-          upperHarnessBlocked,
-        };
-      }
-      return {
-        toolName: "Bash",
-        input: {
-          command: buildUserSafeErrorBashCommand(String(payload.message ?? "Tool call blocked by Synesis upper harness.")),
-          description: "Blocked by Synesis upper harness",
-        },
-        remapped,
-        repairedWriteContent: false,
-        repairedWrite: false,
-        repairedBash: false,
-        upperHarnessDecision,
-        upperHarnessRepaired,
-        upperHarnessBlocked,
-      };
-    }
-  }
-
-  const commonAliases = remapCommonToolArgAliases(toolNameForCall, finalInput);
-  if (commonAliases.remapped) {
-    finalInput = commonAliases.input;
-    remapped = true;
-  }
-
-  if (adapter.remapToolArgs) {
-    const r = adapter.remapToolArgs(toolNameForCall, finalInput);
-    finalInput = r.input;
-    remapped = remapped || r.remapped;
-  }
-  let emitToolName = (streamToolName ?? toolNameForCall).trim() || toolNameForCall;
-
-  let repairedWriteContent = false;
-  const writeContentRepair = repairWriteContentArray(emitToolName, finalInput);
-  if (writeContentRepair) {
-    finalInput = writeContentRepair.input;
-    repairedWriteContent = writeContentRepair.repaired;
-  }
-
-  let repairedWrite = false;
-  const writeRepair = repairWriteToolCall(emitToolName, finalInput);
-  if (writeRepair) {
-    emitToolName = writeRepair.rewrittenToolName;
-    finalInput = writeRepair.rewrittenInput;
-    repairedWrite = true;
-  }
-
-  let repairedBash = false;
-  const bashRepair = repairBashToolCall(emitToolName, finalInput);
-  if (bashRepair) {
-    finalInput = bashRepair.input;
-    repairedBash = bashRepair.repaired;
-  }
-
-  return {
-    toolName: emitToolName,
-    input: finalInput,
-    remapped,
-    repairedWriteContent,
-    repairedWrite,
-    repairedBash,
-    upperHarnessDecision,
-    upperHarnessRepaired,
-    upperHarnessBlocked,
-  };
 }
 
 function trackGovernedHardening(governed: GovernedToolCall): void {
@@ -10830,11 +10696,45 @@ app.post("/v1/chat/completions", async (req, reply) => {
           typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
             ? (tc.input as Record<string, unknown>)
             : {};
-        const hard = applyAdapterToolHardening(adapter, tc.toolName, rawInput, undefined, {
-          upperHarness: oaiUpperHarness,
-          clientKind: oaiClientKind,
-          recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+        const prepared = prepareGovernedToolCall({
+          adapter,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: rawInput,
+          hardeningOptions: {
+            upperHarness: oaiUpperHarness,
+            clientKind: oaiClientKind,
+            recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+          },
+          governanceOptions: {
+            projectRoot: effectiveOaiPathCtx.projectRoot,
+            shellCwd: effectiveOaiPathCtx.shellCwd,
+            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            strictBashBlock: openClawStrictGovernance,
+            blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
+            clientKind: oaiClientKind,
+            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
+            restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
+            blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+            artifactShadows: oaiArtifactShadows,
+            currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + toolCallIndex + 1,
+            onEditTurn: (canonicalPath, turnIndex) => {
+              session.artifactEditTurns.set(canonicalPath, turnIndex);
+            },
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
+              ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
+          },
+          availability: {
+            offeredToolSet: oaiOfferedToolSet,
+            offeredToolNames: oaiOfferedToolNames,
+            fallbackBashToolName: oaiFallbackBashToolName,
+          },
         });
+        const hard = prepared.hardening;
+        const governed = prepared.governed;
         recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai", hard.upperHarnessDecision);
         if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
         if (hard.repairedWriteContent) {
@@ -10868,29 +10768,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
           session.blockBroadVerificationUntilEdit = false;
           session.blockFailingVerificationUntilEdit = false;
         }
-        const governed = governToolCall({
-          toolName: hard.toolName,
-          input: hard.input,
-          projectRoot: effectiveOaiPathCtx.projectRoot,
-          shellCwd: effectiveOaiPathCtx.shellCwd,
-          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-          strictBashBlock: openClawStrictGovernance,
-          blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
-          clientKind: oaiClientKind,
-          sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-          restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
-          blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
-          blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
-          planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
-          artifactShadows: oaiArtifactShadows,
-          currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + toolCallIndex + 1,
-          onEditTurn: (canonicalPath, turnIndex) => {
-            session.artifactEditTurns.set(canonicalPath, turnIndex);
-          },
-          pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
-            ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
-        });
         if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
           session.gitInspectionBlockCount += 1;
         }
@@ -10910,28 +10787,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
         if (openClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
           openClawProfileStats.strictGovernanceRewrites += 1;
         }
-        const candidateCall: GuardrailToolCall = {
-          toolCallId: tc.toolCallId,
-          toolName: governed.toolName,
-          input: governed.input,
-        };
-        const unavailableRewrite = rewriteUnavailableToolCall(
-          candidateCall,
-          oaiOfferedToolSet,
-          oaiOfferedToolNames,
-          oaiFallbackBashToolName,
-        );
-        if (unavailableRewrite.rewritten) {
+        if (prepared.unavailableRewrite.rewritten) {
           app.log.warn(
             {
               reqId,
-              requested_tool: unavailableRewrite.requestedTool,
-              fallback_tool: unavailableRewrite.call.toolName,
+              requested_tool: prepared.unavailableRewrite.requestedTool,
+              fallback_tool: prepared.call.toolName,
             },
             "tool_call_unavailable_rewritten",
           );
         }
-        return unavailableRewrite.call;
+        return prepared.call;
       });
     const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
     const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
@@ -11525,11 +11391,45 @@ app.post("/v1/chat/completions", async (req, reply) => {
                     return {};
                   }
                 })();
-          const hard = applyAdapterToolHardening(adapter, tc.toolName ?? "", parsedInput, undefined, {
-            upperHarness: oaiUpperHarness,
-            clientKind: oaiClientKind,
-            recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+          const prepared = prepareGovernedToolCall({
+            adapter,
+            toolCallId: tc.toolCallId ?? "",
+            toolName: tc.toolName ?? "",
+            input: parsedInput,
+            hardeningOptions: {
+              upperHarness: oaiUpperHarness,
+              clientKind: oaiClientKind,
+              recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+            },
+            governanceOptions: {
+              projectRoot: effectiveOaiPathCtx.projectRoot,
+              shellCwd: effectiveOaiPathCtx.shellCwd,
+              enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+              blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+              strictBashBlock: openClawStrictGovernance,
+              blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
+              clientKind: oaiClientKind,
+              sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
+              restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+              blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
+              blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+              planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+              artifactShadows: oaiArtifactShadows,
+              currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + pendingToolCalls.length + 1,
+              onEditTurn: (canonicalPath, turnIndex) => {
+                session.artifactEditTurns.set(canonicalPath, turnIndex);
+              },
+              pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
+                ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
+            },
+            availability: {
+              offeredToolSet: oaiStreamOfferedToolSet,
+              offeredToolNames: oaiStreamOfferedToolNames,
+              fallbackBashToolName: oaiStreamFallbackBashToolName,
+            },
           });
+          const hard = prepared.hardening;
+          const governed = prepared.governed;
           recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
           if (hard.remapped) toolArgHardeningStats.remappedArgsCount += 1;
           if (hard.repairedWriteContent) {
@@ -11566,29 +11466,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
             session.blockBroadVerificationUntilEdit = false;
             session.blockFailingVerificationUntilEdit = false;
           }
-          const governed = governToolCall({
-            toolName: hard.toolName,
-            input: hard.input,
-            projectRoot: effectiveOaiPathCtx.projectRoot,
-            shellCwd: effectiveOaiPathCtx.shellCwd,
-            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-            strictBashBlock: openClawStrictGovernance,
-            blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
-            clientKind: oaiClientKind,
-            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-            restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
-            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
-            blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
-            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
-            artifactShadows: oaiArtifactShadows,
-            currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + pendingToolCalls.length + 1,
-            onEditTurn: (canonicalPath, turnIndex) => {
-              session.artifactEditTurns.set(canonicalPath, turnIndex);
-            },
-            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
-              ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
-          });
           if (governed.blockedUnsafeShell && /git_inspection_churn/.test(JSON.stringify(governed.input))) {
             session.gitInspectionBlockCount += 1;
           }
@@ -11618,28 +11495,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
               adapterFamily: adapter.family,
             }, "tool_call_streamed");
           }
-          let candidateCall: GuardrailToolCall = {
-            toolCallId: tc.toolCallId ?? "",
-            toolName: governed.toolName,
-            input: governed.input,
-          };
-          const unavailableRewrite = rewriteUnavailableToolCall(
-            candidateCall,
-            oaiStreamOfferedToolSet,
-            oaiStreamOfferedToolNames,
-            oaiStreamFallbackBashToolName,
-          );
-          if (unavailableRewrite.rewritten) {
+          let candidateCall = prepared.call;
+          if (prepared.unavailableRewrite.rewritten) {
             app.log.warn(
               {
                 reqId,
-                requested_tool: unavailableRewrite.requestedTool,
-                fallback_tool: unavailableRewrite.call.toolName,
+                requested_tool: prepared.unavailableRewrite.requestedTool,
+                fallback_tool: prepared.call.toolName,
               },
               "tool_call_unavailable_rewritten",
             );
           }
-          candidateCall = unavailableRewrite.call;
           argsStr = JSON.stringify(candidateCall.input);
           const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
           const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
