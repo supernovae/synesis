@@ -295,17 +295,7 @@ import {
   serializeToolInput,
 } from "./streaming/ai-sdk-stream-events.js";
 import {
-  applySessionUsagePersistenceMutation,
-  applyGovernorTelemetryMetadata,
-  buildPersistenceTelemetryEventBundle,
-  buildRequestTrajectoryMetrics,
-  preparePersistenceStateChannels,
-  runInitialSessionPersistenceWrites,
-  runStateTransitionCalibration,
-  runHourlyTokenThrottleUpdate,
-  runTraceFinalization,
-  rotateStateTransitionSnapshot,
-  runConsecutiveToolCallCounterUpdate,
+  runSessionUsagePersistence,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -4796,63 +4786,40 @@ function persistSessionAndUsage(
       tierOutputPerM: tier?.outputPerM ?? null,
     }, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
   }
-  const { parentTraceId, rootTraceId } = applySessionUsagePersistenceMutation(state, {
+  runSessionUsagePersistence({
+    state,
     requestId,
     resolvedModelId,
     traceModel,
+    backendModel: tier?.backendModel,
+    clientRequestedModel,
     usage,
-    tokensSavedByReduction,
-    normalizedEstimatedCostUsd,
-    normalizedActualCostUsd,
-    finishReason,
-    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
-  });
-
-  applyGovernorTelemetryMetadata({ record: state.record, snapshot });
-  const {
-    previousSnapshot: previousTransitionSnapshot,
-    currentSnapshot: currentTransitionSnapshot,
-  } = rotateStateTransitionSnapshot({ metadata: state.record.metadata });
-
-  void runConsecutiveToolCallCounterUpdate({
-    record: state.record,
-    consecutiveToolCalls: state.consecutiveToolCalls,
-    counter: distributedCounters,
-  });
-
-  runInitialSessionPersistenceWrites({
-    record: state.record,
-    requestId,
-    writer: usageWriter,
-    saveSession: () => casSessionSave(state),
-    conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
-    tokenEconomicsRecommendation: tokenEconomicsDecision.recommendation,
-    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
-    tokenEconomicsMetadata: tokenEconomics,
-    usage,
-    costBreakdown,
-    resolvedModelId,
-    traceModel,
-    tokensSavedByReduction,
     latencyMs,
+    finishReason,
+    tokensSavedByReduction,
+    escalated,
+    snapshot,
+    trajectory,
+    optimizationLedger,
+    costBreakdown,
     normalizedEstimatedCostUsd,
     normalizedActualCostUsd,
     pricingSource,
-    escalated,
-    toolCallsCount: state.toolCallsSinceCheckpoint,
-    finishReason,
-  });
-
-  void runHourlyTokenThrottleUpdate({
-    enabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
-    record: state.record,
-    requestId,
-    inputTokens: usage.inputTokens,
+    tierRates,
+    tokenEconomicsRecommendation: tokenEconomicsDecision.recommendation,
+    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
+    tokenEconomicsMetadata: tokenEconomics,
+    conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
+    hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
+    hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
+    hourlyTokenThrottleSessionLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT,
+    hourlyTokenThrottleUserLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT,
+    toolCallsSinceCheckpoint: state.toolCallsSinceCheckpoint,
+    evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
+    writer: usageWriter,
+    saveSession: () => casSessionSave(state),
     counter: distributedCounters,
-    windowMs: Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS),
-    sessionLimit: Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT),
-    userLimit: Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT),
-    recordEvent: (event) => {
+    recordSessionEvent: (event) => {
       recordSessionEvent(
         event.sessionKey,
         event.userId,
@@ -4864,92 +4831,7 @@ function persistSessionAndUsage(
         event.metadataJson,
       );
     },
-    saveSession: () => casSessionSave(state),
-    warn: (err) => { console.warn("[throttle] token window update failed:", (err as Error).message ?? err); },
-  });
-
-  const trajectoryMetrics = buildRequestTrajectoryMetrics({
-    trajectory,
-    snapshot,
-    finishReason,
-  });
-  const { toolSequence, outcomeState } = trajectoryMetrics;
-  const {
-    persistedChatSnapshot,
-    persistedFileSnapshot,
-    chatStateSummary: chatStateSummaryForTelemetry,
-    fileStateSummary: fileStateSummaryForTelemetry,
-    stateChannelSummary,
-    objectiveScopeSummary,
-    stateConfidenceSummary,
-  } = preparePersistenceStateChannels(state.record.metadata);
-  const stateTransitionCalibrationRun = runStateTransitionCalibration({
-    metadata: state.record.metadata,
-    requestId,
-    orgId: state.record.orgId,
-    modelId: resolvedModelId,
-    previousSnapshot: previousTransitionSnapshot,
-    currentSnapshot: currentTransitionSnapshot,
-    toolSequence,
-    governorRules: snapshot?.governor?.matchedRules ?? [],
-    governorPause: snapshot?.governor?.pause ?? false,
-    evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
-    outcomeState,
     globalCalibrator: stateTransitionGlobalCalibrator,
-  });
-  const telemetryEventBundle = buildPersistenceTelemetryEventBundle({
-    record: state.record,
-    requestId,
-    traceModel,
-    snapshot,
-    escalated,
-    trajectory,
-    trajectoryMetrics,
-    blindRetryCount: state.stagnantToolCycles,
-    usage,
-    tokensSavedByReduction,
-    latencyMs,
-    tokenEconomics,
-    chatStateSummary: chatStateSummaryForTelemetry,
-    fileStateSummary: fileStateSummaryForTelemetry,
-    objectiveScopeSummary,
-    stateConfidenceSummary,
-    evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
-    chatPhase: persistedChatSnapshot?.phase,
-    chatCompletionStatus: typeof chatStateSummaryForTelemetry?.completion_status === "string"
-      ? chatStateSummaryForTelemetry.completion_status
-      : undefined,
-    fileStatusCounts: persistedFileSnapshot?.statusCounts,
-    stateChannelSummary,
-    stateTransitionCalibrationRun,
-  });
-  for (const event of telemetryEventBundle.sessionEvents) {
-    usageWriter.enqueueSessionEvent(event);
-  }
-  const { stateTransitionSummary } = telemetryEventBundle;
-
-  runTraceFinalization({
-    requestId,
-    record: state.record,
-    parentTraceId,
-    rootTraceId,
-    traceModel,
-    resolvedModelId,
-    backendModel: tier?.backendModel,
-    clientRequestedModel,
-    usage,
-    normalizedEstimatedCostUsd,
-    latencyMs,
-    tierRates,
-    snapshot,
-    chatStateSummary: chatStateSummaryForTelemetry,
-    fileStateSummary: fileStateSummaryForTelemetry,
-    objectiveScopeSummary,
-    stateConfidenceSummary,
-    stateTransitionSummary,
-    tokenEconomics,
-    optimizationLedger,
-    finishReason,
     recordUsageMetrics: (
       metricsTraceModel,
       metricsResolvedModelId,
@@ -4967,6 +4849,7 @@ function persistSessionAndUsage(
     emitTrace: (trace) => {
       emitTrace(trace, traceEmitterConfig, app.log);
     },
+    warn: (message, err) => app.log.warn({ err }, message),
   });
   persistSpan.setStatus("ok");
   persistSpan.end();

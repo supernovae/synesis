@@ -22,6 +22,7 @@ import {
   preparePersistenceStateChannels,
   runHourlyTokenThrottleUpdate,
   runInitialSessionPersistenceWrites,
+  runSessionUsagePersistence,
   runStateTransitionCalibration,
   runTraceFinalization,
   rotateStateTransitionSnapshot,
@@ -733,6 +734,140 @@ describe("session usage persistence mutation", () => {
       },
       optimization_ledger: { prefix_hash: "abc" },
     });
+    vi.useRealTimers();
+  });
+
+  it("runs the full session usage persistence orchestration through injected dependencies", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(4_000);
+    const calls: string[] = [];
+    const session = record({
+      trace_root_prompt: "root prompt",
+      latest_user_prompt: "latest prompt",
+      chat_state_snapshot: {
+        phase: "verify",
+        completionStatus: "blocked",
+        lastVerificationOutcome: "fail",
+      },
+      file_state_snapshot: {
+        fileCount: 1,
+        statusCounts: { available: 1, partial: 0, unchanged: 0, stale: 0, evicted: 0, missing: 0 },
+        staleFiles: [],
+        partialFiles: [],
+        evictedFiles: [],
+      },
+      state_confidence_overall: 0.8,
+    });
+    const state = {
+      record: session,
+      consecutiveToolCalls: 0,
+      stagnantToolCycles: 1,
+      lastToolSignalHash: "",
+      awaitingToolLoopUserAck: false,
+      toolLoopAckAnchorUserHash: "",
+      toolLoopNoUserAckCount: 0,
+      blockBroadVerificationUntilEdit: false,
+      blockFailingVerificationUntilEdit: false,
+    };
+    const writer = {
+      enqueueSessionUpsert: vi.fn(() => calls.push("session")),
+      enqueueSessionEvent: vi.fn(() => calls.push("event")),
+      enqueueContinuityUpsert: vi.fn(() => calls.push("continuity")),
+      enqueueUsageInsert: vi.fn(() => calls.push("usage")),
+    };
+    const counter = {
+      setConsecutiveToolCalls: vi.fn().mockResolvedValue(true),
+      addInputTokensAndReadHourlyWindow: vi.fn().mockResolvedValue({
+        sessionTokensInWindow: 1_500,
+        userTokensInWindow: 2_500,
+      }),
+    };
+    const recordSessionEvent = vi.fn(() => calls.push("throttle"));
+    const saveSession = vi.fn(() => calls.push("save"));
+    const metrics = vi.fn();
+    const emit = vi.fn();
+
+    const result = runSessionUsagePersistence({
+      state,
+      requestId: "req1",
+      resolvedModelId: "pulse",
+      traceModel: "pulse",
+      backendModel: "backend-test",
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 30, cacheCreationTokens: 5, costUsd: 0.12 },
+      latencyMs: 250,
+      finishReason: "stop",
+      tokensSavedByReduction: 10,
+      escalated: false,
+      snapshot: {
+        decisionPath: "direct",
+        phase: "implement",
+        tier: "pulse",
+        escalated: false,
+        policyDecision: "",
+        reducedToolResults: 0,
+        tokensSavedByReduction: 10,
+        isStreaming: false,
+      },
+      trajectory: { toolSequence: ["Read", "apply_patch"], retryCountTotal: 2 },
+      optimizationLedger: { prefix_hash: "abc" },
+      costBreakdown: { tokens_uncached_input: 70 },
+      normalizedEstimatedCostUsd: 0.2,
+      normalizedActualCostUsd: 0.12,
+      pricingSource: "provider",
+      tierRates: { inputPerM: 1, outputPerM: 2, cacheReadPerM: 0.1, cacheWritePerM: 0.2 },
+      tokenEconomicsRecommendation: "stable",
+      tokenEconomicsWarnings: ["low_cache"],
+      tokenEconomicsMetadata: { cache: "low" },
+      conversationMemoryEnabled: false,
+      hourlyTokenThrottleEnabled: true,
+      hourlyTokenThrottleWindowMs: 60_000,
+      hourlyTokenThrottleSessionLimit: 1_000,
+      hourlyTokenThrottleUserLimit: 2_000,
+      toolCallsSinceCheckpoint: 2,
+      evidenceDelta: "changed",
+      writer,
+      saveSession,
+      counter,
+      recordSessionEvent,
+      globalCalibrator: new StateTransitionGlobalCalibrator({ activationSampleCount: 1 }),
+      recordUsageMetrics: metrics,
+      emitTrace: emit,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(result.rootTraceId).toBe("req1");
+    expect(result.trace.trace_id).toBe("req1");
+    expect(result.stateTransitionSummary.quality_label).toBe("forward_progress");
+    expect(session).toMatchObject({
+      totalTokensIn: 110,
+      totalTokensOut: 22,
+      totalTokensCached: 33,
+      totalTokensSaved: 14,
+      requestCount: 6,
+    });
+    expect(writer.enqueueSessionUpsert).toHaveBeenCalledWith(session);
+    expect(writer.enqueueUsageInsert).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "req1",
+      tokensIn: 100,
+      estimatedCostUsd: 0.2,
+      actualCostUsd: 0.12,
+    }));
+    expect(writer.enqueueSessionEvent.mock.calls.map(([event]) => event.eventKind)).toEqual([
+      "token_economics_warning_v1",
+      "request_trajectory_v1",
+      "state_transition_v1",
+    ]);
+    expect(counter.setConsecutiveToolCalls).toHaveBeenCalledWith("s1", 0);
+    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", 100);
+    expect(recordSessionEvent).toHaveBeenCalledTimes(2);
+    expect(metrics).toHaveBeenCalledWith("pulse", "pulse", expect.objectContaining({
+      prompt_tokens: 100,
+      actual_cost_usd: 0.12,
+    }), 0.25);
+    expect(emit).toHaveBeenCalledWith(result.trace);
+    expect(calls.slice(0, 4)).toEqual(["save", "session", "event", "usage"]);
     vi.useRealTimers();
   });
 

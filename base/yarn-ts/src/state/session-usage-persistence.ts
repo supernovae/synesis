@@ -161,6 +161,60 @@ export interface RunInitialSessionPersistenceWritesInput {
   finishReason: string;
 }
 
+export interface SessionUsagePersistenceWriter extends InitialSessionPersistenceWriter {}
+
+export interface RunSessionUsagePersistenceInput {
+  state: SessionUsagePersistenceState;
+  requestId: string;
+  resolvedModelId: string;
+  traceModel: string;
+  backendModel?: string;
+  clientRequestedModel?: string;
+  usage: SessionUsageWithCost;
+  latencyMs: number;
+  finishReason: string;
+  tokensSavedByReduction: number;
+  escalated: boolean;
+  snapshot?: DecisionSnapshot;
+  trajectory?: RequestTrajectoryInput;
+  optimizationLedger?: unknown;
+  costBreakdown: UsageCostBreakdown;
+  normalizedEstimatedCostUsd: number;
+  normalizedActualCostUsd: number;
+  pricingSource: string;
+  tierRates: PricingRates;
+  tokenEconomicsRecommendation: string;
+  tokenEconomicsWarnings: string[];
+  tokenEconomicsMetadata: Record<string, unknown>;
+  conversationMemoryEnabled: boolean;
+  hourlyTokenThrottleEnabled: boolean;
+  hourlyTokenThrottleWindowMs: number;
+  hourlyTokenThrottleSessionLimit: number;
+  hourlyTokenThrottleUserLimit: number;
+  toolCallsSinceCheckpoint: number;
+  evidenceDelta: EvidenceDeltaSummary;
+  writer: SessionUsagePersistenceWriter;
+  saveSession: () => void | Promise<void>;
+  counter: ConsecutiveToolCallCounter & HourlyTokenWindowCounter;
+  recordSessionEvent: (event: SessionEventInsert) => void;
+  globalCalibrator: StateTransitionGlobalCalibrator;
+  recordUsageMetrics: (
+    traceModel: string,
+    resolvedModelId: string,
+    telemetryUsage: LlmUsage,
+    latencySeconds: number,
+  ) => void;
+  emitTrace: (trace: YarnTraceRecord) => void;
+  warn?: (message: string, err: unknown) => void;
+}
+
+export interface SessionUsagePersistenceRunResult {
+  parentTraceId?: string;
+  rootTraceId: string;
+  stateTransitionSummary: StateTransitionSummary;
+  trace: YarnTraceRecord;
+}
+
 export interface BuildTelemetryUsageInput {
   usage: SessionUsageWithCost;
   normalizedEstimatedCostUsd: number;
@@ -1395,6 +1449,164 @@ export function runTraceFinalization(input: RunTraceFinalizationInput): TraceFin
   return {
     telemetryUsage,
     trace,
+  };
+}
+
+export function runSessionUsagePersistence(
+  input: RunSessionUsagePersistenceInput,
+): SessionUsagePersistenceRunResult {
+  const { parentTraceId, rootTraceId } = applySessionUsagePersistenceMutation(input.state, {
+    requestId: input.requestId,
+    resolvedModelId: input.resolvedModelId,
+    traceModel: input.traceModel,
+    usage: input.usage,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+    normalizedActualCostUsd: input.normalizedActualCostUsd,
+    finishReason: input.finishReason,
+    tokenEconomicsWarnings: input.tokenEconomicsWarnings,
+  });
+
+  applyGovernorTelemetryMetadata({ record: input.state.record, snapshot: input.snapshot });
+  const {
+    previousSnapshot: previousTransitionSnapshot,
+    currentSnapshot: currentTransitionSnapshot,
+  } = rotateStateTransitionSnapshot({ metadata: input.state.record.metadata });
+
+  void runConsecutiveToolCallCounterUpdate({
+    record: input.state.record,
+    consecutiveToolCalls: input.state.consecutiveToolCalls,
+    counter: input.counter,
+    warn: input.warn ? (err) => input.warn?.("consecutive_tool_counter_update_failed", err) : undefined,
+  });
+
+  runInitialSessionPersistenceWrites({
+    record: input.state.record,
+    requestId: input.requestId,
+    writer: input.writer,
+    saveSession: input.saveSession,
+    conversationMemoryEnabled: input.conversationMemoryEnabled,
+    tokenEconomicsRecommendation: input.tokenEconomicsRecommendation,
+    tokenEconomicsWarnings: input.tokenEconomicsWarnings,
+    tokenEconomicsMetadata: input.tokenEconomicsMetadata,
+    usage: input.usage,
+    costBreakdown: input.costBreakdown,
+    resolvedModelId: input.resolvedModelId,
+    traceModel: input.traceModel,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    latencyMs: input.latencyMs,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+    normalizedActualCostUsd: input.normalizedActualCostUsd,
+    pricingSource: input.pricingSource,
+    escalated: input.escalated,
+    toolCallsCount: input.toolCallsSinceCheckpoint,
+    finishReason: input.finishReason,
+  });
+
+  void runHourlyTokenThrottleUpdate({
+    enabled: input.hourlyTokenThrottleEnabled,
+    record: input.state.record,
+    requestId: input.requestId,
+    inputTokens: input.usage.inputTokens,
+    counter: input.counter,
+    windowMs: Math.max(60_000, input.hourlyTokenThrottleWindowMs),
+    sessionLimit: Math.max(1, input.hourlyTokenThrottleSessionLimit),
+    userLimit: Math.max(1, input.hourlyTokenThrottleUserLimit),
+    recordEvent: input.recordSessionEvent,
+    saveSession: input.saveSession,
+    warn: input.warn ? (err) => input.warn?.("hourly_token_throttle_update_failed", err) : undefined,
+  });
+
+  const trajectoryMetrics = buildRequestTrajectoryMetrics({
+    trajectory: input.trajectory,
+    snapshot: input.snapshot,
+    finishReason: input.finishReason,
+  });
+  const { toolSequence, outcomeState } = trajectoryMetrics;
+  const {
+    persistedChatSnapshot,
+    persistedFileSnapshot,
+    chatStateSummary,
+    fileStateSummary,
+    stateChannelSummary,
+    objectiveScopeSummary,
+    stateConfidenceSummary,
+  } = preparePersistenceStateChannels(input.state.record.metadata);
+  const stateTransitionCalibrationRun = runStateTransitionCalibration({
+    metadata: input.state.record.metadata,
+    requestId: input.requestId,
+    orgId: input.state.record.orgId,
+    modelId: input.resolvedModelId,
+    previousSnapshot: previousTransitionSnapshot,
+    currentSnapshot: currentTransitionSnapshot,
+    toolSequence,
+    governorRules: input.snapshot?.governor?.matchedRules ?? [],
+    governorPause: input.snapshot?.governor?.pause ?? false,
+    evidenceDelta: input.evidenceDelta,
+    outcomeState,
+    globalCalibrator: input.globalCalibrator,
+  });
+  const telemetryEventBundle = buildPersistenceTelemetryEventBundle({
+    record: input.state.record,
+    requestId: input.requestId,
+    traceModel: input.traceModel,
+    snapshot: input.snapshot,
+    escalated: input.escalated,
+    trajectory: input.trajectory,
+    trajectoryMetrics,
+    blindRetryCount: input.state.stagnantToolCycles,
+    usage: input.usage,
+    tokensSavedByReduction: input.tokensSavedByReduction,
+    latencyMs: input.latencyMs,
+    tokenEconomics: input.tokenEconomicsMetadata,
+    chatStateSummary,
+    fileStateSummary,
+    objectiveScopeSummary,
+    stateConfidenceSummary,
+    evidenceDelta: input.evidenceDelta,
+    chatPhase: persistedChatSnapshot?.phase,
+    chatCompletionStatus: typeof chatStateSummary?.completion_status === "string"
+      ? chatStateSummary.completion_status
+      : undefined,
+    fileStatusCounts: persistedFileSnapshot?.statusCounts,
+    stateChannelSummary,
+    stateTransitionCalibrationRun,
+  });
+  for (const event of telemetryEventBundle.sessionEvents) {
+    input.writer.enqueueSessionEvent(event);
+  }
+
+  const traceResult = runTraceFinalization({
+    requestId: input.requestId,
+    record: input.state.record,
+    parentTraceId,
+    rootTraceId,
+    traceModel: input.traceModel,
+    resolvedModelId: input.resolvedModelId,
+    backendModel: input.backendModel,
+    clientRequestedModel: input.clientRequestedModel,
+    usage: input.usage,
+    normalizedEstimatedCostUsd: input.normalizedEstimatedCostUsd,
+    latencyMs: input.latencyMs,
+    tierRates: input.tierRates,
+    snapshot: input.snapshot,
+    chatStateSummary,
+    fileStateSummary,
+    objectiveScopeSummary,
+    stateConfidenceSummary,
+    stateTransitionSummary: telemetryEventBundle.stateTransitionSummary,
+    tokenEconomics: input.tokenEconomicsMetadata,
+    optimizationLedger: input.optimizationLedger,
+    finishReason: input.finishReason,
+    recordUsageMetrics: input.recordUsageMetrics,
+    emitTrace: input.emitTrace,
+  });
+
+  return {
+    parentTraceId,
+    rootTraceId,
+    stateTransitionSummary: telemetryEventBundle.stateTransitionSummary,
+    trace: traceResult.trace,
   };
 }
 
