@@ -234,6 +234,28 @@ export interface BuildHourlyTokenThrottleEventsInput {
   userLimit: number;
 }
 
+export interface HourlyTokenWindowCounter {
+  addInputTokensAndReadHourlyWindow(
+    sessionKey: string,
+    userId: string,
+    inputTokens: number,
+  ): Promise<HourlyTokenWindowSnapshot | null>;
+}
+
+export interface RunHourlyTokenThrottleUpdateInput {
+  enabled: boolean;
+  record: SessionRecord;
+  requestId: string;
+  inputTokens: number;
+  counter: HourlyTokenWindowCounter;
+  windowMs: number;
+  sessionLimit: number;
+  userLimit: number;
+  recordEvent: (event: SessionEventInsert) => void;
+  saveSession: () => void | Promise<void>;
+  warn?: (err: unknown) => void;
+}
+
 export interface StateTransitionSummary {
   changed_fields: string[];
   objective_epoch_advanced: boolean;
@@ -766,6 +788,42 @@ export function buildHourlyTokenThrottleEvents(
   }
 
   return events;
+}
+
+export function runHourlyTokenThrottleUpdate(
+  input: RunHourlyTokenThrottleUpdateInput,
+): Promise<void> | null {
+  if (!input.enabled || input.inputTokens <= 0) return null;
+  const previousSessionWindowTokens = Number(input.record.metadata.hourly_tokens_session ?? 0) || 0;
+  const previousUserWindowTokens = Number(input.record.metadata.hourly_tokens_user ?? 0) || 0;
+  return input.counter.addInputTokensAndReadHourlyWindow(
+    input.record.sessionKey,
+    input.record.userId,
+    input.inputTokens,
+  ).then((snapshot) => {
+    if (!snapshot) return;
+    input.record.metadata.hourly_tokens_session = snapshot.sessionTokensInWindow;
+    input.record.metadata.hourly_tokens_user = snapshot.userTokensInWindow;
+    for (const event of buildHourlyTokenThrottleEvents({
+      record: input.record,
+      requestId: input.requestId,
+      snapshot,
+      previousSessionWindowTokens,
+      previousUserWindowTokens,
+      windowMs: input.windowMs,
+      sessionLimit: input.sessionLimit,
+      userLimit: input.userLimit,
+    })) {
+      input.recordEvent(event);
+    }
+    void input.saveSession();
+  }).catch((err) => {
+    if (input.warn) {
+      input.warn(err);
+      return;
+    }
+    console.warn("[throttle] token window update failed:", (err as Error).message ?? err);
+  });
 }
 
 export function applySessionUsagePersistenceMutation(

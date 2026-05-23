@@ -17,6 +17,7 @@ import {
   buildYarnTraceRecord,
   inferPrematureStopSignalsFromGovernor,
   inferTrajectoryBucket,
+  runHourlyTokenThrottleUpdate,
   runStateTransitionCalibration,
 } from "../src/state/session-usage-persistence.js";
 import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
@@ -784,6 +785,78 @@ describe("session usage persistence mutation", () => {
 
     expect(events.map((event) => event.metadataJson?.scope)).toEqual(["session", "user"]);
     expect(events[1].detail).toBe("User input tokens in rolling 1m window exceeded 2,000 (used: 3,000)");
+  });
+
+  it("runs hourly token throttle updates and persists new window metadata", async () => {
+    const session = record({
+      hourly_tokens_session: 900,
+      hourly_tokens_user: 1_900,
+    });
+    const counter = {
+      addInputTokensAndReadHourlyWindow: vi.fn().mockResolvedValue({
+        sessionTokensInWindow: 1_500,
+        userTokensInWindow: 3_000,
+      }),
+    };
+    const recordEvent = vi.fn();
+    const saveSession = vi.fn();
+
+    await runHourlyTokenThrottleUpdate({
+      enabled: true,
+      record: session,
+      requestId: "req1",
+      inputTokens: 100,
+      counter,
+      windowMs: 60_000,
+      sessionLimit: 1_000,
+      userLimit: 2_000,
+      recordEvent,
+      saveSession,
+    });
+
+    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", 100);
+    expect(session.metadata.hourly_tokens_session).toBe(1_500);
+    expect(session.metadata.hourly_tokens_user).toBe(3_000);
+    expect(recordEvent).toHaveBeenCalledTimes(2);
+    expect(recordEvent.mock.calls.map(([event]) => event.metadataJson.scope)).toEqual(["session", "user"]);
+    expect(saveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips hourly token throttle updates when disabled or there are no input tokens", async () => {
+    const counter = {
+      addInputTokensAndReadHourlyWindow: vi.fn().mockResolvedValue(null),
+    };
+    const recordEvent = vi.fn();
+    const saveSession = vi.fn();
+
+    expect(runHourlyTokenThrottleUpdate({
+      enabled: false,
+      record: record(),
+      requestId: "req1",
+      inputTokens: 100,
+      counter,
+      windowMs: 60_000,
+      sessionLimit: 1_000,
+      userLimit: 2_000,
+      recordEvent,
+      saveSession,
+    })).toBeNull();
+    expect(runHourlyTokenThrottleUpdate({
+      enabled: true,
+      record: record(),
+      requestId: "req1",
+      inputTokens: 0,
+      counter,
+      windowMs: 60_000,
+      sessionLimit: 1_000,
+      userLimit: 2_000,
+      recordEvent,
+      saveSession,
+    })).toBeNull();
+
+    expect(counter.addInputTokensAndReadHourlyWindow).not.toHaveBeenCalled();
+    expect(recordEvent).not.toHaveBeenCalled();
+    expect(saveSession).not.toHaveBeenCalled();
   });
 
   it("builds state transition event set with optional calibration events", () => {

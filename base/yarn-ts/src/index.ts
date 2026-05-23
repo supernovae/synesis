@@ -296,7 +296,6 @@ import {
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   applySessionUsagePersistenceMutation,
-  buildHourlyTokenThrottleEvents,
   buildPersistenceStateChannelSummary,
   buildRequestTrajectoryEvent,
   buildRequestTrajectoryMetrics,
@@ -307,6 +306,7 @@ import {
   buildUsageEvent,
   buildYarnTraceRecord,
   runStateTransitionCalibration,
+  runHourlyTokenThrottleUpdate,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -4872,44 +4872,30 @@ function persistSessionAndUsage(
     finishReason,
   }));
 
-  if (config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED && usage.inputTokens > 0) {
-    const prevSessionWindowTokens = Number(state.record.metadata.hourly_tokens_session ?? 0) || 0;
-    const prevUserWindowTokens = Number(state.record.metadata.hourly_tokens_user ?? 0) || 0;
-    const windowMs = Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS);
-    const sessionLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT);
-    const userLimit = Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT);
-    void distributedCounters.addInputTokensAndReadHourlyWindow(
-      state.record.sessionKey,
-      state.record.userId,
-      usage.inputTokens,
-    ).then((snapshot) => {
-      if (!snapshot) return;
-      state.record.metadata.hourly_tokens_session = snapshot.sessionTokensInWindow;
-      state.record.metadata.hourly_tokens_user = snapshot.userTokensInWindow;
-      for (const event of buildHourlyTokenThrottleEvents({
-        record: state.record,
-        requestId,
-        snapshot,
-        previousSessionWindowTokens: prevSessionWindowTokens,
-        previousUserWindowTokens: prevUserWindowTokens,
-        windowMs,
-        sessionLimit,
-        userLimit,
-      })) {
-        recordSessionEvent(
-          event.sessionKey,
-          event.userId,
-          event.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          event.requestId,
-          event.metadataJson,
-        );
-      }
-      void casSessionSave(state);
-    }).catch((err) => { console.warn("[throttle] token window update failed:", (err as Error).message ?? err); });
-  }
+  void runHourlyTokenThrottleUpdate({
+    enabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
+    record: state.record,
+    requestId,
+    inputTokens: usage.inputTokens,
+    counter: distributedCounters,
+    windowMs: Math.max(60_000, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS),
+    sessionLimit: Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT),
+    userLimit: Math.max(1, config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT),
+    recordEvent: (event) => {
+      recordSessionEvent(
+        event.sessionKey,
+        event.userId,
+        event.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        event.requestId,
+        event.metadataJson,
+      );
+    },
+    saveSession: () => casSessionSave(state),
+    warn: (err) => { console.warn("[throttle] token window update failed:", (err as Error).message ?? err); },
+  });
 
   const trajectoryMetrics = buildRequestTrajectoryMetrics({
     trajectory,
