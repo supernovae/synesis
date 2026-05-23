@@ -500,6 +500,11 @@ export interface CorpusStats {
 
 export interface DomainScorecard {
   domain: string;
+  display_name?: string;
+  scope?: string;
+  pack_id?: string;
+  language?: string;
+  source?: string;
   path: string;
   health: "strong" | "adequate" | "weak" | "empty";
   chunk_count?: number;
@@ -508,6 +513,8 @@ export interface DomainScorecard {
   inventory: {
     total_chunks: number;
     total_documents: number;
+    total_sources?: number;
+    total_nodes?: number;
   };
   coverage: {
     hit_rate: number;
@@ -516,6 +523,21 @@ export interface DomainScorecard {
   dead_weight: {
     unretrieved_documents: number;
   };
+  quality_score?: number | null;
+  trust_score?: number | null;
+  freshness_score?: number | null;
+  node_count?: number;
+  embedding_count?: number;
+  embedding_coverage?: number;
+  edge_count?: number;
+  example_count?: number;
+  context_card_count?: number;
+  pack_card_count?: number;
+  anti_pattern_count?: number;
+  constraint_count?: number;
+  external_ref_count?: number;
+  node_kind_counts?: Record<string, number>;
+  edge_type_counts?: Record<string, number>;
 }
 
 export interface QualitySummary {
@@ -524,6 +546,9 @@ export interface QualitySummary {
   weak: number;
   empty: number;
   scorecards: DomainScorecard[];
+  source?: string;
+  degraded?: boolean;
+  warnings?: Array<{ component: string; operation: string; message: string }>;
 }
 
 export interface TaxonomyDomain {

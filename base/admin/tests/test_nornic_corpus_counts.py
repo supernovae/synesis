@@ -42,6 +42,38 @@ class _FakeSession:
             )
         if "RETURN count(r) AS c" in query:
             return _FakeResult(single={"c": 4})
+        if "embedding_count" in query and "source_count" in query:
+            return _FakeResult(
+                rows=[
+                    {
+                        "pack_id": "go",
+                        "node_count": 5300,
+                        "chunk_count": 5120,
+                        "embedding_count": 5120,
+                        "doc_count": 42,
+                        "source_count": 7,
+                        "example_count": 100,
+                        "context_card_count": 12,
+                        "pack_card_count": 1,
+                        "anti_pattern_count": 4,
+                        "constraint_count": 10,
+                        "external_ref_count": 8,
+                        "edge_count": 900,
+                        "domain": "generalist",
+                        "language": "go",
+                        "document_name": "Go pack",
+                        "source_version": "1.0",
+                        "source_release": "2026-05-01",
+                        "quality_score": 0.91,
+                        "trust_score": 0.88,
+                        "freshness_score": 0.95,
+                    }
+                ]
+            )
+        if "collect({kind: kind, count: count})" in query:
+            return _FakeResult(rows=[{"pack_id": "go", "counts": [{"kind": "Chunk", "count": 5120}]}])
+        if "collect({edge_type: edge_type, count: count})" in query:
+            return _FakeResult(rows=[{"pack_id": "go", "counts": [{"edge_type": "REFERENCES", "count": 900}]}])
         if "AS chunks" in query:
             return _FakeResult(
                 rows=[
@@ -119,5 +151,42 @@ def test_collection_domain_hierarchy_uses_content_bearing_nodes(monkeypatch):
             "domain": "python",
             "total_chunks": 2,
             "sources": [{"source": "Python pack", "chunks": 2}],
+        }
+    ]
+
+
+def test_collection_pack_quality_reports_exposes_pack_level_quality(monkeypatch):
+    from app.services import nornic_service
+
+    session = _FakeSession()
+    monkeypatch.setattr(nornic_service, "get_nornic_driver", lambda: _FakeDriver(session))
+
+    reports = nornic_service.collection_pack_quality_reports("content_graph")
+
+    assert reports == [
+        {
+            "pack_id": "go",
+            "node_count": 5300,
+            "chunk_count": 5120,
+            "embedding_count": 5120,
+            "doc_count": 42,
+            "source_count": 7,
+            "example_count": 100,
+            "context_card_count": 12,
+            "pack_card_count": 1,
+            "anti_pattern_count": 4,
+            "constraint_count": 10,
+            "external_ref_count": 8,
+            "edge_count": 900,
+            "domain": "generalist",
+            "language": "go",
+            "document_name": "Go pack",
+            "source_version": "1.0",
+            "source_release": "2026-05-01",
+            "quality_score": 0.91,
+            "trust_score": 0.88,
+            "freshness_score": 0.95,
+            "node_kind_counts": {"Chunk": 5120},
+            "edge_type_counts": {"REFERENCES": 900},
         }
     ]

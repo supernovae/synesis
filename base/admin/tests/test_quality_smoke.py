@@ -97,6 +97,10 @@ def _mock_all(monkeypatch):
         lambda *a, **kw: [],
     )
     monkeypatch.setattr("app.routers.rag.collection_domain_hierarchy", lambda *a, **kw: [])
+    monkeypatch.setattr("app.services.nornic_service.collection_pack_quality_reports", lambda *a, **kw: [])
+    monkeypatch.setattr("app.routers.rag.collection_pack_quality_reports", lambda *a, **kw: [])
+    monkeypatch.setattr("app.services.nornic_service.collection_installed_packs", lambda *a, **kw: [])
+    monkeypatch.setattr("app.routers.rag.collection_installed_packs", lambda *a, **kw: [])
     monkeypatch.setattr(
         "app.services.nornic_service.safe_query",
         lambda *a, **kw: [],

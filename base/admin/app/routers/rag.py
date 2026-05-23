@@ -202,12 +202,13 @@ async def _run_best_effort(
     fallback: Any,
     *,
     timeout_seconds: float = _NORNIC_ADMIN_TIMEOUT_SECONDS,
+    force_refresh: bool = False,
 ) -> tuple[Any, dict[str, str] | None]:
-    cached = _BEST_EFFORT_CACHE.get(operation)
     now = time.monotonic()
-    if cached and now - cached[0] <= _NORNIC_ADMIN_CACHE_SECONDS:
+    cached = _BEST_EFFORT_CACHE.get(operation)
+    if not force_refresh and cached and now - cached[0] <= _NORNIC_ADMIN_CACHE_SECONDS:
         return cached[1], None
-    if _BEST_EFFORT_BACKOFF_UNTIL.get(operation, 0.0) > now:
+    if not force_refresh and _BEST_EFFORT_BACKOFF_UNTIL.get(operation, 0.0) > now:
         return (cached[1] if cached else fallback), _degraded_warning(
             "nornicdb",
             operation,
@@ -826,55 +827,245 @@ async def list_doc_packs(_user: UserInfo = Depends(get_current_user)):
     return {"packs": _installed_doc_packs()}
 
 
+def _as_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _score_float(value: Any) -> float | None:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    if score < 0:
+        return None
+    return max(0.0, min(score, 1.0))
+
+
+def _health_from_pack_quality(
+    *,
+    chunk_count: int,
+    node_count: int,
+    embedding_coverage: float,
+    edge_count: int,
+    quality_score: float | None,
+    trust_score: float | None,
+    freshness_score: float | None,
+) -> str:
+    if chunk_count <= 0:
+        return "empty"
+    explicit_scores = [score for score in (quality_score, trust_score, freshness_score) if score is not None]
+    if explicit_scores:
+        aggregate = sum(explicit_scores) / len(explicit_scores)
+    elif chunk_count >= 1000 and embedding_coverage >= 0.8 and (edge_count > 0 or node_count > chunk_count):
+        aggregate = 0.85
+    elif chunk_count >= 100 and embedding_coverage >= 0.5:
+        aggregate = 0.7
+    else:
+        aggregate = 0.4
+    if aggregate >= 0.8:
+        return "strong"
+    if aggregate >= 0.6:
+        return "adequate"
+    return "weak"
+
+
+def _quality_summary_payload(
+    scorecards: list[dict[str, Any]],
+    *,
+    source: str,
+    warnings: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    counts: dict[str, int] = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
+    for scorecard in scorecards:
+        health = str(scorecard.get("health") or "empty")
+        counts[health] = counts.get(health, 0) + 1
+    return {
+        **counts,
+        "scorecards": scorecards,
+        "source": source,
+        "degraded": bool(warnings),
+        "warnings": warnings or [],
+    }
+
+
+def _scorecard_from_pack_quality_report(raw: dict[str, Any]) -> dict[str, Any] | None:
+    pack_id = str(raw.get("pack_id") or "").strip()
+    domain = str(raw.get("domain") or "").strip()
+    language = str(raw.get("language") or "").strip()
+    key = pack_id or (domain if domain and domain != "generalist" else "") or language or "generalist"
+    if not key:
+        return None
+
+    chunk_count = _as_int(raw.get("chunk_count") or raw.get("row_count"))
+    node_count = _as_int(raw.get("node_count"))
+    embedding_count = _as_int(raw.get("embedding_count"))
+    doc_count = _as_int(raw.get("doc_count"))
+    source_count = _as_int(raw.get("source_count"))
+    edge_count = _as_int(raw.get("edge_count"))
+    quality_score = _score_float(raw.get("quality_score"))
+    trust_score = _score_float(raw.get("trust_score"))
+    freshness_score = _score_float(raw.get("freshness_score"))
+    embedding_coverage = round(embedding_count / chunk_count, 4) if chunk_count else 0.0
+    health = _health_from_pack_quality(
+        chunk_count=chunk_count,
+        node_count=node_count,
+        embedding_coverage=embedding_coverage,
+        edge_count=edge_count,
+        quality_score=quality_score,
+        trust_score=trust_score,
+        freshness_score=freshness_score,
+    )
+
+    path_parts = []
+    if pack_id:
+        path_parts.append(f"pack: {pack_id}")
+    if domain:
+        path_parts.append(f"domain: {domain}")
+    if language:
+        path_parts.append(f"language: {language}")
+    return {
+        "domain": key,
+        "display_name": pack_id or domain or language or key,
+        "path": " · ".join(path_parts),
+        "scope": "pack" if pack_id else "domain",
+        "pack_id": pack_id,
+        "language": language,
+        "health": health,
+        "chunk_count": chunk_count,
+        "doc_count": doc_count,
+        "freshness_pct": round((freshness_score or 0.0) * 100, 1),
+        "authority_mix": {},
+        "dead_weight_count": 0,
+        "inventory": {
+            "total_chunks": chunk_count,
+            "total_documents": doc_count,
+            "total_sources": source_count,
+            "total_nodes": node_count,
+        },
+        "coverage": {
+            "hit_rate": embedding_coverage,
+            "mean_mrr": quality_score or 0.0,
+        },
+        "dead_weight": {"unretrieved_documents": 0},
+        "quality_score": quality_score,
+        "trust_score": trust_score,
+        "freshness_score": freshness_score,
+        "node_count": node_count,
+        "embedding_count": embedding_count,
+        "embedding_coverage": embedding_coverage,
+        "edge_count": edge_count,
+        "example_count": _as_int(raw.get("example_count")),
+        "context_card_count": _as_int(raw.get("context_card_count")),
+        "pack_card_count": _as_int(raw.get("pack_card_count")),
+        "anti_pattern_count": _as_int(raw.get("anti_pattern_count")),
+        "constraint_count": _as_int(raw.get("constraint_count")),
+        "external_ref_count": _as_int(raw.get("external_ref_count")),
+        "node_kind_counts": raw.get("node_kind_counts") if isinstance(raw.get("node_kind_counts"), dict) else {},
+        "edge_type_counts": raw.get("edge_type_counts") if isinstance(raw.get("edge_type_counts"), dict) else {},
+        "source_version": raw.get("source_version") or "",
+        "source_release": raw.get("source_release") or "",
+        "source": "nornicdb_pack_report",
+    }
+
+
+async def _current_quality_scorecards(
+    user: UserInfo,
+    *,
+    force_refresh: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    del user
+    reports_result, installed_result = await asyncio.gather(
+        _run_best_effort(
+            "quality_pack_reports_current",
+            lambda: collection_pack_quality_reports(CATALOG_COLLECTION),
+            [],
+            timeout_seconds=max(_NORNIC_ADMIN_TIMEOUT_SECONDS, 5.0),
+            force_refresh=force_refresh,
+        ),
+        _run_best_effort(
+            "quality_installed_packs_current",
+            _installed_doc_packs,
+            [],
+            timeout_seconds=max(_NORNIC_ADMIN_TIMEOUT_SECONDS, 5.0),
+            force_refresh=force_refresh,
+        ),
+    )
+    reports, report_warning = reports_result
+    installed, installed_warning = installed_result
+    warnings = [w for w in (report_warning, installed_warning) if w]
+
+    reports_by_id = {str(report.get("pack_id") or ""): dict(report) for report in reports if isinstance(report, dict)}
+    for pack in installed:
+        pack_id = str(pack.get("pack_id") or "")
+        if not pack_id:
+            continue
+        report = reports_by_id.setdefault(
+            pack_id,
+            {
+                "pack_id": pack_id,
+                "chunk_count": pack.get("row_count", 0),
+                "node_count": pack.get("row_count", 0),
+            },
+        )
+        for field in ("domain", "language", "pack_version", "pack_source_version"):
+            if not report.get(field) and pack.get(field):
+                report[field] = pack[field]
+
+    scorecards = [
+        scorecard
+        for scorecard in (_scorecard_from_pack_quality_report(report) for report in reports_by_id.values())
+        if scorecard is not None
+    ]
+    scorecards.sort(key=lambda item: (str(item.get("scope") or ""), str(item.get("domain") or "")))
+    return scorecards, warnings
+
+
+async def _latest_snapshot_scorecards() -> list[dict[str, Any]]:
+    from ..db.engine import async_session
+    from ..db.models import QualitySnapshot
+
+    async with async_session() as session:
+        latest_scored_at = (await session.execute(select(func.max(QualitySnapshot.scored_at)))).scalar_one_or_none()
+        if latest_scored_at is None:
+            return []
+        rows = (
+            (
+                await session.execute(
+                    select(QualitySnapshot)
+                    .where(QualitySnapshot.scored_at == latest_scored_at)
+                    .order_by(QualitySnapshot.domain)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [_scorecard_from_snapshot(row) for row in rows]
+
+
 @router.get("/quality")
 async def quality_summary(_user: UserInfo = Depends(get_current_user)):
-    """Quality summary — try DB snapshots first, fall back to JSON file."""
+    """Quality summary from the current NornicDB graph, with stored snapshots as fallback."""
     _ensure_org_observability(_user)
+    live_scorecards, warnings = await _current_quality_scorecards(_user)
+    if live_scorecards:
+        return _quality_summary_payload(live_scorecards, source="nornicdb", warnings=warnings)
+
     try:
-        from sqlalchemy import select
-        from sqlalchemy.orm import aliased
-
-        from ..db.engine import async_session
-        from ..db.models import QualitySnapshot
-
-        async with async_session() as session:
-            # Window-based latest-per-domain: pick the newest scored_at per domain.
-            sub = select(
-                QualitySnapshot.id,
-                func.row_number()
-                .over(partition_by=QualitySnapshot.domain, order_by=QualitySnapshot.scored_at.desc())
-                .label("rn"),
-            ).subquery()
-            qs = aliased(QualitySnapshot)
-            rows = (
-                (
-                    await session.execute(
-                        select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1).order_by(qs.domain)
-                    )
-                )
-                .scalars()
-                .all()
+        snapshot_scorecards = await _latest_snapshot_scorecards()
+        if snapshot_scorecards:
+            fallback_warning = _degraded_warning(
+                "nornicdb",
+                "quality_pack_reports_current",
+                "Showing latest stored quality snapshot because current NornicDB pack reports are unavailable.",
             )
-            if rows:
-                scorecards = []
-                counts: dict[str, int] = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
-                for r in rows:
-                    h = r.health
-                    counts[h] = counts.get(h, 0) + 1
-                    scorecards.append(
-                        {
-                            "domain": r.domain,
-                            "health": r.health,
-                            "chunk_count": r.chunk_count,
-                            "doc_count": r.doc_count,
-                            "freshness_pct": r.freshness_pct,
-                            "authority_mix": r.authority_mix,
-                            "dead_weight_count": r.dead_weight_count,
-                            "scored_at": r.scored_at.isoformat() if r.scored_at else None,
-                            "raw_scorecard": r.raw_scorecard if hasattr(r, "raw_scorecard") else None,
-                        }
-                    )
-                return {**counts, "scorecards": scorecards}
+            return _quality_summary_payload(
+                snapshot_scorecards,
+                source="quality_snapshots",
+                warnings=[*warnings, fallback_warning],
+            )
     except Exception:
         logger.debug("quality_db_read_failed", exc_info=True)
 
@@ -887,25 +1078,23 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
         "weak": summary.get("weak", 0),
         "empty": summary.get("empty", 0),
         "scorecards": scorecards,
+        "source": "quality_report_file",
+        "degraded": bool(warnings),
+        "warnings": warnings,
     }
 
 
 @router.post("/quality/refresh")
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
-    """Compute per-domain health scores from NornicDB Content graph and store in quality_snapshots."""
+    """Compute pack/domain health scores from NornicDB Content graph and store in quality_snapshots."""
     _ensure_org_content_admin(_user)
-    hierarchy, warning = await _run_best_effort(
-        "quality_refresh_domain_hierarchy",
-        lambda: collection_domain_hierarchy(CATALOG_COLLECTION),
-        [],
-        timeout_seconds=max(_NORNIC_ADMIN_TIMEOUT_SECONDS, 5.0),
-    )
-    if not hierarchy:
+    scorecards, warnings = await _current_quality_scorecards(_user, force_refresh=True)
+    if not scorecards:
         return {
             "ok": False,
             "error": "no corpus data",
-            "degraded": bool(warning),
-            "warnings": [warning] if warning else [],
+            "degraded": bool(warnings),
+            "warnings": warnings,
         }
 
     from datetime import datetime
@@ -915,47 +1104,19 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
 
     now = datetime.now(UTC)
     snapshots = []
-    for entry in hierarchy:
-        domain = entry["domain"]
-        chunk_count = entry["total_chunks"]
-        sources = entry.get("sources", [])
-        doc_count = len(sources)
-
-        authority_mix: dict[str, int] = {}
-        fresh_count = 0
-        domain_rows = safe_query(
-            CATALOG_COLLECTION,
-            filter_expr=f'domain == "{domain}"',
-            output_fields=["domain", "authority", "effective_at_epoch", "crawl_timestamp"],
-            limit=16384,
-            **_nornic_scope_kwargs(_user),
-        )
-        for row in domain_rows:
-            auth = row.get("authority", "unknown") or "unknown"
-            authority_mix[auth] = authority_mix.get(auth, 0) + 1
-            if _compute_freshness(row) >= 0.5:
-                fresh_count += 1
-
-        freshness_pct = round(fresh_count / max(len(domain_rows), 1) * 100, 1)
-
-        if chunk_count == 0:
-            health = "empty"
-        elif chunk_count < 10:
-            health = "weak"
-        elif chunk_count < 50:
-            health = "adequate"
-        else:
-            health = "strong"
-
+    for scorecard in scorecards:
         snapshots.append(
             QualitySnapshot(
-                domain=domain,
-                health=health,
-                chunk_count=chunk_count,
-                doc_count=doc_count,
-                freshness_pct=freshness_pct,
-                authority_mix=authority_mix,
+                domain=str(scorecard.get("domain") or ""),
+                health=str(scorecard.get("health") or "empty"),
+                chunk_count=_as_int(scorecard.get("chunk_count")),
+                doc_count=_as_int(scorecard.get("doc_count")),
+                freshness_pct=float(scorecard.get("freshness_pct") or 0.0),
+                authority_mix=scorecard.get("authority_mix")
+                if isinstance(scorecard.get("authority_mix"), dict)
+                else {},
                 dead_weight_count=0,
+                raw_scorecard=scorecard,
                 scored_at=now,
             )
         )
@@ -972,7 +1133,15 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     for s in snapshots:
         counts[s.health] = counts.get(s.health, 0) + 1
 
-    return {"ok": True, "domains": len(snapshots), "summary": counts}
+    return {
+        "ok": True,
+        "domains": len(snapshots),
+        "summary": counts,
+        "scorecards": scorecards,
+        "source": "nornicdb",
+        "degraded": bool(warnings),
+        "warnings": warnings,
+    }
 
 
 @router.post("/quality/import-report")
@@ -1046,42 +1215,24 @@ async def quality_domains(
     sort: str = Query("domain", description="Sort field"),
 ):
     _ensure_org_observability(_user)
-    report = _load_quality_report()
-    scorecards = report.get("scorecards", [])
-
+    scorecards, warnings = await _current_quality_scorecards(_user)
+    source = "nornicdb"
     if not scorecards:
         try:
-            from sqlalchemy import select
-            from sqlalchemy.orm import aliased
-
-            from ..db.engine import async_session
-            from ..db.models import QualitySnapshot
-
-            async with async_session() as session:
-                sub = select(
-                    QualitySnapshot.id,
-                    func.row_number()
-                    .over(
-                        partition_by=QualitySnapshot.domain,
-                        order_by=QualitySnapshot.scored_at.desc(),
-                    )
-                    .label("rn"),
-                ).subquery()
-                qs = aliased(QualitySnapshot)
-                rows = (
-                    (await session.execute(select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1)))
-                    .scalars()
-                    .all()
-                )
-                scorecards = [_scorecard_from_snapshot(r) for r in rows]
+            scorecards = await _latest_snapshot_scorecards()
+            source = "quality_snapshots"
         except Exception:
             logger.debug("quality_domains_db_fallback_failed", exc_info=True)
+    if not scorecards:
+        report = _load_quality_report()
+        scorecards = report.get("scorecards", [])
+        source = "quality_report_file"
 
     if health:
         scorecards = [s for s in scorecards if s.get("health") == health]
     with contextlib.suppress(Exception):
         scorecards.sort(key=lambda s: s.get(sort, ""))
-    return {"domains": scorecards}
+    return {"domains": scorecards, "source": source, "degraded": bool(warnings), "warnings": warnings}
 
 
 def _scorecard_from_snapshot(row: Any) -> dict:
@@ -1110,6 +1261,8 @@ def _scorecard_from_snapshot(row: Any) -> dict:
     }
     raw = getattr(row, "raw_scorecard", None)
     if raw and isinstance(raw, dict):
+        if raw.get("source") == "nornicdb_pack_report":
+            return raw
         base["coverage"] = raw.get("coverage", base["coverage"])
         base["dead_weight"] = raw.get("dead_weight", base["dead_weight"])
         if raw.get("inventory"):
@@ -1123,33 +1276,22 @@ async def quality_domain_detail(
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(_user)
+    live_scorecards, _warnings = await _current_quality_scorecards(_user)
+    for scorecard in live_scorecards:
+        if key in {str(scorecard.get("domain") or ""), str(scorecard.get("pack_id") or "")}:
+            return scorecard
+
+    try:
+        for scorecard in await _latest_snapshot_scorecards():
+            if key in {str(scorecard.get("domain") or ""), str(scorecard.get("pack_id") or "")}:
+                return scorecard
+    except Exception:
+        logger.debug("quality_domain_db_read_failed", exc_info=True)
+
     report = _load_quality_report()
     for sc in report.get("scorecards", []):
         if sc.get("domain") == key:
             return sc
-    try:
-        from sqlalchemy import select
-
-        from ..db.engine import async_session
-        from ..db.models import QualitySnapshot
-
-        async with async_session() as session:
-            row = (
-                (
-                    await session.execute(
-                        select(QualitySnapshot)
-                        .where(QualitySnapshot.domain == key)
-                        .order_by(QualitySnapshot.scored_at.desc())
-                        .limit(1)
-                    )
-                )
-                .scalars()
-                .first()
-            )
-        if row is not None:
-            return _scorecard_from_snapshot(row)
-    except Exception:
-        logger.debug("quality_domain_db_read_failed", exc_info=True)
 
     return {"domain": key, "health": "unknown", "inventory": {}, "coverage": {}, "dead_weight": {}}
 

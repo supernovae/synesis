@@ -31,6 +31,23 @@ _CONTENT_NODE_CASE_CYPHER = f"CASE WHEN {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE
 _STRICT_CHUNK_CASE_CYPHER = (
     f"CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END"
 )
+_DOCUMENT_KEY_CYPHER = (
+    "CASE "
+    "WHEN n.doc_id IS NOT NULL AND trim(toString(n.doc_id)) <> '' THEN trim(toString(n.doc_id)) "
+    "WHEN n.document_id IS NOT NULL AND trim(toString(n.document_id)) <> '' THEN trim(toString(n.document_id)) "
+    "WHEN n.document_name IS NOT NULL AND trim(toString(n.document_name)) <> '' THEN trim(toString(n.document_name)) "
+    "WHEN n.source_url IS NOT NULL AND trim(toString(n.source_url)) <> '' THEN trim(toString(n.source_url)) "
+    "WHEN n.url IS NOT NULL AND trim(toString(n.url)) <> '' THEN trim(toString(n.url)) "
+    "ELSE '' END"
+)
+_SOURCE_KEY_CYPHER = (
+    "CASE "
+    "WHEN n.source_url IS NOT NULL AND trim(toString(n.source_url)) <> '' THEN trim(toString(n.source_url)) "
+    "WHEN n.url IS NOT NULL AND trim(toString(n.url)) <> '' THEN trim(toString(n.url)) "
+    "WHEN n.document_name IS NOT NULL AND trim(toString(n.document_name)) <> '' THEN trim(toString(n.document_name)) "
+    "WHEN n.doc_id IS NOT NULL AND trim(toString(n.doc_id)) <> '' THEN trim(toString(n.doc_id)) "
+    "ELSE '' END"
+)
 
 
 def expected_graph_schema_version() -> int:
@@ -499,6 +516,9 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                 WITH pack_id,
                      count(n) AS node_count,
                      sum(CASE WHEN {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END) AS chunk_count,
+                     count(n.embedding) AS embedding_count,
+                     count(DISTINCT CASE WHEN {_DOCUMENT_KEY_CYPHER} <> '' THEN {_DOCUMENT_KEY_CYPHER} ELSE null END) AS doc_count,
+                     count(DISTINCT CASE WHEN {_SOURCE_KEY_CYPHER} <> '' THEN {_SOURCE_KEY_CYPHER} ELSE null END) AS source_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'Example' THEN 1 ELSE 0 END) AS example_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'ContextCard' THEN 1 ELSE 0 END) AS context_card_count,
                      sum(CASE WHEN coalesce(n.kind, '') = 'PackCard' THEN 1 ELSE 0 END) AS pack_card_count,
@@ -509,12 +529,17 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                 OPTIONAL MATCH (a:ContentNode)-[r]-(b:ContentNode)
                 WHERE (a.pack = pack_id OR a.pack_id = pack_id)
                   AND (b.pack = pack_id OR b.pack_id = pack_id)
-                WITH pack_id, sample, node_count, chunk_count, example_count, context_card_count, pack_card_count,
-                     anti_pattern_count, constraint_count, external_ref_count, count(DISTINCT r) AS edge_count
+                WITH pack_id, sample, node_count, chunk_count, embedding_count, doc_count, source_count,
+                     example_count, context_card_count, pack_card_count, anti_pattern_count, constraint_count,
+                     external_ref_count, count(DISTINCT r) AS edge_count
                 RETURN pack_id,
-                       node_count, chunk_count, example_count, context_card_count, pack_card_count, anti_pattern_count,
+                       node_count, chunk_count, embedding_count, doc_count, source_count,
+                       example_count, context_card_count, pack_card_count, anti_pattern_count,
                        constraint_count, external_ref_count,
                        edge_count,
+                       coalesce(sample.domain, '') AS domain,
+                       coalesce(sample.language, sample.code_language, '') AS language,
+                       coalesce(sample.document_name, '') AS document_name,
                        coalesce(sample.source_version, '') AS source_version,
                        coalesce(sample.source_release, '') AS source_release,
                        coalesce(sample.quality_score, -1.0) AS quality_score,
@@ -530,6 +555,9 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                         "pack_id": str(row.get("pack_id") or ""),
                         "node_count": int(row.get("node_count") or 0),
                         "chunk_count": int(row.get("chunk_count") or 0),
+                        "embedding_count": int(row.get("embedding_count") or 0),
+                        "doc_count": int(row.get("doc_count") or 0),
+                        "source_count": int(row.get("source_count") or 0),
                         "example_count": int(row.get("example_count") or 0),
                         "context_card_count": int(row.get("context_card_count") or 0),
                         "pack_card_count": int(row.get("pack_card_count") or 0),
@@ -537,6 +565,9 @@ def collection_pack_quality_reports(collection: str) -> list[dict[str, Any]]:
                         "constraint_count": int(row.get("constraint_count") or 0),
                         "external_ref_count": int(row.get("external_ref_count") or 0),
                         "edge_count": int(row.get("edge_count") or 0),
+                        "domain": str(row.get("domain") or ""),
+                        "language": str(row.get("language") or ""),
+                        "document_name": str(row.get("document_name") or ""),
                         "source_version": row.get("source_version", ""),
                         "source_release": row.get("source_release", ""),
                         "quality_score": float(row.get("quality_score") or -1),
