@@ -23,6 +23,7 @@ import {
   runInitialSessionPersistenceWrites,
   runStateTransitionCalibration,
   runTraceFinalization,
+  rotateStateTransitionSnapshot,
 } from "../src/state/session-usage-persistence.js";
 import { StateTransitionGlobalCalibrator } from "../src/governance/state-transition-global-calibrator.js";
 import type { SessionRecord } from "../src/state/session-store.js";
@@ -164,6 +165,67 @@ describe("session usage persistence mutation", () => {
     });
 
     expect(session.metadata).toEqual({ governor_pause_count: 2 });
+  });
+
+  it("rotates state transition snapshots through session metadata", () => {
+    const metadata: Record<string, unknown> = {
+      state_transition_prev_snapshot: transitionRecord().to_state,
+      objective_epoch_id: 7,
+      objective_epoch_objective_hash: "next-hash",
+      chat_state_snapshot: {
+        phase: "verify",
+        completionStatus: "done",
+        lastVerificationOutcome: "passed",
+        unresolvedCorrectionCount: 1,
+        resolvedCorrectionCount: 2,
+      },
+      file_state_snapshot: {
+        statusCounts: {
+          available: 2,
+          stale: 1,
+          partial: 1,
+        },
+      },
+      state_confidence_overall: 0.9,
+      state_confidence_needs_reground: true,
+      state_confidence_reasons: ["verified"],
+      objective_scope_boundary_index: 4,
+      objective_scope_retained_evidence: 5,
+      objective_scope_dropped_pre_boundary: 6,
+    };
+
+    const rotation = rotateStateTransitionSnapshot({ metadata });
+
+    expect(rotation.previousSnapshot).toMatchObject({
+      objectiveEpochId: 1,
+      objectiveHash: "hash",
+      chatPhase: "implement",
+    });
+    expect(rotation.currentSnapshot).toMatchObject({
+      objectiveEpochId: 7,
+      objectiveHash: "next-hash",
+      chatPhase: "verify",
+      completionStatus: "done",
+      verificationOutcome: "passed",
+      unresolvedCorrectionCount: 1,
+      resolvedCorrectionCount: 2,
+      fileStatusCounts: {
+        available: 2,
+        partial: 1,
+        stale: 1,
+      },
+      confidenceOverall: 0.9,
+      confidenceNeedsReground: true,
+      confidenceReasons: ["verified"],
+      scopeBoundaryIndex: 4,
+      scopeRetainedEvidence: 5,
+      scopeDroppedPreBoundary: 6,
+    });
+    expect(metadata.state_transition_prev_snapshot).toMatchObject({
+      objectiveEpochId: 7,
+      objectiveHash: "next-hash",
+      chatPhase: "verify",
+    });
   });
 
   it("updates usage counters, cost totals, and trace links", () => {

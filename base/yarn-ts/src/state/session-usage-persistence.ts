@@ -6,11 +6,14 @@ import {
   DEFAULT_STATE_TRANSITION_QUALITY_THRESHOLDS,
   buildStateTransitionCalibrationSample,
   buildStateTransitionRecord,
+  buildStateTransitionSnapshotFromMetadata,
   calibrateStateTransitionQualityThresholds,
   decodeStateTransitionCalibrationSamples,
   decodeStateTransitionQualityThresholds,
+  decodeStateTransitionSnapshot,
   encodeStateTransitionCalibrationSamples,
   encodeStateTransitionQualityThresholds,
+  encodeStateTransitionSnapshot,
   materializeStateTransitionTrainingRow,
   summarizeStateTransition,
   type StateTransitionSnapshot,
@@ -64,6 +67,15 @@ export interface ApplySessionUsagePersistenceInput {
 export interface ApplyGovernorTelemetryMetadataInput {
   record: SessionRecord;
   snapshot?: DecisionSnapshot;
+}
+
+export interface RotateStateTransitionSnapshotInput {
+  metadata: Record<string, unknown>;
+}
+
+export interface StateTransitionSnapshotRotation {
+  previousSnapshot: StateTransitionSnapshot | null;
+  currentSnapshot: StateTransitionSnapshot;
 }
 
 export interface SessionTraceLinks {
@@ -945,6 +957,20 @@ export function applyGovernorTelemetryMetadata(
   input.record.metadata.last_governor_rules = governor.matchedRules;
   const previousPauseCount = Number(input.record.metadata.governor_pause_count ?? 0);
   input.record.metadata.governor_pause_count = previousPauseCount + (governor.pause ? 1 : 0);
+}
+
+export function rotateStateTransitionSnapshot(
+  input: RotateStateTransitionSnapshotInput,
+): StateTransitionSnapshotRotation {
+  const previousSnapshot = decodeStateTransitionSnapshot(
+    metadataObject(input.metadata, "state_transition_prev_snapshot"),
+  );
+  const currentSnapshot = buildStateTransitionSnapshotFromMetadata(input.metadata);
+  input.metadata.state_transition_prev_snapshot = encodeStateTransitionSnapshot(currentSnapshot);
+  return {
+    previousSnapshot,
+    currentSnapshot,
+  };
 }
 
 export function applySessionUsagePersistenceMutation(

@@ -304,6 +304,7 @@ import {
   runStateTransitionCalibration,
   runHourlyTokenThrottleUpdate,
   runTraceFinalization,
+  rotateStateTransitionSnapshot,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
 import { EnrichmentPool } from "./workers/pool.js";
@@ -413,11 +414,6 @@ import {
   type CompactionMode,
 } from "./governance/context-budget-manager.js";
 import { buildRetentionContext } from "./governance/context-retention.js";
-import {
-  buildStateTransitionSnapshotFromMetadata,
-  decodeStateTransitionSnapshot,
-  encodeStateTransitionSnapshot,
-} from "./governance/state-transition-ledger.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
@@ -4812,11 +4808,10 @@ function persistSessionAndUsage(
   });
 
   applyGovernorTelemetryMetadata({ record: state.record, snapshot });
-  const previousTransitionSnapshot = decodeStateTransitionSnapshot(
-    getMetadataObject(state.record.metadata, "state_transition_prev_snapshot"),
-  );
-  const currentTransitionSnapshot = buildStateTransitionSnapshotFromMetadata(state.record.metadata);
-  state.record.metadata.state_transition_prev_snapshot = encodeStateTransitionSnapshot(currentTransitionSnapshot);
+  const {
+    previousSnapshot: previousTransitionSnapshot,
+    currentSnapshot: currentTransitionSnapshot,
+  } = rotateStateTransitionSnapshot({ metadata: state.record.metadata });
 
   void distributedCounters.setConsecutiveToolCalls(
     state.record.sessionKey,
