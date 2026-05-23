@@ -1434,6 +1434,31 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toMatch(/Do NOT restate "understood"|apply the user's directive silently/i);
   });
 
+  it("does not replay stale repeated assistant intro after a governor recovery answer", () => {
+    const intro =
+      "I'll verify the complete TaskPulse application by checking all required files are present and functional.";
+    const messages = [
+      { role: "user", content: "build the complete TaskPulse application" },
+      { role: "assistant", content: intro },
+      assistantCall("f1", "bash", { command: 'find . -type f -name "*.py" | sort' }),
+      toolResult("f1", "./src/taskpulse/app/main.py"),
+      { role: "assistant", content: intro },
+      assistantCall("f2", "bash", { command: 'find . -type f -name "*.py" | sort' }),
+      toolResult("f2", "./src/taskpulse/app/main.py"),
+      { role: "assistant", content: intro },
+      assistantCall("q1", "question", {
+        question: "Choose the next action",
+        options: ["Continue with one focused fix", "Continue with one targeted verification command"],
+      }),
+      { role: "tool", name: "question", tool_call_id: "q1", content: "2. python -m pytest -q" },
+    ];
+    const out = evaluateExecutionGovernor(messages);
+    expect(resolveGovernanceUserCue(messages as never).source).toBe("askuser_tool_result");
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("repeated_assistant_intro");
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+  });
+
   it("fires verbal_intent_without_action on repeated 'I'll' declarations without any tool calls", () => {
     // verbal_intent_without_action targets pure narration — model says "I'll..." but
     // calls NO tools at all. If tools are called, no_progress_loop handles unproductive loops.
@@ -2581,6 +2606,16 @@ describe("detectSessionPhase", () => {
     const cue = resolveGovernanceUserCue(messages as never);
     expect(cue.source).toBe("user_message");
     expect(cue.text).toContain("implement");
+  });
+
+  it("resolveGovernanceUserCue reads standalone question tool results as recovery answers", () => {
+    const messages = [
+      assistantCall("q1", "question", { question: "Choose the next action" }),
+      { role: "tool_result", name: "question", content: "2. python -m pytest -q" },
+    ];
+    const cue = resolveGovernanceUserCue(messages as never);
+    expect(cue.source).toBe("askuser_tool_result");
+    expect(cue.text).toBe("2. python -m pytest -q");
   });
 
   // --- phase FSM: verify transition with cross-ecosystem runners ---

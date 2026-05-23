@@ -310,26 +310,32 @@ export function detectSessionPhase(
   return phase;
 }
 
-function findLastGenuineUserPromptIndex(messages: GovernorInputMessage[]): number {
+function findLastUserRedirectIndex(messages: GovernorInputMessage[]): number {
+  const toolNameById = buildAssistantToolNameById(messages);
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if (m?.role !== "user") continue;
-    const text = contentToText(m.content).trim();
-    if (!text) continue;
-    if (
-      Array.isArray(m.content)
-      && (m.content as Array<{ type?: string }>).length > 0
-      && (m.content as Array<{ type?: string }>).every(
-        (b) => b && typeof b === "object" && b.type === "tool_result",
-      )
-    ) continue;
-    return i;
+    if (m?.role === "user") {
+      const text = contentToText(m.content).trim();
+      if (!text) continue;
+      if (
+        Array.isArray(m.content)
+        && (m.content as Array<{ type?: string }>).length > 0
+        && (m.content as Array<{ type?: string }>).every(
+          (b) => b && typeof b === "object" && b.type === "tool_result",
+        )
+      ) continue;
+      return i;
+    }
+    if ((m?.role === "tool" || m?.role === "tool_result") && contentToText(m.content).trim()) {
+      const toolName = toolNameForResultMessage(m, toolNameById);
+      if (toolName && USER_FACING_TOOL_RE.test(toolName) && isGovernorRecoveryAnswerText(contentToText(m.content))) return i;
+    }
   }
   return -1;
 }
 
 export function inferGovernorPhaseFromMessages(messages: GovernorInputMessage[]): SessionPhase {
-  const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
+  const lastUserPromptIdx = findLastUserRedirectIndex(messages);
   const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
@@ -1031,24 +1037,15 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
  * Stale claims from before the user's latest intent are ignored.
  */
 function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
-  const toolNameById = new Map<string, string>();
-  for (const m of messages) {
-    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
-      for (const call of m.tool_calls) {
-        const id = normalizeString(call.id);
-        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        if (id && name) toolNameById.set(id, name);
-      }
-    }
-  }
+  const toolNameById = buildAssistantToolNameById(messages);
 
   // Find the index of the latest user redirect
   let latestUserIdx = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
     if (m.role === "user") { latestUserIdx = i; break; }
-    if ((m.role === "tool" || m.role === "tool_result") && m.tool_call_id) {
-      const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+    if (m.role === "tool" || m.role === "tool_result") {
+      const toolName = toolNameForResultMessage(m, toolNameById);
       if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
         const content = contentToText(m.content);
         if (content.trim()) { latestUserIdx = i; break; }
@@ -1239,7 +1236,41 @@ function extractUserText(messages: GovernorInputMessage[]): string {
     .toLowerCase();
 }
 
-const USER_FACING_TOOL_RE = /askuser|ask_user|user_question|askquestion|useranswer|user_input/i;
+const USER_FACING_TOOL_RE = /askuser|ask_user|user_question|askquestion|\bquestion\b|useranswer|user_input/i;
+
+function isGovernorRecoveryAnswerText(text: string): boolean {
+  const value = normalizeString(text).toLowerCase();
+  if (!value) return false;
+  if (/\bcontinue with one (focused fix|targeted verification command)\b/.test(value)) return true;
+  if (/\bstop and summarize current status\b/.test(value)) return true;
+  if (/^(?:option\s*)?[123][\).:\s-]/.test(value)) {
+    return /\b(focused fix|targeted verification|summarize|pytest|compileall|go test|npm test|pnpm test|yarn test|vitest|cargo test|git diff|edit|fix)\b/.test(value);
+  }
+  return false;
+}
+
+function buildAssistantToolNameById(messages: GovernorInputMessage[]): Map<string, string> {
+  const toolNameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    for (const call of m.tool_calls) {
+      const id = normalizeString(call.id);
+      const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
+      if (id && name) toolNameById.set(id, name);
+    }
+  }
+  return toolNameById;
+}
+
+function toolNameForResultMessage(
+  message: GovernorInputMessage,
+  toolNameById: Map<string, string>,
+): string {
+  const directName = normalizeString(message.name).toLowerCase();
+  if (directName) return directName;
+  const toolCallId = normalizeString(message.tool_call_id);
+  return toolCallId ? (toolNameById.get(toolCallId) ?? "") : "";
+}
 
 function needsTestEntryGate(userText: string): boolean {
   return /\b(add|write|create|build).{0,30}\btests?\b/.test(userText)
@@ -1451,24 +1482,25 @@ export function resolveGovernanceUserCue(messages: GovernorInputMessage[]): {
     break;
   }
 
-  const toolNameById = new Map<string, string>();
-  for (const m of messages) {
-    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
-      for (const call of m.tool_calls) {
-        const id = normalizeString(call.id);
-        const name = normalizeString(call.function?.name ?? call.name).toLowerCase();
-        if (id && name) toolNameById.set(id, name);
-      }
-    }
-  }
+  const toolNameById = buildAssistantToolNameById(messages);
 
   if (lastUserIdx >= 0 && lastUserRaw) {
     const lastLower = lastUserRaw.toLowerCase();
+    for (let i = messages.length - 1; i > lastUserIdx; i -= 1) {
+      const m = messages[i];
+      if (m.role !== "tool" && m.role !== "tool_result") continue;
+      const toolName = toolNameForResultMessage(m, toolNameById);
+      if (!toolName || !USER_FACING_TOOL_RE.test(toolName)) continue;
+      const t = contentToText(m.content).trim();
+      if (t && isGovernorRecoveryAnswerText(t)) {
+        return { text: t.toLowerCase(), source: "askuser_tool_result" };
+      }
+    }
     if (isReadOnlyInvestigationIntent(lastLower)) {
       for (let i = messages.length - 1; i > lastUserIdx; i -= 1) {
         const m = messages[i];
-        if ((m.role !== "tool" && m.role !== "tool_result") || !m.tool_call_id) continue;
-        const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+        if (m.role !== "tool" && m.role !== "tool_result") continue;
+        const toolName = toolNameForResultMessage(m, toolNameById);
         if (!toolName || !USER_FACING_TOOL_RE.test(toolName)) continue;
         const t = contentToText(m.content).trim();
         if (t) return { text: t.toLowerCase(), source: "askuser_tool_result" };
@@ -1479,8 +1511,8 @@ export function resolveGovernanceUserCue(messages: GovernorInputMessage[]): {
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if ((m.role !== "tool" && m.role !== "tool_result") || !m.tool_call_id) continue;
-    const toolName = toolNameById.get(normalizeString(m.tool_call_id));
+    if (m.role !== "tool" && m.role !== "tool_result") continue;
+    const toolName = toolNameForResultMessage(m, toolNameById);
     if (!toolName || !USER_FACING_TOOL_RE.test(toolName)) continue;
     const text = contentToText(m.content).trim();
     if (text) return { text: text.toLowerCase(), source: "askuser_tool_result" };
@@ -1566,8 +1598,9 @@ export function evaluateExecutionGovernor(
       ?? "",
   );
   const artifactView = opts.artifactShadows ?? artifactViewFromFileState(opts.fileState);
-  // Evaluate from the latest real user prompt (ignoring user-role tool_result wrappers).
-  const lastUserPromptIdx = findLastGenuineUserPromptIndex(messages);
+  // Evaluate from the latest user redirect. Interactive recovery answers often
+  // arrive as AskUser/question tool results rather than role=user messages.
+  const lastUserPromptIdx = findLastUserRedirectIndex(messages);
   const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
   const changedFiles = extractEditedFileHints(events);
