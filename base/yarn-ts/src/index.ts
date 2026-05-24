@@ -347,6 +347,10 @@ import {
 } from "./pipeline/route-tool-preparation.js";
 import { applyRoutePhasePolicy } from "./pipeline/route-phase-policy.js";
 import {
+  applyRouteAdapterPivot,
+  resetQwenInterventionOnUserTurn,
+} from "./pipeline/route-adapter-pivot.js";
+import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
@@ -1681,54 +1685,6 @@ function applyCompletionGate(
   };
 }
 
-function extractRecentAssistantText(messages: Array<{ role: string; content: unknown }>): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "assistant") continue;
-    const content = m.content;
-    if (typeof content === "string" && content.trim()) return content.trim();
-    if (Array.isArray(content)) {
-      const text = content
-        .map((part) => {
-          if (typeof part === "string") return part;
-          if (!part || typeof part !== "object") return "";
-          const row = part as Record<string, unknown>;
-          return typeof row.text === "string" ? row.text : "";
-        })
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-  }
-  return null;
-}
-
-function extractRecentToolResultText(messages: Array<{ role: string; content: unknown }>): string | null {
-  const chunks: string[] = [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "tool" && m.role !== "tool_result") continue;
-    const content = m.content;
-    if (typeof content === "string" && content.trim()) {
-      chunks.push(content.trim());
-    } else if (Array.isArray(content)) {
-      const text = content
-        .map((part) => {
-          if (typeof part === "string") return part;
-          if (!part || typeof part !== "object") return "";
-          const row = part as Record<string, unknown>;
-          return typeof row.text === "string" ? row.text : "";
-        })
-        .join("\n")
-        .trim();
-      if (text) chunks.push(text);
-    }
-    if (chunks.length >= 4) break;
-  }
-  if (chunks.length === 0) return null;
-  return chunks.join("\n").slice(0, 6000);
-}
-
 type ToolExecutionFailureObservation = {
   toolName: string;
   toolCallId: string;
@@ -2290,129 +2246,6 @@ function collectToolResultTextChunks(value: unknown, depth = 0, out: string[] = 
     if (out.length >= 12) break;
   }
   return out;
-}
-
-interface QwenPivotState {
-  lastTurnMarker: number;
-  /** How many consecutive pivots the model has ignored (same pattern fires again). */
-  consecutiveIgnored: number;
-}
-
-const qwenInterventionBySession = new Map<string, Map<string, QwenPivotState>>();
-const qwenInterventionTurnBySession = new Map<string, number>();
-
-/**
- * Decide whether to suppress a pivot injection.
- *
- * The old logic used a flat cooldown that suppressed every pivot within N turns —
- * this caused the model to loop indefinitely because it never saw the warning.
- *
- * New logic: after the first pivot fires, allow one cooldown turn. If the adapter
- * detects the SAME pattern on the very next evaluation, that means the model
- * ignored the pivot. We stop suppressing and let escalating messages through.
- * After IGNORED_PIVOT_HARD_STOP consecutive ignored pivots, return "hard_stop"
- * so the caller can abort the request.
- */
-function shouldSuppressQwenIntervention(
-  sessionKey: string,
-  turnMarker: number,
-  pivotKind: string,
-): "allow" | "suppress" | "hard_stop" {
-  const byKind = qwenInterventionBySession.get(sessionKey);
-  if (!byKind) return "allow";
-  const state = byKind.get(pivotKind);
-  if (!state) return "allow";
-
-  if (state.consecutiveIgnored >= 5) {
-    return "hard_stop";
-  }
-
-  const gap = turnMarker - state.lastTurnMarker;
-  const cooldownTurns = Math.max(0, config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS);
-
-  if (gap <= cooldownTurns && state.consecutiveIgnored === 0) {
-    return "suppress";
-  }
-
-  return "allow";
-}
-
-function markQwenIntervention(sessionKey: string, turnMarker: number, pivotKind: string): void {
-  let byKind = qwenInterventionBySession.get(sessionKey);
-  if (!byKind) {
-    byKind = new Map();
-    qwenInterventionBySession.set(sessionKey, byKind);
-  }
-  const state = byKind.get(pivotKind);
-  if (state) {
-    state.consecutiveIgnored += 1;
-    state.lastTurnMarker = turnMarker;
-  } else {
-    byKind.set(pivotKind, { lastTurnMarker: turnMarker, consecutiveIgnored: 0 });
-  }
-}
-
-function resetQwenInterventionOnUserTurn(sessionKey: string): void {
-  qwenInterventionBySession.delete(sessionKey);
-  qwenInterventionTurnBySession.delete(sessionKey);
-}
-
-function nextQwenInterventionTurn(sessionKey: string): number {
-  const next = (qwenInterventionTurnBySession.get(sessionKey) ?? 0) + 1;
-  qwenInterventionTurnBySession.set(sessionKey, next);
-  return next;
-}
-
-function classifyQwenPivotEvent(
-  prompt: string,
-  recentToolCalls: RecentToolCall[],
-  source: "early" | "dampening" = "early",
-): string {
-  if (source === "dampening") return "adapter_qwen_dampening";
-  const tail = recentToolCalls.slice(-8);
-  let consecutiveEditSameFile = 0;
-  let lastEditPath = "";
-  let readLikeCount = 0;
-  let gitInspectionCount = 0;
-  const sigCounts = new Map<string, number>();
-  for (const call of tail) {
-    const tool = call.toolName.trim().toLowerCase();
-    const filePath = (call.filePath ?? "").trim();
-    const sig = `${tool}:${filePath}`;
-    sigCounts.set(sig, (sigCounts.get(sig) ?? 0) + 1);
-    if (tool === "edit" || tool === "update") {
-      if (filePath && (lastEditPath === "" || lastEditPath === filePath)) {
-        consecutiveEditSameFile += 1;
-      } else {
-        consecutiveEditSameFile = 1;
-      }
-      lastEditPath = filePath;
-    }
-    if (tool === "read" || tool === "cat" || tool === "head" || tool === "tail") {
-      readLikeCount += 1;
-    }
-    if (tool === "bash") {
-      const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
-      if (
-        /\bgit\s+status\b/.test(cmd)
-        || /\bgit\s+diff\b/.test(cmd)
-        || /\bgit\s+log\b/.test(cmd)
-        || /\bgit\s+show\b/.test(cmd)
-      ) {
-        gitInspectionCount += 1;
-      }
-    }
-  }
-  if (consecutiveEditSameFile >= 3) return "adapter_qwen_edit_retry";
-  if (gitInspectionCount >= 4) return "adapter_qwen_git_introspection";
-  if (readLikeCount >= 3) return "adapter_qwen_read_loop";
-  if ([...sigCounts.values()].some((v) => v >= 3)) return "adapter_qwen_repeated_intent";
-  const p = prompt.toLowerCase();
-  if (p.includes("implementation plan")) return "adapter_qwen_plan_no_action";
-  if (p.includes("repeating the same intent")) return "adapter_qwen_repeated_intent";
-  if (p.includes("attempted to edit")) return "adapter_qwen_edit_retry";
-  if (p.includes("you have read")) return "adapter_qwen_read_loop";
-  return "adapter_qwen_early_pivot";
 }
 
 function isOpenClawProfile(profile: { family?: string }): boolean {
@@ -3998,7 +3831,7 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
   }
 }
 
-import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js";
+import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
   adapterUsesToolLoopSteering,
 } from "./providers/model-adapter.js";
@@ -7700,8 +7533,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ) as typeof modelMessages;
   }
 
-  // Adapter-specific early pivot and same-tool dampening (fires after generic governance).
-  // Skip when policy pivot, edit-miss recovery, forced read, or governor soft-fail already applied (H4).
   const oaiGovernanceRecoveryActive = Boolean(
     policyPrecheck.pivotPrompt
     || oaiEditMissGuard?.active
@@ -7709,105 +7540,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
     || oaiNeedsStateReground
     || (oaiSensemakingDecision && oaiSensemakingDecision.responseLevel !== "allow"),
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapterUsesToolLoopSteering(adapter.family) && oaiGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-    app.log.info(
-      {
-        reqId: oaiTraceReqId,
+  modelMessages = applyRouteAdapterPivot({
+    surface: "openai",
+    adapter,
+    sessionKey,
+    requestId: oaiTraceReqId,
+    modelMessages: modelMessages as Array<{ role: string; content?: unknown }>,
+    normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+    recentCalls: oaiRecentCallsForSteering,
+    recentUserPrompt: oaiTaskCue,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    toolLoopSteeringEnabled: adapterUsesToolLoopSteering(adapter.family),
+    governanceRecoveryActive: oaiGovernanceRecoveryActive,
+    harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
+    skipTelemetry: {
         policy_pivot: Boolean(policyPrecheck.pivotPrompt),
         edit_miss_guard: Boolean(oaiEditMissGuard?.active),
         force_read_recovery: oaiForceReadRecovery,
         state_confidence_reground: oaiNeedsStateReground,
         governor_soft_fail_pause: Boolean(oaiSensemakingDecision?.shouldPause),
-      },
-      "yarn_harness_adapter_pivot_skipped",
-    );
-  }
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !oaiGovernanceRecoveryActive && adapterUsesToolLoopSteering(adapter.family)) {
-    const oaiRecentCalls = oaiRecentCallsForSteering;
-    const oaiRecentAssistantText = extractRecentAssistantText(
-      normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-    );
-    const oaiRecentToolResultText = extractRecentToolResultText(
-      normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-    );
-    const turnMarker = nextQwenInterventionTurn(sessionKey);
-    if (adapter.getEarlyPivotPrompt) {
-      const earlyPivot = adapter.getEarlyPivotPrompt(oaiRecentCalls, {
-        recentAssistantText: oaiRecentAssistantText,
-        recentUserPrompt: oaiTaskCue,
-        recentToolResultText: oaiRecentToolResultText,
-        stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
-        stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
-        planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
-        editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
-      });
-      if (earlyPivot) {
-        const pivotKind = classifyQwenPivotEvent(earlyPivot, oaiRecentCalls, "early");
-        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, pivotKind);
-        if (decision === "hard_stop") {
-          app.log.warn(
-            { sessionKey, family: adapter.family, turnMarker, pivotKind },
-            "adapter_qwen_ignored_pivot_hard_stop",
-          );
-          const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          modelMessages = appendSystemMessageAndNormalize(
-            modelMessages as Array<{ role: string; content?: unknown }>,
-            forcedRecovery,
-          ) as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker, pivotKind);
-          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, oaiTraceReqId);
-        } else if (decision === "suppress") {
-          app.log.info(
-            { sessionKey, family: adapter.family, turnMarker },
-            "adapter_qwen_cooldown_suppressed",
-          );
-        } else {
-          modelMessages = appendSystemMessageAndNormalize(
-            modelMessages as Array<{ role: string; content?: unknown }>,
-            earlyPivot,
-          ) as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker, pivotKind);
-          app.log.info(
-            { sessionKey, family: adapter.family, pivotLen: earlyPivot.length },
-            pivotKind,
-          );
-        }
-      }
-    }
-    if (adapter.dampenConsecutiveSameTools) {
-      const oaiToolNames = oaiRecentCalls.map((c) => c.toolName);
-      const dampening = adapter.dampenConsecutiveSameTools(oaiToolNames);
-      if (dampening) {
-        const dampeningPivotKind = classifyQwenPivotEvent(dampening, oaiRecentCalls, "dampening");
-        const decision = shouldSuppressQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
-        if (decision === "hard_stop") {
-          app.log.warn(
-            { sessionKey, family: adapter.family, turnMarker, pivotKind: dampeningPivotKind },
-            "adapter_qwen_ignored_pivot_hard_stop",
-          );
-          const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          modelMessages = appendSystemMessageAndNormalize(
-            modelMessages as Array<{ role: string; content?: unknown }>,
-            forcedRecovery,
-          ) as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
-          recordSessionEvent(sessionKey, identity.userId, identity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", oaiTraceReqId);
-        } else if (decision === "suppress") {
-          app.log.info(
-            { sessionKey, family: adapter.family, turnMarker },
-            "adapter_qwen_cooldown_suppressed",
-          );
-        } else {
-          modelMessages = appendSystemMessageAndNormalize(
-            modelMessages as Array<{ role: string; content?: unknown }>,
-            dampening,
-          ) as typeof modelMessages;
-          markQwenIntervention(sessionKey, turnMarker, dampeningPivotKind);
-          app.log.info({ sessionKey, family: adapter.family, dampenLen: dampening.length }, "adapter_dampening_oai");
-        }
-      }
-    }
-  }
+    },
+    cooldownTurns: config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS,
+    stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
+    stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
+    planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
+    editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
+    dampeningLogEvent: "adapter_dampening_oai",
+    logger: app.log,
+    appendSystemMessageAndNormalize: (messagesToAppend, content) => appendSystemMessageAndNormalize(
+      messagesToAppend,
+      content,
+    ) as typeof messagesToAppend,
+    recordSessionEvent: (eventKind, component, detail) =>
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, oaiTraceReqId),
+  }).modelMessages as typeof modelMessages;
 
   modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
 
@@ -9913,7 +9679,6 @@ app.post("/v1/messages", async (req, reply) => {
     ) as typeof claudeModelMessages;
   }
 
-  // Adapter-specific early pivot and same-tool dampening (Claude path). Same H4 as OpenAI path.
   const claudeGovernanceRecoveryActive = Boolean(
     claudePolicyPrecheck.pivotPrompt
     || claudeEditMissGuard?.active
@@ -9921,105 +9686,40 @@ app.post("/v1/messages", async (req, reply) => {
     || claudeNeedsStateReground
     || (claudeSensemakingDecision && claudeSensemakingDecision.responseLevel !== "allow"),
   );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && adapterUsesToolLoopSteering(claudeAdapter.family) && claudeGovernanceRecoveryActive && config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-    app.log.info(
-      {
-        reqId: traceReqId,
+  claudeModelMessages = applyRouteAdapterPivot({
+    surface: "claude",
+    adapter: claudeAdapter,
+    sessionKey: claudeSessionKey,
+    requestId: traceReqId,
+    modelMessages: claudeModelMessages as Array<{ role: string; content?: unknown }>,
+    normalizedMessages: normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    recentCalls: claudeRecentCallsForSteering,
+    recentUserPrompt: claudeTaskCue,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    toolLoopSteeringEnabled: adapterUsesToolLoopSteering(claudeAdapter.family),
+    governanceRecoveryActive: claudeGovernanceRecoveryActive,
+    harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
+    skipTelemetry: {
         policy_pivot: Boolean(claudePolicyPrecheck.pivotPrompt),
         edit_miss_guard: Boolean(claudeEditMissGuard?.active),
         force_read_recovery: claudeForceReadRecovery,
         state_confidence_reground: claudeNeedsStateReground,
         governor_soft_fail_pause: Boolean(claudeSensemakingDecision?.shouldPause),
-      },
-      "yarn_harness_adapter_pivot_skipped",
-    );
-  }
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && !claudeGovernanceRecoveryActive && adapterUsesToolLoopSteering(claudeAdapter.family)) {
-    const claudeRecentCalls = claudeRecentCallsForSteering;
-    const claudeRecentAssistantText = extractRecentAssistantText(
-      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-    );
-    const claudeRecentToolResultText = extractRecentToolResultText(
-      normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-    );
-    const turnMarker = nextQwenInterventionTurn(claudeSessionKey);
-    if (claudeAdapter.getEarlyPivotPrompt) {
-      const earlyPivot = claudeAdapter.getEarlyPivotPrompt(claudeRecentCalls, {
-        recentAssistantText: claudeRecentAssistantText,
-        recentUserPrompt: claudeTaskCue,
-        recentToolResultText: claudeRecentToolResultText,
-        stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
-        stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
-        planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
-        editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
-      });
-      if (earlyPivot) {
-        const pivotKind = classifyQwenPivotEvent(earlyPivot, claudeRecentCalls, "early");
-        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
-        if (decision === "hard_stop") {
-          app.log.warn(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind },
-            "adapter_qwen_ignored_pivot_hard_stop",
-          );
-          const forcedRecovery = `${earlyPivot}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          claudeModelMessages = appendSystemMessageAndNormalize(
-            claudeModelMessages as Array<{ role: string; content?: unknown }>,
-            forcedRecovery,
-          ) as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
-          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", `${pivotKind}: forced continue after ignored pivots`, traceReqId);
-        } else if (decision === "suppress") {
-          app.log.info(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
-            "adapter_qwen_cooldown_suppressed",
-          );
-        } else {
-          claudeModelMessages = appendSystemMessageAndNormalize(
-            claudeModelMessages as Array<{ role: string; content?: unknown }>,
-            earlyPivot,
-          ) as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker, pivotKind);
-          app.log.info(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, pivotLen: earlyPivot.length },
-            pivotKind,
-          );
-        }
-      }
-    }
-    if (claudeAdapter.dampenConsecutiveSameTools) {
-      const claudeToolNames = claudeRecentCalls.map((c) => c.toolName);
-      const dampening = claudeAdapter.dampenConsecutiveSameTools(claudeToolNames);
-      if (dampening) {
-        const dampeningPivotKind = classifyQwenPivotEvent(dampening, claudeRecentCalls, "dampening");
-        const decision = shouldSuppressQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
-        if (decision === "hard_stop") {
-          app.log.warn(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker, pivotKind: dampeningPivotKind },
-            "adapter_qwen_ignored_pivot_hard_stop",
-          );
-          const forcedRecovery = `${dampening}\nCRITICAL: Do not ask the user for guidance. Continue autonomously by taking exactly one concrete action now: apply one focused Edit/Write that advances the requested task, then run one narrow verification command.`;
-          claudeModelMessages = appendSystemMessageAndNormalize(
-            claudeModelMessages as Array<{ role: string; content?: unknown }>,
-            forcedRecovery,
-          ) as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
-          recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "adapter_pivot_auto_recover", "adapter", "dampening: forced continue after ignored pivots", traceReqId);
-        } else if (decision === "suppress") {
-          app.log.info(
-            { sessionKey: claudeSessionKey, family: claudeAdapter.family, turnMarker },
-            "adapter_qwen_cooldown_suppressed",
-          );
-        } else {
-          claudeModelMessages = appendSystemMessageAndNormalize(
-            claudeModelMessages as Array<{ role: string; content?: unknown }>,
-            dampening,
-          ) as typeof claudeModelMessages;
-          markQwenIntervention(claudeSessionKey, turnMarker, dampeningPivotKind);
-          app.log.info({ sessionKey: claudeSessionKey, family: claudeAdapter.family, dampenLen: dampening.length }, "adapter_dampening_claude");
-        }
-      }
-    }
-  }
+    },
+    cooldownTurns: config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS,
+    stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
+    stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
+    planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
+    editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
+    dampeningLogEvent: "adapter_dampening_claude",
+    logger: app.log,
+    appendSystemMessageAndNormalize: (messagesToAppend, content) => appendSystemMessageAndNormalize(
+      messagesToAppend,
+      content,
+    ) as typeof messagesToAppend,
+    recordSessionEvent: (eventKind, component, detail) =>
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId),
+  }).modelMessages as typeof claudeModelMessages;
 
   claudeModelMessages = normalizeSystemMessageOrdering(claudeModelMessages as Array<{ role: string }>) as typeof claudeModelMessages;
 
