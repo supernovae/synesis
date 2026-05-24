@@ -333,11 +333,8 @@ import {
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
+import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
-import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
-import { runOpenAIStreamRoutePipeline } from "./pipeline/openai-stream-route-pipeline.js";
-import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
-import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -10035,87 +10032,60 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: identity.orgId,
     requestId: reqId,
   };
-  const oaiStreamStart = await startOpenAIStreamRoute({
+  const streamResult = await runOpenAIChatStreamPipeline({
     scope: oaiStreamGateScope,
     resolvedModelId: resolved.resolvedModelId,
-    logger: app.log,
-    streamAdmission,
-    circuitBreakers,
     recordSessionEvent,
-    startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
-  });
-  if (!oaiStreamStart.ok) {
-    return sendOpenAIChatPipelineResult(reply, oaiStreamStart.result);
-  }
-  const oaiAdmission = oaiStreamStart.admission;
-  const otelStreamSpan = oaiStreamStart.span;
-  const started = oaiStreamStart.startedAtMs;
-  const oaiStreamScope = oaiStreamStart.scope;
-  const recordOpenAIStreamEvent = oaiStreamStart.recordEvent;
-  const oaiStreamInvocation = invokeOpenAIStreamProvider({
-    scope: oaiStreamScope,
-    path: "/v1/chat/completions (stream)",
-    resolvedModelId: resolved.resolvedModelId,
-    providerModel: resolved.model,
-    messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
-    effectiveTools: effectiveTools as unknown[],
-    sdkTools,
-    toolChoice: effectiveToolChoice,
-    providerOptions: oaiProviderOptions,
-    output: oaiStructuredOutput,
-    samplingOptions: oaiSamplingOptions,
-    orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
-    requestMaxTokens: request.max_tokens,
-    requestMaxCompletionTokens: request.max_completion_tokens,
-    adapter,
-    debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
-    startedAtMs: started,
-    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-    hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-    phasePolicy: oaiForensicsPhasePolicy,
-    capabilityMatrix: oaiForensicsCapabilityMatrix,
-    logger: app.log,
-    recordSessionEvent: recordOpenAIStreamEvent,
-    clampMaxOutputTokens: clampMaxOutputTokensForSafety,
-    captureForensics: captureRequestForensics,
-    streamText: (options) => streamText(options as never),
-  });
-  const openAiStreamForensics = oaiStreamInvocation.requestForensics;
-  const oaiStreamAbortRuntime = oaiStreamInvocation.abortRuntime;
-  modelMessages = oaiStreamInvocation.messages as typeof modelMessages;
-  const streamed = oaiStreamInvocation.streamed;
-  const oaiStreamRuntime = createOpenAIStreamRouteRuntime({
-    raw: reply.raw,
-    headers: sseHeadersWithClarification(session.record.metadata),
-    scope: oaiStreamScope,
-    resolvedModelId: resolved.resolvedModelId,
-    messages: modelMessages as Array<{ role: string; content: unknown }>,
-    tierConfig: tierRegistry.getTierConfig(resolved.resolvedModelId),
-    write: safeWrite,
-    computePrefixFingerprint,
-    heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
-    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-    startHeartbeat: startSseHeartbeat,
-    recordSessionEvent: recordOpenAIStreamEvent,
-    abortRuntime: oaiStreamAbortRuntime,
-    admissionRelease: () => oaiAdmission.release!(),
-    session,
-    span: otelStreamSpan,
-    circuitBreakers,
-    logger: app.log,
-    extractUpstreamErrorDiagnostics,
-    adapter,
-    stats: toolArgHardeningStats,
-    recordBlockedDiscovery,
-    getBlockedDiscoveryCount,
-  });
-  await runOpenAIStreamRoutePipeline({
-    streamParts: streamed.fullStream as AsyncIterable<unknown>,
-    runtime: oaiStreamRuntime,
-    eventHandlers: {
-      scope: oaiStreamScope,
+    start: {
+      logger: app.log,
+      streamAdmission,
+      circuitBreakers,
+      startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
+    },
+    provider: {
+      path: "/v1/chat/completions (stream)",
+      providerModel: resolved.model,
+      messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+      effectiveTools: effectiveTools as unknown[],
+      sdkTools,
+      toolChoice: effectiveToolChoice,
+      providerOptions: oaiProviderOptions,
+      output: oaiStructuredOutput,
+      samplingOptions: oaiSamplingOptions,
+      orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
+      requestMaxTokens: request.max_tokens,
+      requestMaxCompletionTokens: request.max_completion_tokens,
       adapter,
-      resolvedModelId: resolved.resolvedModelId,
+      debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+      longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+      hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+      phasePolicy: oaiForensicsPhasePolicy,
+      capabilityMatrix: oaiForensicsCapabilityMatrix,
+      logger: app.log,
+      clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+      captureForensics: captureRequestForensics,
+      streamText: (options) => streamText(options as never),
+    },
+    runtime: {
+      raw: reply.raw,
+      headers: sseHeadersWithClarification(session.record.metadata),
+      tierConfig: tierRegistry.getTierConfig(resolved.resolvedModelId),
+      write: safeWrite,
+      computePrefixFingerprint,
+      heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+      longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+      startHeartbeat: startSseHeartbeat,
+      session,
+      circuitBreakers,
+      logger: app.log,
+      extractUpstreamErrorDiagnostics,
+      adapter,
+      stats: toolArgHardeningStats,
+      recordBlockedDiscovery,
+      getBlockedDiscoveryCount,
+    },
+    eventHandlers: {
+      adapter,
       clientKind: oaiClientKind,
       effectiveTools: effectiveTools as unknown[],
       debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
@@ -10156,8 +10126,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ),
     },
     finalizer: {
-      scope: oaiStreamScope,
-      streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
       streamOptions: request.stream_options,
       readUsage,
       session,
@@ -10172,14 +10140,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       finalizeCompletionText,
       finalizePostStreamText,
       endStream: () => safeEnd(reply.raw),
-      stopHeartbeat: () => oaiStreamRuntime.heartbeat.stop(),
-      recordSessionEvent: recordOpenAIStreamEvent,
     },
     telemetry: {
       routeBase: {
-        scope: oaiStreamScope,
-        startedAtMs: started,
-        resolvedModelId: resolved.resolvedModelId,
         clientRequestedModel: request.model,
         reductions: {
           toolResultReduction,
@@ -10220,8 +10183,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
       },
       optimizationLedger: oaiOptLedger,
-      finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
-      recordSessionEvent: recordOpenAIStreamEvent,
+      finalizeRequestForensics: (usage, forensics) => finalizeRequestForensics(session, reqId, forensics, usage),
       persistDecisionTelemetry: ({ finishReason, telemetry }) => persistAndEmitDecisionTelemetry({
         state: session,
         requestId: reqId,
@@ -10242,7 +10204,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
     },
   });
-  return reply;
+  return sendOpenAIChatPipelineResult(reply, streamResult);
 });
 
 // --- Claude Messages API ---
