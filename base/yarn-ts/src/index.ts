@@ -305,6 +305,7 @@ import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime
 import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
+import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
 import { createStreamRouteEventRecorder } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
@@ -13186,11 +13187,6 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
-    const claudeStreamAbortController = new AbortController();
-    const claudeStreamHardTimeoutMs = Math.max(
-      config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
-      config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-    );
     const claudeStreamScope = {
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
@@ -13218,21 +13214,20 @@ app.post("/v1/messages", async (req, reply) => {
       maybeLogEnvelopeUnwrapSample,
       recordUpperHarnessDecision,
     });
-    const claudeStreamHardTimeout = setTimeout(() => {
-      recordClaudeStreamEvent({
-        eventKind: "stream_hard_timeout",
-        component: "stream-heartbeat",
-        detail: `Aborted Claude stream after ${claudeStreamHardTimeoutMs}ms`,
-        metadataJson: { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
-      });
-      claudeStreamAbortController.abort(new Error("stream_hard_timeout"));
-    }, claudeStreamHardTimeoutMs);
+    const claudeStreamAbortRuntime = createStreamAbortRuntime({
+      protocolLabel: "Claude",
+      model: resolved.resolvedModelId,
+      startedAtMs: started,
+      longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+      hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+      recordSessionEvent: recordClaudeStreamEvent,
+    });
     const claudeStreamProviderRequest = prepareClaudeStreamProviderRequest({
       requestId: traceReqId,
       model: resolved.model,
       messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
       adapter: claudeAdapter,
-      abortSignal: claudeStreamAbortController.signal,
+      abortSignal: claudeStreamAbortRuntime.abortController.signal,
       orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
       requestMaxTokens: body.max_tokens,
       samplingOptions: claudeSamplingOptions,
@@ -13347,8 +13342,8 @@ app.post("/v1/messages", async (req, reply) => {
       model: resolved.resolvedModelId,
       orgId: claudeIdentity.orgId,
       session,
-      abortSignal: claudeStreamAbortController.signal,
-      hardTimeout: claudeStreamHardTimeout,
+      abortSignal: claudeStreamAbortRuntime.abortController.signal,
+      hardTimeout: claudeStreamAbortRuntime.hardTimeout,
       admissionRelease: () => claudeAdmission.release!(),
       streamState: claudeStreamState,
       span: claudeStreamSpan,

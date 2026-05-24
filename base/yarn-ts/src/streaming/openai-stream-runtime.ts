@@ -1,3 +1,5 @@
+import { createStreamAbortRuntime } from "./stream-abort-runtime.js";
+
 export interface OpenAIStreamRuntimeEventRecorder {
   (event: {
     eventKind: string;
@@ -49,26 +51,14 @@ export interface OpenAIStreamSseRuntimeInput {
 export function createOpenAIStreamAbortRuntime(
   input: OpenAIStreamAbortRuntimeInput,
 ): OpenAIStreamAbortRuntime {
-  const abortController = new AbortController();
-  const hardTimeoutMs = Math.max(input.longWaitEventMs + 5_000, input.hardTimeoutMs);
-  const hardTimeout = setTimeout(() => {
-    input.recordSessionEvent({
-      eventKind: "stream_hard_timeout",
-      component: "stream-heartbeat",
-      detail: `Aborted OpenAI stream after ${hardTimeoutMs}ms`,
-      metadataJson: {
-        elapsedMs: Date.now() - input.startedAtMs,
-        model: input.model,
-      },
-    });
-    abortController.abort(new Error("stream_hard_timeout"));
-  }, hardTimeoutMs);
-
-  return {
-    abortController,
-    hardTimeout,
-    hardTimeoutMs,
-  };
+  return createStreamAbortRuntime({
+    protocolLabel: "OpenAI",
+    model: input.model,
+    startedAtMs: input.startedAtMs,
+    longWaitEventMs: input.longWaitEventMs,
+    hardTimeoutMs: input.hardTimeoutMs,
+    recordSessionEvent: input.recordSessionEvent,
+  });
 }
 
 export function startOpenAIStreamSseRuntime(
