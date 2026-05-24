@@ -306,7 +306,7 @@ import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./st
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
-import { createStreamRouteEventRecorder } from "./streaming/stream-route-scope.js";
+import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -10116,13 +10116,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
   const started = Date.now();
-  const oaiStreamScope = {
+  const oaiStreamScopeBundle = createStreamRouteScopeBundle({
     sessionKey,
     userId: identity.userId,
     orgId: identity.orgId,
     requestId: reqId,
-  };
-  const recordOpenAIStreamEvent = createStreamRouteEventRecorder(oaiStreamScope, recordSessionEvent);
+  }, recordSessionEvent);
+  const oaiStreamScope = oaiStreamScopeBundle.scope;
+  const recordOpenAIStreamEvent = oaiStreamScopeBundle.recordEvent;
   const oaiStreamToolSideEffects = createRouteToolCallSideEffects({
     session,
     sessionKey,
@@ -13187,17 +13188,18 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
-    const claudeStreamScope = {
+    const claudeStreamScopeBundle = createStreamRouteScopeBundle({
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
       orgId: claudeIdentity.orgId,
       requestId: traceReqId,
-    };
+    }, recordSessionEvent);
+    const claudeStreamScope = claudeStreamScopeBundle.scope;
     const claudeResponseScope = {
       ...claudeStreamScope,
       requestId: reqId,
     };
-    const recordClaudeStreamEvent = createStreamRouteEventRecorder(claudeStreamScope, recordSessionEvent);
+    const recordClaudeStreamEvent = claudeStreamScopeBundle.recordEvent;
     const claudeStreamToolSideEffects = createRouteToolCallSideEffects({
       session,
       sessionKey: claudeSessionKey,

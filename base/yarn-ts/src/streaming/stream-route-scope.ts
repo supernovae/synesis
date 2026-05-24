@@ -23,6 +23,11 @@ export type StreamRouteEventSink = (
   metadataJson?: Record<string, unknown>,
 ) => void;
 
+export interface StreamRouteScopeBundle {
+  scope: StreamRouteScope;
+  recordEvent(event: StreamRouteEvent): void;
+}
+
 export function createStreamRouteEventRecorder(
   scope: StreamRouteScope,
   recordSessionEvent: StreamRouteEventSink,
@@ -37,4 +42,14 @@ export function createStreamRouteEventRecorder(
     scope.requestId,
     event.metadataJson,
   );
+}
+
+export function createStreamRouteScopeBundle(
+  scope: StreamRouteScope,
+  recordSessionEvent: StreamRouteEventSink,
+): StreamRouteScopeBundle {
+  return {
+    scope,
+    recordEvent: createStreamRouteEventRecorder(scope, recordSessionEvent),
+  };
 }
