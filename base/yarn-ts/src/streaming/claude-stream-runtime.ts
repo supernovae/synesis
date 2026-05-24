@@ -1,4 +1,5 @@
 import type { OpenAIStreamHeartbeat, OpenAIStreamRuntimeEventRecorder, OpenAIStreamSseRaw } from "./openai-stream-runtime.js";
+import { startStreamSseRuntime } from "./stream-sse-runtime.js";
 
 export interface ClaudeStreamSseRuntimeInput {
   raw: OpenAIStreamSseRaw;
@@ -42,19 +43,15 @@ export interface ClaudeStreamRouteRuntime {
 export function startClaudeStreamSseRuntime(
   input: ClaudeStreamSseRuntimeInput,
 ): OpenAIStreamHeartbeat {
-  input.raw.writeHead(200, input.headers);
-  return input.startHeartbeat({
+  return startStreamSseRuntime({
     raw: input.raw,
-    intervalMs: input.heartbeatIntervalMs,
+    headers: input.headers,
+    protocolLabel: "Claude",
+    model: input.model,
+    heartbeatIntervalMs: input.heartbeatIntervalMs,
     longWaitEventMs: input.longWaitEventMs,
-    onLongWait: (elapsedMs) => {
-      input.recordSessionEvent({
-        eventKind: "stream_long_wait",
-        component: "stream-heartbeat",
-        detail: `Claude stream exceeded ${input.longWaitEventMs}ms without finishing`,
-        metadataJson: { elapsedMs, model: input.model },
-      });
-    },
+    startHeartbeat: input.startHeartbeat,
+    recordSessionEvent: input.recordSessionEvent,
   });
 }
 

@@ -1,4 +1,9 @@
 import { createStreamAbortRuntime } from "./stream-abort-runtime.js";
+import {
+  startStreamSseRuntime,
+  type StreamHeartbeat,
+  type StreamSseRaw,
+} from "./stream-sse-runtime.js";
 
 export interface OpenAIStreamRuntimeEventRecorder {
   (event: {
@@ -24,14 +29,9 @@ export interface OpenAIStreamAbortRuntime {
   hardTimeoutMs: number;
 }
 
-export interface OpenAIStreamSseRaw extends NodeJS.WritableStream {
-  destroyed?: boolean;
-  writeHead(statusCode: number, headers: Record<string, string>): unknown;
-}
+export type OpenAIStreamSseRaw = StreamSseRaw;
 
-export interface OpenAIStreamHeartbeat {
-  stop(): void;
-}
+export type OpenAIStreamHeartbeat = StreamHeartbeat;
 
 export interface OpenAIStreamSseRuntimeInput {
   raw: OpenAIStreamSseRaw;
@@ -64,18 +64,14 @@ export function createOpenAIStreamAbortRuntime(
 export function startOpenAIStreamSseRuntime(
   input: OpenAIStreamSseRuntimeInput,
 ): OpenAIStreamHeartbeat {
-  input.raw.writeHead(200, input.headers);
-  return input.startHeartbeat({
+  return startStreamSseRuntime({
     raw: input.raw,
-    intervalMs: input.heartbeatIntervalMs,
+    headers: input.headers,
+    protocolLabel: "OpenAI",
+    model: input.model,
+    heartbeatIntervalMs: input.heartbeatIntervalMs,
     longWaitEventMs: input.longWaitEventMs,
-    onLongWait: (elapsedMs) => {
-      input.recordSessionEvent({
-        eventKind: "stream_long_wait",
-        component: "stream-heartbeat",
-        detail: `OpenAI stream exceeded ${input.longWaitEventMs}ms without finishing`,
-        metadataJson: { elapsedMs, model: input.model },
-      });
-    },
+    startHeartbeat: input.startHeartbeat,
+    recordSessionEvent: input.recordSessionEvent,
   });
 }
