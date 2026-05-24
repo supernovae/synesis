@@ -281,6 +281,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
+import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
@@ -13333,6 +13334,24 @@ app.post("/v1/messages", async (req, reply) => {
     const scrubAndFlushClaudeTextBlock = claudeStreamComponents.scrubAndFlushTextBlock;
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
+    const claudeStreamFinalization = createClaudeStreamFinalizationHandlers({
+      session,
+      pendingRequestId: traceReqId,
+      historyRequestId: reqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      checklist: claudeRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: claudeVerificationAssessment,
+      recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+      planGraph: claudePlanGraph,
+      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      applyMarkdownGuardrail,
+      finalizeCompletionText,
+      finalizePostStreamText,
+    });
 
     try {
       for await (const part of streamed.fullStream) {
@@ -13676,49 +13695,13 @@ app.post("/v1/messages", async (req, reply) => {
 
     if (stopReason !== "tool_use" && claudeStreamState.hasPendingText()) {
       const rawText = claudeStreamState.drainText();
-      if (session.taskCapabilities && rawText) {
-        const claudeStreamTextTasks = extractTasksFromTextFn(
-          rawText,
-          session.taskCapabilities.detectedSource,
-          session.record.requestCount,
-        );
-        if (claudeStreamTextTasks.length > 0) {
-          if (!session.taskLedger) {
-            session.taskLedger = createEmptyLedger(
-              session.record.sessionKey,
-              session.taskCapabilities.hasExplicitTodoTool,
-              session.taskCapabilities.hasExplicitPlanMode,
-            );
-          }
-          session.taskLedger = reconcileFromText(session.taskLedger, claudeStreamTextTasks, session.record.requestCount);
-        }
-      }
-      const finalized = await finalizeCompletionText({
-        requestId: traceReqId,
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-        assistantText: rawText,
-        checklist: claudeRequirementChecklist,
-        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-        verification: claudeVerificationAssessment,
-        recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-        nonActionableEventDetail: "claude stream stop had non-actionable text; emitted deterministic fallback",
-        planGraph: claudePlanGraph,
-        session,
-      });
-      claudeStreamGate.applied = finalized.applied;
+      const finalized = await claudeStreamFinalization.finalizePendingText(rawText);
+      claudeStreamGate.applied = Boolean(finalized.applied);
       claudeStreamGate.missingMust = finalized.missingMust;
       claudeStreamGate.missingShould = finalized.missingShould;
       claudeStreamGate.blockedVerification = finalized.blockedByVerification;
-      claudeStreamGate.criticBlocked = finalized.criticBlocked;
-      const gateText = finalized.finalText;
-      const guarded = applyMarkdownGuardrail(
-        gateText,
-        config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      );
-      scrubAndFlushClaudeTextBlock(guarded);
+      claudeStreamGate.criticBlocked = Boolean(finalized.criticBlocked);
+      scrubAndFlushClaudeTextBlock(finalized.finalText);
     }
 
     closeClaudeStreamingTextBlock();
@@ -13738,21 +13721,11 @@ app.post("/v1/messages", async (req, reply) => {
     let claudeStreamedText = "";
     try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
     if (claudeStreamedText) {
-      const finalized = finalizePostStreamText({
-        requestId: reqId,
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-        assistantText: claudeStreamedText,
-        applyGate: claudeStreamGate.applied,
-        checklist: claudeRequirementChecklist,
-        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-        verification: claudeVerificationAssessment,
-        toolStopReason: stopReason === "tool_use",
-        nonActionableEventDetail: "claude streamed text was non-actionable; emitted deterministic fallback",
-        planGraph: claudePlanGraph,
-      });
+      const finalized = claudeStreamFinalization.finalizeHistoryText(
+        claudeStreamedText,
+        stopReason,
+        claudeStreamGate.applied,
+      );
       claudeStreamedText = finalized.finalText;
       const scrubbedClaudeStreamedText = scrubTaskLedgerOutput(claudeStreamedText);
       if (scrubbedClaudeStreamedText.scrubbed) {
