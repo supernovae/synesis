@@ -311,7 +311,6 @@ import {
   buildExecutionGovernorPauseEnvelope,
   inferGovernorPhaseFromMessages,
   governorPhaseToWorkflowPhase,
-  resolveGovernanceUserCue,
   extractCommandEvents,
   extractEditedFileHints,
   type ExecutionGovernorDecision,
@@ -324,6 +323,7 @@ import {
   persistGovernorPauseSoftFail,
   resetGovernorPauseRecoveryState,
 } from "./governance/governor-pause-route.js";
+import { applyGovernorPhaseRouteBookkeeping } from "./governance/governor-phase-route.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import {
   createOpenAIChatNonStreamRoutePipelineInput,
@@ -7478,34 +7478,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   const oaiGovernorPhase = oaiExecutionGovernor.telemetry.phase;
-  const oaiGovernorWorkflowPhase = governorPhaseToWorkflowPhase(oaiGovernorPhase);
-  if (oaiWorkingPhase && oaiWorkingPhase !== oaiGovernorWorkflowPhase) {
-    const oaiGovUserCue = resolveGovernanceUserCue(normalizedOpenAI.messages as GovernorInputMessage[]);
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "governor_orchestrator_phase_mismatch",
-      "execution-governor",
-      `working=${oaiWorkingPhase} governor=${oaiGovernorWorkflowPhase}`,
-      oaiTraceReqId,
-      {
-        governor_phase: oaiGovernorPhase,
-        governor_workflow_phase: oaiGovernorWorkflowPhase,
-        orchestrator_working_phase: oaiWorkingPhase,
-        orchestrator_phase_override: oaiOrchestratorPhaseOverride ?? null,
-        latest_user_text_source: oaiGovUserCue.source,
-      },
-    );
-  }
-  if (session.lastGovernorPhase && oaiGovernorPhase !== session.lastGovernorPhase) {
-    session.consecutiveRecoveryFires = 0;
-    session.governorPrePauseAttemptsByRule.clear();
-    session.implementationSoftStallNudgeStrikes = 0;
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "governor_phase_transition", "execution-governor",
-      `${session.lastGovernorPhase} → ${oaiGovernorPhase}`, oaiTraceReqId);
-  }
-  session.lastGovernorPhase = oaiGovernorPhase;
+  applyGovernorPhaseRouteBookkeeping({
+    session,
+    sessionKey,
+    identity,
+    requestId: oaiTraceReqId,
+    governorPhase: oaiGovernorPhase,
+    workingPhase: oaiWorkingPhase,
+    orchestratorPhaseOverride: oaiOrchestratorPhaseOverride,
+    messages: normalizedOpenAI.messages as GovernorInputMessage[],
+    recordSessionEvent,
+  });
 
   const oaiSensemakingPrimaryEnabled =
     config.SYNESIS_YARN_SENSEMAKING_ENABLED
@@ -9940,34 +9923,17 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   const claudeGovernorPhase = claudeExecutionGovernor.telemetry.phase;
-  const claudeGovernorWorkflowPhase = governorPhaseToWorkflowPhase(claudeGovernorPhase);
-  if (claudeWorkingPhase && claudeWorkingPhase !== claudeGovernorWorkflowPhase) {
-    const claudeGovUserCue = resolveGovernanceUserCue(normalizedFromClaude.messages as GovernorInputMessage[]);
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "governor_orchestrator_phase_mismatch",
-      "execution-governor",
-      `working=${claudeWorkingPhase} governor=${claudeGovernorWorkflowPhase}`,
-      traceReqId,
-      {
-        governor_phase: claudeGovernorPhase,
-        governor_workflow_phase: claudeGovernorWorkflowPhase,
-        orchestrator_working_phase: claudeWorkingPhase,
-        orchestrator_phase_override: claudeOrchestratorPhaseOverride ?? null,
-        latest_user_text_source: claudeGovUserCue.source,
-      },
-    );
-  }
-  if (session.lastGovernorPhase && claudeGovernorPhase !== session.lastGovernorPhase) {
-    session.consecutiveRecoveryFires = 0;
-    session.governorPrePauseAttemptsByRule.clear();
-    session.implementationSoftStallNudgeStrikes = 0;
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "governor_phase_transition", "execution-governor",
-      `${session.lastGovernorPhase} → ${claudeGovernorPhase}`, traceReqId);
-  }
-  session.lastGovernorPhase = claudeGovernorPhase;
+  applyGovernorPhaseRouteBookkeeping({
+    session,
+    sessionKey: claudeSessionKey,
+    identity: claudeIdentity,
+    requestId: traceReqId,
+    governorPhase: claudeGovernorPhase,
+    workingPhase: claudeWorkingPhase,
+    orchestratorPhaseOverride: claudeOrchestratorPhaseOverride,
+    messages: normalizedFromClaude.messages as GovernorInputMessage[],
+    recordSessionEvent,
+  });
 
   const claudeSensemakingPrimaryEnabled =
     config.SYNESIS_YARN_SENSEMAKING_ENABLED
