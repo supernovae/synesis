@@ -283,6 +283,7 @@ import {
   finalizeClaudeNonStreamProviderSuccess,
   handleClaudeNonStreamProviderError,
 } from "./streaming/claude-nonstream-lifecycle.js";
+import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
 import { buildClaudeNonStreamResponseContent } from "./streaming/claude-nonstream-response.js";
 import { runClaudeNonStreamTelemetry } from "./streaming/claude-nonstream-telemetry.js";
 import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
@@ -13463,185 +13464,74 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamSpan = getTracer().startSpan("yarn.claude.generate", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
   const started = Date.now();
-  const claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[] = [];
-  let result: Awaited<ReturnType<typeof generateText>> | null = null;
+  let result: Awaited<ReturnType<typeof generateText>>;
+  let claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[];
   let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
   try {
-    let currentMessages = claudeModelMessages;
-    let requiredValidationCompleted = false;
-    for (let round = 0; round < 3; round++) {
-      const roundForensics = captureRequestForensics(
+    const executed = await executeClaudeNonStreamProviderLoop({
+      initialMessages: claudeModelMessages as Array<{ role: string; content?: unknown }>,
+      model: resolved.model,
+      resolvedModelId: resolved.resolvedModelId,
+      orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
+      requestMaxTokens: body.max_tokens,
+      samplingOptions: claudeSamplingOptions,
+      stopSequences: sdkStop,
+      tools: sdkTools,
+      initialToolChoice: effectiveClaudeToolChoice,
+      providerOptions,
+      phasePolicy: claudePhasePolicy,
+      governorPhase: claudeGovernorPhase,
+      nativeWebSearchRequested: claudeNativeWebSearchRequested,
+      clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+      generateText: (options) => generateText(options as never),
+      readUsage,
+      captureForensics: (messages, toolChoice) => captureRequestForensics(
         claudeSessionKey,
         reqId,
         "/v1/messages",
         resolved.resolvedModelId,
         false,
-        currentMessages as Array<{ role: string; content: unknown }>,
+        messages as Array<{ role: string; content: unknown }>,
         effectiveClaudeTools as unknown[],
-        effectiveClaudeToolChoice,
+        toolChoice,
         providerOptions,
         claudeForensicsPhasePolicy,
         claudeForensicsCapabilityMatrix,
-      );
-      result = await generateText(buildAiSdkTextRequestOptions({
-        model: resolved.model,
-        messages: currentMessages,
-        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        samplingOptions: claudeSamplingOptions,
-        stopSequences: sdkStop,
-        tools: sdkTools,
-        toolChoice: effectiveClaudeToolChoice,
-        providerOptions,
-      }) as never);
-      const roundUsage = readUsage((result as unknown as { usage?: unknown }).usage);
-      lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, roundForensics, roundUsage);
-
-      let allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-      if (!requiredValidationCompleted && claudePhasePolicy.toolChoice === "required") {
-        requiredValidationCompleted = true;
-        let validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
-        if (!validation.valid) {
-          recordSessionEvent(
-            claudeSessionKey,
-            claudeIdentity.userId,
-            claudeIdentity.orgId,
-            "phase_required_validation_retry",
-            "execution-governor",
-            `reasons=${validation.reasons.join(",") || "unknown"}`,
-            reqId,
-          );
-          currentMessages = appendSystemMessageAndNormalize(
-            currentMessages as Array<{ role: string; content?: unknown }>,
-            buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools),
-          ) as typeof currentMessages;
-          const repairForensics = captureRequestForensics(
-            claudeSessionKey,
-            reqId,
-            "/v1/messages",
-            resolved.resolvedModelId,
-            false,
-            currentMessages as Array<{ role: string; content: unknown }>,
-            effectiveClaudeTools as unknown[],
-            effectiveClaudeToolChoice,
-            providerOptions,
-            claudeForensicsPhasePolicy,
-            claudeForensicsCapabilityMatrix,
-          );
-          result = await generateText(buildAiSdkTextRequestOptions({
-            model: resolved.model,
-            messages: currentMessages,
-            maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-            samplingOptions: claudeSamplingOptions,
-            stopSequences: sdkStop,
-            tools: sdkTools,
-            toolChoice: effectiveClaudeToolChoice,
-            providerOptions,
-          }) as never);
-          const repairUsage = readUsage((result as unknown as { usage?: unknown }).usage);
-          lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, repairForensics, repairUsage);
-          allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-          validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
-          if (!validation.valid) {
-            recordSessionEvent(
-              claudeSessionKey,
-              claudeIdentity.userId,
-              claudeIdentity.orgId,
-              "phase_required_validation_fallback",
-              "execution-governor",
-              `fallback_after_retry reasons=${validation.reasons.join(",") || "unknown"}`,
-              reqId,
-            );
-            effectiveClaudeToolChoice = "auto";
-            currentMessages = appendSystemMessageAndNormalize(
-              currentMessages as Array<{ role: string; content?: unknown }>,
-              "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-            ) as typeof currentMessages;
-            const fallbackForensics = captureRequestForensics(
-              claudeSessionKey,
-              reqId,
-              "/v1/messages",
-              resolved.resolvedModelId,
-              false,
-              currentMessages as Array<{ role: string; content: unknown }>,
-              effectiveClaudeTools as unknown[],
-              effectiveClaudeToolChoice,
-              providerOptions,
-              claudeForensicsPhasePolicy,
-              claudeForensicsCapabilityMatrix,
-            );
-            result = await generateText(buildAiSdkTextRequestOptions({
-              model: resolved.model,
-              messages: currentMessages,
-              maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              samplingOptions: claudeSamplingOptions,
-              stopSequences: sdkStop,
-              tools: sdkTools,
-              toolChoice: effectiveClaudeToolChoice,
-              providerOptions,
-            }) as never);
-            const fallbackUsage = readUsage((result as unknown as { usage?: unknown }).usage);
-            lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
-            allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-          }
-        }
-      }
-      const serverCalls = claudeNativeWebSearchRequested
-        ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
-        : [];
-      if (serverCalls.length === 0) break;
-
-      const assistantParts: Array<
-        { type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
-      > = [];
-      if (result.text) assistantParts.push({ type: "text", text: result.text });
-      const toolResults: Array<{
-        type: "tool-result";
-        toolCallId: string;
-        toolName: string;
-        output: { type: "text"; value: string };
-      }> = [];
-
-      for (const call of serverCalls) {
-        const input = isObjectRecord(call.input) ? call.input : {};
-        const searchOutput = await webSearch.resolve(
-          input,
-          webSearchResolveContext(claudeAuthUser, req, {
-            requestId: reqId,
-            sessionKey: claudeSessionKey,
-            conversationId: session.record.conversationId || undefined,
-            traceId: reqId,
-            sourceSurface: "yarn_chat",
-            toolName: "web_search",
-          }),
+      ),
+      finalizeForensics: (forensics, forensicUsage) => finalizeRequestForensics(
+        session,
+        reqId,
+        forensics as { record: RequestForensicsRecord; serialized: string } | null,
+        forensicUsage,
+      ),
+      recordSessionEvent: (event) => {
+        recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          event.eventKind,
+          event.component,
+          event.detail,
+          reqId,
         );
-        const searchPayload = isObjectRecord(searchOutput) ? searchOutput : { error: "invalid_server_tool_payload" };
-        claudeServerWebSearchEvents.push(
-          toClaudeServerWebSearchEvent(call.toolCallId, call.toolName, input, searchPayload),
-        );
-        assistantParts.push({
-          type: "tool-call",
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          input,
-        });
-        toolResults.push({
-          type: "tool-result",
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          output: { type: "text", value: JSON.stringify(searchPayload) },
-        });
-      }
-
-      if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
-      currentMessages = [
-        ...currentMessages,
-        { role: "assistant", content: assistantParts } as never,
-        { role: "tool", content: toolResults } as never,
-      ];
-    }
-    if (!result) {
-      throw new Error("empty_generation_result");
-    }
+      },
+      isServerWebSearchTool: isClaudeWebSearchToolName,
+      resolveServerWebSearch: (input) => webSearch.resolve(
+        input,
+        webSearchResolveContext(claudeAuthUser, req, {
+          requestId: reqId,
+          sessionKey: claudeSessionKey,
+          conversationId: session.record.conversationId || undefined,
+          traceId: reqId,
+          sourceSurface: "yarn_chat",
+          toolName: "web_search",
+        }),
+      ),
+      toServerWebSearchEvent: toClaudeServerWebSearchEvent,
+    });
+    result = executed.result as Awaited<ReturnType<typeof generateText>>;
+    claudeServerWebSearchEvents = executed.serverWebSearchEvents;
+    lastClaudeNonStreamForensics = executed.requestForensicsDone;
   } catch (err) {
     const errorResponse = handleClaudeNonStreamProviderError(
       {

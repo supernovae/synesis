@@ -9,6 +9,7 @@ describe("buildClaudeNonStreamResponseContent", () => {
         toolUseId: "srvtoolu_1",
         toolName: "web_search",
         input: { query: "cache" },
+        query: "cache",
         results: [{
           type: "web_search_result",
           url: "https://example.com",
@@ -44,6 +45,7 @@ describe("buildClaudeNonStreamResponseContent", () => {
         toolUseId: "srvtoolu_2",
         toolName: "web_search",
         input: { query: "cache" },
+        query: "cache",
         results: [],
         errorCode: "upstream_error",
       }],

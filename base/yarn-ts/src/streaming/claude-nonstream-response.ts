@@ -10,6 +10,7 @@ export interface ClaudeNonStreamServerWebSearchEvent {
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
+  query: string;
   results: Array<{ type: "web_search_result"; url: string; title: string; snippet: string }>;
   errorCode?: string;
 }
