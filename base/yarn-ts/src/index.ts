@@ -7,11 +7,8 @@ import { generateText, jsonSchema, Output as aiOutput, streamText } from "ai";
 import {
   createServiceMetrics,
   recordUsageMetrics,
-  computeCost,
-  computeCostBreakdown,
   extractUsage,
   emitTrace,
-  type PricingSource,
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
@@ -19,7 +16,6 @@ import {
   ClaudeCommandExecuteRequestSchema,
   ClaudeModelResolutionQuerySchema,
   ClaudeMessagesRequestSchema,
-  OpenAIChatCompletionRequestSchema,
   type ClaudeBootstrapQuery,
   type ClaudeCommandExecuteRequest,
   type ClaudeModelResolutionQuery,
@@ -122,11 +118,9 @@ import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normali
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
-import { buildTokenEconomicsDecision, tokenEconomicsLogRecord } from "./telemetry/token-economics.js";
 import {
   cachePolicyLogRecord,
   evaluateCachePolicyController,
-  updateCachePolicyStateFromTokenEconomics,
   type CachePolicyControllerDecision,
   type ProviderCachePolicyWindow,
 } from "./telemetry/cache-policy-controller.js";
@@ -176,7 +170,8 @@ import {
 import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { registerEvalRoutes } from "./eval/routes.js";
-import { isObserverEnabled, shouldObserveSession, buildObservedTurn, buildTranscriptEvent, buildLiveEvalEvent, enableObserver as enableEvalObserver } from "./eval/session-observer.js";
+import { enableObserver as enableEvalObserver } from "./eval/session-observer.js";
+import { runEvalObserverPersistence } from "./eval/session-observer-persistence.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import {
@@ -298,6 +293,7 @@ import {
   runSessionUsagePersistence,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
+import { runPersistenceTokenEconomicsAccounting } from "./state/persistence-token-economics.js";
 import {
   readPersistedChatStateSnapshot,
   summarizeFileStateForGovernor,
@@ -4576,99 +4572,24 @@ function persistSessionAndUsage(
     "yarn.latency_ms": latencyMs,
   });
   const tier = tierRegistry.getTierConfig(resolvedModelId);
-  const tierRates = {
-    input_per_million: Number(tier?.inputPerM ?? 0),
-    output_per_million: Number(tier?.outputPerM ?? 0),
-    cached_input_per_million: tier?.cachedPerM ?? null,
-    cache_write_input_per_million: tier?.cacheWritePerM ?? null,
-  };
-  let pricingSource: PricingSource = tier?.pricingSource ?? "unknown";
-  const result = computeCost(
-    {
-      prompt_tokens: usage.inputTokens,
-      completion_tokens: usage.outputTokens,
-      total_tokens: usage.inputTokens + usage.outputTokens,
-      cached_prompt_tokens: usage.cachedTokens,
-      cache_creation_tokens: usage.cacheCreationTokens,
-      estimated_cost_usd: 0,
-      actual_cost_usd: 0,
+  const tokenAccounting = runPersistenceTokenEconomicsAccounting({
+    resolvedModelId,
+    traceModel,
+    tier,
+    metadata: state.record.metadata,
+    orgId: state.record.orgId,
+    clientKind: state.record.clientKind,
+    usage,
+    optimizationLedger,
+    providerObservationTtlMs: Math.max(2, config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS + 1) * 3_600_000,
+    recordProviderCacheObservation: (...args) => sessionStore.recordProviderCacheObservation(...args),
+    logFallbackPricing: (notice) => {
+      app.log.info(notice, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
     },
-    tierRates,
-  );
-  const costBreakdown = computeCostBreakdown(
-    {
-      prompt_tokens: usage.inputTokens,
-      completion_tokens: usage.outputTokens,
-      total_tokens: usage.inputTokens + usage.outputTokens,
-      cached_prompt_tokens: usage.cachedTokens,
-      cache_creation_tokens: usage.cacheCreationTokens,
-      estimated_cost_usd: 0,
-      actual_cost_usd: 0,
+    warnProviderCacheObservation: (err, provider) => {
+      app.log.warn({ err, provider }, "provider_cache_observation_record_failed");
     },
-    tierRates,
-  );
-  const estimatedCostUsd = result.estimated_cost_usd;
-  if (pricingSource === "unknown" || pricingSource === "fallback_base") {
-    pricingSource = result.pricing_source;
-  }
-  const actualCostUsd = usage.costUsd > 0 ? usage.costUsd : 0;
-  if (actualCostUsd > 0) {
-    pricingSource = "provider";
-  }
-  const normalizedEstimatedCostUsd = Number.isFinite(estimatedCostUsd) ? Math.max(0, estimatedCostUsd) : 0;
-  const normalizedActualCostUsd = Number.isFinite(actualCostUsd) ? Math.max(0, actualCostUsd) : 0;
-  const endpointProvider = tier?.baseUrl ? resolveEndpointCapabilityId(tier.baseUrl) : "generic";
-  const tokenEconomicsDecision = buildTokenEconomicsDecision({
-    provider: endpointProvider,
-    tier: resolvedModelId,
-    model: traceModel,
-    promptTokens: usage.inputTokens,
-    completionTokens: usage.outputTokens,
-    cachedTokens: usage.cachedTokens,
-    cacheCreationTokens: usage.cacheCreationTokens,
-    prefixStableBytes: optimizationLedger?.prefixStableBytes,
-    inputCharsOriginal: optimizationLedger?.inputCharsOriginal,
-    inputCharsFinal: optimizationLedger?.inputCharsFinal,
   });
-  const cachePolicyState = updateCachePolicyStateFromTokenEconomics(
-    state.record.metadata,
-    tokenEconomicsDecision,
-  );
-  void sessionStore.recordProviderCacheObservation(
-    state.record.orgId || "no-org",
-    {
-      provider: endpointProvider,
-      clientKind: state.record.clientKind || "unknown-client",
-      cacheOutcome: tokenEconomicsDecision.cacheOutcome,
-      promptTokens: tokenEconomicsDecision.promptTokens,
-      cachedTokens: tokenEconomicsDecision.cachedTokens,
-      cacheCreationTokens: tokenEconomicsDecision.cacheCreationTokens,
-    },
-    Math.max(2, config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS + 1) * 3_600_000,
-  ).catch((err) => app.log.warn({ err, provider: endpointProvider }, "provider_cache_observation_record_failed"));
-  const tokenEconomics = {
-    ...tokenEconomicsLogRecord(tokenEconomicsDecision),
-    cache_policy_state: {
-      cache_miss_streak: cachePolicyState.cacheMissStreak,
-      cache_hit_streak: cachePolicyState.cacheHitStreak,
-      premium_write_without_read_streak: cachePolicyState.premiumWriteWithoutReadStreak,
-      telemetry_missing_streak: cachePolicyState.telemetryMissingStreak,
-      last_cache_outcome: cachePolicyState.lastCacheOutcome,
-      last_recommendation: cachePolicyState.lastRecommendation,
-      last_provider_cache_strategy: cachePolicyState.lastProviderCacheStrategy,
-    },
-  };
-
-  if (pricingSource === "fallback_base" && (usage.inputTokens + usage.outputTokens) > 0) {
-    app.log.info({
-      model: traceModel,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      pricingSource,
-      tierInputPerM: tier?.inputPerM ?? null,
-      tierOutputPerM: tier?.outputPerM ?? null,
-    }, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
-  }
   runSessionUsagePersistence({
     state,
     requestId,
@@ -4684,14 +4605,14 @@ function persistSessionAndUsage(
     snapshot,
     trajectory,
     optimizationLedger,
-    costBreakdown,
-    normalizedEstimatedCostUsd,
-    normalizedActualCostUsd,
-    pricingSource,
-    tierRates,
-    tokenEconomicsRecommendation: tokenEconomicsDecision.recommendation,
-    tokenEconomicsWarnings: tokenEconomicsDecision.warnings,
-    tokenEconomicsMetadata: tokenEconomics,
+    costBreakdown: tokenAccounting.costBreakdown,
+    normalizedEstimatedCostUsd: tokenAccounting.normalizedEstimatedCostUsd,
+    normalizedActualCostUsd: tokenAccounting.normalizedActualCostUsd,
+    pricingSource: tokenAccounting.pricingSource,
+    tierRates: tokenAccounting.tierRates,
+    tokenEconomicsRecommendation: tokenAccounting.tokenEconomicsDecision.recommendation,
+    tokenEconomicsWarnings: tokenAccounting.tokenEconomicsDecision.warnings,
+    tokenEconomicsMetadata: tokenAccounting.tokenEconomicsMetadata,
     conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
     hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
     hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
@@ -4771,33 +4692,27 @@ function persistAndEmitDecisionTelemetry(input: {
   );
   maybeCheckpoint(input.state);
   emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
-
-  // Eval observer — record transcript + anomalies if enabled for this session
-  if (isObserverEnabled() && shouldObserveSession(input.sessionKey)) {
-    try {
-      const lastAssistant = input.state.history.filter(m => m.role === "assistant").at(-1);
-      const observedTurn = buildObservedTurn({
-        sessionKey: input.sessionKey,
-        requestId: input.requestId,
-        inputMessages: input.state.history.filter(m => m.role !== "assistant").slice(-20) as never[],
-        response: lastAssistant ? { role: "assistant", content: typeof lastAssistant.content === "string" ? lastAssistant.content : "" } : null,
-        governorDecision: input.snapshot.governor ? {
-          pause: input.snapshot.governor.pause,
-          reason: input.snapshot.governor.reason ?? "",
-          matchedRules: input.snapshot.governor.matchedRules,
-          telemetry: input.snapshot.governor.telemetry as Record<string, unknown>,
-        } : undefined,
-      });
-      const transcriptEvent = buildTranscriptEvent(observedTurn);
-      recordSessionEvent(input.sessionKey, input.userId, input.orgId, transcriptEvent.eventKind, transcriptEvent.component, transcriptEvent.detail, input.requestId, transcriptEvent.metadataJson);
-      const liveEvent = buildLiveEvalEvent(observedTurn);
-      if (liveEvent) {
-        recordSessionEvent(input.sessionKey, input.userId, input.orgId, liveEvent.eventKind, liveEvent.component, liveEvent.detail, input.requestId, liveEvent.metadataJson);
-      }
-    } catch (observerErr) {
-      app.log.warn({ err: observerErr }, "eval_observer_error");
-    }
-  }
+  runEvalObserverPersistence({
+    sessionKey: input.sessionKey,
+    userId: input.userId,
+    orgId: input.orgId,
+    requestId: input.requestId,
+    history: input.state.history,
+    snapshot: input.snapshot,
+    recordSessionEvent: (event) => {
+      recordSessionEvent(
+        event.sessionKey,
+        event.userId,
+        event.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        event.requestId,
+        event.metadataJson,
+      );
+    },
+    warn: (err) => app.log.warn({ err }, "eval_observer_error"),
+  });
 }
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
@@ -4859,114 +4774,6 @@ function resolveClaudeConversationId(
     }}, "claude_conversation_id_resolution_miss");
   }
   return "";
-}
-
-function headerOne(headers: Record<string, unknown>, key: string): string | null {
-  const raw = headers[key];
-  if (typeof raw === "string" && raw.trim()) return raw.trim();
-  if (Array.isArray(raw)) {
-    for (const entry of raw) {
-      if (typeof entry === "string" && entry.trim()) return entry.trim();
-    }
-  }
-  return null;
-}
-
-function inferOpenAiClientKindFromUserAgent(ua: string): string | null {
-  const normalized = ua.toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes("opencode")) return "opencode";
-  if (normalized.includes("roo") && normalized.includes("opencode")) return "roo-opencode";
-  if (normalized.includes("claude-code") || normalized.includes("anthropic")) return "claude-code";
-  if (normalized.includes("cursor")) return "cursor";
-  if (normalized.includes("codex")) return "codex-cli";
-  if (normalized.includes("goose")) return "goose";
-  return null;
-}
-
-function resolveOpenAiClientKind(
-  headers: Record<string, unknown>,
-  metadata: Record<string, unknown> | null,
-): string {
-  const explicit = headerOne(headers, "x-synesis-client");
-  if (explicit) return explicit;
-
-  const candidates: unknown[] = metadata
-    ? [
-        metadata.synesis_client,
-        metadata.client,
-        metadata.client_name,
-        metadata.synesis_acp_client_name,
-      ]
-    : [];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim().toLowerCase().replace(/\s+/g, "-");
-    }
-  }
-
-  const userAgent = headerOne(headers, "user-agent");
-  if (userAgent) {
-    const inferred = inferOpenAiClientKindFromUserAgent(userAgent);
-    if (inferred) return inferred;
-  }
-  return "unknown";
-}
-
-function resolveOpenAiConversationId(
-  bodyConversationId: unknown,
-  metadata: Record<string, unknown> | null,
-  headers: Record<string, unknown>,
-): string {
-  if (typeof bodyConversationId === "string" && bodyConversationId.trim()) return bodyConversationId.trim();
-
-  if (metadata) {
-    for (const key of ["synesis_conversation_id", "conversation_id", "session_id", "thread_id", "chat_id"]) {
-      const val = metadata[key];
-      if (typeof val === "string" && val.trim()) return val.trim();
-    }
-    const rawUserId = metadata.user_id;
-    if (typeof rawUserId === "string" && rawUserId.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(rawUserId) as Record<string, unknown>;
-        const nested = parsed.session_id;
-        if (typeof nested === "string" && nested.trim()) return nested.trim();
-      } catch { /* ignore malformed nested metadata */ }
-    }
-  }
-
-  for (const key of ["x-synesis-conversation-id", "x-opencode-session-id"]) {
-    const val = headerOne(headers, key);
-    if (val) return val;
-  }
-  return "";
-}
-
-function resolveOpenAiIdentityUserId(
-  requestUser: unknown,
-  authUser: { userId: string; authMethod: "pat" | "bearer" },
-): string {
-  // Always use the authenticated identity for session keying so turns
-  // from the same token converge to a single session even when
-  // request.user varies per-turn (common with opencode and other clients).
-  if (authUser.authMethod === "pat") return authUser.userId;
-  return authUser.userId;
-}
-
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-function resolveOpenAiDisplayName(
-  requestUser: unknown,
-  authUser: { displayName?: string },
-): string | undefined {
-  if (authUser.displayName) return authUser.displayName;
-  if (typeof requestUser === "string") {
-    const trimmed = requestUser.trim();
-    if (trimmed && EMAIL_RE.test(trimmed) && trimmed.length <= 200) {
-      return trimmed.toLowerCase();
-    }
-  }
-  return undefined;
 }
 
 function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
@@ -7092,13 +6899,16 @@ if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
 // --- OpenAI chat completions ---
 app.post("/v1/chat/completions", async (req, reply) => {
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
-  const normalizedIngress = normalizeToolDescriptions(req.body, "openai", "/v1/chat/completions");
-  for (const truncation of normalizedIngress.truncations) {
+  const oaiIngress = openAiChatPipeline.prepareIngress({
+    body: req.body,
+    headers: req.headers as Record<string, unknown>,
+    config,
+  });
+  for (const truncation of oaiIngress.truncations) {
     app.log.warn({ reqId: oaiTraceReqId, ...truncation }, "tool_description_truncated");
   }
-  const parsed = OpenAIChatCompletionRequestSchema.safeParse(normalizedIngress.body);
-  if (!parsed.success) {
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: formatValidationError(parsed.error) } });
+  if (!oaiIngress.ok) {
+    return reply.code(oaiIngress.statusCode).send(oaiIngress.body);
   }
   let authUser: import("./auth.js").AuthUser;
   try {
@@ -7127,12 +6937,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${oaiRateResult.retryAfterSeconds} seconds.` } });
   }
 
-  const request = parsed.data;
-  const oaiPipelineModeResolution = openAiChatPipeline.resolveMode({
-    headers: req.headers as Record<string, unknown>,
-    body: request as unknown as Record<string, unknown>,
-    config,
-  });
+  const request = oaiIngress.request;
+  const oaiPipelineModeResolution = oaiIngress.modeResolution;
   const oaiPipelineMode = oaiPipelineModeResolution.mode;
   if (!oaiPipelineModeResolution.valid) {
     app.log.warn(
@@ -7145,20 +6951,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       "invalid_pipeline_mode",
     );
   }
-  const oaiCanonicalRequest = openAiChatPipeline.canonicalize(request);
-  const oaiBodyMetaRaw = (request as Record<string, unknown>).metadata;
-  const oaiBodyMeta =
-    oaiBodyMetaRaw && typeof oaiBodyMetaRaw === "object" && !Array.isArray(oaiBodyMetaRaw)
-      ? (oaiBodyMetaRaw as Record<string, unknown>)
-      : null;
-  const oaiClientKind = resolveOpenAiClientKind(req.headers as Record<string, unknown>, oaiBodyMeta);
-  const oaiConversationId = resolveOpenAiConversationId(
-    (request as Record<string, unknown>).conversation_id,
-    oaiBodyMeta,
-    req.headers as Record<string, unknown>,
-  );
-  const oaiIdentityUserId = resolveOpenAiIdentityUserId((request as Record<string, unknown>).user, authUser);
-  const oaiDisplayName = resolveOpenAiDisplayName((request as Record<string, unknown>).user, authUser);
+  const oaiCanonicalRequest = oaiIngress.canonicalRequest;
+  const oaiBodyMeta = oaiIngress.bodyMetadata;
+  const oaiClientKind = oaiIngress.clientKind;
+  const oaiConversationId = oaiIngress.conversationId;
+  const oaiIdentity = openAiChatPipeline.resolveIdentity(oaiIngress, authUser);
+  const oaiIdentityUserId = oaiIdentity.identityUserId;
+  const oaiDisplayName = oaiIdentity.displayName;
 
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     const rawMsgs = request.messages as Array<Record<string, unknown>>;
@@ -7378,13 +7177,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     temperature: request.temperature,
     top_p: request.top_p,
   });
-  const identity: SessionIdentity = {
-    userId: oaiIdentityUserId,
-    orgId: authUser.orgId,
-    conversationId: oaiConversationId,
-    clientKind: oaiClientKind,
-    displayName: oaiDisplayName,
-  };
+  const identity: SessionIdentity = oaiIdentity.identity;
   const sessionKey = await getSessionKey(identity);
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
