@@ -10082,141 +10082,56 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const enrichedClaudeMsgs = claudeFinalizedEnrichment.messages;
 
-  const openAIShape: OpenAIChatCompletionRequest = {
+  const claudeOpenAIShape: OpenAIChatCompletionRequest = {
     model: claudeOrchestration.selectedModel,
     messages: enrichedClaudeMsgs as never,
     stream: body.stream,
     ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
   };
-  session.toolCallsSinceCheckpoint += claudeToolResultCount;
   const reqId = traceReqId;
-  if (claudePolicyPrecheck.pivotPrompt) {
-    session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });
-  }
-
-  if (latestClaudeUser?.content) {
-    session.history.push({ role: "user", content: String(latestClaudeUser.content) });
-  }
-
-  openAIShape.messages = injectSessionContext(
-    openAIShape.messages as Array<{ role: string; content: unknown }>,
-    session
-  ) as never;
-
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const claudeBlocks: string[] = [];
-    if (claudePrefetchResult) {
-      const claudeEvBlock = formatEvidenceBlock(claudePrefetchResult);
-      if (claudeEvBlock) claudeBlocks.push(claudeEvBlock);
-    }
-    if (claudePatternResult) {
-      const claudePtBlock = formatPatternBlock(claudePatternResult);
-      if (claudePtBlock) claudeBlocks.push(claudePtBlock);
-    }
-    if (claudeSensemakingBlock) {
-      claudeBlocks.push(claudeSensemakingBlock);
-    }
-    if (claudeBlocks.length > 0) {
-      const combined = claudeBlocks.join("\n\n");
-      const claudeMsgs = openAIShape.messages as Array<{ role: string; content: unknown }>;
-      // Keep user-authored steering blocks intact. Inject provider-side guidance
-      // as a dedicated system turn rather than mutating existing system content.
-      claudeMsgs.push({ role: "system", content: combined });
-      openAIShape.messages = claudeMsgs as never;
-    }
-  }
-
-  const claudeConfiguredCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
-  const claudeCachePolicyTier =
-    tierRegistry.getTierConfig(openAIShape.model)
-    ?? tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
-  const claudeCachePolicyProvider = claudeCachePolicyTier
-    ? resolveEndpointCapabilityId(claudeCachePolicyTier.baseUrl)
-    : "anthropic";
-  const claudeProviderCacheWindow = await loadProviderCachePolicyWindow(
-    claudeIdentity.orgId,
-    claudeCachePolicyProvider,
-    claudeIdentity.clientKind,
-  );
-  const claudeCachePolicy = evaluateCachePolicyForSession(
+  const claudeProviderFinalization = await finalizeOpenAIProviderRequest({
+    request: claudeOpenAIShape,
+    selectedModel: claudeOrchestration.selectedModel,
+    enrichedMessages: enrichedClaudeMsgs,
+    toolResultCount: claudeToolResultCount,
     session,
-    claudeCachePolicyProvider,
-    claudeConfiguredCompactionMode,
-    claudeProviderCacheWindow,
-    claudeRuntimePreferences,
-  );
-  if (claudeCachePolicy.action !== "observe" || claudeCachePolicy.reasons.length > 0) {
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "cache_policy_controller_decision_v1",
-      "cache-policy-controller",
-      `action=${claudeCachePolicy.action} compaction=${claudeCachePolicy.compactionMode} provider=${claudeCachePolicyProvider}`,
-      traceReqId,
-      cachePolicyLogRecord(claudeCachePolicy),
-    );
-  }
-
-  tierRegistry.setCurrentRequestContext({
     sessionKey: claudeSessionKey,
     requestId: traceReqId,
-    clientKind: claudeIdentity.clientKind,
+    identity: claudeIdentity,
+    pathContext: effectiveClaudePathCtx,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    volatileSystemBlocks: [
+      claudePrefetchResult ? formatEvidenceBlock(claudePrefetchResult) ?? "" : "",
+      claudePatternResult ? formatPatternBlock(claudePatternResult) ?? "" : "",
+      claudeSensemakingBlock ?? "",
+    ],
+    policyPivotPrompt: claudePolicyPrecheck.pivotPrompt,
+    latestUserContent: latestClaudeUser?.content,
+    runtimePreferences: claudeRuntimePreferences,
+    configuredCompactionMode: config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
+    defaultTier: config.SYNESIS_YARN_DEFAULT_TIER,
+    cachePolicyFallbackProvider: "anthropic",
+    prefixOptimizer,
+    prefixOptimizerErrorEvent: "prefix_optimizer_claude_error",
+    logger: app.log,
+    injectSessionContext: (messagesToInject, state) => injectSessionContext(
+      messagesToInject as Array<{ role: string; content: unknown }>,
+      state,
+    ) as typeof messagesToInject,
+    getTierConfig: (modelId) => tierRegistry.getTierConfig(modelId),
+    resolveEndpointCapabilityId,
+    loadProviderCachePolicyWindow,
+    evaluateCachePolicy: evaluateCachePolicyForSession,
+    markerBackendForRequest,
+    setCurrentRequestContext: (context) => tierRegistry.setCurrentRequestContext(context),
+    setWorkspaceContext: setSessionWorkspaceContext,
+    recordSessionEvent,
+    runOpenAIRequest,
   });
-
-  if (prefixOptimizer) {
-    try {
-      const optimized = prefixOptimizer.optimize(
-        openAIShape.messages as never,
-        openAIShape.tools as never,
-        claudeSessionKey,
-        {
-          markerBackend: markerBackendForRequest(
-            openAIShape.model,
-            config.SYNESIS_YARN_DEFAULT_TIER,
-            claudeSessionKey,
-            claudeCachePolicy,
-          ),
-        },
-      );
-      openAIShape.messages = optimized.messages as never;
-      if (optimized.tools) {
-        openAIShape.tools = optimized.tools as never;
-      }
-
-      const cm = optimized.clientMetadata;
-      if (cm && (!effectiveClaudePathCtx.projectRoot || !effectiveClaudePathCtx.shellCwd)) {
-        const patched: typeof effectiveClaudePathCtx = {
-          ...effectiveClaudePathCtx,
-          projectRoot: effectiveClaudePathCtx.projectRoot ?? cm.projectRoot,
-          shellCwd: effectiveClaudePathCtx.shellCwd ?? cm.shellCwd,
-          shell: effectiveClaudePathCtx.shell ?? cm.shell ?? undefined,
-          platform: effectiveClaudePathCtx.platform ?? cm.platform ?? undefined,
-          osVersion: effectiveClaudePathCtx.osVersion ?? cm.osVersion ?? undefined,
-        };
-        effectiveClaudePathCtx = patched;
-
-        if (cm.projectRoot || cm.shellCwd) {
-          setSessionWorkspaceContext(session, "ready", traceReqId, {
-            reason: "Extracted from client system message",
-            projectRoot: cm.projectRoot ?? undefined,
-            cwd: cm.shellCwd ?? undefined,
-            shell: cm.shell ?? undefined,
-            os: cm.platform ?? undefined,
-            arch: cm.osVersion ?? undefined,
-          });
-          app.log.info(
-            { sessionKey: claudeSessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
-            "prefix_optimizer_metadata_backfill",
-          );
-        }
-      }
-    } catch (err) {
-      app.log.warn({ err, sessionKey: claudeSessionKey }, "prefix_optimizer_claude_error");
-    }
-  }
-
-  const claudeResolveResult = runOpenAIRequest(openAIShape);
+  const openAIShape = claudeProviderFinalization.normalizedRequest;
+  effectiveClaudePathCtx = claudeProviderFinalization.pathContext;
+  const claudeCachePolicy = claudeProviderFinalization.cachePolicy;
+  const claudeResolveResult = claudeProviderFinalization.resolveResult;
   if (!claudeResolveResult.ok) {
     recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "resolve_failure", "tier-registry", claudeResolveResult.error, traceReqId);
     return reply.code(503).send({

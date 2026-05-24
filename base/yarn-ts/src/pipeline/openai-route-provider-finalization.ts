@@ -56,10 +56,12 @@ export interface OpenAIProviderFinalizationInput<TSession extends OpenAIProvider
   runtimePreferences?: UserRuntimePreferences | null;
   configuredCompactionMode: CompactionMode;
   defaultTier: string;
+  cachePolicyFallbackProvider?: string;
   prefixHash?: string;
   prefixChangeReasons?: string[];
   prefixOptimizer: PrefixOptimizer | null | undefined;
-  optimizationLedger: OptimizationLedger;
+  prefixOptimizerErrorEvent?: string;
+  optimizationLedger?: OptimizationLedger;
   logger: OpenAIProviderFinalizationLogger;
   injectSessionContext(messages: RouteMessage[], session: TSession): RouteMessage[];
   injectArtifactTool?(tools: unknown[]): unknown[];
@@ -165,7 +167,7 @@ export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProvi
     ?? input.getTierConfig(input.defaultTier);
   const cachePolicyProvider = cachePolicyTier
     ? input.resolveEndpointCapabilityId(cachePolicyTier.baseUrl)
-    : "generic";
+    : input.cachePolicyFallbackProvider ?? "generic";
   const providerWindow = await input.loadProviderCachePolicyWindow(
     input.identity.orgId,
     cachePolicyProvider,
@@ -190,7 +192,7 @@ export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProvi
       cachePolicyLogRecord(cachePolicy),
     );
   }
-  input.optimizationLedger.recordCacheDiagnostics({
+  input.optimizationLedger?.recordCacheDiagnostics({
     policyAction: cachePolicy.action,
     policyProvider: cachePolicyProvider,
     policyCompactionMode: cachePolicy.compactionMode,
@@ -219,7 +221,7 @@ export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProvi
           ),
         },
       );
-      input.optimizationLedger.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
+      input.optimizationLedger?.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
       normalizedRequest.messages = optimized.messages as never;
       if (optimized.tools) {
         normalizedRequest.tools = optimized.tools as never;
@@ -257,10 +259,10 @@ export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProvi
         }
       }
     } catch (err) {
-      input.logger.warn({ err, sessionKey: input.sessionKey }, "prefix_optimizer_oai_error");
+      input.logger.warn({ err, sessionKey: input.sessionKey }, input.prefixOptimizerErrorEvent ?? "prefix_optimizer_oai_error");
     }
   }
-  input.optimizationLedger.recordCacheDiagnostics({
+  input.optimizationLedger?.recordCacheDiagnostics({
     prefixHash: input.prefixHash,
     prefixChangeReasons: input.prefixChangeReasons,
   });
