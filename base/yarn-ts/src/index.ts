@@ -223,7 +223,6 @@ import {
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
-import { splitJitter, applyJitter } from "./compat/jitter-buffer.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
 import {
@@ -237,7 +236,6 @@ import {
   buildVerificationDisciplineToolPromptFragment,
   mergeToolSystemPrompts,
 } from "./retrieval-tool-policy.js";
-import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
@@ -346,6 +344,7 @@ import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript
 import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-stabilization.js";
 import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
+import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -1685,40 +1684,6 @@ function applyCompletionGate(
       ...newFileNotes,
     ],
   };
-}
-
-function completionCriticBlock(checklist: RequirementChecklist): string {
-  const must = checklist.must.map((m) => `- ${m.title}`).join("\n");
-  const should = checklist.should.map((m) => `- ${m.title}`).join("\n");
-  const sections = [
-    "<COMPLETION_CRITIC>",
-    "Before claiming completion, verify requested capability coverage.",
-    "If any must-have item is not implemented yet, do not claim done; explicitly state partial completion and continue implementation.",
-    "Must-have checklist:",
-    must || "- (none detected)",
-  ];
-  if (should) {
-    sections.push("Should-have checklist:", should);
-  }
-  sections.push("</COMPLETION_CRITIC>");
-  return sections.join("\n");
-}
-
-function appendCriticBlock(
-  messages: Array<{ role: string; content: unknown }>,
-  checklist: RequirementChecklist | null,
-): Array<{ role: string; content: unknown }> {
-  if (!checklist || (checklist.must.length === 0 && checklist.should.length === 0)) return messages;
-  const block = completionCriticBlock(checklist);
-  const criticMsg = { role: "system", content: block };
-  const next = [...messages];
-  const sysIdx = next.findIndex((m) => m.role === "system" && typeof m.content === "string");
-  if (sysIdx >= 0) {
-    next.splice(sysIdx + 1, 0, criticMsg);
-  } else {
-    next.unshift(criticMsg);
-  }
-  return next;
 }
 
 function extractRecentToolNames(messages: Array<{ role: string; content: unknown }>): string[] {
@@ -7702,30 +7667,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session,
     { chatStateBlock: oaiChatStateBlock, fileStateBlock: oaiFileStateBlock },
   );
-  let oaiEnrichedMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? oaiEnriched.messages as Array<{ role: string; content: unknown }>
-    : appendCriticBlock(
-        oaiEnriched.messages as Array<{ role: string; content: unknown }>,
-        oaiRequirementChecklist,
-      );
-
-  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const { stableMessages, jitterBlock } = splitJitter(oaiEnrichedMsgs);
-    oaiEnrichedMsgs = applyJitter(stableMessages, jitterBlock) as typeof oaiEnrichedMsgs;
+  const oaiFinalizedEnrichment = finalizePostEnrichmentMessages({
+    messages: oaiEnriched.messages,
+    config,
+    requirementChecklist: oaiRequirementChecklist,
+    trustContext: {
+      requestId: oaiTraceReqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+    },
+    securityIngestConfig,
+    logger: app.log as never,
+  });
+  if (!oaiFinalizedEnrichment.ok) {
+    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", oaiFinalizedEnrichment.blockDetail, oaiTraceReqId);
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${oaiFinalizedEnrichment.trustCategory}). Rephrase and retry.` } });
   }
-
-  const trustResult = applyTrustPackets(oaiEnrichedMsgs, config, {
-    requestId: oaiTraceReqId,
-    sessionKey,
-    userId: identity.userId,
-    orgId: identity.orgId,
-  }, securityIngestConfig, app.log as never);
-  if (trustResult.blocked) {
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", trustResult.blockDetail ?? "Content blocked", oaiTraceReqId);
-    const trustCategory = trustResult.blockDetail?.match(/Injection detected: (\S+)/)?.[1] ?? "content_policy";
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${trustCategory}). Rephrase and retry.` } });
-  }
-  oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
+  const oaiEnrichedMsgs = oaiFinalizedEnrichment.messages;
 
   const reqId = oaiTraceReqId;
   endOaiEnrichmentStage();
@@ -10136,33 +10095,27 @@ app.post("/v1/messages", async (req, reply) => {
     session,
     { chatStateBlock: claudeChatStateBlock, fileStateBlock: claudeFileStateBlock },
   );
-  let enrichedClaudeMsgs = config.SYNESIS_YARN_GOVERNANCE_DISABLED
-    ? claudeEnriched.messages as Array<{ role: string; content: unknown }>
-    : appendCriticBlock(
-        claudeEnriched.messages as Array<{ role: string; content: unknown }>,
-        claudeRequirementChecklist,
-      );
-
-  if (config.SYNESIS_YARN_JITTER_BUFFER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const { stableMessages, jitterBlock } = splitJitter(enrichedClaudeMsgs);
-    enrichedClaudeMsgs = applyJitter(stableMessages, jitterBlock) as typeof enrichedClaudeMsgs;
-  }
-
-  const claudeTrustResult = applyTrustPackets(enrichedClaudeMsgs, config, {
-    requestId: traceReqId,
-    sessionKey: claudeSessionKey,
-    userId: claudeIdentity.userId,
-    orgId: claudeIdentity.orgId,
-  }, securityIngestConfig, app.log as never);
-  if (claudeTrustResult.blocked) {
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeTrustResult.blockDetail ?? "Content blocked", traceReqId);
-    const claudeTrustCategory = claudeTrustResult.blockDetail?.match(/Injection detected: (\S+)/)?.[1] ?? "content_policy";
+  const claudeFinalizedEnrichment = finalizePostEnrichmentMessages({
+    messages: claudeEnriched.messages,
+    config,
+    requirementChecklist: claudeRequirementChecklist,
+    trustContext: {
+      requestId: traceReqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+    },
+    securityIngestConfig,
+    logger: app.log as never,
+  });
+  if (!claudeFinalizedEnrichment.ok) {
+    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeFinalizedEnrichment.blockDetail, traceReqId);
     return reply.code(400).send({
       type: "error",
-      error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${claudeTrustCategory}). Rephrase and retry.` }
+      error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${claudeFinalizedEnrichment.trustCategory}). Rephrase and retry.` }
     });
   }
-  enrichedClaudeMsgs = claudeTrustResult.messages as typeof enrichedClaudeMsgs;
+  const enrichedClaudeMsgs = claudeFinalizedEnrichment.messages;
 
   const openAIShape: OpenAIChatCompletionRequest = {
     model: claudeOrchestration.selectedModel,
