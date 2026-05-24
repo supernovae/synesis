@@ -16,7 +16,7 @@ export interface OpenAIChatPipelineDeps {
   governorService?: Pick<GovernorService, "beforeProviderCall">;
 }
 
-export interface OpenAIChatPipelineEnvironment extends OpenAIChatPipelineDeps {}
+export type OpenAIChatPipelineEnvironment = OpenAIChatPipelineDeps;
 
 export interface OpenAIChatIngressSuccess {
   ok: true;

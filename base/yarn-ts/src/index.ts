@@ -410,7 +410,6 @@ import {
   detectClientTaskCapabilities,
   isTaskToolCall,
   normalizeTaskToolCall,
-  extractTasksFromText as extractTasksFromTextFn,
   reconcileFromToolCall,
   reconcileFromText,
   reconcileFromEvidence,
