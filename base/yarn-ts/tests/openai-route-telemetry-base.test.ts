@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createOpenAIChatRouteTelemetryBase } from "../src/pipeline/openai-route-telemetry-base.js";
+import { createOpenAIChatRouteTelemetryBase } from "../src/pipeline/openai-route-inputs.js";
 
 describe("createOpenAIChatRouteTelemetryBase", () => {
   it("keeps shared OpenAI telemetry route fields without adding runtime scope fields", () => {

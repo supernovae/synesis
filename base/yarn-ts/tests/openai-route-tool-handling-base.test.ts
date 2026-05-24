@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createOpenAIChatRouteToolHandlingBase } from "../src/pipeline/openai-route-tool-handling-base.js";
+import { createOpenAIChatRouteToolHandlingBase } from "../src/pipeline/openai-route-inputs.js";
 
 describe("createOpenAIChatRouteToolHandlingBase", () => {
   it("keeps common OpenAI stream and non-stream tool handling fields together", () => {

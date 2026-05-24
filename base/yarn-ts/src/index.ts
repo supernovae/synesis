@@ -334,18 +334,18 @@ import { runRouteContextAdmission } from "./pipeline/route-context-admission.js"
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
 import {
+  createOpenAIChatRouteFinalizerBase,
+  createOpenAIChatRouteTelemetryBase,
+  createOpenAIChatRouteToolHandlingBase,
   createOpenAINonStreamCollapseRouteInput,
   createOpenAINonStreamDiscoveryRouteInput,
-} from "./pipeline/openai-nonstream-route-postprocess-inputs.js";
+} from "./pipeline/openai-route-inputs.js";
 import {
   createOpenAINonStreamProviderExecutorInput,
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
-import { createOpenAIChatRouteFinalizerBase } from "./pipeline/openai-route-finalizer-base.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
-import { createOpenAIChatRouteTelemetryBase } from "./pipeline/openai-route-telemetry-base.js";
-import { createOpenAIChatRouteToolHandlingBase } from "./pipeline/openai-route-tool-handling-base.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildOpenAIChatProviderRequestOptions,

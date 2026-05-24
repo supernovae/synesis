@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createOpenAIChatRouteFinalizerBase } from "../src/pipeline/openai-route-finalizer-base.js";
+import { createOpenAIChatRouteFinalizerBase } from "../src/pipeline/openai-route-inputs.js";
 
 describe("createOpenAIChatRouteFinalizerBase", () => {
   it("keeps common OpenAI stream and non-stream finalizer fields together", async () => {

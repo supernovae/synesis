@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createOpenAINonStreamCollapseRouteInput,
   createOpenAINonStreamDiscoveryRouteInput,
-} from "../src/pipeline/openai-nonstream-route-postprocess-inputs.js";
+} from "../src/pipeline/openai-route-inputs.js";
 
 describe("createOpenAINonStreamDiscoveryRouteInput", () => {
   it("packages route discovery recovery dependencies without runtime scope fields", async () => {
