@@ -410,8 +410,6 @@ import {
   applyWorkspaceBoundary,
   buildFreshImplicitSessionNotice,
   clearWorkspaceScopedMetadata,
-  getHandshakeAttempts,
-  getHandshakeStatus,
   hasPersistedWorkspaceState,
   mergeSessionPathHints,
   setSessionWorkspaceContext,
@@ -4253,13 +4251,9 @@ import {
 } from "./governance/diff-accumulator.js";
 import {
   buildWorkspaceHandshakeBashCommand,
-  extractClaudeToolResult,
-  extractOpenAIToolResult,
-  hasBashTool,
   lastToolUseIdFromClaudeMessages,
-  makeWorkspaceHandshakeToolCallId,
-  parseWorkspaceContextOutput,
 } from "./session/workspace-context-handshake.js";
+import { processWorkspaceHandshakeRoute } from "./session/workspace-handshake-route.js";
 
 type ResolveResult =
   | {
@@ -5399,17 +5393,6 @@ function workspaceStatePresence(sessionKey: string) {
     hasStructuralIndex: structuralIndexBySession.has(sessionKey),
     sessionMemoryCount: getSessionMemoryCount(sessionKey),
   };
-}
-
-function shouldStartWorkspaceHandshake(
-  state: SessionState,
-  pathCtx: SessionPathHints,
-): boolean {
-  void state;
-  void pathCtx;
-  // Fix-forward policy: synthetic workspace handshake is disabled globally.
-  // Context anchors must come from headers/metadata only.
-  return false;
 }
 
 function sendOpenAIWorkspaceHandshake(
@@ -7114,36 +7097,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
-  const pendingWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
-  const workspaceStatus = getHandshakeStatus(session.record.metadata);
-  if (workspaceStatus === "pending" && pendingWorkspaceToolId) {
-    const toolResult = extractOpenAIToolResult(request.messages as Array<{ role: string; tool_call_id?: string; content?: unknown }>, pendingWorkspaceToolId);
-    if (toolResult !== null) {
-      const parsedCtx = parseWorkspaceContextOutput(toolResult);
-      if (parsedCtx) {
-        setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
-          toolCallId: pendingWorkspaceToolId,
-          cwd: parsedCtx.cwd,
-          projectRoot: parsedCtx.projectRoot,
-          shell: parsedCtx.shell,
-          os: parsedCtx.os,
-          arch: parsedCtx.arch,
-        });
-        recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_ready", "workspace-handshake", "Initializing workspace context completed", oaiTraceReqId);
-      } else {
-        setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, {
-          toolCallId: pendingWorkspaceToolId,
-          reason: "workspace context parse failed",
-        });
-        recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (parse failure)", oaiTraceReqId);
-      }
-    } else {
-      setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, {
-        toolCallId: pendingWorkspaceToolId,
-        reason: "workspace context tool result not returned",
-      });
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", oaiTraceReqId);
-    }
+  const oaiWorkspaceHandshakeAction = await processWorkspaceHandshakeRoute({
+    protocol: "openai",
+    session,
+    sessionKey,
+    identity,
+    requestId: oaiTraceReqId,
+    pathContext: oaiPathCtx,
+    messages: request.messages as unknown[],
+    tools: request.tools as unknown[] | undefined,
+    saveSession: casSessionSave,
+    recordSessionEvent,
+  });
+  if (oaiWorkspaceHandshakeAction.kind === "send") {
+    return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, oaiWorkspaceHandshakeAction.toolCallId);
   }
   let effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
   const buildEffectiveOaiAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {
@@ -7152,19 +7119,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return `${clientAdapterPacks.toSystemBlock(adapterProfile)}\n\n${ctxBlock}`;
   };
   let effectiveOaiAdapterBlock = buildEffectiveOaiAdapterBlock(effectiveOaiPathCtx);
-  if (shouldStartWorkspaceHandshake(session, effectiveOaiPathCtx)) {
-    if (!hasBashTool(request.tools as unknown[] | undefined)) {
-      setSessionWorkspaceContext(session, "unavailable", oaiTraceReqId, { reason: "Bash tool not available for workspace handshake" });
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (Bash tool missing)", oaiTraceReqId);
-    } else {
-      const toolCallId = makeWorkspaceHandshakeToolCallId();
-      session.record.metadata.workspace_context_attempts = getHandshakeAttempts(session.record.metadata) + 1;
-      setSessionWorkspaceContext(session, "pending", oaiTraceReqId, { toolCallId, reason: "Initializing workspace context" });
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "workspace_context_init", "workspace-handshake", "Initializing workspace context", oaiTraceReqId);
-      await casSessionSave(session);
-      return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, toolCallId);
-    }
-  }
 
   const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
   const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
@@ -9707,36 +9661,20 @@ app.post("/v1/messages", async (req, reply) => {
       },
     );
   }
-  const pendingClaudeWorkspaceToolId = String(session.record.metadata.workspace_context_tool_call_id ?? "");
-  const claudeWorkspaceStatus = getHandshakeStatus(session.record.metadata);
-  if (claudeWorkspaceStatus === "pending" && pendingClaudeWorkspaceToolId) {
-    const toolResult = extractClaudeToolResult(body.messages as Array<{ role: string; content: unknown }>, pendingClaudeWorkspaceToolId);
-    if (toolResult !== null) {
-      const parsedCtx = parseWorkspaceContextOutput(toolResult);
-      if (parsedCtx) {
-        setSessionWorkspaceContext(session, "ready", traceReqId, {
-          toolCallId: pendingClaudeWorkspaceToolId,
-          cwd: parsedCtx.cwd,
-          projectRoot: parsedCtx.projectRoot,
-          shell: parsedCtx.shell,
-          os: parsedCtx.os,
-          arch: parsedCtx.arch,
-        });
-        recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_ready", "workspace-handshake", "Initializing workspace context completed", traceReqId);
-      } else {
-        setSessionWorkspaceContext(session, "unavailable", traceReqId, {
-          toolCallId: pendingClaudeWorkspaceToolId,
-          reason: "workspace context parse failed",
-        });
-        recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (parse failure)", traceReqId);
-      }
-    } else {
-      setSessionWorkspaceContext(session, "unavailable", traceReqId, {
-        toolCallId: pendingClaudeWorkspaceToolId,
-        reason: "workspace context tool result not returned",
-      });
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (tool result missing/denied)", traceReqId);
-    }
+  const claudeWorkspaceHandshakeAction = await processWorkspaceHandshakeRoute({
+    protocol: "claude",
+    session,
+    sessionKey: claudeSessionKey,
+    identity: claudeIdentity,
+    requestId: traceReqId,
+    pathContext: claudePathCtx,
+    messages: body.messages as unknown[],
+    tools: body.tools as unknown[] | undefined,
+    saveSession: casSessionSave,
+    recordSessionEvent,
+  });
+  if (claudeWorkspaceHandshakeAction.kind === "send") {
+    return sendClaudeWorkspaceHandshake(reply, body.model, !!body.stream, claudeWorkspaceHandshakeAction.toolCallId);
   }
   let effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
   const buildEffectiveClaudeAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {
@@ -9745,19 +9683,6 @@ app.post("/v1/messages", async (req, reply) => {
     return `${clientAdapterPacks.toSystemBlock(claudeAdapterProfile)}\n\n${ctxBlock}`;
   };
   let effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
-  if (shouldStartWorkspaceHandshake(session, effectiveClaudePathCtx)) {
-    if (!hasBashTool(body.tools as unknown[] | undefined)) {
-      setSessionWorkspaceContext(session, "unavailable", traceReqId, { reason: "Bash tool not available for workspace handshake" });
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_fallback", "workspace-handshake", "Workspace context unavailable (Bash tool missing)", traceReqId);
-    } else {
-      const toolCallId = makeWorkspaceHandshakeToolCallId();
-      session.record.metadata.workspace_context_attempts = getHandshakeAttempts(session.record.metadata) + 1;
-      setSessionWorkspaceContext(session, "pending", traceReqId, { toolCallId, reason: "Initializing workspace context" });
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "workspace_context_init", "workspace-handshake", "Initializing workspace context", traceReqId);
-      await casSessionSave(session);
-      return sendClaudeWorkspaceHandshake(reply, body.model, !!body.stream, toolCallId);
-    }
-  }
 
   const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
   const claudeVerifState = toolResultReduction.getVerificationTracker().getState();
