@@ -281,6 +281,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
+import { handleClaudeStreamLocalEvent } from "./streaming/claude-stream-event-handlers.js";
 import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
@@ -13357,30 +13358,14 @@ app.post("/v1/messages", async (req, reply) => {
     try {
       for await (const part of streamed.fullStream) {
         const event = classifyAiSdkStreamPart(part);
-        if (event.type === "text_delta") {
-          claudeStreamState.appendTextDelta(event.text);
-        } else if (event.type === "reasoning_start") {
-          if (claudeStreamState.hasPendingText()) {
-            scrubAndFlushClaudeTextBlock(claudeStreamState.drainText());
-          }
-          const blockIndex = claudeStreamState.currentBlockIndex();
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIndex, content_block: { type: "thinking", thinking: "" } });
-          if (event.text) {
-            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIndex, delta: { type: "thinking_delta", thinking: event.text } });
-          }
-        } else if (event.type === "reasoning_delta") {
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: claudeStreamState.currentBlockIndex(), delta: { type: "thinking_delta", thinking: event.text } });
-        } else if (event.type === "reasoning_end") {
-          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: claudeStreamState.currentBlockIndex() });
-          claudeStreamState.advanceBlock();
-        } else if (event.type === "tool_input_start") {
-          if (claudeStreamState.hasPendingText()) {
-            scrubAndFlushClaudeTextBlock(claudeStreamState.drainText());
-          }
-          claudeStreamState.startToolInput(event.toolCallId, event.toolName);
-        } else if (event.type === "tool_input_delta") {
-          claudeStreamState.appendToolInputDelta(event.toolCallId, event.inputTextDelta);
-        } else if (event.type === "tool_call") {
+        if (handleClaudeStreamLocalEvent(event, {
+          streamState: claudeStreamState,
+          sendSse: (eventName, data) => safeSse(reply, eventName, data),
+          scrubAndFlushTextBlock: scrubAndFlushClaudeTextBlock,
+        })) {
+          continue;
+        }
+        if (event.type === "tool_call") {
           const buf = claudeStreamState.getToolInput(event.toolCallId);
           const rawToolInput = parseToolInput(event.input, serializeToolInput(event.input));
           const hard = applyAdapterToolHardening(
@@ -13562,8 +13547,6 @@ app.post("/v1/messages", async (req, reply) => {
           claudeStreamState.markToolUse();
         } else if (event.type === "error") {
           throw event.error;
-        } else if (event.type === "finish") {
-          claudeStreamState.markFinishFromProvider(event.finishReason);
         }
       }
       if (
