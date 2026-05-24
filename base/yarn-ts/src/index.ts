@@ -279,6 +279,10 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { applyClaudeNonStreamDiscoveryGuardrails } from "./streaming/claude-nonstream-discovery.js";
 import { finalizeClaudeNonStreamText } from "./streaming/claude-nonstream-finalizer.js";
+import {
+  finalizeClaudeNonStreamProviderSuccess,
+  handleClaudeNonStreamProviderError,
+} from "./streaming/claude-nonstream-lifecycle.js";
 import { buildClaudeNonStreamResponseContent } from "./streaming/claude-nonstream-response.js";
 import { runClaudeNonStreamTelemetry } from "./streaming/claude-nonstream-telemetry.js";
 import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
@@ -13639,49 +13643,38 @@ app.post("/v1/messages", async (req, reply) => {
       throw new Error("empty_generation_result");
     }
   } catch (err) {
-    const upstream = extractUpstreamErrorDiagnostics(err);
-    circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
-    claudeNonStreamSpan.setStatus("error", upstream.userMessage);
-    claudeNonStreamSpan.end();
-    app.log.error(
+    const errorResponse = handleClaudeNonStreamProviderError(
       {
-        err,
-        reqId,
+        requestId: reqId,
         model: resolved.resolvedModelId,
-        upstream_error_name: upstream.errorName,
-        upstream_error_code: upstream.errorCode,
-        upstream_http_status: upstream.httpStatus,
-        upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-        upstream_missing_tool_results: upstream.isMissingToolResults,
-        upstream_raw_message: upstream.rawMessage.slice(0, 600),
+        orgId: claudeIdentity.orgId,
+        span: claudeNonStreamSpan,
+        circuitBreakers,
+        logger: app.log,
+        extractUpstreamErrorDiagnostics,
+        recordSessionEvent: (event) => {
+          recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            event.eventKind,
+            event.component,
+            event.detail,
+            reqId,
+            event.metadataJson,
+          );
+        },
       },
-      "Claude non-stream generateText failed",
+      err,
     );
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "upstream_error",
-      "generateText",
-      upstream.userMessage,
-      reqId,
-      {
-        model: resolved.resolvedModelId,
-        error_name: upstream.errorName ?? "",
-        error_code: upstream.errorCode ?? "",
-        error_status: upstream.httpStatus ?? 0,
-        vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-        missing_tool_results: upstream.isMissingToolResults,
-      },
-    );
-    return reply.code(502).send({
-      type: "error",
-      error: { type: "upstream_error", message: upstream.userMessage }
-    });
+    return reply.code(errorResponse.statusCode).send(errorResponse.payload);
   }
-  circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
-  claudeNonStreamSpan.setStatus("ok");
-  claudeNonStreamSpan.end();
+  finalizeClaudeNonStreamProviderSuccess({
+    model: resolved.resolvedModelId,
+    orgId: claudeIdentity.orgId,
+    span: claudeNonStreamSpan,
+    circuitBreakers,
+  });
   const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
 
   let externalClaudeToolCalls = prepareClaudeNonStreamToolCalls({
