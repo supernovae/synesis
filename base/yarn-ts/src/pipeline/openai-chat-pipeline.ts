@@ -7,6 +7,7 @@ import type { GovernorInputMessage } from "../governance/execution-governor.js";
 import type { CanonicalChatRequest, PipelineContext, PipelineResult } from "./types.js";
 import { normalizeToolDescriptions, type ToolDescriptionTruncation } from "../compat/tool-description-normalizer.js";
 import { type SessionIdentity } from "../session/session-key.js";
+import { buildProtocolSessionIdentity } from "../session/protocol-session.js";
 import { resolvePipelineMode, shouldRunGovernorForMode, type PipelineModeResolution } from "./modes.js";
 
 export interface OpenAIChatPipelineDeps {
@@ -233,13 +234,13 @@ export class OpenAIChatPipeline {
     return {
       identityUserId,
       displayName,
-      identity: {
+      identity: buildProtocolSessionIdentity({
+        authUser,
         userId: identityUserId,
-        orgId: authUser.orgId,
         conversationId: ingress.conversationId,
         clientKind: ingress.clientKind,
         displayName,
-      },
+      }),
     };
   }
 

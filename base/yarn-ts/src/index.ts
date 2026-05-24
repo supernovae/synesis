@@ -65,6 +65,11 @@ import {
   shouldResetImplicitSessionForFreshTranscript,
   type SessionIdentity,
 } from "./session/session-key.js";
+import {
+  applySessionTaskCapabilities,
+  buildProtocolSessionIdentity,
+  runProtocolSessionBootstrap,
+} from "./session/protocol-session.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
@@ -7178,52 +7183,54 @@ app.post("/v1/chat/completions", async (req, reply) => {
     top_p: request.top_p,
   });
   const identity: SessionIdentity = oaiIdentity.identity;
-  const sessionKey = await getSessionKey(identity);
-  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-    app.log.debug({ sessionKey, source: oaiConversationId ? "conversation_resolved" : "conversation_fallback", conversationId: identity.conversationId, clientKind: oaiClientKind }, "session_resolution");
-  }
-  const session = await getSessionState(sessionKey, identity);
-  applyAuthKeyAttribution(session, authUser);
   let oaiFreshImplicitSessionNotice: string | null = null;
-  if (shouldResetImplicitSessionForFreshTranscript({
-    clientKind: oaiClientKind,
-    conversationId: oaiConversationId,
-    messages: request.messages as Array<{ role?: unknown }>,
-    hasPersistedState: hasPersistedWorkspaceState(session, sessionKey),
-  })) {
-    resetWorkspaceScopedSessionState(sessionKey, session);
-    oaiFreshImplicitSessionNotice = buildFreshImplicitSessionNotice(
-      oaiClientKind,
-      (request.messages as unknown[]).length,
-    );
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "implicit_session_fresh_transcript_reset",
-      "session-boundary",
-      `client=${oaiClientKind} messages=${(request.messages as unknown[]).length}`,
-      oaiTraceReqId,
-      {
-        client_kind: oaiClientKind,
-        conversation_id_present: false,
-        message_count: (request.messages as unknown[]).length,
-      },
-    );
-  }
-  const oaiRuntimePreferences = await loadUserRuntimePreferences(identity.userId);
+  const oaiBootstrap = await runProtocolSessionBootstrap({
+    identity,
+    authUser,
+    getSessionKey,
+    getSessionState,
+    applyAuthKeyAttribution,
+    loadRuntimePreferences: loadUserRuntimePreferences,
+    debugEnabled: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    debugConversationSource: "conversation_resolved",
+    debugFallbackSource: "conversation_fallback",
+    debugLog: (record) => app.log.debug(record, "session_resolution"),
+    afterSessionLoaded: ({ sessionKey: loadedSessionKey, session: loadedSession }) => {
+      if (shouldResetImplicitSessionForFreshTranscript({
+        clientKind: oaiClientKind,
+        conversationId: oaiConversationId,
+        messages: request.messages as Array<{ role?: unknown }>,
+        hasPersistedState: hasPersistedWorkspaceState(loadedSession, loadedSessionKey),
+      })) {
+        resetWorkspaceScopedSessionState(loadedSessionKey, loadedSession);
+        oaiFreshImplicitSessionNotice = buildFreshImplicitSessionNotice(
+          oaiClientKind,
+          (request.messages as unknown[]).length,
+        );
+        recordSessionEvent(
+          loadedSessionKey,
+          identity.userId,
+          identity.orgId,
+          "implicit_session_fresh_transcript_reset",
+          "session-boundary",
+          `client=${oaiClientKind} messages=${(request.messages as unknown[]).length}`,
+          oaiTraceReqId,
+          {
+            client_kind: oaiClientKind,
+            conversation_id_present: false,
+            message_count: (request.messages as unknown[]).length,
+          },
+        );
+      }
+    },
+  });
+  const sessionKey = oaiBootstrap.sessionKey;
+  const session = oaiBootstrap.session;
+  const oaiRuntimePreferences = oaiBootstrap.runtimePreferences;
   const oaiToolDefs = (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
   const oaiClientToolCapabilities = detectClientToolCapabilities(oaiToolDefs, oaiClientKind, oaiTaskCue);
   const detectedOaiTaskCapabilities = detectClientTaskCapabilities(oaiToolDefs, oaiClientKind);
-
-  if (
-    !session.taskCapabilities
-    || detectedOaiTaskCapabilities.hasExplicitTodoTool
-    || detectedOaiTaskCapabilities.hasExplicitPlanMode
-    || (!session.taskCapabilities.hasExplicitTodoTool && !session.taskCapabilities.hasExplicitPlanMode)
-  ) {
-    session.taskCapabilities = detectedOaiTaskCapabilities;
-  }
+  applySessionTaskCapabilities(session, detectedOaiTaskCapabilities);
 
   const oaiCapabilityHash = crypto
     .createHash("sha256")
@@ -11082,20 +11089,26 @@ app.post("/v1/messages", async (req, reply) => {
   );
   const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
   const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
-  const claudeIdentity: SessionIdentity = {
-    userId: claudeAuthUser.userId,
-    orgId: claudeAuthUser.orgId,
+  const claudeIdentity = buildProtocolSessionIdentity({
+    authUser: claudeAuthUser,
     conversationId: claudeConversationId,
     clientKind: claudeClientKind,
-    displayName: claudeAuthUser.displayName,
-  };
-  const claudeSessionKey = await getSessionKey(claudeIdentity);
-  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-    app.log.debug({ sessionKey: claudeSessionKey, source: claudeConversationId ? "metadata" : "fallback", conversationId: claudeConversationId, clientKind: claudeClientKind }, "session_resolution");
-  }
-  const session = await getSessionState(claudeSessionKey, claudeIdentity);
-  applyAuthKeyAttribution(session, claudeAuthUser);
-  const claudeRuntimePreferences = await loadUserRuntimePreferences(claudeIdentity.userId);
+  });
+  const claudeBootstrap = await runProtocolSessionBootstrap({
+    identity: claudeIdentity,
+    authUser: claudeAuthUser,
+    getSessionKey,
+    getSessionState,
+    applyAuthKeyAttribution,
+    loadRuntimePreferences: loadUserRuntimePreferences,
+    debugEnabled: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    debugConversationSource: "metadata",
+    debugFallbackSource: "fallback",
+    debugLog: (record) => app.log.debug(record, "session_resolution"),
+  });
+  const claudeSessionKey = claudeBootstrap.sessionKey;
+  const session = claudeBootstrap.session;
+  const claudeRuntimePreferences = claudeBootstrap.runtimePreferences;
   const claudeClientToolCapabilities = detectClientToolCapabilities(
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
     claudeClientKind,
@@ -11105,14 +11118,7 @@ app.post("/v1/messages", async (req, reply) => {
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
     claudeClientKind,
   );
-  if (
-    !session.taskCapabilities
-    || detectedClaudeTaskCapabilities.hasExplicitTodoTool
-    || detectedClaudeTaskCapabilities.hasExplicitPlanMode
-    || (!session.taskCapabilities.hasExplicitTodoTool && !session.taskCapabilities.hasExplicitPlanMode)
-  ) {
-    session.taskCapabilities = detectedClaudeTaskCapabilities;
-  }
+  applySessionTaskCapabilities(session, detectedClaudeTaskCapabilities);
   const claudeCapabilityHash = crypto
     .createHash("sha256")
     .update(
