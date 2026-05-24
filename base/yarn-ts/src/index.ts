@@ -49,6 +49,7 @@ import {
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
+import { buildAiSdkTextRequestOptions } from "./providers/ai-sdk-request-options.js";
 import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
 import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
 import { resolveEndpointCapabilityId } from "./providers/endpoint-capabilities/resolve.js";
@@ -301,8 +302,8 @@ import {
 import { runPersistenceTokenEconomicsAccounting } from "./state/persistence-token-economics.js";
 import {
   readPersistedChatStateSnapshot,
-  summarizeFileStateForGovernor,
 } from "./state/persistence-state-channels.js";
+import { prepareProtocolPauseState } from "./session/protocol-pause-state.js";
 import { EnrichmentPool } from "./workers/pool.js";
 import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
 import {
@@ -316,7 +317,6 @@ import {
   extractEditedFileHints,
   type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
-  type GovernorPauseTaskContext,
   type GovernorInputMessage,
   type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
@@ -375,15 +375,11 @@ import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import {
   deriveChatState,
-  formatChatStateBlock,
-  toChatStateSnapshot,
   type ChatPhase,
   type ChatState,
 } from "./governance/chat-state.js";
 import {
   deriveFileState,
-  formatFileStateBlock,
-  toFileStateSnapshot,
   type FileState,
 } from "./governance/file-state.js";
 import {
@@ -1057,26 +1053,6 @@ function buildGovernorPauseResumeBlockForUser(session: SessionState, latestUserP
   return buildGovernorPauseResumeBlock(snapshot, latestUserPrompt);
 }
 
-function trimSnippet(text: string, max = 2000): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function summarizeChatStateForGovernor(chatState: ChatState): {
-  active_objective: string | null;
-  pending_user_directive: string | null;
-  completion_status: ChatState["completionStatus"];
-  last_verification_outcome: ChatState["lastVerificationOutcome"];
-  narration_residue_present: boolean;
-} {
-  return {
-    active_objective: chatState.activeObjective ? trimSnippet(chatState.activeObjective, 220) : null,
-    pending_user_directive: chatState.pendingUserDirective ? trimSnippet(chatState.pendingUserDirective, 220) : null,
-    completion_status: chatState.completionStatus,
-    last_verification_outcome: chatState.lastVerificationOutcome,
-    narration_residue_present: Boolean(chatState.narrationResidueSummary),
-  };
-}
-
 function applyObjectiveScopeAndPersist<TMessage extends {
   role: string;
   content: unknown;
@@ -1192,6 +1168,10 @@ function persistStateConfidence(
   metadata.state_confidence_needs_reground = assessment.needsReground;
   metadata.state_confidence_recommended_path = assessment.recommendedReadPath ?? "";
   metadata.state_confidence_reasons = assessment.reasons;
+}
+
+function trimSnippet(text: string, max = 2000): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function updateTracePromptMetadata(state: SessionState, latestUserText: string): void {
@@ -5661,29 +5641,6 @@ function buildFreshImplicitSessionNotice(clientKind: string, messageCount: numbe
   ].join("\n");
 }
 
-function buildGovernorPauseTaskContext(ledger: TaskLedger | null): GovernorPauseTaskContext | undefined {
-  if (!ledger || ledger.tasks.length === 0) return undefined;
-  const openTasks = ledger.tasks.filter((task) =>
-    task.status === "pending" || task.status === "in_progress" || task.status === "unknown"
-  );
-  const currentTask = openTasks.find((task) => task.status === "in_progress") ?? openTasks[0];
-  if (!currentTask) return undefined;
-  const title = currentTask.title.trim();
-  const titleLower = title.toLowerCase();
-  let recommended = `Continue the current task: ${title}. Make exactly one concrete edit or task update before any repeated narration.`;
-  if (/\b(test|pytest|spec)\b/.test(titleLower)) {
-    recommended = `Continue the current test task: ${title}. Create or edit the relevant test file, then run one targeted test command.`;
-  } else if (/\b(readme|doc|documentation)\b/.test(titleLower)) {
-    recommended = `Continue the current documentation task: ${title}. Edit the documentation file directly, then verify the file exists.`;
-  }
-  return {
-    current_task: title,
-    current_task_status: currentTask.status,
-    open_task_count: openTasks.length,
-    recommended_next_step: recommended,
-  };
-}
-
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
   clearWorkspaceScopedMetadata(state.record.metadata);
   contentDedupBySession.delete(sessionKey);
@@ -7948,15 +7905,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
-  const oaiFileStateSnapshot = toFileStateSnapshot(oaiFileState, { maxPaths: 8 });
-  const oaiChatStateSnapshot = toChatStateSnapshot(oaiChatState);
-  const oaiPauseChatSummary = summarizeChatStateForGovernor(oaiChatState);
-  const oaiPauseFileSummary = summarizeFileStateForGovernor(oaiFileStateSnapshot);
-  const oaiPauseTaskContext = buildGovernorPauseTaskContext(session.taskLedger);
-  session.record.metadata.chat_state_snapshot = oaiChatStateSnapshot as unknown as Record<string, unknown>;
-  session.record.metadata.file_state_snapshot = oaiFileStateSnapshot as unknown as Record<string, unknown>;
-  const oaiChatStateBlock = formatChatStateBlock(oaiChatState);
-  const oaiFileStateBlock = formatFileStateBlock(oaiFileState);
+  const oaiPauseState = prepareProtocolPauseState({
+    metadata: session.record.metadata,
+    chatState: oaiChatState,
+    fileState: oaiFileState,
+    taskLedger: session.taskLedger,
+  });
+  const oaiPauseChatSummary = oaiPauseState.pauseChatSummary;
+  const oaiPauseFileSummary = oaiPauseState.pauseFileSummary;
+  const oaiPauseTaskContext = oaiPauseState.pauseTaskContext;
+  const oaiChatStateBlock = oaiPauseState.chatStateBlock;
+  const oaiFileStateBlock = oaiPauseState.fileStateBlock;
   const oaiGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
     session,
     typeof oaiTaskCue === "string" ? oaiTaskCue : "",
@@ -9504,18 +9463,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiForensicsPhasePolicy,
             oaiForensicsCapabilityMatrix,
           );
-          const result = await generateText({
-            model: resolved.model as never,
+          const result = await generateText(buildAiSdkTextRequestOptions({
+            model: resolved.model,
             messages,
             maxOutputTokens: clampMaxOutputTokensForSafety(
               Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
             ),
-            ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
-            ...oaiSamplingOptions,
-            ...(sdkTools ? { tools: sdkTools } : {}),
-            ...(toolChoice ? { toolChoice } : {}),
-            ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
-          });
+            output: oaiStructuredOutput,
+            samplingOptions: oaiSamplingOptions,
+            tools: sdkTools,
+            toolChoice,
+            providerOptions: oaiProviderOptions,
+          }) as never);
           return { result, context: forensics, messages, toolChoice };
         },
         finalizeAttempt: (attempt) => {
@@ -9611,18 +9570,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
           oaiForensicsPhasePolicy,
           oaiForensicsCapabilityMatrix,
         );
-        finalResult = await generateText({
-          model: resolved.model as never,
+        finalResult = await generateText(buildAiSdkTextRequestOptions({
+          model: resolved.model,
           messages: currentMessages,
           maxOutputTokens: clampMaxOutputTokensForSafety(
             Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
           ),
-          ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
-          ...oaiSamplingOptions,
-          ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-          ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {}),
-        });
+          output: oaiStructuredOutput,
+          samplingOptions: oaiSamplingOptions,
+          tools: sdkTools,
+          toolChoice: effectiveToolChoice,
+          providerOptions: oaiProviderOptions,
+        }) as never);
         const loopUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
         lastOpenAiForensics = finalizeRequestForensics(session, reqId, loopForensics, loopUsage);
       }
@@ -10214,19 +10173,19 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   modelMessages = ensureModelMessageContentFormat(modelMessages) as typeof modelMessages;
-  const streamed = streamText({
-    model: resolved.model as never,
+  const streamed = streamText(buildAiSdkTextRequestOptions({
+    model: resolved.model,
     messages: modelMessages,
     abortSignal: oaiStreamAbortController.signal,
     maxOutputTokens: clampMaxOutputTokensForSafety(
       Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
     ),
-    ...(oaiStructuredOutput ? { output: oaiStructuredOutput as never } : {}),
-    ...oaiSamplingOptions,
-    ...(sdkTools ? { tools: sdkTools } : {}),
-    ...(effectiveToolChoice ? { toolChoice: effectiveToolChoice } : {}),
-    ...(oaiProviderOptions ? { providerOptions: oaiProviderOptions as never } : {})
-  });
+    output: oaiStructuredOutput,
+    samplingOptions: oaiSamplingOptions,
+    tools: sdkTools,
+    toolChoice: effectiveToolChoice,
+    providerOptions: oaiProviderOptions,
+  }) as never);
   reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
   const oaiHeartbeat = startSseHeartbeat({
     raw: reply.raw,
@@ -11802,15 +11761,17 @@ app.post("/v1/messages", async (req, reply) => {
       },
     );
   }
-  const claudeFileStateSnapshot = toFileStateSnapshot(claudeFileState, { maxPaths: 8 });
-  const claudeChatStateSnapshot = toChatStateSnapshot(claudeChatState);
-  const claudePauseChatSummary = summarizeChatStateForGovernor(claudeChatState);
-  const claudePauseFileSummary = summarizeFileStateForGovernor(claudeFileStateSnapshot);
-  const claudePauseTaskContext = buildGovernorPauseTaskContext(session.taskLedger);
-  session.record.metadata.chat_state_snapshot = claudeChatStateSnapshot as unknown as Record<string, unknown>;
-  session.record.metadata.file_state_snapshot = claudeFileStateSnapshot as unknown as Record<string, unknown>;
-  const claudeChatStateBlock = formatChatStateBlock(claudeChatState);
-  const claudeFileStateBlock = formatFileStateBlock(claudeFileState);
+  const claudePauseState = prepareProtocolPauseState({
+    metadata: session.record.metadata,
+    chatState: claudeChatState,
+    fileState: claudeFileState,
+    taskLedger: session.taskLedger,
+  });
+  const claudePauseChatSummary = claudePauseState.pauseChatSummary;
+  const claudePauseFileSummary = claudePauseState.pauseFileSummary;
+  const claudePauseTaskContext = claudePauseState.pauseTaskContext;
+  const claudeChatStateBlock = claudePauseState.chatStateBlock;
+  const claudeFileStateBlock = claudePauseState.fileStateBlock;
   const claudeGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
     session,
     typeof claudeTaskCue === "string" ? claudeTaskCue : "",
@@ -13306,16 +13267,16 @@ app.post("/v1/messages", async (req, reply) => {
         );
       }
       for (let round = 0; round < 3; round++) {
-        streamedResult = await generateText({
-          model: resolved.model as never,
+        streamedResult = await generateText(buildAiSdkTextRequestOptions({
+          model: resolved.model,
           messages: currentMessages,
           maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-          ...claudeSamplingOptions,
-          ...(sdkStop ? { stopSequences: sdkStop } : {}),
-          ...(sdkTools ? { tools: sdkTools } : {}),
-          ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-          ...(providerOptions ? { providerOptions: providerOptions as never } : {})
-        });
+          samplingOptions: claudeSamplingOptions,
+          stopSequences: sdkStop,
+          tools: sdkTools,
+          toolChoice: effectiveClaudeToolChoice,
+          providerOptions,
+        }) as never);
 
         let allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
         if (claudeForceNonStreamKickoff && round === 0 && claudePhasePolicy.toolChoice === "required") {
@@ -13334,16 +13295,16 @@ app.post("/v1/messages", async (req, reply) => {
               currentMessages as Array<{ role: string; content?: unknown }>,
               buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools),
             ) as typeof currentMessages;
-            streamedResult = await generateText({
-              model: resolved.model as never,
+            streamedResult = await generateText(buildAiSdkTextRequestOptions({
+              model: resolved.model,
               messages: currentMessages,
               maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              ...claudeSamplingOptions,
-              ...(sdkStop ? { stopSequences: sdkStop } : {}),
-              ...(sdkTools ? { tools: sdkTools } : {}),
-              ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-              ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
-            });
+              samplingOptions: claudeSamplingOptions,
+              stopSequences: sdkStop,
+              tools: sdkTools,
+              toolChoice: effectiveClaudeToolChoice,
+              providerOptions,
+            }) as never);
             allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
             validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
             if (!validation.valid) {
@@ -13361,16 +13322,16 @@ app.post("/v1/messages", async (req, reply) => {
                 currentMessages as Array<{ role: string; content?: unknown }>,
                 "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
               ) as typeof currentMessages;
-              streamedResult = await generateText({
-                model: resolved.model as never,
+              streamedResult = await generateText(buildAiSdkTextRequestOptions({
+                model: resolved.model,
                 messages: currentMessages,
                 maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-                ...claudeSamplingOptions,
-                ...(sdkStop ? { stopSequences: sdkStop } : {}),
-                ...(sdkTools ? { tools: sdkTools } : {}),
-                ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-                ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
-              });
+                samplingOptions: claudeSamplingOptions,
+                stopSequences: sdkStop,
+                tools: sdkTools,
+                toolChoice: effectiveClaudeToolChoice,
+                providerOptions,
+              }) as never);
               allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
             }
           }
@@ -13441,16 +13402,16 @@ app.post("/v1/messages", async (req, reply) => {
         claudeForensicsPhasePolicy,
         claudeForensicsCapabilityMatrix,
       );
-      const finalResult = streamedResult ?? await generateText({
-        model: resolved.model as never,
+      const finalResult = streamedResult ?? await generateText(buildAiSdkTextRequestOptions({
+        model: resolved.model,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...claudeSamplingOptions,
-        ...(sdkStop ? { stopSequences: sdkStop } : {}),
-        ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-        ...(providerOptions ? { providerOptions: providerOptions as never } : {})
-      });
+        samplingOptions: claudeSamplingOptions,
+        stopSequences: sdkStop,
+        tools: sdkTools,
+        toolChoice: effectiveClaudeToolChoice,
+        providerOptions,
+      }) as never);
 
       const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
       const claudeNonStreamForensicsDone = finalizeRequestForensics(session, reqId, claudeNonStreamForensics, usage);
@@ -13662,17 +13623,17 @@ app.post("/v1/messages", async (req, reply) => {
       if (Object.keys(po).length === 0) providerOptions = undefined;
     }
     claudeModelMessages = ensureModelMessageContentFormat(claudeModelMessages) as typeof claudeModelMessages;
-    const streamed = streamText({
-      model: resolved.model as never,
+    const streamed = streamText(buildAiSdkTextRequestOptions({
+      model: resolved.model,
       messages: claudeModelMessages,
       abortSignal: claudeStreamAbortController.signal,
       maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-      ...claudeSamplingOptions,
-      ...(sdkStop ? { stopSequences: sdkStop } : {}),
-      ...(sdkTools ? { tools: sdkTools } : {}),
-      ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-      ...(providerOptions ? { providerOptions: providerOptions as never } : {})
-    });
+      samplingOptions: claudeSamplingOptions,
+      stopSequences: sdkStop,
+      tools: sdkTools,
+      toolChoice: effectiveClaudeToolChoice,
+      providerOptions,
+    }) as never);
     reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
     const claudeHeartbeat = startSseHeartbeat({
       raw: reply.raw,
@@ -14368,16 +14329,16 @@ app.post("/v1/messages", async (req, reply) => {
         claudeForensicsPhasePolicy,
         claudeForensicsCapabilityMatrix,
       );
-      result = await generateText({
-        model: resolved.model as never,
+      result = await generateText(buildAiSdkTextRequestOptions({
+        model: resolved.model,
         messages: currentMessages,
         maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        ...claudeSamplingOptions,
-        ...(sdkStop ? { stopSequences: sdkStop } : {}),
-        ...(sdkTools ? { tools: sdkTools } : {}),
-        ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-        ...(providerOptions ? { providerOptions: providerOptions as never } : {})
-      });
+        samplingOptions: claudeSamplingOptions,
+        stopSequences: sdkStop,
+        tools: sdkTools,
+        toolChoice: effectiveClaudeToolChoice,
+        providerOptions,
+      }) as never);
       const roundUsage = readUsage((result as unknown as { usage?: unknown }).usage);
       lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, roundForensics, roundUsage);
 
@@ -14412,16 +14373,16 @@ app.post("/v1/messages", async (req, reply) => {
             claudeForensicsPhasePolicy,
             claudeForensicsCapabilityMatrix,
           );
-          result = await generateText({
-            model: resolved.model as never,
+          result = await generateText(buildAiSdkTextRequestOptions({
+            model: resolved.model,
             messages: currentMessages,
             maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-            ...claudeSamplingOptions,
-            ...(sdkStop ? { stopSequences: sdkStop } : {}),
-            ...(sdkTools ? { tools: sdkTools } : {}),
-            ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-            ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
-          });
+            samplingOptions: claudeSamplingOptions,
+            stopSequences: sdkStop,
+            tools: sdkTools,
+            toolChoice: effectiveClaudeToolChoice,
+            providerOptions,
+          }) as never);
           const repairUsage = readUsage((result as unknown as { usage?: unknown }).usage);
           lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, repairForensics, repairUsage);
           allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
@@ -14454,16 +14415,16 @@ app.post("/v1/messages", async (req, reply) => {
               claudeForensicsPhasePolicy,
               claudeForensicsCapabilityMatrix,
             );
-            result = await generateText({
-              model: resolved.model as never,
+            result = await generateText(buildAiSdkTextRequestOptions({
+              model: resolved.model,
               messages: currentMessages,
               maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              ...claudeSamplingOptions,
-              ...(sdkStop ? { stopSequences: sdkStop } : {}),
-              ...(sdkTools ? { tools: sdkTools } : {}),
-              ...(effectiveClaudeToolChoice ? { toolChoice: effectiveClaudeToolChoice } : {}),
-              ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
-            });
+              samplingOptions: claudeSamplingOptions,
+              stopSequences: sdkStop,
+              tools: sdkTools,
+              toolChoice: effectiveClaudeToolChoice,
+              providerOptions,
+            }) as never);
             const fallbackUsage = readUsage((result as unknown as { usage?: unknown }).usage);
             lastClaudeNonStreamForensics = finalizeRequestForensics(session, reqId, fallbackForensics, fallbackUsage);
             allCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
