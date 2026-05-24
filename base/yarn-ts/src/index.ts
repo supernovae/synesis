@@ -284,9 +284,14 @@ import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
+import { prepareOpenAIStreamMessages } from "./streaming/openai-stream-message-preflight.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
 import { createOpenAIStreamProviderRequestOptions } from "./streaming/openai-stream-provider-request.js";
+import {
+  createOpenAIStreamAbortRuntime,
+  startOpenAIStreamSseRuntime,
+} from "./streaming/openai-stream-runtime.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import { createOpenAIStreamToolCallAccumulator } from "./streaming/openai-stream-tool-call-handler.js";
@@ -10117,70 +10122,44 @@ app.post("/v1/chat/completions", async (req, reply) => {
     modelMessages = oaiCacheHints.messages as typeof modelMessages;
   }
 
-  const oaiStreamAbortController = new AbortController();
-  const oaiStreamHardTimeoutMs = Math.max(
-    config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
-    config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-  );
-  const oaiStreamHardTimeout = setTimeout(() => {
-    recordSessionEvent(
+  const oaiStreamAbortRuntime = createOpenAIStreamAbortRuntime({
+    requestId: reqId,
+    model: resolved.resolvedModelId,
+    startedAtMs: started,
+    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+    hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+    recordSessionEvent: (event) => recordSessionEvent(
       sessionKey,
       identity.userId,
       identity.orgId,
-      "stream_hard_timeout",
-      "stream-heartbeat",
-      `Aborted OpenAI stream after ${oaiStreamHardTimeoutMs}ms`,
+      event.eventKind,
+      event.component,
+      event.detail,
       reqId,
-      { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
-    );
-    oaiStreamAbortController.abort(new Error("stream_hard_timeout"));
-  }, oaiStreamHardTimeoutMs);
-  const oaiPairRepair = repairToolCallPairIntegrity(modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>);
-  if (oaiPairRepair.repaired) {
-    modelMessages = oaiPairRepair.messages as typeof modelMessages;
-    app.log.warn(
-      { reqId, orphanedToolCallIds: oaiPairRepair.orphanedToolCallIds, count: oaiPairRepair.orphanedToolCallIds.length },
-      "tool_pair_integrity_repair_applied",
-    );
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_pair_integrity_repaired", "validation",
-      `orphaned=${oaiPairRepair.orphanedToolCallIds.length} ids=${oaiPairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, reqId);
-  }
-  if (adapter.family === "minimax") {
-    modelMessages = demoteInlineSystemMessages(modelMessages) as typeof modelMessages;
-  }
-  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-    const msgShapes = (modelMessages as Array<{ role: string; content: unknown }>).map((m, i) => {
-      const role = m.role;
-      const contentLen = typeof m.content === "string"
-        ? m.content.length
-        : m.content != null ? JSON.stringify(m.content).length : 0;
-      const parts = Array.isArray(m.content) ? (m.content as Array<{ type?: string; toolCallId?: string; toolName?: string }>).map(
-        (p) => ({ type: p.type, ...(p.toolCallId ? { toolCallId: p.toolCallId } : {}), ...(p.toolName ? { toolName: p.toolName } : {}) }),
-      ) : undefined;
-      return { i, role, contentLen, ...(parts ? { parts } : {}) };
-    });
-    const toolCallIds = new Set<string>();
-    const toolResultIds = new Set<string>();
-    for (const m of modelMessages as Array<{ role: string; content: unknown }>) {
-      if (Array.isArray(m.content)) {
-        for (const p of m.content as Array<{ type?: string; toolCallId?: string }>) {
-          if (p.type === "tool-call" && p.toolCallId) toolCallIds.add(p.toolCallId);
-          if (p.type === "tool-result" && p.toolCallId) toolResultIds.add(p.toolCallId);
-        }
-      }
-    }
-    const orphanedCalls = [...toolCallIds].filter((id) => !toolResultIds.has(id));
-    const orphanedResults = [...toolResultIds].filter((id) => !toolCallIds.has(id));
-    app.log.info(
-      { reqId, messageCount: msgShapes.length, msgShapes: msgShapes.slice(-20), orphanedCalls, orphanedResults, totalChars: msgShapes.reduce((s, m) => s + m.contentLen, 0), effectiveSampling: oaiSamplingOptions, adapterFamily: adapter.family },
-      "pre_stream_message_diagnostic",
-    );
-  }
-  modelMessages = ensureModelMessageContentFormat(modelMessages) as typeof modelMessages;
+      event.metadataJson,
+    ),
+  });
+  modelMessages = prepareOpenAIStreamMessages({
+    requestId: reqId,
+    messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+    adapterFamily: adapter.family,
+    debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    samplingOptions: oaiSamplingOptions,
+    logger: app.log,
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+    ),
+  }) as typeof modelMessages;
   const oaiStreamProviderRequestOptions = createOpenAIStreamProviderRequestOptions({
     model: resolved.model,
     messages: modelMessages,
-    abortSignal: oaiStreamAbortController.signal,
+    abortSignal: oaiStreamAbortRuntime.abortController.signal,
     orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
     requestMaxTokens: request.max_tokens,
     requestMaxCompletionTokens: request.max_completion_tokens,
@@ -10192,23 +10171,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
     clampMaxOutputTokens: clampMaxOutputTokensForSafety,
   });
   const streamed = streamText(oaiStreamProviderRequestOptions as never);
-  reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
-  const oaiHeartbeat = startSseHeartbeat({
+  const oaiHeartbeat = startOpenAIStreamSseRuntime({
     raw: reply.raw,
-    intervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+    headers: sseHeadersWithClarification(session.record.metadata),
+    model: resolved.resolvedModelId,
+    heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
     longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-    onLongWait: (elapsedMs) => {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "stream_long_wait",
-        "stream-heartbeat",
-        `OpenAI stream exceeded ${config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS}ms without finishing`,
-        reqId,
-        { elapsedMs, model: resolved.resolvedModelId },
-      );
-    },
+    startHeartbeat: startSseHeartbeat,
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+      event.metadataJson,
+    ),
   });
 
   const oaiStreamState = new OpenAIStreamState();
@@ -10258,8 +10237,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     sessionKey,
     userId: identity.userId,
     session,
-    abortSignal: oaiStreamAbortController.signal,
-    hardTimeout: oaiStreamHardTimeout,
+    abortSignal: oaiStreamAbortRuntime.abortController.signal,
+    hardTimeout: oaiStreamAbortRuntime.hardTimeout,
     admissionRelease: () => oaiAdmission.release!(),
     streamState: oaiStreamState,
     writer: openAiStreamWriter,
