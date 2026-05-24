@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runClaudeStreamTelemetry } from "../src/streaming/claude-stream-telemetry.js";
+import {
+  createClaudeStreamTelemetryInput,
+  runClaudeStreamTelemetry,
+} from "../src/streaming/claude-stream-telemetry.js";
 
 const verificationState = {
   round: 1,
@@ -153,6 +156,59 @@ describe("runClaudeStreamTelemetry", () => {
       requestForensicsSummary: "summary",
       cacheStrategy: "anthropic_explicit",
       prefixFingerprint: "fingerprint",
+    }));
+  });
+
+  it("creates route telemetry input with session-scoped event and persistence callbacks", () => {
+    const session = { id: "state-1" };
+    const recordSessionEvent = vi.fn();
+    const persistDecisionTelemetry = vi.fn();
+    const input = createClaudeStreamTelemetryInput({
+      ...baseInput({
+        recordSessionEvent: undefined as never,
+        persistDecisionTelemetry: undefined as never,
+      }),
+      session,
+      recordSessionEvent,
+      persistDecisionTelemetry,
+    });
+
+    input.recordSessionEvent({
+      eventKind: "kind",
+      component: "component",
+      detail: "detail",
+    });
+    input.persistDecisionTelemetry({
+      usage: input.usage,
+      latencyMs: 42,
+      finishReason: "stop",
+      tokensSavedByReduction: 5,
+      escalated: false,
+      snapshot: {} as never,
+      trajectory: {
+        toolSequence: ["Read"],
+        verificationSteps: [],
+      },
+    });
+
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "session_1",
+      "user_1",
+      "org_1",
+      "kind",
+      "component",
+      "detail",
+      "req_1",
+    );
+    expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      state: session,
+      requestId: "req_1",
+      resolvedModelId: "claude-model",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      clientRequestedModel: "claude-model",
+      latencyMs: 42,
     }));
   });
 });

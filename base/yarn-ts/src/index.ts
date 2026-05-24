@@ -291,7 +291,7 @@ import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-l
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
-import { runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
+import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
@@ -13497,7 +13497,7 @@ app.post("/v1/messages", async (req, reply) => {
       stopHeartbeat: () => claudeHeartbeat.stop(),
       recordSessionEvent,
     }));
-    runClaudeStreamTelemetry({
+    runClaudeStreamTelemetry(createClaudeStreamTelemetryInput({
       requestId: reqId,
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
@@ -13542,34 +13542,12 @@ app.post("/v1/messages", async (req, reply) => {
       requestForensicsDone: claudeStreamFinalized.requestForensicsDone,
       cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
       prefixFingerprint: claudePrefixFingerprint,
-      recordSessionEvent: (event) => recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        reqId,
-      ),
-      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
-        state: session,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
-        usage: telemetry.usage,
-        latencyMs: telemetry.latencyMs,
-        finishReason: telemetry.finishReason,
-        tokensSavedByReduction: telemetry.tokensSavedByReduction,
-        escalated: telemetry.escalated,
-        snapshot: telemetry.snapshot,
-        trajectory: telemetry.trajectory,
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-        clientRequestedModel: body.model,
-      }),
+      session,
+      recordSessionEvent,
+      persistDecisionTelemetry: persistAndEmitDecisionTelemetry,
       countMessageRoles,
       pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
-    });
+    }));
     return reply;
   }
 

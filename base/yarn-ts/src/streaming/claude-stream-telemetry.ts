@@ -108,10 +108,170 @@ export interface ClaudeStreamTelemetryInput {
   pushDiagnostic(diagnostic: Record<string, unknown>): void;
 }
 
+export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
+  requestId: string;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  startedAtMs: number;
+  finishReason: string;
+  resolvedModelId: string;
+  clientRequestedModel: string;
+  usage: StreamTokenUsage;
+  reductions: ClaudeStreamTelemetryReductions;
+  reducedToolResults: number;
+  orchestration: SnapshotInputs["orchestration"];
+  policyMatchedRules: string[];
+  evidencePrefetched?: boolean;
+  evidenceConfidence?: number;
+  evidenceAuthoritative?: boolean;
+  evidencePrefetchLatencyMs?: number;
+  evidenceQuality?: Record<string, unknown>;
+  sensemakingTriggered?: boolean;
+  sensemakingReason?: string;
+  governorDecision?: SnapshotInputs["governorDecision"];
+  governorChatStateSummary?: Record<string, unknown>;
+  governorFileStateSummary?: Record<string, unknown>;
+  normalizedMessages: Array<{ role: string; content: unknown }>;
+  toolNames: string[];
+  inferVerificationSteps(toolNames: string[]): string[];
+  trajectoryDiagnostics?: Record<string, unknown>;
+  gate: ClaudeStreamGateTelemetry;
+  toolDefinitionCount: number;
+  artifactToolInjected: boolean;
+  knowledgeToolInjected: boolean;
+  promptProfileIds?: number[];
+  promptProfileHashes?: string[];
+  prefixHash?: string;
+  prefixChangeReasons?: string[];
+  requirementChecklistMust?: number;
+  requirementChecklistShould?: number;
+  contextAdmission?: ClaudeStreamTelemetryInput["contextAdmission"];
+  requestForensicsDone?: ClaudeStreamRequestForensicsResult;
+  cacheStrategy?: string;
+  prefixFingerprint?: string;
+  session: TSession;
+  recordSessionEvent(
+    sessionKey: string,
+    userId: string,
+    orgId: string,
+    eventKind: string,
+    component: string,
+    detail: string,
+    requestId: string,
+  ): void;
+  persistDecisionTelemetry(input: {
+    state: TSession;
+    requestId: string;
+    resolvedModelId: string;
+    usage: StreamTokenUsage;
+    latencyMs: number;
+    finishReason: string;
+    tokensSavedByReduction: number;
+    escalated: boolean;
+    snapshot: DecisionSnapshot;
+    trajectory: {
+      toolSequence: string[];
+      verificationSteps: string[];
+      diagnostics?: Record<string, unknown>;
+      completionGateBlocked?: boolean;
+      criticBlocked?: boolean;
+      outcomeState?: "partial";
+      failureStage?: "verification";
+    };
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    clientRequestedModel: string;
+  }): void;
+  countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
+    systemMessageCount: number;
+    userMessageCount: number;
+    toolMessageCount: number;
+    totalInputChars: number;
+  };
+  pushDiagnostic(diagnostic: Record<string, unknown>): void;
+}
+
 export interface ClaudeStreamTelemetryResult {
   latencyMs: number;
   tokensSavedByReduction: number;
   snapshot: DecisionSnapshot;
+}
+
+export function createClaudeStreamTelemetryInput<TSession>(
+  input: ClaudeStreamTelemetryRouteInput<TSession>,
+): ClaudeStreamTelemetryInput {
+  return {
+    requestId: input.requestId,
+    sessionKey: input.sessionKey,
+    userId: input.userId,
+    orgId: input.orgId,
+    startedAtMs: input.startedAtMs,
+    finishReason: input.finishReason,
+    resolvedModelId: input.resolvedModelId,
+    clientRequestedModel: input.clientRequestedModel,
+    usage: input.usage,
+    reductions: input.reductions,
+    reducedToolResults: input.reducedToolResults,
+    orchestration: input.orchestration,
+    policyMatchedRules: input.policyMatchedRules,
+    evidencePrefetched: input.evidencePrefetched,
+    evidenceConfidence: input.evidenceConfidence,
+    evidenceAuthoritative: input.evidenceAuthoritative,
+    evidencePrefetchLatencyMs: input.evidencePrefetchLatencyMs,
+    evidenceQuality: input.evidenceQuality,
+    sensemakingTriggered: input.sensemakingTriggered,
+    sensemakingReason: input.sensemakingReason,
+    governorDecision: input.governorDecision,
+    governorChatStateSummary: input.governorChatStateSummary,
+    governorFileStateSummary: input.governorFileStateSummary,
+    normalizedMessages: input.normalizedMessages,
+    toolNames: input.toolNames,
+    inferVerificationSteps: input.inferVerificationSteps,
+    trajectoryDiagnostics: input.trajectoryDiagnostics,
+    gate: input.gate,
+    toolDefinitionCount: input.toolDefinitionCount,
+    artifactToolInjected: input.artifactToolInjected,
+    knowledgeToolInjected: input.knowledgeToolInjected,
+    promptProfileIds: input.promptProfileIds,
+    promptProfileHashes: input.promptProfileHashes,
+    prefixHash: input.prefixHash,
+    prefixChangeReasons: input.prefixChangeReasons,
+    requirementChecklistMust: input.requirementChecklistMust,
+    requirementChecklistShould: input.requirementChecklistShould,
+    contextAdmission: input.contextAdmission,
+    requestForensicsDone: input.requestForensicsDone,
+    cacheStrategy: input.cacheStrategy,
+    prefixFingerprint: input.prefixFingerprint,
+    recordSessionEvent: (event) => input.recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      input.requestId,
+    ),
+    persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
+      state: input.session,
+      requestId: input.requestId,
+      resolvedModelId: input.resolvedModelId,
+      usage: telemetry.usage,
+      latencyMs: telemetry.latencyMs,
+      finishReason: telemetry.finishReason,
+      tokensSavedByReduction: telemetry.tokensSavedByReduction,
+      escalated: telemetry.escalated,
+      snapshot: telemetry.snapshot,
+      trajectory: telemetry.trajectory,
+      sessionKey: input.sessionKey,
+      userId: input.userId,
+      orgId: input.orgId,
+      clientRequestedModel: input.clientRequestedModel,
+    }),
+    countMessageRoles: input.countMessageRoles,
+    pushDiagnostic: input.pushDiagnostic,
+  };
 }
 
 export function runClaudeStreamTelemetry(
