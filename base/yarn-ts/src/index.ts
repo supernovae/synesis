@@ -75,7 +75,7 @@ import {
   summarizeMissingCoverage,
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
-import { buildTaskIntake, formatTaskIntakeBlock, type TaskIntake } from "./planning/task-intake.js";
+import { buildTaskIntake, type TaskIntake } from "./planning/task-intake.js";
 import { advancePlanGraph, createPlanGraph, formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
 import { buildShadowFromContent, deserializeShadow, serializeShadow, type PlanContentShadow } from "./planning/plan-content-shadow.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
@@ -132,7 +132,6 @@ import {
   type UserRuntimePreferences,
 } from "./runtime/user-preferences.js";
 import {
-  buildClientToolCapabilityBlock,
   detectClientToolCapabilities,
   enrichToolSchemasForClient,
   type ClientToolCapabilities,
@@ -141,7 +140,7 @@ import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-f
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
 import { runGoDoc } from "./memory/go-doc-index.js";
 import { IncrementalStructuralIndex } from "./memory/incremental-index.js";
-import { MemoryGovernorTracker, evaluateMemoryRules } from "./memory/governor-integration.js";
+import { MemoryGovernorTracker } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
 import { MemoryStore } from "./memory/memory-store.js";
 import { Redis as IORedis } from "ioredis";
@@ -346,6 +345,7 @@ import {
 import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript-prep.js";
 import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-stabilization.js";
 import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
+import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -435,7 +435,6 @@ import {
   createEmptyLedger,
   serializeTaskLedger,
   deserializeTaskLedger,
-  buildTaskLedgerGovernanceBlock,
   evaluateTaskCompletionGate,
   incrementReconciliationAttempts,
   scrubTaskLedgerOutput,
@@ -7676,36 +7675,29 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
-  const oaiMemoryTracker = getMemoryGovernor(sessionKey);
-  const oaiStructIdx = getStructuralIndex(sessionKey);
-  if (oaiStructIdx) {
-    oaiMemoryTracker.setIndexAvailable(oaiStructIdx.getStats().fileCount > 0);
-  }
-  oaiMemoryTracker.setFindingsCount(getSessionMemoryCount(sessionKey));
-  const oaiMemRules = evaluateMemoryRules(oaiMemoryTracker.getSignals());
-  const oaiMemBlocks = oaiMemRules.filter((r) => r.fired).map((r) =>
-    `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
-  );
-  const oaiClientToolBlock = buildClientToolCapabilityBlock(oaiClientToolCapabilities);
+  const oaiGovernanceBlocks = buildRouteGovernanceBlocks({
+    memoryTracker: getMemoryGovernor(sessionKey),
+    structuralIndex: getStructuralIndex(sessionKey),
+    sessionMemoryCount: getSessionMemoryCount(sessionKey),
+    clientToolCapabilities: oaiClientToolCapabilities,
+    taskIntake: oaiTaskIntake,
+    planGraph: oaiPlanGraph,
+    relevantEvidenceBlock: oaiObjectiveScope.relevantEvidenceBlock,
+    artifactBridgeBlock: oaiObjectiveScope.artifactBridgeBlock,
+    stateConfidenceBlock: oaiStateConfidenceBlock,
+    freshImplicitSessionNotice: oaiFreshImplicitSessionNotice,
+    governorPauseResumeBlock: oaiGovernorPauseResumeBlock,
+    plannerTodoPacketBlock: oaiPlannerTodoPacketBlock,
+    taskLedger: session.taskLedger,
+    taskCapabilities: session.taskCapabilities,
+  });
   const oaiEnriched = await enrichWithFrameAndManifest(
     oaiScopedMessages as never,
     sessionKey,
     effectiveOaiAdapterBlock,
     oaiPromptContext,
     { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
-    [
-      ...(oaiTaskIntake ? [formatTaskIntakeBlock(oaiTaskIntake)] : []),
-      ...(oaiPlanGraph ? [formatPlanProgressBlock(oaiPlanGraph)] : []),
-      ...oaiMemBlocks,
-      ...(oaiObjectiveScope.relevantEvidenceBlock ? [oaiObjectiveScope.relevantEvidenceBlock] : []),
-      ...(oaiObjectiveScope.artifactBridgeBlock ? [oaiObjectiveScope.artifactBridgeBlock] : []),
-      ...(oaiStateConfidenceBlock ? [oaiStateConfidenceBlock] : []),
-      ...(oaiClientToolBlock ? [oaiClientToolBlock] : []),
-      ...(oaiFreshImplicitSessionNotice ? [oaiFreshImplicitSessionNotice] : []),
-      ...(oaiGovernorPauseResumeBlock ? [oaiGovernorPauseResumeBlock] : []),
-      ...(oaiPlannerTodoPacketBlock ? [oaiPlannerTodoPacketBlock] : []),
-      ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
-    ],
+    oaiGovernanceBlocks.blocks,
     oaiSeedDirs,
     session,
     { chatStateBlock: oaiChatStateBlock, fileStateBlock: oaiFileStateBlock },
@@ -10118,35 +10110,28 @@ app.post("/v1/messages", async (req, reply) => {
     }
   }
   const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
-  const claudeMemoryTracker = getMemoryGovernor(claudeSessionKey);
-  const claudeStructIdx = getStructuralIndex(claudeSessionKey);
-  if (claudeStructIdx) {
-    claudeMemoryTracker.setIndexAvailable(claudeStructIdx.getStats().fileCount > 0);
-  }
-  claudeMemoryTracker.setFindingsCount(getSessionMemoryCount(claudeSessionKey));
-  const claudeMemRules = evaluateMemoryRules(claudeMemoryTracker.getSignals());
-  const claudeMemBlocks = claudeMemRules.filter((r) => r.fired).map((r) =>
-    `<MEMORY_GUIDANCE rule="${r.rule}">\n${r.message}\n</MEMORY_GUIDANCE>`
-  );
-  const claudeClientToolBlock = buildClientToolCapabilityBlock(claudeClientToolCapabilities);
+  const claudeGovernanceBlocks = buildRouteGovernanceBlocks({
+    memoryTracker: getMemoryGovernor(claudeSessionKey),
+    structuralIndex: getStructuralIndex(claudeSessionKey),
+    sessionMemoryCount: getSessionMemoryCount(claudeSessionKey),
+    clientToolCapabilities: claudeClientToolCapabilities,
+    taskIntake: claudeTaskIntake,
+    planGraph: claudePlanGraph,
+    relevantEvidenceBlock: claudeObjectiveScope.relevantEvidenceBlock,
+    artifactBridgeBlock: claudeObjectiveScope.artifactBridgeBlock,
+    stateConfidenceBlock: claudeStateConfidenceBlock,
+    governorPauseResumeBlock: claudeGovernorPauseResumeBlock,
+    plannerTodoPacketBlock: claudePlannerTodoPacketBlock,
+    taskLedger: session.taskLedger,
+    taskCapabilities: session.taskCapabilities,
+  });
   const claudeEnriched = await enrichWithFrameAndManifest(
     claudeScopedMessages as never,
     claudeSessionKey,
     effectiveClaudeAdapterBlock,
     claudePromptContext,
     { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
-    [
-      ...(claudeTaskIntake ? [formatTaskIntakeBlock(claudeTaskIntake)] : []),
-      ...(claudePlanGraph ? [formatPlanProgressBlock(claudePlanGraph)] : []),
-      ...claudeMemBlocks,
-      ...(claudeObjectiveScope.relevantEvidenceBlock ? [claudeObjectiveScope.relevantEvidenceBlock] : []),
-      ...(claudeObjectiveScope.artifactBridgeBlock ? [claudeObjectiveScope.artifactBridgeBlock] : []),
-      ...(claudeStateConfidenceBlock ? [claudeStateConfidenceBlock] : []),
-      ...(claudeClientToolBlock ? [claudeClientToolBlock] : []),
-      ...(claudeGovernorPauseResumeBlock ? [claudeGovernorPauseResumeBlock] : []),
-      ...(claudePlannerTodoPacketBlock ? [claudePlannerTodoPacketBlock] : []),
-      ...(() => { const b = buildTaskLedgerGovernanceBlock(session.taskLedger, session.taskCapabilities); return b ? [b] : []; })(),
-    ],
+    claudeGovernanceBlocks.blocks,
     claudeSeedDirs,
     session,
     { chatStateBlock: claudeChatStateBlock, fileStateBlock: claudeFileStateBlock },
