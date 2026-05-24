@@ -208,7 +208,6 @@ import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-styl
 import {
   buildYarnUpperHarnessContext,
   evaluateYarnPromptIntakeSteer,
-  evaluateUpperHarnessBudget,
   formatUpperHarnessDecisionSummary,
   type YarnPromptIntakeResult,
   type UpperHarnessDecision,
@@ -328,6 +327,11 @@ import {
   runOpenAIChatNonStreamPipeline,
 } from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
+import {
+  admissionErrorMessage,
+  countMessageRoles,
+} from "./pipeline/context-admission.js";
+import { runRouteContextAdmission } from "./pipeline/route-context-admission.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
 import {
@@ -397,13 +401,7 @@ import {
   inspectWorkspaceRoot,
   projectInstructionFilePresent,
 } from "./governance/workspace-boundary.js";
-import {
-  evaluateContextBudget,
-  buildBudgetPolicy,
-  type BudgetEvaluation,
-  type CompactionMode,
-} from "./governance/context-budget-manager.js";
-import { buildRetentionContext } from "./governance/context-retention.js";
+import type { CompactionMode } from "./governance/context-budget-manager.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
@@ -4711,90 +4709,6 @@ function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
   return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
 }
 
-function countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
-  systemMessageCount: number;
-  userMessageCount: number;
-  toolMessageCount: number;
-  totalInputChars: number;
-} {
-  let systemMessageCount = 0;
-  let userMessageCount = 0;
-  let toolMessageCount = 0;
-  let totalInputChars = 0;
-  for (const m of messages) {
-    const chars = typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length;
-    totalInputChars += chars;
-    if (m.role === "system") systemMessageCount++;
-    else if (m.role === "user") userMessageCount++;
-    else if (m.role === "tool") toolMessageCount++;
-  }
-  return { systemMessageCount, userMessageCount, toolMessageCount, totalInputChars };
-}
-
-interface ContextAdmissionResult {
-  decision: "allow" | "warn" | "reject";
-  reason?: string;
-  estimatedTokens: number;
-  estimatedChars: number;
-}
-
-function estimateToolSchemaChars(tools: unknown[]): number {
-  if (!Array.isArray(tools) || tools.length === 0) return 0;
-  try {
-    return JSON.stringify(tools).length;
-  } catch {
-    return 0;
-  }
-}
-
-function evaluateContextAdmission(
-  messages: Array<{ role: string; content: unknown }>,
-  tools: unknown[],
-  mode: "advisory" | "hybrid" | "enforced",
-  warnTokens: number,
-  hardTokens: number,
-): ContextAdmissionResult {
-  const msgChars = countMessageRoles(messages).totalInputChars;
-  const schemaChars = estimateToolSchemaChars(tools);
-  const estimatedChars = msgChars + schemaChars;
-  const estimatedTokens = Math.ceil(estimatedChars / 4);
-  if (hardTokens <= 0) {
-    return { decision: "allow", estimatedTokens, estimatedChars };
-  }
-  if (estimatedTokens > hardTokens) {
-    return {
-      decision: "reject",
-      reason: `estimated_input_tokens_exceeded_hard_limit (${estimatedTokens} > ${hardTokens})`,
-      estimatedTokens,
-      estimatedChars,
-    };
-  }
-  if (warnTokens > 0 && estimatedTokens > warnTokens) {
-    if (mode === "enforced") {
-      return {
-        decision: "reject",
-        reason: `estimated_input_tokens_exceeded_warn_limit_enforced (${estimatedTokens} > ${warnTokens})`,
-        estimatedTokens,
-        estimatedChars,
-      };
-    }
-    return {
-      decision: "warn",
-      reason: `estimated_input_tokens_above_warn_limit (${estimatedTokens} > ${warnTokens})`,
-      estimatedTokens,
-      estimatedChars,
-    };
-  }
-  return { decision: "allow", estimatedTokens, estimatedChars };
-}
-
-function admissionErrorMessage(result: ContextAdmissionResult): string {
-  const base = "Request context is too large for safe model admission.";
-  const est = `Estimated input tokens: ${result.estimatedTokens.toLocaleString()}.`;
-  const hint = "Reduce history length, narrow tool output, or split the task into smaller turns.";
-  return `${base} ${est} ${hint}`;
-}
-
 function parseJsonIfPossible(raw: string): unknown | null {
   const trimmed = raw.trim();
   if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return null;
@@ -8051,7 +7965,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   // Sensemaking governor — primary decision-maker
   let oaiSensemakingDecision: SensemakingDecision | null = null;
-  let oaiBudgetEvaluation: BudgetEvaluation | null = null;
   if (
     config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
     && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
@@ -9160,135 +9073,40 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     );
   }
-  // Context Budget Manager — proactive tiered compaction (OpenAI path)
-  if (config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED) {
-    const oaiBudgetTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const oaiBudgetCeiling = oaiBudgetTier?.contextCeilingTokens
-      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
-        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
-        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const oaiCompactionMode: CompactionMode = oaiCachePolicy.compactionMode;
-    const oaiBudgetPolicy = buildBudgetPolicy(oaiBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, oaiCompactionMode);
-    const oaiPlanPaths = session.record.metadata.plan_file_path
-      ? [session.record.metadata.plan_file_path as string]
-      : [];
-    const oaiRetentionCtx = buildRetentionContext(
-      modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-      oaiChatState.currentFocusPaths,
-      oaiPlanPaths,
-    );
-    const oaiBudgetResult = evaluateContextBudget({
-      messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-      tools: effectiveTools as unknown[],
-      policy: oaiBudgetPolicy,
-      retentionContext: oaiRetentionCtx,
-      heavyCompactionContext: {
-        sessionKey,
-        chatState: oaiChatState,
-        fileState: oaiFileState,
-        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(oaiChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1, pruningCheckpoint: { frozenBoundaryIndex: 0, frozenAtRequest: 0, frozenMessageCount: 0 } },
-      },
-      enableCompaction: true,
-      artifactStore,
-      compactionMode: oaiCompactionMode,
-    });
-    oaiBudgetEvaluation = oaiBudgetResult.evaluation;
-    if (oaiBudgetResult.evaluation.compactionApplied !== "none") {
-      modelMessages = oaiBudgetResult.messages as typeof modelMessages;
-    }
-    recordSessionEvent(
-      sessionKey, identity.userId, identity.orgId,
-      "context_budget_evaluated", "context-budget",
-      `zone=${oaiBudgetResult.evaluation.zone} tokens=${oaiBudgetResult.evaluation.estimate.totalTokens} headroom=${oaiBudgetResult.evaluation.headroomTokens} compaction=${oaiBudgetResult.evaluation.compactionApplied} recovered=${oaiBudgetResult.evaluation.tokensRecovered}`,
-      reqId,
-      {
-        zone: oaiBudgetResult.evaluation.zone,
-        estimatedTokens: oaiBudgetResult.evaluation.estimate.totalTokens,
-        headroomTokens: oaiBudgetResult.evaluation.headroomTokens,
-        compactionApplied: oaiBudgetResult.evaluation.compactionApplied,
-        tokensRecovered: oaiBudgetResult.evaluation.tokensRecovered,
-        cachePolicy: cachePolicyLogRecord(oaiCachePolicy),
-      },
-    );
-    if (oaiBudgetResult.evaluation.checkpoint) {
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "context_checkpoint_created", "context-budget",
-        `id=${oaiBudgetResult.evaluation.checkpoint.checkpointId} compacted=${oaiBudgetResult.evaluation.checkpoint.compactedMessageCount}`, reqId);
-    }
-  }
-
-  const oaiContextAdmission = evaluateContextAdmission(
-    modelMessages as Array<{ role: string; content: unknown }>,
-    effectiveTools as unknown[],
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
-  );
-  const oaiUpperBudgetDecision = evaluateUpperHarnessBudget({
-    context: oaiUpperHarness,
-    estimatedInputTokens: oaiContextAdmission.estimatedTokens,
-    ceilingTokens: oaiResolvedTierForHarness?.contextCeilingTokens
-      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
-        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
-        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS),
+  const oaiAdmissionResult = runRouteContextAdmission({
+    surface: "openai",
+    messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+    tools: effectiveTools as unknown[],
+    sessionKey,
+    logRequestId: reqId,
+    metadata: session.record.metadata,
+    chatState: oaiChatState,
+    fileState: oaiFileState,
+    artifactStore,
+    contextBudgetEnabled: config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED,
+    modelContextCeilingTokens: resolvedTierConfig?.contextCeilingTokens,
+    budgetCeilingTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS,
     outputReserveTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE,
+    admissionMode: config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
+    admissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
+    admissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
+    compactionMode: oaiCachePolicy.compactionMode,
+    cachePolicyRecord: cachePolicyLogRecord(oaiCachePolicy),
+    upperHarnessContext: oaiUpperHarness,
+    upperHarnessCeilingTokens: oaiResolvedTierForHarness?.contextCeilingTokens,
+    stats: contextAdmissionStats,
+    backendModelHint: oaiCompactionOpts.backendModelHint,
+    transcriptPruning,
+    logger: app.log,
+    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, reqId, metadataJson),
+    recordUpperHarnessDecision: (label, decision, options) =>
+      recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, label, decision, options),
+    forceCheckpoint: () => { void forceCheckpoint(session); },
   });
-  recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-budget", oaiUpperBudgetDecision.decision, { recordAllow: true });
-  contextAdmissionStats.checked += 1;
-  contextAdmissionStats.byPath.openai += 1;
-  if (oaiContextAdmission.decision === "warn") {
-    contextAdmissionStats.warned += 1;
-    app.log.warn(
-      {
-        requestId: reqId,
-        estimatedTokens: oaiContextAdmission.estimatedTokens,
-        estimatedChars: oaiContextAdmission.estimatedChars,
-        reason: oaiContextAdmission.reason,
-      },
-      "context_admission_warn_openai",
-    );
-    const budgetAlreadyCompacted = oaiBudgetEvaluation?.compactionApplied !== "none" && oaiBudgetEvaluation?.compactionApplied !== undefined;
-    if (!budgetAlreadyCompacted) {
-      const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
-      const emergencyResult = transcriptPruning.emergencyPrune(
-        modelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-        hardCharBudget,
-        oaiCompactionOpts.backendModelHint,
-        config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
-      );
-      if (emergencyResult.pruned) {
-        modelMessages = emergencyResult.messages as typeof modelMessages;
-        app.log.info(
-          {
-            requestId: reqId,
-            charsBefore: emergencyResult.charsBefore,
-            charsAfter: emergencyResult.charsAfter,
-            charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
-          },
-          "context_admission_emergency_prune_openai",
-        );
-        recordSessionEvent(
-          sessionKey, identity.userId, identity.orgId,
-          "emergency_context_prune", "context-admission",
-          `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit (fallback — budget manager inactive)`,
-          reqId,
-        );
-      }
-    } else {
-      app.log.info({ requestId: reqId, budgetZone: oaiBudgetEvaluation?.zone, tokensRecovered: oaiBudgetEvaluation?.tokensRecovered }, "context_admission_warn_budget_manager_handled_openai");
-    }
-    void forceCheckpoint(session);
-  }
-  if (oaiContextAdmission.decision === "reject") {
-    contextAdmissionStats.rejected += 1;
-    app.log.warn(
-      {
-        requestId: reqId,
-        estimatedTokens: oaiContextAdmission.estimatedTokens,
-        estimatedChars: oaiContextAdmission.estimatedChars,
-        reason: oaiContextAdmission.reason,
-      },
-      "context_admission_reject_openai",
-    );
+  modelMessages = oaiAdmissionResult.messages as typeof modelMessages;
+  const oaiContextAdmission = oaiAdmissionResult.contextAdmission;
+  if (oaiAdmissionResult.rejected) {
     return sendOpenAIChatPipelineResult(reply, {
       kind: "error",
       statusCode: 400,
@@ -10847,7 +10665,6 @@ app.post("/v1/messages", async (req, reply) => {
 
   // Sensemaking governor — primary decision-maker
   let claudeSensemakingDecision: SensemakingDecision | null = null;
-  let claudeBudgetEvaluation: BudgetEvaluation | null = null;
   if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const claudeGovEvents = extractCommandEvents(
       (claudeScopedMessages as GovernorInputMessage[]).slice(
@@ -11991,135 +11808,40 @@ app.post("/v1/messages", async (req, reply) => {
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
   const claudeForceNonStreamKickoff =
     !!body.stream && claudePhasePolicy.active && claudePhasePolicy.toolChoice === "required" && !!claudePhasePolicy.enforceNonStreaming;
-  // Context Budget Manager — proactive tiered compaction (Claude path)
-  if (config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED) {
-    const claudeBudgetTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const claudeBudgetCeiling = claudeBudgetTier?.contextCeilingTokens
-      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
-        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
-        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS);
-    const claudeCompactionMode: CompactionMode = claudeCachePolicy.compactionMode;
-    const claudeBudgetPolicy = buildBudgetPolicy(claudeBudgetCeiling, config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE, claudeCompactionMode);
-    const claudePlanPaths = session.record.metadata.plan_file_path
-      ? [session.record.metadata.plan_file_path as string]
-      : [];
-    const claudeRetentionCtx = buildRetentionContext(
-      claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-      claudeChatState.currentFocusPaths,
-      claudePlanPaths,
-    );
-    const claudeBudgetResult = evaluateContextBudget({
-      messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-      tools: effectiveClaudeTools as unknown[],
-      policy: claudeBudgetPolicy,
-      retentionContext: claudeRetentionCtx,
-      heavyCompactionContext: {
-        sessionKey: claudeSessionKey,
-        chatState: claudeChatState,
-        fileState: claudeFileState,
-        objectiveEpoch: { epochId: Number(session.record.metadata.objective_epoch_id ?? 0), objectiveHash: "", objectiveText: String(claudeChatState.activeObjective ?? ""), anchorUserHash: "", objectiveSetRequest: 0, objectiveChanged: false, similarityToPrevious: 1, pruningCheckpoint: { frozenBoundaryIndex: 0, frozenAtRequest: 0, frozenMessageCount: 0 } },
-      },
-      enableCompaction: true,
-      artifactStore,
-      compactionMode: claudeCompactionMode,
-    });
-    claudeBudgetEvaluation = claudeBudgetResult.evaluation;
-    if (claudeBudgetResult.evaluation.compactionApplied !== "none") {
-      claudeModelMessages = claudeBudgetResult.messages as typeof claudeModelMessages;
-    }
-    recordSessionEvent(
-      claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-      "context_budget_evaluated", "context-budget",
-      `zone=${claudeBudgetResult.evaluation.zone} tokens=${claudeBudgetResult.evaluation.estimate.totalTokens} headroom=${claudeBudgetResult.evaluation.headroomTokens} compaction=${claudeBudgetResult.evaluation.compactionApplied} recovered=${claudeBudgetResult.evaluation.tokensRecovered}`,
-      traceReqId,
-      {
-        zone: claudeBudgetResult.evaluation.zone,
-        estimatedTokens: claudeBudgetResult.evaluation.estimate.totalTokens,
-        headroomTokens: claudeBudgetResult.evaluation.headroomTokens,
-        compactionApplied: claudeBudgetResult.evaluation.compactionApplied,
-        tokensRecovered: claudeBudgetResult.evaluation.tokensRecovered,
-        cachePolicy: cachePolicyLogRecord(claudeCachePolicy),
-      },
-    );
-    if (claudeBudgetResult.evaluation.checkpoint) {
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "context_checkpoint_created", "context-budget",
-        `id=${claudeBudgetResult.evaluation.checkpoint.checkpointId} compacted=${claudeBudgetResult.evaluation.checkpoint.compactedMessageCount}`, traceReqId);
-    }
-  }
-
-  const claudeContextAdmission = evaluateContextAdmission(
-    claudeModelMessages as Array<{ role: string; content: unknown }>,
-    effectiveClaudeTools as unknown[],
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
-    config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
-  );
-  const claudeUpperBudgetDecision = evaluateUpperHarnessBudget({
-    context: claudeUpperHarness,
-    estimatedInputTokens: claudeContextAdmission.estimatedTokens,
-    ceilingTokens: claudeResolvedTierForHarness?.contextCeilingTokens
-      ?? (config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS > 0
-        ? config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
-        : config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS),
+  const claudeAdmissionResult = runRouteContextAdmission({
+    surface: "claude",
+    messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
+    tools: effectiveClaudeTools as unknown[],
+    sessionKey: claudeSessionKey,
+    logRequestId: req.id,
+    metadata: session.record.metadata,
+    chatState: claudeChatState,
+    fileState: claudeFileState,
+    artifactStore,
+    contextBudgetEnabled: config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED,
+    modelContextCeilingTokens: resolvedClaudeTierConfig?.contextCeilingTokens,
+    budgetCeilingTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS,
     outputReserveTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE,
+    admissionMode: config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
+    admissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
+    admissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
+    compactionMode: claudeCachePolicy.compactionMode,
+    cachePolicyRecord: cachePolicyLogRecord(claudeCachePolicy),
+    upperHarnessContext: claudeUpperHarness,
+    upperHarnessCeilingTokens: claudeResolvedTierForHarness?.contextCeilingTokens,
+    stats: contextAdmissionStats,
+    backendModelHint: claudeCompactionOpts.backendModelHint,
+    transcriptPruning,
+    logger: app.log,
+    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId, metadataJson),
+    recordUpperHarnessDecision: (label, decision, options) =>
+      recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, label, decision, options),
+    forceCheckpoint: () => { void forceCheckpoint(session); },
   });
-  recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-budget", claudeUpperBudgetDecision.decision, { recordAllow: true });
-  contextAdmissionStats.checked += 1;
-  contextAdmissionStats.byPath.claude += 1;
-  if (claudeContextAdmission.decision === "warn") {
-    contextAdmissionStats.warned += 1;
-    app.log.warn(
-      {
-        requestId: req.id,
-        estimatedTokens: claudeContextAdmission.estimatedTokens,
-        estimatedChars: claudeContextAdmission.estimatedChars,
-        reason: claudeContextAdmission.reason,
-      },
-      "context_admission_warn_claude",
-    );
-    const claudeBudgetAlreadyCompacted = claudeBudgetEvaluation?.compactionApplied !== "none" && claudeBudgetEvaluation?.compactionApplied !== undefined;
-    if (!claudeBudgetAlreadyCompacted) {
-      const hardCharBudget = config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS * 4;
-      const emergencyResult = transcriptPruning.emergencyPrune(
-        claudeModelMessages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-        hardCharBudget,
-        claudeCompactionOpts.backendModelHint,
-        config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
-      );
-      if (emergencyResult.pruned) {
-        claudeModelMessages = emergencyResult.messages as typeof claudeModelMessages;
-        app.log.info(
-          {
-            requestId: req.id,
-            charsBefore: emergencyResult.charsBefore,
-            charsAfter: emergencyResult.charsAfter,
-            charsSaved: emergencyResult.charsBefore - emergencyResult.charsAfter,
-          },
-          "context_admission_emergency_prune_claude",
-        );
-        recordSessionEvent(
-          claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-          "emergency_context_prune", "context-admission",
-          `Pruned ${emergencyResult.charsBefore - emergencyResult.charsAfter} chars (${emergencyResult.charsBefore} → ${emergencyResult.charsAfter}) to avoid hard limit (fallback — budget manager inactive)`,
-          traceReqId,
-        );
-      }
-    } else {
-      app.log.info({ requestId: req.id, budgetZone: claudeBudgetEvaluation?.zone, tokensRecovered: claudeBudgetEvaluation?.tokensRecovered }, "context_admission_warn_budget_manager_handled_claude");
-    }
-    void forceCheckpoint(session);
-  }
-  if (claudeContextAdmission.decision === "reject") {
-    contextAdmissionStats.rejected += 1;
-    app.log.warn(
-      {
-        requestId: req.id,
-        estimatedTokens: claudeContextAdmission.estimatedTokens,
-        estimatedChars: claudeContextAdmission.estimatedChars,
-        reason: claudeContextAdmission.reason,
-      },
-      "context_admission_reject_claude",
-    );
+  claudeModelMessages = claudeAdmissionResult.messages as typeof claudeModelMessages;
+  const claudeContextAdmission = claudeAdmissionResult.contextAdmission;
+  if (claudeAdmissionResult.rejected) {
     return reply.code(400).send({
       type: "error",
       error: {
