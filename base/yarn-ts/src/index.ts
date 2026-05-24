@@ -24,7 +24,6 @@ import {
 } from "./schemas.js";
 import {
   toAiSdkJsonResponseFormat,
-  toOpenAiUsage,
   type AiSdkJsonResponseFormat,
 } from "./openai-compat.js";
 import {
@@ -333,6 +332,7 @@ import {
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
+import { buildOpenAIChatCompletionResponse } from "./pipeline/openai-chat-response.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -10015,14 +10015,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, {
       kind: "json",
-      body: {
+      body: buildOpenAIChatCompletionResponse({
         id: reqId,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
         model: resolved.resolvedModelId,
-        choices: [{ index: 0, message, finish_reason: finishReason }],
-        usage: toOpenAiUsage(usage),
-      },
+        message,
+        finishReason,
+        usage,
+      }),
     });
   }
 
