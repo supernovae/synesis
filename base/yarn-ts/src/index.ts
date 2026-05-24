@@ -180,9 +180,6 @@ import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import {
   registerToolCollapseRoutes,
-  ToolCallInterceptor,
-  planToSyntheticToolCalls,
-  defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
 import { applyDiscoveryGuardrails, type DiscoveryGuardrailRedirect } from "./tool-collapse/discovery-guardrails.js";
 import {
@@ -336,6 +333,7 @@ import { buildOpenAIChatCompletionResponse } from "./pipeline/openai-chat-respon
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-nonstream-discovery-guardrails.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
+import { maybeRewriteOpenAINonStreamCollapsedToolCalls } from "./pipeline/openai-nonstream-tool-collapse.js";
 import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
@@ -9630,43 +9628,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
     externalToolCalls = guardedDiscovery.calls;
     finalAssistantText = guardedDiscovery.finalText;
-    if (
-      config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED &&
-      config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM &&
-      String(req.headers["x-synesis-tool-collapse"] ?? "") === "apply" &&
-      externalToolCalls.length > 1
-    ) {
-      const workspaceRoot = resolveWorkspaceRootForCollapse(
+    externalToolCalls = await maybeRewriteOpenAINonStreamCollapsedToolCalls({
+      calls: externalToolCalls,
+      enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
+      rewriteNonStream: config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM,
+      collapseHeader: req.headers["x-synesis-tool-collapse"],
+      workspaceRoot: resolveWorkspaceRootForCollapse(
         req.headers as Record<string, string | string[] | undefined>,
         oaiBodyMeta,
-      );
-      const allowlist = defaultShellAllowlistFromEnv(config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST);
-      const collapseInterceptor = new ToolCallInterceptor({
-        workspaceRoot,
-        shellAllowlist: allowlist,
-        strictValidation: true,
-        execute: false,
-        executor: null,
-        dedupeLayer: yarnDedupeLayer,
-        toolPrefixCache: yarnToolPrefixCache,
-        log: ({ msg, data }) => app.log.info({ msg, ...data }, "tool_collapse_non_stream"),
-      });
-      const parsedCalls = externalToolCalls.map((tc) => ({
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        input: tc.input,
-      }));
-      const collapseResult = await collapseInterceptor.processImmediate(parsedCalls);
-      if (collapseResult.validated.ok && collapseResult.usedCollapse) {
-        const synthetic = planToSyntheticToolCalls(collapseResult.plan);
-        externalToolCalls = synthetic.map((s) => ({
-          toolCallId: s.toolCallId,
-          toolName: s.toolName,
-          input: s.input,
-        }));
-        app.log.info({ from: parsedCalls.length, to: synthetic.length, reqId }, "tool_collapse_rewrite_non_stream");
-      }
-    }
+      ),
+      shellAllowlistEnv: config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST,
+      dedupeLayer: yarnDedupeLayer,
+      toolPrefixCache: yarnToolPrefixCache,
+      logger: app.log,
+      requestId: reqId,
+    });
     finalAssistantText = finalAssistantText ?? "";
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
     const legacyGuardedDiscovery = await applyOpenAINonStreamDiscoveryGuardrailPass({
