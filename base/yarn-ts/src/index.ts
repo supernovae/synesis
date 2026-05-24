@@ -284,6 +284,7 @@ import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { runOpenAIStreamAfterEvents } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamEventHandlers } from "./streaming/openai-stream-event-handlers.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
+import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
@@ -10247,6 +10248,33 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamOfferedToolSet = buildOfferedToolNameSet(effectiveTools as unknown[]);
   const oaiStreamOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
   const oaiStreamFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
+  const oaiStreamLifecycle = createOpenAIStreamLifecycleHandlers({
+    requestId: reqId,
+    model: resolved.resolvedModelId,
+    orgId: identity.orgId,
+    sessionKey,
+    userId: identity.userId,
+    session,
+    abortSignal: oaiStreamAbortController.signal,
+    hardTimeout: oaiStreamHardTimeout,
+    admissionRelease: () => oaiAdmission.release!(),
+    streamState: oaiStreamState,
+    writer: openAiStreamWriter,
+    span: otelStreamSpan,
+    circuitBreakers,
+    logger: app.log,
+    extractUpstreamErrorDiagnostics,
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+      event.metadataJson,
+    ),
+  });
 
   await runOpenAIStreamingPipeline({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
@@ -10358,68 +10386,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ),
       });
     },
-    onEventError: (streamErr) => {
-    const oaiTimedOut = oaiStreamAbortController.signal.aborted
-      && /stream_hard_timeout/i.test(String(oaiStreamAbortController.signal.reason ?? ""));
-    const upstream = extractUpstreamErrorDiagnostics(streamErr);
-    if (upstream.isMissingToolResults) {
-      session.skipToolIdStabilization = true;
-    }
-    circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
-    otelStreamSpan.setStatus(
-      "error",
-      oaiTimedOut ? "Upstream model request timed out" : upstream.userMessage,
-    );
-    app.log.error(
-      {
-        err: streamErr,
-        reqId,
-        model: resolved.resolvedModelId,
-        upstream_error_name: upstream.errorName,
-        upstream_error_code: upstream.errorCode,
-        upstream_http_status: upstream.httpStatus,
-        upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-        upstream_missing_tool_results: upstream.isMissingToolResults,
-        upstream_raw_message: upstream.rawMessage.slice(0, 600),
-      },
-      `OpenAI stream error: ${upstream.rawMessage.slice(0, 500)}`,
-    );
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "stream_error",
-      "streamText",
-      upstream.userMessage,
-      reqId,
-      {
-        model: resolved.resolvedModelId,
-        error_name: upstream.errorName ?? "",
-        error_code: upstream.errorCode ?? "",
-        error_status: upstream.httpStatus ?? 0,
-        vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-        missing_tool_results: upstream.isMissingToolResults,
-      },
-    );
-    const errorHint = upstream.isMissingToolResults
-      ? "\n\n[Internal message integrity error — retrying should resolve this automatically]"
-      : oaiTimedOut
-        ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
-        : "\n\n[Upstream provider error — retrying may help]";
-    oaiStreamState.markError();
-    openAiStreamWriter.writeTextDelta(errorHint);
-    },
-    beforeFinalize: (finishReason) => {
-  clearTimeout(oaiStreamHardTimeout);
-
-  oaiAdmission.release!();
-
-  if (finishReason !== "error") {
-    circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
-    otelStreamSpan.setStatus("ok");
-  }
-  otelStreamSpan.end();
-    },
+    onEventError: oaiStreamLifecycle.onEventError,
+    beforeFinalize: oaiStreamLifecycle.beforeFinalize,
     finalizerInput: createOpenAIStreamFinalizerInput({
       writer: openAiStreamWriter,
       streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
