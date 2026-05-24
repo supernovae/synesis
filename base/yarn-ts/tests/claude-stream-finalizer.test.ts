@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createClaudeStreamCompletionFinalizerInput,
   createClaudeStreamFinalizationHandlers,
   finalizeClaudeStreamCompletion,
 } from "../src/streaming/claude-stream-finalizer.js";
@@ -180,5 +181,83 @@ describe("createClaudeStreamFinalizationHandlers", () => {
     });
     expect(result.usage.inputTokens).toBe(10);
     expect(result.requestForensicsDone).toEqual({ usage: result.usage });
+  });
+
+  it("creates route finalizer input that writes footer, records scrub events, and appends history", async () => {
+    const streamState = new ClaudeStreamState();
+    const gate = {
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedVerification: false,
+      criticBlocked: false,
+    };
+    const session = makeSession();
+    const sendSse = vi.fn(() => true);
+    const recordSessionEvent = vi.fn();
+
+    const routeInput = createClaudeStreamCompletionFinalizerInput({
+      streamState,
+      gate,
+      stopReason: "end_turn",
+      streamed: {
+        totalUsage: Promise.resolve({}),
+        text: Promise.resolve("answer\n\n<synesis_task_ledger>{\"tasks\":[]}</synesis_task_ledger>"),
+      },
+      session,
+      sessionKey: "session-1",
+      userId: "user-1",
+      orgId: "org-1",
+      requestId: "req-1",
+      readUsage: () => ({
+        inputTokens: 2,
+        outputTokens: 3,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+      }),
+      finalizeRequestForensics: (usage) => ({ usage }),
+      handlers: {
+        finalizePendingText: vi.fn(async () => ({
+          finalText: "",
+          applied: false,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        })),
+        finalizeHistoryText: vi.fn((text) => ({
+          finalText: text,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        })),
+      },
+      writeFinalText: vi.fn(),
+      closeTextBlock: vi.fn(),
+      sendSse,
+      endStream: vi.fn(),
+      stopHeartbeat: vi.fn(),
+      recordSessionEvent,
+    });
+
+    const result = await finalizeClaudeStreamCompletion(routeInput);
+
+    expect(sendSse).toHaveBeenCalledWith("message_delta", {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: { input_tokens: 2, output_tokens: 3 },
+    });
+    expect(sendSse).toHaveBeenCalledWith("message_stop", { type: "message_stop" });
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "session-1",
+      "user-1",
+      "org-1",
+      "task_ledger_output_scrubbed",
+      "task-ledger",
+      "Removed internal task-ledger governance from streamed Claude history",
+      "req-1",
+    );
+    expect(session.history.at(-1)).toEqual({ role: "assistant", content: "answer" });
+    expect(result.streamedText).toBe("answer");
   });
 });

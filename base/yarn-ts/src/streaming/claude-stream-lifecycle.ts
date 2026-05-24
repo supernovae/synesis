@@ -29,6 +29,22 @@ export interface ClaudeStreamLifecycleInput {
   }): void;
 }
 
+export interface ClaudeStreamLifecycleHandlers {
+  onEventError(error: unknown): void;
+  finalizeLifecycle(): string;
+}
+
+export function createClaudeStreamLifecycleHandlers(
+  input: ClaudeStreamLifecycleInput,
+): ClaudeStreamLifecycleHandlers {
+  return {
+    onEventError: (streamErr) => {
+      handleClaudeStreamEventError(input, streamErr);
+    },
+    finalizeLifecycle: () => finalizeClaudeStreamLifecycle(input),
+  };
+}
+
 export function handleClaudeStreamEventError(
   input: ClaudeStreamLifecycleInput,
   streamErr: unknown,

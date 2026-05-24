@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createClaudeStreamLifecycleHandlers,
   finalizeClaudeStreamLifecycle,
   handleClaudeStreamEventError,
 } from "../src/streaming/claude-stream-lifecycle.js";
@@ -123,6 +124,19 @@ describe("Claude stream lifecycle", () => {
     expect(input.admissionRelease).toHaveBeenCalledOnce();
     expect(input.circuitBreakers.recordSuccess).toHaveBeenCalledWith("model-a", "org_1");
     expect(input.span.setStatus).toHaveBeenCalledWith("ok");
+    expect(input.span.end).toHaveBeenCalledOnce();
+  });
+
+  it("creates reusable event-error and finalize handlers from one input", () => {
+    const { input } = harness();
+    const handlers = createClaudeStreamLifecycleHandlers(input);
+
+    handlers.onEventError(new Error("boom"));
+    const stopReason = handlers.finalizeLifecycle();
+
+    expect(input.circuitBreakers.recordFailure).toHaveBeenCalledWith("model-a", "org_1");
+    expect(stopReason).toBe("end_turn");
+    expect(input.admissionRelease).toHaveBeenCalledOnce();
     expect(input.span.end).toHaveBeenCalledOnce();
   });
 });

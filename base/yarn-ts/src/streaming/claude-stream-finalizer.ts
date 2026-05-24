@@ -96,6 +96,38 @@ export interface ClaudeStreamCompletionFinalizerInput<TForensics> {
   onHistoryTextScrubbed(): void;
 }
 
+export interface ClaudeStreamCompletionFinalizerRouteInput<TForensics> {
+  streamState: ClaudeStreamState;
+  gate: ClaudeStreamGateState;
+  stopReason: string;
+  streamed: {
+    totalUsage: PromiseLike<unknown>;
+    text: PromiseLike<string>;
+  };
+  session: ClaudeStreamFinalizerSession;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  requestId: string;
+  readUsage(input: unknown): StreamTokenUsage;
+  finalizeRequestForensics(usage: StreamTokenUsage): TForensics;
+  handlers: ClaudeStreamFinalizationHandlers;
+  writeFinalText(text: string): void;
+  closeTextBlock(): void;
+  sendSse(event: string, data: unknown): boolean;
+  endStream(): void;
+  stopHeartbeat(): void;
+  recordSessionEvent(
+    sessionKey: string,
+    userId: string,
+    orgId: string,
+    eventKind: string,
+    component: string,
+    detail: string,
+    requestId: string,
+  ): void;
+}
+
 export interface ClaudeStreamCompletionFinalizerResult<TForensics> {
   usage: StreamTokenUsage;
   requestForensicsDone: TForensics;
@@ -156,6 +188,46 @@ const ZERO_USAGE: StreamTokenUsage = {
   cacheCreationTokens: 0,
   costUsd: 0,
 };
+
+export function createClaudeStreamCompletionFinalizerInput<TForensics>(
+  input: ClaudeStreamCompletionFinalizerRouteInput<TForensics>,
+): ClaudeStreamCompletionFinalizerInput<TForensics> {
+  return {
+    streamState: input.streamState,
+    gate: input.gate,
+    stopReason: input.stopReason,
+    streamed: input.streamed,
+    readUsage: input.readUsage,
+    finalizeRequestForensics: input.finalizeRequestForensics,
+    handlers: input.handlers,
+    writeFinalText: input.writeFinalText,
+    closeTextBlock: input.closeTextBlock,
+    writeMessageDelta: (usage) => {
+      input.sendSse("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: input.stopReason },
+        usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
+      });
+      input.sendSse("message_stop", { type: "message_stop" });
+    },
+    endStream: input.endStream,
+    stopHeartbeat: input.stopHeartbeat,
+    onHistoryText: (text) => {
+      input.session.history.push({ role: "assistant", content: text });
+    },
+    onHistoryTextScrubbed: () => {
+      input.recordSessionEvent(
+        input.sessionKey,
+        input.userId,
+        input.orgId,
+        "task_ledger_output_scrubbed",
+        "task-ledger",
+        "Removed internal task-ledger governance from streamed Claude history",
+        input.requestId,
+      );
+    },
+  };
+}
 
 export async function finalizeClaudeStreamCompletion<TForensics>(
   input: ClaudeStreamCompletionFinalizerInput<TForensics>,

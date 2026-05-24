@@ -283,13 +283,11 @@ import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { runClaudeStreamAfterEvents } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
 import {
+  createClaudeStreamCompletionFinalizerInput,
   createClaudeStreamFinalizationHandlers,
   finalizeClaudeStreamCompletion,
 } from "./streaming/claude-stream-finalizer.js";
-import {
-  finalizeClaudeStreamLifecycle,
-  handleClaudeStreamEventError,
-} from "./streaming/claude-stream-lifecycle.js";
+import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
@@ -13414,6 +13412,31 @@ app.post("/v1/messages", async (req, reply) => {
         effectiveClaudePathCtx.projectRoot,
       ),
     });
+    const claudeStreamLifecycle = createClaudeStreamLifecycleHandlers({
+      requestId: traceReqId,
+      model: resolved.resolvedModelId,
+      orgId: claudeIdentity.orgId,
+      session,
+      abortSignal: claudeStreamAbortController.signal,
+      hardTimeout: claudeStreamHardTimeout,
+      admissionRelease: () => claudeAdmission.release!(),
+      streamState: claudeStreamState,
+      span: claudeStreamSpan,
+      circuitBreakers,
+      logger: app.log,
+      extractUpstreamErrorDiagnostics,
+      sendSse: (eventName, data) => safeSse(reply, eventName, data),
+      recordSessionEvent: (event) => recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        traceReqId,
+        event.metadataJson,
+      ),
+    });
 
     const claudeStreamingPipeline = await runClaudeStreamingPipeline({
       streamParts: streamed.fullStream,
@@ -13446,60 +13469,12 @@ app.post("/v1/messages", async (req, reply) => {
           event.metadataJson,
         ),
       }),
-      onEventError: (streamErr) => handleClaudeStreamEventError({
-        requestId: traceReqId,
-        model: resolved.resolvedModelId,
-        orgId: claudeIdentity.orgId,
-        session,
-        abortSignal: claudeStreamAbortController.signal,
-        hardTimeout: claudeStreamHardTimeout,
-        admissionRelease: () => claudeAdmission.release!(),
-        streamState: claudeStreamState,
-        span: claudeStreamSpan,
-        circuitBreakers,
-        logger: app.log,
-        extractUpstreamErrorDiagnostics,
-        sendSse: (eventName, data) => safeSse(reply, eventName, data),
-        recordSessionEvent: (event) => recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          traceReqId,
-          event.metadataJson,
-        ),
-      }, streamErr),
-      finalizeLifecycle: () => finalizeClaudeStreamLifecycle({
-        requestId: traceReqId,
-        model: resolved.resolvedModelId,
-        orgId: claudeIdentity.orgId,
-        session,
-        abortSignal: claudeStreamAbortController.signal,
-        hardTimeout: claudeStreamHardTimeout,
-        admissionRelease: () => claudeAdmission.release!(),
-        streamState: claudeStreamState,
-        span: claudeStreamSpan,
-        circuitBreakers,
-        logger: app.log,
-        extractUpstreamErrorDiagnostics,
-        sendSse: (eventName, data) => safeSse(reply, eventName, data),
-        recordSessionEvent: (event) => recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          traceReqId,
-          event.metadataJson,
-        ),
-      }),
+      onEventError: claudeStreamLifecycle.onEventError,
+      finalizeLifecycle: claudeStreamLifecycle.finalizeLifecycle,
     });
     const stopReason = claudeStreamingPipeline.stopReason;
 
-    const claudeStreamFinalized = await finalizeClaudeStreamCompletion({
+    const claudeStreamFinalized = await finalizeClaudeStreamCompletion(createClaudeStreamCompletionFinalizerInput({
       streamState: claudeStreamState,
       gate: claudeStreamGate,
       stopReason,
@@ -13507,36 +13482,21 @@ app.post("/v1/messages", async (req, reply) => {
         totalUsage: streamed.totalUsage as PromiseLike<unknown>,
         text: streamed.text,
       },
+      session,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: reqId,
       readUsage,
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
       handlers: claudeStreamFinalization,
       writeFinalText: scrubAndFlushClaudeTextBlock,
       closeTextBlock: closeClaudeStreamingTextBlock,
-      writeMessageDelta: (usage) => {
-        safeSse(reply, "message_delta", {
-          type: "message_delta",
-          delta: { stop_reason: stopReason },
-          usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }
-        });
-        safeSse(reply, "message_stop", { type: "message_stop" });
-      },
+      sendSse: (eventName, data) => safeSse(reply, eventName, data),
       endStream: () => safeEnd(reply.raw),
       stopHeartbeat: () => claudeHeartbeat.stop(),
-      onHistoryText: (text) => {
-        session.history.push({ role: "assistant", content: text });
-      },
-      onHistoryTextScrubbed: () => {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "task_ledger_output_scrubbed",
-          "task-ledger",
-          "Removed internal task-ledger governance from streamed Claude history",
-          reqId,
-        );
-      },
-    });
+      recordSessionEvent,
+    }));
     runClaudeStreamTelemetry({
       requestId: reqId,
       sessionKey: claudeSessionKey,
