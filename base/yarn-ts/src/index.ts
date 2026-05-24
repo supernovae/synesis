@@ -232,9 +232,7 @@ import {
   ensureSystemMessagesAtBeginning,
   coalesceLeadingSystemMessages,
   sanitizeToolCalls,
-  demoteInlineSystemMessages,
   reconstructMissingToolCalls,
-  ensureModelMessageContentFormat,
 } from "./tool-mapping.js";
 import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
@@ -288,7 +286,7 @@ import {
   finalizeClaudeStreamCompletion,
 } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
-import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
+import { prepareClaudeStreamProviderRequest } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
@@ -366,7 +364,6 @@ import {
 import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
 import { detectPythonRuntimeDiscoveryLoop } from "./governance/python-runtime-discovery-loop.js";
 import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
-import { repairToolCallPairIntegrity } from "./validation/tool-pair-integrity.js";
 import {
   buildRequiredRepairPrompt,
   derivePhaseExecutionPolicy,
@@ -13250,32 +13247,11 @@ app.post("/v1/messages", async (req, reply) => {
       );
       claudeStreamAbortController.abort(new Error("stream_hard_timeout"));
     }, claudeStreamHardTimeoutMs);
-    const claudePairRepair = repairToolCallPairIntegrity(claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>);
-    if (claudePairRepair.repaired) {
-      claudeModelMessages = claudePairRepair.messages as typeof claudeModelMessages;
-      app.log.warn(
-        { reqId: traceReqId, orphanedToolCallIds: claudePairRepair.orphanedToolCallIds, count: claudePairRepair.orphanedToolCallIds.length },
-        "tool_pair_integrity_repair_applied",
-      );
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "tool_pair_integrity_repaired", "validation",
-        `orphaned=${claudePairRepair.orphanedToolCallIds.length} ids=${claudePairRepair.orphanedToolCallIds.slice(0, 3).join(",")}`, traceReqId);
-    }
-    if (claudeAdapter.family === "minimax") {
-      claudeModelMessages = demoteInlineSystemMessages(claudeModelMessages) as typeof claudeModelMessages;
-    }
-    if (!claudeAdapter.supportsThinking && providerOptions) {
-      const po = providerOptions as Record<string, Record<string, unknown>>;
-      if (po.openai) {
-        delete po.openai.thinking;
-        delete po.openai.enable_thinking;
-        if (Object.keys(po.openai).length === 0) delete po.openai;
-      }
-      if (Object.keys(po).length === 0) providerOptions = undefined;
-    }
-    claudeModelMessages = ensureModelMessageContentFormat(claudeModelMessages) as typeof claudeModelMessages;
-    const claudeStreamProviderRequestOptions = createClaudeStreamProviderRequestOptions({
+    const claudeStreamProviderRequest = prepareClaudeStreamProviderRequest({
+      requestId: traceReqId,
       model: resolved.model,
-      messages: claudeModelMessages,
+      messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+      adapter: claudeAdapter,
       abortSignal: claudeStreamAbortController.signal,
       orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
       requestMaxTokens: body.max_tokens,
@@ -13285,8 +13261,19 @@ app.post("/v1/messages", async (req, reply) => {
       toolChoice: effectiveClaudeToolChoice,
       providerOptions,
       clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+      logger: app.log,
+      recordSessionEvent: (event) => recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        traceReqId,
+      ),
     });
-    const streamed = streamText(claudeStreamProviderRequestOptions as never);
+    claudeModelMessages = claudeStreamProviderRequest.messages as typeof claudeModelMessages;
+    const streamed = streamText(claudeStreamProviderRequest.options as never);
     const claudeHeartbeat = startClaudeStreamSseRuntime({
       raw: reply.raw,
       headers: sseHeadersWithClarification(session.record.metadata),
