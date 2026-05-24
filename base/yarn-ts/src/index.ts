@@ -277,17 +277,13 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
-import { applyClaudeNonStreamDiscoveryGuardrails } from "./streaming/claude-nonstream-discovery.js";
-import { finalizeClaudeNonStreamText } from "./streaming/claude-nonstream-finalizer.js";
 import {
   finalizeClaudeNonStreamProviderSuccess,
   handleClaudeNonStreamProviderError,
 } from "./streaming/claude-nonstream-lifecycle.js";
+import { processClaudeNonStreamProviderResult } from "./streaming/claude-nonstream-postprocess.js";
 import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
-import { buildClaudeNonStreamResponseContent } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
-import { runClaudeNonStreamTelemetry } from "./streaming/claude-nonstream-telemetry.js";
-import { prepareClaudeNonStreamRouteToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
 import {
@@ -13556,156 +13552,133 @@ app.post("/v1/messages", async (req, reply) => {
     span: claudeNonStreamSpan,
     circuitBreakers,
   });
-  const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-
-  let externalClaudeToolCalls = prepareClaudeNonStreamRouteToolCalls({
-    toolCalls: allToolCalls,
-    adapter: claudeAdapter,
-    requestId: reqId,
-    clientKind: claudeClientKind,
-    strictGovernance: claudeOpenClawStrictGovernance,
-    upperHarness: claudeUpperHarness,
-    recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
-    pathContext: effectiveClaudePathCtx,
-    enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-    blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-    pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-    planModeRequested: claudeClientToolCapabilities.planModeRequested,
-    session,
-    restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery,
-    taskCue: claudeTaskCue,
-    normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
-    artifactShadows: claudeArtifactShadows,
-    stats: toolArgHardeningStats,
-    logger: app.log,
-    isWriteCapableToolName,
-    shouldRestrictDiscoveryForPlanWork,
-    deserializePlanShadow: deserializeShadow,
-    buildPathSandboxPolicy: buildDefaultPolicy,
-    updateDiffAccumulator: (governed) => updateDiffAccumulator(session, governed),
-    maybeUpdateTaskLedgerFromToolCall: (toolName, input, requestCount) => {
-      maybeUpdateTaskLedgerFromToolCall(session, toolName, input, requestCount);
+  const claudePostProvider = await processClaudeNonStreamProviderResult({
+    result: result as unknown as {
+      text?: string;
+      reasoning?: unknown;
+      usage?: unknown;
+      toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>;
     },
-    emitPlanWriteAuditEvent: (audit) => {
-      emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, audit);
-    },
-    maybeLogEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
-      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, toolName, claudeClientKind, governed, toolCallId);
-    },
-    recordUpperHarnessDecision: (decision) => {
-      recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", decision);
-    },
-    incrementStrictGovernanceRewrites: (count) => {
-      openClawProfileStats.strictGovernanceRewrites += count;
-    },
-  });
-  const reasoning = (result as unknown as { reasoning?: string }).reasoning;
-  const usage = readUsage((result as unknown as { usage?: unknown }).usage);
-  let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
-  let finalClaudeText = result.text ?? "";
-  const claudeDiscovery = await applyClaudeNonStreamDiscoveryGuardrails({
-    calls: externalClaudeToolCalls,
-    finalText: finalClaudeText,
-    stopReason,
-    sessionKey: claudeSessionKey,
-    userId: claudeIdentity.userId,
-    orgId: claudeIdentity.orgId,
-    requestId: reqId,
-    resolvedModelId: resolved.resolvedModelId,
-    projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
-    getTopLevelDirs: getCachedTopLevelDirs,
-    applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
-    buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
-    recordBlockedDiscovery,
-    getBlockedDiscoveryCount,
-    recordSessionEvent,
-  });
-  externalClaudeToolCalls = claudeDiscovery.calls;
-  finalClaudeText = claudeDiscovery.finalText;
-  stopReason = claudeDiscovery.stopReason;
-  const claudeFinalized = await finalizeClaudeNonStreamText({
-    session,
-    requestId: reqId,
-    sessionKey: claudeSessionKey,
-    userId: claudeIdentity.userId,
-    orgId: claudeIdentity.orgId,
-    stopReason,
-    assistantText: finalClaudeText,
-    checklist: claudeRequirementChecklist,
-    traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-    latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-    verification: claudeVerificationAssessment,
-    recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-    planGraph: claudePlanGraph,
-    responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-    applyMarkdownGuardrail,
-    finalizeCompletionText,
-    recordSessionEvent,
-  });
-  finalClaudeText = claudeFinalized.finalText;
-  runClaudeNonStreamTelemetry({
-    requestId: reqId,
-    sessionKey: claudeSessionKey,
-    userId: claudeIdentity.userId,
-    orgId: claudeIdentity.orgId,
-    startedAtMs: started,
-    finishReason: stopReason,
-    resolvedModelId: resolved.resolvedModelId,
-    clientRequestedModel: body.model,
-    usage,
-    reductions: { toolResultReduction, validationNormalization },
-    reducedToolResults: claudeToolResultCount,
-    orchestration: claudeOrchestration,
-    policyMatchedRules: claudePolicyPrecheck.matchedRules,
-    evidencePrefetched: claudeEvidencePrefetched,
-    evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0,
-    evidenceConfidence: claudeCombinedConfidence || undefined,
-    evidenceAuthoritative: claudePrefetchResult?.authoritative,
-    evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
-    evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
-    sensemakingTriggered: claudeSensemakingResult?.triggered,
-    sensemakingReason: claudeSensemakingResult?.reason,
-    governorDecision: claudeExecutionGovernor,
-    governorChatStateSummary: claudePauseChatSummary,
-    governorFileStateSummary: claudePauseFileSummary,
-    normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
-    toolNames: externalClaudeToolCalls.map((tc) => tc.toolName),
-    inferVerificationSteps,
-    trajectoryDiagnostics: claudeTrajectoryDiagnostics,
-    gate: {
-      applied: claudeFinalized.gateApplied,
-      missingMust: claudeFinalized.missingMust,
-      missingShould: claudeFinalized.missingShould,
-      blockedVerification: claudeFinalized.gateBlockedVerification,
-      criticBlocked: claudeFinalized.criticBlocked,
-    },
-    toolDefinitionCount: effectiveClaudeTools.length,
-    artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
-    knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-    promptProfileIds: claudeEnriched.promptProfileIds,
-    promptProfileHashes: claudeEnriched.promptProfileHashes,
-    prefixHash: claudeEnriched.prefixHash,
-    prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-    requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
-    requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
-    contextAdmission: {
-      decision: claudeContextAdmission.decision,
-      reason: claudeContextAdmission.reason,
-      estimatedTokens: claudeContextAdmission.estimatedTokens,
-      estimatedChars: claudeContextAdmission.estimatedChars,
-    },
-    requestForensicsDone: lastClaudeNonStreamForensics,
-    recordSessionEvent: claudeNonStreamScope.recordEvent,
-    persistDecisionTelemetry: claudeNonStreamScope.persistDecisionTelemetry,
-    countMessageRoles,
-    pushDiagnostic,
-  });
-
-  const content = buildClaudeNonStreamResponseContent({
-    reasoning,
     serverWebSearchEvents: claudeServerWebSearchEvents,
-    finalText: finalClaudeText,
-    toolCalls: externalClaudeToolCalls,
+    readUsage,
+    toolCallInput: {
+      adapter: claudeAdapter,
+      requestId: reqId,
+      clientKind: claudeClientKind,
+      strictGovernance: claudeOpenClawStrictGovernance,
+      upperHarness: claudeUpperHarness,
+      recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+      pathContext: effectiveClaudePathCtx,
+      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+      planModeRequested: claudeClientToolCapabilities.planModeRequested,
+      session,
+      restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery,
+      taskCue: claudeTaskCue,
+      normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
+      artifactShadows: claudeArtifactShadows,
+      stats: toolArgHardeningStats,
+      logger: app.log,
+      isWriteCapableToolName,
+      shouldRestrictDiscoveryForPlanWork,
+      deserializePlanShadow: deserializeShadow,
+      buildPathSandboxPolicy: buildDefaultPolicy,
+      updateDiffAccumulator: (governed) => updateDiffAccumulator(session, governed),
+      maybeUpdateTaskLedgerFromToolCall: (toolName, input, requestCount) => {
+        maybeUpdateTaskLedgerFromToolCall(session, toolName, input, requestCount);
+      },
+      emitPlanWriteAuditEvent: (audit) => {
+        emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, audit);
+      },
+      maybeLogEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
+        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, toolName, claudeClientKind, governed, toolCallId);
+      },
+      recordUpperHarnessDecision: (decision) => {
+        recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", decision);
+      },
+      incrementStrictGovernanceRewrites: (count) => {
+        openClawProfileStats.strictGovernanceRewrites += count;
+      },
+    },
+    discoveryInput: {
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
+      projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
+      getTopLevelDirs: getCachedTopLevelDirs,
+      applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+      recordBlockedDiscovery,
+      getBlockedDiscoveryCount,
+      recordSessionEvent,
+    },
+    finalizerInput: {
+      session,
+      requestId: reqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      checklist: claudeRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: claudeVerificationAssessment,
+      recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+      planGraph: claudePlanGraph,
+      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      applyMarkdownGuardrail,
+      finalizeCompletionText,
+      recordSessionEvent,
+    },
+    telemetryInput: {
+      requestId: reqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      startedAtMs: started,
+      resolvedModelId: resolved.resolvedModelId,
+      clientRequestedModel: body.model,
+      reductions: { toolResultReduction, validationNormalization },
+      reducedToolResults: claudeToolResultCount,
+      orchestration: claudeOrchestration,
+      policyMatchedRules: claudePolicyPrecheck.matchedRules,
+      evidencePrefetched: claudeEvidencePrefetched,
+      evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0,
+      evidenceConfidence: claudeCombinedConfidence || undefined,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
+      evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+      evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
+      sensemakingTriggered: claudeSensemakingResult?.triggered,
+      sensemakingReason: claudeSensemakingResult?.reason,
+      governorDecision: claudeExecutionGovernor,
+      governorChatStateSummary: claudePauseChatSummary,
+      governorFileStateSummary: claudePauseFileSummary,
+      normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
+      inferVerificationSteps,
+      trajectoryDiagnostics: claudeTrajectoryDiagnostics,
+      toolDefinitionCount: effectiveClaudeTools.length,
+      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+      promptProfileIds: claudeEnriched.promptProfileIds,
+      promptProfileHashes: claudeEnriched.promptProfileHashes,
+      prefixHash: claudeEnriched.prefixHash,
+      prefixChangeReasons: claudeEnriched.prefixChangeReasons,
+      requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
+      requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
+      contextAdmission: {
+        decision: claudeContextAdmission.decision,
+        reason: claudeContextAdmission.reason,
+        estimatedTokens: claudeContextAdmission.estimatedTokens,
+        estimatedChars: claudeContextAdmission.estimatedChars,
+      },
+      requestForensicsDone: lastClaudeNonStreamForensics,
+      recordSessionEvent: claudeNonStreamScope.recordEvent,
+      persistDecisionTelemetry: claudeNonStreamScope.persistDecisionTelemetry,
+      countMessageRoles,
+      pushDiagnostic,
+    },
   });
 
   applyClarificationRoundResponseHeader(reply, session.record.metadata);
@@ -13714,9 +13687,9 @@ app.post("/v1/messages", async (req, reply) => {
     type: "message",
     role: "assistant",
     model: resolved.resolvedModelId,
-    content,
-    stop_reason: stopReason,
-    usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }
+    content: claudePostProvider.content,
+    stop_reason: claudePostProvider.stopReason,
+    usage: { input_tokens: claudePostProvider.usage.inputTokens, output_tokens: claudePostProvider.usage.outputTokens }
   });
 });
 

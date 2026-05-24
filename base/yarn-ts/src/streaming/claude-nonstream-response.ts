@@ -16,7 +16,7 @@ export interface ClaudeNonStreamServerWebSearchEvent {
 }
 
 export interface ClaudeNonStreamResponseInput {
-  reasoning?: string;
+  reasoning?: unknown;
   serverWebSearchEvents: ClaudeNonStreamServerWebSearchEvent[];
   finalText: string;
   toolCalls: ClaudeNonStreamResponseToolCall[];
