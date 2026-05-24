@@ -133,7 +133,6 @@ import {
 } from "./runtime/user-preferences.js";
 import {
   detectClientToolCapabilities,
-  enrichToolSchemasForClient,
   type ClientToolCapabilities,
 } from "./adapters/client-tool-capabilities.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
@@ -213,7 +212,6 @@ import {
 import {
   openAIToolsToSDK,
   claudeToolsToSDK,
-  mapToolChoice,
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
@@ -225,10 +223,6 @@ import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from 
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
-import {
-  extractToolSchemaName,
-  pruneToolSchemas,
-} from "./compat/tool-schema-pruning.js";
 import {
   buildRetrievalPolicyToolPromptFragment,
   buildPythonRuntimeDiscoveryToolPromptFragment,
@@ -347,6 +341,11 @@ import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.j
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
 import { applyWorkspaceMetadataPrebackfill } from "./pipeline/workspace-metadata-prebackfill.js";
 import {
+  extractRecentToolNames,
+  injectGovernorRecoveryMessage,
+  prepareRouteTools,
+} from "./pipeline/route-tool-preparation.js";
+import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
@@ -372,9 +371,6 @@ import {
   buildSensemakingGuidanceInjection,
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
-import { detectStdoutCaptureLoop } from "./governance/stdout-capture-loop.js";
-import { detectPythonRuntimeDiscoveryLoop } from "./governance/python-runtime-discovery-loop.js";
-import { detectVerificationRerunLoop } from "./governance/verification-rerun-loop.js";
 import {
   buildRequiredRepairPrompt,
   derivePhaseExecutionPolicy,
@@ -1687,57 +1683,6 @@ function applyCompletionGate(
   };
 }
 
-function extractRecentToolNames(messages: Array<{ role: string; content: unknown }>): string[] {
-  const names: string[] = [];
-  for (const m of messages) {
-    if (m.role !== "assistant" || !m || typeof m !== "object") continue;
-    const row = m as Record<string, unknown>;
-    const toolCalls = row.tool_calls;
-    if (Array.isArray(toolCalls)) {
-      for (const tc of toolCalls) {
-        if (!tc || typeof tc !== "object") continue;
-        const fn = (tc as Record<string, unknown>).function;
-        if (fn && typeof fn === "object") {
-          const n = (fn as Record<string, unknown>).name;
-          if (typeof n === "string" && n.trim()) names.push(n.trim());
-        }
-      }
-    }
-  }
-  return names;
-}
-
-function extractRecentToolCallDetails(messages: Array<{ role: string; content: unknown }>): RecentToolCall[] {
-  const calls: RecentToolCall[] = [];
-  for (const m of messages) {
-    if (m.role !== "assistant" || !m || typeof m !== "object") continue;
-    const row = m as Record<string, unknown>;
-    const toolCalls = row.tool_calls;
-    if (!Array.isArray(toolCalls)) continue;
-    for (const tc of toolCalls) {
-      if (!tc || typeof tc !== "object") continue;
-      const fn = (tc as Record<string, unknown>).function;
-      if (!fn || typeof fn !== "object") continue;
-      const name = (fn as Record<string, unknown>).name;
-      if (typeof name !== "string" || !name.trim()) continue;
-      let args: Record<string, unknown> | undefined;
-      const rawArgs = (fn as Record<string, unknown>).arguments;
-      if (typeof rawArgs === "string") {
-        try { args = JSON.parse(rawArgs); } catch { /* ignore */ }
-      } else if (rawArgs && typeof rawArgs === "object") {
-        args = rawArgs as Record<string, unknown>;
-      }
-      const filePath = args?.file_path ?? args?.path ?? args?.filename;
-      calls.push({
-        toolName: name.trim(),
-        filePath: typeof filePath === "string" ? filePath : undefined,
-        args,
-      });
-    }
-  }
-  return calls;
-}
-
 function extractRecentAssistantText(messages: Array<{ role: string; content: unknown }>): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -1930,22 +1875,6 @@ function findLastUserPromptIdx(messages: Array<{ role?: string; content?: unknow
     return i;
   }
   return -1;
-}
-
-function injectGovernorRecoveryMessage(
-  messages: Array<{ role: string; content: unknown }>,
-  recovery: string,
-): void {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (
-      messages[i].role === "system"
-      && typeof messages[i].content === "string"
-      && (messages[i].content as string).includes("<SYNESIS_EXECUTION_RECOVERY")
-    ) {
-      messages.splice(i, 1);
-    }
-  }
-  messages.push({ role: "system", content: recovery });
 }
 
 function isToolResultOnlyUserContent(content: unknown): boolean {
@@ -2374,47 +2303,6 @@ function collectToolResultTextChunks(value: unknown, depth = 0, out: string[] = 
   return out;
 }
 
-function detectQwenLoopRisk(recentToolCalls: RecentToolCall[]): boolean {
-  const tail = recentToolCalls.slice(-8).map((c) => c.toolName.toLowerCase());
-  if (tail.length < 4) return false;
-  const readSearch = new Set(["read", "grep", "glob", "find", "rg", "cat", "head", "tail"]);
-  let run = 0;
-  let maxRun = 0;
-  for (const t of tail) {
-    if (readSearch.has(t)) {
-      run += 1;
-      if (run > maxRun) maxRun = run;
-    } else {
-      run = 0;
-    }
-  }
-  return maxRun >= 3;
-}
-
-function prioritizeWriteCapableTools(tools: unknown[], prioritize: boolean): unknown[] {
-  if (!prioritize) return tools;
-  const writeLike: unknown[] = [];
-  const others: unknown[] = [];
-  for (const tool of tools) {
-    if (!tool || typeof tool !== "object") {
-      others.push(tool);
-      continue;
-    }
-    const row = tool as Record<string, unknown>;
-    const openAIName = row.type === "function" && row.function && typeof row.function === "object"
-      ? (row.function as Record<string, unknown>).name
-      : undefined;
-    const directName = row.name;
-    const name = typeof openAIName === "string" ? openAIName : (typeof directName === "string" ? directName : "");
-    if (name && isWriteCapableToolName(name)) {
-      writeLike.push(tool);
-    } else {
-      others.push(tool);
-    }
-  }
-  return [...writeLike, ...others];
-}
-
 interface QwenPivotState {
   lastTurnMarker: number;
   /** How many consecutive pivots the model has ignored (same pattern fires again). */
@@ -2538,57 +2426,6 @@ function classifyQwenPivotEvent(
   return "adapter_qwen_early_pivot";
 }
 
-function enrichToolSchemasForAdapter(
-  tools: unknown[],
-  adapter: ModelAdapter,
-): unknown[] {
-  if (!adapter.enrichToolDescription || (adapter.family !== "qwen3-coder" && adapter.family !== "minimax")) {
-    return tools;
-  }
-  return tools.map((tool) => {
-    if (!tool || typeof tool !== "object") return tool;
-    const t = tool as Record<string, unknown>;
-    // OpenAI format: { type: "function", function: { name, description, ... } }
-    if (t.type === "function" && t.function && typeof t.function === "object") {
-      const fn = t.function as Record<string, unknown>;
-      const name = fn.name;
-      const desc = fn.description;
-      if (typeof name === "string" && typeof desc === "string") {
-        const enriched = adapter.enrichToolDescription!(name, desc);
-        if (enriched !== desc) {
-          return { ...t, function: { ...fn, description: enriched } };
-        }
-      }
-      return tool;
-    }
-    // Claude format: { name, description, ... }
-    const name = t.name;
-    const desc = t.description;
-    if (typeof name === "string" && typeof desc === "string") {
-      const enriched = adapter.enrichToolDescription!(name, desc);
-      if (enriched !== desc) {
-        return { ...t, description: enriched };
-      }
-    }
-    return tool;
-  });
-}
-
-function extractRequestedToolNames(userText: string, tools: unknown[]): string[] {
-  const t = userText.toLowerCase();
-  if (!t.trim()) return [];
-  const requested: string[] = [];
-  for (const tool of tools) {
-    const name = extractToolSchemaName(tool);
-    if (!name) continue;
-    const norm = name.toLowerCase();
-    if (t.includes(norm) || t.includes(`tool ${norm}`) || t.includes(`use ${norm}`)) {
-      requested.push(name);
-    }
-  }
-  return requested;
-}
-
 function isOpenClawProfile(profile: { family?: string }): boolean {
   return profile.family === "openclaw";
 }
@@ -2603,37 +2440,6 @@ function isWriteCapableToolName(name: string): boolean {
     || n === "git_add_guarded"
     || n === "git_commit_guarded"
     || n === "format_code";
-}
-
-function resolveToolSchemaBudget(
-  adapterMaxEffectiveTools: number | undefined,
-  profileToolBudgetCap: number | undefined,
-): number {
-  if (!config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED) return 0;
-  const override = config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE;
-  let adapterLimit = adapterMaxEffectiveTools ?? 0;
-  if (profileToolBudgetCap && profileToolBudgetCap > 0) {
-    adapterLimit = adapterLimit > 0 ? Math.min(adapterLimit, profileToolBudgetCap) : profileToolBudgetCap;
-  }
-  if (override > 0 && adapterLimit > 0) return Math.min(override, adapterLimit);
-  if (override > 0) return override;
-  return adapterLimit;
-}
-
-function adjustToolSchemaBudgetForSession(
-  baseBudget: number,
-  phase: WorkflowPhase,
-  clientKind: string,
-): number {
-  if (baseBudget <= 0) return baseBudget;
-  const client = clientKind.toLowerCase();
-  const codingClient = client.includes("claude-code") || client.includes("cursor");
-  if (!codingClient) return baseBudget;
-
-  if (phase === "validation") return Math.max(1, Math.min(baseBudget, 6));
-  if (phase === "implementation") return Math.max(1, Math.min(baseBudget, 8));
-  if (phase === "planning") return Math.max(1, Math.min(baseBudget, 10));
-  return Math.max(1, Math.min(baseBudget, 8));
 }
 
 function parseTierCFallbackJson(raw: string, maxFindings: number): TierCFallbackResult | null {
@@ -7766,87 +7572,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
       : undefined,
   });
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
-  const toolBudget = adjustToolSchemaBudgetForSession(
-    resolveToolSchemaBudget(
-    adapter.maxEffectiveTools,
-    config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
+  const oaiToolPreparation = prepareRouteTools({
+    rawTools,
+    adapter,
+    clientCapabilities: oaiClientToolCapabilities,
+    clientKind: oaiClientKind,
+    phase: orchestration.phase,
+    profileToolBudgetCap: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
       ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
       : adapterProfile.features.toolSchemaBudgetCap,
-    ),
-    orchestration.phase,
-    oaiClientKind,
-  );
-  const oaiRecentCallsForSteering = extractRecentToolCallDetails(
-    normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-  );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const captureLoop = detectStdoutCaptureLoop(oaiRecentCallsForSteering);
-    if (captureLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-        captureLoop.guidance,
-      );
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "stdout_capture_loop_detected",
-        "governor",
-        `base_cmd=${captureLoop.baseCommand.slice(0, 80)} retries=${captureLoop.retryCount}`,
-        oaiTraceReqId,
-      );
-      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-        app.log.info(
-          { reqId: oaiTraceReqId, baseCommand: captureLoop.baseCommand.slice(0, 120), retryCount: captureLoop.retryCount },
-          "yarn_harness_stdout_capture_loop",
-        );
-      }
-    }
-    const rerunLoop = detectVerificationRerunLoop(oaiRecentCallsForSteering);
-    if (rerunLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-        rerunLoop.guidance,
-      );
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "verification_rerun_loop_detected",
-        "governor",
-        `fingerprint=${rerunLoop.fingerprint.slice(0, 120)} repeats=${rerunLoop.repeatCount}`,
-        oaiTraceReqId,
-      );
-    }
-    const pyRuntimeLoop = detectPythonRuntimeDiscoveryLoop(oaiRecentCallsForSteering);
-    if (pyRuntimeLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-        pyRuntimeLoop.guidance,
-      );
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "python_runtime_discovery_loop_detected",
-        "governor",
-        `attempts=${pyRuntimeLoop.attempts} variants=${pyRuntimeLoop.runtimeVariants.join(",")}`,
-        oaiTraceReqId,
-      );
-    }
-  }
-  const qwenLoopRiskOpenAI = adapterUsesToolLoopSteering(adapter.family)
-    && detectQwenLoopRisk(oaiRecentCallsForSteering);
-  const prunedTools = pruneToolSchemas(
-    rawTools,
-    toolBudget,
-    extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-    extractRequestedToolNames(String(latestUserText?.content ?? ""), rawTools),
-  );
-  toolSchemaPruningStats.requestsConsidered += 1;
-  if (prunedTools.pruned) {
-    toolSchemaPruningStats.requestsPruned += 1;
-    toolSchemaPruningStats.toolsPrunedTotal += prunedTools.prunedCount;
-  }
-  const prioritizedTools = prioritizeWriteCapableTools(prunedTools.tools, qwenLoopRiskOpenAI);
-  let effectiveTools = enrichToolSchemasForAdapter(prioritizedTools, adapter);
-  effectiveTools = enrichToolSchemasForClient(effectiveTools as unknown[], oaiClientToolCapabilities);
-  const clientToolChoice = mapToolChoice(normalizedRequest.tool_choice);
-  if (normalizedRequest.tool_choice !== undefined && clientToolChoice === undefined) {
+    pruningEnabled: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED,
+    pruningMaxOverride: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE,
+    toolChoice: normalizedRequest.tool_choice,
+    latestUserContent: latestUserText?.content,
+    recentCallMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+    recoveryMessages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    toolLoopSteeringEnabled: adapterUsesToolLoopSteering(adapter.family),
+    harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
+    requestId: oaiTraceReqId,
+    stats: toolSchemaPruningStats,
+    logger: app.log,
+    isWriteCapableToolName,
+    recordSessionEvent: (eventKind, component, detail) =>
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, oaiTraceReqId),
+  });
+  const oaiRecentCallsForSteering = oaiToolPreparation.recentCallsForSteering;
+  let effectiveTools = oaiToolPreparation.effectiveTools;
+  const clientToolChoice = oaiToolPreparation.clientToolChoice;
+  if (oaiToolPreparation.invalidToolChoice) {
     return reply.code(400).send({
       error: {
         type: "invalid_request_error",
@@ -10177,87 +9931,35 @@ app.post("/v1/messages", async (req, reply) => {
   });
   const claudeRawTools = (processedTools as unknown[]) ?? [];
 
-  const claudeToolBudget = adjustToolSchemaBudgetForSession(
-    resolveToolSchemaBudget(
-      claudeAdapter.maxEffectiveTools,
-      config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
-        ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
-        : claudeAdapterProfile.features.toolSchemaBudgetCap,
-    ),
-    claudeOrchestration.phase,
-    claudeClientKind,
-  );
-  const claudeRecentCallsForSteering = extractRecentToolCallDetails(
-    normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-  );
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const captureLoop = detectStdoutCaptureLoop(claudeRecentCallsForSteering);
-    if (captureLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-        captureLoop.guidance,
-      );
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "stdout_capture_loop_detected",
-        "governor",
-        `base_cmd=${captureLoop.baseCommand.slice(0, 80)} retries=${captureLoop.retryCount}`,
-        traceReqId,
-      );
-      if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-        app.log.info(
-          { reqId: traceReqId, baseCommand: captureLoop.baseCommand.slice(0, 120), retryCount: captureLoop.retryCount },
-          "yarn_harness_stdout_capture_loop",
-        );
-      }
-    }
-    const rerunLoop = detectVerificationRerunLoop(claudeRecentCallsForSteering);
-    if (rerunLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-        rerunLoop.guidance,
-      );
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "verification_rerun_loop_detected",
-        "governor",
-        `fingerprint=${rerunLoop.fingerprint.slice(0, 120)} repeats=${rerunLoop.repeatCount}`,
-        traceReqId,
-      );
-    }
-    const pyRuntimeLoop = detectPythonRuntimeDiscoveryLoop(claudeRecentCallsForSteering);
-    if (pyRuntimeLoop) {
-      injectGovernorRecoveryMessage(
-        normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-        pyRuntimeLoop.guidance,
-      );
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "python_runtime_discovery_loop_detected",
-        "governor",
-        `attempts=${pyRuntimeLoop.attempts} variants=${pyRuntimeLoop.runtimeVariants.join(",")}`,
-        traceReqId,
-      );
-    }
-  }
-  const qwenLoopRiskClaude =
-    adapterUsesToolLoopSteering(claudeAdapter.family) && detectQwenLoopRisk(claudeRecentCallsForSteering);
-  const prunedClaudeTools = pruneToolSchemas(
-    claudeRawTools,
-    claudeToolBudget,
-    extractRecentToolNames(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>),
-    extractRequestedToolNames(String(latestClaudeUser?.content ?? ""), claudeRawTools),
-  );
-  toolSchemaPruningStats.requestsConsidered += 1;
-  if (prunedClaudeTools.pruned) {
-    toolSchemaPruningStats.requestsPruned += 1;
-    toolSchemaPruningStats.toolsPrunedTotal += prunedClaudeTools.prunedCount;
-  }
-  const prioritizedClaudeTools = prioritizeWriteCapableTools(prunedClaudeTools.tools, qwenLoopRiskClaude);
-  let effectiveClaudeTools = enrichToolSchemasForAdapter(prioritizedClaudeTools, claudeAdapter);
-  effectiveClaudeTools = enrichToolSchemasForClient(effectiveClaudeTools as unknown[], claudeClientToolCapabilities);
-  const clientClaudeToolChoice = mapToolChoice(body.tool_choice);
-  if (body.tool_choice !== undefined && clientClaudeToolChoice === undefined) {
+  const claudeToolPreparation = prepareRouteTools({
+    rawTools: claudeRawTools,
+    adapter: claudeAdapter,
+    clientCapabilities: claudeClientToolCapabilities,
+    clientKind: claudeClientKind,
+    phase: claudeOrchestration.phase,
+    profileToolBudgetCap: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(claudeAdapterProfile)
+      ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
+      : claudeAdapterProfile.features.toolSchemaBudgetCap,
+    pruningEnabled: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED,
+    pruningMaxOverride: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE,
+    toolChoice: body.tool_choice,
+    latestUserContent: latestClaudeUser?.content,
+    recentCallMessages: normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    recoveryMessages: normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    toolLoopSteeringEnabled: adapterUsesToolLoopSteering(claudeAdapter.family),
+    harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
+    requestId: traceReqId,
+    stats: toolSchemaPruningStats,
+    logger: app.log,
+    isWriteCapableToolName,
+    recordSessionEvent: (eventKind, component, detail) =>
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId),
+  });
+  const claudeRecentCallsForSteering = claudeToolPreparation.recentCallsForSteering;
+  let effectiveClaudeTools = claudeToolPreparation.effectiveTools;
+  const clientClaudeToolChoice = claudeToolPreparation.clientToolChoice;
+  if (claudeToolPreparation.invalidToolChoice) {
     return reply.code(400).send({
       error: {
         type: "invalid_request_error",
