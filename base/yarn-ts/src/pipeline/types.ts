@@ -46,6 +46,11 @@ export interface PipelineStage<TInput = unknown, TOutput = unknown> {
   run(ctx: PipelineContext, input: TInput): Promise<TOutput> | TOutput;
 }
 
+export interface PipelineStageTelemetry {
+  startStage(stage: string): () => void;
+  recordStageDuration?(stage: string, durationMs: number): void;
+}
+
 export interface PipelineResult {
   kind: "json" | "stream" | "soft_fail";
   statusCode?: number;

@@ -23,6 +23,7 @@ import { createOpenAIStreamRouteRuntime } from "./openai-stream-route-runtime.js
 import type { OpenAIStreamRouteStartInput } from "./openai-stream-route-start.js";
 import { startOpenAIStreamRoute } from "./openai-stream-route-start.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
+import type { PipelineStageTelemetry } from "./types.js";
 
 type ProviderRuntimeFields =
   | "scope"
@@ -66,6 +67,7 @@ export interface OpenAIChatStreamPipelineInput<
     routeBase: Omit<StreamTelemetryRouteBaseInput, TelemetryRouteBaseFields>;
     finalizeRequestForensics(usage: StreamTokenUsage, forensics: TForensics): ReturnType<OpenAIStreamRoutePipelineTelemetryInput["finalizeRequestForensics"]>;
   };
+  stageTelemetry?: PipelineStageTelemetry;
 }
 
 export async function runOpenAIChatStreamPipeline<
@@ -87,13 +89,19 @@ export async function runOpenAIChatStreamPipeline<
   });
   if (!started.ok) return started.result;
 
-  const invocation = invokeOpenAIStreamProvider({
-    ...input.provider,
-    scope: started.scope,
-    startedAtMs: started.startedAtMs,
-    resolvedModelId: input.resolvedModelId,
-    recordSessionEvent: started.recordEvent,
-  });
+  const endProviderStage = input.stageTelemetry?.startStage("provider");
+  let invocation: ReturnType<typeof invokeOpenAIStreamProvider<TMessage, TForensics, TStreamed>>;
+  try {
+    invocation = invokeOpenAIStreamProvider({
+      ...input.provider,
+      scope: started.scope,
+      startedAtMs: started.startedAtMs,
+      resolvedModelId: input.resolvedModelId,
+      recordSessionEvent: started.recordEvent,
+    });
+  } finally {
+    endProviderStage?.();
+  }
 
   const runtime = createOpenAIStreamRouteRuntime({
     ...input.runtime,
@@ -135,6 +143,7 @@ export async function runOpenAIChatStreamPipeline<
         invocation.requestForensics,
       ),
     },
+    stageTelemetry: input.stageTelemetry,
   });
 
   return { kind: "streamStarted" };

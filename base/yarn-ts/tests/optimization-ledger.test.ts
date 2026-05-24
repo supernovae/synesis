@@ -53,6 +53,36 @@ describe("OptimizationLedger", () => {
     expect(snap.pipelineLatencyMs).toBeGreaterThanOrEqual(0);
   });
 
+  it("records stage timings cumulatively", () => {
+    const ledger = new OptimizationLedger();
+    const endProvider = ledger.startStage("provider", 100);
+    endProvider(125);
+    ledger.recordStageDuration("provider", 5);
+    const snap = ledger.finalize();
+    expect(snap.stageTimingsMs.provider).toBe(30);
+  });
+
+  it("records cache diagnostics", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordCacheDiagnostics({
+      policyAction: "stabilize",
+      policyProvider: "openai",
+      policyReasons: ["low_cache"],
+    });
+    ledger.recordCacheDiagnostics({
+      prefixHash: "abc",
+      prefixChangeReasons: ["tools_changed"],
+    });
+    const snap = ledger.finalize();
+    expect(snap.cacheDiagnostics).toEqual({
+      policyAction: "stabilize",
+      policyProvider: "openai",
+      policyReasons: ["low_cache"],
+      prefixHash: "abc",
+      prefixChangeReasons: ["tools_changed"],
+    });
+  });
+
   it("toLogRecord omits zero-value fields", () => {
     const ledger = new OptimizationLedger();
     ledger.recordOriginal([{ content: "test" }]);
@@ -62,6 +92,15 @@ describe("OptimizationLedger", () => {
     expect(log.inputCharsFinal).toBe(4);
     expect(log.responseDedupHits).toBeUndefined();
     expect(log.estimatedTokensSaved).toBeUndefined();
+  });
+
+  it("toLogRecord includes stage timings and cache diagnostics", () => {
+    const ledger = new OptimizationLedger();
+    ledger.recordStageDuration("ingress", 3);
+    ledger.recordCacheDiagnostics({ policyAction: "observe" });
+    const log = ledger.toLogRecord();
+    expect(log.stageTimingsMs).toEqual({ ingress: 3 });
+    expect(log.cacheDiagnostics).toEqual({ policyAction: "observe" });
   });
 
   it("handles non-string content via JSON.stringify", () => {

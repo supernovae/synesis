@@ -16,6 +16,8 @@ export interface OpenAIStreamTelemetryReductions {
 }
 
 export interface OpenAIStreamTelemetryLedger {
+  startStage?(stage: string): () => void;
+  recordCacheDiagnostics?(diagnostics: { cacheStrategy?: string; prefixFingerprint?: string }): void;
   setUpstreamCachedTokens(tokens: number): void;
   recordFinal(messages: Array<{ content?: unknown }>): void;
   finalize(): unknown;
@@ -275,10 +277,10 @@ export function runOpenAIStreamTelemetry(
   input.optimizationLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
   input.optimizationLedger.recordFinal(input.normalizedMessages);
   const optimizationLedger = input.optimizationLedger.finalize();
-  input.logOptimizationLedger(input.optimizationLedger.toLogRecord());
 
   const completionGateBlocked = input.streamFinalized.gateBlockedVerification;
   const criticBlocked = input.streamFinalized.criticBlocked;
+  const endPersistenceStage = input.optimizationLedger.startStage?.("persistence");
   input.persistDecisionTelemetry({
     usage,
     latencyMs,
@@ -295,6 +297,8 @@ export function runOpenAIStreamTelemetry(
     },
     optimizationLedger,
   });
+  endPersistenceStage?.();
+  input.logOptimizationLedger(input.optimizationLedger.toLogRecord());
 
   const messageCounts = input.countMessageRoles(input.normalizedMessages);
   input.pushDiagnostic({

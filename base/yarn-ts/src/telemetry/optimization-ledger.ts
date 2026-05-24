@@ -8,6 +8,30 @@
 
 const CHARS_PER_TOKEN = 4;
 
+export type OptimizationStageName =
+  | "ingress"
+  | "normalization"
+  | "pruning"
+  | "context"
+  | "governor"
+  | "enrichment"
+  | "provider_request"
+  | "provider"
+  | "stream"
+  | "persistence"
+  | (string & {});
+
+export interface OptimizationCacheDiagnostics {
+  policyAction?: string;
+  policyProvider?: string;
+  policyCompactionMode?: string;
+  policyReasons?: string[];
+  prefixHash?: string;
+  prefixChangeReasons?: string[];
+  cacheStrategy?: string;
+  prefixFingerprint?: string;
+}
+
 export interface OptimizationLedgerSnapshot {
   inputCharsOriginal: number;
   inputCharsAfterReduction: number;
@@ -30,6 +54,9 @@ export interface OptimizationLedgerSnapshot {
 
   prefixStableBytes: number;
   upstreamCachedTokens: number;
+
+  stageTimingsMs: Record<string, number>;
+  cacheDiagnostics?: OptimizationCacheDiagnostics;
 
   estimatedTokensSaved: number;
   pipelineLatencyMs: number;
@@ -72,9 +99,24 @@ export class OptimizationLedger {
     prefixStableBytes: 0,
     upstreamCachedTokens: 0,
 
+    stageTimingsMs: {},
+
     estimatedTokensSaved: 0,
     pipelineLatencyMs: 0,
   };
+
+  startStage(stage: OptimizationStageName, nowMs = Date.now()): () => void {
+    let ended = false;
+    return (endMs = Date.now()): void => {
+      if (ended) return;
+      ended = true;
+      this.recordStageDuration(stage, Math.max(0, endMs - nowMs));
+    };
+  }
+
+  recordStageDuration(stage: OptimizationStageName, durationMs: number): void {
+    this.data.stageTimingsMs[stage] = (this.data.stageTimingsMs[stage] ?? 0) + Math.max(0, Math.round(durationMs));
+  }
 
   recordOriginal(messages: Array<{ content?: unknown }>): void {
     this.data.inputCharsOriginal = charsOfMessages(messages);
@@ -112,6 +154,14 @@ export class OptimizationLedger {
   addToolIdRewrites(count: number): void { this.data.toolIdRewrites += count; }
   setPrefixStableBytes(bytes: number): void { this.data.prefixStableBytes = bytes; }
   setUpstreamCachedTokens(tokens: number): void { this.data.upstreamCachedTokens = tokens; }
+  recordCacheDiagnostics(diagnostics: OptimizationCacheDiagnostics): void {
+    this.data.cacheDiagnostics = {
+      ...this.data.cacheDiagnostics,
+      ...diagnostics,
+      policyReasons: diagnostics.policyReasons ?? this.data.cacheDiagnostics?.policyReasons,
+      prefixChangeReasons: diagnostics.prefixChangeReasons ?? this.data.cacheDiagnostics?.prefixChangeReasons,
+    };
+  }
 
   finalize(): OptimizationLedgerSnapshot {
     this.data.pipelineLatencyMs = Date.now() - this.startTime;
@@ -123,13 +173,19 @@ export class OptimizationLedger {
   }
 
   /** Compact log-friendly object (drops zero-value fields for readability). */
-  toLogRecord(): Record<string, number> {
+  toLogRecord(): Record<string, unknown> {
     const snap = this.finalize();
-    const record: Record<string, number> = {};
+    const record: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(snap)) {
       if (typeof v === "number" && v !== 0) {
         record[k] = v;
       }
+    }
+    if (Object.keys(snap.stageTimingsMs).length > 0) {
+      record.stageTimingsMs = snap.stageTimingsMs;
+    }
+    if (snap.cacheDiagnostics && Object.keys(snap.cacheDiagnostics).length > 0) {
+      record.cacheDiagnostics = snap.cacheDiagnostics;
     }
     return record;
   }

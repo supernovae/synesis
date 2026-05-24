@@ -6712,6 +6712,8 @@ if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
 
 // --- OpenAI chat completions ---
 app.post("/v1/chat/completions", async (req, reply) => {
+  const oaiOptLedger = new OptimizationLedger();
+  const endOaiIngressStage = oaiOptLedger.startStage("ingress");
   const oaiTraceReqId = resolveRequestId(req.headers as Record<string, unknown>);
   const oaiIngress = openAiChatPipeline.prepareIngress({
     body: req.body,
@@ -6722,6 +6724,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.warn({ reqId: oaiTraceReqId, ...truncation }, "tool_description_truncated");
   }
   if (!oaiIngress.ok) {
+    endOaiIngressStage();
     return sendOpenAIChatPipelineResult(reply, {
       kind: "error",
       statusCode: oaiIngress.statusCode,
@@ -6780,6 +6783,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiIdentity = openAiChatPipeline.resolveIdentity(oaiIngress, authUser);
   const oaiIdentityUserId = oaiIdentity.identityUserId;
   const oaiDisplayName = oaiIdentity.displayName;
+  endOaiIngressStage();
 
   if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
     const rawMsgs = request.messages as Array<Record<string, unknown>>;
@@ -6813,8 +6817,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
-  const oaiOptLedger = new OptimizationLedger();
   oaiOptLedger.recordOriginal(request.messages as Array<{ content?: unknown }>);
+  const endOaiNormalizationStage = oaiOptLedger.startStage("normalization");
 
   if (config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES > 0 && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
     const ingress = applyIngressCapToToolMessages(
@@ -6933,6 +6937,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
     reducedOpenAI.messages as never,
     runValidationTierCFallback,
   );
+  oaiOptLedger.recordAfterNormalization(normalizedOpenAI.messages as Array<{ content?: unknown }>);
+  endOaiNormalizationStage();
+  const endOaiPruningStage = oaiOptLedger.startStage("pruning");
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && oaiTranscriptPruneEnabled) {
     const prunedOpenAI = transcriptPruning.prune(
       normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
@@ -7266,6 +7273,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       app.log.info({ reqId: oaiTraceReqId }, "plan_mode_recovery_hint_injected");
     }
   }
+  oaiOptLedger.recordAfterPruning(normalizedOpenAI.messages as Array<{ content?: unknown }>);
+  endOaiPruningStage();
+  const endOaiContextStage = oaiOptLedger.startStage("context");
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
   if (latestUserText && typeof latestUserText.content === "string") {
@@ -7776,6 +7786,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiPauseTaskContext = oaiPauseState.pauseTaskContext;
   const oaiChatStateBlock = oaiPauseState.chatStateBlock;
   const oaiFileStateBlock = oaiPauseState.fileStateBlock;
+  endOaiContextStage();
+  const endOaiGovernorStage = oaiOptLedger.startStage("governor");
   const oaiGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
     session,
     typeof oaiTaskCue === "string" ? oaiTaskCue : "",
@@ -8362,6 +8374,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       session.editMissForceReadPending = false;
     }
   }
+  endOaiGovernorStage();
+  const endOaiEnrichmentStage = oaiOptLedger.startStage("enrichment");
   const oaiRole = TIER_TO_ROLE[orchestration.tier];
   const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
   const oaiPromptContext = {
@@ -8547,6 +8561,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       cachePolicyLogRecord(oaiCachePolicy),
     );
   }
+  oaiOptLedger.recordCacheDiagnostics({
+    policyAction: oaiCachePolicy.action,
+    policyProvider: oaiCachePolicyProvider,
+    policyCompactionMode: oaiCachePolicy.compactionMode,
+    policyReasons: oaiCachePolicy.reasons,
+  });
 
   tierRegistry.setCurrentRequestContext({
     sessionKey,
@@ -8604,6 +8624,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       app.log.warn({ err, sessionKey }, "prefix_optimizer_oai_error");
     }
   }
+  oaiOptLedger.recordCacheDiagnostics({
+    prefixHash: oaiEnriched.prefixHash,
+    prefixChangeReasons: oaiEnriched.prefixChangeReasons,
+  });
+  endOaiEnrichmentStage();
+  const endOaiProviderRequestStage = oaiOptLedger.startStage("provider_request");
 
   const resolveResult = runOpenAIRequest(normalizedRequest);
   if (!resolveResult.ok) {
@@ -9204,6 +9230,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     deserializePlanShadow: deserializeShadow,
     buildPathSandboxPolicy: buildDefaultPolicy,
   });
+  endOaiProviderRequestStage();
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
@@ -9231,6 +9258,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       onMissingToolResults: () => {
         session.skipToolIdStabilization = true;
       },
+      stageTelemetry: oaiOptLedger,
       providerRouteInput: {
         scope: oaiNonStreamScope,
         resolvedModelId: resolved.resolvedModelId,
@@ -9346,6 +9374,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     scope: oaiStreamGateScope,
     resolvedModelId: resolved.resolvedModelId,
     recordSessionEvent,
+    stageTelemetry: oaiOptLedger,
     start: {
       logger: app.log,
       streamAdmission,

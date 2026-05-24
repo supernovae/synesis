@@ -17,6 +17,7 @@ import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 import type { OpenAINonStreamFinalizerSession } from "./openai-nonstream-finalizer.js";
 import type { OpenAINonStreamRouteScope } from "./openai-nonstream-route-scope.js";
 import type { OpenAINonStreamToolCallSession } from "./openai-nonstream-tool-calls.js";
+import type { PipelineStageTelemetry } from "./types.js";
 
 export interface OpenAINonStreamCircuitBreakers {
   allowRequest(modelId: string, orgId: string): boolean;
@@ -63,6 +64,7 @@ export interface OpenAIChatNonStreamPipelineInput<
   startSpan(): OpenAINonStreamTraceSpan;
   extractUpstreamErrorDiagnostics(error: unknown): OpenAINonStreamUpstreamDiagnostics;
   onMissingToolResults(): void;
+  stageTelemetry?: PipelineStageTelemetry;
   recordSessionEvent(
     eventKind: string,
     component: string,
@@ -177,9 +179,11 @@ export async function runOpenAIChatNonStreamPipeline<
 
   const span = input.startSpan();
   let providerCall: Awaited<ReturnType<typeof executeOpenAINonStreamProviderLoop<TMessage, TResult, TForensics>>>;
+  const endProviderStage = input.stageTelemetry?.startStage("provider");
   try {
     providerCall = await executeOpenAINonStreamProviderLoop(input.providerInput);
   } catch (err) {
+    endProviderStage?.();
     const upstream = input.extractUpstreamErrorDiagnostics(err);
     if (upstream.isMissingToolResults) {
       input.onMissingToolResults();
@@ -220,6 +224,7 @@ export async function runOpenAIChatNonStreamPipeline<
       body: { error: { type: "upstream_error", message: upstream.userMessage } },
     };
   }
+  endProviderStage?.();
 
   input.circuitBreakers.recordSuccess(input.resolvedModelId, input.orgId);
   span.setStatus("ok");

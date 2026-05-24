@@ -14,6 +14,10 @@ import {
 
 type MaybePromise<T> = T | Promise<T>;
 
+export interface OpenAIStreamingPipelineStageTelemetry {
+  startStage(stage: string): () => void;
+}
+
 export interface OpenAIStreamingPipelineInput {
   streamParts: AsyncIterable<unknown>;
   streamState: OpenAIStreamState;
@@ -23,6 +27,7 @@ export interface OpenAIStreamingPipelineInput {
   beforeFinalize?: (finishReason: string) => MaybePromise<void>;
   finalizerInput: OpenAIStreamFinalizerFactoryInput;
   buildTelemetryInput: OpenAIStreamTelemetryInputBuilder;
+  stageTelemetry?: OpenAIStreamingPipelineStageTelemetry;
 }
 
 export interface OpenAIStreamingPipelineLifecycleHandlers {
@@ -55,11 +60,14 @@ export function createOpenAIStreamingPipelineInput(
 export async function runOpenAIStreamingPipeline(
   input: OpenAIStreamingPipelineInput,
 ): Promise<OpenAIStreamingPipelineResult> {
+  const endStreamStage = input.stageTelemetry?.startStage("stream");
   try {
     await runOpenAIStreamEvents(input.streamParts, input.eventHandlers);
     await input.afterEvents?.();
   } catch (error) {
     await input.onEventError?.(error);
+  } finally {
+    endStreamStage?.();
   }
 
   const finishReason = input.streamState.rawFinishReason();

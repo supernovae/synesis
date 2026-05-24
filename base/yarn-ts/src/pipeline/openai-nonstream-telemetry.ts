@@ -156,8 +156,8 @@ export function runOpenAINonStreamTelemetry(
   input.optimizationLedger.setUpstreamCachedTokens(input.usage.cachedTokens ?? 0);
   input.optimizationLedger.recordFinal(input.normalizedMessages);
   const optimizationLedger = input.optimizationLedger.finalize();
-  input.logOptimizationLedger(input.optimizationLedger.toLogRecord());
 
+  const endPersistenceStage = input.optimizationLedger.startStage?.("persistence");
   input.persistDecisionTelemetry({
     finishReason: input.finishReason,
     usage: input.usage,
@@ -175,6 +175,8 @@ export function runOpenAINonStreamTelemetry(
     },
     optimizationLedger,
   });
+  endPersistenceStage?.();
+  input.logOptimizationLedger(input.optimizationLedger.toLogRecord());
 
   const messageCounts = input.countMessageRoles(input.normalizedMessages);
   input.pushDiagnostic({

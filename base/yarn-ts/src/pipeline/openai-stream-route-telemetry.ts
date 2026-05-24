@@ -24,6 +24,10 @@ export interface OpenAIStreamRouteTelemetryInput
 export function createOpenAIStreamRouteTelemetryInputBuilder(
   input: OpenAIStreamRouteTelemetryInput,
 ): OpenAIStreamTelemetryInputBuilder {
+  input.optimizationLedger.recordCacheDiagnostics?.({
+    cacheStrategy: input.components.cacheStrategy !== "none" ? input.components.cacheStrategy : undefined,
+    prefixFingerprint: input.components.prefixFingerprint,
+  });
   return createOpenAIStreamTelemetryInputBuilder({
     ...createStreamTelemetryRouteBase({
       ...input.routeBase,

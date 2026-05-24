@@ -20,6 +20,7 @@ import type {
   OpenAIStreamRouteEventSession,
 } from "../streaming/openai-stream-route-event-handlers.js";
 import type { RouteToolCallSideEffectsSession } from "../streaming/route-tool-call-side-effects.js";
+import type { PipelineStageTelemetry } from "./types.js";
 
 type RuntimeEventFields =
   | "streamState"
@@ -54,6 +55,7 @@ export interface OpenAIStreamRoutePipelineInput<
   eventHandlers: OpenAIStreamRoutePipelineEventInput<TSession>;
   finalizer: OpenAIStreamRoutePipelineFinalizerInput<TChecklist, TVerification, TPlanGraph>;
   telemetry: OpenAIStreamRoutePipelineTelemetryInput;
+  stageTelemetry?: PipelineStageTelemetry;
 }
 
 export async function runOpenAIStreamRoutePipeline<
@@ -88,5 +90,6 @@ export async function runOpenAIStreamRoutePipeline<
       ...input.telemetry,
       components,
     }),
+    stageTelemetry: input.stageTelemetry,
   }));
 }
