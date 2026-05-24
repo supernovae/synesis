@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolArgHardeningStats } from "../src/governance/tool-call-observability.js";
 import type { ModelAdapter } from "../src/providers/model-adapter.js";
-import { prepareClaudeNonStreamToolCalls } from "../src/streaming/claude-nonstream-tool-calls.js";
+import {
+  prepareClaudeNonStreamRouteToolCalls,
+  prepareClaudeNonStreamToolCalls,
+} from "../src/streaming/claude-nonstream-tool-calls.js";
 
 function stats(): ToolArgHardeningStats {
   return {
@@ -99,5 +102,62 @@ describe("prepareClaudeNonStreamToolCalls", () => {
       toolName: "Synesis_Error_ValidationFailed",
       input: {},
     });
+  });
+
+  it("binds route session mutation callbacks for Claude non-stream tool calls", () => {
+    const session = {
+      blockBroadVerificationUntilEdit: true,
+      blockFailingVerificationUntilEdit: true,
+      gitInspectionBlockCount: 0,
+      artifactEditTurns: new Map<string, number>(),
+      record: {
+        requestCount: 7,
+        metadata: {},
+      },
+    };
+    const updateDiffAccumulator = vi.fn();
+    const maybeUpdateTaskLedgerFromToolCall = vi.fn();
+
+    const calls = prepareClaudeNonStreamRouteToolCalls({
+      toolCalls: [{ toolCallId: "tc1", toolName: "Write", input: "bad" }],
+      adapter: { family: "test", supportsThinking: false } as ModelAdapter,
+      requestId: "req_1",
+      clientKind: "claude-code",
+      strictGovernance: false,
+      recentToolNames: [],
+      pathContext: { projectRoot: "/repo", shellCwd: "/repo" },
+      enforcePathRoot: false,
+      blockBashPathDrift: false,
+      pathSandboxEnabled: false,
+      planModeRequested: false,
+      session,
+      taskCue: null,
+      normalizedMessageCount: 3,
+      stats: stats(),
+      logger: { warn: vi.fn() },
+      isWriteCapableToolName: (name) => name === "Write",
+      shouldRestrictDiscoveryForPlanWork: () => false,
+      deserializePlanShadow: () => null,
+      buildPathSandboxPolicy: vi.fn() as never,
+      updateDiffAccumulator,
+      maybeUpdateTaskLedgerFromToolCall,
+      emitPlanWriteAuditEvent: vi.fn(),
+      maybeLogEnvelopeUnwrapSample: vi.fn(),
+      recordUpperHarnessDecision: vi.fn(),
+      incrementStrictGovernanceRewrites: vi.fn(),
+    });
+
+    expect(calls[0]).toMatchObject({
+      toolCallId: "tc1",
+      toolName: "Synesis_Error_ValidationFailed",
+    });
+    expect(session.blockBroadVerificationUntilEdit).toBe(false);
+    expect(session.blockFailingVerificationUntilEdit).toBe(false);
+    expect(updateDiffAccumulator).toHaveBeenCalledOnce();
+    expect(maybeUpdateTaskLedgerFromToolCall).toHaveBeenCalledWith(
+      "Synesis_Error_ValidationFailed",
+      expect.any(Object),
+      7,
+    );
   });
 });
