@@ -284,6 +284,7 @@ import { createClaudeStreamComponents } from "./streaming/claude-stream-componen
 import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
+import { runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -13745,119 +13746,78 @@ app.post("/v1/messages", async (req, reply) => {
       claudeStreamGate.blockedVerification = finalized.blockedByVerification;
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
-    const claudeStreamLatency = Date.now() - started;
-    const claudeStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    const claudeStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
-    const claudeStreamTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
-    if (claudeStreamGuidedTrimmed > 0) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "tool_output_truncated_guided",
-        "tool-guardrails",
-        `count=${claudeStreamGuidedTrimmed}`,
-        reqId,
-      );
-    }
-    if (claudeStreamTaskPruned > 0) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "task_conditioned_prune_applied",
-        "tool-reducer",
-        `count=${claudeStreamTaskPruned}`,
-        reqId,
-      );
-    }
-    const lastRecallClaudeStream = toolResultReduction.getLastRecallDecision();
-    const vStateClaudeStream = toolResultReduction.getVerificationTracker().getState();
-    const claudeStreamSnapshot = buildDecisionSnapshot({
-      orchestration: claudeOrchestration,
-      recallDecision: lastRecallClaudeStream,
-      verificationState: vStateClaudeStream,
-      policyMatchedRules: claudePolicyPrecheck.matchedRules,
+    runClaudeStreamTelemetry({
+      requestId: reqId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      startedAtMs: started,
+      finishReason: stopReason,
+      resolvedModelId: resolved.resolvedModelId,
+      clientRequestedModel: body.model,
+      usage,
+      reductions: {
+        toolResultReduction,
+        validationNormalization,
+      },
       reducedToolResults: claudeToolResultCount,
-      tokensSavedByReduction: claudeStreamSaved,
+      orchestration: claudeOrchestration,
+      policyMatchedRules: claudePolicyPrecheck.matchedRules,
       evidencePrefetched: claudeEvidencePrefetched,
-    evidenceConfidence: claudeCombinedConfidence || undefined,
-    evidenceAuthoritative: claudePrefetchResult?.authoritative,
-    evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
-    evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
-    isStreaming: true,
+      evidenceConfidence: claudeCombinedConfidence || undefined,
+      evidenceAuthoritative: claudePrefetchResult?.authoritative,
+      evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+      evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
       sensemakingTriggered: claudeSensemakingResult?.triggered,
       sensemakingReason: claudeSensemakingResult?.reason,
       governorDecision: claudeExecutionGovernor,
       governorChatStateSummary: claudePauseChatSummary,
       governorFileStateSummary: claudePauseFileSummary,
-    });
-    persistAndEmitDecisionTelemetry({
-      state: session,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
-      usage,
-      latencyMs: claudeStreamLatency,
-      finishReason: stopReason,
-      tokensSavedByReduction: claudeStreamSaved,
-      escalated: claudeOrchestration.escalated,
-      snapshot: claudeStreamSnapshot,
-      trajectory: {
-        toolSequence: claudeStreamToolSequence,
-        verificationSteps: inferVerificationSteps(claudeStreamToolSequence),
-        diagnostics: claudeTrajectoryDiagnostics,
-        completionGateBlocked: claudeStreamGate.blockedVerification,
-        criticBlocked: claudeStreamGate.criticBlocked,
-        outcomeState: (claudeStreamGate.blockedVerification || claudeStreamGate.criticBlocked) ? "partial" : undefined,
-        failureStage: claudeStreamGate.blockedVerification ? "verification" : undefined,
-      },
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      clientRequestedModel: body.model,
-    });
-    const claudeStreamMsgCounts = countMessageRoles(openAIShape.messages as Array<{ role: string; content: unknown }>);
-    pushDiagnostic({
-      timestamp: Date.now(), sessionKey: claudeSessionKey, path: "/v1/messages (stream)", requestId: reqId,
-      ...claudeStreamMsgCounts,
+      normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
+      toolNames: claudeStreamToolSequence,
+      inferVerificationSteps,
+      trajectoryDiagnostics: claudeTrajectoryDiagnostics,
+      gate: claudeStreamGate,
       toolDefinitionCount: effectiveClaudeTools.length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-      reducedToolResults: claudeToolResultCount,
-      finishReason: stopReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
-      policyDecision: claudePolicyPrecheck.matchedRules.join(","), latencyMs: claudeStreamLatency,
-      recallRouting: lastRecallClaudeStream?.routing,
-      recallConfidence: lastRecallClaudeStream?.resolution?.confidence,
-      verificationRound: vStateClaudeStream.round > 0 ? vStateClaudeStream.round : undefined,
-      verificationFindings: vStateClaudeStream.round > 0 ? vStateClaudeStream.findings.length : undefined,
-      verificationStalled: vStateClaudeStream.stalled || undefined,
-      decisionPath: claudeOrchestration.decisionPath,
-      decisionEscalated: claudeOrchestration.escalated || undefined,
-      sensemakingTriggered: claudeSensemakingResult?.triggered || undefined,
-      sensemakingReason: claudeSensemakingResult?.reason,
-      evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0 || undefined,
-      evidencePrefetchConfidence: claudePrefetchResult?.confidence || undefined,
-      evidencePrefetchMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
-      evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
       promptProfileIds: claudeEnriched.promptProfileIds,
       promptProfileHashes: claudeEnriched.promptProfileHashes,
       prefixHash: claudeEnriched.prefixHash,
       prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-      completionGateApplied: claudeStreamGate.applied || undefined,
-      missingMustRequirements: claudeStreamGate.missingMust || undefined,
-      missingShouldRequirements: claudeStreamGate.missingShould || undefined,
       requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
-      contextAdmissionDecision: claudeContextAdmission.decision,
-      contextAdmissionReason: claudeContextAdmission.reason,
-      contextAdmissionEstimatedTokens: claudeContextAdmission.estimatedTokens,
-      contextAdmissionEstimatedChars: claudeContextAdmission.estimatedChars,
-      requestForensicsSummary: claudeStreamForensicsDone?.summary,
-      requestForensicsLcpRatio: claudeStreamForensicsDone?.lcpRatio,
-      requestForensicsFirstChangedSection: claudeStreamForensicsDone?.firstChangedSection,
-      requestForensicsTokenEstimate: claudeStreamForensicsDone?.tokenEstimate,
+      contextAdmission: claudeContextAdmission,
+      requestForensicsDone: claudeStreamForensicsDone,
       cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
       prefixFingerprint: claudePrefixFingerprint,
+      recordSessionEvent: (event) => recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        reqId,
+      ),
+      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+        state: session,
+        requestId: reqId,
+        resolvedModelId: resolved.resolvedModelId,
+        usage: telemetry.usage,
+        latencyMs: telemetry.latencyMs,
+        finishReason: telemetry.finishReason,
+        tokensSavedByReduction: telemetry.tokensSavedByReduction,
+        escalated: telemetry.escalated,
+        snapshot: telemetry.snapshot,
+        trajectory: telemetry.trajectory,
+        sessionKey: claudeSessionKey,
+        userId: claudeIdentity.userId,
+        orgId: claudeIdentity.orgId,
+        clientRequestedModel: body.model,
+      }),
+      countMessageRoles,
+      pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
     });
     return reply;
   }
