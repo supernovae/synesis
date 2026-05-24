@@ -278,6 +278,7 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
+import { applyClaudeNonStreamDiscoveryGuardrails } from "./streaming/claude-nonstream-discovery.js";
 import { finalizeClaudeNonStreamText } from "./streaming/claude-nonstream-finalizer.js";
 import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -13741,123 +13742,30 @@ app.post("/v1/messages", async (req, reply) => {
       openClawProfileStats.strictGovernanceRewrites += count;
     },
   });
-  const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
-  const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
-  externalClaudeToolCalls = claudeGuarded.calls;
-  const claudeBlockedBroadDiscovery = claudeGuarded.blockedCount;
-  const claudeRedirectedBroadDiscovery = claudeGuarded.redirectedCount;
-  const claudeCollapsedBroadDiscovery = claudeGuarded.collapsedCount;
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   let stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
   let finalClaudeText = result.text ?? "";
-  if (claudeRedirectedBroadDiscovery > 0) {
-    recordBlockedDiscovery(claudeSessionKey, claudeRedirectedBroadDiscovery);
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "broad_discovery_redirected", "tool-guardrails",
-      `redirected=${claudeRedirectedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`, reqId,
-      { redirectedDetails: claudeGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) });
-  }
-  if (claudeBlockedBroadDiscovery > 0) {
-    const claudeSessionBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeBlockedBroadDiscovery);
-    const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-      resolved.resolvedModelId,
-      claudeGuarded.blockedDetails,
-      effectiveClaudePathCtx.projectRoot,
-    );
-    finalClaudeText = [
-      finalClaudeText.trim(),
-      recovery.text,
-    ].filter(Boolean).join("\n\n");
-    if (claudeSessionBlockedTotal >= 2) {
-      finalClaudeText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
-    }
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "tool_call_blocked_broad_discovery",
-      "tool-guardrails",
-      `blocked=${claudeBlockedBroadDiscovery};sessionTotal=${claudeSessionBlockedTotal}`,
-      reqId,
-      { blockedDetails: claudeGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal: claudeSessionBlockedTotal },
-    );
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "blocked_broad_discovery_then_recovery",
-      "tool-guardrails",
-      `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
-      reqId,
-      { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
-    );
-  }
-  if (claudeCollapsedBroadDiscovery > 0) {
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "duplicate_broad_call_collapsed",
-      "tool-guardrails",
-      `collapsed=${claudeCollapsedBroadDiscovery}`,
-      reqId,
-    );
-  }
-  const claudeLegacyGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
-  externalClaudeToolCalls = claudeLegacyGuarded.calls;
-  if (claudeLegacyGuarded.redirectedCount > 0) {
-    recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.redirectedCount);
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "broad_discovery_redirected", "tool-guardrails",
-      `redirected=${claudeLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`, reqId,
-      { redirectedDetails: claudeLegacyGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) });
-  }
-  if (claudeLegacyGuarded.blockedCount > 0) {
-    const claudeLegacyBlockedTotal = recordBlockedDiscovery(claudeSessionKey, claudeLegacyGuarded.blockedCount);
-    const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-      resolved.resolvedModelId,
-      claudeLegacyGuarded.blockedDetails,
-      effectiveClaudePathCtx.projectRoot,
-    );
-    finalClaudeText = [
-      finalClaudeText.trim(),
-      recovery.text,
-    ].filter(Boolean).join("\n\n");
-    if (claudeLegacyBlockedTotal >= 2) {
-      finalClaudeText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
-    }
-    stopReason = externalClaudeToolCalls.length > 0 ? "tool_use" : "end_turn";
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "tool_call_blocked_broad_discovery",
-      "tool-guardrails",
-      `blocked=${claudeLegacyGuarded.blockedCount};sessionTotal=${claudeLegacyBlockedTotal}`,
-      reqId,
-      { blockedDetails: claudeLegacyGuarded.blockedDetails.slice(0, 5), sessionBlockedTotal: claudeLegacyBlockedTotal },
-    );
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "blocked_broad_discovery_then_recovery",
-      "tool-guardrails",
-      `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
-      reqId,
-      { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
-    );
-  }
-  if (claudeLegacyGuarded.collapsedCount > 0) {
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "duplicate_broad_call_collapsed",
-      "tool-guardrails",
-      `collapsed=${claudeLegacyGuarded.collapsedCount}`,
-      reqId,
-    );
-  }
+  const claudeDiscovery = await applyClaudeNonStreamDiscoveryGuardrails({
+    calls: externalClaudeToolCalls,
+    finalText: finalClaudeText,
+    stopReason,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
+    getTopLevelDirs: getCachedTopLevelDirs,
+    applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+    buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+    recordBlockedDiscovery,
+    getBlockedDiscoveryCount,
+    recordSessionEvent,
+  });
+  externalClaudeToolCalls = claudeDiscovery.calls;
+  finalClaudeText = claudeDiscovery.finalText;
+  stopReason = claudeDiscovery.stopReason;
   const claudeFinalized = await finalizeClaudeNonStreamText({
     session,
     requestId: reqId,
