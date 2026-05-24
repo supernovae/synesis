@@ -280,9 +280,14 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
+import { runClaudeStreamAfterEvents } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
 import { handleClaudeStreamLocalEvent } from "./streaming/claude-stream-event-handlers.js";
 import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-stream-finalizer.js";
+import {
+  finalizeClaudeStreamLifecycle,
+  handleClaudeStreamEventError,
+} from "./streaming/claude-stream-lifecycle.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
@@ -13447,133 +13452,85 @@ app.post("/v1/messages", async (req, reply) => {
           throw event.error;
         }
       }
-      if (
-        claudeAdapter.family === "qwen3-coder"
-        && isLocalLikeBaseUrl
-        && requestToolValidationFailures > 0
-        && requestToolRepairs >= 2
-      ) {
-        toolArgHardeningStats.qwenParserMismatchSuspectCount += 1;
-        app.log.warn(
-          {
-            reqId: traceReqId,
-            resolvedModel: resolved.resolvedModelId,
-            baseUrl: resolvedTier?.baseUrl,
-            validationFailures: requestToolValidationFailures,
-            repairs: requestToolRepairs,
-          },
-          "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
-        );
-      }
-      claudeStreamState.normalizedStopReason();
-      if (claudeStreamDiscovery.blockedBroadDiscovery > 0) {
-        recordBlockedDiscovery(claudeSessionKey, claudeStreamDiscovery.blockedBroadDiscovery);
-        recordSessionEvent(
+      runClaudeStreamAfterEvents({
+        adapter: claudeAdapter,
+        localLikeBaseUrl: isLocalLikeBaseUrl,
+        requestId: traceReqId,
+        resolvedModelId: resolved.resolvedModelId,
+        baseUrl: resolvedTier?.baseUrl,
+        sessionKey: claudeSessionKey,
+        streamState: claudeStreamState,
+        discovery: claudeStreamDiscovery,
+        blockedDetails: claudeStreamBlockedDetails,
+        toolRepairs: requestToolRepairs,
+        validationFailures: requestToolValidationFailures,
+        stats: toolArgHardeningStats,
+        logger: app.log,
+        recordBlockedDiscovery,
+        getBlockedDiscoveryCount,
+        recordSessionEvent: (event) => recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
           claudeIdentity.orgId,
-          "tool_call_blocked_broad_discovery",
-          "tool-guardrails",
-          `blocked=${claudeStreamDiscovery.blockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`,
+          event.eventKind,
+          event.component,
+          event.detail,
           traceReqId,
-          {
-            blockedDetails: claudeStreamBlockedDetails.slice(0, 5),
-            recoveryMode: claudeStreamDiscovery.recoveryMode,
-            topLevelPreview: claudeStreamDiscovery.recoveryPreviewEntries,
-            sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey),
-          },
-        );
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "blocked_broad_discovery_then_recovery",
-          "tool-guardrails",
-          `mode=${claudeStreamDiscovery.recoveryMode ?? "unknown"};top_level_preview=${claudeStreamDiscovery.recoveryPreviewEntries}`,
-          traceReqId,
-          { recoveryMode: claudeStreamDiscovery.recoveryMode, topLevelPreview: claudeStreamDiscovery.recoveryPreviewEntries },
-        );
-      }
-      if (claudeStreamDiscovery.collapsedBroadDiscovery > 0) {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "duplicate_broad_call_collapsed",
-          "tool-guardrails",
-          `collapsed=${claudeStreamDiscovery.collapsedBroadDiscovery}`,
-          traceReqId,
-        );
-      }
+          event.metadataJson,
+        ),
+      });
     } catch (streamErr) {
-      const claudeTimedOut = claudeStreamAbortController.signal.aborted
-        && /stream_hard_timeout/i.test(String(claudeStreamAbortController.signal.reason ?? ""));
-      const upstream = extractUpstreamErrorDiagnostics(streamErr);
-      if (upstream.isMissingToolResults) {
-        session.skipToolIdStabilization = true;
-      }
-      circuitBreakers.recordFailure(resolved.resolvedModelId, claudeIdentity.orgId);
-      claudeStreamSpan.setStatus(
-        "error",
-        claudeTimedOut ? "Upstream model request timed out" : upstream.userMessage,
-      );
-      app.log.error(
-        {
-          err: streamErr,
-          reqId: traceReqId,
-          model: resolved.resolvedModelId,
-          upstream_error_name: upstream.errorName,
-          upstream_error_code: upstream.errorCode,
-          upstream_http_status: upstream.httpStatus,
-          upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-          upstream_missing_tool_results: upstream.isMissingToolResults,
-          upstream_raw_message: upstream.rawMessage.slice(0, 600),
-        },
-        `Claude stream error: ${upstream.rawMessage.slice(0, 500)}`,
-      );
-      recordSessionEvent(
+      handleClaudeStreamEventError({
+        requestId: traceReqId,
+        model: resolved.resolvedModelId,
+        orgId: claudeIdentity.orgId,
+        session,
+        abortSignal: claudeStreamAbortController.signal,
+        hardTimeout: claudeStreamHardTimeout,
+        admissionRelease: () => claudeAdmission.release!(),
+        streamState: claudeStreamState,
+        span: claudeStreamSpan,
+        circuitBreakers,
+        logger: app.log,
+        extractUpstreamErrorDiagnostics,
+        sendSse: (eventName, data) => safeSse(reply, eventName, data),
+        recordSessionEvent: (event) => recordSessionEvent(
+          claudeSessionKey,
+          claudeIdentity.userId,
+          claudeIdentity.orgId,
+          event.eventKind,
+          event.component,
+          event.detail,
+          traceReqId,
+          event.metadataJson,
+        ),
+      }, streamErr);
+    }
+    const stopReason = finalizeClaudeStreamLifecycle({
+      requestId: traceReqId,
+      model: resolved.resolvedModelId,
+      orgId: claudeIdentity.orgId,
+      session,
+      abortSignal: claudeStreamAbortController.signal,
+      hardTimeout: claudeStreamHardTimeout,
+      admissionRelease: () => claudeAdmission.release!(),
+      streamState: claudeStreamState,
+      span: claudeStreamSpan,
+      circuitBreakers,
+      logger: app.log,
+      extractUpstreamErrorDiagnostics,
+      sendSse: (eventName, data) => safeSse(reply, eventName, data),
+      recordSessionEvent: (event) => recordSessionEvent(
         claudeSessionKey,
         claudeIdentity.userId,
         claudeIdentity.orgId,
-        "stream_error",
-        "streamText",
-        upstream.userMessage,
+        event.eventKind,
+        event.component,
+        event.detail,
         traceReqId,
-        {
-          model: resolved.resolvedModelId,
-          error_name: upstream.errorName ?? "",
-          error_code: upstream.errorCode ?? "",
-          error_status: upstream.httpStatus ?? 0,
-          vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-          missing_tool_results: upstream.isMissingToolResults,
-        },
-      );
-      const errorHint = upstream.isMissingToolResults
-        ? "\n\n[Internal message integrity error — retrying should resolve this automatically]"
-        : claudeTimedOut
-          ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
-          : "\n\n[Upstream provider error — retrying may help]";
-      if (!claudeStreamState.isTextBlockOpen()) {
-        safeSse(reply, "content_block_start", { type: "content_block_start", index: claudeStreamState.currentBlockIndex(), content_block: { type: "text", text: "" } });
-        claudeStreamState.markTextBlockOpen();
-      }
-      safeSse(reply, "content_block_delta", {
-        type: "content_block_delta",
-        index: claudeStreamState.currentBlockIndex(),
-        delta: { type: "text_delta", text: errorHint },
-      });
-      claudeStreamState.markEndTurn();
-    }
-    clearTimeout(claudeStreamHardTimeout);
-
-    claudeAdmission.release!();
-
-    const stopReason = claudeStreamState.rawStopReason();
-    if (stopReason !== "end_turn" || !claudeStreamState.isInTextBlock()) {
-      circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
-      claudeStreamSpan.setStatus("ok");
-    }
-    claudeStreamSpan.end();
+        event.metadataJson,
+      ),
+    });
 
     if (stopReason !== "tool_use" && claudeStreamState.hasPendingText()) {
       const rawText = claudeStreamState.drainText();
