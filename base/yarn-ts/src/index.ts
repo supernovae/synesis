@@ -10028,13 +10028,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       message.tool_calls = sdkToolCallsToOpenAI(clientToolCalls);
     }
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
-    return reply.send({
-      id: reqId,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model: resolved.resolvedModelId,
-      choices: [{ index: 0, message, finish_reason: finishReason }],
-      usage: toOpenAiUsage(usage),
+    return sendOpenAIChatPipelineResult(reply, {
+      kind: "json",
+      body: {
+        id: reqId,
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: resolved.resolvedModelId,
+        choices: [{ index: 0, message, finish_reason: finishReason }],
+        usage: toOpenAiUsage(usage),
+      },
     });
   }
 
