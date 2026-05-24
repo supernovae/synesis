@@ -185,6 +185,7 @@ import {
   type BlockedDiscoveryDetail,
 } from "./tool-collapse/blocked-discovery-recovery.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
+import { handleDeterministicPolicyPrecheck } from "./policy/deterministic-policy-route.js";
 import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import {
   PhaseModelOrchestrator,
@@ -5304,24 +5305,6 @@ function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSigna
   };
 }
 
-function toolLoopSoftFailMessage(decision: PolicyDecision): string {
-  const reason = decision.rejectReason ?? "Tool loop policy triggered before another automated action.";
-  return [
-    "I paused automated tool execution to avoid getting stuck in a repair loop.",
-    reason,
-    "If you want me to continue, share one adjustment (for example: install missing local tools, choose a different command, or confirm a narrower fix strategy) and I will resume from here."
-  ].join(" ");
-}
-
-function repeatLoopSoftFailMessage(decision: PolicyDecision): string {
-  const reason = decision.rejectReason ?? "Repeated request fingerprint detected without progress.";
-  return [
-    "I paused this turn because the same request pattern keeps replaying, so continuing automatically is unlikely to make progress.",
-    reason,
-    "Next step: start a new chat/session (not Resume) and ask me to recover from current files, summarize the last failure, propose two alternatives, then execute one.",
-  ].join(" ");
-}
-
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
   clearWorkspaceScopedMetadata(state.record.metadata);
   contentDedupBySession.delete(sessionKey);
@@ -7460,74 +7443,27 @@ app.post("/v1/chat/completions", async (req, reply) => {
     hardRejectAfter: oaiLoopLimits.hardRejectAfter,
     governanceRules: governanceClient?.getRules(),
   }));
-  if (!policyPrecheck.allow) {
-    logAndPersistSafetyEvent(policyPrecheck, sessionKey, session.record.totalTokensIn);
-    if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && policyPrecheck.softFailClass === "tool_loop") {
-      const started = Date.now();
-      const content = toolLoopSoftFailMessage(policyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-      session.awaitingToolLoopUserAck = true;
-      session.toolLoopAckAnchorUserHash = latestOpenAIUserHash;
-      session.toolLoopNoUserAckCount = 0;
-      session.history.push({ role: "assistant", content });
-      persistSessionAndUsage(
-        session,
-        oaiTraceReqId,
-        orchestration.selectedModel,
-        usage,
-        Date.now() - started,
-        "stop",
-        0,
-        false,
-        undefined,
-        undefined,
-        undefined,
-        request.model,
-      );
-      maybeCheckpoint(session);
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "tool_loop_soft_fail",
-        "deterministic-policy",
-        policyPrecheck.rejectReason ?? "Tool loop soft fail",
-        oaiTraceReqId
-      );
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
-    }
-    if (policyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
-      const started = Date.now();
-      const content = repeatLoopSoftFailMessage(policyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-      session.history.push({ role: "assistant", content });
-      persistSessionAndUsage(
-        session,
-        oaiTraceReqId,
-        orchestration.selectedModel,
-        usage,
-        Date.now() - started,
-        "stop",
-        0,
-        false,
-        undefined,
-        undefined,
-        undefined,
-        request.model,
-      );
-      maybeCheckpoint(session);
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "repeat_loop_soft_fail",
-        "deterministic-policy",
-        policyPrecheck.rejectReason ?? "Repeat loop soft fail",
-        oaiTraceReqId,
-      );
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, content, !!request.stream);
-    }
-    return reply.code(400).send(policyRejectOpenAIBody(policyPrecheck));
+  const oaiPolicyAction = handleDeterministicPolicyPrecheck({
+    decision: policyPrecheck,
+    softFailEnabled: config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED,
+    session,
+    sessionKey,
+    identity,
+    requestId: oaiTraceReqId,
+    selectedModel: orchestration.selectedModel,
+    originalModel: request.model,
+    latestUserHash: latestOpenAIUserHash,
+    finishReason: "stop",
+    logSafetyEvent: logAndPersistSafetyEvent,
+    persistSessionAndUsage,
+    maybeCheckpoint,
+    recordSessionEvent,
+  });
+  if (oaiPolicyAction.kind === "softFail") {
+    return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, oaiPolicyAction.content, !!request.stream);
+  }
+  if (oaiPolicyAction.kind === "reject") {
+    return reply.code(400).send(policyRejectOpenAIBody(oaiPolicyAction.decision));
   }
   const oaiClientToolInventory = Array.isArray(request.tools) ? [...(request.tools as unknown[])] : [];
   if (shouldStripGlobFromTools(sessionKey)) {
@@ -9989,74 +9925,27 @@ app.post("/v1/messages", async (req, reply) => {
     hardRejectAfter: claudeLoopLimits.hardRejectAfter,
     governanceRules: governanceClient?.getRules(),
   }));
-  if (!claudePolicyPrecheck.allow) {
-    logAndPersistSafetyEvent(claudePolicyPrecheck, claudeSessionKey, session.record.totalTokensIn);
-    if (config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED && claudePolicyPrecheck.softFailClass === "tool_loop") {
-      const started = Date.now();
-      const content = toolLoopSoftFailMessage(claudePolicyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-      session.awaitingToolLoopUserAck = true;
-      session.toolLoopAckAnchorUserHash = latestClaudeUserHash;
-      session.toolLoopNoUserAckCount = 0;
-      session.history.push({ role: "assistant", content });
-      persistSessionAndUsage(
-        session,
-        traceReqId,
-        claudeOrchestration.selectedModel,
-        usage,
-        Date.now() - started,
-        "end_turn",
-        0,
-        false,
-        undefined,
-        undefined,
-        undefined,
-        body.model,
-      );
-      maybeCheckpoint(session);
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "tool_loop_soft_fail",
-        "deterministic-policy",
-        claudePolicyPrecheck.rejectReason ?? "Tool loop soft fail",
-        traceReqId
-      );
-      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
-    }
-    if (claudePolicyPrecheck.matchedRules.includes("repeat_loop_hard_reject")) {
-      const started = Date.now();
-      const content = repeatLoopSoftFailMessage(claudePolicyPrecheck);
-      const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-      session.history.push({ role: "assistant", content });
-      persistSessionAndUsage(
-        session,
-        traceReqId,
-        claudeOrchestration.selectedModel,
-        usage,
-        Date.now() - started,
-        "end_turn",
-        0,
-        false,
-        undefined,
-        undefined,
-        undefined,
-        body.model,
-      );
-      maybeCheckpoint(session);
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "repeat_loop_soft_fail",
-        "deterministic-policy",
-        claudePolicyPrecheck.rejectReason ?? "Repeat loop soft fail",
-        traceReqId,
-      );
-      return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, content, !!body.stream);
-    }
-    return reply.code(400).send(policyRejectClaudeBody(claudePolicyPrecheck));
+  const claudePolicyAction = handleDeterministicPolicyPrecheck({
+    decision: claudePolicyPrecheck,
+    softFailEnabled: config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED,
+    session,
+    sessionKey: claudeSessionKey,
+    identity: claudeIdentity,
+    requestId: traceReqId,
+    selectedModel: claudeOrchestration.selectedModel,
+    originalModel: body.model,
+    latestUserHash: latestClaudeUserHash,
+    finishReason: "end_turn",
+    logSafetyEvent: logAndPersistSafetyEvent,
+    persistSessionAndUsage,
+    maybeCheckpoint,
+    recordSessionEvent,
+  });
+  if (claudePolicyAction.kind === "softFail") {
+    return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, claudePolicyAction.content, !!body.stream);
+  }
+  if (claudePolicyAction.kind === "reject") {
+    return reply.code(400).send(policyRejectClaudeBody(claudePolicyAction.decision));
   }
   const claudeClientToolInventory = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : [];
   if (shouldStripGlobFromTools(claudeSessionKey)) {
