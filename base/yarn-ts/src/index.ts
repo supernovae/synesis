@@ -186,7 +186,6 @@ import {
 } from "./tool-collapse/blocked-discovery-recovery.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
-import { synesisPolicyErrorExtension } from "./policy/policy-error-extension.js";
 import {
   PhaseModelOrchestrator,
   type EffortTier,
@@ -4249,11 +4248,16 @@ import {
   assessProportionality,
   proportionalityToSignal,
 } from "./governance/diff-accumulator.js";
-import {
-  buildWorkspaceHandshakeBashCommand,
-  lastToolUseIdFromClaudeMessages,
-} from "./session/workspace-context-handshake.js";
+import { lastToolUseIdFromClaudeMessages } from "./session/workspace-context-handshake.js";
 import { processWorkspaceHandshakeRoute } from "./session/workspace-handshake-route.js";
+import {
+  policyRejectClaudeBody,
+  policyRejectOpenAIBody,
+  sendClaudeSoftFail,
+  sendClaudeWorkspaceHandshake,
+  sendOpenAISoftFail,
+  sendOpenAIWorkspaceHandshake,
+} from "./protocol/route-response-senders.js";
 
 type ResolveResult =
   | {
@@ -5318,31 +5322,6 @@ function repeatLoopSoftFailMessage(decision: PolicyDecision): string {
   ].join(" ");
 }
 
-function policyRejectOpenAIBody(decision: PolicyDecision) {
-  const message = decision.rejectReason ?? "Policy rejected request.";
-  const synesis = synesisPolicyErrorExtension(decision.matchedRules);
-  return {
-    error: {
-      type: "invalid_request_error" as const,
-      message,
-      ...(synesis ? { synesis } : {}),
-    },
-  };
-}
-
-function policyRejectClaudeBody(decision: PolicyDecision) {
-  const message = decision.rejectReason ?? "Policy rejected request.";
-  const synesis = synesisPolicyErrorExtension(decision.matchedRules);
-  return {
-    type: "error" as const,
-    error: {
-      type: "invalid_request_error" as const,
-      message,
-      ...(synesis ? { synesis } : {}),
-    },
-  };
-}
-
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
   clearWorkspaceScopedMetadata(state.record.metadata);
   contentDedupBySession.delete(sessionKey);
@@ -5393,228 +5372,6 @@ function workspaceStatePresence(sessionKey: string) {
     hasStructuralIndex: structuralIndexBySession.has(sessionKey),
     sessionMemoryCount: getSessionMemoryCount(sessionKey),
   };
-}
-
-function sendOpenAIWorkspaceHandshake(
-  reply: import("fastify").FastifyReply,
-  requestId: string,
-  model: string,
-  stream: boolean,
-  toolCallId: string,
-): import("fastify").FastifyReply {
-  const input = {
-    command: buildWorkspaceHandshakeBashCommand(),
-    description: "Initializing workspace context (read-only): cwd/project root/shell/os",
-  };
-  if (!stream) {
-    return reply.send({
-      id: requestId,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{
-        index: 0,
-        message: {
-          role: "assistant",
-          content: "",
-          tool_calls: [{
-            id: toolCallId,
-            type: "function",
-            function: { name: "Bash", arguments: JSON.stringify(input) },
-          }],
-        },
-        finish_reason: "tool_calls",
-      }],
-    });
-  }
-
-  const ts = Math.floor(Date.now() / 1000);
-  reply.raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  });
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: requestId,
-    object: "chat.completion.chunk",
-    created: ts,
-    model,
-    choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: toolCallId, type: "function", function: { name: "Bash", arguments: JSON.stringify(input) } }] }, finish_reason: null }],
-  })}\n\n`);
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: requestId,
-    object: "chat.completion.chunk",
-    created: ts,
-    model,
-    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-  })}\n\n`);
-  safeWrite(reply.raw, "data: [DONE]\n\n");
-  safeEnd(reply.raw);
-  return reply;
-}
-
-function sendClaudeWorkspaceHandshake(
-  reply: import("fastify").FastifyReply,
-  model: string,
-  stream: boolean,
-  toolCallId: string,
-): import("fastify").FastifyReply {
-  const input = {
-    command: buildWorkspaceHandshakeBashCommand(),
-    description: "Initializing workspace context (read-only): cwd/project root/shell/os",
-  };
-  if (!stream) {
-    return reply.send({
-      id: `msg_${crypto.randomUUID()}`,
-      type: "message",
-      role: "assistant",
-      model,
-      content: [{ type: "tool_use", id: toolCallId, name: "Bash", input }],
-      stop_reason: "tool_use",
-      usage: { input_tokens: 0, output_tokens: 0 },
-    });
-  }
-
-  const msgId = `msg_${crypto.randomUUID()}`;
-  reply.raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  });
-  safeSse(reply, "message_start", {
-    type: "message_start",
-    message: { id: msgId, type: "message", role: "assistant", model, content: [], usage: { input_tokens: 0, output_tokens: 0 } },
-  });
-  safeSse(reply, "content_block_start", {
-    type: "content_block_start",
-    index: 0,
-    content_block: { type: "tool_use", id: toolCallId, name: "Bash" },
-  });
-  safeSse(reply, "content_block_delta", {
-    type: "content_block_delta",
-    index: 0,
-    delta: { type: "input_json_delta", partial_json: JSON.stringify(input) },
-  });
-  safeSse(reply, "content_block_stop", { type: "content_block_stop", index: 0 });
-  safeSse(reply, "message_delta", {
-    type: "message_delta",
-    delta: { stop_reason: "tool_use" },
-    usage: { input_tokens: 0, output_tokens: 0 },
-  });
-  safeSse(reply, "message_stop", { type: "message_stop" });
-  safeEnd(reply.raw);
-  return reply;
-}
-
-function sendOpenAISoftFail(
-  reply: import("fastify").FastifyReply,
-  requestId: string,
-  model: string,
-  content: string,
-  stream: boolean,
-  pauseEnvelope?: GovernorPauseEnvelope,
-): import("fastify").FastifyReply {
-  if (!stream) {
-    return reply.send({
-      id: requestId,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
-      ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
-    });
-  }
-
-  const ts = Math.floor(Date.now() / 1000);
-  reply.raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive"
-  });
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: requestId,
-    object: "chat.completion.chunk",
-    created: ts,
-    model,
-    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
-    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
-  })}\n\n`);
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: requestId,
-    object: "chat.completion.chunk",
-    created: ts,
-    model,
-    choices: [{ index: 0, delta: { content }, finish_reason: null }],
-    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
-  })}\n\n`);
-  safeWrite(reply.raw, `data: ${JSON.stringify({
-    id: requestId,
-    object: "chat.completion.chunk",
-    created: ts,
-    model,
-    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-    ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
-  })}\n\n`);
-  safeWrite(reply.raw, "data: [DONE]\n\n");
-  safeEnd(reply.raw);
-  return reply;
-}
-
-function sendClaudeSoftFail(
-  reply: import("fastify").FastifyReply,
-  model: string,
-  content: string,
-  stream: boolean,
-  pauseEnvelope?: GovernorPauseEnvelope,
-): import("fastify").FastifyReply {
-  if (!stream) {
-    return reply.send({
-      id: `msg_${crypto.randomUUID()}`,
-      type: "message",
-      role: "assistant",
-      model,
-      content: [{ type: "text", text: content }],
-      stop_reason: "end_turn",
-      usage: { input_tokens: 0, output_tokens: 0 },
-      ...(pauseEnvelope ? { synesis_governor_pause: pauseEnvelope } : {}),
-    });
-  }
-
-  const msgId = `msg_${crypto.randomUUID()}`;
-  reply.raw.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive"
-  });
-  safeSse(reply, "message_start", {
-    type: "message_start",
-    message: { id: msgId, type: "message", role: "assistant", model, content: [], usage: { input_tokens: 0, output_tokens: 0 } }
-  });
-  safeSse(reply, "content_block_start", {
-    type: "content_block_start",
-    index: 0,
-    content_block: { type: "text", text: "" }
-  });
-  safeSse(reply, "content_block_delta", {
-    type: "content_block_delta",
-    index: 0,
-    delta: { type: "text_delta", text: content }
-  });
-  safeSse(reply, "content_block_stop", { type: "content_block_stop", index: 0 });
-  safeSse(reply, "message_delta", {
-    type: "message_delta",
-    delta: { stop_reason: "end_turn" },
-    usage: { input_tokens: 0, output_tokens: 0 }
-  });
-  if (pauseEnvelope) {
-    safeSse(reply, "synesis_governor_pause", {
-      type: "synesis_governor_pause",
-      pause: pauseEnvelope,
-    });
-  }
-  safeSse(reply, "message_stop", { type: "message_stop" });
-  safeEnd(reply.raw);
-  return reply;
 }
 
 function logAndPersistSafetyEvent(
