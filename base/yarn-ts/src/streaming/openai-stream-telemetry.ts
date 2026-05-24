@@ -110,10 +110,110 @@ export type OpenAIStreamTelemetryInputBuilder = (args: {
   finalized: OpenAIStreamFinalizerResult;
 }) => OpenAIStreamTelemetryInput;
 
+export interface OpenAIStreamTelemetryBuilderInput {
+  requestId: string;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  startedAtMs: number;
+  resolvedModelId: string;
+  clientRequestedModel: string;
+  reductions: OpenAIStreamTelemetryReductions;
+  reducedToolResults: number;
+  orchestration: SnapshotInputs["orchestration"];
+  policyMatchedRules: string[];
+  evidencePrefetched?: boolean;
+  evidenceConfidence?: number;
+  evidenceAuthoritative?: boolean;
+  evidencePrefetchLatencyMs?: number;
+  evidenceQuality?: Record<string, unknown>;
+  sensemakingTriggered?: boolean;
+  sensemakingReason?: string;
+  governorDecision?: SnapshotInputs["governorDecision"];
+  governorChatStateSummary?: Record<string, unknown>;
+  governorFileStateSummary?: Record<string, unknown>;
+  optimizationLedger: OpenAIStreamTelemetryLedger;
+  normalizedMessages: Array<{ role: string; content: unknown }>;
+  getToolNames(): string[];
+  inferVerificationSteps(toolNames: string[]): string[];
+  trajectoryDiagnostics?: Record<string, unknown>;
+  toolDefinitionCount: number;
+  artifactToolInjected: boolean;
+  knowledgeToolInjected: boolean;
+  promptProfileIds?: number[];
+  promptProfileHashes?: string[];
+  prefixHash?: string;
+  prefixChangeReasons?: string[];
+  requirementChecklistMust?: number;
+  requirementChecklistShould?: number;
+  contextAdmission?: OpenAIStreamTelemetryInput["contextAdmission"];
+  cacheStrategy?: string;
+  prefixFingerprint?: string;
+  finalizeRequestForensics: OpenAIStreamTelemetryInput["finalizeRequestForensics"];
+  recordSessionEvent: OpenAIStreamTelemetryInput["recordSessionEvent"];
+  persistDecisionTelemetry(input: {
+    finishReason: string;
+    telemetry: Parameters<OpenAIStreamTelemetryInput["persistDecisionTelemetry"]>[0];
+  }): void;
+  countMessageRoles: OpenAIStreamTelemetryInput["countMessageRoles"];
+  pushDiagnostic: OpenAIStreamTelemetryInput["pushDiagnostic"];
+  logOptimizationLedger: OpenAIStreamTelemetryInput["logOptimizationLedger"];
+}
+
 export function createOpenAIStreamTelemetryInputBuilder(
-  build: OpenAIStreamTelemetryInputBuilder,
+  input: OpenAIStreamTelemetryBuilderInput,
 ): OpenAIStreamTelemetryInputBuilder {
-  return build;
+  return ({ finishReason, finalized }) => ({
+    requestId: input.requestId,
+    sessionKey: input.sessionKey,
+    userId: input.userId,
+    orgId: input.orgId,
+    startedAtMs: input.startedAtMs,
+    finishReason,
+    resolvedModelId: input.resolvedModelId,
+    clientRequestedModel: input.clientRequestedModel,
+    streamFinalized: finalized,
+    reductions: input.reductions,
+    reducedToolResults: input.reducedToolResults,
+    orchestration: input.orchestration,
+    policyMatchedRules: input.policyMatchedRules,
+    evidencePrefetched: input.evidencePrefetched,
+    evidenceConfidence: input.evidenceConfidence,
+    evidenceAuthoritative: input.evidenceAuthoritative,
+    evidencePrefetchLatencyMs: input.evidencePrefetchLatencyMs,
+    evidenceQuality: input.evidenceQuality,
+    sensemakingTriggered: input.sensemakingTriggered,
+    sensemakingReason: input.sensemakingReason,
+    governorDecision: input.governorDecision,
+    governorChatStateSummary: input.governorChatStateSummary,
+    governorFileStateSummary: input.governorFileStateSummary,
+    optimizationLedger: input.optimizationLedger,
+    normalizedMessages: input.normalizedMessages,
+    toolNames: input.getToolNames(),
+    inferVerificationSteps: input.inferVerificationSteps,
+    trajectoryDiagnostics: input.trajectoryDiagnostics,
+    toolDefinitionCount: input.toolDefinitionCount,
+    artifactToolInjected: input.artifactToolInjected,
+    knowledgeToolInjected: input.knowledgeToolInjected,
+    promptProfileIds: input.promptProfileIds,
+    promptProfileHashes: input.promptProfileHashes,
+    prefixHash: input.prefixHash,
+    prefixChangeReasons: input.prefixChangeReasons,
+    requirementChecklistMust: input.requirementChecklistMust,
+    requirementChecklistShould: input.requirementChecklistShould,
+    contextAdmission: input.contextAdmission,
+    cacheStrategy: input.cacheStrategy,
+    prefixFingerprint: input.prefixFingerprint,
+    finalizeRequestForensics: input.finalizeRequestForensics,
+    recordSessionEvent: input.recordSessionEvent,
+    persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
+      finishReason,
+      telemetry,
+    }),
+    countMessageRoles: input.countMessageRoles,
+    pushDiagnostic: input.pushDiagnostic,
+    logOptimizationLedger: input.logOptimizationLedger,
+  });
 }
 
 export interface OpenAIStreamTelemetryResult {

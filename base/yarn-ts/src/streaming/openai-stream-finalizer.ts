@@ -1,4 +1,12 @@
 import { shouldIncludeStreamUsage, toOpenAiUsage } from "../openai-compat.js";
+import {
+  createEmptyLedger,
+  extractTasksFromText,
+  reconcileFromText,
+  scrubTaskLedgerOutput,
+  type ClientTaskCapabilities,
+  type TaskLedger,
+} from "../task-ledger/index.js";
 import type { OpenAIStreamResponseWriter } from "./openai-stream-response-writer.js";
 import type { OpenAIStreamState } from "./openai-stream-state.js";
 
@@ -55,10 +63,153 @@ export interface OpenAIStreamFinalizerInput {
 
 export type OpenAIStreamFinalizerFactoryInput = Omit<OpenAIStreamFinalizerInput, "streamState" | "finishReason">;
 
-export function createOpenAIStreamFinalizerInput(
-  input: OpenAIStreamFinalizerFactoryInput,
+export interface OpenAIStreamFinalizerSession {
+  history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+  record: {
+    requestCount: number;
+    sessionKey: string;
+  };
+  taskCapabilities: ClientTaskCapabilities | null;
+  taskLedger: TaskLedger | null;
+}
+
+export interface OpenAIStreamFinalizerBuilderInput<TChecklist, TVerification, TPlanGraph> {
+  writer: OpenAIStreamResponseWriter;
+  streamed: {
+    totalUsage: PromiseLike<unknown>;
+    text: PromiseLike<string>;
+  };
+  streamOptions: unknown;
+  readUsage(input: unknown): StreamTokenUsage;
+  session: OpenAIStreamFinalizerSession;
+  requestId: string;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  checklist: TChecklist | null;
+  traceRootPrompt: string;
+  latestUserPrompt: string;
+  verification: TVerification;
+  recentToolNames: string[];
+  planGraph?: TPlanGraph | null;
+  responseStyleMode: string;
+  applyMarkdownGuardrail(text: string, mode: string): string;
+  finalizeCompletionText(input: {
+    requestId: string;
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    assistantText: string;
+    checklist: TChecklist | null;
+    traceRootPrompt: string;
+    latestUserPrompt: string;
+    verification: TVerification;
+    recentToolNames: string[];
+    nonActionableEventDetail: string;
+    planGraph?: TPlanGraph | null;
+    session?: OpenAIStreamFinalizerSession | null;
+  }): Promise<OpenAIStreamFinalizerTextResult>;
+  finalizePostStreamText(input: {
+    requestId: string;
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    assistantText: string;
+    applyGate: boolean;
+    checklist: TChecklist | null;
+    traceRootPrompt: string;
+    latestUserPrompt: string;
+    verification: TVerification;
+    toolStopReason: boolean;
+    nonActionableEventDetail: string;
+    planGraph?: TPlanGraph | null;
+  }): OpenAIStreamFinalizerTextResult;
+  writeFinalText(text: string): void;
+  endStream(): void;
+  stopHeartbeat(): void;
+  onTaskLedgerOutputScrubbed(): void;
+}
+
+export function createOpenAIStreamFinalizerInput<TChecklist, TVerification, TPlanGraph>(
+  input: OpenAIStreamFinalizerBuilderInput<TChecklist, TVerification, TPlanGraph>,
 ): OpenAIStreamFinalizerFactoryInput {
-  return input;
+  return {
+    writer: input.writer,
+    streamed: input.streamed,
+    streamOptions: input.streamOptions,
+    readUsage: input.readUsage,
+    onPendingText: (rawText) => {
+      updateTaskLedgerFromStreamText(input.session, rawText);
+    },
+    finalizePendingText: async (rawText) => {
+      const finalized = await input.finalizeCompletionText({
+        requestId: input.requestId,
+        sessionKey: input.sessionKey,
+        userId: input.userId,
+        orgId: input.orgId,
+        assistantText: rawText,
+        checklist: input.checklist,
+        traceRootPrompt: input.traceRootPrompt,
+        latestUserPrompt: input.latestUserPrompt,
+        verification: input.verification,
+        recentToolNames: input.recentToolNames,
+        nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
+        planGraph: input.planGraph,
+        session: input.session,
+      });
+      return {
+        ...finalized,
+        finalText: input.applyMarkdownGuardrail(
+          finalized.finalText,
+          input.responseStyleMode,
+        ),
+      };
+    },
+    writeFinalText: input.writeFinalText,
+    finalizeStreamedText: (streamedText, gateState, streamFinishReason) => input.finalizePostStreamText({
+      requestId: input.requestId,
+      sessionKey: input.sessionKey,
+      userId: input.userId,
+      orgId: input.orgId,
+      assistantText: streamedText,
+      applyGate: gateState.gateApplied,
+      checklist: input.checklist,
+      traceRootPrompt: input.traceRootPrompt,
+      latestUserPrompt: input.latestUserPrompt,
+      verification: input.verification,
+      toolStopReason: streamFinishReason === "tool_calls",
+      nonActionableEventDetail: "streamed text was non-actionable; emitted deterministic fallback",
+      planGraph: input.planGraph,
+    }),
+    scrubHistoryText: scrubTaskLedgerOutput,
+    onHistoryTextScrubbed: input.onTaskLedgerOutputScrubbed,
+    onHistoryText: (content) => {
+      input.session.history.push({ role: "assistant", content });
+    },
+    endStream: input.endStream,
+    stopHeartbeat: input.stopHeartbeat,
+  };
+}
+
+function updateTaskLedgerFromStreamText(
+  session: OpenAIStreamFinalizerSession,
+  rawText: string,
+): void {
+  if (!session.taskCapabilities || !rawText) return;
+  const tasks = extractTasksFromText(
+    rawText,
+    session.taskCapabilities.detectedSource,
+    session.record.requestCount,
+  );
+  if (tasks.length === 0) return;
+  if (!session.taskLedger) {
+    session.taskLedger = createEmptyLedger(
+      session.record.sessionKey,
+      session.taskCapabilities.hasExplicitTodoTool,
+      session.taskCapabilities.hasExplicitPlanMode,
+    );
+  }
+  session.taskLedger = reconcileFromText(session.taskLedger, tasks, session.record.requestCount);
 }
 
 const ZERO_USAGE: StreamTokenUsage = {

@@ -20,9 +20,33 @@ function createWriter() {
 }
 
 describe("finalizeOpenAIStreamCompletion", () => {
-  it("preserves finalizer factory input identity", () => {
+  it("builds finalizer input from route dependencies", async () => {
     const { writer } = createWriter();
-    const input = {
+    const session = {
+      history: [],
+      record: {
+        requestCount: 2,
+        sessionKey: "session_1",
+      },
+      taskCapabilities: null,
+      taskLedger: null,
+    };
+    const finalizeCompletionText = vi.fn(async (args) => ({
+      finalText: args.assistantText,
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: false,
+      criticBlocked: false,
+    }));
+    const finalizePostStreamText = vi.fn((args) => ({
+      finalText: args.assistantText,
+      missingMust: 0,
+      missingShould: 0,
+      blockedByVerification: false,
+    }));
+
+    const input = createOpenAIStreamFinalizerInput({
       writer,
       streamed: {
         totalUsage: Promise.resolve({}),
@@ -36,26 +60,53 @@ describe("finalizeOpenAIStreamCompletion", () => {
         cacheCreationTokens: 0,
         costUsd: 0,
       }),
-      finalizePendingText: async (rawText: string) => ({
-        finalText: rawText,
-        missingMust: 0,
-        missingShould: 0,
-        blockedByVerification: false,
-      }),
+      session,
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      checklist: null,
+      traceRootPrompt: "root",
+      latestUserPrompt: "latest",
+      verification: { failures: [] },
+      recentToolNames: ["Bash"],
+      planGraph: null,
+      responseStyleMode: "default",
+      applyMarkdownGuardrail: (text: string) => `${text}!`,
+      finalizeCompletionText,
+      finalizePostStreamText,
       writeFinalText: vi.fn(),
-      finalizeStreamedText: (streamedText: string) => ({
-        finalText: streamedText,
-        missingMust: 0,
-        missingShould: 0,
-        blockedByVerification: false,
-      }),
-      scrubHistoryText: (text: string) => ({ text, scrubbed: false }),
-      onHistoryText: vi.fn(),
       endStream: vi.fn(),
       stopHeartbeat: vi.fn(),
-    } satisfies Parameters<typeof createOpenAIStreamFinalizerInput>[0];
+      onTaskLedgerOutputScrubbed: vi.fn(),
+    });
 
-    expect(createOpenAIStreamFinalizerInput(input)).toBe(input);
+    expect(input.writer).toBe(writer);
+    expect(await input.finalizePendingText("done")).toMatchObject({
+      finalText: "done!",
+      missingMust: 0,
+    });
+    expect(finalizeCompletionText).toHaveBeenCalledWith(expect.objectContaining({
+      assistantText: "done",
+      recentToolNames: ["Bash"],
+      session,
+    }));
+    expect(input.finalizeStreamedText("history", {
+      gateApplied: true,
+      missingMust: 0,
+      missingShould: 0,
+      gateBlockedVerification: false,
+      criticBlocked: false,
+    }, "stop")).toMatchObject({
+      finalText: "history",
+    });
+    expect(finalizePostStreamText).toHaveBeenCalledWith(expect.objectContaining({
+      assistantText: "history",
+      applyGate: true,
+      toolStopReason: false,
+    }));
+    input.onHistoryText("assistant");
+    expect(session.history).toEqual([{ role: "assistant", content: "assistant" }]);
   });
 
   it("finalizes pending text before writing final chunk and done line", async () => {

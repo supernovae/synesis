@@ -127,20 +127,78 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIStreamTelemetry
 }
 
 describe("runOpenAIStreamTelemetry", () => {
-  it("preserves telemetry builder identity", () => {
-    const finalized = baseInput().streamFinalized;
-    const builder = vi.fn(({ finishReason, finalized: streamFinalized }) => baseInput({
-      finishReason,
-      streamFinalized,
-    }));
+  it("builds telemetry input from route dependencies", () => {
+    const base = baseInput();
+    const finalized = base.streamFinalized;
+    const persistDecisionTelemetry = vi.fn();
+    const builder = createOpenAIStreamTelemetryInputBuilder({
+      requestId: base.requestId,
+      sessionKey: base.sessionKey,
+      userId: base.userId,
+      orgId: base.orgId,
+      startedAtMs: base.startedAtMs,
+      resolvedModelId: base.resolvedModelId,
+      clientRequestedModel: base.clientRequestedModel,
+      reductions: base.reductions,
+      reducedToolResults: base.reducedToolResults,
+      orchestration: base.orchestration,
+      policyMatchedRules: base.policyMatchedRules,
+      evidencePrefetched: base.evidencePrefetched,
+      evidenceConfidence: base.evidenceConfidence,
+      evidenceAuthoritative: base.evidenceAuthoritative,
+      evidencePrefetchLatencyMs: base.evidencePrefetchLatencyMs,
+      evidenceQuality: base.evidenceQuality,
+      sensemakingTriggered: base.sensemakingTriggered,
+      sensemakingReason: base.sensemakingReason,
+      governorDecision: base.governorDecision,
+      governorChatStateSummary: base.governorChatStateSummary,
+      governorFileStateSummary: base.governorFileStateSummary,
+      optimizationLedger: base.optimizationLedger,
+      normalizedMessages: base.normalizedMessages,
+      getToolNames: () => ["Bash", "Read"],
+      inferVerificationSteps: base.inferVerificationSteps,
+      trajectoryDiagnostics: base.trajectoryDiagnostics,
+      toolDefinitionCount: base.toolDefinitionCount,
+      artifactToolInjected: base.artifactToolInjected,
+      knowledgeToolInjected: base.knowledgeToolInjected,
+      promptProfileIds: base.promptProfileIds,
+      promptProfileHashes: base.promptProfileHashes,
+      prefixHash: base.prefixHash,
+      prefixChangeReasons: base.prefixChangeReasons,
+      requirementChecklistMust: base.requirementChecklistMust,
+      requirementChecklistShould: base.requirementChecklistShould,
+      contextAdmission: base.contextAdmission,
+      cacheStrategy: base.cacheStrategy,
+      prefixFingerprint: base.prefixFingerprint,
+      finalizeRequestForensics: base.finalizeRequestForensics,
+      recordSessionEvent: base.recordSessionEvent,
+      persistDecisionTelemetry,
+      countMessageRoles: base.countMessageRoles,
+      pushDiagnostic: base.pushDiagnostic,
+      logOptimizationLedger: base.logOptimizationLedger,
+    });
 
-    const wrapped = createOpenAIStreamTelemetryInputBuilder(builder);
+    const built = builder({ finishReason: "tool_calls", finalized });
 
-    expect(wrapped).toBe(builder);
-    expect(wrapped({ finishReason: "tool_calls", finalized })).toMatchObject({
+    expect(built).toMatchObject({
       finishReason: "tool_calls",
       streamFinalized: finalized,
+      toolNames: ["Bash", "Read"],
     });
+    built.persistDecisionTelemetry({
+      usage: finalized.usage,
+      latencyMs: 1,
+      tokensSavedByReduction: 2,
+      snapshot: {} as never,
+      trajectory: {
+        toolSequence: [],
+        verificationSteps: [],
+      },
+      optimizationLedger: {},
+    });
+    expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      finishReason: "tool_calls",
+    }));
   });
 
   it("builds snapshot, persists telemetry, records reducer events, and pushes diagnostics", () => {
