@@ -2,6 +2,101 @@ import { jsonSchema, Output as aiOutput } from "ai";
 
 import type { PhaseAwareToolChoice } from "../governance/phase-execution-policy.js";
 import type { AiSdkJsonResponseFormat } from "../openai-compat.js";
+import { toAiSdkJsonResponseFormat } from "../openai-compat.js";
+import type { ModelSamplingDefaults } from "../providers/admin-tier-registry.js";
+import type { OpenAIChatCompletionRequest } from "../schemas.js";
+
+export interface OpenAIChatProviderRequestOptionsInput {
+  request: OpenAIChatCompletionRequest;
+  tierSamplingDefaults?: ModelSamplingDefaults;
+  adapterSampling?: { temperature?: number; top_p?: number };
+  adapterProviderOptions?: Record<string, Record<string, unknown>>;
+  supportsTopK: boolean;
+}
+
+export interface OpenAIChatProviderRequestOptions {
+  samplingOptions: Record<string, unknown>;
+  providerOptions?: Record<string, Record<string, unknown>>;
+  jsonResponseFormat?: AiSdkJsonResponseFormat;
+  structuredOutput: ReturnType<typeof buildOpenAiJsonOutput>;
+}
+
+export function buildOpenAIChatProviderRequestOptions(
+  input: OpenAIChatProviderRequestOptionsInput,
+): OpenAIChatProviderRequestOptions {
+  const { request, tierSamplingDefaults, adapterSampling, adapterProviderOptions, supportsTopK } = input;
+  const effectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
+  const effectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
+  const effectiveTopK = supportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
+  const effectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
+  const effectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
+  const effectiveFrequencyPenalty = request.frequency_penalty;
+  const effectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
+  const effectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
+  const effectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
+  const effectiveMaxCompletionTokens = request.max_completion_tokens ?? request.max_tokens;
+  const effectiveLogprobs = typeof request.top_logprobs === "number"
+    ? request.top_logprobs
+    : request.logprobs;
+  const metadataProviderOptions = openAiMetadataProviderOptions(request.metadata);
+  const stopSequences = typeof request.stop === "string"
+    ? [request.stop]
+    : (Array.isArray(request.stop) ? request.stop : undefined);
+  const samplingOptions = {
+    ...(effectiveTemp !== undefined ? { temperature: effectiveTemp } : {}),
+    ...(effectiveTopP !== undefined ? { topP: effectiveTopP } : {}),
+    ...(effectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(effectiveTopK)) } : {}),
+    ...(effectivePresencePenalty !== undefined ? { presencePenalty: effectivePresencePenalty } : {}),
+    ...(effectiveFrequencyPenalty !== undefined ? { frequencyPenalty: effectiveFrequencyPenalty } : {}),
+    ...(stopSequences && stopSequences.length > 0 ? { stopSequences } : {}),
+    ...(request.seed !== undefined ? { seed: request.seed } : {}),
+  };
+  const openAiOverrides = {
+    ...(effectiveMinP !== undefined ? { min_p: effectiveMinP } : {}),
+    ...(effectiveRepetitionPenalty !== undefined ? { repetition_penalty: effectiveRepetitionPenalty } : {}),
+    ...(effectiveEnableThinking !== undefined ? { enable_thinking: effectiveEnableThinking } : {}),
+    ...(effectiveReasoningEffort !== undefined ? { reasoningEffort: effectiveReasoningEffort } : {}),
+    ...(effectiveMaxCompletionTokens !== undefined ? { maxCompletionTokens: effectiveMaxCompletionTokens } : {}),
+    ...(request.logit_bias !== undefined ? { logitBias: request.logit_bias } : {}),
+    ...(effectiveLogprobs !== undefined ? { logprobs: effectiveLogprobs } : {}),
+    ...(request.parallel_tool_calls !== undefined ? { parallelToolCalls: request.parallel_tool_calls } : {}),
+    ...(request.user ? { user: request.user } : {}),
+    ...(request.store !== undefined ? { store: request.store } : {}),
+    ...(metadataProviderOptions ? { metadata: metadataProviderOptions } : {}),
+    ...(request.prediction && typeof request.prediction === "object" && !Array.isArray(request.prediction)
+      ? { prediction: request.prediction as Record<string, unknown> }
+      : {}),
+    ...(request.service_tier === "auto" || request.service_tier === "flex" || request.service_tier === "priority" || request.service_tier === "default"
+      ? { serviceTier: request.service_tier }
+      : {}),
+    ...(request.prompt_cache_key ? { promptCacheKey: request.prompt_cache_key } : {}),
+    ...(request.prompt_cache_retention === "in_memory" || request.prompt_cache_retention === "24h"
+      ? { promptCacheRetention: request.prompt_cache_retention }
+      : {}),
+    ...(request.safety_identifier ? { safetyIdentifier: request.safety_identifier } : {}),
+    ...(request.verbosity === "low" || request.verbosity === "medium" || request.verbosity === "high"
+      ? { textVerbosity: request.verbosity }
+      : {}),
+  };
+  const jsonResponseFormat = toAiSdkJsonResponseFormat(request.response_format);
+  const structuredOutput = buildOpenAiJsonOutput(jsonResponseFormat);
+  const mergedProviderOptions = Object.keys(openAiOverrides).length
+    ? {
+        ...(adapterProviderOptions ?? {}),
+        openai: {
+          ...((adapterProviderOptions?.openai ?? {}) as Record<string, unknown>),
+          ...openAiOverrides,
+        },
+      }
+    : adapterProviderOptions;
+  const providerOptions = applyOpenAiJsonSchemaStrictness(mergedProviderOptions, jsonResponseFormat);
+  return {
+    samplingOptions,
+    providerOptions,
+    jsonResponseFormat,
+    structuredOutput,
+  };
+}
 
 export function suppressThinkingWhenRequiredToolChoice(
   providerOptions: Record<string, Record<string, unknown>> | undefined,

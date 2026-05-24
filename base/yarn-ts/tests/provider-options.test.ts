@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOpenAiJsonSchemaStrictness,
+  buildOpenAIChatProviderRequestOptions,
   openAiMetadataProviderOptions,
   suppressThinkingWhenRequiredToolChoice,
 } from "../src/pipeline/provider-options.js";
+import type { OpenAIChatCompletionRequest } from "../src/schemas.js";
 
 describe("suppressThinkingWhenRequiredToolChoice", () => {
   it("leaves provider options untouched unless tool_choice is required", () => {
@@ -51,5 +53,93 @@ describe("openAiMetadataProviderOptions", () => {
       short: "value",
       object: "{\"ok\":true}",
     });
+  });
+});
+
+describe("buildOpenAIChatProviderRequestOptions", () => {
+  it("combines request, tier, and adapter options without changing provider key mappings", () => {
+    const request = {
+      model: "test",
+      messages: [{ role: "user", content: "hello" }],
+      temperature: undefined,
+      top_p: 0.8,
+      top_k: 6.7,
+      min_p: 0.1,
+      frequency_penalty: 0.2,
+      repetition_penalty: undefined,
+      enable_thinking: true,
+      reasoning_effort: "medium",
+      max_tokens: 123,
+      stop: "END",
+      seed: 42,
+      top_logprobs: 3,
+      parallel_tool_calls: false,
+      user: "user_1",
+      store: true,
+      metadata: { compact: { ok: true } },
+      service_tier: "priority",
+      prompt_cache_key: "cache-key",
+      prompt_cache_retention: "24h",
+      safety_identifier: "safe_1",
+      verbosity: "high",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "answer",
+          strict: true,
+          schema: { type: "object", properties: { answer: { type: "string" } } },
+        },
+      },
+    } as OpenAIChatCompletionRequest;
+
+    const result = buildOpenAIChatProviderRequestOptions({
+      request,
+      tierSamplingDefaults: {
+        temperature: 0.4,
+        top_p: 0.9,
+        top_k: 9,
+        repetition_penalty: 1.1,
+      },
+      adapterSampling: { temperature: 0.7, top_p: 0.95 },
+      adapterProviderOptions: { openai: { existing: "kept" } },
+      supportsTopK: true,
+    });
+
+    expect(result.samplingOptions).toEqual({
+      temperature: 0.4,
+      topP: 0.8,
+      topK: 6,
+      frequencyPenalty: 0.2,
+      stopSequences: ["END"],
+      seed: 42,
+    });
+    expect(result.providerOptions).toEqual({
+      openai: {
+        existing: "kept",
+        min_p: 0.1,
+        repetition_penalty: 1.1,
+        enable_thinking: true,
+        reasoningEffort: "medium",
+        maxCompletionTokens: 123,
+        logprobs: 3,
+        parallelToolCalls: false,
+        user: "user_1",
+        store: true,
+        metadata: { compact: "{\"ok\":true}" },
+        serviceTier: "priority",
+        promptCacheKey: "cache-key",
+        promptCacheRetention: "24h",
+        safetyIdentifier: "safe_1",
+        textVerbosity: "high",
+        strictJsonSchema: true,
+      },
+    });
+    expect(result.jsonResponseFormat).toEqual({
+      type: "json",
+      name: "answer",
+      strict: true,
+      schema: { type: "object", properties: { answer: { type: "string" } } },
+    });
+    expect(result.structuredOutput).toBeDefined();
   });
 });

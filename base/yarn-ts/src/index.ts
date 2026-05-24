@@ -23,9 +23,6 @@ import {
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
 import {
-  toAiSdkJsonResponseFormat,
-} from "./openai-compat.js";
-import {
   chatCompletionToResponseObject,
   OpenAIResponsesRequestSchema,
   responseObjectToSseEvents,
@@ -341,9 +338,7 @@ import {
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
-  applyOpenAiJsonSchemaStrictness,
-  buildOpenAiJsonOutput,
-  openAiMetadataProviderOptions,
+  buildOpenAIChatProviderRequestOptions,
   suppressThinkingWhenRequiredToolChoice,
 } from "./pipeline/provider-options.js";
 import {
@@ -9134,75 +9129,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
 
   const resolvedTierConfig = tierRegistry.getTierConfig(resolved.resolvedModelId);
-  const tierSamplingDefaults = resolvedTierConfig?.samplingDefaults;
-  const adapterProviderOptions = adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined;
-  const adapterSampling = adapter.defaultSamplingParams?.();
-  const oaiSupportsTopK = adapter.family !== "minimax";
-  const oaiEffectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
-  const oaiEffectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
-  const oaiEffectiveTopK = oaiSupportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
-  const oaiEffectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
-  const oaiEffectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
-  const oaiEffectiveFrequencyPenalty = request.frequency_penalty;
-  const oaiEffectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
-  const oaiEffectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
-  const oaiEffectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
-  const oaiEffectiveMaxCompletionTokens = request.max_completion_tokens ?? request.max_tokens;
-  const oaiEffectiveLogprobs = typeof request.top_logprobs === "number"
-    ? request.top_logprobs
-    : request.logprobs;
-  const oaiMetadataProviderOptions = openAiMetadataProviderOptions(request.metadata);
-  const oaiStopSequences = typeof request.stop === "string"
-    ? [request.stop]
-    : (Array.isArray(request.stop) ? request.stop : undefined);
-  const oaiSamplingOptions = {
-    ...(oaiEffectiveTemp !== undefined ? { temperature: oaiEffectiveTemp } : {}),
-    ...(oaiEffectiveTopP !== undefined ? { topP: oaiEffectiveTopP } : {}),
-    ...(oaiEffectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(oaiEffectiveTopK)) } : {}),
-    ...(oaiEffectivePresencePenalty !== undefined ? { presencePenalty: oaiEffectivePresencePenalty } : {}),
-    ...(oaiEffectiveFrequencyPenalty !== undefined ? { frequencyPenalty: oaiEffectiveFrequencyPenalty } : {}),
-    ...(oaiStopSequences && oaiStopSequences.length > 0 ? { stopSequences: oaiStopSequences } : {}),
-    ...(request.seed !== undefined ? { seed: request.seed } : {}),
-  };
-  const oaiProviderOpenAiOverrides = {
-    ...(oaiEffectiveMinP !== undefined ? { min_p: oaiEffectiveMinP } : {}),
-    ...(oaiEffectiveRepetitionPenalty !== undefined ? { repetition_penalty: oaiEffectiveRepetitionPenalty } : {}),
-    ...(oaiEffectiveEnableThinking !== undefined ? { enable_thinking: oaiEffectiveEnableThinking } : {}),
-    ...(oaiEffectiveReasoningEffort !== undefined ? { reasoningEffort: oaiEffectiveReasoningEffort } : {}),
-    ...(oaiEffectiveMaxCompletionTokens !== undefined ? { maxCompletionTokens: oaiEffectiveMaxCompletionTokens } : {}),
-    ...(request.logit_bias !== undefined ? { logitBias: request.logit_bias } : {}),
-    ...(oaiEffectiveLogprobs !== undefined ? { logprobs: oaiEffectiveLogprobs } : {}),
-    ...(request.parallel_tool_calls !== undefined ? { parallelToolCalls: request.parallel_tool_calls } : {}),
-    ...(request.user ? { user: request.user } : {}),
-    ...(request.store !== undefined ? { store: request.store } : {}),
-    ...(oaiMetadataProviderOptions ? { metadata: oaiMetadataProviderOptions } : {}),
-    ...(request.prediction && typeof request.prediction === "object" && !Array.isArray(request.prediction)
-      ? { prediction: request.prediction as Record<string, unknown> }
-      : {}),
-    ...(request.service_tier === "auto" || request.service_tier === "flex" || request.service_tier === "priority" || request.service_tier === "default"
-      ? { serviceTier: request.service_tier }
-      : {}),
-    ...(request.prompt_cache_key ? { promptCacheKey: request.prompt_cache_key } : {}),
-    ...(request.prompt_cache_retention === "in_memory" || request.prompt_cache_retention === "24h"
-      ? { promptCacheRetention: request.prompt_cache_retention }
-      : {}),
-    ...(request.safety_identifier ? { safetyIdentifier: request.safety_identifier } : {}),
-    ...(request.verbosity === "low" || request.verbosity === "medium" || request.verbosity === "high"
-      ? { textVerbosity: request.verbosity }
-      : {}),
-  };
-  let oaiProviderOptions = Object.keys(oaiProviderOpenAiOverrides).length
-    ? {
-        ...(adapterProviderOptions ?? {}),
-        openai: {
-          ...((adapterProviderOptions?.openai ?? {}) as Record<string, unknown>),
-          ...oaiProviderOpenAiOverrides,
-        },
-      }
-    : adapterProviderOptions;
-  const oaiJsonResponseFormat = toAiSdkJsonResponseFormat(request.response_format);
-  const oaiStructuredOutput = buildOpenAiJsonOutput(oaiJsonResponseFormat);
-  oaiProviderOptions = applyOpenAiJsonSchemaStrictness(oaiProviderOptions, oaiJsonResponseFormat);
+  const oaiProviderRequestOptions = buildOpenAIChatProviderRequestOptions({
+    request,
+    tierSamplingDefaults: resolvedTierConfig?.samplingDefaults,
+    adapterProviderOptions: adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined,
+    adapterSampling: adapter.defaultSamplingParams?.(),
+    supportsTopK: adapter.family !== "minimax",
+  });
+  const oaiSamplingOptions = oaiProviderRequestOptions.samplingOptions;
+  const oaiStructuredOutput = oaiProviderRequestOptions.structuredOutput;
+  let oaiProviderOptions = oaiProviderRequestOptions.providerOptions;
   const oaiThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
     oaiProviderOptions,
     effectiveToolChoice as PhaseAwareToolChoice | undefined,
