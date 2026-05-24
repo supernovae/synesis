@@ -282,6 +282,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { runOpenAIStreamEvents } from "./streaming/openai-stream-event-runner.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import {
@@ -10255,190 +10256,187 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
 
   try {
-    for await (const part of streamed.fullStream) {
-      const event = classifyAiSdkStreamPart(part);
-      const ts = Math.floor(Date.now() / 1000);
-      if (event.type === "text_delta") {
+    await runOpenAIStreamEvents(streamed.fullStream as AsyncIterable<unknown>, {
+      onTextDelta: (event) => {
         oaiStreamState.appendTextDelta(event.text);
-      } else if (event.type === "reasoning_start") {
+      },
+      onReasoningDelta: (event) => {
         if (event.text) {
           openAiStreamWriter.writeReasoningDelta(event.text);
         }
-      } else if (event.type === "reasoning_delta") {
-        if (event.text) {
-          openAiStreamWriter.writeReasoningDelta(event.text);
-        }
-      } else if (event.type === "reasoning_end") {
+      },
+      onReasoningEnd: () => {
         /* boundary only; OpenAI format has no per-block stop for reasoning */
-      } else if (event.type === "tool_call" || event.type === "tool_input_start") {
+      },
+      onToolInputStart: (event) => {
         if (oaiStreamState.hasPendingText()) {
           scrubAndFlushOpenAIText(oaiStreamState.drainText());
         }
-        if (event.type === "tool_input_start") {
-          oaiStreamState.startToolInput(event.toolCallId, event.toolName);
-        } else if (event.type === "tool_call") {
-          oaiStreamState.markToolCallFinish();
-          let argsStr = serializeToolInput(event.input);
-          const rawArgsLen = argsStr.length;
-          if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
-          const parsedInput = parseToolInput(event.input, argsStr);
-          const prepared = prepareGovernedToolCall({
-            adapter,
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            input: parsedInput,
-            hardeningOptions: {
-              upperHarness: oaiUpperHarness,
-              clientKind: oaiClientKind,
-              recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+        oaiStreamState.startToolInput(event.toolCallId, event.toolName);
+      },
+      onToolCall: async (event) => {
+        if (oaiStreamState.hasPendingText()) {
+          scrubAndFlushOpenAIText(oaiStreamState.drainText());
+        }
+        oaiStreamState.markToolCallFinish();
+        let argsStr = serializeToolInput(event.input);
+        const rawArgsLen = argsStr.length;
+        if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
+        const parsedInput = parseToolInput(event.input, argsStr);
+        const prepared = prepareGovernedToolCall({
+          adapter,
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          input: parsedInput,
+          hardeningOptions: {
+            upperHarness: oaiUpperHarness,
+            clientKind: oaiClientKind,
+            recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+          },
+          governanceOptions: {
+            projectRoot: effectiveOaiPathCtx.projectRoot,
+            shellCwd: effectiveOaiPathCtx.shellCwd,
+            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            strictBashBlock: openClawStrictGovernance,
+            blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
+            clientKind: oaiClientKind,
+            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
+            restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
+            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
+            blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+            artifactShadows: oaiArtifactShadows,
+            currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + oaiStreamState.nextToolCallIndex() + 1,
+            onEditTurn: (canonicalPath, turnIndex) => {
+              session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
-            governanceOptions: {
-              projectRoot: effectiveOaiPathCtx.projectRoot,
-              shellCwd: effectiveOaiPathCtx.shellCwd,
-              enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-              blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-              strictBashBlock: openClawStrictGovernance,
-              blockWriteCapableTools: openClawStrictGovernance || oaiClientToolCapabilities.planModeRequested,
-              clientKind: oaiClientKind,
-              sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-              restrictDiscoveryForPlanWork: oaiSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(oaiTaskCue),
-              blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
-              blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
-              planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
-              artifactShadows: oaiArtifactShadows,
-              currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + oaiStreamState.nextToolCallIndex() + 1,
-              onEditTurn: (canonicalPath, turnIndex) => {
-                session.artifactEditTurns.set(canonicalPath, turnIndex);
-              },
-              pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
-                ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
-            },
-            availability: {
-              offeredToolSet: oaiStreamOfferedToolSet,
-              offeredToolNames: oaiStreamOfferedToolNames,
-              fallbackBashToolName: oaiStreamFallbackBashToolName,
-            },
-          });
-          const hard = prepared.hardening;
-          const governed = prepared.governed;
-          recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
-          oaiStreamToolRepairs += recordAdapterToolRepairObservations({
-            stats: toolArgHardeningStats,
-            hardening: hard,
-            logger: app.log,
-            requestId: reqId,
-            originalToolName: event.toolName,
-            originalInput: parsedInput,
-          }).repairCountDelta;
-          if (isWriteCapableToolName(hard.toolName)) {
-            session.blockBroadVerificationUntilEdit = false;
-            session.blockFailingVerificationUntilEdit = false;
-          }
-          if (isGitInspectionChurnBlock(governed)) {
-            session.gitInspectionBlockCount += 1;
-          }
-          recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
-          updateDiffAccumulator(session, governed);
-          maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
-          if (governed.planWriteAudit) {
-            emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
-          }
-          maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, event.toolCallId);
-          if (governed.validationMissing.length > 0) {
-            oaiStreamValidationFailures += 1;
-            app.log.warn(
-              { reqId, toolName: governed.toolName, missing: governed.validationMissing },
-              "tool_args_validation_failed",
-            );
-          }
-          if (openClawStrictGovernance && isWriteCapableToolName(event.toolName) && governed.toolName === "Bash") {
-            openClawProfileStats.strictGovernanceRewrites += 1;
-          }
-          argsStr = JSON.stringify(governed.input);
-          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-            app.log.debug({
-              reqId, toolName: governed.toolName, toolCallId: event.toolCallId,
-              argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
-              repairedWriteContent: hard.repairedWriteContent,
-              adapterFamily: adapter.family,
-            }, "tool_call_streamed");
-          }
-          let candidateCall = prepared.call;
-          if (prepared.unavailableRewrite.rewritten) {
-            app.log.warn(
-              {
-                reqId,
-                requested_tool: prepared.unavailableRewrite.requestedTool,
-                fallback_tool: prepared.call.toolName,
-              },
-              "tool_call_unavailable_rewritten",
-            );
-          }
-          argsStr = JSON.stringify(candidateCall.input);
-          const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
-          const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
-          if (streamGuarded.redirectedCount > 0) {
-            oaiStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
-            recordBlockedDiscovery(sessionKey, streamGuarded.redirectedCount);
-            const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
-            if (redirectedCall) {
-              candidateCall = redirectedCall as GuardrailToolCall;
-              argsStr = JSON.stringify(redirectedCall.input);
-            }
-          }
-          if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
-            oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
-            oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
-            const blockedId = event.toolCallId;
-            if (blockedId) {
-              oaiStreamState.removeToolCall(blockedId);
-            }
-            if (streamGuarded.blockedCount > 0) {
-              const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-                resolved.resolvedModelId,
-                streamGuarded.blockedDetails,
-                effectiveOaiPathCtx.projectRoot,
-              );
-              oaiStreamBlockedDetails.push(...streamGuarded.blockedDetails);
-              oaiStreamRecoveryPreviewEntries += recovery.entryCount;
-              oaiStreamRecoveryMode = recovery.recoveryMode;
-              openAiStreamWriter.writeTextDelta(`\n${recovery.text}\n`);
-            }
-            continue;
-          }
-          oaiStreamGuardrailAccepted.push(candidateCall);
-          const clientCandidateCall = restoreGuardrailCallForClient(
-            candidateCall,
-            effectiveTools as unknown[],
-            oaiClientKind,
+            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)
+              ? buildDefaultPolicy((effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd)!) : null,
+          },
+          availability: {
+            offeredToolSet: oaiStreamOfferedToolSet,
+            offeredToolNames: oaiStreamOfferedToolNames,
+            fallbackBashToolName: oaiStreamFallbackBashToolName,
+          },
+        });
+        const hard = prepared.hardening;
+        const governed = prepared.governed;
+        recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", hard.upperHarnessDecision);
+        oaiStreamToolRepairs += recordAdapterToolRepairObservations({
+          stats: toolArgHardeningStats,
+          hardening: hard,
+          logger: app.log,
+          requestId: reqId,
+          originalToolName: event.toolName,
+          originalInput: parsedInput,
+        }).repairCountDelta;
+        if (isWriteCapableToolName(hard.toolName)) {
+          session.blockBroadVerificationUntilEdit = false;
+          session.blockFailingVerificationUntilEdit = false;
+        }
+        if (isGitInspectionChurnBlock(governed)) {
+          session.gitInspectionBlockCount += 1;
+        }
+        recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
+        updateDiffAccumulator(session, governed);
+        maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
+        if (governed.planWriteAudit) {
+          emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, governed.planWriteAudit);
+        }
+        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, oaiClientKind, governed, event.toolCallId);
+        if (governed.validationMissing.length > 0) {
+          oaiStreamValidationFailures += 1;
+          app.log.warn(
+            { reqId, toolName: governed.toolName, missing: governed.validationMissing },
+            "tool_args_validation_failed",
           );
-          argsStr = JSON.stringify(clientCandidateCall.input);
-          const existing = oaiStreamState.findToolCall(event.toolCallId);
-          if (existing) {
-            existing.name = clientCandidateCall.toolName;
-            openAiStreamWriter.writeToolCallDelta({
-              index: existing.index,
-              function: { arguments: argsStr },
-            }, ts);
-            oaiStreamEmittedToolCalls += 1;
-          } else {
-            openAiStreamWriter.writeToolCallDelta({
-              index: oaiStreamState.nextToolCallIndex(),
-              id: event.toolCallId,
-              type: "function",
-              function: { name: clientCandidateCall.toolName, arguments: argsStr },
-            }, ts);
-            oaiStreamEmittedToolCalls += 1;
+        }
+        if (openClawStrictGovernance && isWriteCapableToolName(event.toolName) && governed.toolName === "Bash") {
+          openClawProfileStats.strictGovernanceRewrites += 1;
+        }
+        argsStr = JSON.stringify(governed.input);
+        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
+          app.log.debug({
+            reqId, toolName: governed.toolName, toolCallId: event.toolCallId,
+            argsLen: rawArgsLen, normalized: argsStr.length !== rawArgsLen,
+            repairedWriteContent: hard.repairedWriteContent,
+            adapterFamily: adapter.family,
+          }, "tool_call_streamed");
+        }
+        let candidateCall = prepared.call;
+        if (prepared.unavailableRewrite.rewritten) {
+          app.log.warn(
+            {
+              reqId,
+              requested_tool: prepared.unavailableRewrite.requestedTool,
+              fallback_tool: prepared.call.toolName,
+            },
+            "tool_call_unavailable_rewritten",
+          );
+        }
+        const oaiStreamTopDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
+        const streamGuarded = applyDiscoveryToolGuardrail([...oaiStreamGuardrailAccepted, candidateCall], oaiStreamTopDirs);
+        if (streamGuarded.redirectedCount > 0) {
+          oaiStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
+          recordBlockedDiscovery(sessionKey, streamGuarded.redirectedCount);
+          const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
+          if (redirectedCall) {
+            candidateCall = redirectedCall as GuardrailToolCall;
           }
         }
-      } else if (event.type === "tool_input_delta") {
+        if (streamGuarded.calls.length === oaiStreamGuardrailAccepted.length) {
+          oaiStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
+          oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+          const blockedId = event.toolCallId;
+          if (blockedId) {
+            oaiStreamState.removeToolCall(blockedId);
+          }
+          if (streamGuarded.blockedCount > 0) {
+            const recovery = await buildBlockedDiscoveryRecoverySnapshot(
+              resolved.resolvedModelId,
+              streamGuarded.blockedDetails,
+              effectiveOaiPathCtx.projectRoot,
+            );
+            oaiStreamBlockedDetails.push(...streamGuarded.blockedDetails);
+            oaiStreamRecoveryPreviewEntries += recovery.entryCount;
+            oaiStreamRecoveryMode = recovery.recoveryMode;
+            openAiStreamWriter.writeTextDelta(`\n${recovery.text}\n`);
+          }
+          return;
+        }
+        oaiStreamGuardrailAccepted.push(candidateCall);
+        const clientCandidateCall = restoreGuardrailCallForClient(
+          candidateCall,
+          effectiveTools as unknown[],
+          oaiClientKind,
+        );
+        argsStr = JSON.stringify(clientCandidateCall.input);
+        const existing = oaiStreamState.findToolCall(event.toolCallId);
+        if (existing) {
+          existing.name = clientCandidateCall.toolName;
+          openAiStreamWriter.writeToolCallDelta({
+            index: existing.index,
+            function: { arguments: argsStr },
+          }, event.created);
+          oaiStreamEmittedToolCalls += 1;
+        } else {
+          openAiStreamWriter.writeToolCallDelta({
+            index: oaiStreamState.nextToolCallIndex(),
+            id: event.toolCallId,
+            type: "function",
+            function: { name: clientCandidateCall.toolName, arguments: argsStr },
+          }, event.created);
+          oaiStreamEmittedToolCalls += 1;
+        }
+      },
+      onToolInputDelta: (event) => {
         oaiStreamState.appendToolInputDelta(event.toolCallId, event.inputTextDelta);
-      } else if (event.type === "error") {
-        throw event.error;
-      } else if (event.type === "finish") {
+      },
+      onFinish: (event) => {
         if (event.finishReason === "length") oaiStreamState.markLengthFinish();
-      }
-    }
+      },
+    });
     if (
       adapter.family === "qwen3-coder"
       && isLocalLikeOaiStreamBaseUrl
