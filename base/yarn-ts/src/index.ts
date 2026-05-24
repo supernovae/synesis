@@ -334,6 +334,7 @@ import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-no
 import { finalizeOpenAINonStreamText } from "./pipeline/openai-nonstream-finalizer.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { buildOpenAINonStreamAssistantMessage } from "./pipeline/openai-nonstream-response-message.js";
+import { runOpenAINonStreamTelemetry } from "./pipeline/openai-nonstream-telemetry.js";
 import { maybeRewriteOpenAINonStreamCollapsedToolCalls } from "./pipeline/openai-nonstream-tool-collapse.js";
 import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -9687,124 +9688,91 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oaiGateBlockedVerification = finalizedText.gateBlockedVerification;
     const oaiCriticBlocked = finalizedText.criticBlocked;
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-    const oaiLatency = Date.now() - started;
-    const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-    const oaiGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
-    const oaiTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
-    if (oaiGuidedTrimmed > 0) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "tool_output_truncated_guided",
-        "tool-guardrails",
-        `count=${oaiGuidedTrimmed}`,
-        reqId,
-      );
-    }
-    if (oaiTaskPruned > 0) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "task_conditioned_prune_applied",
-        "tool-reducer",
-        `count=${oaiTaskPruned}`,
-        reqId,
-      );
-    }
-    const lastRecallOai = toolResultReduction.getLastRecallDecision();
-    const vStateOai = toolResultReduction.getVerificationTracker().getState();
-    const oaiSnapshot = buildDecisionSnapshot({
-      orchestration,
-      recallDecision: lastRecallOai,
-      verificationState: vStateOai,
-      policyMatchedRules: policyPrecheck.matchedRules,
+    runOpenAINonStreamTelemetry({
+      requestId: reqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      startedAtMs: started,
+      finishReason,
+      usage,
+      resolvedModelId: resolved.resolvedModelId,
+      clientRequestedModel: request.model,
+      reductions: {
+        toolResultReduction,
+        validationNormalization,
+      },
       reducedToolResults: reducedOpenAI.reducedCount,
-      tokensSavedByReduction: oaiSaved,
+      orchestration,
+      policyMatchedRules: policyPrecheck.matchedRules,
       evidencePrefetched: oaiEvidencePrefetched,
       evidenceConfidence: combinedEvidenceConfidence || undefined,
       evidenceAuthoritative: oaiPrefetchResult?.authoritative,
       evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
       evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
-      isStreaming: false,
+      diagnosticEvidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
       sensemakingTriggered: oaiSensemakingResult?.triggered,
       sensemakingReason: oaiSensemakingResult?.reason,
       governorDecision: oaiExecutionGovernor,
       governorChatStateSummary: oaiPauseChatSummary,
       governorFileStateSummary: oaiPauseFileSummary,
-    });
-    oaiOptLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
-    oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
-    const oaiLedgerSnap = oaiOptLedger.finalize();
-    app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
-
-    persistAndEmitDecisionTelemetry({
-      state: session,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
-      usage,
-      latencyMs: oaiLatency,
-      finishReason,
-      tokensSavedByReduction: oaiSaved,
-      escalated: orchestration.escalated,
-      snapshot: oaiSnapshot,
-      trajectory: {
-        toolSequence: externalToolCalls.map((tc) => tc.toolName),
-        verificationSteps: inferVerificationSteps(externalToolCalls.map((tc) => tc.toolName)),
-        diagnostics: oaiTrajectoryDiagnostics,
-        completionGateBlocked: oaiGateBlockedVerification,
+      optimizationLedger: oaiOptLedger,
+      normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+      toolNames: externalToolCalls.map((tc) => tc.toolName),
+      inferVerificationSteps,
+      trajectoryDiagnostics: oaiTrajectoryDiagnostics,
+      gate: {
+        gateApplied: oaiGateApplied,
+        missingMust: oaiMissingMust,
+        missingShould: oaiMissingShould,
+        gateBlockedVerification: oaiGateBlockedVerification,
         criticBlocked: oaiCriticBlocked,
-        outcomeState: (oaiGateBlockedVerification || oaiCriticBlocked) ? "partial" : undefined,
-        failureStage: oaiGateBlockedVerification ? "verification" : undefined,
       },
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      optimizationLedger: oaiLedgerSnap,
-      clientRequestedModel: request.model,
-    });
-
-    const msgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
-    pushDiagnostic({
-      timestamp: Date.now(), sessionKey, path: "/v1/chat/completions", requestId: reqId,
-      ...msgCounts,
       toolDefinitionCount: effectiveTools.length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-      reducedToolResults: reducedOpenAI.reducedCount,
-      finishReason, tokensIn: usage.inputTokens, tokensOut: usage.outputTokens,
-      policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiLatency,
-      recallRouting: lastRecallOai?.routing,
-      recallConfidence: lastRecallOai?.resolution?.confidence,
-      verificationRound: vStateOai.round > 0 ? vStateOai.round : undefined,
-      verificationFindings: vStateOai.round > 0 ? vStateOai.findings.length : undefined,
-      verificationStalled: vStateOai.stalled || undefined,
-      decisionPath: orchestration.decisionPath,
-      decisionEscalated: orchestration.escalated || undefined,
-      sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
-      sensemakingReason: oaiSensemakingResult?.reason,
-      evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
-      evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
-      evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
-      evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
       promptProfileIds: oaiEnriched.promptProfileIds,
       promptProfileHashes: oaiEnriched.promptProfileHashes,
       prefixHash: oaiEnriched.prefixHash,
       prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-      completionGateApplied: oaiGateApplied || undefined,
-      missingMustRequirements: oaiMissingMust || undefined,
-      missingShouldRequirements: oaiMissingShould || undefined,
       requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
-      contextAdmissionDecision: oaiContextAdmission.decision,
-      contextAdmissionReason: oaiContextAdmission.reason,
-      contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
-      contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
-      requestForensicsSummary: lastOpenAiForensics?.summary,
-      requestForensicsLcpRatio: lastOpenAiForensics?.lcpRatio,
-      requestForensicsFirstChangedSection: lastOpenAiForensics?.firstChangedSection,
-      requestForensicsTokenEstimate: lastOpenAiForensics?.tokenEstimate,
+      contextAdmission: {
+        decision: oaiContextAdmission.decision,
+        reason: oaiContextAdmission.reason,
+        estimatedTokens: oaiContextAdmission.estimatedTokens,
+        estimatedChars: oaiContextAdmission.estimatedChars,
+      },
+      requestForensics: lastOpenAiForensics,
+      recordSessionEvent: ({ eventKind, component, detail }) => recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        eventKind,
+        component,
+        detail,
+        reqId,
+      ),
+      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+        state: session,
+        requestId: reqId,
+        resolvedModelId: resolved.resolvedModelId,
+        usage: telemetry.usage,
+        latencyMs: telemetry.latencyMs,
+        finishReason,
+        tokensSavedByReduction: telemetry.tokensSavedByReduction,
+        escalated: orchestration.escalated,
+        snapshot: telemetry.snapshot,
+        trajectory: telemetry.trajectory,
+        sessionKey,
+        userId: identity.userId,
+        orgId: identity.orgId,
+        optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
+        clientRequestedModel: request.model,
+      }),
+      countMessageRoles,
+      pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
+      logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
     });
 
     const message = buildOpenAINonStreamAssistantMessage({
