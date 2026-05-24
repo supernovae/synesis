@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { OpenAIStreamResponseWriter } from "../src/streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "../src/streaming/openai-stream-state.js";
-import { runOpenAIStreamingPipeline } from "../src/streaming/openai-streaming-pipeline.js";
+import {
+  createOpenAIStreamingPipelineInput,
+  runOpenAIStreamingPipeline,
+} from "../src/streaming/openai-streaming-pipeline.js";
 import type { OpenAIStreamTelemetryInput } from "../src/streaming/openai-stream-telemetry.js";
 
 async function* streamParts(parts: unknown[]): AsyncIterable<unknown> {
@@ -96,6 +99,51 @@ function pipelineHarness() {
 }
 
 describe("runOpenAIStreamingPipeline", () => {
+  it("preserves pipeline input identity for route assembly", () => {
+    const { writer, streamState } = pipelineHarness();
+    const input = {
+      streamParts: streamParts([]),
+      streamState,
+      eventHandlers: {},
+      finalizerInput: {
+        writer,
+        streamed: { totalUsage: Promise.resolve({}), text: Promise.resolve("") },
+        streamOptions: {},
+        readUsage: () => ({
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          cacheCreationTokens: 0,
+          costUsd: 0,
+        }),
+        finalizePendingText: async (rawText: string) => ({
+          finalText: rawText,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        }),
+        writeFinalText: vi.fn(),
+        finalizeStreamedText: (text: string) => ({
+          finalText: text,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        }),
+        scrubHistoryText: (text: string) => ({ text, scrubbed: false }),
+        onHistoryText: vi.fn(),
+        endStream: vi.fn(),
+        stopHeartbeat: vi.fn(),
+      },
+      buildTelemetryInput: ({ finishReason }: { finishReason: string }) => telemetryInput({
+        finishReason,
+        state: streamState,
+        writer,
+      }),
+    } satisfies Parameters<typeof createOpenAIStreamingPipelineInput>[0];
+
+    expect(createOpenAIStreamingPipelineInput(input)).toBe(input);
+  });
+
   it("runs events, finalization, and telemetry in sequence", async () => {
     const { writes, writer, streamState } = pipelineHarness();
     const order: string[] = [];

@@ -289,7 +289,10 @@ import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import { createOpenAIStreamToolCallAccumulator } from "./streaming/openai-stream-tool-call-handler.js";
-import { runOpenAIStreamingPipeline } from "./streaming/openai-streaming-pipeline.js";
+import {
+  createOpenAIStreamingPipelineInput,
+  runOpenAIStreamingPipeline,
+} from "./streaming/openai-streaming-pipeline.js";
 import {
   classifyAiSdkStreamPart,
   parseToolInput,
@@ -10300,7 +10303,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ),
   });
 
-  await runOpenAIStreamingPipeline({
+  const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
     streamState: oaiStreamState,
     eventHandlers: createOpenAIStreamRouteEventHandlers({
@@ -10479,6 +10482,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
     }),
   });
+  await runOpenAIStreamingPipeline(oaiStreamingPipelineInput);
   return reply;
 });
 

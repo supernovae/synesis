@@ -31,6 +31,12 @@ export interface OpenAIStreamingPipelineResult {
   telemetry: OpenAIStreamTelemetryResult;
 }
 
+export function createOpenAIStreamingPipelineInput(
+  input: OpenAIStreamingPipelineInput,
+): OpenAIStreamingPipelineInput {
+  return input;
+}
+
 export async function runOpenAIStreamingPipeline(
   input: OpenAIStreamingPipelineInput,
 ): Promise<OpenAIStreamingPipelineResult> {
