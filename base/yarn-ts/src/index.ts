@@ -288,10 +288,10 @@ import {
 import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
 import { prepareClaudeStreamProviderRequest } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
-import { createClaudeStreamEventRecorder } from "./streaming/claude-stream-route-scope.js";
 import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime.js";
 import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
+import { createStreamRouteEventRecorder } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -10103,6 +10103,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
   const started = Date.now();
+  const oaiStreamScope = {
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    requestId: reqId,
+  };
+  const recordOpenAIStreamEvent = createStreamRouteEventRecorder(oaiStreamScope, recordSessionEvent);
   const openAiStreamForensics = captureRequestForensics(
     sessionKey,
     reqId,
@@ -10131,16 +10138,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     startedAtMs: started,
     longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
     hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-      event.metadataJson,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   });
   modelMessages = prepareOpenAIStreamMessages({
     requestId: reqId,
@@ -10149,15 +10147,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
     samplingOptions: oaiSamplingOptions,
     logger: app.log,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   }) as typeof modelMessages;
   const oaiStreamProviderRequestOptions = createOpenAIStreamProviderRequestOptions({
     model: resolved.model,
@@ -10181,16 +10171,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
     longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
     startHeartbeat: startSseHeartbeat,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-      event.metadataJson,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   });
 
   const oaiStreamComponents = createOpenAIStreamComponents({
@@ -10201,22 +10182,14 @@ app.post("/v1/chat/completions", async (req, reply) => {
     tierConfig: tierRegistry.getTierConfig(resolved.resolvedModelId),
     write: safeWrite,
     computePrefixFingerprint,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   });
   const oaiStreamLifecycle = createOpenAIStreamLifecycleHandlers({
-    requestId: reqId,
+    requestId: oaiStreamScope.requestId,
     model: resolved.resolvedModelId,
-    orgId: identity.orgId,
-    sessionKey,
-    userId: identity.userId,
+    orgId: oaiStreamScope.orgId,
+    sessionKey: oaiStreamScope.sessionKey,
+    userId: oaiStreamScope.userId,
     session,
     abortSignal: oaiStreamAbortRuntime.abortController.signal,
     hardTimeout: oaiStreamAbortRuntime.hardTimeout,
@@ -10227,26 +10200,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     circuitBreakers,
     logger: app.log,
     extractUpstreamErrorDiagnostics,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-      event.metadataJson,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   });
   const oaiStreamAfterEvents = createOpenAIStreamAfterEventsHandler({
     adapter,
     localLikeBaseUrl: oaiStreamComponents.localLikeBaseUrl,
-    requestId: reqId,
+    requestId: oaiStreamScope.requestId,
     resolvedModelId: resolved.resolvedModelId,
     baseUrl: oaiStreamComponents.tierConfig?.baseUrl,
-    sessionKey,
-    userId: identity.userId,
-    orgId: identity.orgId,
+    sessionKey: oaiStreamScope.sessionKey,
+    userId: oaiStreamScope.userId,
+    orgId: oaiStreamScope.orgId,
     streamState: oaiStreamComponents.streamState,
     accumulator: oaiStreamComponents.accumulator,
     blockedDetails: oaiStreamComponents.blockedDetails,
@@ -10254,16 +10218,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     logger: app.log,
     recordBlockedDiscovery,
     getBlockedDiscoveryCount,
-    recordSessionEvent: (event) => recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      event.eventKind,
-      event.component,
-      event.detail,
-      reqId,
-      event.metadataJson,
-    ),
+    recordSessionEvent: recordOpenAIStreamEvent,
   });
 
   const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
@@ -10336,10 +10291,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       streamOptions: request.stream_options,
       readUsage,
       session,
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
+      requestId: oaiStreamScope.requestId,
+      sessionKey: oaiStreamScope.sessionKey,
+      userId: oaiStreamScope.userId,
+      orgId: oaiStreamScope.orgId,
       checklist: oaiRequirementChecklist,
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -10354,22 +10309,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
       endStream: () => safeEnd(reply.raw),
       stopHeartbeat: () => oaiHeartbeat.stop(),
       onTaskLedgerOutputScrubbed: () => {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "task_ledger_output_scrubbed",
-          "task-ledger",
-          "Removed internal task-ledger governance from streamed OpenAI history",
-          reqId,
-        );
+        recordOpenAIStreamEvent({
+          eventKind: "task_ledger_output_scrubbed",
+          component: "task-ledger",
+          detail: "Removed internal task-ledger governance from streamed OpenAI history",
+        });
       },
     }),
     buildTelemetryInput: createOpenAIStreamTelemetryInputBuilder({
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
+      requestId: oaiStreamScope.requestId,
+      sessionKey: oaiStreamScope.sessionKey,
+      userId: oaiStreamScope.userId,
+      orgId: oaiStreamScope.orgId,
       startedAtMs: started,
       resolvedModelId: resolved.resolvedModelId,
       clientRequestedModel: request.model,
@@ -10413,15 +10364,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       cacheStrategy: oaiStreamComponents.cacheStrategy !== "none" ? oaiStreamComponents.cacheStrategy : undefined,
       prefixFingerprint: oaiStreamComponents.prefixFingerprint,
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
-      recordSessionEvent: (event) => recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        reqId,
-      ),
+      recordSessionEvent: recordOpenAIStreamEvent,
       persistDecisionTelemetry: ({ finishReason, telemetry }) => persistAndEmitDecisionTelemetry({
         state: session,
         requestId: reqId,
@@ -13245,7 +13188,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...claudeStreamScope,
       requestId: reqId,
     };
-    const recordClaudeStreamEvent = createClaudeStreamEventRecorder(claudeStreamScope, recordSessionEvent);
+    const recordClaudeStreamEvent = createStreamRouteEventRecorder(claudeStreamScope, recordSessionEvent);
     const claudeStreamHardTimeout = setTimeout(() => {
       recordClaudeStreamEvent({
         eventKind: "stream_hard_timeout",

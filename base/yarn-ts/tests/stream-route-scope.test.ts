@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClaudeStreamEventRecorder } from "../src/streaming/claude-stream-route-scope.js";
+import { createStreamRouteEventRecorder } from "../src/streaming/stream-route-scope.js";
 
-describe("createClaudeStreamEventRecorder", () => {
-  it("binds Claude stream session identity and request id to event recording", () => {
+describe("createStreamRouteEventRecorder", () => {
+  it("binds stream session identity and request id to event recording", () => {
     const recordSessionEvent = vi.fn();
-    const recordEvent = createClaudeStreamEventRecorder({
+    const recordEvent = createStreamRouteEventRecorder({
       sessionKey: "session_1",
       userId: "user_1",
       orgId: "org_1",
