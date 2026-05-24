@@ -330,6 +330,7 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
+import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -9422,11 +9423,25 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
-    const nonStreamResult = await runOpenAIChatNonStreamPipeline({
-      requestId: reqId,
+    const oaiNonStreamScope = createOpenAINonStreamRouteScope({
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
+      requestId: reqId,
+      state: session,
+      resolvedModelId: resolved.resolvedModelId,
+      clientRequestedModel: request.model,
+      recordSessionEvent,
+      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+        ...telemetry,
+        optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
+      }),
+    });
+    const nonStreamResult = await runOpenAIChatNonStreamPipeline({
+      requestId: reqId,
+      sessionKey,
+      userId: oaiNonStreamScope.userId,
+      orgId: oaiNonStreamScope.orgId,
       resolvedModelId: resolved.resolvedModelId,
       circuitBreakers,
       logger: app.log,
@@ -9435,16 +9450,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       onMissingToolResults: () => {
         session.skipToolIdStabilization = true;
       },
-      recordSessionEvent: (eventKind, component, detail, metadataJson) => recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        eventKind,
-        component,
-        detail,
-        reqId,
-        metadataJson,
-      ),
+      recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+        oaiNonStreamScope.recordEvent({ eventKind, component, detail, metadataJson }),
       providerInput: {
         initialMessages: modelMessages,
         model: resolved.model,
@@ -9545,8 +9552,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           logger: app.log,
           requestId: reqId,
           sessionKey,
-          userId: identity.userId,
-          orgId: identity.orgId,
+          userId: oaiNonStreamScope.userId,
+          orgId: oaiNonStreamScope.orgId,
           recordUpperHarnessDecision,
           updateDiffAccumulator,
           maybeUpdateTaskLedgerFromToolCall,
@@ -9556,8 +9563,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
         discoveryInput: {
           sessionKey,
-          userId: identity.userId,
-          orgId: identity.orgId,
+          userId: oaiNonStreamScope.userId,
+          orgId: oaiNonStreamScope.orgId,
           requestId: reqId,
           resolvedModelId: resolved.resolvedModelId,
           projectRoot: effectiveOaiPathCtx.projectRoot,
@@ -9584,8 +9591,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
           session,
           requestId: reqId,
           sessionKey,
-          userId: identity.userId,
-          orgId: identity.orgId,
+          userId: oaiNonStreamScope.userId,
+          orgId: oaiNonStreamScope.orgId,
           checklist: oaiRequirementChecklist,
           traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
           latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -9600,8 +9607,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         telemetryInput: {
           requestId: reqId,
           sessionKey,
-          userId: identity.userId,
-          orgId: identity.orgId,
+          userId: oaiNonStreamScope.userId,
+          orgId: oaiNonStreamScope.orgId,
           startedAtMs: started,
           resolvedModelId: resolved.resolvedModelId,
           clientRequestedModel: request.model,
@@ -9642,31 +9649,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
             estimatedTokens: oaiContextAdmission.estimatedTokens,
             estimatedChars: oaiContextAdmission.estimatedChars,
           },
-          recordSessionEvent: ({ eventKind, component, detail }) => recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            eventKind,
-            component,
-            detail,
-            reqId,
-          ),
-          persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
-            state: session,
-            requestId: reqId,
-            resolvedModelId: resolved.resolvedModelId,
-            usage: telemetry.usage,
-            latencyMs: telemetry.latencyMs,
-            finishReason: telemetry.finishReason,
-            tokensSavedByReduction: telemetry.tokensSavedByReduction,
+          recordSessionEvent: oaiNonStreamScope.recordEvent,
+          persistDecisionTelemetry: (telemetry) => oaiNonStreamScope.persistDecisionTelemetry({
+            ...telemetry,
             escalated: orchestration.escalated,
-            snapshot: telemetry.snapshot,
-            trajectory: telemetry.trajectory,
-            sessionKey,
-            userId: identity.userId,
-            orgId: identity.orgId,
             optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
-            clientRequestedModel: request.model,
           }),
           countMessageRoles,
           pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
