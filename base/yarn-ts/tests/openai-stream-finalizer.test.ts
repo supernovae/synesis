@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { finalizeOpenAIStreamCompletion } from "../src/streaming/openai-stream-finalizer.js";
+import {
+  createOpenAIStreamFinalizerInput,
+  finalizeOpenAIStreamCompletion,
+} from "../src/streaming/openai-stream-finalizer.js";
 import { OpenAIStreamResponseWriter } from "../src/streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "../src/streaming/openai-stream-state.js";
 
@@ -17,6 +20,44 @@ function createWriter() {
 }
 
 describe("finalizeOpenAIStreamCompletion", () => {
+  it("preserves finalizer factory input identity", () => {
+    const { writer } = createWriter();
+    const input = {
+      writer,
+      streamed: {
+        totalUsage: Promise.resolve({}),
+        text: Promise.resolve(""),
+      },
+      streamOptions: {},
+      readUsage: () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+      }),
+      finalizePendingText: async (rawText: string) => ({
+        finalText: rawText,
+        missingMust: 0,
+        missingShould: 0,
+        blockedByVerification: false,
+      }),
+      writeFinalText: vi.fn(),
+      finalizeStreamedText: (streamedText: string) => ({
+        finalText: streamedText,
+        missingMust: 0,
+        missingShould: 0,
+        blockedByVerification: false,
+      }),
+      scrubHistoryText: (text: string) => ({ text, scrubbed: false }),
+      onHistoryText: vi.fn(),
+      endStream: vi.fn(),
+      stopHeartbeat: vi.fn(),
+    } satisfies Parameters<typeof createOpenAIStreamFinalizerInput>[0];
+
+    expect(createOpenAIStreamFinalizerInput(input)).toBe(input);
+  });
+
   it("finalizes pending text before writing final chunk and done line", async () => {
     const streamState = new OpenAIStreamState();
     streamState.appendTextDelta("hello");

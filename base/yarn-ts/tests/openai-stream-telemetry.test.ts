@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runOpenAIStreamTelemetry } from "../src/streaming/openai-stream-telemetry.js";
+import {
+  createOpenAIStreamTelemetryInputBuilder,
+  runOpenAIStreamTelemetry,
+} from "../src/streaming/openai-stream-telemetry.js";
 import type { OpenAIStreamFinalizerResult } from "../src/streaming/openai-stream-finalizer.js";
 
 const verificationState = {
@@ -124,6 +127,22 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIStreamTelemetry
 }
 
 describe("runOpenAIStreamTelemetry", () => {
+  it("preserves telemetry builder identity", () => {
+    const finalized = baseInput().streamFinalized;
+    const builder = vi.fn(({ finishReason, finalized: streamFinalized }) => baseInput({
+      finishReason,
+      streamFinalized,
+    }));
+
+    const wrapped = createOpenAIStreamTelemetryInputBuilder(builder);
+
+    expect(wrapped).toBe(builder);
+    expect(wrapped({ finishReason: "tool_calls", finalized })).toMatchObject({
+      finishReason: "tool_calls",
+      streamFinalized: finalized,
+    });
+  });
+
   it("builds snapshot, persists telemetry, records reducer events, and pushes diagnostics", () => {
     const input = baseInput();
 

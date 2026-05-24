@@ -53,6 +53,14 @@ export interface OpenAIStreamFinalizerInput {
   stopHeartbeat(): void;
 }
 
+export type OpenAIStreamFinalizerFactoryInput = Omit<OpenAIStreamFinalizerInput, "streamState" | "finishReason">;
+
+export function createOpenAIStreamFinalizerInput(
+  input: OpenAIStreamFinalizerFactoryInput,
+): OpenAIStreamFinalizerFactoryInput {
+  return input;
+}
+
 const ZERO_USAGE: StreamTokenUsage = {
   inputTokens: 0,
   outputTokens: 0,

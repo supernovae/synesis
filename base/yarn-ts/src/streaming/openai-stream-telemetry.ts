@@ -105,6 +105,17 @@ export interface OpenAIStreamTelemetryInput {
   logOptimizationLedger(record: Record<string, unknown>): void;
 }
 
+export type OpenAIStreamTelemetryInputBuilder = (args: {
+  finishReason: string;
+  finalized: OpenAIStreamFinalizerResult;
+}) => OpenAIStreamTelemetryInput;
+
+export function createOpenAIStreamTelemetryInputBuilder(
+  build: OpenAIStreamTelemetryInputBuilder,
+): OpenAIStreamTelemetryInputBuilder {
+  return build;
+}
+
 export interface OpenAIStreamTelemetryResult {
   latencyMs: number;
   usage: StreamTokenUsage;

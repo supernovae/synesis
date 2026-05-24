@@ -283,8 +283,10 @@ import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { runOpenAIStreamAfterEvents } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamEventHandlers } from "./streaming/openai-stream-event-handlers.js";
+import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
+import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import { createOpenAIStreamToolCallAccumulator } from "./streaming/openai-stream-tool-call-handler.js";
 import { runOpenAIStreamingPipeline } from "./streaming/openai-streaming-pipeline.js";
 import {
@@ -10418,7 +10420,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   otelStreamSpan.end();
     },
-    finalizerInput: {
+    finalizerInput: createOpenAIStreamFinalizerInput({
     writer: openAiStreamWriter,
     streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
     streamOptions: request.stream_options,
@@ -10499,8 +10501,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     },
     endStream: () => safeEnd(reply.raw),
     stopHeartbeat: () => oaiHeartbeat.stop(),
-    },
-    buildTelemetryInput: ({ finishReason, finalized }) => ({
+    }),
+    buildTelemetryInput: createOpenAIStreamTelemetryInputBuilder(({ finishReason, finalized }) => ({
     requestId: reqId,
     sessionKey,
     userId: identity.userId,
@@ -10579,7 +10581,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     countMessageRoles,
     pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
     logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
-    }),
+    })),
   });
   return reply;
 });

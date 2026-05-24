@@ -2,13 +2,13 @@ import type { OpenAIStreamEventHandlers } from "./openai-stream-event-runner.js"
 import { runOpenAIStreamEvents } from "./openai-stream-event-runner.js";
 import {
   finalizeOpenAIStreamCompletion,
-  type OpenAIStreamFinalizerInput,
+  type OpenAIStreamFinalizerFactoryInput,
   type OpenAIStreamFinalizerResult,
 } from "./openai-stream-finalizer.js";
 import type { OpenAIStreamState } from "./openai-stream-state.js";
 import {
   runOpenAIStreamTelemetry,
-  type OpenAIStreamTelemetryInput,
+  type OpenAIStreamTelemetryInputBuilder,
   type OpenAIStreamTelemetryResult,
 } from "./openai-stream-telemetry.js";
 
@@ -21,11 +21,8 @@ export interface OpenAIStreamingPipelineInput {
   afterEvents?: () => MaybePromise<void>;
   onEventError?: (error: unknown) => MaybePromise<void>;
   beforeFinalize?: (finishReason: string) => MaybePromise<void>;
-  finalizerInput: Omit<OpenAIStreamFinalizerInput, "streamState" | "finishReason">;
-  buildTelemetryInput(args: {
-    finishReason: string;
-    finalized: OpenAIStreamFinalizerResult;
-  }): OpenAIStreamTelemetryInput;
+  finalizerInput: OpenAIStreamFinalizerFactoryInput;
+  buildTelemetryInput: OpenAIStreamTelemetryInputBuilder;
 }
 
 export interface OpenAIStreamingPipelineResult {
