@@ -350,6 +350,7 @@ import {
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
+import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -10047,42 +10048,23 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: identity.orgId,
     requestId: reqId,
   };
-  const oaiAdmission = await streamAdmission.acquire();
-  const oaiAdmissionRejection = buildStreamAdmissionRejection({
-    admission: oaiAdmission,
-    queueStats: streamAdmission.getStats(),
-    logMessage: "stream_admission_rejected",
+  const oaiStreamStart = await startOpenAIStreamRoute({
     scope: oaiStreamGateScope,
+    resolvedModelId: resolved.resolvedModelId,
     logger: app.log,
+    streamAdmission,
+    circuitBreakers,
     recordSessionEvent,
-    payload: { error: { type: "service_unavailable", message: "Server at capacity. Try again shortly." } },
+    startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
   });
-  if (oaiAdmissionRejection) {
-    reply.header("Retry-After", oaiAdmissionRejection.retryAfter);
-    return reply.code(oaiAdmissionRejection.statusCode).send(oaiAdmissionRejection.payload);
+  if (!oaiStreamStart.ok) {
+    return sendOpenAIChatPipelineResult(reply, oaiStreamStart.result);
   }
-
-  const oaiBreakerRejection = buildStreamCircuitBreakerRejection({
-    allowed: circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId),
-    admission: oaiAdmission,
-    model: resolved.resolvedModelId,
-    orgId: identity.orgId,
-    detail: `Circuit breaker open for ${resolved.resolvedModelId} (stream)`,
-    logMessage: "circuit_breaker_open_stream",
-    scope: oaiStreamGateScope,
-    logger: app.log,
-    recordSessionEvent,
-    payload: { error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } },
-  });
-  if (oaiBreakerRejection) {
-    reply.header("Retry-After", oaiBreakerRejection.retryAfter);
-    return reply.code(oaiBreakerRejection.statusCode).send(oaiBreakerRejection.payload);
-  }
-  const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
-  const started = Date.now();
-  const oaiStreamScopeBundle = createStreamRouteScopeBundle(oaiStreamGateScope, recordSessionEvent);
-  const oaiStreamScope = oaiStreamScopeBundle.scope;
-  const recordOpenAIStreamEvent = oaiStreamScopeBundle.recordEvent;
+  const oaiAdmission = oaiStreamStart.admission;
+  const otelStreamSpan = oaiStreamStart.span;
+  const started = oaiStreamStart.startedAtMs;
+  const oaiStreamScope = oaiStreamStart.scope;
+  const recordOpenAIStreamEvent = oaiStreamStart.recordEvent;
   const oaiStreamToolSideEffects = createRouteToolCallSideEffects({
     session,
     sessionKey,
