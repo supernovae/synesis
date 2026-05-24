@@ -288,6 +288,7 @@ import {
 import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
 import { prepareClaudeStreamProviderRequest } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
+import { createClaudeStreamEventRecorder } from "./streaming/claude-stream-route-scope.js";
 import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime.js";
 import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
@@ -13234,17 +13235,24 @@ app.post("/v1/messages", async (req, reply) => {
       config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS + 5_000,
       config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
     );
+    const claudeStreamScope = {
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: traceReqId,
+    };
+    const claudeResponseScope = {
+      ...claudeStreamScope,
+      requestId: reqId,
+    };
+    const recordClaudeStreamEvent = createClaudeStreamEventRecorder(claudeStreamScope, recordSessionEvent);
     const claudeStreamHardTimeout = setTimeout(() => {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "stream_hard_timeout",
-        "stream-heartbeat",
-        `Aborted Claude stream after ${claudeStreamHardTimeoutMs}ms`,
-        traceReqId,
-        { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
-      );
+      recordClaudeStreamEvent({
+        eventKind: "stream_hard_timeout",
+        component: "stream-heartbeat",
+        detail: `Aborted Claude stream after ${claudeStreamHardTimeoutMs}ms`,
+        metadataJson: { elapsedMs: Date.now() - started, model: resolved.resolvedModelId },
+      });
       claudeStreamAbortController.abort(new Error("stream_hard_timeout"));
     }, claudeStreamHardTimeoutMs);
     const claudeStreamProviderRequest = prepareClaudeStreamProviderRequest({
@@ -13262,15 +13270,7 @@ app.post("/v1/messages", async (req, reply) => {
       providerOptions,
       clampMaxOutputTokens: clampMaxOutputTokensForSafety,
       logger: app.log,
-      recordSessionEvent: (event) => recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        traceReqId,
-      ),
+      recordSessionEvent: recordClaudeStreamEvent,
     });
     claudeModelMessages = claudeStreamProviderRequest.messages as typeof claudeModelMessages;
     const streamed = streamText(claudeStreamProviderRequest.options as never);
@@ -13281,10 +13281,7 @@ app.post("/v1/messages", async (req, reply) => {
       heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
       longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
       startHeartbeat: startSseHeartbeat,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: traceReqId,
+      ...claudeStreamScope,
       createMessageId: () => `msg_${crypto.randomUUID()}`,
       sendSse: (event, data) => safeSse(reply, event, data),
       recordSessionEvent,
@@ -13296,10 +13293,7 @@ app.post("/v1/messages", async (req, reply) => {
       modelMessages: claudeModelMessages as Array<{ role: string; content: unknown }>,
       tierConfig: resolvedTier,
       resolvedModelId: resolved.resolvedModelId,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: traceReqId,
+      ...claudeStreamScope,
       computePrefixFingerprint,
       sendSse: (event, data) => safeSse(reply, event, data),
       recordSessionEvent,
@@ -13405,16 +13399,7 @@ app.post("/v1/messages", async (req, reply) => {
       logger: app.log,
       extractUpstreamErrorDiagnostics,
       sendSse: (eventName, data) => safeSse(reply, eventName, data),
-      recordSessionEvent: (event) => recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        traceReqId,
-        event.metadataJson,
-      ),
+      recordSessionEvent: recordClaudeStreamEvent,
     });
     const claudeStreamAfterEvents = createClaudeStreamAfterEventsHandler({
       adapter: claudeAdapter,
@@ -13422,9 +13407,9 @@ app.post("/v1/messages", async (req, reply) => {
       requestId: traceReqId,
       resolvedModelId: resolved.resolvedModelId,
       baseUrl: resolvedTier?.baseUrl,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
+      sessionKey: claudeStreamScope.sessionKey,
+      userId: claudeStreamScope.userId,
+      orgId: claudeStreamScope.orgId,
       streamState: claudeStreamState,
       discovery: claudeStreamDiscovery,
       blockedDetails: claudeStreamBlockedDetails,
@@ -13454,10 +13439,7 @@ app.post("/v1/messages", async (req, reply) => {
         text: streamed.text,
       },
       session,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: reqId,
+      ...claudeResponseScope,
       readUsage,
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
       handlers: claudeStreamFinalization,
@@ -13470,9 +13452,9 @@ app.post("/v1/messages", async (req, reply) => {
     }));
     runClaudeStreamTelemetry(createClaudeStreamTelemetryInput({
       requestId: reqId,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
+      sessionKey: claudeResponseScope.sessionKey,
+      userId: claudeResponseScope.userId,
+      orgId: claudeResponseScope.orgId,
       startedAtMs: started,
       finishReason: stopReason,
       resolvedModelId: resolved.resolvedModelId,
