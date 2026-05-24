@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runClaudeStreamAfterEvents } from "../src/streaming/claude-stream-after-events.js";
+import {
+  createClaudeStreamAfterEventsHandler,
+  runClaudeStreamAfterEvents,
+} from "../src/streaming/claude-stream-after-events.js";
 import { ClaudeStreamState } from "../src/streaming/claude-stream-state.js";
 
 function baseInput(overrides: Partial<Parameters<typeof runClaudeStreamAfterEvents>[0]> = {}) {
@@ -98,5 +101,48 @@ describe("runClaudeStreamAfterEvents", () => {
       eventKind: "duplicate_broad_call_collapsed",
       detail: "collapsed=1",
     }));
+  });
+
+  it("creates route after-event handler with session-scoped event recording", () => {
+    const h = baseInput();
+    h.discovery.blockedBroadDiscovery = 1;
+    h.discovery.recoveryMode = "top_level_snapshot";
+    h.discovery.recoveryPreviewEntries = 2;
+    const recordSessionEvent = vi.fn();
+    const afterEvents = createClaudeStreamAfterEventsHandler({
+      adapter: { family: "test" },
+      localLikeBaseUrl: false,
+      requestId: "req_1",
+      resolvedModelId: "model-a",
+      baseUrl: "http://localhost:8000",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      streamState: h.streamState,
+      discovery: h.discovery,
+      blockedDetails: [],
+      stats: h.stats,
+      logger: h.logger,
+      recordBlockedDiscovery: h.recordBlockedDiscovery,
+      getBlockedDiscoveryCount: () => 5,
+      recordSessionEvent,
+    });
+
+    afterEvents({ toolRepairs: 0, validationFailures: 0 });
+
+    expect(h.recordBlockedDiscovery).toHaveBeenCalledWith("session_1", 1);
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "session_1",
+      "user_1",
+      "org_1",
+      "tool_call_blocked_broad_discovery",
+      "tool-guardrails",
+      "blocked=1;sessionTotal=5",
+      "req_1",
+      expect.objectContaining({
+        recoveryMode: "top_level_snapshot",
+        topLevelPreview: 2,
+      }),
+    );
   });
 });

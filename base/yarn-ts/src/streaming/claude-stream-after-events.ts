@@ -30,6 +30,73 @@ export interface ClaudeStreamAfterEventsInput {
   }): void;
 }
 
+export interface ClaudeStreamAfterEventsRouteInput {
+  adapter: Pick<ModelAdapter, "family">;
+  localLikeBaseUrl: boolean;
+  requestId: string;
+  resolvedModelId: string;
+  baseUrl?: string;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  streamState: ClaudeStreamState;
+  discovery: ClaudeStreamDiscoveryState;
+  blockedDetails: BlockedDiscoveryDetail[];
+  stats: Pick<ToolArgHardeningStats, "qwenParserMismatchSuspectCount">;
+  logger: {
+    warn(obj: Record<string, unknown>, msg?: string): void;
+  };
+  recordBlockedDiscovery(sessionKey: string, count: number): void;
+  getBlockedDiscoveryCount(sessionKey: string): number;
+  recordSessionEvent(
+    sessionKey: string,
+    userId: string,
+    orgId: string,
+    eventKind: string,
+    component: string,
+    detail: string,
+    requestId: string,
+    metadataJson?: Record<string, unknown>,
+  ): void;
+}
+
+export interface ClaudeStreamAfterEventsCounters {
+  toolRepairs: number;
+  validationFailures: number;
+}
+
+export function createClaudeStreamAfterEventsHandler(
+  input: ClaudeStreamAfterEventsRouteInput,
+): (counters: ClaudeStreamAfterEventsCounters) => void {
+  return (counters) => runClaudeStreamAfterEvents({
+    adapter: input.adapter,
+    localLikeBaseUrl: input.localLikeBaseUrl,
+    requestId: input.requestId,
+    resolvedModelId: input.resolvedModelId,
+    baseUrl: input.baseUrl,
+    sessionKey: input.sessionKey,
+    streamState: input.streamState,
+    discovery: input.discovery,
+    blockedDetails: input.blockedDetails,
+    toolRepairs: counters.toolRepairs,
+    validationFailures: counters.validationFailures,
+    stats: input.stats,
+    logger: input.logger,
+    recordBlockedDiscovery: input.recordBlockedDiscovery,
+    getBlockedDiscoveryCount: input.getBlockedDiscoveryCount,
+    recordSessionEvent: (event) => input.recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      input.requestId,
+      event.metadataJson,
+    ),
+  });
+}
+
 export function runClaudeStreamAfterEvents(input: ClaudeStreamAfterEventsInput): void {
   if (
     input.adapter.family === "qwen3-coder"

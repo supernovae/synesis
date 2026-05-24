@@ -280,7 +280,7 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
-import { runClaudeStreamAfterEvents } from "./streaming/claude-stream-after-events.js";
+import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
 import {
   createClaudeStreamCompletionFinalizerInput,
@@ -13437,38 +13437,30 @@ app.post("/v1/messages", async (req, reply) => {
         event.metadataJson,
       ),
     });
+    const claudeStreamAfterEvents = createClaudeStreamAfterEventsHandler({
+      adapter: claudeAdapter,
+      localLikeBaseUrl: isLocalLikeBaseUrl,
+      requestId: traceReqId,
+      resolvedModelId: resolved.resolvedModelId,
+      baseUrl: resolvedTier?.baseUrl,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      streamState: claudeStreamState,
+      discovery: claudeStreamDiscovery,
+      blockedDetails: claudeStreamBlockedDetails,
+      stats: toolArgHardeningStats,
+      logger: app.log,
+      recordBlockedDiscovery,
+      getBlockedDiscoveryCount,
+      recordSessionEvent,
+    });
 
     const claudeStreamingPipeline = await runClaudeStreamingPipeline({
       streamParts: streamed.fullStream,
       handleLocalEvent: claudeStreamRouteHandlers.handleLocalEvent,
       handleToolCall: claudeStreamRouteHandlers.handleToolCall,
-      afterEvents: (counters) => runClaudeStreamAfterEvents({
-        adapter: claudeAdapter,
-        localLikeBaseUrl: isLocalLikeBaseUrl,
-        requestId: traceReqId,
-        resolvedModelId: resolved.resolvedModelId,
-        baseUrl: resolvedTier?.baseUrl,
-        sessionKey: claudeSessionKey,
-        streamState: claudeStreamState,
-        discovery: claudeStreamDiscovery,
-        blockedDetails: claudeStreamBlockedDetails,
-        toolRepairs: counters.toolRepairs,
-        validationFailures: counters.validationFailures,
-        stats: toolArgHardeningStats,
-        logger: app.log,
-        recordBlockedDiscovery,
-        getBlockedDiscoveryCount,
-        recordSessionEvent: (event) => recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          traceReqId,
-          event.metadataJson,
-        ),
-      }),
+      afterEvents: claudeStreamAfterEvents,
       onEventError: claudeStreamLifecycle.onEventError,
       finalizeLifecycle: claudeStreamLifecycle.finalizeLifecycle,
     });
