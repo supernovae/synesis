@@ -1,13 +1,17 @@
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import {
+  createOpenAINonStreamProviderExecutorInput,
   executeOpenAINonStreamProviderLoop,
   type OpenAINonStreamProviderExecutorInput,
+  type OpenAINonStreamProviderExecutorRouteInput,
   type OpenAINonStreamProviderMessage,
   type OpenAINonStreamProviderResultLike,
 } from "./openai-nonstream-provider-executor.js";
 import {
+  createOpenAINonStreamPostProviderInput,
   processOpenAINonStreamProviderResult,
   type OpenAINonStreamPostProviderInput,
+  type OpenAINonStreamPostProviderRouteInput,
 } from "./openai-nonstream-postprocess.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 import type { OpenAINonStreamFinalizerSession } from "./openai-nonstream-finalizer.js";
@@ -88,6 +92,22 @@ export interface OpenAIChatNonStreamPipelineRouteInput<
   scope: OpenAINonStreamRouteScope;
 }
 
+export interface OpenAIChatNonStreamRouteAssemblyInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+> extends Omit<
+    OpenAIChatNonStreamPipelineRouteInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph>,
+    "providerInput" | "postprocessInput"
+  > {
+  providerRouteInput: OpenAINonStreamProviderExecutorRouteInput<TMessage, TResult, TForensics>;
+  postprocessRouteInput: OpenAINonStreamPostProviderRouteInput<TSession, TChecklist, TVerification, TPlanGraph>;
+}
+
 export function createOpenAIChatNonStreamPipelineInput<
   TMessage extends OpenAINonStreamProviderMessage,
   TResult extends OpenAINonStreamProviderResultLike,
@@ -108,6 +128,24 @@ export function createOpenAIChatNonStreamPipelineInput<
     recordSessionEvent: (eventKind, component, detail, metadataJson) =>
       input.scope.recordEvent({ eventKind, component, detail, metadataJson }),
   };
+}
+
+export function createOpenAIChatNonStreamRoutePipelineInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+>(
+  input: OpenAIChatNonStreamRouteAssemblyInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph>,
+): OpenAIChatNonStreamPipelineInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph> {
+  return createOpenAIChatNonStreamPipelineInput({
+    ...input,
+    providerInput: createOpenAINonStreamProviderExecutorInput(input.providerRouteInput),
+    postprocessInput: createOpenAINonStreamPostProviderInput(input.postprocessRouteInput),
+  });
 }
 
 export async function runOpenAIChatNonStreamPipeline<

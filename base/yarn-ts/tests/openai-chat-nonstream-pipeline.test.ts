@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createOpenAIChatNonStreamPipelineInput,
+  createOpenAIChatNonStreamRoutePipelineInput,
   runOpenAIChatNonStreamPipeline,
 } from "../src/pipeline/openai-chat-nonstream-pipeline.js";
 
@@ -98,6 +99,144 @@ describe("runOpenAIChatNonStreamPipeline", () => {
       detail: "detail",
       metadataJson: { ok: true },
     });
+  });
+
+  it("assembles provider and postprocess route inputs from one route input", () => {
+    const recordEvent = vi.fn();
+    const persistDecisionTelemetry = vi.fn();
+    const capture = vi.fn((context) => ({ context }));
+    const finalize = vi.fn(() => undefined);
+    const input = createOpenAIChatNonStreamRoutePipelineInput({
+      ...baseInput(),
+      scope: {
+        sessionKey: "session_1",
+        userId: "user_1",
+        orgId: "org_1",
+        requestId: "req_1",
+        recordEvent,
+        persistDecisionTelemetry,
+      },
+      providerRouteInput: {
+        initialMessages: [{ role: "user", content: "hello" }],
+        model: "model",
+        orchestrationMaxOutputTokens: 128,
+        requestMaxTokens: 128,
+        phasePolicy: { active: false },
+        governorPhase: "edit",
+        clampMaxOutputTokens: (tokens: number) => tokens,
+        generateText: vi.fn(async () => ({ text: "done", usage: {} })),
+        readUsage: () => ({ inputTokens: 1, outputTokens: 1, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 }),
+        scope: {
+          sessionKey: "session_1",
+          requestId: "req_1",
+          recordEvent,
+        },
+        resolvedModelId: "openai-test",
+        forensics: {
+          path: "/v1/chat/completions",
+          stream: false,
+          capture,
+          finalize,
+        },
+        serverSideToolResolvers: {
+          artifactToolName: "artifact",
+          knowledgeToolName: "knowledge",
+          devDocsToolName: "dev_docs",
+          webSearchToolName: "web_search",
+          webSearchToolAlias: "web",
+          retrieveArtifact: vi.fn(),
+          resolveKnowledge: vi.fn(),
+          resolveDevDocs: vi.fn(),
+          resolveWebSearch: vi.fn(),
+        },
+      },
+      postprocessRouteInput: {
+        scope: {
+          sessionKey: "session_1",
+          userId: "user_1",
+          orgId: "org_1",
+          requestId: "req_1",
+          recordEvent,
+          persistDecisionTelemetry,
+        },
+        responseModel: "openai-test",
+        readUsage: (usage) => usage as never,
+        toolCallInput: {} as never,
+        applyDiscoveryGuardrail: (calls) => ({
+          calls,
+          blockedCount: 0,
+          redirectedCount: 0,
+          collapsedCount: 0,
+          blockedDetails: [],
+          redirectedDetails: [],
+        }),
+        discoveryInput: {} as never,
+        collapseInput: {
+          enabled: false,
+          rewriteNonStream: false,
+          collapseHeader: undefined,
+          workspaceRoot: null,
+          shellAllowlistEnv: "",
+          logger: { info: vi.fn() },
+          requestId: "req_1",
+        },
+        finalizerInput: {} as never,
+        telemetryInput: {
+          clientRequestedModel: "openai-test",
+          escalated: true,
+        } as never,
+        responseInput: {
+          effectiveTools: [],
+          clientKind: "opencode",
+        },
+      },
+    });
+
+    input.recordSessionEvent("event", "component", "detail", { ok: true });
+    input.providerInput.recordSessionEvent({
+      eventKind: "provider_event",
+      component: "provider",
+      detail: "detail",
+    });
+    input.providerInput.captureForensics([{ role: "user", content: "hello" }], undefined);
+    input.postprocessInput.telemetryInput.persistDecisionTelemetry({
+      usage: { inputTokens: 1, outputTokens: 1, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      latencyMs: 1,
+      finishReason: "stop",
+      tokensSavedByReduction: 0,
+      snapshot: {} as never,
+      trajectory: { toolSequence: [] },
+      optimizationLedger: { prefix_hash: "abc" },
+    });
+
+    expect(input).toMatchObject({
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+    });
+    expect(input.postprocessInput.responseId).toBe("req_1");
+    expect(recordEvent).toHaveBeenCalledWith({
+      eventKind: "event",
+      component: "component",
+      detail: "detail",
+      metadataJson: { ok: true },
+    });
+    expect(recordEvent).toHaveBeenCalledWith({
+      eventKind: "provider_event",
+      component: "provider",
+      detail: "detail",
+    });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey: "session_1",
+      requestId: "req_1",
+      resolvedModelId: "openai-test",
+    }));
+    expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      finishReason: "stop",
+      escalated: true,
+      optimizationLedger: { prefix_hash: "abc" },
+    }));
   });
 
   it("returns a retryable error when the circuit breaker is open", async () => {

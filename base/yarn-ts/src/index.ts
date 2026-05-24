@@ -322,7 +322,7 @@ import {
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import {
-  createOpenAIChatNonStreamPipelineInput,
+  createOpenAIChatNonStreamRoutePipelineInput,
   runOpenAIChatNonStreamPipeline,
 } from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
@@ -332,7 +332,6 @@ import {
 } from "./pipeline/context-admission.js";
 import { runRouteContextAdmission } from "./pipeline/route-context-admission.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
-import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
 import {
   createOpenAIChatRouteFinalizerBase,
   createOpenAIChatRouteTelemetryBase,
@@ -341,7 +340,6 @@ import {
   createOpenAINonStreamDiscoveryRouteInput,
 } from "./pipeline/openai-route-inputs.js";
 import {
-  createOpenAINonStreamProviderExecutorInput,
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
@@ -9223,7 +9221,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
       }),
     });
-    const nonStreamResult = await runOpenAIChatNonStreamPipeline(createOpenAIChatNonStreamPipelineInput({
+    const nonStreamResult = await runOpenAIChatNonStreamPipeline(createOpenAIChatNonStreamRoutePipelineInput({
       scope: oaiNonStreamScope,
       resolvedModelId: resolved.resolvedModelId,
       circuitBreakers,
@@ -9233,7 +9231,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       onMissingToolResults: () => {
         session.skipToolIdStabilization = true;
       },
-      providerInput: createOpenAINonStreamProviderExecutorInput({
+      providerRouteInput: {
         scope: oaiNonStreamScope,
         resolvedModelId: resolved.resolvedModelId,
         initialMessages: modelMessages,
@@ -9280,9 +9278,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
             }),
           ),
         }),
-      }),
+      },
       getTopLevelDirs: () => getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd),
-      postprocessInput: createOpenAINonStreamPostProviderInput({
+      postprocessRouteInput: {
         scope: oaiNonStreamScope,
         responseModel: resolved.resolvedModelId,
         readUsage,
@@ -9328,7 +9326,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           effectiveTools: effectiveTools as unknown[],
           clientKind: oaiClientKind,
         },
-      }),
+      },
     }));
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, nonStreamResult);
