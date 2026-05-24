@@ -341,6 +341,7 @@ import {
 } from "./pipeline/openai-route-inputs.js";
 import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript-prep.js";
 import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-stabilization.js";
+import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -8315,163 +8316,62 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   oaiEnrichedMsgs = trustResult.messages as typeof oaiEnrichedMsgs;
 
-  const normalizedRequest: OpenAIChatCompletionRequest = {
-    ...request,
-    model: orchestration.selectedModel,
-    messages: oaiEnrichedMsgs as never
-  };
-
-  session.toolCallsSinceCheckpoint += toolResultCount;
   const reqId = oaiTraceReqId;
-  if (policyPrecheck.pivotPrompt) {
-    session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
-  }
-
-  if (latestUserText?.content) {
-    session.history.push({ role: "user", content: String(latestUserText.content) });
-  }
-
-  normalizedRequest.messages = injectSessionContext(
-    normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-    session
-  ) as never;
-
-  // Server-side tools are only supported in non-streaming OpenAI requests (which have a loop)
-  if (config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED && !normalizedRequest.stream) {
-    normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
-  }
-  if (config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED && !normalizedRequest.stream) {
-    normalizedRequest.tools = knowledgeSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
-  }
-  if (config.SYNESIS_YARN_WEB_SEARCH_ENABLED && !normalizedRequest.stream) {
-    normalizedRequest.tools = webSearch.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
-  }
-
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const blocks: string[] = [];
-    if (oaiPrefetchResult) {
-      const evidenceBlock = formatEvidenceBlock(oaiPrefetchResult);
-      if (evidenceBlock) blocks.push(evidenceBlock);
-    }
-    if (oaiPatternResult) {
-      const patternBlock = formatPatternBlock(oaiPatternResult);
-      if (patternBlock) blocks.push(patternBlock);
-    }
-    if (oaiSensemakingBlock) {
-      blocks.push(oaiSensemakingBlock);
-    }
-    if (blocks.length > 0) {
-      const combined = blocks.join("\n\n");
-      const msgs = normalizedRequest.messages as Array<{ role: string; content: unknown }>;
-      // Keep early system prefix stable: append volatile evidence as a separate
-      // system message instead of mutating the first system block.
-      msgs.push({ role: "system", content: combined });
-      normalizedRequest.messages = msgs as never;
-    }
-  }
-
-  const oaiConfiguredCompactionMode: CompactionMode = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE;
-  const oaiCachePolicyTier =
-    tierRegistry.getTierConfig(normalizedRequest.model)
-    ?? tierRegistry.getTierConfig(config.SYNESIS_YARN_DEFAULT_TIER);
-  const oaiCachePolicyProvider = oaiCachePolicyTier
-    ? resolveEndpointCapabilityId(oaiCachePolicyTier.baseUrl)
-    : "generic";
-  const oaiProviderCacheWindow = await loadProviderCachePolicyWindow(
-    identity.orgId,
-    oaiCachePolicyProvider,
-    identity.clientKind,
-  );
-  const oaiCachePolicy = evaluateCachePolicyForSession(
-    session,
-    oaiCachePolicyProvider,
-    oaiConfiguredCompactionMode,
-    oaiProviderCacheWindow,
-    oaiRuntimePreferences,
-  );
-  if (oaiCachePolicy.action !== "observe" || oaiCachePolicy.reasons.length > 0) {
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "cache_policy_controller_decision_v1",
-      "cache-policy-controller",
-      `action=${oaiCachePolicy.action} compaction=${oaiCachePolicy.compactionMode} provider=${oaiCachePolicyProvider}`,
-      reqId,
-      cachePolicyLogRecord(oaiCachePolicy),
-    );
-  }
-  oaiOptLedger.recordCacheDiagnostics({
-    policyAction: oaiCachePolicy.action,
-    policyProvider: oaiCachePolicyProvider,
-    policyCompactionMode: oaiCachePolicy.compactionMode,
-    policyReasons: oaiCachePolicy.reasons,
-  });
-
-  tierRegistry.setCurrentRequestContext({
-    sessionKey,
-    requestId: reqId,
-    clientKind: identity.clientKind,
-  });
-
-  if (prefixOptimizer) {
-    try {
-      const optimized = prefixOptimizer.optimize(
-        normalizedRequest.messages as never,
-        normalizedRequest.tools as never,
-        sessionKey,
-        {
-          markerBackend: markerBackendForRequest(
-            normalizedRequest.model,
-            config.SYNESIS_YARN_DEFAULT_TIER,
-            sessionKey,
-            oaiCachePolicy,
-          ),
-        },
-      );
-      oaiOptLedger.setPrefixStableBytes(optimized.diagnostics.prefixStableBytes ?? 0);
-      normalizedRequest.messages = optimized.messages as never;
-      if (optimized.tools) {
-        normalizedRequest.tools = optimized.tools as never;
-      }
-
-      const cm = optimized.clientMetadata;
-      if (cm && (!effectiveOaiPathCtx.projectRoot || !effectiveOaiPathCtx.shellCwd)) {
-        effectiveOaiPathCtx = {
-          ...effectiveOaiPathCtx,
-          projectRoot: effectiveOaiPathCtx.projectRoot ?? cm.projectRoot,
-          shellCwd: effectiveOaiPathCtx.shellCwd ?? cm.shellCwd,
-          shell: effectiveOaiPathCtx.shell ?? cm.shell ?? undefined,
-          platform: effectiveOaiPathCtx.platform ?? cm.platform ?? undefined,
-          osVersion: effectiveOaiPathCtx.osVersion ?? cm.osVersion ?? undefined,
-        };
-        if (cm.projectRoot || cm.shellCwd) {
-          setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
-            reason: "Extracted from client system message",
-            projectRoot: cm.projectRoot ?? undefined,
-            cwd: cm.shellCwd ?? undefined,
-            shell: cm.shell ?? undefined,
-            os: cm.platform ?? undefined,
-            arch: cm.osVersion ?? undefined,
-          });
-          app.log.info(
-            { sessionKey, projectRoot: cm.projectRoot, shellCwd: cm.shellCwd, shell: cm.shell, platform: cm.platform },
-            "prefix_optimizer_metadata_backfill",
-          );
-        }
-      }
-    } catch (err) {
-      app.log.warn({ err, sessionKey }, "prefix_optimizer_oai_error");
-    }
-  }
-  oaiOptLedger.recordCacheDiagnostics({
-    prefixHash: oaiEnriched.prefixHash,
-    prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-  });
   endOaiEnrichmentStage();
   const endOaiProviderRequestStage = oaiOptLedger.startStage("provider_request");
-
-  const resolveResult = runOpenAIRequest(normalizedRequest);
+  const oaiProviderFinalization = await finalizeOpenAIProviderRequest({
+    request,
+    selectedModel: orchestration.selectedModel,
+    enrichedMessages: oaiEnrichedMsgs,
+    toolResultCount,
+    session,
+    sessionKey,
+    requestId: reqId,
+    identity,
+    pathContext: effectiveOaiPathCtx,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    volatileSystemBlocks: [
+      oaiPrefetchResult ? formatEvidenceBlock(oaiPrefetchResult) ?? "" : "",
+      oaiPatternResult ? formatPatternBlock(oaiPatternResult) ?? "" : "",
+      oaiSensemakingBlock ?? "",
+    ],
+    policyPivotPrompt: policyPrecheck.pivotPrompt,
+    latestUserContent: latestUserText?.content,
+    runtimePreferences: oaiRuntimePreferences,
+    configuredCompactionMode: config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE,
+    defaultTier: config.SYNESIS_YARN_DEFAULT_TIER,
+    prefixHash: oaiEnriched.prefixHash,
+    prefixChangeReasons: oaiEnriched.prefixChangeReasons,
+    prefixOptimizer,
+    optimizationLedger: oaiOptLedger,
+    logger: app.log,
+    injectSessionContext: (messages, state) => injectSessionContext(
+      messages as Array<{ role: string; content: unknown }>,
+      state,
+    ) as typeof messages,
+    injectArtifactTool: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED
+      ? (tools) => artifactRetrieval.injectToolOpenAI(tools) ?? tools
+      : undefined,
+    injectKnowledgeTool: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED
+      ? (tools) => knowledgeSearch.injectToolOpenAI(tools) ?? tools
+      : undefined,
+    injectWebSearchTool: config.SYNESIS_YARN_WEB_SEARCH_ENABLED
+      ? (tools) => webSearch.injectToolOpenAI(tools) ?? tools
+      : undefined,
+    getTierConfig: (modelId) => tierRegistry.getTierConfig(modelId),
+    resolveEndpointCapabilityId,
+    loadProviderCachePolicyWindow,
+    evaluateCachePolicy: evaluateCachePolicyForSession,
+    markerBackendForRequest,
+    setCurrentRequestContext: (context) => tierRegistry.setCurrentRequestContext(context),
+    setWorkspaceContext: setSessionWorkspaceContext,
+    recordSessionEvent,
+    runOpenAIRequest,
+  });
+  const normalizedRequest = oaiProviderFinalization.normalizedRequest;
+  effectiveOaiPathCtx = oaiProviderFinalization.pathContext;
+  const oaiCachePolicy = oaiProviderFinalization.cachePolicy;
+  const resolveResult = oaiProviderFinalization.resolveResult;
   if (!resolveResult.ok) {
     recordSessionEvent(sessionKey, identity.userId, identity.orgId, "resolve_failure", "tier-registry", resolveResult.error, reqId);
     return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
