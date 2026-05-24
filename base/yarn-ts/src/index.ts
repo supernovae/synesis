@@ -310,6 +310,7 @@ import {
   buildStreamAdmissionRejection,
   buildStreamCircuitBreakerRejection,
 } from "./streaming/stream-route-gates.js";
+import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
@@ -10159,19 +10160,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maybeLogEnvelopeUnwrapSample,
     recordUpperHarnessDecision,
   });
-  const openAiStreamForensics = captureRequestForensics(
-    sessionKey,
-    reqId,
-    "/v1/chat/completions (stream)",
-    resolved.resolvedModelId,
-    true,
-    modelMessages as Array<{ role: string; content: unknown }>,
-    effectiveTools as unknown[],
-    effectiveToolChoice,
-    oaiProviderOptions,
-    oaiForensicsPhasePolicy,
-    oaiForensicsCapabilityMatrix,
-  );
+  const openAiStreamForensics = captureStreamRequestForensics({
+    scope: oaiStreamScope,
+    path: "/v1/chat/completions (stream)",
+    resolvedModelId: resolved.resolvedModelId,
+    messages: modelMessages as Array<{ role: string; content: unknown }>,
+    tools: effectiveTools as unknown[],
+    toolChoice: effectiveToolChoice,
+    providerOptions: oaiProviderOptions,
+    phasePolicy: oaiForensicsPhasePolicy,
+    capabilityMatrix: oaiForensicsCapabilityMatrix,
+    capture: captureRequestForensics,
+  });
   const oaiAdapterCacheBackend = adapter.cacheMarkerBackend?.() ?? "none";
   if (oaiAdapterCacheBackend === "anthropic") {
     const oaiCacheHints = annotateCacheBreakpoints(
@@ -13214,21 +13214,20 @@ app.post("/v1/messages", async (req, reply) => {
     }
     const claudeStreamSpan = getTracer().startSpan("yarn.claude.stream", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
     const started = Date.now();
-    const claudeStreamForensics = captureRequestForensics(
-      claudeSessionKey,
-      traceReqId,
-      "/v1/messages (stream)",
-      resolved.resolvedModelId,
-      true,
-      claudeModelMessages as Array<{ role: string; content: unknown }>,
-      effectiveClaudeTools as unknown[],
-      effectiveClaudeToolChoice,
-      providerOptions,
-      claudeForensicsPhasePolicy,
-      claudeForensicsCapabilityMatrix,
-    );
     const claudeStreamScopeBundle = createStreamRouteScopeBundle(claudeStreamGateScope, recordSessionEvent);
     const claudeStreamScope = claudeStreamScopeBundle.scope;
+    const claudeStreamForensics = captureStreamRequestForensics({
+      scope: claudeStreamScope,
+      path: "/v1/messages (stream)",
+      resolvedModelId: resolved.resolvedModelId,
+      messages: claudeModelMessages as Array<{ role: string; content: unknown }>,
+      tools: effectiveClaudeTools as unknown[],
+      toolChoice: effectiveClaudeToolChoice,
+      providerOptions,
+      phasePolicy: claudeForensicsPhasePolicy,
+      capabilityMatrix: claudeForensicsCapabilityMatrix,
+      capture: captureRequestForensics,
+    });
     const claudeResponseScope = {
       ...claudeStreamScope,
       requestId: reqId,
