@@ -332,6 +332,7 @@ import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/ope
 import { buildOpenAIChatCompletionResponse } from "./pipeline/openai-chat-response.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-nonstream-discovery-guardrails.js";
+import { finalizeOpenAINonStreamText } from "./pipeline/openai-nonstream-finalizer.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { maybeRewriteOpenAINonStreamCollapsedToolCalls } from "./pipeline/openai-nonstream-tool-collapse.js";
 import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
@@ -9664,69 +9665,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
     externalToolCalls = legacyGuardedDiscovery.calls;
     finalAssistantText = legacyGuardedDiscovery.finalText;
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
-    finalAssistantText = applyMarkdownGuardrail(
-      finalAssistantText,
-      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-    );
-    let oaiGateApplied = false;
-    let oaiMissingMust = 0;
-    let oaiMissingShould = 0;
-    let oaiGateBlockedVerification = false;
-    let oaiCriticBlocked = false;
-    if (finishReason === "stop") {
-      if (session.taskCapabilities && finalAssistantText) {
-        const oaiTextTasks = extractTasksFromTextFn(
-          finalAssistantText,
-          session.taskCapabilities.detectedSource,
-          session.record.requestCount,
-        );
-        if (oaiTextTasks.length > 0) {
-          if (!session.taskLedger) {
-            session.taskLedger = createEmptyLedger(
-              session.record.sessionKey,
-              session.taskCapabilities.hasExplicitTodoTool,
-              session.taskCapabilities.hasExplicitPlanMode,
-            );
-          }
-          session.taskLedger = reconcileFromText(session.taskLedger, oaiTextTasks, session.record.requestCount);
-        }
-      }
-      const finalized = await finalizeCompletionText({
-        requestId: reqId,
-        sessionKey,
-        userId: identity.userId,
-        orgId: identity.orgId,
-        assistantText: finalAssistantText,
-        checklist: oaiRequirementChecklist,
-        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-        verification: oaiVerificationAssessment,
-        recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-        nonActionableEventDetail: "terminal stop had non-actionable text; emitted deterministic fallback",
-        planGraph: oaiPlanGraph,
-        session,
-      });
-      finalAssistantText = finalized.finalText;
-      oaiGateApplied = finalized.applied;
-      oaiMissingMust = finalized.missingMust;
-      oaiMissingShould = finalized.missingShould;
-      oaiGateBlockedVerification = finalized.blockedByVerification;
-      oaiCriticBlocked = finalized.criticBlocked;
-    }
-    const scrubbedFinalAssistantText = scrubTaskLedgerOutput(finalAssistantText);
-    if (scrubbedFinalAssistantText.scrubbed) {
-      finalAssistantText = scrubbedFinalAssistantText.text;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "task_ledger_output_scrubbed",
-        "task-ledger",
-        "Removed internal task-ledger governance from OpenAI response",
-        reqId,
-      );
-    }
-    session.history.push({ role: "assistant", content: finalAssistantText });
+    const finalizedText = await finalizeOpenAINonStreamText({
+      session,
+      requestId: reqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      finishReason,
+      assistantText: finalAssistantText,
+      checklist: oaiRequirementChecklist,
+      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+      verification: oaiVerificationAssessment,
+      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+      planGraph: oaiPlanGraph,
+      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      applyMarkdownGuardrail,
+      finalizeCompletionText,
+      recordSessionEvent,
+    });
+    finalAssistantText = finalizedText.finalText;
+    const oaiGateApplied = finalizedText.gateApplied;
+    const oaiMissingMust = finalizedText.missingMust;
+    const oaiMissingShould = finalizedText.missingShould;
+    const oaiGateBlockedVerification = finalizedText.gateBlockedVerification;
+    const oaiCriticBlocked = finalizedText.criticBlocked;
     const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     const oaiLatency = Date.now() - started;
     const oaiSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();

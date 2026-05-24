@@ -1,0 +1,107 @@
+import { describe, expect, it, vi } from "vitest";
+import { finalizeOpenAINonStreamText } from "../src/pipeline/openai-nonstream-finalizer.js";
+
+describe("finalizeOpenAINonStreamText", () => {
+  it("applies markdown before completion gate, scrubs ledger output, and appends history", async () => {
+    const session = {
+      history: [],
+      record: { requestCount: 2, sessionKey: "session_1" },
+      taskCapabilities: null,
+      taskLedger: null,
+    };
+    const recordSessionEvent = vi.fn();
+    const finalizeCompletionText = vi.fn(async () => ({
+      finalText: "final\n\n<synesis_task_ledger>{\"tasks\":[]}</synesis_task_ledger>",
+      applied: true,
+      missingMust: 1,
+      missingShould: 2,
+      blockedByVerification: true,
+      criticBlocked: true,
+    }));
+
+    const result = await finalizeOpenAINonStreamText({
+      session,
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      finishReason: "stop",
+      assistantText: "raw",
+      checklist: null,
+      traceRootPrompt: "root",
+      latestUserPrompt: "latest",
+      verification: null,
+      recentToolNames: ["Read"],
+      responseStyleMode: "default",
+      applyMarkdownGuardrail: (text) => `${text}!`,
+      finalizeCompletionText,
+      recordSessionEvent,
+    });
+
+    expect(finalizeCompletionText).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "req_1",
+      assistantText: "raw!",
+      recentToolNames: ["Read"],
+      nonActionableEventDetail: "terminal stop had non-actionable text; emitted deterministic fallback",
+      session,
+    }));
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "session_1",
+      "user_1",
+      "org_1",
+      "task_ledger_output_scrubbed",
+      "task-ledger",
+      "Removed internal task-ledger governance from OpenAI response",
+      "req_1",
+    );
+    expect(session.history).toEqual([{ role: "assistant", content: "final" }]);
+    expect(result).toEqual({
+      finalText: "final",
+      gateApplied: true,
+      missingMust: 1,
+      missingShould: 2,
+      gateBlockedVerification: true,
+      criticBlocked: true,
+    });
+  });
+
+  it("skips completion gate for tool-call turns but keeps markdown and history", async () => {
+    const session = {
+      history: [],
+      record: { requestCount: 2, sessionKey: "session_1" },
+      taskCapabilities: null,
+      taskLedger: null,
+    };
+    const finalizeCompletionText = vi.fn();
+
+    const result = await finalizeOpenAINonStreamText({
+      session,
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      finishReason: "tool_calls",
+      assistantText: "text",
+      checklist: null,
+      traceRootPrompt: "",
+      latestUserPrompt: "",
+      verification: null,
+      recentToolNames: [],
+      responseStyleMode: "default",
+      applyMarkdownGuardrail: (text) => `${text}!`,
+      finalizeCompletionText,
+      recordSessionEvent: vi.fn(),
+    });
+
+    expect(finalizeCompletionText).not.toHaveBeenCalled();
+    expect(session.history).toEqual([{ role: "assistant", content: "text!" }]);
+    expect(result).toMatchObject({
+      finalText: "text!",
+      gateApplied: false,
+      missingMust: 0,
+      missingShould: 0,
+      gateBlockedVerification: false,
+      criticBlocked: false,
+    });
+  });
+});
