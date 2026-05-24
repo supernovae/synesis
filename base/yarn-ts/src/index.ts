@@ -196,7 +196,6 @@ import {
   appendPathContextToAdapterBlock,
   ClientAdapterPacks,
   parseSessionExecutionContext,
-  resolveWorkspaceRootForCollapse,
 } from "./adapters/client-adapter-packs.js";
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { inferModelFamily } from "./prompt/infer-model-family.js";
@@ -334,6 +333,10 @@ import {
 import { runRouteContextAdmission } from "./pipeline/route-context-admission.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
+import {
+  createOpenAINonStreamCollapseRouteInput,
+  createOpenAINonStreamDiscoveryRouteInput,
+} from "./pipeline/openai-nonstream-route-postprocess-inputs.js";
 import {
   createOpenAINonStreamProviderExecutorInput,
   createOpenAINonStreamProviderForensics,
@@ -9294,26 +9297,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
           emitPlanWriteAuditEvent,
           maybeLogEnvelopeUnwrapSample,
         },
-        discoveryInput: {
+        discoveryInput: createOpenAINonStreamDiscoveryRouteInput({
           projectRoot: effectiveOaiPathCtx.projectRoot,
           buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
           recordBlockedDiscovery,
           getBlockedDiscoveryCount,
-        },
-        collapseInput: {
+        }),
+        collapseInput: createOpenAINonStreamCollapseRouteInput({
           enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
           rewriteNonStream: config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM,
           collapseHeader: req.headers["x-synesis-tool-collapse"],
-          workspaceRoot: resolveWorkspaceRootForCollapse(
-            req.headers as Record<string, string | string[] | undefined>,
-            oaiBodyMeta,
-          ),
+          headers: req.headers as Record<string, string | string[] | undefined>,
+          bodyMetadata: oaiBodyMeta,
           shellAllowlistEnv: config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST,
           dedupeLayer: yarnDedupeLayer,
           toolPrefixCache: yarnToolPrefixCache,
           logger: app.log,
           requestId: reqId,
-        },
+        }),
         finalizerInput: oaiFinalizerRouteBase,
         telemetryInput: {
           startedAtMs: started,
