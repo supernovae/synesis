@@ -345,6 +345,7 @@ import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-st
 import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
+import { applyWorkspaceMetadataPrebackfill } from "./pipeline/workspace-metadata-prebackfill.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -7607,38 +7608,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
     role: oaiRole,
     modelFamily: inferModelFamily(oaiBackendModel),
   };
-  if (!effectiveOaiPathCtx.projectRoot || !effectiveOaiPathCtx.shellCwd) {
-    const preMeta = extractMetadataFromMessages(normalizedOpenAI.messages as never);
-    if (preMeta.projectRoot || preMeta.shellCwd) {
-      effectiveOaiPathCtx = {
-        ...effectiveOaiPathCtx,
-        projectRoot: effectiveOaiPathCtx.projectRoot ?? preMeta.projectRoot,
-        shellCwd: effectiveOaiPathCtx.shellCwd ?? preMeta.shellCwd,
-        shell: effectiveOaiPathCtx.shell ?? preMeta.shell ?? undefined,
-        platform: effectiveOaiPathCtx.platform ?? preMeta.platform ?? undefined,
-        osVersion: effectiveOaiPathCtx.osVersion ?? preMeta.osVersion ?? undefined,
-      };
-      effectiveOaiAdapterBlock = buildEffectiveOaiAdapterBlock(effectiveOaiPathCtx);
-      setSessionWorkspaceContext(session, "ready", oaiTraceReqId, {
-        reason: "Extracted from client system message (pre-enrich)",
-        projectRoot: preMeta.projectRoot ?? undefined,
-        cwd: preMeta.shellCwd ?? undefined,
-        shell: preMeta.shell ?? undefined,
-        os: preMeta.platform ?? undefined,
-        arch: preMeta.osVersion ?? undefined,
-      });
-      app.log.info(
-        {
-          sessionKey,
-          projectRoot: preMeta.projectRoot,
-          shellCwd: preMeta.shellCwd,
-          shell: preMeta.shell,
-          platform: preMeta.platform,
-        },
-        "prefix_optimizer_metadata_prebackfill",
-      );
-    }
-  }
+  const oaiMetadataPrebackfill = applyWorkspaceMetadataPrebackfill({
+    pathContext: effectiveOaiPathCtx,
+    adapterBlock: effectiveOaiAdapterBlock,
+    messages: normalizedOpenAI.messages as never,
+    session,
+    requestId: oaiTraceReqId,
+    extractMetadataFromMessages: (messages) => extractMetadataFromMessages(messages as never),
+    buildAdapterBlock: buildEffectiveOaiAdapterBlock,
+    setWorkspaceContext: setSessionWorkspaceContext,
+    logInfo: (record, message) => app.log.info(record, message),
+    logSessionKey: sessionKey,
+  });
+  effectiveOaiPathCtx = oaiMetadataPrebackfill.pathContext;
+  effectiveOaiAdapterBlock = oaiMetadataPrebackfill.adapterBlock;
   const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
   const oaiGovernanceBlocks = buildRouteGovernanceBlocks({
     memoryTracker: getMemoryGovernor(sessionKey),
@@ -10036,38 +10019,20 @@ app.post("/v1/messages", async (req, reply) => {
     role: claudeRole,
     modelFamily: inferModelFamily(claudeBackendModel),
   };
-  if (!effectiveClaudePathCtx.projectRoot || !effectiveClaudePathCtx.shellCwd) {
-    const preMeta = extractMetadataFromMessages(normalizedFromClaude.messages as never);
-    if (preMeta.projectRoot || preMeta.shellCwd) {
-      effectiveClaudePathCtx = {
-        ...effectiveClaudePathCtx,
-        projectRoot: effectiveClaudePathCtx.projectRoot ?? preMeta.projectRoot,
-        shellCwd: effectiveClaudePathCtx.shellCwd ?? preMeta.shellCwd,
-        shell: effectiveClaudePathCtx.shell ?? preMeta.shell ?? undefined,
-        platform: effectiveClaudePathCtx.platform ?? preMeta.platform ?? undefined,
-        osVersion: effectiveClaudePathCtx.osVersion ?? preMeta.osVersion ?? undefined,
-      };
-      effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
-      setSessionWorkspaceContext(session, "ready", traceReqId, {
-        reason: "Extracted from client system message (pre-enrich)",
-        projectRoot: preMeta.projectRoot ?? undefined,
-        cwd: preMeta.shellCwd ?? undefined,
-        shell: preMeta.shell ?? undefined,
-        os: preMeta.platform ?? undefined,
-        arch: preMeta.osVersion ?? undefined,
-      });
-      app.log.info(
-        {
-          sessionKey: claudeSessionKey,
-          projectRoot: preMeta.projectRoot,
-          shellCwd: preMeta.shellCwd,
-          shell: preMeta.shell,
-          platform: preMeta.platform,
-        },
-        "prefix_optimizer_metadata_prebackfill",
-      );
-    }
-  }
+  const claudeMetadataPrebackfill = applyWorkspaceMetadataPrebackfill({
+    pathContext: effectiveClaudePathCtx,
+    adapterBlock: effectiveClaudeAdapterBlock,
+    messages: normalizedFromClaude.messages as never,
+    session,
+    requestId: traceReqId,
+    extractMetadataFromMessages: (messages) => extractMetadataFromMessages(messages as never),
+    buildAdapterBlock: buildEffectiveClaudeAdapterBlock,
+    setWorkspaceContext: setSessionWorkspaceContext,
+    logInfo: (record, message) => app.log.info(record, message),
+    logSessionKey: claudeSessionKey,
+  });
+  effectiveClaudePathCtx = claudeMetadataPrebackfill.pathContext;
+  effectiveClaudeAdapterBlock = claudeMetadataPrebackfill.adapterBlock;
   const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeGovernanceBlocks = buildRouteGovernanceBlocks({
     memoryTracker: getMemoryGovernor(claudeSessionKey),
