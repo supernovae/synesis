@@ -327,10 +327,9 @@ import {
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
+import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
-import { processOpenAINonStreamProviderResult } from "./pipeline/openai-nonstream-postprocess.js";
-import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -9422,27 +9421,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   if (!normalizedRequest.stream) {
-    if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
-      app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open");
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
-        `Circuit breaker open for ${resolved.resolvedModelId}`, reqId, { model: resolved.resolvedModelId });
-      return sendOpenAIChatPipelineResult(reply, {
-        kind: "error",
-        statusCode: 503,
-        headers: { "Retry-After": "30" },
-        body: { error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } },
-      });
-    }
-    const otelSpan = getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey });
     const started = Date.now();
-    let finalResult: Awaited<ReturnType<typeof generateText>>;
-    let lastOpenAiForensics: RequestForensicsRecord | undefined;
-    try {
-      const providerCall = await executeOpenAINonStreamProviderLoop<
-        typeof modelMessages[number],
-        Awaited<ReturnType<typeof generateText>>,
-        ReturnType<typeof captureRequestForensics>
-      >({
+    const nonStreamResult = await runOpenAIChatNonStreamPipeline({
+      requestId: reqId,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      resolvedModelId: resolved.resolvedModelId,
+      circuitBreakers,
+      logger: app.log,
+      startSpan: () => getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey }),
+      extractUpstreamErrorDiagnostics,
+      onMissingToolResults: () => {
+        session.skipToolIdStabilization = true;
+      },
+      recordSessionEvent: (eventKind, component, detail, metadataJson) => recordSessionEvent(
+        sessionKey,
+        identity.userId,
+        identity.orgId,
+        eventKind,
+        component,
+        detail,
+        reqId,
+        metadataJson,
+      ),
+      providerInput: {
         initialMessages: modelMessages,
         model: resolved.model,
         orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
@@ -9509,231 +9512,174 @@ app.post("/v1/chat/completions", async (req, reply) => {
             }),
           ),
         },
-      });
-      finalResult = providerCall.result;
-      effectiveToolChoice = providerCall.toolChoice;
-      lastOpenAiForensics = providerCall.requestForensicsDone;
-    } catch (err) {
-      const upstream = extractUpstreamErrorDiagnostics(err);
-      if (upstream.isMissingToolResults) {
-        session.skipToolIdStabilization = true;
-      }
-      circuitBreakers.recordFailure(resolved.resolvedModelId, identity.orgId);
-      otelSpan.setStatus("error", upstream.userMessage);
-      otelSpan.end();
-      app.log.error(
-        {
-          err,
-          reqId,
-          model: resolved.resolvedModelId,
-          upstream_error_name: upstream.errorName,
-          upstream_error_code: upstream.errorCode,
-          upstream_http_status: upstream.httpStatus,
-          upstream_vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-          upstream_missing_tool_results: upstream.isMissingToolResults,
-          upstream_raw_message: upstream.rawMessage.slice(0, 600),
+      },
+      getTopLevelDirs: () => getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd),
+      postprocessInput: {
+        responseId: reqId,
+        responseModel: resolved.resolvedModelId,
+        readUsage,
+        toolCallInput: {
+          artifactToolName: ARTIFACT_TOOL_NAME,
+          adapter,
+          effectiveTools: effectiveTools as unknown[],
+          upperHarness: oaiUpperHarness,
+          clientKind: oaiClientKind,
+          recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+          pathContext: effectiveOaiPathCtx,
+          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+          strictGovernance: openClawStrictGovernance,
+          planModeRequested: oaiClientToolCapabilities.planModeRequested,
+          session,
+          sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
+          shouldRestrictDiscoveryForPlanWork,
+          taskCue: oaiTaskCue,
+          artifactShadows: oaiArtifactShadows,
+          normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
+          pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+          deserializePlanShadow: deserializeShadow,
+          buildPathSandboxPolicy: buildDefaultPolicy,
+          isWriteCapableToolName,
+          stats: toolArgHardeningStats,
+          strictGovernanceStats: openClawProfileStats,
+          logger: app.log,
+          requestId: reqId,
+          sessionKey,
+          userId: identity.userId,
+          orgId: identity.orgId,
+          recordUpperHarnessDecision,
+          updateDiffAccumulator,
+          maybeUpdateTaskLedgerFromToolCall,
+          emitPlanWriteAuditEvent,
+          maybeLogEnvelopeUnwrapSample,
         },
-        "OpenAI non-stream generateText failed",
-      );
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "upstream_error",
-        "generateText",
-        upstream.userMessage,
-        reqId,
-        {
-          model: resolved.resolvedModelId,
-          error_name: upstream.errorName ?? "",
-          error_code: upstream.errorCode ?? "",
-          error_status: upstream.httpStatus ?? 0,
-          vercel_ai_sdk_error: upstream.isVercelAiSdkError,
-          missing_tool_results: upstream.isMissingToolResults,
+        applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+        discoveryInput: {
+          sessionKey,
+          userId: identity.userId,
+          orgId: identity.orgId,
+          requestId: reqId,
+          resolvedModelId: resolved.resolvedModelId,
+          projectRoot: effectiveOaiPathCtx.projectRoot,
+          buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+          recordBlockedDiscovery,
+          getBlockedDiscoveryCount,
+          recordSessionEvent,
         },
-      );
-      return sendOpenAIChatPipelineResult(reply, {
-        kind: "error",
-        statusCode: 502,
-        body: { error: { type: "upstream_error", message: upstream.userMessage } },
-      });
-    }
-    circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
-    otelSpan.setStatus("ok");
-    otelSpan.end();
-
-    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
-    const nonStreamProcessed = await processOpenAINonStreamProviderResult({
-      result: finalResult,
-      responseId: reqId,
-      responseModel: resolved.resolvedModelId,
-      readUsage,
-      toolCallInput: {
-      artifactToolName: ARTIFACT_TOOL_NAME,
-      adapter,
-      effectiveTools: effectiveTools as unknown[],
-      upperHarness: oaiUpperHarness,
-      clientKind: oaiClientKind,
-      recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
-      pathContext: effectiveOaiPathCtx,
-      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-      strictGovernance: openClawStrictGovernance,
-      planModeRequested: oaiClientToolCapabilities.planModeRequested,
-      session,
-      sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
-      shouldRestrictDiscoveryForPlanWork,
-      taskCue: oaiTaskCue,
-      artifactShadows: oaiArtifactShadows,
-      normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
-      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-      deserializePlanShadow: deserializeShadow,
-      buildPathSandboxPolicy: buildDefaultPolicy,
-      isWriteCapableToolName,
-      stats: toolArgHardeningStats,
-      strictGovernanceStats: openClawProfileStats,
-      logger: app.log,
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      recordUpperHarnessDecision,
-      updateDiffAccumulator,
-      maybeUpdateTaskLedgerFromToolCall,
-      emitPlanWriteAuditEvent,
-      maybeLogEnvelopeUnwrapSample,
-      },
-      topLevelDirs: oaiTopLevelDirs,
-      applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
-      discoveryInput: {
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
-      projectRoot: effectiveOaiPathCtx.projectRoot,
-      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
-      recordBlockedDiscovery,
-      getBlockedDiscoveryCount,
-      recordSessionEvent,
-      },
-      collapseInput: {
-      enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
-      rewriteNonStream: config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM,
-      collapseHeader: req.headers["x-synesis-tool-collapse"],
-      workspaceRoot: resolveWorkspaceRootForCollapse(
-        req.headers as Record<string, string | string[] | undefined>,
-        oaiBodyMeta,
-      ),
-      shellAllowlistEnv: config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST,
-      dedupeLayer: yarnDedupeLayer,
-      toolPrefixCache: yarnToolPrefixCache,
-      logger: app.log,
-      requestId: reqId,
-      },
-      finalizerInput: {
-      session,
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      checklist: oaiRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: oaiVerificationAssessment,
-      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-      planGraph: oaiPlanGraph,
-      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      applyMarkdownGuardrail,
-      finalizeCompletionText,
-      recordSessionEvent,
-      },
-      telemetryInput: {
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      startedAtMs: started,
-      resolvedModelId: resolved.resolvedModelId,
-      clientRequestedModel: request.model,
-      reductions: {
-        toolResultReduction,
-        validationNormalization,
-      },
-      reducedToolResults: reducedOpenAI.reducedCount,
-      orchestration,
-      policyMatchedRules: policyPrecheck.matchedRules,
-      evidencePrefetched: oaiEvidencePrefetched,
-      evidenceConfidence: combinedEvidenceConfidence || undefined,
-      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
-      evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
-      evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
-      diagnosticEvidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
-      sensemakingTriggered: oaiSensemakingResult?.triggered,
-      sensemakingReason: oaiSensemakingResult?.reason,
-      governorDecision: oaiExecutionGovernor,
-      governorChatStateSummary: oaiPauseChatSummary,
-      governorFileStateSummary: oaiPauseFileSummary,
-      optimizationLedger: oaiOptLedger,
-      normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-      inferVerificationSteps,
-      trajectoryDiagnostics: oaiTrajectoryDiagnostics,
-      toolDefinitionCount: effectiveTools.length,
-      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
-      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-      promptProfileIds: oaiEnriched.promptProfileIds,
-      promptProfileHashes: oaiEnriched.promptProfileHashes,
-      prefixHash: oaiEnriched.prefixHash,
-      prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-      requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
-      requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
-      contextAdmission: {
-        decision: oaiContextAdmission.decision,
-        reason: oaiContextAdmission.reason,
-        estimatedTokens: oaiContextAdmission.estimatedTokens,
-        estimatedChars: oaiContextAdmission.estimatedChars,
-      },
-      requestForensics: lastOpenAiForensics,
-      recordSessionEvent: ({ eventKind, component, detail }) => recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        eventKind,
-        component,
-        detail,
-        reqId,
-      ),
-      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
-        state: session,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
-        usage: telemetry.usage,
-        latencyMs: telemetry.latencyMs,
-        finishReason: telemetry.finishReason,
-        tokensSavedByReduction: telemetry.tokensSavedByReduction,
-        escalated: orchestration.escalated,
-        snapshot: telemetry.snapshot,
-        trajectory: telemetry.trajectory,
-        sessionKey,
-        userId: identity.userId,
-        orgId: identity.orgId,
-        optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
-        clientRequestedModel: request.model,
-      }),
-      countMessageRoles,
-      pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
-      logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
-      },
-      responseInput: {
-      effectiveTools: effectiveTools as unknown[],
-      clientKind: oaiClientKind,
+        collapseInput: {
+          enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
+          rewriteNonStream: config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM,
+          collapseHeader: req.headers["x-synesis-tool-collapse"],
+          workspaceRoot: resolveWorkspaceRootForCollapse(
+            req.headers as Record<string, string | string[] | undefined>,
+            oaiBodyMeta,
+          ),
+          shellAllowlistEnv: config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST,
+          dedupeLayer: yarnDedupeLayer,
+          toolPrefixCache: yarnToolPrefixCache,
+          logger: app.log,
+          requestId: reqId,
+        },
+        finalizerInput: {
+          session,
+          requestId: reqId,
+          sessionKey,
+          userId: identity.userId,
+          orgId: identity.orgId,
+          checklist: oaiRequirementChecklist,
+          traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+          latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+          verification: oaiVerificationAssessment,
+          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+          planGraph: oaiPlanGraph,
+          responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+          applyMarkdownGuardrail,
+          finalizeCompletionText,
+          recordSessionEvent,
+        },
+        telemetryInput: {
+          requestId: reqId,
+          sessionKey,
+          userId: identity.userId,
+          orgId: identity.orgId,
+          startedAtMs: started,
+          resolvedModelId: resolved.resolvedModelId,
+          clientRequestedModel: request.model,
+          reductions: {
+            toolResultReduction,
+            validationNormalization,
+          },
+          reducedToolResults: reducedOpenAI.reducedCount,
+          orchestration,
+          policyMatchedRules: policyPrecheck.matchedRules,
+          evidencePrefetched: oaiEvidencePrefetched,
+          evidenceConfidence: combinedEvidenceConfidence || undefined,
+          evidenceAuthoritative: oaiPrefetchResult?.authoritative,
+          evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
+          evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
+          diagnosticEvidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
+          sensemakingTriggered: oaiSensemakingResult?.triggered,
+          sensemakingReason: oaiSensemakingResult?.reason,
+          governorDecision: oaiExecutionGovernor,
+          governorChatStateSummary: oaiPauseChatSummary,
+          governorFileStateSummary: oaiPauseFileSummary,
+          optimizationLedger: oaiOptLedger,
+          normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+          inferVerificationSteps,
+          trajectoryDiagnostics: oaiTrajectoryDiagnostics,
+          toolDefinitionCount: effectiveTools.length,
+          artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+          knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+          promptProfileIds: oaiEnriched.promptProfileIds,
+          promptProfileHashes: oaiEnriched.promptProfileHashes,
+          prefixHash: oaiEnriched.prefixHash,
+          prefixChangeReasons: oaiEnriched.prefixChangeReasons,
+          requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
+          requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
+          contextAdmission: {
+            decision: oaiContextAdmission.decision,
+            reason: oaiContextAdmission.reason,
+            estimatedTokens: oaiContextAdmission.estimatedTokens,
+            estimatedChars: oaiContextAdmission.estimatedChars,
+          },
+          recordSessionEvent: ({ eventKind, component, detail }) => recordSessionEvent(
+            sessionKey,
+            identity.userId,
+            identity.orgId,
+            eventKind,
+            component,
+            detail,
+            reqId,
+          ),
+          persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+            state: session,
+            requestId: reqId,
+            resolvedModelId: resolved.resolvedModelId,
+            usage: telemetry.usage,
+            latencyMs: telemetry.latencyMs,
+            finishReason: telemetry.finishReason,
+            tokensSavedByReduction: telemetry.tokensSavedByReduction,
+            escalated: orchestration.escalated,
+            snapshot: telemetry.snapshot,
+            trajectory: telemetry.trajectory,
+            sessionKey,
+            userId: identity.userId,
+            orgId: identity.orgId,
+            optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
+            clientRequestedModel: request.model,
+          }),
+          countMessageRoles,
+          pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
+          logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
+        },
+        responseInput: {
+          effectiveTools: effectiveTools as unknown[],
+          clientKind: oaiClientKind,
+        },
       },
     });
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
-    return sendOpenAIChatPipelineResult(reply, {
-      kind: "json",
-      body: nonStreamProcessed.body,
-    });
+    return sendOpenAIChatPipelineResult(reply, nonStreamResult);
   }
 
   const oaiStreamGateScope = {
