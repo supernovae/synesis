@@ -23,7 +23,6 @@ import {
   type OpenAIChatCompletionRequest
 } from "./schemas.js";
 import {
-  shouldIncludeStreamUsage,
   toAiSdkJsonResponseFormat,
   toOpenAiUsage,
   type AiSdkJsonResponseFormat,
@@ -283,9 +282,11 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { runOpenAIStreamEvents } from "./streaming/openai-stream-event-runner.js";
+import { finalizeOpenAIStreamCompletion } from "./streaming/openai-stream-finalizer.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { handleOpenAIStreamToolCall } from "./streaming/openai-stream-tool-call-handler.js";
+import { runOpenAIStreamTelemetry } from "./streaming/openai-stream-telemetry.js";
 import {
   classifyAiSdkStreamPart,
   parseToolInput,
@@ -10209,11 +10210,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let oaiStreamRecoveryMode: DiscoveryRecoverySnapshot["recoveryMode"] | null = null;
   let oaiStreamBlockedBroadDiscovery = 0;
   let oaiStreamCollapsedBroadDiscovery = 0;
-  let oaiStreamGateApplied = false;
-  let oaiStreamMissingMust = 0;
-  let oaiStreamMissingShould = 0;
-  let oaiStreamGateBlockedVerification = false;
-  let oaiStreamCriticBlocked = false;
   let oaiStreamToolRepairs = 0;
   let oaiStreamValidationFailures = 0;
   const resolvedTierOaiStream = tierRegistry.getTierConfig(resolved.resolvedModelId);
@@ -10492,72 +10488,64 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
   otelStreamSpan.end();
 
-  if (finishReason !== "tool_calls" && oaiStreamState.hasPendingText()) {
-    const rawText = oaiStreamState.drainText();
-    if (session.taskCapabilities && rawText) {
-      const oaiStreamTextTasks = extractTasksFromTextFn(
-        rawText,
-        session.taskCapabilities.detectedSource,
-        session.record.requestCount,
-      );
-      if (oaiStreamTextTasks.length > 0) {
-        if (!session.taskLedger) {
-          session.taskLedger = createEmptyLedger(
-            session.record.sessionKey,
-            session.taskCapabilities.hasExplicitTodoTool,
-            session.taskCapabilities.hasExplicitPlanMode,
-          );
-        }
-        session.taskLedger = reconcileFromText(session.taskLedger, oaiStreamTextTasks, session.record.requestCount);
-      }
-    }
-    const finalized = await finalizeCompletionText({
-      requestId: reqId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      assistantText: rawText,
-      checklist: oaiRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: oaiVerificationAssessment,
-      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-      nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
-      planGraph: oaiPlanGraph,
-      session,
-    });
-    oaiStreamGateApplied = finalized.applied;
-    oaiStreamMissingMust = finalized.missingMust;
-    oaiStreamMissingShould = finalized.missingShould;
-    oaiStreamGateBlockedVerification = finalized.blockedByVerification;
-    oaiStreamCriticBlocked = finalized.criticBlocked;
-    const gateText = finalized.finalText;
-    const guarded = applyMarkdownGuardrail(
-      gateText,
-      config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-    );
-    scrubAndFlushOpenAIText(guarded);
-  }
-
-  let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-  let streamedText = "";
-  try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
-  try { streamedText = await streamed.text; } catch { /* stream aborted */ }
-  openAiStreamWriter.writeFinalChunk(
+  const oaiStreamFinalized = await finalizeOpenAIStreamCompletion({
+    streamState: oaiStreamState,
+    writer: openAiStreamWriter,
+    streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
     finishReason,
-    shouldIncludeStreamUsage(request.stream_options) ? toOpenAiUsage(oaiStreamUsage) : undefined,
-  );
-  openAiStreamWriter.writeDoneLine();
-  safeEnd(reply.raw);
-  oaiHeartbeat.stop();
-  if (streamedText) {
-    const finalized = finalizePostStreamText({
+    streamOptions: request.stream_options,
+    readUsage,
+    onPendingText: (rawText) => {
+      if (session.taskCapabilities && rawText) {
+        const oaiStreamTextTasks = extractTasksFromTextFn(
+          rawText,
+          session.taskCapabilities.detectedSource,
+          session.record.requestCount,
+        );
+        if (oaiStreamTextTasks.length > 0) {
+          if (!session.taskLedger) {
+            session.taskLedger = createEmptyLedger(
+              session.record.sessionKey,
+              session.taskCapabilities.hasExplicitTodoTool,
+              session.taskCapabilities.hasExplicitPlanMode,
+            );
+          }
+          session.taskLedger = reconcileFromText(session.taskLedger, oaiStreamTextTasks, session.record.requestCount);
+        }
+      }
+    },
+    finalizePendingText: async (rawText) => {
+      const finalized = await finalizeCompletionText({
+        requestId: reqId,
+        sessionKey,
+        userId: identity.userId,
+        orgId: identity.orgId,
+        assistantText: rawText,
+        checklist: oaiRequirementChecklist,
+        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+        verification: oaiVerificationAssessment,
+        recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+        nonActionableEventDetail: "stream stop had non-actionable text; emitted deterministic fallback",
+        planGraph: oaiPlanGraph,
+        session,
+      });
+      return {
+        ...finalized,
+        finalText: applyMarkdownGuardrail(
+          finalized.finalText,
+          config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+        ),
+      };
+    },
+    writeFinalText: scrubAndFlushOpenAIText,
+    finalizeStreamedText: (streamedText, gateState) => finalizePostStreamText({
       requestId: reqId,
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
       assistantText: streamedText,
-      applyGate: oaiStreamGateApplied,
+      applyGate: gateState.gateApplied,
       checklist: oaiRequirementChecklist,
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -10565,11 +10553,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       toolStopReason: finishReason === "tool_calls",
       nonActionableEventDetail: "streamed text was non-actionable; emitted deterministic fallback",
       planGraph: oaiPlanGraph,
-    });
-    streamedText = finalized.finalText;
-    const scrubbedStreamedText = scrubTaskLedgerOutput(streamedText);
-    if (scrubbedStreamedText.scrubbed) {
-      streamedText = scrubbedStreamedText.text;
+    }),
+    scrubHistoryText: scrubTaskLedgerOutput,
+    onHistoryTextScrubbed: () => {
       recordSessionEvent(
         sessionKey,
         identity.userId,
@@ -10579,132 +10565,92 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "Removed internal task-ledger governance from streamed OpenAI history",
         reqId,
       );
-    }
-    oaiStreamMissingMust = finalized.missingMust;
-    oaiStreamMissingShould = finalized.missingShould;
-    oaiStreamGateBlockedVerification = finalized.blockedByVerification;
-    session.history.push({ role: "assistant", content: streamedText });
-  }
-  const oaiStreamLatency = Date.now() - started;
-  const openAiStreamForensicsDone = finalizeRequestForensics(session, reqId, openAiStreamForensics, oaiStreamUsage);
-  const oaiStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
-  const oaiStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
-  const oaiStreamTaskPruned = toolResultReduction.getPerRequestTaskPrunedDelta();
-  if (oaiStreamGuidedTrimmed > 0) {
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "tool_output_truncated_guided",
-      "tool-guardrails",
-      `count=${oaiStreamGuidedTrimmed}`,
-      reqId,
-    );
-  }
-  if (oaiStreamTaskPruned > 0) {
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "task_conditioned_prune_applied",
-      "tool-reducer",
-      `count=${oaiStreamTaskPruned}`,
-      reqId,
-    );
-  }
-  const lastRecallOaiStream = toolResultReduction.getLastRecallDecision();
-  const vStateOaiStream = toolResultReduction.getVerificationTracker().getState();
-  const oaiStreamSnapshot = buildDecisionSnapshot({
-    orchestration,
-    recallDecision: lastRecallOaiStream,
-    verificationState: vStateOaiStream,
-    policyMatchedRules: policyPrecheck.matchedRules,
+    },
+    onHistoryText: (content) => {
+      session.history.push({ role: "assistant", content });
+    },
+    endStream: () => safeEnd(reply.raw),
+    stopHeartbeat: () => oaiHeartbeat.stop(),
+  });
+  runOpenAIStreamTelemetry({
+    requestId: reqId,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    startedAtMs: started,
+    finishReason,
+    resolvedModelId: resolved.resolvedModelId,
+    clientRequestedModel: request.model,
+    streamFinalized: oaiStreamFinalized,
+    reductions: {
+      toolResultReduction,
+      validationNormalization,
+    },
     reducedToolResults: reducedOpenAI.reducedCount,
-    tokensSavedByReduction: oaiStreamSaved,
+    orchestration,
+    policyMatchedRules: policyPrecheck.matchedRules,
     evidencePrefetched: oaiEvidencePrefetched,
     evidenceConfidence: combinedEvidenceConfidence || undefined,
     evidenceAuthoritative: oaiPrefetchResult?.authoritative,
     evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
     evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
-    isStreaming: true,
     sensemakingTriggered: oaiSensemakingResult?.triggered,
     sensemakingReason: oaiSensemakingResult?.reason,
     governorDecision: oaiExecutionGovernor,
     governorChatStateSummary: oaiPauseChatSummary,
     governorFileStateSummary: oaiPauseFileSummary,
-  });
-  oaiOptLedger.setUpstreamCachedTokens(oaiStreamUsage.cachedTokens ?? 0);
-  oaiOptLedger.recordFinal(normalizedRequest.messages as Array<{ content?: unknown }>);
-  const oaiStreamLedgerSnap = oaiOptLedger.finalize();
-  app.log.info({ reqId, ...oaiOptLedger.toLogRecord() }, "optimization_ledger");
-
-  persistAndEmitDecisionTelemetry({
-    state: session,
-    requestId: reqId,
-    resolvedModelId: resolved.resolvedModelId,
-    usage: oaiStreamUsage,
-    latencyMs: oaiStreamLatency,
-    finishReason,
-    tokensSavedByReduction: oaiStreamSaved,
-    escalated: orchestration.escalated,
-    snapshot: oaiStreamSnapshot,
-    trajectory: {
-      toolSequence: oaiStreamState.toolNames(),
-      verificationSteps: inferVerificationSteps(oaiStreamState.toolNames()),
-      diagnostics: oaiTrajectoryDiagnostics,
-      completionGateBlocked: oaiStreamGateBlockedVerification,
-      criticBlocked: oaiStreamCriticBlocked,
-      outcomeState: (oaiStreamGateBlockedVerification || oaiStreamCriticBlocked) ? "partial" : undefined,
-      failureStage: oaiStreamGateBlockedVerification ? "verification" : undefined,
-    },
-    sessionKey,
-    userId: identity.userId,
-    orgId: identity.orgId,
-    optimizationLedger: oaiStreamLedgerSnap,
-    clientRequestedModel: request.model,
-  });
-  const oaiStreamMsgCounts = countMessageRoles(normalizedRequest.messages as Array<{ role: string; content: unknown }>);
-  pushDiagnostic({
-    timestamp: Date.now(), sessionKey, path: "/v1/chat/completions (stream)", requestId: reqId,
-    ...oaiStreamMsgCounts,
+    optimizationLedger: oaiOptLedger,
+    normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+    toolNames: oaiStreamState.toolNames(),
+    inferVerificationSteps,
+    trajectoryDiagnostics: oaiTrajectoryDiagnostics,
     toolDefinitionCount: effectiveTools.length,
     artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
     knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-    reducedToolResults: reducedOpenAI.reducedCount,
-    finishReason, tokensIn: oaiStreamUsage.inputTokens, tokensOut: oaiStreamUsage.outputTokens,
-    policyDecision: policyPrecheck.matchedRules.join(","), latencyMs: oaiStreamLatency,
-    recallRouting: lastRecallOaiStream?.routing,
-    recallConfidence: lastRecallOaiStream?.resolution?.confidence,
-    verificationRound: vStateOaiStream.round > 0 ? vStateOaiStream.round : undefined,
-    verificationFindings: vStateOaiStream.round > 0 ? vStateOaiStream.findings.length : undefined,
-    verificationStalled: vStateOaiStream.stalled || undefined,
-    decisionPath: orchestration.decisionPath,
-    decisionEscalated: orchestration.escalated || undefined,
-    sensemakingTriggered: oaiSensemakingResult?.triggered || undefined,
-    sensemakingReason: oaiSensemakingResult?.reason,
-    evidencePrefetchHit: oaiPrefetchResult?.matched && (oaiPrefetchResult?.confidence ?? 0) > 0 || undefined,
-    evidencePrefetchConfidence: oaiPrefetchResult?.confidence || undefined,
-    evidencePrefetchMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
-    evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
     promptProfileIds: oaiEnriched.promptProfileIds,
     promptProfileHashes: oaiEnriched.promptProfileHashes,
     prefixHash: oaiEnriched.prefixHash,
     prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-    completionGateApplied: oaiStreamGateApplied || undefined,
-    missingMustRequirements: oaiStreamMissingMust || undefined,
-    missingShouldRequirements: oaiStreamMissingShould || undefined,
     requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
     requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
-    contextAdmissionDecision: oaiContextAdmission.decision,
-    contextAdmissionReason: oaiContextAdmission.reason,
-      contextAdmissionEstimatedTokens: oaiContextAdmission.estimatedTokens,
-    contextAdmissionEstimatedChars: oaiContextAdmission.estimatedChars,
-    requestForensicsSummary: openAiStreamForensicsDone?.summary,
-    requestForensicsLcpRatio: openAiStreamForensicsDone?.lcpRatio,
-    requestForensicsFirstChangedSection: openAiStreamForensicsDone?.firstChangedSection,
-    requestForensicsTokenEstimate: openAiStreamForensicsDone?.tokenEstimate,
+    contextAdmission: {
+      decision: oaiContextAdmission.decision,
+      reason: oaiContextAdmission.reason,
+      estimatedTokens: oaiContextAdmission.estimatedTokens,
+      estimatedChars: oaiContextAdmission.estimatedChars,
+    },
     cacheStrategy: oaiCacheStrategy !== "none" ? oaiCacheStrategy : undefined,
     prefixFingerprint: oaiPrefixFingerprint,
+    finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+    ),
+    persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+      state: session,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
+      usage: telemetry.usage,
+      latencyMs: telemetry.latencyMs,
+      finishReason,
+      tokensSavedByReduction: telemetry.tokensSavedByReduction,
+      escalated: orchestration.escalated,
+      snapshot: telemetry.snapshot,
+      trajectory: telemetry.trajectory,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
+      clientRequestedModel: request.model,
+    }),
+    countMessageRoles,
+    pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
+    logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
   });
   return reply;
 });

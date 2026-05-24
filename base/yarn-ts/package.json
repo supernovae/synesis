@@ -18,7 +18,7 @@
     "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",
     "verify:cache-canaries": "tsx scripts/cache-canary.ts",
     "verify:openai-conformance": "tsx scripts/openai-conformance.ts",
-    "test:openai-conformance": "vitest run tests/openai-compat.test.ts tests/openai-chat-pipeline.test.ts tests/protocol-session.test.ts tests/protocol-pause-state.test.ts tests/ai-sdk-request-options.test.ts tests/openai-stream-state.test.ts tests/openai-stream-response-writer.test.ts tests/openai-stream-event-runner.test.ts tests/openai-stream-tool-call-handler.test.ts tests/claude-stream-state.test.ts tests/responses-compat.test.ts tests/contracts.test.ts tests/tool-mapping.test.ts tests/client-payload-conformance.test.ts tests/claude-protocol-parity.test.ts",
+    "test:openai-conformance": "vitest run tests/openai-compat.test.ts tests/openai-chat-pipeline.test.ts tests/protocol-session.test.ts tests/protocol-pause-state.test.ts tests/ai-sdk-request-options.test.ts tests/openai-stream-state.test.ts tests/openai-stream-response-writer.test.ts tests/openai-stream-event-runner.test.ts tests/openai-stream-tool-call-handler.test.ts tests/openai-stream-finalizer.test.ts tests/openai-stream-telemetry.test.ts tests/claude-stream-state.test.ts tests/responses-compat.test.ts tests/contracts.test.ts tests/tool-mapping.test.ts tests/client-payload-conformance.test.ts tests/claude-protocol-parity.test.ts",
     "test:api-contract-hardening": "npm run test:openai-conformance",
     "verify:ab": "tsx scripts/ab-reducer-compare.ts",
     "verify:tiers": "tsx scripts/tier-compare.ts",
