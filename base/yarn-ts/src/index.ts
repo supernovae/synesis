@@ -278,6 +278,8 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
+import { finalizeClaudeNonStreamText } from "./streaming/claude-nonstream-finalizer.js";
+import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
 import {
@@ -354,7 +356,6 @@ import {
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
 import {
-  applyAdapterToolHardening,
   prepareGovernedToolCall,
 } from "./governance/tool-call-governor-service.js";
 import {
@@ -4293,7 +4294,6 @@ import type { ModelAdapter, RecentToolCall } from "./providers/model-adapter.js"
 import {
   adapterUsesToolLoopSteering,
 } from "./providers/model-adapter.js";
-import { governToolCall } from "./path-governance/tool-call-governance.js";
 import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
@@ -13682,77 +13682,65 @@ app.post("/v1/messages", async (req, reply) => {
   claudeNonStreamSpan.end();
   const allToolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
 
-  let externalClaudeToolCalls = allToolCalls.map((tc, toolCallIndex) => {
-      const rawInput =
-        typeof tc.input === "object" && tc.input !== null && !Array.isArray(tc.input)
-          ? (tc.input as Record<string, unknown>)
-          : {};
-      const hard = applyAdapterToolHardening(claudeAdapter, tc.toolName, rawInput, undefined, {
-        upperHarness: claudeUpperHarness,
-        clientKind: claudeClientKind,
-        recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
-      });
-      recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", hard.upperHarnessDecision);
-      recordAdapterToolRepairObservations({
-        stats: toolArgHardeningStats,
-        hardening: hard,
-        logger: app.log,
-        requestId: reqId,
-        originalToolName: tc.toolName,
-        originalInput: rawInput,
-      });
-      if (isWriteCapableToolName(hard.toolName)) {
-        session.blockBroadVerificationUntilEdit = false;
-        session.blockFailingVerificationUntilEdit = false;
-      }
-      const governed = governToolCall({
-        toolName: hard.toolName,
-        input: hard.input,
-        projectRoot: effectiveClaudePathCtx.projectRoot,
-        shellCwd: effectiveClaudePathCtx.shellCwd,
-        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-        strictBashBlock: claudeOpenClawStrictGovernance,
-        blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
-        clientKind: claudeClientKind,
-        sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-        restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
-        blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
-        blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
-        planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
-        artifactShadows: claudeArtifactShadows,
-        currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + toolCallIndex + 1,
-        onEditTurn: (canonicalPath, turnIndex) => {
-          session.artifactEditTurns.set(canonicalPath, turnIndex);
-        },
-        pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
-          ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
-      });
-      if (isGitInspectionChurnBlock(governed)) {
-        session.gitInspectionBlockCount += 1;
-      }
-      recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
+  let externalClaudeToolCalls = prepareClaudeNonStreamToolCalls({
+    toolCalls: allToolCalls,
+    adapter: claudeAdapter,
+    requestId: reqId,
+    clientKind: claudeClientKind,
+    strictGovernance: claudeOpenClawStrictGovernance,
+    hardeningOptions: {
+      upperHarness: claudeUpperHarness,
+      clientKind: claudeClientKind,
+      recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+    },
+    governanceOptions: (toolCallIndex) => ({
+      projectRoot: effectiveClaudePathCtx.projectRoot,
+      shellCwd: effectiveClaudePathCtx.shellCwd,
+      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+      strictBashBlock: claudeOpenClawStrictGovernance,
+      blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
+      clientKind: claudeClientKind,
+      sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
+      restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+      blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
+      blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+      planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+      artifactShadows: claudeArtifactShadows,
+      currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + toolCallIndex + 1,
+      onEditTurn: (canonicalPath, turnIndex) => {
+        session.artifactEditTurns.set(canonicalPath, turnIndex);
+      },
+      pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
+        ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
+    }),
+    stats: toolArgHardeningStats,
+    logger: app.log,
+    isWriteCapableToolName,
+    onWriteCapableTool: () => {
+      session.blockBroadVerificationUntilEdit = false;
+      session.blockFailingVerificationUntilEdit = false;
+    },
+    onGitInspectionChurnBlock: () => {
+      session.gitInspectionBlockCount += 1;
+    },
+    onGovernedToolCall: (governed) => {
       updateDiffAccumulator(session, governed);
       maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
-      if (governed.planWriteAudit) {
-        emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, governed.planWriteAudit);
-      }
-      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, governed.toolName, claudeClientKind, governed, tc.toolCallId);
-      if (governed.validationMissing.length > 0) {
-        app.log.warn(
-          { reqId, toolName: governed.toolName, missing: governed.validationMissing },
-          "tool_args_validation_failed",
-        );
-      }
-      if (claudeOpenClawStrictGovernance && isWriteCapableToolName(tc.toolName) && governed.toolName === "Bash") {
-        openClawProfileStats.strictGovernanceRewrites += 1;
-      }
-      return {
-        toolCallId: tc.toolCallId,
-        toolName: governed.toolName,
-        input: governed.input,
-      };
-    });
+    },
+    onPlanWriteAudit: (audit) => {
+      emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, audit);
+    },
+    onEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
+      maybeLogEnvelopeUnwrapSample(app.log as never, reqId, toolName, claudeClientKind, governed, toolCallId);
+    },
+    onUpperHarnessDecision: (decision) => {
+      recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", decision);
+    },
+    onStrictGovernanceRewrites: (count) => {
+      openClawProfileStats.strictGovernanceRewrites += count;
+    },
+  });
   const claudeTopLevelDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
   const claudeGuarded = applyDiscoveryToolGuardrail(externalClaudeToolCalls, claudeTopLevelDirs);
   externalClaudeToolCalls = claudeGuarded.calls;
@@ -13870,54 +13858,26 @@ app.post("/v1/messages", async (req, reply) => {
       reqId,
     );
   }
-  let claudeGateApplied = false;
-  let claudeMissingMust = 0;
-  let claudeMissingShould = 0;
-  let claudeGateBlockedVerification = false;
-  let claudeCriticBlocked = false;
-  if (stopReason === "end_turn") {
-    const finalized = await finalizeCompletionText({
-      requestId: reqId,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      assistantText: finalClaudeText,
-      checklist: claudeRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: claudeVerificationAssessment,
-      recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-      nonActionableEventDetail: "terminal end_turn had non-actionable text; emitted deterministic fallback",
-      planGraph: claudePlanGraph,
-      session,
-    });
-    finalClaudeText = finalized.finalText;
-    claudeGateApplied = finalized.applied;
-    claudeMissingMust = finalized.missingMust;
-    claudeMissingShould = finalized.missingShould;
-    claudeGateBlockedVerification = finalized.blockedByVerification;
-    claudeCriticBlocked = finalized.criticBlocked;
-  }
-  finalClaudeText = applyMarkdownGuardrail(
-    finalClaudeText,
-    config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-  );
-  const scrubbedFinalClaudeText = scrubTaskLedgerOutput(finalClaudeText);
-  if (scrubbedFinalClaudeText.scrubbed) {
-    finalClaudeText = scrubbedFinalClaudeText.text;
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "task_ledger_output_scrubbed",
-      "task-ledger",
-      "Removed internal task-ledger governance from Claude response",
-      reqId,
-    );
-  }
-  if (finalClaudeText) {
-    session.history.push({ role: "assistant", content: finalClaudeText });
-  }
+  const claudeFinalized = await finalizeClaudeNonStreamText({
+    session,
+    requestId: reqId,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    stopReason,
+    assistantText: finalClaudeText,
+    checklist: claudeRequirementChecklist,
+    traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+    latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+    verification: claudeVerificationAssessment,
+    recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+    planGraph: claudePlanGraph,
+    responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    applyMarkdownGuardrail,
+    finalizeCompletionText,
+    recordSessionEvent,
+  });
+  finalClaudeText = claudeFinalized.finalText;
   const claudeNonStreamLatency = Date.now() - started;
   const claudeNonStreamSaved = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
   const claudeNonStreamGuidedTrimmed = toolResultReduction.getPerRequestGuidedTruncationDelta();
@@ -13979,10 +13939,10 @@ app.post("/v1/messages", async (req, reply) => {
       toolSequence: externalClaudeToolCalls.map((tc) => tc.toolName),
       verificationSteps: inferVerificationSteps(externalClaudeToolCalls.map((tc) => tc.toolName)),
       diagnostics: claudeTrajectoryDiagnostics,
-      completionGateBlocked: claudeGateBlockedVerification,
-      criticBlocked: claudeCriticBlocked,
-      outcomeState: (claudeGateBlockedVerification || claudeCriticBlocked) ? "partial" : undefined,
-      failureStage: claudeGateBlockedVerification ? "verification" : undefined,
+      completionGateBlocked: claudeFinalized.gateBlockedVerification,
+      criticBlocked: claudeFinalized.criticBlocked,
+      outcomeState: (claudeFinalized.gateBlockedVerification || claudeFinalized.criticBlocked) ? "partial" : undefined,
+      failureStage: claudeFinalized.gateBlockedVerification ? "verification" : undefined,
     },
     sessionKey: claudeSessionKey,
     userId: claudeIdentity.userId,
@@ -14016,9 +13976,9 @@ app.post("/v1/messages", async (req, reply) => {
     promptProfileHashes: claudeEnriched.promptProfileHashes,
     prefixHash: claudeEnriched.prefixHash,
     prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-    completionGateApplied: claudeGateApplied || undefined,
-    missingMustRequirements: claudeMissingMust || undefined,
-    missingShouldRequirements: claudeMissingShould || undefined,
+    completionGateApplied: claudeFinalized.gateApplied || undefined,
+    missingMustRequirements: claudeFinalized.missingMust || undefined,
+    missingShouldRequirements: claudeFinalized.missingShould || undefined,
     requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
     requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
     contextAdmissionDecision: claudeContextAdmission.decision,
