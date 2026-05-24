@@ -223,13 +223,6 @@ import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from 
 import { applyToolSearchPolicy } from "./compat/tool-search-policy.js";
 import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
-import {
-  buildRetrievalPolicyToolPromptFragment,
-  buildPythonRuntimeDiscoveryToolPromptFragment,
-  buildStdoutEfficiencyToolPromptFragment,
-  buildVerificationDisciplineToolPromptFragment,
-  mergeToolSystemPrompts,
-} from "./retrieval-tool-policy.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
@@ -350,6 +343,7 @@ import {
   applyRouteAdapterPivot,
   resetQwenInterventionOnUserTurn,
 } from "./pipeline/route-adapter-pivot.js";
+import { assembleRouteModelMessages } from "./pipeline/route-model-message-assembly.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -405,7 +399,6 @@ import {
   type StateConfidenceAssessment,
 } from "./governance/state-confidence.js";
 import {
-  buildEmptyWorkspaceSystemPrompt,
   projectInstructionFilePresent,
 } from "./governance/workspace-boundary.js";
 import {
@@ -7486,52 +7479,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
 
-  const modelToolPrompt = mergeToolSystemPrompts(
-    adapter.toolSystemPrompt?.(effectiveTools.length),
-    buildRetrievalPolicyToolPromptFragment(effectiveTools as unknown[]),
-    buildStdoutEfficiencyToolPromptFragment(effectiveTools as unknown[]),
-    buildVerificationDisciplineToolPromptFragment(effectiveTools as unknown[]),
-    buildPythonRuntimeDiscoveryToolPromptFragment(effectiveTools as unknown[]),
-  );
-  let modelMessages = modelToolPrompt
-    ? ([{ role: "system" as const, content: modelToolPrompt }, ...messages] as typeof messages)
-    : messages;
-  if (oaiWorkspaceInspection.isEmpty && oaiWorkspaceInspection.projectInstructionFiles.length === 0) {
-    modelMessages = appendSystemMessageAndNormalize(
-      modelMessages as Array<{ role: string; content?: unknown }>,
-      buildEmptyWorkspaceSystemPrompt(oaiWorkspaceInspection.root),
-    ) as typeof modelMessages;
-  }
-  if (policyPrecheck.pivotPrompt) {
-    modelMessages = [...modelMessages, { role: "system" as const, content: policyPrecheck.pivotPrompt }] as typeof modelMessages;
-  }
-  if (oaiEditMissGuard?.active || oaiForceReadRecovery) {
-    const recoveryFilePath = oaiEditMissGuard?.filePath ?? oaiLatestReadRefresh.filePath ?? "<unknown>";
-    const recoveryMissCount = oaiEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
-    const editRecoveryPrompt = oaiForceReadRecovery
-      ? buildEditContextMissForcedReadPrompt(recoveryFilePath)
-      : buildEditContextMissGuardPrompt(recoveryFilePath, recoveryMissCount);
-    modelMessages = appendSystemMessageAndNormalize(
-      modelMessages as Array<{ role: string; content?: unknown }>,
-      editRecoveryPrompt,
-    ) as typeof modelMessages;
-  }
-  if (oaiNeedsStateReground && oaiStateConfidence.recommendedReadPath) {
-    const regroundPrompt = buildStateRegroundReadPrompt(
-      oaiStateConfidence.recommendedReadPath,
-      oaiStateConfidence.reasons,
-    );
-    modelMessages = appendSystemMessageAndNormalize(
-      modelMessages as Array<{ role: string; content?: unknown }>,
-      regroundPrompt,
-    ) as typeof modelMessages;
-  }
-  if (oaiPromptIntake.systemBlock) {
-    modelMessages = appendSystemMessageAndNormalize(
-      modelMessages as Array<{ role: string; content?: unknown }>,
-      oaiPromptIntake.systemBlock,
-    ) as typeof modelMessages;
-  }
+  let modelMessages = assembleRouteModelMessages({
+    adapter,
+    effectiveTools: effectiveTools as unknown[],
+    messages,
+    workspaceInspection: oaiWorkspaceInspection,
+    policyPivotPrompt: policyPrecheck.pivotPrompt,
+    editMissGuard: oaiEditMissGuard,
+    forceReadRecovery: oaiForceReadRecovery,
+    latestReadRefreshFilePath: oaiLatestReadRefresh.filePath,
+    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
+    stateReground: {
+      required: oaiNeedsStateReground,
+      recommendedReadPath: oaiStateConfidence.recommendedReadPath,
+      reasons: oaiStateConfidence.reasons,
+    },
+    promptIntakeSystemBlock: oaiPromptIntake.systemBlock,
+    buildEditContextMissGuardPrompt,
+    buildEditContextMissForcedReadPrompt,
+    buildStateRegroundReadPrompt,
+  }).messages as typeof messages;
 
   const oaiGovernanceRecoveryActive = Boolean(
     policyPrecheck.pivotPrompt
@@ -9632,52 +9599,26 @@ app.post("/v1/messages", async (req, reply) => {
     session.editMissForceReadPending
     && claudeExecutionGovernor.matchedRules.includes("edit_failure_replay");
 
-  const claudeModelToolPrompt = mergeToolSystemPrompts(
-    claudeAdapter.toolSystemPrompt?.(effectiveClaudeTools.length),
-    buildRetrievalPolicyToolPromptFragment(effectiveClaudeTools as unknown[]),
-    buildStdoutEfficiencyToolPromptFragment(effectiveClaudeTools as unknown[]),
-    buildVerificationDisciplineToolPromptFragment(effectiveClaudeTools as unknown[]),
-    buildPythonRuntimeDiscoveryToolPromptFragment(effectiveClaudeTools as unknown[]),
-  );
-  let claudeModelMessages = claudeModelToolPrompt
-    ? ([{ role: "system" as const, content: claudeModelToolPrompt }, ...messages] as typeof messages)
-    : messages;
-  if (claudeWorkspaceInspection.isEmpty && claudeWorkspaceInspection.projectInstructionFiles.length === 0) {
-    claudeModelMessages = appendSystemMessageAndNormalize(
-      claudeModelMessages as Array<{ role: string; content?: unknown }>,
-      buildEmptyWorkspaceSystemPrompt(claudeWorkspaceInspection.root),
-    ) as typeof claudeModelMessages;
-  }
-  if (claudePolicyPrecheck.pivotPrompt) {
-    claudeModelMessages = [...claudeModelMessages, { role: "system" as const, content: claudePolicyPrecheck.pivotPrompt }] as typeof claudeModelMessages;
-  }
-  if (claudeEditMissGuard?.active || claudeForceReadRecovery) {
-    const recoveryFilePath = claudeEditMissGuard?.filePath ?? claudeLatestReadRefresh.filePath ?? "<unknown>";
-    const recoveryMissCount = claudeEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
-    const editRecoveryPrompt = claudeForceReadRecovery
-      ? buildEditContextMissForcedReadPrompt(recoveryFilePath)
-      : buildEditContextMissGuardPrompt(recoveryFilePath, recoveryMissCount);
-    claudeModelMessages = appendSystemMessageAndNormalize(
-      claudeModelMessages as Array<{ role: string; content?: unknown }>,
-      editRecoveryPrompt,
-    ) as typeof claudeModelMessages;
-  }
-  if (claudeNeedsStateReground && claudeStateConfidence.recommendedReadPath) {
-    const regroundPrompt = buildStateRegroundReadPrompt(
-      claudeStateConfidence.recommendedReadPath,
-      claudeStateConfidence.reasons,
-    );
-    claudeModelMessages = appendSystemMessageAndNormalize(
-      claudeModelMessages as Array<{ role: string; content?: unknown }>,
-      regroundPrompt,
-    ) as typeof claudeModelMessages;
-  }
-  if (claudePromptIntake.systemBlock) {
-    claudeModelMessages = appendSystemMessageAndNormalize(
-      claudeModelMessages as Array<{ role: string; content?: unknown }>,
-      claudePromptIntake.systemBlock,
-    ) as typeof claudeModelMessages;
-  }
+  let claudeModelMessages = assembleRouteModelMessages({
+    adapter: claudeAdapter,
+    effectiveTools: effectiveClaudeTools as unknown[],
+    messages,
+    workspaceInspection: claudeWorkspaceInspection,
+    policyPivotPrompt: claudePolicyPrecheck.pivotPrompt,
+    editMissGuard: claudeEditMissGuard,
+    forceReadRecovery: claudeForceReadRecovery,
+    latestReadRefreshFilePath: claudeLatestReadRefresh.filePath,
+    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
+    stateReground: {
+      required: claudeNeedsStateReground,
+      recommendedReadPath: claudeStateConfidence.recommendedReadPath,
+      reasons: claudeStateConfidence.reasons,
+    },
+    promptIntakeSystemBlock: claudePromptIntake.systemBlock,
+    buildEditContextMissGuardPrompt,
+    buildEditContextMissForcedReadPrompt,
+    buildStateRegroundReadPrompt,
+  }).messages as typeof messages;
 
   const claudeGovernanceRecoveryActive = Boolean(
     claudePolicyPrecheck.pivotPrompt
