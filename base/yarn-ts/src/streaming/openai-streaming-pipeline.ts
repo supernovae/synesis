@@ -25,6 +25,16 @@ export interface OpenAIStreamingPipelineInput {
   buildTelemetryInput: OpenAIStreamTelemetryInputBuilder;
 }
 
+export interface OpenAIStreamingPipelineLifecycleHandlers {
+  onEventError(error: unknown): MaybePromise<void>;
+  beforeFinalize(finishReason: string): MaybePromise<void>;
+}
+
+export interface OpenAIStreamingPipelineFactoryInput
+  extends Omit<OpenAIStreamingPipelineInput, "onEventError" | "beforeFinalize"> {
+  lifecycle?: Partial<OpenAIStreamingPipelineLifecycleHandlers>;
+}
+
 export interface OpenAIStreamingPipelineResult {
   finishReason: string;
   finalized: OpenAIStreamFinalizerResult;
@@ -32,9 +42,14 @@ export interface OpenAIStreamingPipelineResult {
 }
 
 export function createOpenAIStreamingPipelineInput(
-  input: OpenAIStreamingPipelineInput,
+  input: OpenAIStreamingPipelineFactoryInput,
 ): OpenAIStreamingPipelineInput {
-  return input;
+  const { lifecycle, ...pipelineInput } = input;
+  return {
+    ...pipelineInput,
+    onEventError: lifecycle?.onEventError,
+    beforeFinalize: lifecycle?.beforeFinalize,
+  };
 }
 
 export async function runOpenAIStreamingPipeline(

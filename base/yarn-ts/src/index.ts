@@ -286,6 +286,7 @@ import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-fina
 import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
+import { createOpenAIStreamProviderRequestOptions } from "./streaming/openai-stream-provider-request.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import { createOpenAIStreamToolCallAccumulator } from "./streaming/openai-stream-tool-call-handler.js";
@@ -10176,19 +10177,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
     );
   }
   modelMessages = ensureModelMessageContentFormat(modelMessages) as typeof modelMessages;
-  const streamed = streamText(buildAiSdkTextRequestOptions({
+  const oaiStreamProviderRequestOptions = createOpenAIStreamProviderRequestOptions({
     model: resolved.model,
     messages: modelMessages,
     abortSignal: oaiStreamAbortController.signal,
-    maxOutputTokens: clampMaxOutputTokensForSafety(
-      Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-    ),
+    orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
+    requestMaxTokens: request.max_tokens,
+    requestMaxCompletionTokens: request.max_completion_tokens,
     output: oaiStructuredOutput,
     samplingOptions: oaiSamplingOptions,
     tools: sdkTools,
     toolChoice: effectiveToolChoice,
     providerOptions: oaiProviderOptions,
-  }) as never);
+    clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+  });
+  const streamed = streamText(oaiStreamProviderRequestOptions as never);
   reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
   const oaiHeartbeat = startSseHeartbeat({
     raw: reply.raw,
@@ -10366,8 +10369,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ),
     }),
     afterEvents: oaiStreamAfterEvents,
-    onEventError: oaiStreamLifecycle.onEventError,
-    beforeFinalize: oaiStreamLifecycle.beforeFinalize,
+    lifecycle: oaiStreamLifecycle,
     finalizerInput: createOpenAIStreamFinalizerInput({
       writer: openAiStreamWriter,
       streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },

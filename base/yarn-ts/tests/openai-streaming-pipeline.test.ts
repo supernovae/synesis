@@ -99,12 +99,17 @@ function pipelineHarness() {
 }
 
 describe("runOpenAIStreamingPipeline", () => {
-  it("preserves pipeline input identity for route assembly", () => {
+  it("builds canonical pipeline input from route assembly", () => {
     const { writer, streamState } = pipelineHarness();
+    const lifecycle = {
+      onEventError: vi.fn(),
+      beforeFinalize: vi.fn(),
+    };
     const input = {
       streamParts: streamParts([]),
       streamState,
       eventHandlers: {},
+      lifecycle,
       finalizerInput: {
         writer,
         streamed: { totalUsage: Promise.resolve({}), text: Promise.resolve("") },
@@ -141,7 +146,12 @@ describe("runOpenAIStreamingPipeline", () => {
       }),
     } satisfies Parameters<typeof createOpenAIStreamingPipelineInput>[0];
 
-    expect(createOpenAIStreamingPipelineInput(input)).toBe(input);
+    const built = createOpenAIStreamingPipelineInput(input);
+
+    expect(built).not.toHaveProperty("lifecycle");
+    expect(built.onEventError).toBe(lifecycle.onEventError);
+    expect(built.beforeFinalize).toBe(lifecycle.beforeFinalize);
+    expect(built.streamState).toBe(streamState);
   });
 
   it("runs events, finalization, and telemetry in sequence", async () => {
