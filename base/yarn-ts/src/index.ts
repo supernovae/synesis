@@ -281,6 +281,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { runOpenAIStreamAfterEvents } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamEventHandlers } from "./streaming/openai-stream-event-handlers.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
@@ -10327,64 +10328,33 @@ app.post("/v1/chat/completions", async (req, reply) => {
       ),
     }),
     afterEvents: () => {
-    if (
-      adapter.family === "qwen3-coder"
-      && isLocalLikeOaiStreamBaseUrl
-      && oaiStreamToolAccumulator.validationFailures > 0
-      && oaiStreamToolAccumulator.toolRepairs >= 2
-    ) {
-      toolArgHardeningStats.qwenParserMismatchSuspectCount += 1;
-      app.log.warn(
-        {
+      runOpenAIStreamAfterEvents({
+        adapter,
+        localLikeBaseUrl: isLocalLikeOaiStreamBaseUrl,
+        requestId: reqId,
+        resolvedModelId: resolved.resolvedModelId,
+        baseUrl: resolvedTierOaiStream?.baseUrl,
+        sessionKey,
+        userId: identity.userId,
+        orgId: identity.orgId,
+        streamState: oaiStreamState,
+        accumulator: oaiStreamToolAccumulator,
+        blockedDetails: oaiStreamBlockedDetails,
+        stats: toolArgHardeningStats,
+        logger: app.log,
+        recordBlockedDiscovery,
+        getBlockedDiscoveryCount,
+        recordSessionEvent: (event) => recordSessionEvent(
+          sessionKey,
+          identity.userId,
+          identity.orgId,
+          event.eventKind,
+          event.component,
+          event.detail,
           reqId,
-          resolvedModel: resolved.resolvedModelId,
-          baseUrl: resolvedTierOaiStream?.baseUrl,
-          validationFailures: oaiStreamToolAccumulator.validationFailures,
-          repairs: oaiStreamToolAccumulator.toolRepairs,
-        },
-        "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
-      );
-    }
-    oaiStreamState.normalizedFinishReason(oaiStreamToolAccumulator.emittedToolCalls);
-    if (oaiStreamToolAccumulator.blockedBroadDiscovery > 0) {
-      recordBlockedDiscovery(sessionKey, oaiStreamToolAccumulator.blockedBroadDiscovery);
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "tool_call_blocked_broad_discovery",
-        "tool-guardrails",
-        `blocked=${oaiStreamToolAccumulator.blockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`,
-        reqId,
-        {
-          blockedDetails: oaiStreamBlockedDetails.slice(0, 5),
-          recoveryMode: oaiStreamToolAccumulator.recoveryMode,
-          topLevelPreview: oaiStreamToolAccumulator.recoveryPreviewEntries,
-          sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey),
-        },
-      );
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "blocked_broad_discovery_then_recovery",
-        "tool-guardrails",
-        `mode=${oaiStreamToolAccumulator.recoveryMode ?? "unknown"};top_level_preview=${oaiStreamToolAccumulator.recoveryPreviewEntries}`,
-        reqId,
-        { recoveryMode: oaiStreamToolAccumulator.recoveryMode, topLevelPreview: oaiStreamToolAccumulator.recoveryPreviewEntries },
-      );
-    }
-    if (oaiStreamToolAccumulator.collapsedBroadDiscovery > 0) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "duplicate_broad_call_collapsed",
-        "tool-guardrails",
-        `collapsed=${oaiStreamToolAccumulator.collapsedBroadDiscovery}`,
-        reqId,
-      );
-    }
+          event.metadataJson,
+        ),
+      });
     },
     onEventError: (streamErr) => {
     const oaiTimedOut = oaiStreamAbortController.signal.aborted
