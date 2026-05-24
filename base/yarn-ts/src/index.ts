@@ -404,10 +404,20 @@ import {
 } from "./governance/state-confidence.js";
 import {
   buildEmptyWorkspaceSystemPrompt,
-  decideWorkspaceBoundary,
-  inspectWorkspaceRoot,
   projectInstructionFilePresent,
 } from "./governance/workspace-boundary.js";
+import {
+  applyWorkspaceBoundary,
+  buildFreshImplicitSessionNotice,
+  clearWorkspaceScopedMetadata,
+  getHandshakeAttempts,
+  getHandshakeStatus,
+  hasPersistedWorkspaceState,
+  mergeSessionPathHints,
+  setSessionWorkspaceContext,
+  type HandshakeStatus,
+  type SessionPathHints,
+} from "./state/workspace-session-boundary.js";
 import type { CompactionMode } from "./governance/context-budget-manager.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
@@ -4243,7 +4253,6 @@ import {
 } from "./governance/diff-accumulator.js";
 import {
   buildWorkspaceHandshakeBashCommand,
-  contextFromSessionMetadata,
   extractClaudeToolResult,
   extractOpenAIToolResult,
   hasBashTool,
@@ -5340,162 +5349,6 @@ function policyRejectClaudeBody(decision: PolicyDecision) {
   };
 }
 
-type HandshakeStatus = "pending" | "ready" | "unavailable";
-type SessionPathHints = {
-  projectRoot: string | null;
-  shellCwd: string | null;
-  platform?: string;
-  osVersion?: string;
-  shell?: string;
-  gitSummary?: string;
-  clientModelLabel?: string;
-  knowledgeCutoff?: string;
-};
-
-function getHandshakeStatus(meta: Record<string, unknown>): HandshakeStatus | "" {
-  const s = String(meta.workspace_context_status ?? "").trim();
-  return s === "pending" || s === "ready" || s === "unavailable" ? s : "";
-}
-
-function getHandshakeAttempts(meta: Record<string, unknown>): number {
-  const n = Number(meta.workspace_context_attempts ?? 0);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-function mergeSessionPathHints(base: SessionPathHints, state: SessionState): SessionPathHints {
-  const fromSession = contextFromSessionMetadata(state.record.metadata);
-  if (!fromSession) return base;
-  const coalescedRoot = fromSession.projectRoot || fromSession.cwd;
-  const coalescedCwd = fromSession.cwd || fromSession.projectRoot;
-  return {
-    ...base,
-    projectRoot: base.projectRoot ?? coalescedRoot ?? null,
-    shellCwd: base.shellCwd ?? coalescedCwd ?? null,
-    shell: base.shell ?? fromSession.shell,
-    platform: base.platform ?? fromSession.os,
-    osVersion: base.osVersion ?? fromSession.arch,
-  };
-}
-
-function setSessionWorkspaceContext(
-  state: SessionState,
-  status: HandshakeStatus,
-  reqId: string,
-  details?: { toolCallId?: string; reason?: string; cwd?: string; projectRoot?: string; shell?: string; os?: string; arch?: string },
-): void {
-  state.record.metadata.workspace_context_status = status;
-  state.record.metadata.workspace_context_updated_at = Date.now();
-  if (details?.toolCallId) {
-    state.record.metadata.workspace_context_tool_call_id = details.toolCallId;
-  }
-  if (details?.reason) {
-    state.record.metadata.workspace_context_reason = details.reason.slice(0, 300);
-  }
-  if (details?.cwd) state.record.metadata.workspace_context_cwd = details.cwd;
-  if (details?.projectRoot) state.record.metadata.workspace_context_project_root = details.projectRoot;
-  if (details?.shell) state.record.metadata.workspace_context_shell = details.shell;
-  if (details?.os) state.record.metadata.workspace_context_os = details.os;
-  if (details?.arch) state.record.metadata.workspace_context_arch = details.arch;
-  state.record.metadata.last_trace_id = reqId;
-}
-
-function hasPersistedWorkspaceState(
-  state: SessionState,
-  sessionKey: string,
-): boolean {
-  const meta = state.record.metadata;
-  return Boolean(
-    meta.chat_state_snapshot
-      || meta.file_state_snapshot
-      || meta.objective_epoch_id
-      || meta.objective_epoch_objective_text
-      || meta.objective_scope_boundary_index
-      || meta.plan_graph
-      || meta.plan_content_shadow
-      || meta.plan_file_path
-      || meta.requirement_checklist
-      || meta.task_intake
-      || meta.task_ledger
-      || state.taskLedger
-      || fileSnapshotBySession.has(sessionKey)
-      || contentDedupBySession.has(sessionKey)
-      || structuralIndexBySession.has(sessionKey)
-      || getSessionMemoryCount(sessionKey) > 0
-  );
-}
-
-function previousWorkspaceRootFromMetadata(meta: Record<string, unknown>): string | null {
-  const projectRoot = typeof meta.workspace_context_project_root === "string"
-    ? meta.workspace_context_project_root
-    : "";
-  const cwd = typeof meta.workspace_context_cwd === "string"
-    ? meta.workspace_context_cwd
-    : "";
-  const workspaceRoot = typeof meta.workspace_root === "string"
-    ? meta.workspace_root
-    : "";
-  return projectRoot.trim() || cwd.trim() || workspaceRoot.trim() || null;
-}
-
-function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
-  for (const key of [
-    "chat_state_snapshot",
-    "file_state_snapshot",
-    "objective_epoch_id",
-    "objective_epoch_objective_hash",
-    "objective_epoch_objective_text",
-    "objective_epoch_anchor_user_hash",
-    "objective_epoch_set_request",
-    "objective_scope_boundary_index",
-    "objective_scope_retained_evidence",
-    "objective_scope_dropped_pre_boundary",
-    "objective_epoch_pruning_frozen_boundary",
-    "objective_epoch_pruning_frozen_at_request",
-    "objective_epoch_pruning_frozen_message_count",
-    "plan_graph",
-    "plan_content_shadow",
-    "plan_file_path",
-    "requirement_checklist",
-    "task_intake",
-    "task_ledger",
-    "state_confidence_chat",
-    "state_confidence_file",
-    "state_confidence_overall",
-    "state_confidence_needs_reground",
-    "state_confidence_recommended_path",
-    "state_confidence_reasons",
-    "latest_user_prompt",
-    "trace_root_prompt",
-    "planner_todo_packet",
-    "planner_todo_packet_source_hash",
-    "planner_todo_packet_model",
-    "planner_todo_packet_updated_at",
-    "planner_todo_packet_ambiguity",
-    "planner_todo_packet_todos",
-    "planner_todo_packet_questions",
-    "planner_todo_packet_carrier",
-    GOVERNOR_PAUSE_CONTEXT_METADATA_KEY,
-    GOVERNOR_PAUSE_PENDING_METADATA_KEY,
-  ]) {
-    delete meta[key];
-  }
-}
-
-function buildFreshImplicitSessionNotice(clientKind: string, messageCount: number): string {
-  const safeClientKind = clientKind.replace(/[<>&"]/g, (ch) => ({
-    "<": "&lt;",
-    ">": "&gt;",
-    "&": "&amp;",
-    "\"": "&quot;",
-  })[ch] ?? ch);
-  return [
-    `<SESSION_BOUNDARY_NOTICE client="${safeClientKind}" mode="fresh_transcript">`,
-    `The client sent a fresh transcript without an explicit resume id (${messageCount} message${messageCount === 1 ? "" : "s"}).`,
-    "Prior implicit harness state for this workspace was cleared. Treat this as a fresh run: rely only on the current transcript and filesystem, not older tasks or conclusions.",
-    "</SESSION_BOUNDARY_NOTICE>",
-  ].join("\n");
-}
-
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
   clearWorkspaceScopedMetadata(state.record.metadata);
   contentDedupBySession.delete(sessionKey);
@@ -5539,65 +5392,13 @@ function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionStat
   state.taskCapabilities = null;
 }
 
-async function applyWorkspaceBoundary(
-  state: SessionState,
-  sessionKey: string,
-  identity: SessionIdentity,
-  requestId: string,
-  pathHints: SessionPathHints,
-): Promise<Awaited<ReturnType<typeof inspectWorkspaceRoot>>> {
-  const inspection = await inspectWorkspaceRoot(pathHints, async (root) => readdir(root, { withFileTypes: true }));
-  const decision = decideWorkspaceBoundary({
-    previousFingerprint: typeof state.record.metadata.workspace_fingerprint === "string"
-      ? state.record.metadata.workspace_fingerprint
-      : null,
-    previousRoot: previousWorkspaceRootFromMetadata(state.record.metadata),
-    nextInspection: inspection,
-    hasPersistedState: hasPersistedWorkspaceState(state, sessionKey),
-  });
-
-  if (decision.resetRequired) {
-    resetWorkspaceScopedSessionState(sessionKey, state);
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "workspace_boundary_reset",
-      "workspace-boundary",
-      `reason=${decision.reason} root=${decision.root ?? "<unknown>"}`,
-      requestId,
-      {
-        reason: decision.reason,
-        workspace_root: decision.root,
-        workspace_empty: inspection.isEmpty,
-        project_instruction_files: inspection.projectInstructionFiles,
-      },
-    );
-  }
-
-  if (inspection.fingerprint) {
-    state.record.metadata.workspace_fingerprint = inspection.fingerprint;
-  }
-  if (inspection.root) {
-    state.record.metadata.workspace_root = inspection.root;
-  }
-  if (pathHints.projectRoot) state.record.metadata.workspace_context_project_root = pathHints.projectRoot;
-  if (pathHints.shellCwd) state.record.metadata.workspace_context_cwd = pathHints.shellCwd;
-  state.record.metadata.workspace_empty = inspection.isEmpty;
-  state.record.metadata.workspace_project_guidance_absent =
-    inspection.isEmpty && inspection.projectInstructionFiles.length === 0;
-  if (inspection.projectInstructionFiles.length > 0) {
-    state.record.metadata.workspace_project_instruction_files = inspection.projectInstructionFiles;
-  } else {
-    delete state.record.metadata.workspace_project_instruction_files;
-  }
-  if (inspection.readError) {
-    state.record.metadata.workspace_inspection_error = inspection.readError;
-  } else {
-    delete state.record.metadata.workspace_inspection_error;
-  }
-
-  return inspection;
+function workspaceStatePresence(sessionKey: string) {
+  return {
+    hasFileSnapshot: fileSnapshotBySession.has(sessionKey),
+    hasContentDedup: contentDedupBySession.has(sessionKey),
+    hasStructuralIndex: structuralIndexBySession.has(sessionKey),
+    sessionMemoryCount: getSessionMemoryCount(sessionKey),
+  };
 }
 
 function shouldStartWorkspaceHandshake(
@@ -6953,7 +6754,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         clientKind: oaiClientKind,
         conversationId: oaiConversationId,
         messages: request.messages as Array<{ role?: unknown }>,
-        hasPersistedState: hasPersistedWorkspaceState(loadedSession, loadedSessionKey),
+        hasPersistedState: hasPersistedWorkspaceState(loadedSession, workspaceStatePresence(loadedSessionKey)),
       })) {
         resetWorkspaceScopedSessionState(loadedSessionKey, loadedSession);
         oaiFreshImplicitSessionNotice = buildFreshImplicitSessionNotice(
@@ -7052,13 +6853,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.implementationSoftStallNudgeStrikes = 0;
     void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err) => { console.warn("[session] counter reset failed:", (err as Error).message ?? err); });
   }
-  const oaiWorkspaceInspection = await applyWorkspaceBoundary(
-    session,
+  const oaiWorkspaceInspection = await applyWorkspaceBoundary({
+    state: session,
     sessionKey,
     identity,
-    oaiTraceReqId,
-    oaiPathCtx,
-  );
+    requestId: oaiTraceReqId,
+    pathHints: oaiPathCtx,
+    readDir: async (root) => readdir(root, { withFileTypes: true }),
+    hasPersistedState: hasPersistedWorkspaceState(session, workspaceStatePresence(sessionKey)),
+    resetWorkspaceState: resetWorkspaceScopedSessionState,
+    recordSessionEvent,
+  });
   const oaiStabilizedTranscript = await stabilizeOpenAITranscript({
     messages: normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
     originalMessageCount: oaiMsgCount,
@@ -9563,13 +9368,17 @@ app.post("/v1/messages", async (req, reply) => {
     session.implementationSoftStallNudgeStrikes = 0;
     void distributedCounters.setConsecutiveToolCalls(claudeSessionKey, 0).catch((err) => { console.warn("[session] counter reset failed:", (err as Error).message ?? err); });
   }
-  const claudeWorkspaceInspection = await applyWorkspaceBoundary(
-    session,
-    claudeSessionKey,
-    claudeIdentity,
-    traceReqId,
-    claudePathCtx,
-  );
+  const claudeWorkspaceInspection = await applyWorkspaceBoundary({
+    state: session,
+    sessionKey: claudeSessionKey,
+    identity: claudeIdentity,
+    requestId: traceReqId,
+    pathHints: claudePathCtx,
+    readDir: async (root) => readdir(root, { withFileTypes: true }),
+    hasPersistedState: hasPersistedWorkspaceState(session, workspaceStatePresence(claudeSessionKey)),
+    resetWorkspaceState: resetWorkspaceScopedSessionState,
+    recordSessionEvent,
+  });
   {
     const readSnapshotRegistry = getFileSnapshotRegistry(claudeSessionKey);
     const readSnapshotNormalization = await normalizeReadSnapshotMessages(
