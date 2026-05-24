@@ -221,7 +221,6 @@ import {
   openAIToolsToSDK,
   claudeToolsToSDK,
   mapToolChoice,
-  sdkToolCallsToOpenAI,
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
@@ -334,6 +333,7 @@ import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipel
 import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-nonstream-discovery-guardrails.js";
 import { finalizeOpenAINonStreamText } from "./pipeline/openai-nonstream-finalizer.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
+import { buildOpenAINonStreamAssistantMessage } from "./pipeline/openai-nonstream-response-message.js";
 import { maybeRewriteOpenAINonStreamCollapsedToolCalls } from "./pipeline/openai-nonstream-tool-collapse.js";
 import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -366,11 +366,7 @@ import {
 } from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
-import {
-  restoreGuardrailCallForClient,
-  toolDefinitionName,
-  type GuardrailToolCall,
-} from "./tools/tool-call-availability.js";
+import { toolDefinitionName, type GuardrailToolCall } from "./tools/tool-call-availability.js";
 import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import {
@@ -9811,17 +9807,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       requestForensicsTokenEstimate: lastOpenAiForensics?.tokenEstimate,
     });
 
-    const message: Record<string, unknown> = { role: "assistant", content: finalAssistantText };
-    const oaiNonStreamReasoning = (finalResult as unknown as { reasoning?: string }).reasoning;
-    if (typeof oaiNonStreamReasoning === "string" && oaiNonStreamReasoning.length > 0) {
-      message.reasoning_content = oaiNonStreamReasoning;
-    }
-    if (externalToolCalls.length > 0) {
-      const clientToolCalls = externalToolCalls.map((call) =>
-        restoreGuardrailCallForClient(call, effectiveTools as unknown[], oaiClientKind),
-      );
-      message.tool_calls = sdkToolCallsToOpenAI(clientToolCalls);
-    }
+    const message = buildOpenAINonStreamAssistantMessage({
+      finalText: finalAssistantText,
+      reasoning: (finalResult as unknown as { reasoning?: string }).reasoning,
+      toolCalls: externalToolCalls,
+      effectiveTools: effectiveTools as unknown[],
+      clientKind: oaiClientKind,
+    });
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, {
       kind: "json",
