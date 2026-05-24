@@ -209,7 +209,7 @@ import {
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { inferModelFamily } from "./prompt/infer-model-family.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
-import { detectCacheStrategy, computePrefixFingerprint, annotateCacheBreakpoints } from "./context/provider-cache-hints.js";
+import { computePrefixFingerprint, annotateCacheBreakpoints } from "./context/provider-cache-hints.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -280,7 +280,7 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
-import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
@@ -13303,81 +13303,36 @@ app.post("/v1/messages", async (req, reply) => {
     const msgId = `msg_${crypto.randomUUID()}`;
     safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } } });
 
-    const claudeStreamState = new ClaudeStreamState();
-    let claudeStreamGateApplied = false;
-    let claudeStreamMissingMust = 0;
-    let claudeStreamMissingShould = 0;
-    let claudeStreamGateBlockedVerification = false;
-    let claudeStreamCriticBlocked = false;
-    const claudeStreamGuardrailAccepted: GuardrailToolCall[] = [];
-    const claudeStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
-    let claudeStreamRecoveryPreviewEntries = 0;
-    let claudeStreamRecoveryMode: DiscoveryRecoverySnapshot["recoveryMode"] | null = null;
-    let claudeStreamBlockedBroadDiscovery = 0;
-    let claudeStreamCollapsedBroadDiscovery = 0;
-    const claudeStreamToolSequence: string[] = [];
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const isLocalLikeBaseUrl =
-      !!resolvedTier?.baseUrl &&
-      (
-        resolvedTier.baseUrl.includes(".svc.cluster.local")
-        || resolvedTier.baseUrl.includes("localhost")
-        || resolvedTier.baseUrl.includes("127.0.0.1")
-      );
-    const claudeCacheStrategy = detectCacheStrategy(
-      resolvedTier?.baseUrl ?? "",
-      resolvedTier?.backendModel ?? resolved.resolvedModelId,
-    );
-    if (claudeCacheStrategy === "anthropic_explicit") {
-      const claudeCacheHints = annotateCacheBreakpoints(
-        claudeModelMessages as Array<{ role: string; content: unknown }>,
-        "anthropic_explicit",
-      );
-      claudeModelMessages = claudeCacheHints.messages as typeof claudeModelMessages;
-    }
-    const claudePrefixFingerprint = computePrefixFingerprint(
-      claudeModelMessages as Array<{ role: string; content: unknown }>,
-    );
+    const claudeStreamComponents = createClaudeStreamComponents({
+      modelMessages: claudeModelMessages as Array<{ role: string; content: unknown }>,
+      tierConfig: resolvedTier,
+      resolvedModelId: resolved.resolvedModelId,
+      computePrefixFingerprint,
+      sendSse: (event, data) => safeSse(reply, event, data),
+      recordSessionEvent: (event) => recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        traceReqId,
+      ),
+    });
+    const claudeStreamState = claudeStreamComponents.streamState;
+    const claudeStreamGate = claudeStreamComponents.gate;
+    const claudeStreamDiscovery = claudeStreamComponents.discovery;
+    const claudeStreamGuardrailAccepted = claudeStreamComponents.guardrailAccepted;
+    const claudeStreamBlockedDetails = claudeStreamComponents.blockedDetails;
+    const claudeStreamToolSequence = claudeStreamComponents.toolSequence;
+    const isLocalLikeBaseUrl = claudeStreamComponents.localLikeBaseUrl;
+    const claudeCacheStrategy = claudeStreamComponents.cacheStrategy;
+    const claudePrefixFingerprint = claudeStreamComponents.prefixFingerprint;
+    const closeClaudeStreamingTextBlock = claudeStreamComponents.closeTextBlock;
+    const scrubAndFlushClaudeTextBlock = claudeStreamComponents.scrubAndFlushTextBlock;
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
-    const closeClaudeStreamingTextBlock = (): void => {
-      const blockIndex = claudeStreamState.closeTextBlock();
-      if (blockIndex === null) return;
-      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
-    };
-
-    const flushClaudeTextBlock = (text: string): void => {
-      if (!text) return;
-      const blockIndex = claudeStreamState.currentBlockIndex();
-      safeSse(reply, "content_block_start", {
-        type: "content_block_start",
-        index: blockIndex,
-        content_block: { type: "text", text: "" },
-      });
-      safeSse(reply, "content_block_delta", {
-        type: "content_block_delta",
-        index: blockIndex,
-        delta: { type: "text_delta", text },
-      });
-      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
-      claudeStreamState.advanceBlock();
-    };
-
-    const scrubAndFlushClaudeTextBlock = (text: string): void => {
-      const scrubbed = scrubTaskLedgerOutput(text);
-      if (scrubbed.scrubbed) {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "task_ledger_output_scrubbed",
-          "task-ledger",
-          "Removed internal task-ledger governance from streamed Claude output",
-          traceReqId,
-        );
-      }
-      flushClaudeTextBlock(scrubbed.text);
-    };
 
     try {
       for await (const part of streamed.fullStream) {
@@ -13531,7 +13486,7 @@ app.post("/v1/messages", async (req, reply) => {
           const claudeStreamTopDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
           const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall], claudeStreamTopDirs);
           if (streamGuarded.redirectedCount > 0) {
-            claudeStreamBlockedBroadDiscovery += streamGuarded.redirectedCount;
+            claudeStreamDiscovery.blockedBroadDiscovery += streamGuarded.redirectedCount;
             recordBlockedDiscovery(claudeSessionKey, streamGuarded.redirectedCount);
             const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
             if (redirectedCall) {
@@ -13540,8 +13495,8 @@ app.post("/v1/messages", async (req, reply) => {
             }
           }
           if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
-            claudeStreamBlockedBroadDiscovery += streamGuarded.blockedCount;
-            claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
+            claudeStreamDiscovery.blockedBroadDiscovery += streamGuarded.blockedCount;
+            claudeStreamDiscovery.collapsedBroadDiscovery += streamGuarded.collapsedCount;
             const blockedToolCallId = event.toolCallId;
             if (blockedToolCallId) {
               claudeStreamState.removeToolInput(blockedToolCallId);
@@ -13553,8 +13508,8 @@ app.post("/v1/messages", async (req, reply) => {
                 effectiveClaudePathCtx.projectRoot,
               );
               claudeStreamBlockedDetails.push(...streamGuarded.blockedDetails);
-              claudeStreamRecoveryPreviewEntries += recovery.entryCount;
-              claudeStreamRecoveryMode = recovery.recoveryMode;
+              claudeStreamDiscovery.recoveryPreviewEntries += recovery.entryCount;
+              claudeStreamDiscovery.recoveryMode = recovery.recoveryMode;
               const blockIndex = claudeStreamState.currentBlockIndex();
               safeSse(reply, "content_block_start", {
                 type: "content_block_start",
@@ -13610,20 +13565,20 @@ app.post("/v1/messages", async (req, reply) => {
         );
       }
       claudeStreamState.normalizedStopReason();
-      if (claudeStreamBlockedBroadDiscovery > 0) {
-        recordBlockedDiscovery(claudeSessionKey, claudeStreamBlockedBroadDiscovery);
+      if (claudeStreamDiscovery.blockedBroadDiscovery > 0) {
+        recordBlockedDiscovery(claudeSessionKey, claudeStreamDiscovery.blockedBroadDiscovery);
         recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
           claudeIdentity.orgId,
           "tool_call_blocked_broad_discovery",
           "tool-guardrails",
-          `blocked=${claudeStreamBlockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`,
+          `blocked=${claudeStreamDiscovery.blockedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(claudeSessionKey)}`,
           traceReqId,
           {
             blockedDetails: claudeStreamBlockedDetails.slice(0, 5),
-            recoveryMode: claudeStreamRecoveryMode,
-            topLevelPreview: claudeStreamRecoveryPreviewEntries,
+            recoveryMode: claudeStreamDiscovery.recoveryMode,
+            topLevelPreview: claudeStreamDiscovery.recoveryPreviewEntries,
             sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey),
           },
         );
@@ -13633,19 +13588,19 @@ app.post("/v1/messages", async (req, reply) => {
           claudeIdentity.orgId,
           "blocked_broad_discovery_then_recovery",
           "tool-guardrails",
-          `mode=${claudeStreamRecoveryMode ?? "unknown"};top_level_preview=${claudeStreamRecoveryPreviewEntries}`,
+          `mode=${claudeStreamDiscovery.recoveryMode ?? "unknown"};top_level_preview=${claudeStreamDiscovery.recoveryPreviewEntries}`,
           traceReqId,
-          { recoveryMode: claudeStreamRecoveryMode, topLevelPreview: claudeStreamRecoveryPreviewEntries },
+          { recoveryMode: claudeStreamDiscovery.recoveryMode, topLevelPreview: claudeStreamDiscovery.recoveryPreviewEntries },
         );
       }
-      if (claudeStreamCollapsedBroadDiscovery > 0) {
+      if (claudeStreamDiscovery.collapsedBroadDiscovery > 0) {
         recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
           claudeIdentity.orgId,
           "duplicate_broad_call_collapsed",
           "tool-guardrails",
-          `collapsed=${claudeStreamCollapsedBroadDiscovery}`,
+          `collapsed=${claudeStreamDiscovery.collapsedBroadDiscovery}`,
           traceReqId,
         );
       }
@@ -13753,11 +13708,11 @@ app.post("/v1/messages", async (req, reply) => {
         planGraph: claudePlanGraph,
         session,
       });
-      claudeStreamGateApplied = finalized.applied;
-      claudeStreamMissingMust = finalized.missingMust;
-      claudeStreamMissingShould = finalized.missingShould;
-      claudeStreamGateBlockedVerification = finalized.blockedByVerification;
-      claudeStreamCriticBlocked = finalized.criticBlocked;
+      claudeStreamGate.applied = finalized.applied;
+      claudeStreamGate.missingMust = finalized.missingMust;
+      claudeStreamGate.missingShould = finalized.missingShould;
+      claudeStreamGate.blockedVerification = finalized.blockedByVerification;
+      claudeStreamGate.criticBlocked = finalized.criticBlocked;
       const gateText = finalized.finalText;
       const guarded = applyMarkdownGuardrail(
         gateText,
@@ -13789,7 +13744,7 @@ app.post("/v1/messages", async (req, reply) => {
         userId: claudeIdentity.userId,
         orgId: claudeIdentity.orgId,
         assistantText: claudeStreamedText,
-        applyGate: claudeStreamGateApplied,
+        applyGate: claudeStreamGate.applied,
         checklist: claudeRequirementChecklist,
         traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
         latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -13812,9 +13767,9 @@ app.post("/v1/messages", async (req, reply) => {
           reqId,
         );
       }
-      claudeStreamMissingMust = finalized.missingMust;
-      claudeStreamMissingShould = finalized.missingShould;
-      claudeStreamGateBlockedVerification = finalized.blockedByVerification;
+      claudeStreamGate.missingMust = finalized.missingMust;
+      claudeStreamGate.missingShould = finalized.missingShould;
+      claudeStreamGate.blockedVerification = finalized.blockedByVerification;
       session.history.push({ role: "assistant", content: claudeStreamedText });
     }
     const claudeStreamLatency = Date.now() - started;
@@ -13878,10 +13833,10 @@ app.post("/v1/messages", async (req, reply) => {
         toolSequence: claudeStreamToolSequence,
         verificationSteps: inferVerificationSteps(claudeStreamToolSequence),
         diagnostics: claudeTrajectoryDiagnostics,
-        completionGateBlocked: claudeStreamGateBlockedVerification,
-        criticBlocked: claudeStreamCriticBlocked,
-        outcomeState: (claudeStreamGateBlockedVerification || claudeStreamCriticBlocked) ? "partial" : undefined,
-        failureStage: claudeStreamGateBlockedVerification ? "verification" : undefined,
+        completionGateBlocked: claudeStreamGate.blockedVerification,
+        criticBlocked: claudeStreamGate.criticBlocked,
+        outcomeState: (claudeStreamGate.blockedVerification || claudeStreamGate.criticBlocked) ? "partial" : undefined,
+        failureStage: claudeStreamGate.blockedVerification ? "verification" : undefined,
       },
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
@@ -13915,9 +13870,9 @@ app.post("/v1/messages", async (req, reply) => {
       promptProfileHashes: claudeEnriched.promptProfileHashes,
       prefixHash: claudeEnriched.prefixHash,
       prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-      completionGateApplied: claudeStreamGateApplied || undefined,
-      missingMustRequirements: claudeStreamMissingMust || undefined,
-      missingShouldRequirements: claudeStreamMissingShould || undefined,
+      completionGateApplied: claudeStreamGate.applied || undefined,
+      missingMustRequirements: claudeStreamGate.missingMust || undefined,
+      missingShouldRequirements: claudeStreamGate.missingShould || undefined,
       requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
       contextAdmissionDecision: claudeContextAdmission.decision,
