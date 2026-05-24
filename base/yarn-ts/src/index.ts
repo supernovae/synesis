@@ -281,12 +281,10 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
-import { runOpenAIStreamEvents } from "./streaming/openai-stream-event-runner.js";
-import { finalizeOpenAIStreamCompletion } from "./streaming/openai-stream-finalizer.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { handleOpenAIStreamToolCall } from "./streaming/openai-stream-tool-call-handler.js";
-import { runOpenAIStreamTelemetry } from "./streaming/openai-stream-telemetry.js";
+import { runOpenAIStreamingPipeline } from "./streaming/openai-streaming-pipeline.js";
 import {
   classifyAiSdkStreamPart,
   parseToolInput,
@@ -10252,8 +10250,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
   const oaiStreamFallbackBashToolName = findOfferedToolNameByCanonical(effectiveTools as unknown[], "Bash");
 
-  try {
-    await runOpenAIStreamEvents(streamed.fullStream as AsyncIterable<unknown>, {
+  await runOpenAIStreamingPipeline({
+    streamParts: streamed.fullStream as AsyncIterable<unknown>,
+    streamState: oaiStreamState,
+    eventHandlers: {
       onTextDelta: (event) => {
         oaiStreamState.appendTextDelta(event.text);
       },
@@ -10367,7 +10367,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       onFinish: (event) => {
         if (event.finishReason === "length") oaiStreamState.markLengthFinish();
       },
-    });
+    },
+    afterEvents: () => {
     if (
       adapter.family === "qwen3-coder"
       && isLocalLikeOaiStreamBaseUrl
@@ -10426,7 +10427,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         reqId,
       );
     }
-  } catch (streamErr) {
+    },
+    onEventError: (streamErr) => {
     const oaiTimedOut = oaiStreamAbortController.signal.aborted
       && /stream_hard_timeout/i.test(String(oaiStreamAbortController.signal.reason ?? ""));
     const upstream = extractUpstreamErrorDiagnostics(streamErr);
@@ -10476,23 +10478,21 @@ app.post("/v1/chat/completions", async (req, reply) => {
         : "\n\n[Upstream provider error — retrying may help]";
     oaiStreamState.markError();
     openAiStreamWriter.writeTextDelta(errorHint);
-  }
+    },
+    beforeFinalize: (finishReason) => {
   clearTimeout(oaiStreamHardTimeout);
 
   oaiAdmission.release!();
 
-  const finishReason = oaiStreamState.rawFinishReason();
   if (finishReason !== "error") {
     circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
     otelStreamSpan.setStatus("ok");
   }
   otelStreamSpan.end();
-
-  const oaiStreamFinalized = await finalizeOpenAIStreamCompletion({
-    streamState: oaiStreamState,
+    },
+    finalizerInput: {
     writer: openAiStreamWriter,
     streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
-    finishReason,
     streamOptions: request.stream_options,
     readUsage,
     onPendingText: (rawText) => {
@@ -10539,7 +10539,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       };
     },
     writeFinalText: scrubAndFlushOpenAIText,
-    finalizeStreamedText: (streamedText, gateState) => finalizePostStreamText({
+    finalizeStreamedText: (streamedText, gateState, streamFinishReason) => finalizePostStreamText({
       requestId: reqId,
       sessionKey,
       userId: identity.userId,
@@ -10550,7 +10550,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
       verification: oaiVerificationAssessment,
-      toolStopReason: finishReason === "tool_calls",
+      toolStopReason: streamFinishReason === "tool_calls",
       nonActionableEventDetail: "streamed text was non-actionable; emitted deterministic fallback",
       planGraph: oaiPlanGraph,
     }),
@@ -10571,8 +10571,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     },
     endStream: () => safeEnd(reply.raw),
     stopHeartbeat: () => oaiHeartbeat.stop(),
-  });
-  runOpenAIStreamTelemetry({
+    },
+    buildTelemetryInput: ({ finishReason, finalized }) => ({
     requestId: reqId,
     sessionKey,
     userId: identity.userId,
@@ -10581,7 +10581,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     finishReason,
     resolvedModelId: resolved.resolvedModelId,
     clientRequestedModel: request.model,
-    streamFinalized: oaiStreamFinalized,
+    streamFinalized: finalized,
     reductions: {
       toolResultReduction,
       validationNormalization,
@@ -10651,6 +10651,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     countMessageRoles,
     pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
     logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
+    }),
   });
   return reply;
 });

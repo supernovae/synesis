@@ -45,7 +45,7 @@ export interface OpenAIStreamFinalizerInput {
   onPendingText?(rawText: string): void;
   finalizePendingText(rawText: string): Promise<OpenAIStreamFinalizerTextResult>;
   writeFinalText(text: string): void;
-  finalizeStreamedText(streamedText: string, gateState: OpenAIStreamGateState): OpenAIStreamFinalizerTextResult;
+  finalizeStreamedText(streamedText: string, gateState: OpenAIStreamGateState, finishReason: string): OpenAIStreamFinalizerTextResult;
   scrubHistoryText(text: string): { text: string; scrubbed: boolean };
   onHistoryText(text: string): void;
   onHistoryTextScrubbed?(): void;
@@ -106,7 +106,7 @@ export async function finalizeOpenAIStreamCompletion(
   input.stopHeartbeat();
 
   if (streamedText) {
-    const finalized = input.finalizeStreamedText(streamedText, gateState);
+    const finalized = input.finalizeStreamedText(streamedText, gateState, input.finishReason);
     streamedText = finalized.finalText;
     const scrubbed = input.scrubHistoryText(streamedText);
     if (scrubbed.scrubbed) {
