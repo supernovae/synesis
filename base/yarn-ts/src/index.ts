@@ -328,15 +328,9 @@ import {
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
-import { buildOpenAIChatCompletionResponse } from "./pipeline/openai-chat-response.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
-import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-nonstream-discovery-guardrails.js";
-import { finalizeOpenAINonStreamText } from "./pipeline/openai-nonstream-finalizer.js";
+import { processOpenAINonStreamProviderResult } from "./pipeline/openai-nonstream-postprocess.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
-import { buildOpenAINonStreamAssistantMessage } from "./pipeline/openai-nonstream-response-message.js";
-import { runOpenAINonStreamTelemetry } from "./pipeline/openai-nonstream-telemetry.js";
-import { maybeRewriteOpenAINonStreamCollapsedToolCalls } from "./pipeline/openai-nonstream-tool-collapse.js";
-import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -9568,10 +9562,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     otelSpan.setStatus("ok");
     otelSpan.end();
 
-    const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-    let finalAssistantText = finalResult.text;
-    let externalToolCalls = prepareOpenAINonStreamExternalToolCalls({
-      toolCalls,
+    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
+    const nonStreamProcessed = await processOpenAINonStreamProviderResult({
+      result: finalResult,
+      responseId: reqId,
+      responseModel: resolved.resolvedModelId,
+      readUsage,
+      toolCallInput: {
       artifactToolName: ARTIFACT_TOOL_NAME,
       adapter,
       effectiveTools: effectiveTools as unknown[],
@@ -9605,29 +9602,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
       maybeUpdateTaskLedgerFromToolCall,
       emitPlanWriteAuditEvent,
       maybeLogEnvelopeUnwrapSample,
-    });
-    const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
-    const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
-    const guardedDiscovery = await applyOpenAINonStreamDiscoveryGuardrailPass({
-      calls: externalToolCalls,
-      finalText: finalAssistantText ?? "",
-      guardrail: oaiGuarded,
+      },
+      topLevelDirs: oaiTopLevelDirs,
+      applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+      discoveryInput: {
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
       requestId: reqId,
       resolvedModelId: resolved.resolvedModelId,
       projectRoot: effectiveOaiPathCtx.projectRoot,
-      recordRecoveryEvent: true,
       buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
       recordBlockedDiscovery,
       getBlockedDiscoveryCount,
       recordSessionEvent,
-    });
-    externalToolCalls = guardedDiscovery.calls;
-    finalAssistantText = guardedDiscovery.finalText;
-    externalToolCalls = await maybeRewriteOpenAINonStreamCollapsedToolCalls({
-      calls: externalToolCalls,
+      },
+      collapseInput: {
       enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
       rewriteNonStream: config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM,
       collapseHeader: req.headers["x-synesis-tool-collapse"],
@@ -9640,36 +9630,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       toolPrefixCache: yarnToolPrefixCache,
       logger: app.log,
       requestId: reqId,
-    });
-    finalAssistantText = finalAssistantText ?? "";
-    const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
-    const legacyGuardedDiscovery = await applyOpenAINonStreamDiscoveryGuardrailPass({
-      calls: externalToolCalls,
-      finalText: finalAssistantText,
-      guardrail: oaiLegacyGuarded,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
-      projectRoot: effectiveOaiPathCtx.projectRoot,
-      recordRecoveryEvent: false,
-      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
-      recordBlockedDiscovery,
-      getBlockedDiscoveryCount,
-      recordSessionEvent,
-    });
-    externalToolCalls = legacyGuardedDiscovery.calls;
-    finalAssistantText = legacyGuardedDiscovery.finalText;
-    const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
-    const finalizedText = await finalizeOpenAINonStreamText({
+      },
+      finalizerInput: {
       session,
       requestId: reqId,
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
-      finishReason,
-      assistantText: finalAssistantText,
       checklist: oaiRequirementChecklist,
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -9680,22 +9647,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       applyMarkdownGuardrail,
       finalizeCompletionText,
       recordSessionEvent,
-    });
-    finalAssistantText = finalizedText.finalText;
-    const oaiGateApplied = finalizedText.gateApplied;
-    const oaiMissingMust = finalizedText.missingMust;
-    const oaiMissingShould = finalizedText.missingShould;
-    const oaiGateBlockedVerification = finalizedText.gateBlockedVerification;
-    const oaiCriticBlocked = finalizedText.criticBlocked;
-    const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-    runOpenAINonStreamTelemetry({
+      },
+      telemetryInput: {
       requestId: reqId,
       sessionKey,
       userId: identity.userId,
       orgId: identity.orgId,
       startedAtMs: started,
-      finishReason,
-      usage,
       resolvedModelId: resolved.resolvedModelId,
       clientRequestedModel: request.model,
       reductions: {
@@ -9718,16 +9676,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       governorFileStateSummary: oaiPauseFileSummary,
       optimizationLedger: oaiOptLedger,
       normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-      toolNames: externalToolCalls.map((tc) => tc.toolName),
       inferVerificationSteps,
       trajectoryDiagnostics: oaiTrajectoryDiagnostics,
-      gate: {
-        gateApplied: oaiGateApplied,
-        missingMust: oaiMissingMust,
-        missingShould: oaiMissingShould,
-        gateBlockedVerification: oaiGateBlockedVerification,
-        criticBlocked: oaiCriticBlocked,
-      },
       toolDefinitionCount: effectiveTools.length,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
@@ -9759,7 +9709,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         resolvedModelId: resolved.resolvedModelId,
         usage: telemetry.usage,
         latencyMs: telemetry.latencyMs,
-        finishReason,
+        finishReason: telemetry.finishReason,
         tokensSavedByReduction: telemetry.tokensSavedByReduction,
         escalated: orchestration.escalated,
         snapshot: telemetry.snapshot,
@@ -9773,25 +9723,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
       countMessageRoles,
       pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
       logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
-    });
-
-    const message = buildOpenAINonStreamAssistantMessage({
-      finalText: finalAssistantText,
-      reasoning: (finalResult as unknown as { reasoning?: string }).reasoning,
-      toolCalls: externalToolCalls,
+      },
+      responseInput: {
       effectiveTools: effectiveTools as unknown[],
       clientKind: oaiClientKind,
+      },
     });
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, {
       kind: "json",
-      body: buildOpenAIChatCompletionResponse({
-        id: reqId,
-        model: resolved.resolvedModelId,
-        message,
-        finishReason,
-        usage,
-      }),
+      body: nonStreamProcessed.body,
     });
   }
 

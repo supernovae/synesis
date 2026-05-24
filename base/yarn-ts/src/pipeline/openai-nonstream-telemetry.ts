@@ -74,6 +74,7 @@ export interface OpenAINonStreamTelemetryInput {
     detail: string;
   }): void;
   persistDecisionTelemetry(input: {
+    finishReason: string;
     usage: StreamTokenUsage;
     latencyMs: number;
     tokensSavedByReduction: number;
@@ -158,6 +159,7 @@ export function runOpenAINonStreamTelemetry(
   input.logOptimizationLedger(input.optimizationLedger.toLogRecord());
 
   input.persistDecisionTelemetry({
+    finishReason: input.finishReason,
     usage: input.usage,
     latencyMs,
     tokensSavedByReduction,
