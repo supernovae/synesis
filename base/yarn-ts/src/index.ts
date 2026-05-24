@@ -351,6 +351,7 @@ import {
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
+  buildClaudeMessagesProviderRequestOptions,
   buildOpenAIChatProviderRequestOptions,
   suppressThinkingWhenRequiredToolChoice,
 } from "./pipeline/provider-options.js";
@@ -9665,37 +9666,16 @@ app.post("/v1/messages", async (req, reply) => {
   claudeModelMessages = normalizeSystemMessageOrdering(claudeModelMessages as Array<{ role: string }>) as typeof claudeModelMessages;
 
   const resolvedClaudeTierConfig = tierRegistry.getTierConfig(resolved.resolvedModelId);
-  const claudeTierSamplingDefaults = resolvedClaudeTierConfig?.samplingDefaults;
-  const adapterClaudeProviderOptions = claudeAdapter.providerOptions?.();
-  const claudeEffectiveMinP = body.min_p ?? claudeTierSamplingDefaults?.min_p;
-  const claudeEffectiveRepetitionPenalty =
-    body.repetition_penalty ?? claudeTierSamplingDefaults?.repetition_penalty;
-  const claudeEffectiveEnableThinking =
-    body.enable_thinking ?? claudeTierSamplingDefaults?.enable_thinking;
-  const claudeEffectiveReasoningEffort =
-    body.reasoning_effort ?? claudeTierSamplingDefaults?.reasoning_effort;
-  const claudeProviderOpenAiOverrides = {
-    ...(body.thinking !== undefined ? { thinking: body.thinking } : {}),
-    ...(claudeEffectiveMinP !== undefined ? { min_p: claudeEffectiveMinP } : {}),
-    ...(claudeEffectiveRepetitionPenalty !== undefined
-      ? { repetition_penalty: claudeEffectiveRepetitionPenalty }
-      : {}),
-    ...(claudeEffectiveEnableThinking !== undefined
-      ? { enable_thinking: claudeEffectiveEnableThinking }
-      : {}),
-    ...(claudeEffectiveReasoningEffort !== undefined
-      ? { reasoning_effort: claudeEffectiveReasoningEffort }
-      : {}),
-  };
-  let providerOptions = Object.keys(claudeProviderOpenAiOverrides).length
-    ? {
-        ...(adapterClaudeProviderOptions ?? {}),
-        openai: {
-          ...((adapterClaudeProviderOptions?.openai ?? {}) as Record<string, unknown>),
-          ...claudeProviderOpenAiOverrides,
-        },
-      }
-    : adapterClaudeProviderOptions;
+  const claudeProviderRequestOptions = buildClaudeMessagesProviderRequestOptions({
+    request: body,
+    tierSamplingDefaults: resolvedClaudeTierConfig?.samplingDefaults,
+    adapterSampling: claudeAdapter.defaultSamplingParams?.(),
+    adapterProviderOptions: claudeAdapter.providerOptions?.() as
+      | Record<string, Record<string, unknown>>
+      | undefined,
+    supportsTopK: claudeAdapter.family !== "minimax",
+  });
+  let providerOptions = claudeProviderRequestOptions.providerOptions;
   const claudePhaseApplication = applyRoutePhasePolicy({
     adapterFamily: claudeAdapter.family,
     basePolicyEnabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && claudePhasePolicyEnabledByMatrix,
@@ -9769,23 +9749,7 @@ app.post("/v1/messages", async (req, reply) => {
       },
     );
   }
-  const claudeAdapterSampling = claudeAdapter.defaultSamplingParams?.();
-  const claudeSupportsTopK = claudeAdapter.family !== "minimax";
-  const claudeEffectiveTemp =
-    body.temperature ?? claudeTierSamplingDefaults?.temperature ?? claudeAdapterSampling?.temperature;
-  const claudeEffectiveTopP =
-    body.top_p ?? claudeTierSamplingDefaults?.top_p ?? claudeAdapterSampling?.top_p;
-  const claudeEffectiveTopK = claudeSupportsTopK ? (body.top_k ?? claudeTierSamplingDefaults?.top_k) : undefined;
-  const claudeEffectivePresencePenalty =
-    body.presence_penalty ?? claudeTierSamplingDefaults?.presence_penalty;
-  const claudeSamplingOptions = {
-    ...(claudeEffectiveTemp !== undefined ? { temperature: claudeEffectiveTemp } : {}),
-    ...(claudeEffectiveTopP !== undefined ? { topP: claudeEffectiveTopP } : {}),
-    ...(claudeEffectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(claudeEffectiveTopK)) } : {}),
-    ...(claudeEffectivePresencePenalty !== undefined
-      ? { presencePenalty: claudeEffectivePresencePenalty }
-      : {}),
-  };
+  const claudeSamplingOptions = claudeProviderRequestOptions.samplingOptions;
   const claudeNativeWebSearchRequested = hasClaudeNativeWebSearchTool(body.tools as unknown[] | undefined);
   const claudeForceNonStreamKickoff =
     !!body.stream && claudePhasePolicy.active && claudePhasePolicy.toolChoice === "required" && !!claudePhasePolicy.enforceNonStreaming;

@@ -4,7 +4,7 @@ import type { PhaseAwareToolChoice } from "../governance/phase-execution-policy.
 import type { AiSdkJsonResponseFormat } from "../openai-compat.js";
 import { toAiSdkJsonResponseFormat } from "../openai-compat.js";
 import type { ModelSamplingDefaults } from "../providers/admin-tier-registry.js";
-import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import type { ClaudeMessagesRequest, OpenAIChatCompletionRequest } from "../schemas.js";
 
 export interface OpenAIChatProviderRequestOptionsInput {
   request: OpenAIChatCompletionRequest;
@@ -19,6 +19,67 @@ export interface OpenAIChatProviderRequestOptions {
   providerOptions?: Record<string, Record<string, unknown>>;
   jsonResponseFormat?: AiSdkJsonResponseFormat;
   structuredOutput: ReturnType<typeof buildOpenAiJsonOutput>;
+}
+
+export interface ClaudeMessagesProviderRequestOptionsInput {
+  request: Pick<
+    ClaudeMessagesRequest,
+    | "temperature"
+    | "top_p"
+    | "top_k"
+    | "min_p"
+    | "presence_penalty"
+    | "repetition_penalty"
+    | "enable_thinking"
+    | "reasoning_effort"
+    | "thinking"
+  >;
+  tierSamplingDefaults?: ModelSamplingDefaults;
+  adapterSampling?: { temperature?: number; top_p?: number };
+  adapterProviderOptions?: Record<string, Record<string, unknown>>;
+  supportsTopK: boolean;
+}
+
+export interface ClaudeMessagesProviderRequestOptions {
+  samplingOptions: Record<string, unknown>;
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+export function buildClaudeMessagesProviderRequestOptions(
+  input: ClaudeMessagesProviderRequestOptionsInput,
+): ClaudeMessagesProviderRequestOptions {
+  const { request, tierSamplingDefaults, adapterSampling, adapterProviderOptions, supportsTopK } = input;
+  const effectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
+  const effectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
+  const effectiveTopK = supportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
+  const effectivePresencePenalty = request.presence_penalty ?? tierSamplingDefaults?.presence_penalty;
+  const effectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
+  const effectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
+  const effectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
+  const effectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
+  const samplingOptions = {
+    ...(effectiveTemp !== undefined ? { temperature: effectiveTemp } : {}),
+    ...(effectiveTopP !== undefined ? { topP: effectiveTopP } : {}),
+    ...(effectiveTopK !== undefined ? { topK: Math.max(0, Math.trunc(effectiveTopK)) } : {}),
+    ...(effectivePresencePenalty !== undefined ? { presencePenalty: effectivePresencePenalty } : {}),
+  };
+  const openAiOverrides = {
+    ...(request.thinking !== undefined ? { thinking: request.thinking } : {}),
+    ...(effectiveMinP !== undefined ? { min_p: effectiveMinP } : {}),
+    ...(effectiveRepetitionPenalty !== undefined ? { repetition_penalty: effectiveRepetitionPenalty } : {}),
+    ...(effectiveEnableThinking !== undefined ? { enable_thinking: effectiveEnableThinking } : {}),
+    ...(effectiveReasoningEffort !== undefined ? { reasoning_effort: effectiveReasoningEffort } : {}),
+  };
+  const providerOptions = Object.keys(openAiOverrides).length
+    ? {
+        ...(adapterProviderOptions ?? {}),
+        openai: {
+          ...((adapterProviderOptions?.openai ?? {}) as Record<string, unknown>),
+          ...openAiOverrides,
+        },
+      }
+    : adapterProviderOptions;
+  return { samplingOptions, providerOptions };
 }
 
 export function buildOpenAIChatProviderRequestOptions(
