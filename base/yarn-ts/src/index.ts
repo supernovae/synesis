@@ -285,6 +285,7 @@ import {
 } from "./streaming/claude-nonstream-lifecycle.js";
 import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
 import { buildClaudeNonStreamResponseContent } from "./streaming/claude-nonstream-response.js";
+import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeNonStreamTelemetry } from "./streaming/claude-nonstream-telemetry.js";
 import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -13464,6 +13465,17 @@ app.post("/v1/messages", async (req, reply) => {
   }
   const claudeNonStreamSpan = getTracer().startSpan("yarn.claude.generate", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
   const started = Date.now();
+  const claudeNonStreamScope = createClaudeNonStreamRouteScope({
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    requestId: reqId,
+    state: session,
+    resolvedModelId: resolved.resolvedModelId,
+    clientRequestedModel: body.model,
+    recordSessionEvent,
+    persistDecisionTelemetry: persistAndEmitDecisionTelemetry,
+  });
   let result: Awaited<ReturnType<typeof generateText>>;
   let claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[];
   let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
@@ -13504,17 +13516,7 @@ app.post("/v1/messages", async (req, reply) => {
         forensics as { record: RequestForensicsRecord; serialized: string } | null,
         forensicUsage,
       ),
-      recordSessionEvent: (event) => {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          reqId,
-        );
-      },
+      recordSessionEvent: claudeNonStreamScope.recordEvent,
       isServerWebSearchTool: isClaudeWebSearchToolName,
       resolveServerWebSearch: (input) => webSearch.resolve(
         input,
@@ -13542,18 +13544,7 @@ app.post("/v1/messages", async (req, reply) => {
         circuitBreakers,
         logger: app.log,
         extractUpstreamErrorDiagnostics,
-        recordSessionEvent: (event) => {
-          recordSessionEvent(
-            claudeSessionKey,
-            claudeIdentity.userId,
-            claudeIdentity.orgId,
-            event.eventKind,
-            event.component,
-            event.detail,
-            reqId,
-            event.metadataJson,
-          );
-        },
+        recordSessionEvent: claudeNonStreamScope.recordEvent,
       },
       err,
     );
@@ -13722,35 +13713,8 @@ app.post("/v1/messages", async (req, reply) => {
       estimatedChars: claudeContextAdmission.estimatedChars,
     },
     requestForensicsDone: lastClaudeNonStreamForensics,
-    recordSessionEvent: (event) => {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        reqId,
-      );
-    },
-    persistDecisionTelemetry: (telemetry) => {
-      persistAndEmitDecisionTelemetry({
-        state: session,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
-        usage: telemetry.usage,
-        latencyMs: telemetry.latencyMs,
-        finishReason: telemetry.finishReason,
-        tokensSavedByReduction: telemetry.tokensSavedByReduction,
-        escalated: telemetry.escalated,
-        snapshot: telemetry.snapshot,
-        trajectory: telemetry.trajectory,
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-        clientRequestedModel: body.model,
-      });
-    },
+    recordSessionEvent: claudeNonStreamScope.recordEvent,
+    persistDecisionTelemetry: claudeNonStreamScope.persistDecisionTelemetry,
     countMessageRoles,
     pushDiagnostic,
   });
