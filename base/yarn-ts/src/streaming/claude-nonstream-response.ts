@@ -24,6 +24,30 @@ export interface ClaudeNonStreamResponseInput {
 
 export type ClaudeNonStreamResponseContentBlock = Record<string, unknown>;
 
+export interface ClaudeNonStreamMessageResponseInput {
+  id: string;
+  model: string;
+  content: ClaudeNonStreamResponseContentBlock[];
+  stopReason: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+export interface ClaudeNonStreamMessageResponse {
+  id: string;
+  type: "message";
+  role: "assistant";
+  model: string;
+  content: ClaudeNonStreamResponseContentBlock[];
+  stop_reason: string;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
+
 export function buildClaudeNonStreamResponseContent(
   input: ClaudeNonStreamResponseInput,
 ): ClaudeNonStreamResponseContentBlock[] {
@@ -64,4 +88,21 @@ export function buildClaudeNonStreamResponseContent(
   }
 
   return content;
+}
+
+export function buildClaudeNonStreamMessageResponse(
+  input: ClaudeNonStreamMessageResponseInput,
+): ClaudeNonStreamMessageResponse {
+  return {
+    id: input.id,
+    type: "message",
+    role: "assistant",
+    model: input.model,
+    content: input.content,
+    stop_reason: input.stopReason,
+    usage: {
+      input_tokens: input.usage.inputTokens,
+      output_tokens: input.usage.outputTokens,
+    },
+  };
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildClaudeNonStreamResponseContent } from "../src/streaming/claude-nonstream-response.js";
+import {
+  buildClaudeNonStreamMessageResponse,
+  buildClaudeNonStreamResponseContent,
+} from "../src/streaming/claude-nonstream-response.js";
 
 describe("buildClaudeNonStreamResponseContent", () => {
   it("preserves Claude non-stream response block ordering", () => {
@@ -65,5 +68,31 @@ describe("buildClaudeNonStreamResponseContent", () => {
       finalText: "",
       toolCalls: [],
     })).toEqual([{ type: "text", text: "" }]);
+  });
+});
+
+describe("buildClaudeNonStreamMessageResponse", () => {
+  it("formats the Claude non-stream message envelope", () => {
+    expect(buildClaudeNonStreamMessageResponse({
+      id: "msg_1",
+      model: "claude-test",
+      content: [{ type: "text", text: "done" }],
+      stopReason: "end_turn",
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+      },
+    })).toEqual({
+      id: "msg_1",
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [{ type: "text", text: "done" }],
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 12,
+        output_tokens: 3,
+      },
+    });
   });
 });

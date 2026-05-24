@@ -286,6 +286,7 @@ import {
   processClaudeNonStreamProviderResult,
 } from "./streaming/claude-nonstream-postprocess.js";
 import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
+import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
@@ -13670,15 +13671,13 @@ app.post("/v1/messages", async (req, reply) => {
   }));
 
   applyClarificationRoundResponseHeader(reply, session.record.metadata);
-  return reply.send({
+  return reply.send(buildClaudeNonStreamMessageResponse({
     id: `msg_${crypto.randomUUID()}`,
-    type: "message",
-    role: "assistant",
     model: resolved.resolvedModelId,
     content: claudePostProvider.content,
-    stop_reason: claudePostProvider.stopReason,
-    usage: { input_tokens: claudePostProvider.usage.inputTokens, output_tokens: claudePostProvider.usage.outputTokens }
-  });
+    stopReason: claudePostProvider.stopReason,
+    usage: claudePostProvider.usage,
+  }));
 });
 
 await refreshTierRegistry();
