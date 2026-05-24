@@ -339,6 +339,7 @@ import {
   createOpenAINonStreamCollapseRouteInput,
   createOpenAINonStreamDiscoveryRouteInput,
 } from "./pipeline/openai-route-inputs.js";
+import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript-prep.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -6860,113 +6861,39 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     return undefined;
   })();
-  const oaiCompactionOpts: ReduceMessagesOpts = {
+  const oaiTranscriptPrep = await prepareOpenAIRouteTranscript({
+    request,
+    requestId: oaiTraceReqId,
+    taskCue: oaiTaskCue,
     backendModelHint: resolveCompactionBackendModelHintFromRequestModel(request.model),
-  };
-  const oaiMatrixModelPath = String(oaiCompactionOpts.backendModelHint ?? request.model ?? "");
-  const oaiMatrixModelId = String(request.model ?? oaiCompactionOpts.backendModelHint ?? "");
-  const oaiMatrixFamily = inferModelFamily(oaiMatrixModelPath || oaiMatrixModelId);
-  const oaiCapabilityResolution = resolveCapabilityMatrix(
-    governanceClient?.getCapabilityMatrix() ?? null,
-    {
-      model_id: oaiMatrixModelId,
-      model_path: oaiMatrixModelPath,
-      family: oaiMatrixFamily,
-    },
-  );
-  const oaiReducersEnabled = config.SYNESIS_YARN_REDUCERS_ENABLED && isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.reducers_enabled",
-  );
-  const oaiTranscriptPruneEnabled = isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.transcript_prune_enabled",
-  );
-  const oaiPhasePolicyEnabledByMatrix = isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.phase_execution_policy_enabled",
-  );
-  const oaiJsonCompactionEnabled = isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.json_compaction_enabled",
-  );
-  const oaiContentDedupeEnabled = config.SYNESIS_YARN_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.content_dedupe_enabled",
-  );
-  const oaiResponseDedupeEnabled = config.SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED && isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.response_dedupe_enabled",
-  );
-  const oaiHistoricalNormalizeEnabled = config.SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED && isMatrixCapabilityEnabled(
-    config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    oaiCapabilityResolution.mode,
-    oaiCapabilityResolution.resolved_capabilities,
-    "yarn.historical_normalize_enabled",
-  );
-  oaiCompactionOpts.jsonCompactionEnabled = oaiJsonCompactionEnabled;
-  const reducedOpenAI = config.SYNESIS_YARN_GOVERNANCE_DISABLED || !oaiReducersEnabled
-    ? { messages: request.messages as never, reducedCount: 0 }
-    : enrichmentPool.isAvailable()
-      ? await withSpanAsync("yarn.enrichment", { "yarn.path": "openai" }, () =>
-          toolResultReduction.reduceMessagesAsync(request.messages as never, enrichmentPool, oaiTaskCue, oaiPeekWatermark, oaiCompactionOpts),
-        )
-      : withSpan("yarn.enrichment", { "yarn.path": "openai" }, () =>
-          toolResultReduction.reduceMessages(request.messages as never, oaiTaskCue, oaiPeekWatermark, oaiCompactionOpts),
-        );
-  const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
-  if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED && reducedOpenAI.reducedCount > 0) {
-    app.log.info(
-      { reqId: oaiTraceReqId, tool_result_reduced: reducedOpenAI.reducedCount },
-      "yarn_harness_tool_result_reduction",
-    );
-  }
-  const normalizedOpenAI = await validationNormalization.normalizeMessagesAsync(
-    reducedOpenAI.messages as never,
-    runValidationTierCFallback,
-  );
-  oaiOptLedger.recordAfterNormalization(normalizedOpenAI.messages as Array<{ content?: unknown }>);
-  endOaiNormalizationStage();
-  const endOaiPruningStage = oaiOptLedger.startStage("pruning");
-  if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED && oaiTranscriptPruneEnabled) {
-    const prunedOpenAI = transcriptPruning.prune(
-      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-      undefined,
-      oaiCompactionOpts.backendModelHint,
-    );
-    if (prunedOpenAI.pruned) {
-      normalizedOpenAI.messages = prunedOpenAI.messages as never;
-    }
-    if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-      const d = prunedOpenAI.invocationDelta;
-      if (
-        prunedOpenAI.pruned
-        || d.commandsDeduped > 0
-        || d.fileDeduped > 0
-        || d.toolResultsEvicted > 0
-        || d.assistantCondensed > 0
-        || d.nearDuplicatesCollapsed > 0
-        || d.artifactsStored > 0
-      ) {
-        app.log.info(
-          { reqId: oaiTraceReqId, pruned: prunedOpenAI.pruned, transcript_prune: d },
-          "yarn_harness_transcript_prune",
-        );
-      }
-    }
-  }
+    pruningWatermark: oaiPeekWatermark,
+    config,
+    capabilityMatrix: governanceClient?.getCapabilityMatrix() ?? null,
+    enrichmentPool,
+    toolResultReduction,
+    validationNormalization,
+    transcriptPruning,
+    validationTierCFallback: runValidationTierCFallback,
+    optimizationLedger: oaiOptLedger,
+    endNormalizationStage: endOaiNormalizationStage,
+    startPruningStage: () => oaiOptLedger.startStage("pruning"),
+    logger: app.log,
+  });
+  const {
+    compactionOpts: oaiCompactionOpts,
+    matrixModelPath: oaiMatrixModelPath,
+    matrixModelId: oaiMatrixModelId,
+    matrixFamily: oaiMatrixFamily,
+    capabilityResolution: oaiCapabilityResolution,
+    phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
+    contentDedupeEnabled: oaiContentDedupeEnabled,
+    responseDedupeEnabled: oaiResponseDedupeEnabled,
+    historicalNormalizeEnabled: oaiHistoricalNormalizeEnabled,
+    reducedOpenAI,
+    normalizedOpenAI,
+    toolResultCount,
+    endPruningStage: endOaiPruningStage,
+  } = oaiTranscriptPrep;
   const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
     request.messages as Array<{ role: string; content: unknown }>,
   );
@@ -7274,7 +7201,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
   }
   oaiOptLedger.recordAfterPruning(normalizedOpenAI.messages as Array<{ content?: unknown }>);
-  endOaiPruningStage();
+  endOaiPruningStage?.();
   const endOaiContextStage = oaiOptLedger.startStage("context");
   mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
   const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
