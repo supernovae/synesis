@@ -334,6 +334,7 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { buildOpenAIChatCompletionResponse } from "./pipeline/openai-chat-response.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
+import { applyOpenAINonStreamDiscoveryGuardrailPass } from "./pipeline/openai-nonstream-discovery-guardrails.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { prepareOpenAINonStreamExternalToolCalls } from "./pipeline/openai-nonstream-tool-calls.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -9611,69 +9612,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
     const oaiTopLevelDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
     const oaiGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
-    externalToolCalls = oaiGuarded.calls;
-    const oaiBlockedBroadDiscovery = oaiGuarded.blockedCount;
-    const oaiRedirectedBroadDiscovery = oaiGuarded.redirectedCount;
-    const oaiCollapsedBroadDiscovery = oaiGuarded.collapsedCount;
-    if (oaiRedirectedBroadDiscovery > 0) {
-      recordBlockedDiscovery(sessionKey, oaiRedirectedBroadDiscovery);
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "broad_discovery_redirected",
-        "tool-guardrails",
-        `redirected=${oaiRedirectedBroadDiscovery};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`,
-        reqId,
-        { redirectedDetails: oaiGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) },
-      );
-    }
-    if (oaiBlockedBroadDiscovery > 0) {
-      const sessionBlockedTotal = recordBlockedDiscovery(sessionKey, oaiBlockedBroadDiscovery);
-      const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-        resolved.resolvedModelId,
-        oaiGuarded.blockedDetails,
-        effectiveOaiPathCtx.projectRoot,
-      );
-      finalAssistantText = [
-        finalAssistantText?.trim() ?? "",
-        recovery.text,
-      ].filter(Boolean).join("\n\n");
-      if (sessionBlockedTotal >= 2) {
-        finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
-      }
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "tool_call_blocked_broad_discovery",
-        "tool-guardrails",
-        `blocked=${oaiBlockedBroadDiscovery};sessionTotal=${sessionBlockedTotal}`,
-        reqId,
-        { blockedDetails: oaiGuarded.blockedDetails.slice(0, 5), recoveryMode: recovery.recoveryMode, sessionBlockedTotal },
-      );
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "blocked_broad_discovery_then_recovery",
-        "tool-guardrails",
-        `mode=${recovery.recoveryMode};top_level_preview=${recovery.entryCount}`,
-        reqId,
-        { recoveryMode: recovery.recoveryMode, topLevelPreview: recovery.entryCount },
-      );
-    }
-    if (oaiCollapsedBroadDiscovery > 0) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "duplicate_broad_call_collapsed",
-        "tool-guardrails",
-        `collapsed=${oaiCollapsedBroadDiscovery}`,
-        reqId,
-      );
-    }
+    const guardedDiscovery = await applyOpenAINonStreamDiscoveryGuardrailPass({
+      calls: externalToolCalls,
+      finalText: finalAssistantText ?? "",
+      guardrail: oaiGuarded,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
+      projectRoot: effectiveOaiPathCtx.projectRoot,
+      recordRecoveryEvent: true,
+      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+      recordBlockedDiscovery,
+      getBlockedDiscoveryCount,
+      recordSessionEvent,
+    });
+    externalToolCalls = guardedDiscovery.calls;
+    finalAssistantText = guardedDiscovery.finalText;
     if (
       config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED &&
       config.SYNESIS_YARN_TOOL_COLLAPSE_REWRITE_NON_STREAM &&
@@ -9713,42 +9669,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }
     finalAssistantText = finalAssistantText ?? "";
     const oaiLegacyGuarded = applyDiscoveryToolGuardrail(externalToolCalls, oaiTopLevelDirs);
-    externalToolCalls = oaiLegacyGuarded.calls;
-    if (oaiLegacyGuarded.redirectedCount > 0) {
-      recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.redirectedCount);
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "broad_discovery_redirected", "tool-guardrails",
-        `redirected=${oaiLegacyGuarded.redirectedCount};sessionTotal=${getBlockedDiscoveryCount(sessionKey)}`, reqId,
-        { redirectedDetails: oaiLegacyGuarded.redirectedDetails.slice(0, 5), sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) });
-    }
-    if (oaiLegacyGuarded.blockedCount > 0) {
-      const oaiLegacyBlockedTotal = recordBlockedDiscovery(sessionKey, oaiLegacyGuarded.blockedCount);
-      const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-        resolved.resolvedModelId,
-        oaiLegacyGuarded.blockedDetails,
-        effectiveOaiPathCtx.projectRoot,
-      );
-      finalAssistantText = [
-        finalAssistantText?.trim() ?? "",
-        recovery.text,
-      ].filter(Boolean).join("\n\n");
-      if (oaiLegacyBlockedTotal >= 2) {
-        finalAssistantText += "\n\nCRITICAL: Glob has been blocked multiple times in this session. The Glob tool will be removed from your available tools. Use Read and Grep instead.";
-      }
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "tool_call_blocked_broad_discovery", "tool-guardrails",
-        `blocked=${oaiLegacyGuarded.blockedCount};sessionTotal=${oaiLegacyBlockedTotal}`, reqId,
-        { blockedDetails: oaiLegacyGuarded.blockedDetails.slice(0, 5), sessionBlockedTotal: oaiLegacyBlockedTotal });
-    }
-    if (oaiLegacyGuarded.collapsedCount > 0) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "duplicate_broad_call_collapsed",
-        "tool-guardrails",
-        `collapsed=${oaiLegacyGuarded.collapsedCount}`,
-        reqId,
-      );
-    }
+    const legacyGuardedDiscovery = await applyOpenAINonStreamDiscoveryGuardrailPass({
+      calls: externalToolCalls,
+      finalText: finalAssistantText,
+      guardrail: oaiLegacyGuarded,
+      sessionKey,
+      userId: identity.userId,
+      orgId: identity.orgId,
+      requestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
+      projectRoot: effectiveOaiPathCtx.projectRoot,
+      recordRecoveryEvent: false,
+      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+      recordBlockedDiscovery,
+      getBlockedDiscoveryCount,
+      recordSessionEvent,
+    });
+    externalToolCalls = legacyGuardedDiscovery.calls;
+    finalAssistantText = legacyGuardedDiscovery.finalText;
     const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
     finalAssistantText = applyMarkdownGuardrail(
       finalAssistantText,
