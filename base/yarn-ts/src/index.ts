@@ -282,6 +282,7 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
+import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -13281,23 +13282,23 @@ app.post("/v1/messages", async (req, reply) => {
       clampMaxOutputTokens: clampMaxOutputTokensForSafety,
     });
     const streamed = streamText(claudeStreamProviderRequestOptions as never);
-    reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
-    const claudeHeartbeat = startSseHeartbeat({
+    const claudeHeartbeat = startClaudeStreamSseRuntime({
       raw: reply.raw,
-      intervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+      headers: sseHeadersWithClarification(session.record.metadata),
+      model: resolved.resolvedModelId,
+      heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
       longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-      onLongWait: (elapsedMs) => {
-        recordSessionEvent(
-          claudeSessionKey,
-          claudeIdentity.userId,
-          claudeIdentity.orgId,
-          "stream_long_wait",
-          "stream-heartbeat",
-          `Claude stream exceeded ${config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS}ms without finishing`,
-          traceReqId,
-          { elapsedMs, model: resolved.resolvedModelId },
-        );
-      },
+      startHeartbeat: startSseHeartbeat,
+      recordSessionEvent: (event) => recordSessionEvent(
+        claudeSessionKey,
+        claudeIdentity.userId,
+        claudeIdentity.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        traceReqId,
+        event.metadataJson,
+      ),
     });
     const msgId = `msg_${crypto.randomUUID()}`;
     safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } } });
