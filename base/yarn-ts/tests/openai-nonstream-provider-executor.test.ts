@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createOpenAINonStreamProviderExecutorInput,
+  createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
   executeOpenAINonStreamProviderLoop,
   type OpenAINonStreamProviderResultLike,
@@ -158,6 +159,60 @@ describe("createOpenAINonStreamProviderExecutorInput", () => {
         requestId: "req_1",
         resolvedModelId: "openai-test",
       },
+    );
+  });
+});
+
+describe("createOpenAINonStreamProviderForensics", () => {
+  it("adapts positional request forensics callbacks to provider context", () => {
+    const captureRequestForensics = vi.fn(() => ({ serialized: "abc" }));
+    const finalizeRequestForensics = vi.fn(() => undefined);
+    const forensics = createOpenAINonStreamProviderForensics<Message, { serialized: string }>({
+      path: "/v1/chat/completions",
+      stream: false,
+      tools: [{ type: "function", function: { name: "Read" } }],
+      phasePolicy: { active: false },
+      capabilityMatrix: { tools: [] },
+      captureRequestForensics,
+      finalizeRequestForensics,
+    });
+
+    const captured = forensics.capture({
+      sessionKey: "session_1",
+      requestId: "req_1",
+      path: forensics.path,
+      resolvedModelId: "openai-test",
+      stream: forensics.stream,
+      messages: [{ role: "user", content: "hello" }],
+      tools: forensics.tools,
+      toolChoice: undefined,
+      providerOptions: { temperature: 0 },
+      phasePolicy: forensics.phasePolicy,
+      capabilityMatrix: forensics.capabilityMatrix,
+    });
+    forensics.finalize(
+      captured,
+      { inputTokens: 1, outputTokens: 2, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      { sessionKey: "session_1", requestId: "req_1", resolvedModelId: "openai-test" },
+    );
+
+    expect(captureRequestForensics).toHaveBeenCalledWith(
+      "session_1",
+      "req_1",
+      "/v1/chat/completions",
+      "openai-test",
+      false,
+      [{ role: "user", content: "hello" }],
+      [{ type: "function", function: { name: "Read" } }],
+      undefined,
+      { temperature: 0 },
+      { active: false },
+      { tools: [] },
+    );
+    expect(finalizeRequestForensics).toHaveBeenCalledWith(
+      { serialized: "abc" },
+      { inputTokens: 1, outputTokens: 2, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      { sessionKey: "session_1", requestId: "req_1", resolvedModelId: "openai-test" },
     );
   });
 });

@@ -336,6 +336,7 @@ import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipel
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
 import {
   createOpenAINonStreamProviderExecutorInput,
+  createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
@@ -9472,27 +9473,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
         clampMaxOutputTokens: clampMaxOutputTokensForSafety,
         generateText: (options) => generateText(options as never),
         readUsage,
-        forensics: {
+        forensics: createOpenAINonStreamProviderForensics({
           path: "/v1/chat/completions",
           stream: false,
           tools: effectiveTools as unknown[],
           phasePolicy: oaiForensicsPhasePolicy,
           capabilityMatrix: oaiForensicsCapabilityMatrix,
-          capture: (context) => captureRequestForensics(
-            context.sessionKey,
-            context.requestId,
-            context.path,
-            context.resolvedModelId,
-            context.stream,
-            context.messages as Array<{ role: string; content: unknown }>,
-            context.tools as unknown[],
-            context.toolChoice,
-            context.providerOptions,
-            context.phasePolicy,
-            context.capabilityMatrix,
-          ),
-          finalize: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
-        },
+          captureRequestForensics,
+          finalizeRequestForensics: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
+        }),
         serverSideToolResolvers: createOpenAINonStreamServerSideToolResolvers({
           artifactToolName: ARTIFACT_TOOL_NAME,
           knowledgeToolName: KNOWLEDGE_TOOL_NAME,

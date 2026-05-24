@@ -112,6 +112,61 @@ export interface OpenAINonStreamProviderExecutorRouteInput<
   serverSideToolResolvers: ServerSideToolReplayResolvers;
 }
 
+export interface OpenAINonStreamProviderForensicsAdapterInput<TMessage extends OpenAINonStreamProviderMessage, TForensics> {
+  path: string;
+  stream: boolean;
+  tools?: unknown;
+  phasePolicy?: RequestForensicsRecord["phasePolicy"];
+  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+  captureRequestForensics(
+    sessionKey: string,
+    requestId: string,
+    path: string,
+    resolvedModelId: string,
+    stream: boolean,
+    messages: TMessage[],
+    tools: unknown[] | undefined,
+    toolChoice: PhaseAwareToolChoice | undefined,
+    providerOptions: unknown,
+    phasePolicy?: RequestForensicsRecord["phasePolicy"],
+    capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
+  ): TForensics | null;
+  finalizeRequestForensics(
+    forensics: TForensics | null,
+    usage: StreamTokenUsage,
+    context: OpenAINonStreamProviderFinalizeForensicsContext,
+  ): RequestForensicsRecord | undefined;
+}
+
+export function createOpenAINonStreamProviderForensics<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TForensics,
+>(
+  input: OpenAINonStreamProviderForensicsAdapterInput<TMessage, TForensics>,
+): OpenAINonStreamProviderExecutorRouteInput<TMessage, OpenAINonStreamProviderResultLike, TForensics>["forensics"] {
+  return {
+    path: input.path,
+    stream: input.stream,
+    tools: input.tools,
+    phasePolicy: input.phasePolicy,
+    capabilityMatrix: input.capabilityMatrix,
+    capture: (context) => input.captureRequestForensics(
+      context.sessionKey,
+      context.requestId,
+      context.path,
+      context.resolvedModelId,
+      context.stream,
+      context.messages,
+      context.tools as unknown[] | undefined,
+      context.toolChoice,
+      context.providerOptions,
+      context.phasePolicy,
+      context.capabilityMatrix,
+    ),
+    finalize: input.finalizeRequestForensics,
+  };
+}
+
 export interface OpenAINonStreamServerSideToolResolverInput {
   artifactToolName: string;
   knowledgeToolName: string;
