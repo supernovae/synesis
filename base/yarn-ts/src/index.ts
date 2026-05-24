@@ -281,7 +281,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
-import { runOpenAIStreamAfterEvents } from "./streaming/openai-stream-after-events.js";
+import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
 import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
@@ -10272,6 +10272,33 @@ app.post("/v1/chat/completions", async (req, reply) => {
       event.metadataJson,
     ),
   });
+  const oaiStreamAfterEvents = createOpenAIStreamAfterEventsHandler({
+    adapter,
+    localLikeBaseUrl: isLocalLikeOaiStreamBaseUrl,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    baseUrl: resolvedTierOaiStream?.baseUrl,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    streamState: oaiStreamState,
+    accumulator: oaiStreamToolAccumulator,
+    blockedDetails: oaiStreamBlockedDetails,
+    stats: toolArgHardeningStats,
+    logger: app.log,
+    recordBlockedDiscovery,
+    getBlockedDiscoveryCount,
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+      event.metadataJson,
+    ),
+  });
 
   await runOpenAIStreamingPipeline({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
@@ -10335,35 +10362,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         effectiveOaiPathCtx.projectRoot,
       ),
     }),
-    afterEvents: () => {
-      runOpenAIStreamAfterEvents({
-        adapter,
-        localLikeBaseUrl: isLocalLikeOaiStreamBaseUrl,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
-        baseUrl: resolvedTierOaiStream?.baseUrl,
-        sessionKey,
-        userId: identity.userId,
-        orgId: identity.orgId,
-        streamState: oaiStreamState,
-        accumulator: oaiStreamToolAccumulator,
-        blockedDetails: oaiStreamBlockedDetails,
-        stats: toolArgHardeningStats,
-        logger: app.log,
-        recordBlockedDiscovery,
-        getBlockedDiscoveryCount,
-        recordSessionEvent: (event) => recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          event.eventKind,
-          event.component,
-          event.detail,
-          reqId,
-          event.metadataJson,
-        ),
-      });
-    },
+    afterEvents: oaiStreamAfterEvents,
     onEventError: oaiStreamLifecycle.onEventError,
     beforeFinalize: oaiStreamLifecycle.beforeFinalize,
     finalizerInput: createOpenAIStreamFinalizerInput({

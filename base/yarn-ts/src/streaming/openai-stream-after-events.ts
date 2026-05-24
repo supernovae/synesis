@@ -30,6 +30,16 @@ export interface OpenAIStreamAfterEventsInput {
   }): void;
 }
 
+export type OpenAIStreamAfterEventsHandler = () => void;
+
+export function createOpenAIStreamAfterEventsHandler(
+  input: OpenAIStreamAfterEventsInput,
+): OpenAIStreamAfterEventsHandler {
+  return () => {
+    runOpenAIStreamAfterEvents(input);
+  };
+}
+
 export function runOpenAIStreamAfterEvents(input: OpenAIStreamAfterEventsInput): void {
   if (
     input.adapter.family === "qwen3-coder"

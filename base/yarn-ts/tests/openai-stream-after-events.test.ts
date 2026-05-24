@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runOpenAIStreamAfterEvents } from "../src/streaming/openai-stream-after-events.js";
+import {
+  createOpenAIStreamAfterEventsHandler,
+  runOpenAIStreamAfterEvents,
+} from "../src/streaming/openai-stream-after-events.js";
 import { OpenAIStreamState } from "../src/streaming/openai-stream-state.js";
 import { createOpenAIStreamToolCallAccumulator } from "../src/streaming/openai-stream-tool-call-handler.js";
 
@@ -40,6 +43,16 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIStreamAfterEven
 }
 
 describe("runOpenAIStreamAfterEvents", () => {
+  it("creates a callback that runs after-events accounting", () => {
+    const h = baseInput();
+    h.streamState.markToolCallFinish();
+
+    const afterEvents = createOpenAIStreamAfterEventsHandler(h.input);
+    afterEvents();
+
+    expect(h.streamState.rawFinishReason()).toBe("stop");
+  });
+
   it("normalizes tool-call finish when no tool calls were emitted", () => {
     const h = baseInput();
     h.streamState.markToolCallFinish();
