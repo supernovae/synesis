@@ -339,6 +339,7 @@ import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
 } from "./pipeline/openai-nonstream-provider-executor.js";
+import { createOpenAIChatRouteFinalizerBase } from "./pipeline/openai-route-finalizer-base.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { createOpenAIChatRouteTelemetryBase } from "./pipeline/openai-route-telemetry-base.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -9165,6 +9166,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
     countMessageRoles,
     pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
   });
+  const oaiFinalizerRouteBase = createOpenAIChatRouteFinalizerBase({
+    session,
+    checklist: oaiRequirementChecklist,
+    traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+    latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+    verification: oaiVerificationAssessment,
+    recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+    planGraph: oaiPlanGraph,
+    responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+    applyMarkdownGuardrail,
+    finalizeCompletionText,
+  });
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
@@ -9297,18 +9310,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           logger: app.log,
           requestId: reqId,
         },
-        finalizerInput: {
-          session,
-          checklist: oaiRequirementChecklist,
-          traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-          latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-          verification: oaiVerificationAssessment,
-          recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-          planGraph: oaiPlanGraph,
-          responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-          applyMarkdownGuardrail,
-          finalizeCompletionText,
-        },
+        finalizerInput: oaiFinalizerRouteBase,
         telemetryInput: {
           startedAtMs: started,
           ...oaiTelemetryRouteBase,
@@ -9429,16 +9431,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     finalizer: {
       streamOptions: request.stream_options,
       readUsage,
-      session,
-      checklist: oaiRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: oaiVerificationAssessment,
-      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
-      planGraph: oaiPlanGraph,
-      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      applyMarkdownGuardrail,
-      finalizeCompletionText,
+      ...oaiFinalizerRouteBase,
       finalizePostStreamText,
       endStream: () => safeEnd(reply.raw),
     },
