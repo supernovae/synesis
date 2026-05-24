@@ -340,6 +340,7 @@ import {
   createOpenAINonStreamDiscoveryRouteInput,
 } from "./pipeline/openai-route-inputs.js";
 import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript-prep.js";
+import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-stabilization.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -7057,119 +7058,31 @@ app.post("/v1/chat/completions", async (req, reply) => {
     oaiTraceReqId,
     oaiPathCtx,
   );
-  {
-    const readSnapshotRegistry = getFileSnapshotRegistry(sessionKey);
-    const readSnapshotNormalization = await normalizeReadSnapshotMessages(
-      normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: unknown }>,
-      readSnapshotRegistry,
-      {
-        projectRoot: oaiPathCtx.projectRoot ?? oaiPathCtx.shellCwd ?? null,
-        anchorDir: oaiPathCtx.shellCwd ?? oaiPathCtx.projectRoot ?? null,
-        lastUserPromptIdx: findLastUserPromptIdx(normalizedOpenAI.messages as Array<{ role?: string; content?: unknown }>),
-      },
-    );
-    if (readSnapshotNormalization.normalizedCount > 0) {
-      normalizedOpenAI.messages = readSnapshotNormalization.messages as never;
-      if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-        app.log.debug({
-          reqId: oaiTraceReqId,
-          normalized: readSnapshotNormalization.normalizedCount,
-          replayed: readSnapshotNormalization.replayedCount,
-          fallback: readSnapshotNormalization.fallbackCount,
-        }, "read_snapshot_normalization_applied");
-      }
-    }
-  }
+  const oaiStabilizedTranscript = await stabilizeOpenAITranscript({
+    messages: normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+    originalMessageCount: oaiMsgCount,
+    session,
+    sessionKey,
+    identity,
+    requestId: oaiTraceReqId,
+    pathContext: oaiPathCtx,
+    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
+    debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    contentDedupeEnabled: oaiContentDedupeEnabled,
+    responseDedupeEnabled: oaiResponseDedupeEnabled,
+    historicalNormalizeEnabled: oaiHistoricalNormalizeEnabled,
+    compactionBackendModelHint: oaiCompactionOpts.backendModelHint,
+    yarnDedupeLayer,
+    transcriptPruning,
+    optimizationLedger: oaiOptLedger,
+    logger: app.log,
+    getFileSnapshotRegistry,
+    getContentDedup,
+    getMemoryGovernor,
+    recordSessionEvent,
+  });
+  normalizedOpenAI.messages = oaiStabilizedTranscript.messages as never;
   if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-    const oaiDedup = getContentDedup(sessionKey);
-    if (oaiContentDedupeEnabled && session.lastIncomingMessageCount > 0 && oaiMsgCount < session.lastIncomingMessageCount * 0.6) {
-      oaiDedup.reset();
-      getFileSnapshotRegistry(sessionKey).markCompaction("SUMMARY_ONLY");
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "external_compaction_detected", "dedup_reset", `msgs ${session.lastIncomingMessageCount} -> ${oaiMsgCount}`);
-    }
-    session.lastIncomingMessageCount = oaiMsgCount;
-    if (oaiContentDedupeEnabled) {
-      const oaiDedupResult = oaiDedup.processMessages(
-        normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-      );
-      if (oaiDedupResult.dedupCount > 0) {
-        normalizedOpenAI.messages = oaiDedupResult.messages as never;
-        const memTracker = getMemoryGovernor(sessionKey);
-        for (const p of oaiDedupResult.dedupPaths) {
-          memTracker.trackFileRead(p);
-          if (oaiDedup.getStructuralIndex()?.getFileSummary(p)) {
-            memTracker.trackSummaryGenerated(p);
-          }
-        }
-        if (oaiDedupResult.dedupPaths.length > 0 && config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-          app.log.debug({ reqId: oaiTraceReqId, dedupCount: oaiDedupResult.dedupCount, paths: oaiDedupResult.dedupPaths }, "content_dedup_applied");
-        }
-      }
-    }
-    // Response dedupe: replace identical tool results with compact stubs
-    if (oaiResponseDedupeEnabled && yarnDedupeLayer) {
-      const oaiMsgs = normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
-      let responseDedupHits = 0;
-      for (let mi = 0; mi < oaiMsgs.length; mi++) {
-        const m = oaiMsgs[mi];
-        if (m.role !== "tool" || typeof m.content !== "string") continue;
-        const toolName = m.name ?? "";
-        let toolInput: unknown;
-        if (m.tool_call_id) {
-          for (let ai = mi - 1; ai >= 0; ai--) {
-            const am = oaiMsgs[ai];
-            if (am.role === "assistant" && am.tool_calls) {
-              const match = am.tool_calls.find((tc) => tc.id === m.tool_call_id);
-              if (match?.function?.arguments) {
-                try { toolInput = JSON.parse(match.function.arguments); } catch { toolInput = match.function.arguments; }
-                break;
-              }
-            }
-          }
-        }
-        try {
-          const wrapped = yarnDedupeLayer.responseDedupe.wrapToolResult(toolName, toolInput, m.content);
-          if (wrapped !== m.content) {
-            oaiMsgs[mi] = { ...m, content: wrapped };
-            responseDedupHits += 1;
-            oaiOptLedger?.addResponseDedupHit();
-          } else {
-            oaiOptLedger?.addResponseDedupMiss();
-          }
-        } catch (e) {
-          app.log.warn({ reqId: oaiTraceReqId, err: (e as Error).message }, "response_dedupe_bypass");
-        }
-      }
-      if (responseDedupHits > 0) {
-        normalizedOpenAI.messages = oaiMsgs as never;
-        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-          app.log.debug({ reqId: oaiTraceReqId, hits: responseDedupHits }, "response_dedupe_applied");
-        }
-      }
-    }
-    // Historical normalization: stabilize old content for prefix cache
-    if (oaiHistoricalNormalizeEnabled) {
-      const histMsgs = normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>;
-      const keepFromIdx = transcriptPruning.computeKeepFromIndex?.(histMsgs as never, oaiCompactionOpts.backendModelHint) ?? histMsgs.length;
-      const histResult = normalizeHistoricalContent(histMsgs as never, keepFromIdx);
-      if (histResult.stats.messagesNormalized > 0) {
-        normalizedOpenAI.messages = histResult.messages as never;
-        oaiOptLedger?.addHistoricalNormReplacements(histResult.stats.timestampsReplaced + histResult.stats.pathsNormalized);
-      }
-      if (!session.skipToolIdStabilization) {
-        const idResult = stabilizeToolCallIds(normalizedOpenAI.messages as never, keepFromIdx);
-        if (idResult.rewriteCount > 0) {
-          normalizedOpenAI.messages = idResult.messages as never;
-          oaiOptLedger?.addToolIdRewrites(idResult.rewriteCount);
-          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-            app.log.debug({ reqId: oaiTraceReqId, rewrites: idResult.rewriteCount }, "tool_id_stabilization_applied");
-          }
-        }
-      } else {
-        app.log.warn({ reqId: oaiTraceReqId }, "tool_id_stabilization_skipped_after_missing_tool_results");
-        session.skipToolIdStabilization = false;
-      }
-    }
     const oaiPlanRemediation = remediatePlanFileStubs(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>);
     if (oaiPlanRemediation.remediatedCount > 0) {
       normalizedOpenAI.messages = oaiPlanRemediation.messages as never;
