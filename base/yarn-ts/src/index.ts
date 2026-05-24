@@ -187,7 +187,6 @@ import {
   defaultShellAllowlistFromEnv,
 } from "./tool-collapse/index.js";
 import { applyDiscoveryGuardrails, type DiscoveryGuardrailRedirect } from "./tool-collapse/discovery-guardrails.js";
-import { normalizeClaudeStreamStopReason, normalizeOpenAIStreamFinishReason } from "./tool-collapse/stream-stop-normalizer.js";
 import {
   buildBlockedDiscoveryGuidance,
   buildBlockedDiscoveryRecoveryWithSnapshot,
@@ -290,6 +289,8 @@ import {
   openAIToolCallDeltaChunk,
   type OpenAIChunkBase,
 } from "./streaming/openai-sse-writer.js";
+import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import {
   classifyAiSdkStreamPart,
   parseToolInput,
@@ -10205,9 +10206,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     },
   });
 
-  let finishReason = "stop";
-  const pendingToolCalls: Array<{ index: number; id: string; name: string; args: string }> = [];
-  const pendingTextDeltas: string[] = [];
+  const oaiStreamState = new OpenAIStreamState();
   const oaiStreamGuardrailAccepted: GuardrailToolCall[] = [];
   const oaiStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
   let oaiStreamEmittedToolCalls = 0;
@@ -10277,7 +10276,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       const event = classifyAiSdkStreamPart(part);
       const ts = Math.floor(Date.now() / 1000);
       if (event.type === "text_delta") {
-        pendingTextDeltas.push(event.text);
+        oaiStreamState.appendTextDelta(event.text);
       } else if (event.type === "reasoning_start") {
         if (event.text) {
           flushOpenAIReasoningDelta(event.text);
@@ -10289,14 +10288,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
       } else if (event.type === "reasoning_end") {
         /* boundary only; OpenAI format has no per-block stop for reasoning */
       } else if (event.type === "tool_call" || event.type === "tool_input_start") {
-        if (pendingTextDeltas.length > 0) {
-          scrubAndFlushOpenAIText(pendingTextDeltas.join(""));
-          pendingTextDeltas.length = 0;
+        if (oaiStreamState.hasPendingText()) {
+          scrubAndFlushOpenAIText(oaiStreamState.drainText());
         }
         if (event.type === "tool_input_start") {
-          pendingToolCalls.push({ index: pendingToolCalls.length, id: event.toolCallId, name: event.toolName, args: "" });
+          oaiStreamState.startToolInput(event.toolCallId, event.toolName);
         } else if (event.type === "tool_call") {
-          finishReason = "tool_calls";
+          oaiStreamState.markToolCallFinish();
           let argsStr = serializeToolInput(event.input);
           const rawArgsLen = argsStr.length;
           if (adapter.normalizeToolCallArgs) argsStr = adapter.normalizeToolCallArgs(argsStr);
@@ -10325,7 +10323,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
               blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
               planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
               artifactShadows: oaiArtifactShadows,
-              currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + pendingToolCalls.length + 1,
+              currentTurnIndex: (normalizedOpenAI.messages as Array<{ role: string }>).length + oaiStreamState.nextToolCallIndex() + 1,
               onEditTurn: (canonicalPath, turnIndex) => {
                 session.artifactEditTurns.set(canonicalPath, turnIndex);
               },
@@ -10410,8 +10408,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
             const blockedId = event.toolCallId;
             if (blockedId) {
-              const idx = pendingToolCalls.findIndex((p) => p.id === blockedId);
-              if (idx >= 0) pendingToolCalls.splice(idx, 1);
+              oaiStreamState.removeToolCall(blockedId);
             }
             if (streamGuarded.blockedCount > 0) {
               const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -10433,7 +10430,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiClientKind,
           );
           argsStr = JSON.stringify(clientCandidateCall.input);
-          const existing = pendingToolCalls.find((p) => p.id === event.toolCallId);
+          const existing = oaiStreamState.findToolCall(event.toolCallId);
           if (existing) {
             existing.name = clientCandidateCall.toolName;
             safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
@@ -10443,7 +10440,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             oaiStreamEmittedToolCalls += 1;
           } else {
             safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
-              index: pendingToolCalls.length,
+              index: oaiStreamState.nextToolCallIndex(),
               id: event.toolCallId,
               type: "function",
               function: { name: clientCandidateCall.toolName, arguments: argsStr },
@@ -10452,14 +10449,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           }
         }
       } else if (event.type === "tool_input_delta") {
-        const idx = pendingToolCalls.findIndex((p) => p.id === event.toolCallId);
-        if (idx >= 0) {
-          pendingToolCalls[idx].args += event.inputTextDelta;
-        }
+        oaiStreamState.appendToolInputDelta(event.toolCallId, event.inputTextDelta);
       } else if (event.type === "error") {
         throw event.error;
       } else if (event.type === "finish") {
-        if (event.finishReason === "length") finishReason = "length";
+        if (event.finishReason === "length") oaiStreamState.markLengthFinish();
       }
     }
     if (
@@ -10480,7 +10474,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
       );
     }
-    finishReason = normalizeOpenAIStreamFinishReason(finishReason, oaiStreamEmittedToolCalls);
+    oaiStreamState.normalizedFinishReason(oaiStreamEmittedToolCalls);
     if (oaiStreamBlockedBroadDiscovery > 0) {
       recordBlockedDiscovery(sessionKey, oaiStreamBlockedBroadDiscovery);
       recordSessionEvent(
@@ -10568,21 +10562,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
       : oaiTimedOut
         ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
         : "\n\n[Upstream provider error — retrying may help]";
-    finishReason = "error";
+    oaiStreamState.markError();
     safeWrite(reply.raw, openAITextDeltaChunk(openAiChunkBase(), errorHint));
   }
   clearTimeout(oaiStreamHardTimeout);
 
   oaiAdmission.release!();
 
+  const finishReason = oaiStreamState.rawFinishReason();
   if (finishReason !== "error") {
     circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
     otelStreamSpan.setStatus("ok");
   }
   otelStreamSpan.end();
 
-  if (finishReason !== "tool_calls" && pendingTextDeltas.length > 0) {
-    const rawText = pendingTextDeltas.join("");
+  if (finishReason !== "tool_calls" && oaiStreamState.hasPendingText()) {
+    const rawText = oaiStreamState.drainText();
     if (session.taskCapabilities && rawText) {
       const oaiStreamTextTasks = extractTasksFromTextFn(
         rawText,
@@ -10626,7 +10621,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
       config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
     );
     scrubAndFlushOpenAIText(guarded);
-    pendingTextDeltas.length = 0;
   }
 
   let oaiStreamUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -10740,8 +10734,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     escalated: orchestration.escalated,
     snapshot: oaiStreamSnapshot,
     trajectory: {
-      toolSequence: pendingToolCalls.map((tc) => tc.name),
-      verificationSteps: inferVerificationSteps(pendingToolCalls.map((tc) => tc.name)),
+      toolSequence: oaiStreamState.toolNames(),
+      verificationSteps: inferVerificationSteps(oaiStreamState.toolNames()),
       diagnostics: oaiTrajectoryDiagnostics,
       completionGateBlocked: oaiStreamGateBlockedVerification,
       criticBlocked: oaiStreamCriticBlocked,
@@ -13655,20 +13649,14 @@ app.post("/v1/messages", async (req, reply) => {
     const msgId = `msg_${crypto.randomUUID()}`;
     safeSse(reply, "message_start", { type: "message_start", message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } } });
 
-    let blockIdx = 0;
-    let inTextBlock = false;
-    let claudeStreamingTextOpen = false;
-    let stopReason = "end_turn";
+    const claudeStreamState = new ClaudeStreamState();
     let claudeStreamGateApplied = false;
     let claudeStreamMissingMust = 0;
     let claudeStreamMissingShould = 0;
     let claudeStreamGateBlockedVerification = false;
     let claudeStreamCriticBlocked = false;
-    const pendingClaudeTextDeltas: string[] = [];
-    const claudeToolBuffer = new Map<string, { toolName: string; toolCallId: string; chunks: string[] }>();
     const claudeStreamGuardrailAccepted: GuardrailToolCall[] = [];
     const claudeStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
-    let claudeStreamEmittedToolCalls = 0;
     let claudeStreamRecoveryPreviewEntries = 0;
     let claudeStreamRecoveryMode: DiscoveryRecoverySnapshot["recoveryMode"] | null = null;
     let claudeStreamBlockedBroadDiscovery = 0;
@@ -13699,28 +13687,26 @@ app.post("/v1/messages", async (req, reply) => {
     let requestToolValidationFailures = 0;
     let requestToolRepairs = 0;
     const closeClaudeStreamingTextBlock = (): void => {
-      if (!claudeStreamingTextOpen) return;
-      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-      blockIdx++;
-      claudeStreamingTextOpen = false;
-      inTextBlock = false;
+      const blockIndex = claudeStreamState.closeTextBlock();
+      if (blockIndex === null) return;
+      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
     };
 
     const flushClaudeTextBlock = (text: string): void => {
       if (!text) return;
+      const blockIndex = claudeStreamState.currentBlockIndex();
       safeSse(reply, "content_block_start", {
         type: "content_block_start",
-        index: blockIdx,
+        index: blockIndex,
         content_block: { type: "text", text: "" },
       });
       safeSse(reply, "content_block_delta", {
         type: "content_block_delta",
-        index: blockIdx,
+        index: blockIndex,
         delta: { type: "text_delta", text },
       });
-      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-      blockIdx++;
-      inTextBlock = false;
+      safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
+      claudeStreamState.advanceBlock();
     };
 
     const scrubAndFlushClaudeTextBlock = (text: string): void => {
@@ -13743,35 +13729,30 @@ app.post("/v1/messages", async (req, reply) => {
       for await (const part of streamed.fullStream) {
         const event = classifyAiSdkStreamPart(part);
         if (event.type === "text_delta") {
-          pendingClaudeTextDeltas.push(event.text);
+          claudeStreamState.appendTextDelta(event.text);
         } else if (event.type === "reasoning_start") {
-          if (pendingClaudeTextDeltas.length > 0) {
-            scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
-            pendingClaudeTextDeltas.length = 0;
+          if (claudeStreamState.hasPendingText()) {
+            scrubAndFlushClaudeTextBlock(claudeStreamState.drainText());
           }
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "thinking", thinking: "" } });
+          const blockIndex = claudeStreamState.currentBlockIndex();
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIndex, content_block: { type: "thinking", thinking: "" } });
           if (event.text) {
-            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: event.text } });
+            safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIndex, delta: { type: "thinking_delta", thinking: event.text } });
           }
         } else if (event.type === "reasoning_delta") {
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "thinking_delta", thinking: event.text } });
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: claudeStreamState.currentBlockIndex(), delta: { type: "thinking_delta", thinking: event.text } });
         } else if (event.type === "reasoning_end") {
-          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-          blockIdx++;
+          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: claudeStreamState.currentBlockIndex() });
+          claudeStreamState.advanceBlock();
         } else if (event.type === "tool_input_start") {
-          if (pendingClaudeTextDeltas.length > 0) {
-            scrubAndFlushClaudeTextBlock(pendingClaudeTextDeltas.join(""));
-            pendingClaudeTextDeltas.length = 0;
+          if (claudeStreamState.hasPendingText()) {
+            scrubAndFlushClaudeTextBlock(claudeStreamState.drainText());
           }
-          claudeToolBuffer.set(event.toolCallId, { toolName: event.toolName, toolCallId: event.toolCallId, chunks: [] });
-          stopReason = "tool_use";
+          claudeStreamState.startToolInput(event.toolCallId, event.toolName);
         } else if (event.type === "tool_input_delta") {
-          const buf = claudeToolBuffer.get(event.toolCallId);
-          if (buf) {
-            buf.chunks.push(event.inputTextDelta);
-          }
+          claudeStreamState.appendToolInputDelta(event.toolCallId, event.inputTextDelta);
         } else if (event.type === "tool_call") {
-          const buf = claudeToolBuffer.get(event.toolCallId);
+          const buf = claudeStreamState.getToolInput(event.toolCallId);
           const rawToolInput = parseToolInput(event.input, serializeToolInput(event.input));
           const hard = applyAdapterToolHardening(
             claudeAdapter,
@@ -13816,7 +13797,7 @@ app.post("/v1/messages", async (req, reply) => {
             blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
             planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
             artifactShadows: claudeArtifactShadows,
-            currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + claudeToolBuffer.size + 1,
+            currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + claudeStreamState.pendingToolInputCount() + 1,
             onEditTurn: (canonicalPath, turnIndex) => {
               session.artifactEditTurns.set(canonicalPath, turnIndex);
             },
@@ -13909,7 +13890,7 @@ app.post("/v1/messages", async (req, reply) => {
             claudeStreamCollapsedBroadDiscovery += streamGuarded.collapsedCount;
             const blockedToolCallId = event.toolCallId;
             if (blockedToolCallId) {
-              claudeToolBuffer.delete(blockedToolCallId);
+              claudeStreamState.removeToolInput(blockedToolCallId);
             }
             if (streamGuarded.blockedCount > 0) {
               const recovery = await buildBlockedDiscoveryRecoverySnapshot(
@@ -13920,18 +13901,19 @@ app.post("/v1/messages", async (req, reply) => {
               claudeStreamBlockedDetails.push(...streamGuarded.blockedDetails);
               claudeStreamRecoveryPreviewEntries += recovery.entryCount;
               claudeStreamRecoveryMode = recovery.recoveryMode;
+              const blockIndex = claudeStreamState.currentBlockIndex();
               safeSse(reply, "content_block_start", {
                 type: "content_block_start",
-                index: blockIdx,
+                index: blockIndex,
                 content_block: { type: "text", text: "" },
               });
               safeSse(reply, "content_block_delta", {
                 type: "content_block_delta",
-                index: blockIdx,
+                index: blockIndex,
                 delta: { type: "text_delta", text: `\n${recovery.text}\n` },
               });
-              safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-              blockIdx++;
+              safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
+              claudeStreamState.advanceBlock();
             }
             continue;
           }
@@ -13941,18 +13923,18 @@ app.post("/v1/messages", async (req, reply) => {
           const toolCallId = event.toolCallId;
           const normalizedJson = JSON.stringify(finalInput);
 
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIdx, delta: { type: "input_json_delta", partial_json: normalizedJson } });
-          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIdx });
-          blockIdx++;
-          claudeToolBuffer.delete(toolCallId);
-          claudeStreamEmittedToolCalls += 1;
-          stopReason = "tool_use";
+          const blockIndex = claudeStreamState.currentBlockIndex();
+          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
+          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIndex, delta: { type: "input_json_delta", partial_json: normalizedJson } });
+          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
+          claudeStreamState.advanceBlock();
+          claudeStreamState.removeToolInput(toolCallId);
+          claudeStreamState.recordEmittedToolCall();
+          claudeStreamState.markToolUse();
         } else if (event.type === "error") {
           throw event.error;
         } else if (event.type === "finish") {
-          if (event.finishReason === "length") stopReason = "max_tokens";
-          else if (event.finishReason === "stop" && claudeToolBuffer.size > 0) stopReason = "end_turn";
+          claudeStreamState.markFinishFromProvider(event.finishReason);
         }
       }
       if (
@@ -13973,7 +13955,7 @@ app.post("/v1/messages", async (req, reply) => {
           "qwen3_parser_mismatch_suspected: repeated tool arg repairs/validation failures on local endpoint; verify vLLM uses --tool-call-parser=qwen3_coder",
         );
       }
-      stopReason = normalizeClaudeStreamStopReason(stopReason, claudeStreamEmittedToolCalls);
+      claudeStreamState.normalizedStopReason();
       if (claudeStreamBlockedBroadDiscovery > 0) {
         recordBlockedDiscovery(claudeSessionKey, claudeStreamBlockedBroadDiscovery);
         recordSessionEvent(
@@ -14061,30 +14043,30 @@ app.post("/v1/messages", async (req, reply) => {
         : claudeTimedOut
           ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
           : "\n\n[Upstream provider error — retrying may help]";
-      if (!claudeStreamingTextOpen) {
-        safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIdx, content_block: { type: "text", text: "" } });
-        claudeStreamingTextOpen = true;
-        inTextBlock = true;
+      if (!claudeStreamState.isTextBlockOpen()) {
+        safeSse(reply, "content_block_start", { type: "content_block_start", index: claudeStreamState.currentBlockIndex(), content_block: { type: "text", text: "" } });
+        claudeStreamState.markTextBlockOpen();
       }
       safeSse(reply, "content_block_delta", {
         type: "content_block_delta",
-        index: blockIdx,
+        index: claudeStreamState.currentBlockIndex(),
         delta: { type: "text_delta", text: errorHint },
       });
-      stopReason = "end_turn";
+      claudeStreamState.markEndTurn();
     }
     clearTimeout(claudeStreamHardTimeout);
 
     claudeAdmission.release!();
 
-    if (stopReason !== "end_turn" || !inTextBlock) {
+    const stopReason = claudeStreamState.rawStopReason();
+    if (stopReason !== "end_turn" || !claudeStreamState.isInTextBlock()) {
       circuitBreakers.recordSuccess(resolved.resolvedModelId, claudeIdentity.orgId);
       claudeStreamSpan.setStatus("ok");
     }
     claudeStreamSpan.end();
 
-    if (stopReason !== "tool_use" && pendingClaudeTextDeltas.length > 0) {
-      const rawText = pendingClaudeTextDeltas.join("");
+    if (stopReason !== "tool_use" && claudeStreamState.hasPendingText()) {
+      const rawText = claudeStreamState.drainText();
       if (session.taskCapabilities && rawText) {
         const claudeStreamTextTasks = extractTasksFromTextFn(
           rawText,
@@ -14128,7 +14110,6 @@ app.post("/v1/messages", async (req, reply) => {
         config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
       );
       scrubAndFlushClaudeTextBlock(guarded);
-      pendingClaudeTextDeltas.length = 0;
     }
 
     closeClaudeStreamingTextBlock();
