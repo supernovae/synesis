@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OpenAIChatPipeline } from "../src/pipeline/openai-chat-pipeline.js";
+import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "../src/pipeline/openai-chat-pipeline.js";
 import type { AuthUser } from "../src/auth.js";
 
 function authUser(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -118,5 +118,86 @@ describe("OpenAIChatPipeline ingress", () => {
       clientKind: "codex-cli",
       displayName: "display.name@example.com",
     });
+  });
+});
+
+describe("OpenAIChatPipeline result adapter", () => {
+  function replyAdapter() {
+    const state = {
+      headers: new Map<string, string>(),
+      statusCode: 200,
+      body: undefined as unknown,
+      sendCount: 0,
+    };
+    return {
+      state,
+      reply: {
+        header(name: string, value: string) {
+          state.headers.set(name, value);
+          return this;
+        },
+        code(statusCode: number) {
+          state.statusCode = statusCode;
+          return {
+            send(body: unknown) {
+              state.body = body;
+              state.sendCount += 1;
+              return state;
+            },
+          };
+        },
+        send(body: unknown) {
+          state.body = body;
+          state.sendCount += 1;
+          return state;
+        },
+      },
+    };
+  }
+
+  it("sends JSON results with default 200 status", () => {
+    const { reply, state } = replyAdapter();
+
+    sendOpenAIChatPipelineResult(reply, {
+      kind: "json",
+      body: { id: "chatcmpl-test" },
+    });
+
+    expect(state.statusCode).toBe(200);
+    expect(state.body).toEqual({ id: "chatcmpl-test" });
+    expect(state.sendCount).toBe(1);
+  });
+
+  it("applies error status and headers", () => {
+    const { reply, state } = replyAdapter();
+
+    sendOpenAIChatPipelineResult(reply, {
+      kind: "error",
+      statusCode: 429,
+      headers: { "Retry-After": "30" },
+      body: { error: { type: "rate_limit_error", message: "slow down" } },
+    });
+
+    expect(state.statusCode).toBe(429);
+    expect(state.headers.get("Retry-After")).toBe("30");
+    expect(state.body).toEqual({ error: { type: "rate_limit_error", message: "slow down" } });
+  });
+
+  it("returns the reply untouched when a stream is already started", () => {
+    const { reply, state } = replyAdapter();
+
+    const result = sendOpenAIChatPipelineResult(reply, { kind: "streamStarted" });
+
+    expect(result).toBe(reply);
+    expect(state.sendCount).toBe(0);
+  });
+
+  it("can represent a workspace handshake already handled by the route", () => {
+    const { reply, state } = replyAdapter();
+
+    const result = sendOpenAIChatPipelineResult(reply, { kind: "workspaceHandshake" });
+
+    expect(result).toBe(reply);
+    expect(state.sendCount).toBe(0);
   });
 });

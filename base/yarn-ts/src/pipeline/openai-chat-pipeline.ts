@@ -9,10 +9,14 @@ import { normalizeToolDescriptions, type ToolDescriptionTruncation } from "../co
 import { type SessionIdentity } from "../session/session-key.js";
 import { buildProtocolSessionIdentity } from "../session/protocol-session.js";
 import { resolvePipelineMode, shouldRunGovernorForMode, type PipelineModeResolution } from "./modes.js";
+export type { OpenAIChatPipelineResult, OpenAIChatReplyAdapter } from "./openai-chat-results.js";
+export { sendOpenAIChatPipelineResult } from "./openai-chat-results.js";
 
 export interface OpenAIChatPipelineDeps {
   governorService?: Pick<GovernorService, "beforeProviderCall">;
 }
+
+export interface OpenAIChatPipelineEnvironment extends OpenAIChatPipelineDeps {}
 
 export interface OpenAIChatIngressSuccess {
   ok: true;
@@ -167,7 +171,7 @@ function metadataFromRequest(request: OpenAIChatCompletionRequest): Record<strin
 }
 
 export class OpenAIChatPipeline {
-  constructor(private readonly deps: OpenAIChatPipelineDeps = {}) {}
+  constructor(private readonly env: OpenAIChatPipelineEnvironment = {}) {}
 
   canonicalize(request: OpenAIChatCompletionRequest): CanonicalChatRequest {
     return {
@@ -248,10 +252,10 @@ export class OpenAIChatPipeline {
     ctx: PipelineContext,
     request: { messages: GovernorInputMessage[]; governorOptions?: Parameters<GovernorService["beforeProviderCall"]>[1]["options"] },
   ): Promise<PipelineResult["governor"]> {
-    if (!shouldRunGovernorForMode(ctx.mode) || !this.deps.governorService) {
+    if (!shouldRunGovernorForMode(ctx.mode) || !this.env.governorService) {
       return null;
     }
-    return this.deps.governorService.beforeProviderCall(ctx, {
+    return this.env.governorService.beforeProviderCall(ctx, {
       messages: request.messages,
       options: request.governorOptions,
     });

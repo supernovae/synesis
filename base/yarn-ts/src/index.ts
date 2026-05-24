@@ -251,14 +251,6 @@ import {
 } from "./retrieval-tool-policy.js";
 import { applyTrustPackets } from "./security/transcript-trust.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
-import { executePhaseRequiredProviderCall } from "./providers/openai-provider-executor.js";
-import {
-  buildAssistantReplayParts,
-  resolveServerSideToolResults,
-  serverSideToolNameSet,
-  splitServerSideToolCalls,
-  type ServerSideToolCall,
-} from "./providers/server-side-tool-replay.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
@@ -356,7 +348,8 @@ import {
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
-import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
+import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
+import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -6901,7 +6894,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.warn({ reqId: oaiTraceReqId, ...truncation }, "tool_description_truncated");
   }
   if (!oaiIngress.ok) {
-    return reply.code(oaiIngress.statusCode).send(oaiIngress.body);
+    return sendOpenAIChatPipelineResult(reply, {
+      kind: "error",
+      statusCode: oaiIngress.statusCode,
+      body: oaiIngress.body,
+    });
   }
   let authUser: import("./auth.js").AuthUser;
   try {
@@ -6926,8 +6923,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     app.log.warn({ userId: authUser.userId, count: oaiRateResult.currentCount, limit: oaiRateResult.limit }, "rate_limit_rejected");
     recordSessionEvent("", authUser.userId, authUser.orgId, "rate_limit_reject", "user-rate-limiter",
       `${oaiRateResult.currentCount}/${oaiRateResult.limit} in window — retry after ${oaiRateResult.retryAfterSeconds}s`);
-    reply.header("Retry-After", String(oaiRateResult.retryAfterSeconds));
-    return reply.code(429).send({ error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${oaiRateResult.retryAfterSeconds} seconds.` } });
+    return sendOpenAIChatPipelineResult(reply, {
+      kind: "error",
+      statusCode: 429,
+      headers: { "Retry-After": String(oaiRateResult.retryAfterSeconds) },
+      body: { error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${oaiRateResult.retryAfterSeconds} seconds.` } },
+    });
   }
 
   const request = oaiIngress.request;
@@ -9436,16 +9437,20 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
       "context_admission_reject_openai",
     );
-    return reply.code(400).send({
-      error: {
-        type: "invalid_request_error",
-        message: admissionErrorMessage(oaiContextAdmission),
-      },
-      context_admission: {
-        decision: oaiContextAdmission.decision,
-        estimated_tokens: oaiContextAdmission.estimatedTokens,
-        estimated_chars: oaiContextAdmission.estimatedChars,
-        reason: oaiContextAdmission.reason,
+    return sendOpenAIChatPipelineResult(reply, {
+      kind: "error",
+      statusCode: 400,
+      body: {
+        error: {
+          type: "invalid_request_error",
+          message: admissionErrorMessage(oaiContextAdmission),
+        },
+        context_admission: {
+          decision: oaiContextAdmission.decision,
+          estimated_tokens: oaiContextAdmission.estimatedTokens,
+          estimated_chars: oaiContextAdmission.estimatedChars,
+          reason: oaiContextAdmission.reason,
+        },
       },
     });
   }
@@ -9455,105 +9460,63 @@ app.post("/v1/chat/completions", async (req, reply) => {
       app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open");
       recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
         `Circuit breaker open for ${resolved.resolvedModelId}`, reqId, { model: resolved.resolvedModelId });
-      reply.header("Retry-After", "30");
-      return reply.code(503).send({ error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } });
+      return sendOpenAIChatPipelineResult(reply, {
+        kind: "error",
+        statusCode: 503,
+        headers: { "Retry-After": "30" },
+        body: { error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } },
+      });
     }
     const otelSpan = getTracer().startSpan("yarn.openai.generate", { model: resolved.resolvedModelId, sessionKey });
     const started = Date.now();
     let finalResult: Awaited<ReturnType<typeof generateText>>;
     let lastOpenAiForensics: RequestForensicsRecord | undefined;
     try {
-      let currentMessages = modelMessages;
-      const providerCall = await executePhaseRequiredProviderCall<
+      const providerCall = await executeOpenAINonStreamProviderLoop<
+        typeof modelMessages[number],
         Awaited<ReturnType<typeof generateText>>,
-        typeof modelMessages,
         ReturnType<typeof captureRequestForensics>
       >({
-        messages: currentMessages,
-        toolChoice: effectiveToolChoice as PhaseAwareToolChoice | undefined,
+        initialMessages: modelMessages,
+        model: resolved.model,
+        orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
+        requestMaxTokens: request.max_tokens ?? request.max_completion_tokens ?? 0,
+        output: oaiStructuredOutput,
+        samplingOptions: oaiSamplingOptions,
+        tools: sdkTools,
+        initialToolChoice: effectiveToolChoice as PhaseAwareToolChoice | undefined,
+        providerOptions: oaiProviderOptions,
         phasePolicy: oaiPhasePolicy,
         governorPhase: oaiGovernorPhase,
-        appendSystemMessage: (messages, content) =>
-          appendSystemMessageAndNormalize(
-            messages as Array<{ role: string; content?: unknown }>,
-            content,
-          ) as typeof messages,
-        getToolCalls: (result) =>
-          (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [],
-        runAttempt: async (messages, toolChoice) => {
-          const forensics = captureRequestForensics(
-            sessionKey,
-            reqId,
-            "/v1/chat/completions",
-            resolved.resolvedModelId,
-            false,
-            messages as Array<{ role: string; content: unknown }>,
-            effectiveTools as unknown[],
-            toolChoice,
-            oaiProviderOptions,
-            oaiForensicsPhasePolicy,
-            oaiForensicsCapabilityMatrix,
-          );
-          const result = await generateText(buildAiSdkTextRequestOptions({
-            model: resolved.model,
-            messages,
-            maxOutputTokens: clampMaxOutputTokensForSafety(
-              Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-            ),
-            output: oaiStructuredOutput,
-            samplingOptions: oaiSamplingOptions,
-            tools: sdkTools,
-            toolChoice,
-            providerOptions: oaiProviderOptions,
-          }) as never);
-          return { result, context: forensics, messages, toolChoice };
-        },
-        finalizeAttempt: (attempt) => {
-          const usage = readUsage((attempt.result as unknown as { usage?: unknown }).usage);
-          lastOpenAiForensics = finalizeRequestForensics(session, reqId, attempt.context ?? null, usage);
-        },
-        onValidationRetry: (reasons) => {
+        clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+        generateText: (options) => generateText(options as never),
+        readUsage,
+        captureForensics: (messages, toolChoice) => captureRequestForensics(
+          sessionKey,
+          reqId,
+          "/v1/chat/completions",
+          resolved.resolvedModelId,
+          false,
+          messages as Array<{ role: string; content: unknown }>,
+          effectiveTools as unknown[],
+          toolChoice,
+          oaiProviderOptions,
+          oaiForensicsPhasePolicy,
+          oaiForensicsCapabilityMatrix,
+        ),
+        finalizeForensics: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
+        recordSessionEvent: (event) => {
           recordSessionEvent(
             sessionKey,
             identity.userId,
             identity.orgId,
-            "phase_required_validation_retry",
-            "execution-governor",
-            `reasons=${reasons.join(",") || "unknown"}`,
+            event.eventKind,
+            event.component,
+            event.detail,
             reqId,
           );
         },
-        onValidationFallback: (reasons) => {
-          recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            "phase_required_validation_fallback",
-            "execution-governor",
-            `fallback_after_retry reasons=${reasons.join(",") || "unknown"}`,
-            reqId,
-          );
-        },
-      });
-      finalResult = providerCall.result;
-      currentMessages = providerCall.messages;
-      effectiveToolChoice = providerCall.toolChoice;
-
-      const serverSideTools = serverSideToolNameSet({
-        artifactToolName: ARTIFACT_TOOL_NAME,
-        knowledgeToolName: KNOWLEDGE_TOOL_NAME,
-        devDocsToolName: DEV_DOCS_TOOL_NAME,
-        webSearchToolName: WEB_SEARCH_TOOL_NAME,
-        webSearchToolAlias: WEB_SEARCH_TOOL_ALIAS,
-      });
-      for (let round = 0; round < 3; round++) {
-        const allCalls = ((finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? []) as ServerSideToolCall[];
-        const { serverCalls, clientCalls } = splitServerSideToolCalls(allCalls, serverSideTools);
-        if (serverCalls.length === 0) break;
-
-        if (clientCalls.length > 0) break;
-
-        const toolResults = await resolveServerSideToolResults(serverCalls, {
+        serverSideToolResolvers: {
           artifactToolName: ARTIFACT_TOOL_NAME,
           knowledgeToolName: KNOWLEDGE_TOOL_NAME,
           devDocsToolName: DEV_DOCS_TOOL_NAME,
@@ -9579,43 +9542,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
               toolName: WEB_SEARCH_TOOL_NAME,
             }),
           ),
-        });
-        const assistantParts = buildAssistantReplayParts(finalResult.text, serverCalls);
-
-        currentMessages = [
-          ...currentMessages,
-          { role: "assistant", content: assistantParts } as never,
-          { role: "tool", content: toolResults } as never
-        ];
-
-        const loopForensics = captureRequestForensics(
-          sessionKey,
-          reqId,
-          "/v1/chat/completions",
-          resolved.resolvedModelId,
-          false,
-          currentMessages as Array<{ role: string; content: unknown }>,
-          effectiveTools as unknown[],
-          effectiveToolChoice,
-          oaiProviderOptions,
-          oaiForensicsPhasePolicy,
-          oaiForensicsCapabilityMatrix,
-        );
-        finalResult = await generateText(buildAiSdkTextRequestOptions({
-          model: resolved.model,
-          messages: currentMessages,
-          maxOutputTokens: clampMaxOutputTokensForSafety(
-            Math.max(orchestration.maxOutputTokens, request.max_tokens ?? request.max_completion_tokens ?? 0),
-          ),
-          output: oaiStructuredOutput,
-          samplingOptions: oaiSamplingOptions,
-          tools: sdkTools,
-          toolChoice: effectiveToolChoice,
-          providerOptions: oaiProviderOptions,
-        }) as never);
-        const loopUsage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-        lastOpenAiForensics = finalizeRequestForensics(session, reqId, loopForensics, loopUsage);
-      }
+        },
+      });
+      finalResult = providerCall.result;
+      effectiveToolChoice = providerCall.toolChoice;
+      lastOpenAiForensics = providerCall.requestForensicsDone;
     } catch (err) {
       const upstream = extractUpstreamErrorDiagnostics(err);
       if (upstream.isMissingToolResults) {
@@ -9655,7 +9586,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           missing_tool_results: upstream.isMissingToolResults,
         },
       );
-      return reply.code(502).send({ error: { type: "upstream_error", message: upstream.userMessage } });
+      return sendOpenAIChatPipelineResult(reply, {
+        kind: "error",
+        statusCode: 502,
+        body: { error: { type: "upstream_error", message: upstream.userMessage } },
+      });
     }
     circuitBreakers.recordSuccess(resolved.resolvedModelId, identity.orgId);
     otelSpan.setStatus("ok");
