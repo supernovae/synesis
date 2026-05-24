@@ -345,6 +345,7 @@ import {
   injectGovernorRecoveryMessage,
   prepareRouteTools,
 } from "./pipeline/route-tool-preparation.js";
+import { applyRoutePhasePolicy } from "./pipeline/route-phase-policy.js";
 import {
   createOpenAINonStreamProviderForensics,
   createOpenAINonStreamServerSideToolResolvers,
@@ -373,9 +374,6 @@ import {
 } from "./governance/sensemaking-governor.js";
 import {
   buildRequiredRepairPrompt,
-  derivePhaseExecutionPolicy,
-  filterToolsByPhasePolicy,
-  resolvePhaseToolChoice,
   validateRequiredToolCalls,
   type PhaseAwareToolChoice,
 } from "./governance/phase-execution-policy.js";
@@ -1766,15 +1764,6 @@ const WRITE_ONLY_FAILURE_REASONS = new Set([
   "patch_apply_failed",
   "write_permission_denied",
   "write_tool_error",
-]);
-const QWEN_FORCED_PHASE_POLICY_RULES = new Set([
-  "edit_before_retest",
-  "verification_churn_no_edit",
-  "verification_fail_repeat_block",
-  "verification_same_failure_signature_replay",
-  "verification_stall_no_edit",
-  "source_file_stale_reread",
-  "edit_failure_replay",
 ]);
 const GOVERNOR_COOLDOWN_MS = 3_000;
 
@@ -7608,131 +7597,36 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     });
   }
-  const oaiBasePhasePolicyEnabled = config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && oaiPhasePolicyEnabledByMatrix;
-  const oaiForcePhasePolicy =
-    !oaiBasePhasePolicyEnabled
-    && oaiPhasePolicyEnabledByMatrix
-    && adapter.family === "qwen3-coder"
-    && (
-      session.editMissForceReadPending
-      || oaiEditMissGuard?.active === true
-      || oaiExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
-    );
-  const oaiForceStateRegroundPolicy = oaiNeedsStateReground;
-  const oaiPhasePolicy = derivePhaseExecutionPolicy({
-    enabled: oaiBasePhasePolicyEnabled || oaiForcePhasePolicy || oaiForceStateRegroundPolicy,
+  const oaiForceReadRecovery =
+    session.editMissForceReadPending
+    && oaiExecutionGovernor.matchedRules.includes("edit_failure_replay");
+  const oaiPhaseApplication = applyRoutePhasePolicy({
     adapterFamily: adapter.family,
+    basePolicyEnabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && oaiPhasePolicyEnabledByMatrix,
+    policyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: oaiGovernorPhase,
     matchedRules: oaiExecutionGovernor.matchedRules,
     stream: !!normalizedRequest.stream,
-    editContextMissActive: oaiEditMissGuard?.active === true || session.editMissForceReadPending,
+    effectiveTools,
+    clientToolChoice: clientToolChoice as PhaseAwareToolChoice | undefined,
+    editMissGuard: oaiEditMissGuard,
+    editMissForceReadPending: session.editMissForceReadPending,
+    forceReadRecovery: oaiForceReadRecovery,
+    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
     stateRegroundRequired: oaiNeedsStateReground,
     stateRegroundReadPath: oaiStateConfidence.recommendedReadPath,
+    clientToolInventory: oaiClientToolInventory,
+    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, reqId, metadataJson),
+    applyEditContextMissReadGate,
+    findPreferredReadToolName,
+    ensureReadToolAvailability: ensureReadToolAvailabilityForEditMissGuard,
   });
-  if ((oaiForcePhasePolicy || oaiForceStateRegroundPolicy) && oaiPhasePolicy.active) {
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "phase_execution_policy_forced",
-      "execution-governor",
-      `Forced phase policy phase=${oaiGovernorPhase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "none"} reground=${oaiNeedsStateReground}`,
-      reqId,
-      {
-        phase: oaiGovernorPhase,
-        matched_rules: oaiExecutionGovernor.matchedRules,
-        state_confidence_reground: oaiNeedsStateReground,
-      },
-    );
-  }
-  const oaiPhaseFiltered = filterToolsByPhasePolicy(effectiveTools as unknown[], oaiPhasePolicy);
-  effectiveTools = oaiPhaseFiltered.tools;
-  let effectiveToolChoice = resolvePhaseToolChoice(clientToolChoice as PhaseAwareToolChoice | undefined, oaiPhasePolicy);
-  const oaiForceReadRecovery =
-    session.editMissForceReadPending
-    && oaiExecutionGovernor.matchedRules.includes("edit_failure_replay");
-  if (oaiEditMissGuard?.active || oaiForceReadRecovery) {
-    const guardFilePath = oaiEditMissGuard?.filePath ?? "";
-    const guardMissCount = oaiEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
-    // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
-    // forces write-only tools AND the model has stale anchors), we added Read back to the
-    // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
-    // policy), keep only Read-capable tools and force Read so verification/search churn cannot
-    // continue while anchors are stale. In both modes, force tool_choice=Read to break the loop.
-    const guardMode = oaiForceReadRecovery
-      ? "forced_read_recovery"
-      : (oaiPhasePolicy.active ? "alongside_phase_policy" : "standalone");
-    const gated = guardMode === "standalone" || guardMode === "forced_read_recovery"
-      ? applyEditContextMissReadGate(effectiveTools as unknown[])
-      : { tools: effectiveTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveTools as unknown[]) };
-    if (guardMode === "standalone" || guardMode === "forced_read_recovery") {
-      effectiveTools = gated.tools ?? effectiveTools;
-    }
-    let forcedReadToolName = gated.forcedReadToolName;
-    const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
-      effectiveTools as unknown[] | undefined,
-      oaiClientToolInventory,
-    );
-    effectiveTools = ensuredRead.tools ?? effectiveTools;
-    if (!forcedReadToolName && ensuredRead.readToolName) {
-      forcedReadToolName = ensuredRead.readToolName;
-    }
-    if (ensuredRead.rehydrated) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "edit_context_miss_guard_rehydrated_read",
-        "execution-governor",
-        `Reintroduced read tool for edit-context recovery file=${guardFilePath || "<unknown>"}`,
-        reqId,
-        {
-          filePath: guardFilePath || null,
-          read_tool: ensuredRead.readToolName ?? null,
-        },
-      );
-    }
-    if (!ensuredRead.available) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "edit_context_miss_guard_read_missing",
-        "execution-governor",
-        `Invariant violation: no read-capable tool available while edit-context guard is active for ${guardFilePath || "<unknown>"}`,
-        reqId,
-        {
-          filePath: guardFilePath || null,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          phase: oaiGovernorPhase,
-        },
-      );
-    }
-    if (gated.removed.length > 0 || forcedReadToolName || ensuredRead.rehydrated || !ensuredRead.available) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "edit_context_miss_guard_enforced",
-        "execution-governor",
-        `mode=${guardMode} removed_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
-        reqId,
-        {
-          filePath: guardFilePath || null,
-          missCount: guardMissCount,
-          removed_tools: gated.removed,
-          forced_read_tool: forcedReadToolName ?? null,
-          guard_mode: guardMode,
-          read_rehydrated: ensuredRead.rehydrated,
-          read_available: ensuredRead.available,
-        },
-      );
-    }
-    if (forcedReadToolName) {
-      effectiveToolChoice = { type: "tool", toolName: forcedReadToolName };
-    }
-  }
+  const oaiPhasePolicy = oaiPhaseApplication.phasePolicy;
+  const oaiPhaseFiltered = oaiPhaseApplication.phaseFiltered;
+  effectiveTools = oaiPhaseApplication.effectiveTools;
+  let effectiveToolChoice = oaiPhaseApplication.effectiveToolChoice;
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const oaiForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
     enabled: oaiPhasePolicy.active,
@@ -10161,131 +10055,33 @@ app.post("/v1/messages", async (req, reply) => {
         },
       }
     : adapterClaudeProviderOptions;
-  const claudeBasePhasePolicyEnabled = config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && claudePhasePolicyEnabledByMatrix;
-  const claudeForcePhasePolicy =
-    !claudeBasePhasePolicyEnabled
-    && claudePhasePolicyEnabledByMatrix
-    && claudeAdapter.family === "qwen3-coder"
-    && (
-      session.editMissForceReadPending
-      || claudeEditMissGuard?.active === true
-      || claudeExecutionGovernor.matchedRules.some((rule) => QWEN_FORCED_PHASE_POLICY_RULES.has(rule))
-    );
-  const claudeForceStateRegroundPolicy = claudeNeedsStateReground;
-  const claudePhasePolicy = derivePhaseExecutionPolicy({
-    enabled: claudeBasePhasePolicyEnabled || claudeForcePhasePolicy || claudeForceStateRegroundPolicy,
+  const claudePhaseApplication = applyRoutePhasePolicy({
     adapterFamily: claudeAdapter.family,
+    basePolicyEnabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && claudePhasePolicyEnabledByMatrix,
+    policyEnabledByMatrix: claudePhasePolicyEnabledByMatrix,
     enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
     phase: claudeGovernorPhase,
     matchedRules: claudeExecutionGovernor.matchedRules,
     stream: !!body.stream,
-    editContextMissActive: claudeEditMissGuard?.active === true || session.editMissForceReadPending,
+    effectiveTools: effectiveClaudeTools,
+    clientToolChoice: clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
+    editMissGuard: claudeEditMissGuard,
+    editMissForceReadPending: session.editMissForceReadPending,
+    forceReadRecovery: claudeForceReadRecovery,
+    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
     stateRegroundRequired: claudeNeedsStateReground,
     stateRegroundReadPath: claudeStateConfidence.recommendedReadPath,
+    clientToolInventory: claudeClientToolInventory,
+    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId, metadataJson),
+    applyEditContextMissReadGate,
+    findPreferredReadToolName,
+    ensureReadToolAvailability: ensureReadToolAvailabilityForEditMissGuard,
   });
-  if ((claudeForcePhasePolicy || claudeForceStateRegroundPolicy) && claudePhasePolicy.active) {
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "phase_execution_policy_forced",
-      "execution-governor",
-      `Forced phase policy phase=${claudeGovernorPhase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "none"} reground=${claudeNeedsStateReground}`,
-      traceReqId,
-      {
-        phase: claudeGovernorPhase,
-        matched_rules: claudeExecutionGovernor.matchedRules,
-        state_confidence_reground: claudeNeedsStateReground,
-      },
-    );
-  }
-  const claudePhaseFiltered = filterToolsByPhasePolicy(effectiveClaudeTools as unknown[], claudePhasePolicy);
-  effectiveClaudeTools = claudePhaseFiltered.tools;
-  let effectiveClaudeToolChoice = resolvePhaseToolChoice(
-    clientClaudeToolChoice as PhaseAwareToolChoice | undefined,
-    claudePhasePolicy,
-  );
-  if (claudeEditMissGuard?.active || claudeForceReadRecovery) {
-    const guardFilePath = claudeEditMissGuard?.filePath ?? "";
-    const guardMissCount = claudeEditMissGuard?.missCount ?? session.consecutiveEditContextMisses;
-    // Guard fires regardless of phase policy. When both fire together (source_file_stale_reread
-    // forces write-only tools AND the model has stale anchors), we added Read back to the
-    // phase policy's allowed list via editContextMissActive above. In standalone mode (no phase
-    // policy), keep only Read-capable tools and force Read so verification/search churn cannot
-    // continue while anchors are stale. In both modes, force tool_choice=Read to break the loop.
-    const guardMode = claudeForceReadRecovery
-      ? "forced_read_recovery"
-      : (claudePhasePolicy.active ? "alongside_phase_policy" : "standalone");
-    const gated = guardMode === "standalone" || guardMode === "forced_read_recovery"
-      ? applyEditContextMissReadGate(effectiveClaudeTools as unknown[])
-      : { tools: effectiveClaudeTools as unknown[], removed: [] as string[], forcedReadToolName: findPreferredReadToolName(effectiveClaudeTools as unknown[]) };
-    if (guardMode === "standalone" || guardMode === "forced_read_recovery") {
-      effectiveClaudeTools = gated.tools ?? effectiveClaudeTools;
-    }
-    let forcedReadToolName = gated.forcedReadToolName;
-    const ensuredRead = ensureReadToolAvailabilityForEditMissGuard(
-      effectiveClaudeTools as unknown[] | undefined,
-      claudeClientToolInventory,
-    );
-    effectiveClaudeTools = ensuredRead.tools ?? effectiveClaudeTools;
-    if (!forcedReadToolName && ensuredRead.readToolName) {
-      forcedReadToolName = ensuredRead.readToolName;
-    }
-    if (ensuredRead.rehydrated) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "edit_context_miss_guard_rehydrated_read",
-        "execution-governor",
-        `Reintroduced read tool for edit-context recovery file=${guardFilePath || "<unknown>"}`,
-        traceReqId,
-        {
-          filePath: guardFilePath || null,
-          read_tool: ensuredRead.readToolName ?? null,
-        },
-      );
-    }
-    if (!ensuredRead.available) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "edit_context_miss_guard_read_missing",
-        "execution-governor",
-        `Invariant violation: no read-capable tool available while edit-context guard is active for ${guardFilePath || "<unknown>"}`,
-        traceReqId,
-        {
-          filePath: guardFilePath || null,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          phase: claudeGovernorPhase,
-        },
-      );
-    }
-    if (gated.removed.length > 0 || forcedReadToolName || ensuredRead.rehydrated || !ensuredRead.available) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "edit_context_miss_guard_enforced",
-        "execution-governor",
-        `mode=${guardMode} removed_tools=${gated.removed.length} file=${guardFilePath || "<unknown>"}`,
-        traceReqId,
-        {
-          filePath: guardFilePath || null,
-          missCount: guardMissCount,
-          removed_tools: gated.removed,
-          forced_read_tool: forcedReadToolName ?? null,
-          guard_mode: guardMode,
-          read_rehydrated: ensuredRead.rehydrated,
-          read_available: ensuredRead.available,
-        },
-      );
-    }
-    if (forcedReadToolName) {
-      effectiveClaudeToolChoice = { type: "tool", toolName: forcedReadToolName };
-    }
-  }
+  const claudePhasePolicy = claudePhaseApplication.phasePolicy;
+  const claudePhaseFiltered = claudePhaseApplication.phaseFiltered;
+  effectiveClaudeTools = claudePhaseApplication.effectiveTools;
+  let effectiveClaudeToolChoice = claudePhaseApplication.effectiveToolChoice;
   const claudeThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
     providerOptions as Record<string, Record<string, unknown>> | undefined,
     effectiveClaudeToolChoice as PhaseAwareToolChoice | undefined,
