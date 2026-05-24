@@ -209,7 +209,7 @@ import {
 import { toSessionExecutionContextSystemBlock } from "./adapters/session-execution-context.js";
 import { inferModelFamily } from "./prompt/infer-model-family.js";
 import { StablePrefixService } from "./context/stable-prefix.js";
-import { computePrefixFingerprint, annotateCacheBreakpoints } from "./context/provider-cache-hints.js";
+import { computePrefixFingerprint } from "./context/provider-cache-hints.js";
 import { AttentionPositioningService } from "./context/attention-positioning.js";
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
@@ -309,11 +309,8 @@ import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
-import { prepareOpenAIStreamMessages } from "./streaming/openai-stream-message-preflight.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
-import { createOpenAIStreamProviderRequestOptions } from "./streaming/openai-stream-provider-request.js";
 import {
-  createOpenAIStreamAbortRuntime,
   startOpenAIStreamSseRuntime,
 } from "./streaming/openai-stream-runtime.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
@@ -350,6 +347,7 @@ import {
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
+import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
@@ -10081,59 +10079,38 @@ app.post("/v1/chat/completions", async (req, reply) => {
     maybeLogEnvelopeUnwrapSample,
     recordUpperHarnessDecision,
   });
-  const openAiStreamForensics = captureStreamRequestForensics({
+  const oaiStreamInvocation = invokeOpenAIStreamProvider({
     scope: oaiStreamScope,
     path: "/v1/chat/completions (stream)",
     resolvedModelId: resolved.resolvedModelId,
-    messages: modelMessages as Array<{ role: string; content: unknown }>,
-    tools: effectiveTools as unknown[],
+    providerModel: resolved.model,
+    messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+    effectiveTools: effectiveTools as unknown[],
+    sdkTools,
     toolChoice: effectiveToolChoice,
     providerOptions: oaiProviderOptions,
-    phasePolicy: oaiForensicsPhasePolicy,
-    capabilityMatrix: oaiForensicsCapabilityMatrix,
-    capture: captureRequestForensics,
-  });
-  const oaiAdapterCacheBackend = adapter.cacheMarkerBackend?.() ?? "none";
-  if (oaiAdapterCacheBackend === "anthropic") {
-    const oaiCacheHints = annotateCacheBreakpoints(
-      modelMessages as Array<{ role: string; content: unknown }>,
-      "anthropic_explicit",
-    );
-    modelMessages = oaiCacheHints.messages as typeof modelMessages;
-  }
-
-  const oaiStreamAbortRuntime = createOpenAIStreamAbortRuntime({
-    requestId: reqId,
-    model: resolved.resolvedModelId,
-    startedAtMs: started,
-    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-    hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-    recordSessionEvent: recordOpenAIStreamEvent,
-  });
-  modelMessages = prepareOpenAIStreamMessages({
-    requestId: reqId,
-    messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
-    adapterFamily: adapter.family,
-    debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    output: oaiStructuredOutput,
     samplingOptions: oaiSamplingOptions,
-    logger: app.log,
-    recordSessionEvent: recordOpenAIStreamEvent,
-  }) as typeof modelMessages;
-  const oaiStreamProviderRequestOptions = createOpenAIStreamProviderRequestOptions({
-    model: resolved.model,
-    messages: modelMessages,
-    abortSignal: oaiStreamAbortRuntime.abortController.signal,
     orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
     requestMaxTokens: request.max_tokens,
     requestMaxCompletionTokens: request.max_completion_tokens,
-    output: oaiStructuredOutput,
-    samplingOptions: oaiSamplingOptions,
-    tools: sdkTools,
-    toolChoice: effectiveToolChoice,
-    providerOptions: oaiProviderOptions,
+    adapter,
+    debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+    startedAtMs: started,
+    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+    hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+    phasePolicy: oaiForensicsPhasePolicy,
+    capabilityMatrix: oaiForensicsCapabilityMatrix,
+    logger: app.log,
+    recordSessionEvent: recordOpenAIStreamEvent,
     clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+    captureForensics: captureRequestForensics,
+    streamText: (options) => streamText(options as never),
   });
-  const streamed = streamText(oaiStreamProviderRequestOptions as never);
+  const openAiStreamForensics = oaiStreamInvocation.requestForensics;
+  const oaiStreamAbortRuntime = oaiStreamInvocation.abortRuntime;
+  modelMessages = oaiStreamInvocation.messages as typeof modelMessages;
+  const streamed = oaiStreamInvocation.streamed;
   const oaiHeartbeat = startOpenAIStreamSseRuntime({
     raw: reply.raw,
     headers: sseHeadersWithClarification(session.record.metadata),
