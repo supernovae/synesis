@@ -281,15 +281,8 @@ import {
 } from "./sensemaking/index.js";
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
-import {
-  openAIDoneLine,
-  openAIFinalChunk,
-  openAIReasoningDeltaChunk,
-  openAITextDeltaChunk,
-  openAIToolCallDeltaChunk,
-  type OpenAIChunkBase,
-} from "./streaming/openai-sse-writer.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import {
   classifyAiSdkStreamPart,
@@ -10236,22 +10229,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiPrefixFingerprint = computePrefixFingerprint(
     modelMessages as Array<{ role: string; content: unknown }>,
   );
-  const openAiChunkBase = (created = Math.floor(Date.now() / 1000)): OpenAIChunkBase => ({
-    id: reqId,
-    created,
+  const openAiStreamWriter = new OpenAIStreamResponseWriter({
+    raw: reply.raw,
+    requestId: reqId,
     model: resolved.resolvedModelId,
+    write: safeWrite,
   });
-
-  const flushOpenAIText = (text: string): void => {
-    if (!text) return;
-    safeWrite(reply.raw, openAITextDeltaChunk(openAiChunkBase(), text));
-  };
-
-  /** OpenAI-compatible extension (DeepSeek, OpenRouter, many proxies): stream model reasoning separate from `content`. */
-  const flushOpenAIReasoningDelta = (text: string): void => {
-    if (!text) return;
-    safeWrite(reply.raw, openAIReasoningDeltaChunk(openAiChunkBase(), text));
-  };
   const scrubAndFlushOpenAIText = (text: string): void => {
     const scrubbed = scrubTaskLedgerOutput(text);
     if (scrubbed.scrubbed) {
@@ -10265,7 +10248,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         reqId,
       );
     }
-    flushOpenAIText(scrubbed.text);
+    openAiStreamWriter.writeTextDelta(scrubbed.text);
   };
   const oaiStreamOfferedToolSet = buildOfferedToolNameSet(effectiveTools as unknown[]);
   const oaiStreamOfferedToolNames = listOfferedToolNames(effectiveTools as unknown[]);
@@ -10279,11 +10262,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         oaiStreamState.appendTextDelta(event.text);
       } else if (event.type === "reasoning_start") {
         if (event.text) {
-          flushOpenAIReasoningDelta(event.text);
+          openAiStreamWriter.writeReasoningDelta(event.text);
         }
       } else if (event.type === "reasoning_delta") {
         if (event.text) {
-          flushOpenAIReasoningDelta(event.text);
+          openAiStreamWriter.writeReasoningDelta(event.text);
         }
       } else if (event.type === "reasoning_end") {
         /* boundary only; OpenAI format has no per-block stop for reasoning */
@@ -10419,7 +10402,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
               oaiStreamBlockedDetails.push(...streamGuarded.blockedDetails);
               oaiStreamRecoveryPreviewEntries += recovery.entryCount;
               oaiStreamRecoveryMode = recovery.recoveryMode;
-              flushOpenAIText(`\n${recovery.text}\n`);
+              openAiStreamWriter.writeTextDelta(`\n${recovery.text}\n`);
             }
             continue;
           }
@@ -10433,18 +10416,18 @@ app.post("/v1/chat/completions", async (req, reply) => {
           const existing = oaiStreamState.findToolCall(event.toolCallId);
           if (existing) {
             existing.name = clientCandidateCall.toolName;
-            safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
+            openAiStreamWriter.writeToolCallDelta({
               index: existing.index,
               function: { arguments: argsStr },
-            }));
+            }, ts);
             oaiStreamEmittedToolCalls += 1;
           } else {
-            safeWrite(reply.raw, openAIToolCallDeltaChunk(openAiChunkBase(ts), {
+            openAiStreamWriter.writeToolCallDelta({
               index: oaiStreamState.nextToolCallIndex(),
               id: event.toolCallId,
               type: "function",
               function: { name: clientCandidateCall.toolName, arguments: argsStr },
-            }));
+            }, ts);
             oaiStreamEmittedToolCalls += 1;
           }
         }
@@ -10563,7 +10546,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         ? "\n\n[Stream timed out before completion — retrying with a smaller scope may help]"
         : "\n\n[Upstream provider error — retrying may help]";
     oaiStreamState.markError();
-    safeWrite(reply.raw, openAITextDeltaChunk(openAiChunkBase(), errorHint));
+    openAiStreamWriter.writeTextDelta(errorHint);
   }
   clearTimeout(oaiStreamHardTimeout);
 
@@ -10627,12 +10610,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   let streamedText = "";
   try { oaiStreamUsage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
   try { streamedText = await streamed.text; } catch { /* stream aborted */ }
-  safeWrite(reply.raw, openAIFinalChunk(
-    openAiChunkBase(),
+  openAiStreamWriter.writeFinalChunk(
     finishReason,
     shouldIncludeStreamUsage(request.stream_options) ? toOpenAiUsage(oaiStreamUsage) : undefined,
-  ));
-  safeWrite(reply.raw, openAIDoneLine());
+  );
+  openAiStreamWriter.writeDoneLine();
   safeEnd(reply.raw);
   oaiHeartbeat.stop();
   if (streamedText) {
