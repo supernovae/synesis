@@ -304,6 +304,7 @@ import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-
 import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime.js";
 import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
+import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamRouteEventRecorder } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
@@ -10121,6 +10122,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
     requestId: reqId,
   };
   const recordOpenAIStreamEvent = createStreamRouteEventRecorder(oaiStreamScope, recordSessionEvent);
+  const oaiStreamToolSideEffects = createRouteToolCallSideEffects({
+    session,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    requestId: reqId,
+    clientKind: oaiClientKind,
+    upperHarnessComponent: "upper-harness:openai-stream",
+    logger: app.log as never,
+    strictGovernanceStats: openClawProfileStats,
+    updateDiffAccumulator,
+    maybeUpdateTaskLedgerFromToolCall,
+    emitPlanWriteAuditEvent,
+    maybeLogEnvelopeUnwrapSample,
+    recordUpperHarnessDecision,
+  });
   const openAiStreamForensics = captureRequestForensics(
     sessionKey,
     reqId,
@@ -10267,22 +10284,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
       buildPathSandboxPolicy: buildDefaultPolicy,
-      updateDiffAccumulator: (governed) => updateDiffAccumulator(session, governed),
-      maybeUpdateTaskLedgerFromToolCall: (toolName, input, requestCount) => {
-        maybeUpdateTaskLedgerFromToolCall(session, toolName, input, requestCount);
-      },
-      emitPlanWriteAuditEvent: (audit) => {
-        emitPlanWriteAuditEvent(sessionKey, identity.userId, identity.orgId, reqId, audit);
-      },
-      maybeLogEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
-        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, toolName, oaiClientKind, governed, toolCallId);
-      },
-      recordUpperHarnessDecision: (decision) => {
-        recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, "upper-harness:openai-stream", decision);
-      },
-      incrementStrictGovernanceRewrites: (count) => {
-        openClawProfileStats.strictGovernanceRewrites += count;
-      },
+      ...oaiStreamToolSideEffects,
       recordRedirectedDiscovery: (count) => {
         recordBlockedDiscovery(sessionKey, count);
       },
@@ -13200,6 +13202,22 @@ app.post("/v1/messages", async (req, reply) => {
       requestId: reqId,
     };
     const recordClaudeStreamEvent = createStreamRouteEventRecorder(claudeStreamScope, recordSessionEvent);
+    const claudeStreamToolSideEffects = createRouteToolCallSideEffects({
+      session,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: traceReqId,
+      clientKind: claudeClientKind,
+      upperHarnessComponent: "upper-harness:claude-stream",
+      logger: app.log as never,
+      strictGovernanceStats: openClawProfileStats,
+      updateDiffAccumulator,
+      maybeUpdateTaskLedgerFromToolCall,
+      emitPlanWriteAuditEvent,
+      maybeLogEnvelopeUnwrapSample,
+      recordUpperHarnessDecision,
+    });
     const claudeStreamHardTimeout = setTimeout(() => {
       recordClaudeStreamEvent({
         eventKind: "stream_hard_timeout",
@@ -13312,22 +13330,7 @@ app.post("/v1/messages", async (req, reply) => {
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
       buildPathSandboxPolicy: buildDefaultPolicy,
-      updateDiffAccumulator: (governed) => updateDiffAccumulator(session, governed),
-      maybeUpdateTaskLedgerFromToolCall: (toolName, input, requestCount) => {
-        maybeUpdateTaskLedgerFromToolCall(session, toolName, input, requestCount);
-      },
-      emitPlanWriteAuditEvent: (audit) => {
-        emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, audit);
-      },
-      maybeLogEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
-        maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, toolName, claudeClientKind, governed, toolCallId);
-      },
-      recordUpperHarnessDecision: (decision) => {
-        recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", decision);
-      },
-      incrementStrictGovernanceRewrites: (count) => {
-        openClawProfileStats.strictGovernanceRewrites += count;
-      },
+      ...claudeStreamToolSideEffects,
       recordRedirectedDiscovery: (count) => {
         recordBlockedDiscovery(claudeSessionKey, count);
       },
@@ -13479,6 +13482,22 @@ app.post("/v1/messages", async (req, reply) => {
     recordSessionEvent,
     persistDecisionTelemetry: persistAndEmitDecisionTelemetry,
   });
+  const claudeNonStreamToolSideEffects = createRouteToolCallSideEffects({
+    session,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    requestId: reqId,
+    clientKind: claudeClientKind,
+    upperHarnessComponent: "upper-harness:claude",
+    logger: app.log as never,
+    strictGovernanceStats: openClawProfileStats,
+    updateDiffAccumulator,
+    maybeUpdateTaskLedgerFromToolCall,
+    emitPlanWriteAuditEvent,
+    maybeLogEnvelopeUnwrapSample,
+    recordUpperHarnessDecision,
+  });
   let result: Awaited<ReturnType<typeof generateText>>;
   let claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[];
   let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
@@ -13598,22 +13617,7 @@ app.post("/v1/messages", async (req, reply) => {
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
       buildPathSandboxPolicy: buildDefaultPolicy,
-      updateDiffAccumulator: (governed) => updateDiffAccumulator(session, governed),
-      maybeUpdateTaskLedgerFromToolCall: (toolName, input, requestCount) => {
-        maybeUpdateTaskLedgerFromToolCall(session, toolName, input, requestCount);
-      },
-      emitPlanWriteAuditEvent: (audit) => {
-        emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, audit);
-      },
-      maybeLogEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
-        maybeLogEnvelopeUnwrapSample(app.log as never, reqId, toolName, claudeClientKind, governed, toolCallId);
-      },
-      recordUpperHarnessDecision: (decision) => {
-        recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, reqId, "upper-harness:claude", decision);
-      },
-      incrementStrictGovernanceRewrites: (count) => {
-        openClawProfileStats.strictGovernanceRewrites += count;
-      },
+      ...claudeNonStreamToolSideEffects,
     },
     discoveryInput: {
       projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
