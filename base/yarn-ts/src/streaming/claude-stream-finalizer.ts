@@ -2,10 +2,13 @@ import {
   createEmptyLedger,
   extractTasksFromText,
   reconcileFromText,
+  scrubTaskLedgerOutput,
   type ClientTaskCapabilities,
   type TaskLedger,
 } from "../task-ledger/index.js";
-import type { OpenAIStreamFinalizerTextResult } from "./openai-stream-finalizer.js";
+import type { ClaudeStreamGateState } from "./claude-stream-components.js";
+import type { ClaudeStreamState } from "./claude-stream-state.js";
+import type { OpenAIStreamFinalizerTextResult, StreamTokenUsage } from "./openai-stream-finalizer.js";
 
 export interface ClaudeStreamFinalizerSession {
   history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
@@ -73,6 +76,32 @@ export interface ClaudeStreamFinalizationHandlerInput<TChecklist, TVerification,
   }): OpenAIStreamFinalizerTextResult;
 }
 
+export interface ClaudeStreamCompletionFinalizerInput<TForensics> {
+  streamState: ClaudeStreamState;
+  gate: ClaudeStreamGateState;
+  stopReason: string;
+  streamed: {
+    totalUsage: PromiseLike<unknown>;
+    text: PromiseLike<string>;
+  };
+  readUsage(input: unknown): StreamTokenUsage;
+  finalizeRequestForensics(usage: StreamTokenUsage): TForensics;
+  handlers: ClaudeStreamFinalizationHandlers;
+  writeFinalText(text: string): void;
+  closeTextBlock(): void;
+  writeMessageDelta(usage: StreamTokenUsage): void;
+  endStream(): void;
+  stopHeartbeat(): void;
+  onHistoryText(text: string): void;
+  onHistoryTextScrubbed(): void;
+}
+
+export interface ClaudeStreamCompletionFinalizerResult<TForensics> {
+  usage: StreamTokenUsage;
+  requestForensicsDone: TForensics;
+  streamedText: string;
+}
+
 export function createClaudeStreamFinalizationHandlers<TChecklist, TVerification, TPlanGraph>(
   input: ClaudeStreamFinalizationHandlerInput<TChecklist, TVerification, TPlanGraph>,
 ): ClaudeStreamFinalizationHandlers {
@@ -117,6 +146,72 @@ export function createClaudeStreamFinalizationHandlers<TChecklist, TVerification
       nonActionableEventDetail: "claude streamed text was non-actionable; emitted deterministic fallback",
       planGraph: input.planGraph,
     }),
+  };
+}
+
+const ZERO_USAGE: StreamTokenUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cachedTokens: 0,
+  cacheCreationTokens: 0,
+  costUsd: 0,
+};
+
+export async function finalizeClaudeStreamCompletion<TForensics>(
+  input: ClaudeStreamCompletionFinalizerInput<TForensics>,
+): Promise<ClaudeStreamCompletionFinalizerResult<TForensics>> {
+  if (input.stopReason !== "tool_use" && input.streamState.hasPendingText()) {
+    const rawText = input.streamState.drainText();
+    const finalized = await input.handlers.finalizePendingText(rawText);
+    input.gate.applied = Boolean(finalized.applied);
+    input.gate.missingMust = finalized.missingMust;
+    input.gate.missingShould = finalized.missingShould;
+    input.gate.blockedVerification = finalized.blockedByVerification;
+    input.gate.criticBlocked = Boolean(finalized.criticBlocked);
+    input.writeFinalText(finalized.finalText);
+  }
+
+  input.closeTextBlock();
+
+  let usage = ZERO_USAGE;
+  try {
+    usage = input.readUsage(await input.streamed.totalUsage);
+  } catch {
+    /* stream aborted */
+  }
+  const requestForensicsDone = input.finalizeRequestForensics(usage);
+  input.writeMessageDelta(usage);
+  input.endStream();
+  input.stopHeartbeat();
+
+  let streamedText = "";
+  try {
+    streamedText = await input.streamed.text;
+  } catch {
+    /* stream aborted */
+  }
+  if (streamedText) {
+    const finalized = input.handlers.finalizeHistoryText(
+      streamedText,
+      input.stopReason,
+      input.gate.applied,
+    );
+    streamedText = finalized.finalText;
+    const scrubbed = scrubTaskLedgerOutput(streamedText);
+    if (scrubbed.scrubbed) {
+      streamedText = scrubbed.text;
+      input.onHistoryTextScrubbed();
+    }
+    input.gate.missingMust = finalized.missingMust;
+    input.gate.missingShould = finalized.missingShould;
+    input.gate.blockedVerification = finalized.blockedByVerification;
+    input.onHistoryText(streamedText);
+  }
+
+  return {
+    usage,
+    requestForensicsDone,
+    streamedText,
   };
 }
 

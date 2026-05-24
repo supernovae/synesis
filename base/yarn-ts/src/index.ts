@@ -283,7 +283,10 @@ import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { runClaudeStreamAfterEvents } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
 import { handleClaudeStreamLocalEvent } from "./streaming/claude-stream-event-handlers.js";
-import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-stream-finalizer.js";
+import {
+  createClaudeStreamFinalizationHandlers,
+  finalizeClaudeStreamCompletion,
+} from "./streaming/claude-stream-finalizer.js";
 import {
   finalizeClaudeStreamLifecycle,
   handleClaudeStreamEventError,
@@ -13518,43 +13521,33 @@ app.post("/v1/messages", async (req, reply) => {
     });
     const stopReason = claudeStreamingPipeline.stopReason;
 
-    if (stopReason !== "tool_use" && claudeStreamState.hasPendingText()) {
-      const rawText = claudeStreamState.drainText();
-      const finalized = await claudeStreamFinalization.finalizePendingText(rawText);
-      claudeStreamGate.applied = Boolean(finalized.applied);
-      claudeStreamGate.missingMust = finalized.missingMust;
-      claudeStreamGate.missingShould = finalized.missingShould;
-      claudeStreamGate.blockedVerification = finalized.blockedByVerification;
-      claudeStreamGate.criticBlocked = Boolean(finalized.criticBlocked);
-      scrubAndFlushClaudeTextBlock(finalized.finalText);
-    }
-
-    closeClaudeStreamingTextBlock();
-
-    let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-    try { usage = readUsage(await streamed.totalUsage as unknown); } catch { /* stream aborted */ }
-    const claudeStreamForensicsDone = finalizeRequestForensics(session, reqId, claudeStreamForensics, usage);
-    safeSse(reply, "message_delta", {
-      type: "message_delta",
-      delta: { stop_reason: stopReason },
-      usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }
-    });
-    safeSse(reply, "message_stop", { type: "message_stop" });
-    safeEnd(reply.raw);
-    claudeHeartbeat.stop();
-
-    let claudeStreamedText = "";
-    try { claudeStreamedText = await streamed.text; } catch { /* stream aborted */ }
-    if (claudeStreamedText) {
-      const finalized = claudeStreamFinalization.finalizeHistoryText(
-        claudeStreamedText,
-        stopReason,
-        claudeStreamGate.applied,
-      );
-      claudeStreamedText = finalized.finalText;
-      const scrubbedClaudeStreamedText = scrubTaskLedgerOutput(claudeStreamedText);
-      if (scrubbedClaudeStreamedText.scrubbed) {
-        claudeStreamedText = scrubbedClaudeStreamedText.text;
+    const claudeStreamFinalized = await finalizeClaudeStreamCompletion({
+      streamState: claudeStreamState,
+      gate: claudeStreamGate,
+      stopReason,
+      streamed: {
+        totalUsage: streamed.totalUsage as PromiseLike<unknown>,
+        text: streamed.text,
+      },
+      readUsage,
+      finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
+      handlers: claudeStreamFinalization,
+      writeFinalText: scrubAndFlushClaudeTextBlock,
+      closeTextBlock: closeClaudeStreamingTextBlock,
+      writeMessageDelta: (usage) => {
+        safeSse(reply, "message_delta", {
+          type: "message_delta",
+          delta: { stop_reason: stopReason },
+          usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }
+        });
+        safeSse(reply, "message_stop", { type: "message_stop" });
+      },
+      endStream: () => safeEnd(reply.raw),
+      stopHeartbeat: () => claudeHeartbeat.stop(),
+      onHistoryText: (text) => {
+        session.history.push({ role: "assistant", content: text });
+      },
+      onHistoryTextScrubbed: () => {
         recordSessionEvent(
           claudeSessionKey,
           claudeIdentity.userId,
@@ -13564,12 +13557,8 @@ app.post("/v1/messages", async (req, reply) => {
           "Removed internal task-ledger governance from streamed Claude history",
           reqId,
         );
-      }
-      claudeStreamGate.missingMust = finalized.missingMust;
-      claudeStreamGate.missingShould = finalized.missingShould;
-      claudeStreamGate.blockedVerification = finalized.blockedByVerification;
-      session.history.push({ role: "assistant", content: claudeStreamedText });
-    }
+      },
+    });
     runClaudeStreamTelemetry({
       requestId: reqId,
       sessionKey: claudeSessionKey,
@@ -13579,7 +13568,7 @@ app.post("/v1/messages", async (req, reply) => {
       finishReason: stopReason,
       resolvedModelId: resolved.resolvedModelId,
       clientRequestedModel: body.model,
-      usage,
+      usage: claudeStreamFinalized.usage,
       reductions: {
         toolResultReduction,
         validationNormalization,
@@ -13612,7 +13601,7 @@ app.post("/v1/messages", async (req, reply) => {
       requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
       requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
       contextAdmission: claudeContextAdmission,
-      requestForensicsDone: claudeStreamForensicsDone,
+      requestForensicsDone: claudeStreamFinalized.requestForensicsDone,
       cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
       prefixFingerprint: claudePrefixFingerprint,
       recordSessionEvent: (event) => recordSessionEvent(
