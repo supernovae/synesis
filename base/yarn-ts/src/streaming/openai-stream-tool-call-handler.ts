@@ -45,6 +45,44 @@ export interface OpenAIStreamToolCallHandlerResult {
   recoveryMode: OpenAIStreamToolCallRecovery["recoveryMode"] | null;
 }
 
+export interface OpenAIStreamToolCallAccumulator {
+  emittedToolCalls: number;
+  toolRepairs: number;
+  validationFailures: number;
+  strictGovernanceRewrites: number;
+  blockedBroadDiscovery: number;
+  collapsedBroadDiscovery: number;
+  recoveryPreviewEntries: number;
+  recoveryMode: OpenAIStreamToolCallRecovery["recoveryMode"] | null;
+}
+
+export function createOpenAIStreamToolCallAccumulator(): OpenAIStreamToolCallAccumulator {
+  return {
+    emittedToolCalls: 0,
+    toolRepairs: 0,
+    validationFailures: 0,
+    strictGovernanceRewrites: 0,
+    blockedBroadDiscovery: 0,
+    collapsedBroadDiscovery: 0,
+    recoveryPreviewEntries: 0,
+    recoveryMode: null,
+  };
+}
+
+export function applyOpenAIStreamToolCallResult(
+  accumulator: OpenAIStreamToolCallAccumulator,
+  result: OpenAIStreamToolCallHandlerResult,
+): void {
+  accumulator.emittedToolCalls += result.emittedToolCalls;
+  accumulator.toolRepairs += result.toolRepairs;
+  accumulator.validationFailures += result.validationFailures;
+  accumulator.strictGovernanceRewrites += result.strictGovernanceRewrites;
+  accumulator.blockedBroadDiscovery += result.blockedBroadDiscovery;
+  accumulator.collapsedBroadDiscovery += result.collapsedBroadDiscovery;
+  accumulator.recoveryPreviewEntries += result.recoveryPreviewEntries;
+  accumulator.recoveryMode = result.recoveryMode ?? accumulator.recoveryMode;
+}
+
 export interface OpenAIStreamToolCallHandlerInput {
   event: OpenAIStreamToolCallEvent;
   streamState: OpenAIStreamState;
