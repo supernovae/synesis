@@ -305,7 +305,6 @@ import {
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
-import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
 import {
   createOpenAIStreamingPipelineInput,
   runOpenAIStreamingPipeline,
@@ -340,6 +339,7 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
+import { createOpenAIStreamRouteEventPipelineHandlers } from "./pipeline/openai-stream-route-events.js";
 import { createOpenAIStreamRouteFinalizerInput } from "./pipeline/openai-stream-route-finalizer.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
@@ -10058,22 +10058,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const started = oaiStreamStart.startedAtMs;
   const oaiStreamScope = oaiStreamStart.scope;
   const recordOpenAIStreamEvent = oaiStreamStart.recordEvent;
-  const oaiStreamToolSideEffects = createRouteToolCallSideEffects({
-    session,
-    sessionKey,
-    userId: identity.userId,
-    orgId: identity.orgId,
-    requestId: reqId,
-    clientKind: oaiClientKind,
-    upperHarnessComponent: "upper-harness:openai-stream",
-    logger: app.log as never,
-    strictGovernanceStats: openClawProfileStats,
-    updateDiffAccumulator,
-    maybeUpdateTaskLedgerFromToolCall,
-    emitPlanWriteAuditEvent,
-    maybeLogEnvelopeUnwrapSample,
-    recordUpperHarnessDecision,
-  });
   const oaiStreamInvocation = invokeOpenAIStreamProvider({
     scope: oaiStreamScope,
     path: "/v1/chat/completions (stream)",
@@ -10139,11 +10123,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
     streamState: oaiStreamComponents.streamState,
-    eventHandlers: createOpenAIStreamRouteEventHandlers({
+    eventHandlers: createOpenAIStreamRouteEventPipelineHandlers({
+      scope: oaiStreamScope,
       streamState: oaiStreamComponents.streamState,
       writer: oaiStreamComponents.writer,
       adapter,
-      requestId: reqId,
       resolvedModelId: resolved.resolvedModelId,
       clientKind: oaiClientKind,
       effectiveTools: effectiveTools as unknown[],
@@ -10171,10 +10155,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
       buildPathSandboxPolicy: buildDefaultPolicy,
-      ...oaiStreamToolSideEffects,
-      recordRedirectedDiscovery: (count) => {
-        recordBlockedDiscovery(sessionKey, count);
+      sideEffects: {
+        updateDiffAccumulator,
+        maybeUpdateTaskLedgerFromToolCall,
+        emitPlanWriteAuditEvent,
+        maybeLogEnvelopeUnwrapSample,
+        recordUpperHarnessDecision,
       },
+      strictGovernanceStats: openClawProfileStats,
+      recordBlockedDiscovery,
       getTopLevelDirs: getCachedTopLevelDirs,
       applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
       buildBlockedDiscoveryRecovery: (blockedDetails) => buildBlockedDiscoveryRecoverySnapshot(
