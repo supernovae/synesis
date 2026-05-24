@@ -8,6 +8,7 @@ import type { SessionPhase } from "../governance/execution-governor.js";
 import { appendSystemMessageAndNormalize } from "../transcript/system-message-ordering.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { ClaudeNonStreamServerWebSearchEvent } from "./claude-nonstream-response.js";
+import type { ClaudeNonStreamRouteScope } from "./claude-nonstream-route-scope.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
 
 export interface ClaudeNonStreamProviderToolCall {
@@ -64,10 +65,112 @@ export interface ClaudeNonStreamProviderExecutorInput<
   ): ClaudeNonStreamServerWebSearchEvent;
 }
 
+export interface ClaudeNonStreamProviderForensicsContext<TMessage extends ClaudeNonStreamProviderMessage> {
+  sessionKey: string;
+  requestId: string;
+  path: string;
+  resolvedModelId: string;
+  stream: boolean;
+  messages: TMessage[];
+  tools?: unknown;
+  toolChoice: unknown;
+  providerOptions?: unknown;
+  phasePolicy?: RequestForensicsRecord["phasePolicy"];
+  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+}
+
+export interface ClaudeNonStreamProviderFinalizeForensicsContext {
+  sessionKey: string;
+  requestId: string;
+  resolvedModelId: string;
+}
+
+export interface ClaudeNonStreamProviderServerWebSearchContext {
+  requestId: string;
+  sessionKey: string;
+  conversationId?: string;
+  traceId: string;
+  sourceSurface: "yarn_chat" | "yarn_mcp_http";
+  toolName: string;
+}
+
+export interface ClaudeNonStreamProviderExecutorRouteInput<
+  TMessage extends ClaudeNonStreamProviderMessage,
+  TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics,
+> extends Omit<
+    ClaudeNonStreamProviderExecutorInput<TMessage, TResult>,
+    "captureForensics" | "finalizeForensics" | "recordSessionEvent" | "resolveServerWebSearch"
+  > {
+  scope: Pick<ClaudeNonStreamRouteScope, "sessionKey" | "requestId" | "recordEvent">;
+  forensics: {
+    path: string;
+    stream: boolean;
+    tools?: unknown;
+    phasePolicy?: RequestForensicsRecord["phasePolicy"];
+    capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+    capture(context: ClaudeNonStreamProviderForensicsContext<TMessage>): TForensics | null;
+    finalize(
+      forensics: TForensics | null,
+      usage: StreamTokenUsage,
+      context: ClaudeNonStreamProviderFinalizeForensicsContext,
+    ): RequestForensicsRecord | undefined;
+  };
+  serverWebSearch: {
+    conversationId?: string;
+    sourceSurface: "yarn_chat" | "yarn_mcp_http";
+    toolName: string;
+    resolve(input: Record<string, unknown>, context: ClaudeNonStreamProviderServerWebSearchContext): Promise<unknown>;
+  };
+}
+
 export interface ClaudeNonStreamProviderExecutorResult<TResult extends ClaudeNonStreamProviderResultLike> {
   result: TResult;
   serverWebSearchEvents: ClaudeNonStreamServerWebSearchEvent[];
   requestForensicsDone?: RequestForensicsRecord;
+}
+
+export function createClaudeNonStreamProviderExecutorInput<
+  TMessage extends ClaudeNonStreamProviderMessage,
+  TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics,
+>(
+  input: ClaudeNonStreamProviderExecutorRouteInput<TMessage, TResult, TForensics>,
+): ClaudeNonStreamProviderExecutorInput<TMessage, TResult> {
+  return {
+    ...input,
+    recordSessionEvent: input.scope.recordEvent,
+    captureForensics: (messages, toolChoice) => input.forensics.capture({
+      sessionKey: input.scope.sessionKey,
+      requestId: input.scope.requestId,
+      path: input.forensics.path,
+      resolvedModelId: input.resolvedModelId,
+      stream: input.forensics.stream,
+      messages,
+      tools: input.forensics.tools,
+      toolChoice,
+      providerOptions: input.providerOptions,
+      phasePolicy: input.forensics.phasePolicy,
+      capabilityMatrix: input.forensics.capabilityMatrix,
+    }),
+    finalizeForensics: (forensics, usage) => input.forensics.finalize(
+      forensics as TForensics | null,
+      usage,
+      {
+        sessionKey: input.scope.sessionKey,
+        requestId: input.scope.requestId,
+        resolvedModelId: input.resolvedModelId,
+      },
+    ),
+    resolveServerWebSearch: (serverInput) => input.serverWebSearch.resolve(serverInput, {
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      conversationId: input.serverWebSearch.conversationId,
+      traceId: input.scope.requestId,
+      sourceSurface: input.serverWebSearch.sourceSurface,
+      toolName: input.serverWebSearch.toolName,
+    }),
+  };
 }
 
 export async function executeClaudeNonStreamProviderLoop<

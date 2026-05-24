@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeClaudeNonStreamProviderLoop } from "../src/streaming/claude-nonstream-provider-executor.js";
+import {
+  createClaudeNonStreamProviderExecutorInput,
+  executeClaudeNonStreamProviderLoop,
+} from "../src/streaming/claude-nonstream-provider-executor.js";
 
 const usage = {
   inputTokens: 1,
@@ -141,5 +144,80 @@ describe("executeClaudeNonStreamProviderLoop", () => {
       toolUseId: "srvtoolu_srv_1",
       query: "cache",
     })]);
+  });
+});
+
+describe("createClaudeNonStreamProviderExecutorInput", () => {
+  it("binds route scope into forensics, events, and server web search", async () => {
+    const recordEvent = vi.fn();
+    const capture = vi.fn(() => ({ record: { requestId: "req_scope" }, serialized: "{}" }));
+    const finalize = vi.fn(() => ({ requestId: "req_scope" }));
+    const resolve = vi.fn(async () => ({ query: "cache", results: [] }));
+
+    const input = createClaudeNonStreamProviderExecutorInput({
+      initialMessages: [{ role: "user", content: "hello" }],
+      model: "model",
+      resolvedModelId: "claude-resolved",
+      orchestrationMaxOutputTokens: 100,
+      providerOptions: { anthropic: { cacheControl: true } },
+      phasePolicy: { active: false },
+      governorPhase: "explore",
+      nativeWebSearchRequested: true,
+      clampMaxOutputTokens: (tokens) => tokens,
+      generateText: vi.fn(),
+      readUsage: () => usage,
+      scope: {
+        sessionKey: "session_scope",
+        requestId: "req_scope",
+        recordEvent,
+      },
+      forensics: {
+        path: "/v1/messages",
+        stream: false,
+        tools: [{ name: "Read" }],
+        capture,
+        finalize,
+      },
+      isServerWebSearchTool: (toolName) => toolName === "web_search",
+      serverWebSearch: {
+        conversationId: "conversation_1",
+        sourceSurface: "yarn_chat",
+        toolName: "web_search",
+        resolve,
+      },
+      toServerWebSearchEvent: vi.fn(),
+    });
+
+    const forensics = input.captureForensics([{ role: "user", content: "hello" }], "auto");
+    const finalized = input.finalizeForensics(forensics, usage);
+    input.recordSessionEvent({ eventKind: "event", component: "component", detail: "detail" });
+    await input.resolveServerWebSearch({ query: "cache" });
+
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey: "session_scope",
+      requestId: "req_scope",
+      path: "/v1/messages",
+      resolvedModelId: "claude-resolved",
+      stream: false,
+      messages: [{ role: "user", content: "hello" }],
+      tools: [{ name: "Read" }],
+      toolChoice: "auto",
+      providerOptions: { anthropic: { cacheControl: true } },
+    }));
+    expect(finalize).toHaveBeenCalledWith(forensics, usage, {
+      sessionKey: "session_scope",
+      requestId: "req_scope",
+      resolvedModelId: "claude-resolved",
+    });
+    expect(finalized).toEqual({ requestId: "req_scope" });
+    expect(recordEvent).toHaveBeenCalledWith({ eventKind: "event", component: "component", detail: "detail" });
+    expect(resolve).toHaveBeenCalledWith({ query: "cache" }, {
+      requestId: "req_scope",
+      sessionKey: "session_scope",
+      conversationId: "conversation_1",
+      traceId: "req_scope",
+      sourceSurface: "yarn_chat",
+      toolName: "web_search",
+    });
   });
 });

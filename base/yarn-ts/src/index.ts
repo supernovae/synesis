@@ -285,7 +285,10 @@ import {
   createClaudeNonStreamPostProviderInput,
   processClaudeNonStreamProviderResult,
 } from "./streaming/claude-nonstream-postprocess.js";
-import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
+import {
+  createClaudeNonStreamProviderExecutorInput,
+  executeClaudeNonStreamProviderLoop,
+} from "./streaming/claude-nonstream-provider-executor.js";
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -13480,7 +13483,7 @@ app.post("/v1/messages", async (req, reply) => {
   let claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[];
   let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
   try {
-    const executed = await executeClaudeNonStreamProviderLoop({
+    const executed = await executeClaudeNonStreamProviderLoop(createClaudeNonStreamProviderExecutorInput({
       initialMessages: claudeModelMessages as Array<{ role: string; content?: unknown }>,
       model: resolved.model,
       resolvedModelId: resolved.resolvedModelId,
@@ -13497,40 +13500,45 @@ app.post("/v1/messages", async (req, reply) => {
       clampMaxOutputTokens: clampMaxOutputTokensForSafety,
       generateText: (options) => generateText(options as never),
       readUsage,
-      captureForensics: (messages, toolChoice) => captureRequestForensics(
-        claudeSessionKey,
-        reqId,
-        "/v1/messages",
-        resolved.resolvedModelId,
-        false,
-        messages as Array<{ role: string; content: unknown }>,
-        effectiveClaudeTools as unknown[],
-        toolChoice,
-        providerOptions,
-        claudeForensicsPhasePolicy,
-        claudeForensicsCapabilityMatrix,
-      ),
-      finalizeForensics: (forensics, forensicUsage) => finalizeRequestForensics(
-        session,
-        reqId,
-        forensics as { record: RequestForensicsRecord; serialized: string } | null,
-        forensicUsage,
-      ),
-      recordSessionEvent: claudeNonStreamScope.recordEvent,
+      scope: claudeNonStreamScope,
+      forensics: {
+        path: "/v1/messages",
+        stream: false,
+        tools: effectiveClaudeTools as unknown[],
+        phasePolicy: claudeForensicsPhasePolicy,
+        capabilityMatrix: claudeForensicsCapabilityMatrix,
+        capture: (context) => captureRequestForensics(
+          context.sessionKey,
+          context.requestId,
+          context.path,
+          context.resolvedModelId,
+          context.stream,
+          context.messages as Array<{ role: string; content: unknown }>,
+          context.tools as unknown[],
+          context.toolChoice,
+          context.providerOptions,
+          context.phasePolicy,
+          context.capabilityMatrix,
+        ),
+        finalize: (forensics, forensicUsage, context) => finalizeRequestForensics(
+          session,
+          context.requestId,
+          forensics as { record: RequestForensicsRecord; serialized: string } | null,
+          forensicUsage,
+        ),
+      },
       isServerWebSearchTool: isClaudeWebSearchToolName,
-      resolveServerWebSearch: (input) => webSearch.resolve(
-        input,
-        webSearchResolveContext(claudeAuthUser, req, {
-          requestId: reqId,
-          sessionKey: claudeSessionKey,
-          conversationId: session.record.conversationId || undefined,
-          traceId: reqId,
-          sourceSurface: "yarn_chat",
-          toolName: "web_search",
-        }),
-      ),
+      serverWebSearch: {
+        conversationId: session.record.conversationId || undefined,
+        sourceSurface: "yarn_chat",
+        toolName: "web_search",
+        resolve: (input, context) => webSearch.resolve(
+          input,
+          webSearchResolveContext(claudeAuthUser, req, context),
+        ),
+      },
       toServerWebSearchEvent: toClaudeServerWebSearchEvent,
-    });
+    }));
     result = executed.result as Awaited<ReturnType<typeof generateText>>;
     claudeServerWebSearchEvents = executed.serverWebSearchEvents;
     lastClaudeNonStreamForensics = executed.requestForensicsDone;
