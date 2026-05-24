@@ -67,6 +67,7 @@ import {
 } from "./session/protocol-session.js";
 import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
+import { createSessionEventRecorder } from "./state/session-event-recorder.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import {
@@ -2573,6 +2574,10 @@ const memoryStore = new MemoryStore(
 );
 initMemoryToolStore(memoryStore);
 const usageWriter = new UsageWriter(config);
+const recordSessionEvent = createSessionEventRecorder({
+  writer: usageWriter,
+  logger: app.log,
+});
 const usagePersistenceEnabled =
   config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
 if (!usagePersistenceEnabled) {
@@ -4973,29 +4978,6 @@ function logAndPersistSafetyEvent(
       consecutiveToolCalls: event.consecutiveToolCalls
     });
   }
-}
-
-function recordSessionEvent(
-  sessionKey: string,
-  userId: string,
-  orgId: string,
-  eventKind: string,
-  component: string,
-  detail: string,
-  requestId?: string,
-  meta?: Record<string, unknown>,
-): void {
-  app.log.warn({ sessionKey, requestId, component, eventKind, detail: detail.slice(0, 200) }, `session_event: ${eventKind}`);
-  usageWriter.enqueueSessionEvent({
-    sessionKey,
-    requestId,
-    userId,
-    orgId,
-    eventKind,
-    component,
-    detail,
-    metadataJson: meta,
-  });
 }
 
 function emitPlanWriteAuditEvent(
