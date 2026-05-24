@@ -331,7 +331,10 @@ import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
-import { createOpenAINonStreamProviderExecutorInput } from "./pipeline/openai-nonstream-provider-executor.js";
+import {
+  createOpenAINonStreamProviderExecutorInput,
+  createOpenAINonStreamServerSideToolResolvers,
+} from "./pipeline/openai-nonstream-provider-executor.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
@@ -9492,19 +9495,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
           ),
           finalize: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
         },
-        serverSideToolResolvers: {
+        serverSideToolResolvers: createOpenAINonStreamServerSideToolResolvers({
           artifactToolName: ARTIFACT_TOOL_NAME,
           knowledgeToolName: KNOWLEDGE_TOOL_NAME,
           devDocsToolName: DEV_DOCS_TOOL_NAME,
           webSearchToolName: WEB_SEARCH_TOOL_NAME,
           webSearchToolAlias: WEB_SEARCH_TOOL_ALIAS,
-          retrieveArtifact: async (input) => {
-            const result = await artifactRetrieval.retrieve(
-              typeof input.artifact_handle === "string" ? input.artifact_handle : "",
-              typeof input.query === "string" ? input.query : undefined,
-            );
-            return result.content;
-          },
+          retrieveArtifact: (handle, query) => artifactRetrieval.retrieve(handle, query),
           resolveKnowledge: (input) => knowledgeSearch.resolve(input, knowledgeResolveContext(authUser, req)),
           resolveDevDocs: (input) => knowledgeSearch.resolveDevDocs(input, knowledgeResolveContext(authUser, req)),
           resolveWebSearch: (input) => webSearch.resolve(
@@ -9518,7 +9515,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
               toolName: WEB_SEARCH_TOOL_NAME,
             }),
           ),
-        },
+        }),
       }),
       getTopLevelDirs: () => getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd),
       postprocessInput: createOpenAINonStreamPostProviderInput({

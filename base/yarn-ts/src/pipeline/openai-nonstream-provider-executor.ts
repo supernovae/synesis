@@ -112,6 +112,40 @@ export interface OpenAINonStreamProviderExecutorRouteInput<
   serverSideToolResolvers: ServerSideToolReplayResolvers;
 }
 
+export interface OpenAINonStreamServerSideToolResolverInput {
+  artifactToolName: string;
+  knowledgeToolName: string;
+  devDocsToolName: string;
+  webSearchToolName: string;
+  webSearchToolAlias: string;
+  retrieveArtifact(handle: string, query?: string): Promise<{ content: string }>;
+  resolveKnowledge(input: Record<string, unknown>): Promise<unknown>;
+  resolveDevDocs(input: Record<string, unknown>): Promise<unknown>;
+  resolveWebSearch(input: Record<string, unknown>): Promise<unknown>;
+}
+
+export function createOpenAINonStreamServerSideToolResolvers(
+  input: OpenAINonStreamServerSideToolResolverInput,
+): ServerSideToolReplayResolvers {
+  return {
+    artifactToolName: input.artifactToolName,
+    knowledgeToolName: input.knowledgeToolName,
+    devDocsToolName: input.devDocsToolName,
+    webSearchToolName: input.webSearchToolName,
+    webSearchToolAlias: input.webSearchToolAlias,
+    retrieveArtifact: async (toolInput) => {
+      const result = await input.retrieveArtifact(
+        typeof toolInput.artifact_handle === "string" ? toolInput.artifact_handle : "",
+        typeof toolInput.query === "string" ? toolInput.query : undefined,
+      );
+      return result.content;
+    },
+    resolveKnowledge: input.resolveKnowledge,
+    resolveDevDocs: input.resolveDevDocs,
+    resolveWebSearch: input.resolveWebSearch,
+  };
+}
+
 export function createOpenAINonStreamProviderExecutorInput<
   TMessage extends OpenAINonStreamProviderMessage,
   TResult extends OpenAINonStreamProviderResultLike,

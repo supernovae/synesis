@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createOpenAINonStreamProviderExecutorInput,
+  createOpenAINonStreamServerSideToolResolvers,
   executeOpenAINonStreamProviderLoop,
   type OpenAINonStreamProviderResultLike,
 } from "../src/pipeline/openai-nonstream-provider-executor.js";
@@ -158,5 +159,34 @@ describe("createOpenAINonStreamProviderExecutorInput", () => {
         resolvedModelId: "openai-test",
       },
     );
+  });
+});
+
+describe("createOpenAINonStreamServerSideToolResolvers", () => {
+  it("normalizes artifact lookup arguments and returns artifact content", async () => {
+    const retrieveArtifact = vi.fn(async () => ({ content: "artifact-result" }));
+    const resolvers = createOpenAINonStreamServerSideToolResolvers({
+      artifactToolName: "artifact",
+      knowledgeToolName: "knowledge",
+      devDocsToolName: "dev_docs",
+      webSearchToolName: "web_search",
+      webSearchToolAlias: "web",
+      retrieveArtifact,
+      resolveKnowledge: vi.fn(),
+      resolveDevDocs: vi.fn(),
+      resolveWebSearch: vi.fn(),
+    });
+
+    await expect(resolvers.retrieveArtifact({
+      artifact_handle: "artifact://1",
+      query: "needle",
+    })).resolves.toBe("artifact-result");
+    await expect(resolvers.retrieveArtifact({
+      artifact_handle: 42,
+    })).resolves.toBe("artifact-result");
+
+    expect(retrieveArtifact).toHaveBeenNthCalledWith(1, "artifact://1", "needle");
+    expect(retrieveArtifact).toHaveBeenNthCalledWith(2, "", undefined);
+    expect(resolvers.webSearchToolAlias).toBe("web");
   });
 });
