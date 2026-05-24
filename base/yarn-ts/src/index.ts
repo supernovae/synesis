@@ -286,6 +286,7 @@ import { createClaudeStreamFinalizationHandlers } from "./streaming/claude-strea
 import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { startClaudeStreamSseRuntime } from "./streaming/claude-stream-runtime.js";
 import { runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
+import { handleClaudeStreamToolCall } from "./streaming/claude-stream-tool-call-handler.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -304,8 +305,6 @@ import {
 } from "./streaming/openai-streaming-pipeline.js";
 import {
   classifyAiSdkStreamPart,
-  parseToolInput,
-  serializeToolInput,
 } from "./streaming/ai-sdk-stream-events.js";
 import {
   runSessionUsagePersistence,
@@ -13366,185 +13365,84 @@ app.post("/v1/messages", async (req, reply) => {
           continue;
         }
         if (event.type === "tool_call") {
-          const buf = claudeStreamState.getToolInput(event.toolCallId);
-          const rawToolInput = parseToolInput(event.input, serializeToolInput(event.input));
-          const hard = applyAdapterToolHardening(
-            claudeAdapter,
-            event.toolName,
-            rawToolInput,
-            buf?.toolName,
-            {
+          const handled = await handleClaudeStreamToolCall({
+            event,
+            streamState: claudeStreamState,
+            adapter: claudeAdapter,
+            requestId: traceReqId,
+            clientKind: claudeClientKind,
+            debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+            strictGovernance: claudeOpenClawStrictGovernance,
+            hardeningOptions: {
               upperHarness: claudeUpperHarness,
               clientKind: claudeClientKind,
               recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
             },
-          );
-          recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", hard.upperHarnessDecision);
-          requestToolRepairs += recordAdapterToolRepairObservations({
-            stats: toolArgHardeningStats,
-            hardening: hard,
-            logger: app.log,
-            requestId: traceReqId,
-            originalToolName: event.toolName,
-            originalInput: rawToolInput,
-          }).repairCountDelta;
-          let emitToolName = hard.toolName;
-          let finalInput = hard.input;
-          if (isWriteCapableToolName(emitToolName)) {
-            session.blockBroadVerificationUntilEdit = false;
-            session.blockFailingVerificationUntilEdit = false;
-          }
-
-          const governed = governToolCall({
-            toolName: emitToolName,
-            input: finalInput,
-            projectRoot: effectiveClaudePathCtx.projectRoot,
-            shellCwd: effectiveClaudePathCtx.shellCwd,
-            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-            strictBashBlock: claudeOpenClawStrictGovernance,
-            blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
-            clientKind: claudeClientKind,
-            sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
-            restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
-            blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
-            blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
-            planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
-            artifactShadows: claudeArtifactShadows,
-            currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + claudeStreamState.pendingToolInputCount() + 1,
-            onEditTurn: (canonicalPath, turnIndex) => {
-              session.artifactEditTurns.set(canonicalPath, turnIndex);
-            },
-            pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
-              ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
-          });
-          if (isGitInspectionChurnBlock(governed)) {
-            session.gitInspectionBlockCount += 1;
-          }
-          emitToolName = governed.toolName;
-          finalInput = governed.input;
-          recordGovernedToolHardeningStats(toolArgHardeningStats, governed);
-          updateDiffAccumulator(session, governed);
-          maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
-          if (governed.planWriteAudit) {
-            emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, governed.planWriteAudit);
-          }
-          maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, emitToolName, claudeClientKind, governed, event.toolCallId);
-          if (governed.constrainedToRoot) {
-            app.log.info(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
-              "file_tool_path_constrained_to_project_root",
-            );
-          }
-          if (governed.blockedBashDrift) {
-            app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
-              "bash_path_drift_blocked",
-            );
-          }
-          if (governed.blockedUnsafeShell) {
-            app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
-              "unsafe_shell_command_blocked",
-            );
-          }
-          if (governed.blockedWriteCapable) {
-            app.log.warn(
-              { reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId },
-              "write_capable_tool_blocked",
-            );
-          }
-
-          if (governed.validationMissing.length > 0) {
-            requestToolValidationFailures += 1;
-            app.log.warn(
-              {
-                reqId: traceReqId,
-                toolName: emitToolName,
-                missing: governed.validationMissing,
-                argsPreview: JSON.stringify(finalInput).slice(0, 220),
+            governanceOptions: {
+              projectRoot: effectiveClaudePathCtx.projectRoot,
+              shellCwd: effectiveClaudePathCtx.shellCwd,
+              enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+              blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+              strictBashBlock: claudeOpenClawStrictGovernance,
+              blockWriteCapableTools: claudeOpenClawStrictGovernance || claudeClientToolCapabilities.planModeRequested,
+              clientKind: claudeClientKind,
+              sessionGitInspectionBlockCount: session.gitInspectionBlockCount,
+              restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery ?? shouldRestrictDiscoveryForPlanWork(claudeTaskCue),
+              blockBroadVerificationForGreen: session.blockBroadVerificationUntilEdit,
+              blockVerificationForFailure: session.blockFailingVerificationUntilEdit,
+              planContentShadow: deserializeShadow(session.record.metadata.plan_content_shadow as Record<string, unknown>),
+              artifactShadows: claudeArtifactShadows,
+              currentTurnIndex: (normalizedFromClaude.messages as Array<{ role: string }>).length + claudeStreamState.pendingToolInputCount() + 1,
+              onEditTurn: (canonicalPath, turnIndex) => {
+                session.artifactEditTurns.set(canonicalPath, turnIndex);
               },
-              "tool_args_validation_failed",
-            );
-          }
-          if (claudeOpenClawStrictGovernance && isWriteCapableToolName(event.toolName) && governed.toolName === "Bash") {
-            openClawProfileStats.strictGovernanceRewrites += 1;
-          }
-
-          if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-            app.log.debug({
-              reqId: traceReqId, toolName: emitToolName, toolCallId: event.toolCallId,
-              argsLen: JSON.stringify(finalInput).length,
-              argsPreview: JSON.stringify(finalInput).slice(0, 300),
-              remapped: hard.remapped,
-              repairedWriteContent: hard.repairedWriteContent,
-              repairedWrite: hard.repairedWrite,
-              repairedBash: hard.repairedBash,
-              adapterFamily: claudeAdapter.family,
-            }, "claude_tool_call_streamed");
-          }
-          let candidateCall: GuardrailToolCall = {
-            toolCallId: event.toolCallId,
-            toolName: emitToolName,
-            input: finalInput,
-          };
-          const claudeStreamTopDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
-          const streamGuarded = applyDiscoveryToolGuardrail([...claudeStreamGuardrailAccepted, candidateCall], claudeStreamTopDirs);
-          if (streamGuarded.redirectedCount > 0) {
-            claudeStreamDiscovery.blockedBroadDiscovery += streamGuarded.redirectedCount;
-            recordBlockedDiscovery(claudeSessionKey, streamGuarded.redirectedCount);
-            const redirectedCall = streamGuarded.calls[streamGuarded.calls.length - 1];
-            if (redirectedCall) {
-              candidateCall = redirectedCall as GuardrailToolCall;
-              finalInput = redirectedCall.input;
-            }
-          }
-          if (streamGuarded.calls.length === claudeStreamGuardrailAccepted.length) {
-            claudeStreamDiscovery.blockedBroadDiscovery += streamGuarded.blockedCount;
-            claudeStreamDiscovery.collapsedBroadDiscovery += streamGuarded.collapsedCount;
-            const blockedToolCallId = event.toolCallId;
-            if (blockedToolCallId) {
-              claudeStreamState.removeToolInput(blockedToolCallId);
-            }
-            if (streamGuarded.blockedCount > 0) {
-              const recovery = await buildBlockedDiscoveryRecoverySnapshot(
-                resolved.resolvedModelId,
-                streamGuarded.blockedDetails,
-                effectiveClaudePathCtx.projectRoot,
-              );
-              claudeStreamBlockedDetails.push(...streamGuarded.blockedDetails);
-              claudeStreamDiscovery.recoveryPreviewEntries += recovery.entryCount;
-              claudeStreamDiscovery.recoveryMode = recovery.recoveryMode;
-              const blockIndex = claudeStreamState.currentBlockIndex();
-              safeSse(reply, "content_block_start", {
-                type: "content_block_start",
-                index: blockIndex,
-                content_block: { type: "text", text: "" },
-              });
-              safeSse(reply, "content_block_delta", {
-                type: "content_block_delta",
-                index: blockIndex,
-                delta: { type: "text_delta", text: `\n${recovery.text}\n` },
-              });
-              safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
-              claudeStreamState.advanceBlock();
-            }
-            continue;
-          }
-          claudeStreamGuardrailAccepted.push(candidateCall);
-          claudeStreamToolSequence.push(emitToolName);
-
-          const toolCallId = event.toolCallId;
-          const normalizedJson = JSON.stringify(finalInput);
-
-          const blockIndex = claudeStreamState.currentBlockIndex();
-          safeSse(reply, "content_block_start", { type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: toolCallId, name: emitToolName } });
-          safeSse(reply, "content_block_delta", { type: "content_block_delta", index: blockIndex, delta: { type: "input_json_delta", partial_json: normalizedJson } });
-          safeSse(reply, "content_block_stop", { type: "content_block_stop", index: blockIndex });
-          claudeStreamState.advanceBlock();
-          claudeStreamState.removeToolInput(toolCallId);
-          claudeStreamState.recordEmittedToolCall();
-          claudeStreamState.markToolUse();
+              pathSandboxPolicy: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED && (effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)
+                ? buildDefaultPolicy((effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd)!) : null,
+            },
+            acceptedGuardrailCalls: claudeStreamGuardrailAccepted,
+            blockedDiscoveryDetails: claudeStreamBlockedDetails,
+            discovery: claudeStreamDiscovery,
+            toolSequence: claudeStreamToolSequence,
+            stats: toolArgHardeningStats,
+            logger: app.log,
+            isWriteCapableToolName,
+            onWriteCapableTool: () => {
+              session.blockBroadVerificationUntilEdit = false;
+              session.blockFailingVerificationUntilEdit = false;
+            },
+            onGitInspectionChurnBlock: () => {
+              session.gitInspectionBlockCount += 1;
+            },
+            onGovernedToolCall: (governed) => {
+              updateDiffAccumulator(session, governed);
+              maybeUpdateTaskLedgerFromToolCall(session, governed.toolName, governed.input, session.record.requestCount);
+            },
+            onPlanWriteAudit: (audit) => {
+              emitPlanWriteAuditEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, audit);
+            },
+            onEnvelopeUnwrapSample: (toolName, governed, toolCallId) => {
+              maybeLogEnvelopeUnwrapSample(app.log as never, traceReqId, toolName, claudeClientKind, governed, toolCallId);
+            },
+            onUpperHarnessDecision: (decision) => {
+              recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, "upper-harness:claude-stream", decision);
+            },
+            onStrictGovernanceRewrites: (count) => {
+              openClawProfileStats.strictGovernanceRewrites += count;
+            },
+            onRedirectedDiscovery: (count) => {
+              recordBlockedDiscovery(claudeSessionKey, count);
+            },
+            getTopLevelDirs: () => getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd),
+            applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+            buildBlockedDiscoveryRecovery: (blockedDetails) => buildBlockedDiscoveryRecoverySnapshot(
+              resolved.resolvedModelId,
+              blockedDetails,
+              effectiveClaudePathCtx.projectRoot,
+            ),
+            sendSse: (eventName, data) => safeSse(reply, eventName, data),
+          });
+          requestToolRepairs += handled.toolRepairs;
+          requestToolValidationFailures += handled.validationFailures;
         } else if (event.type === "error") {
           throw event.error;
         }
