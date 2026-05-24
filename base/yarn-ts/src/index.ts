@@ -281,6 +281,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
+import { createClaudeStreamProviderRequestOptions } from "./streaming/claude-stream-provider-request.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
@@ -13266,17 +13267,20 @@ app.post("/v1/messages", async (req, reply) => {
       if (Object.keys(po).length === 0) providerOptions = undefined;
     }
     claudeModelMessages = ensureModelMessageContentFormat(claudeModelMessages) as typeof claudeModelMessages;
-    const streamed = streamText(buildAiSdkTextRequestOptions({
+    const claudeStreamProviderRequestOptions = createClaudeStreamProviderRequestOptions({
       model: resolved.model,
       messages: claudeModelMessages,
       abortSignal: claudeStreamAbortController.signal,
-      maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+      orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
+      requestMaxTokens: body.max_tokens,
       samplingOptions: claudeSamplingOptions,
       stopSequences: sdkStop,
       tools: sdkTools,
       toolChoice: effectiveClaudeToolChoice,
       providerOptions,
-    }) as never);
+      clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+    });
+    const streamed = streamText(claudeStreamProviderRequestOptions as never);
     reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
     const claudeHeartbeat = startSseHeartbeat({
       raw: reply.raw,
