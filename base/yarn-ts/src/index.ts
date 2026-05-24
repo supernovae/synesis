@@ -282,19 +282,17 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { ClaudeStreamState } from "./streaming/claude-stream-state.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
+import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
 import { prepareOpenAIStreamMessages } from "./streaming/openai-stream-message-preflight.js";
-import { OpenAIStreamResponseWriter } from "./streaming/openai-stream-response-writer.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
 import { createOpenAIStreamProviderRequestOptions } from "./streaming/openai-stream-provider-request.js";
 import {
   createOpenAIStreamAbortRuntime,
   startOpenAIStreamSseRuntime,
 } from "./streaming/openai-stream-runtime.js";
-import { OpenAIStreamState } from "./streaming/openai-stream-state.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
-import { createOpenAIStreamToolCallAccumulator } from "./streaming/openai-stream-tool-call-handler.js";
 import {
   createOpenAIStreamingPipelineInput,
   runOpenAIStreamingPipeline,
@@ -10190,46 +10188,24 @@ app.post("/v1/chat/completions", async (req, reply) => {
     ),
   });
 
-  const oaiStreamState = new OpenAIStreamState();
-  const oaiStreamGuardrailAccepted: GuardrailToolCall[] = [];
-  const oaiStreamBlockedDetails: BlockedDiscoveryDetail[] = [];
-  const oaiStreamToolAccumulator = createOpenAIStreamToolCallAccumulator();
-  const resolvedTierOaiStream = tierRegistry.getTierConfig(resolved.resolvedModelId);
-  const isLocalLikeOaiStreamBaseUrl =
-    !!resolvedTierOaiStream?.baseUrl
-    && (
-      resolvedTierOaiStream.baseUrl.includes(".svc.cluster.local")
-      || resolvedTierOaiStream.baseUrl.includes("localhost")
-      || resolvedTierOaiStream.baseUrl.includes("127.0.0.1")
-    );
-  const oaiCacheStrategy = detectCacheStrategy(
-    resolvedTierOaiStream?.baseUrl ?? "",
-    resolvedTierOaiStream?.backendModel ?? resolved.resolvedModelId,
-  );
-  const oaiPrefixFingerprint = computePrefixFingerprint(
-    modelMessages as Array<{ role: string; content: unknown }>,
-  );
-  const openAiStreamWriter = new OpenAIStreamResponseWriter({
+  const oaiStreamComponents = createOpenAIStreamComponents({
     raw: reply.raw,
     requestId: reqId,
-    model: resolved.resolvedModelId,
+    resolvedModelId: resolved.resolvedModelId,
+    messages: modelMessages as Array<{ role: string; content: unknown }>,
+    tierConfig: tierRegistry.getTierConfig(resolved.resolvedModelId),
     write: safeWrite,
+    computePrefixFingerprint,
+    recordSessionEvent: (event) => recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      reqId,
+    ),
   });
-  const scrubAndFlushOpenAIText = (text: string): void => {
-    const scrubbed = scrubTaskLedgerOutput(text);
-    if (scrubbed.scrubbed) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "task_ledger_output_scrubbed",
-        "task-ledger",
-        "Removed internal task-ledger governance from streamed OpenAI output",
-        reqId,
-      );
-    }
-    openAiStreamWriter.writeTextDelta(scrubbed.text);
-  };
   const oaiStreamLifecycle = createOpenAIStreamLifecycleHandlers({
     requestId: reqId,
     model: resolved.resolvedModelId,
@@ -10240,8 +10216,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
     abortSignal: oaiStreamAbortRuntime.abortController.signal,
     hardTimeout: oaiStreamAbortRuntime.hardTimeout,
     admissionRelease: () => oaiAdmission.release!(),
-    streamState: oaiStreamState,
-    writer: openAiStreamWriter,
+    streamState: oaiStreamComponents.streamState,
+    writer: oaiStreamComponents.writer,
     span: otelStreamSpan,
     circuitBreakers,
     logger: app.log,
@@ -10259,16 +10235,16 @@ app.post("/v1/chat/completions", async (req, reply) => {
   });
   const oaiStreamAfterEvents = createOpenAIStreamAfterEventsHandler({
     adapter,
-    localLikeBaseUrl: isLocalLikeOaiStreamBaseUrl,
+    localLikeBaseUrl: oaiStreamComponents.localLikeBaseUrl,
     requestId: reqId,
     resolvedModelId: resolved.resolvedModelId,
-    baseUrl: resolvedTierOaiStream?.baseUrl,
+    baseUrl: oaiStreamComponents.tierConfig?.baseUrl,
     sessionKey,
     userId: identity.userId,
     orgId: identity.orgId,
-    streamState: oaiStreamState,
-    accumulator: oaiStreamToolAccumulator,
-    blockedDetails: oaiStreamBlockedDetails,
+    streamState: oaiStreamComponents.streamState,
+    accumulator: oaiStreamComponents.accumulator,
+    blockedDetails: oaiStreamComponents.blockedDetails,
     stats: toolArgHardeningStats,
     logger: app.log,
     recordBlockedDiscovery,
@@ -10287,10 +10263,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
-    streamState: oaiStreamState,
+    streamState: oaiStreamComponents.streamState,
     eventHandlers: createOpenAIStreamRouteEventHandlers({
-      streamState: oaiStreamState,
-      writer: openAiStreamWriter,
+      streamState: oaiStreamComponents.streamState,
+      writer: oaiStreamComponents.writer,
       adapter,
       requestId: reqId,
       resolvedModelId: resolved.resolvedModelId,
@@ -10310,12 +10286,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       artifactShadows: oaiArtifactShadows,
       normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
       session,
-      acceptedGuardrailCalls: oaiStreamGuardrailAccepted,
-      blockedDiscoveryDetails: oaiStreamBlockedDetails,
+      acceptedGuardrailCalls: oaiStreamComponents.guardrailAccepted,
+      blockedDiscoveryDetails: oaiStreamComponents.blockedDetails,
       stats: toolArgHardeningStats,
       logger: app.log,
-      accumulator: oaiStreamToolAccumulator,
-      scrubAndFlushText: scrubAndFlushOpenAIText,
+      accumulator: oaiStreamComponents.accumulator,
+      scrubAndFlushText: oaiStreamComponents.scrubAndFlushText,
       isWriteCapableToolName,
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
@@ -10350,7 +10326,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     afterEvents: oaiStreamAfterEvents,
     lifecycle: oaiStreamLifecycle,
     finalizerInput: createOpenAIStreamFinalizerInput({
-      writer: openAiStreamWriter,
+      writer: oaiStreamComponents.writer,
       streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
       streamOptions: request.stream_options,
       readUsage,
@@ -10369,7 +10345,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       applyMarkdownGuardrail,
       finalizeCompletionText,
       finalizePostStreamText,
-      writeFinalText: scrubAndFlushOpenAIText,
+      writeFinalText: oaiStreamComponents.scrubAndFlushText,
       endStream: () => safeEnd(reply.raw),
       stopHeartbeat: () => oaiHeartbeat.stop(),
       onTaskLedgerOutputScrubbed: () => {
@@ -10411,7 +10387,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       governorFileStateSummary: oaiPauseFileSummary,
       optimizationLedger: oaiOptLedger,
       normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-      getToolNames: () => oaiStreamState.toolNames(),
+      getToolNames: () => oaiStreamComponents.streamState.toolNames(),
       inferVerificationSteps,
       trajectoryDiagnostics: oaiTrajectoryDiagnostics,
       toolDefinitionCount: effectiveTools.length,
@@ -10429,8 +10405,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         estimatedTokens: oaiContextAdmission.estimatedTokens,
         estimatedChars: oaiContextAdmission.estimatedChars,
       },
-      cacheStrategy: oaiCacheStrategy !== "none" ? oaiCacheStrategy : undefined,
-      prefixFingerprint: oaiPrefixFingerprint,
+      cacheStrategy: oaiStreamComponents.cacheStrategy !== "none" ? oaiStreamComponents.cacheStrategy : undefined,
+      prefixFingerprint: oaiStreamComponents.prefixFingerprint,
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
       recordSessionEvent: (event) => recordSessionEvent(
         sessionKey,
