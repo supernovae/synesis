@@ -306,7 +306,6 @@ import { captureStreamRequestForensics } from "./streaming/stream-request-forens
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
-import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import {
   createOpenAIStreamingPipelineInput,
   runOpenAIStreamingPipeline,
@@ -344,6 +343,7 @@ import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-in
 import { createOpenAIStreamRouteFinalizerInput } from "./pipeline/openai-stream-route-finalizer.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
+import { createOpenAIStreamRouteTelemetryInputBuilder } from "./pipeline/openai-stream-route-telemetry.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -10206,8 +10206,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       stopHeartbeat: () => oaiHeartbeat.stop(),
       recordSessionEvent: recordOpenAIStreamEvent,
     }),
-    buildTelemetryInput: createOpenAIStreamTelemetryInputBuilder({
-      ...createStreamTelemetryRouteBase({
+    buildTelemetryInput: createOpenAIStreamRouteTelemetryInputBuilder({
+      routeBase: {
         scope: oaiStreamScope,
         startedAtMs: started,
         resolvedModelId: resolved.resolvedModelId,
@@ -10247,13 +10247,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           estimatedTokens: oaiContextAdmission.estimatedTokens,
           estimatedChars: oaiContextAdmission.estimatedChars,
         },
-        cacheStrategy: oaiStreamComponents.cacheStrategy !== "none" ? oaiStreamComponents.cacheStrategy : undefined,
-        prefixFingerprint: oaiStreamComponents.prefixFingerprint,
         countMessageRoles,
         pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
-      }),
+      },
+      components: oaiStreamComponents,
       optimizationLedger: oaiOptLedger,
-      getToolNames: () => oaiStreamComponents.streamState.toolNames(),
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
       recordSessionEvent: recordOpenAIStreamEvent,
       persistDecisionTelemetry: ({ finishReason, telemetry }) => persistAndEmitDecisionTelemetry({
