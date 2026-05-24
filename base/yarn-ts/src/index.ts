@@ -279,7 +279,7 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
-import { createClaudeStreamComponents } from "./streaming/claude-stream-components.js";
+import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
 import {
   createClaudeStreamCompletionFinalizerInput,
   createClaudeStreamFinalizationHandlers,
@@ -13292,21 +13292,17 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeHeartbeat = claudeRuntime.heartbeat;
 
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const claudeStreamComponents = createClaudeStreamComponents({
+    const claudeStreamComponents = createClaudeStreamRouteComponents({
       modelMessages: claudeModelMessages as Array<{ role: string; content: unknown }>,
       tierConfig: resolvedTier,
       resolvedModelId: resolved.resolvedModelId,
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: traceReqId,
       computePrefixFingerprint,
       sendSse: (event, data) => safeSse(reply, event, data),
-      recordSessionEvent: (event) => recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        traceReqId,
-      ),
+      recordSessionEvent,
     });
     const claudeStreamState = claudeStreamComponents.streamState;
     const claudeStreamGate = claudeStreamComponents.gate;

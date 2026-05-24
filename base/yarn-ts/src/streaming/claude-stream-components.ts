@@ -24,6 +24,30 @@ export interface ClaudeStreamComponentsInput {
   }): void;
 }
 
+export interface ClaudeStreamRouteComponentsInput {
+  modelMessages: Array<{ role: string; content: unknown }>;
+  tierConfig?: {
+    baseUrl?: string;
+    backendModel?: string;
+  };
+  resolvedModelId: string;
+  sessionKey: string;
+  userId: string;
+  orgId: string;
+  requestId: string;
+  computePrefixFingerprint(messages: Array<{ role: string; content: unknown }>): string | undefined;
+  sendSse(event: string, data: unknown): boolean;
+  recordSessionEvent(
+    sessionKey: string,
+    userId: string,
+    orgId: string,
+    eventKind: string,
+    component: string,
+    detail: string,
+    requestId: string,
+  ): void;
+}
+
 export interface ClaudeStreamGateState {
   applied: boolean;
   missingMust: number;
@@ -127,6 +151,27 @@ export function createClaudeStreamComponents(
       flushTextBlock(scrubbed.text);
     },
   };
+}
+
+export function createClaudeStreamRouteComponents(
+  input: ClaudeStreamRouteComponentsInput,
+): ClaudeStreamComponents {
+  return createClaudeStreamComponents({
+    modelMessages: input.modelMessages,
+    tierConfig: input.tierConfig,
+    resolvedModelId: input.resolvedModelId,
+    computePrefixFingerprint: input.computePrefixFingerprint,
+    sendSse: input.sendSse,
+    recordSessionEvent: (event) => input.recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      input.requestId,
+    ),
+  });
 }
 
 function maybeAnnotateCacheBreakpoints(
