@@ -306,6 +306,10 @@ import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./st
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
+import {
+  buildStreamAdmissionRejection,
+  buildStreamCircuitBreakerRejection,
+} from "./streaming/stream-route-gates.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
 import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
@@ -10097,31 +10101,46 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
   }
 
-  const oaiAdmission = await streamAdmission.acquire();
-  if (!oaiAdmission.admitted) {
-    app.log.warn({ reason: oaiAdmission.reason, queueStats: streamAdmission.getStats() }, "stream_admission_rejected");
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "stream_admission_reject", "stream-admission",
-      oaiAdmission.reason ?? "stream admission rejected", reqId);
-    reply.header("Retry-After", String(oaiAdmission.retryAfterSeconds ?? 5));
-    return reply.code(503).send({ error: { type: "service_unavailable", message: "Server at capacity. Try again shortly." } });
-  }
-
-  if (!circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId)) {
-    oaiAdmission.release!();
-    app.log.warn({ model: resolved.resolvedModelId, orgId: identity.orgId }, "circuit_breaker_open_stream");
-    recordSessionEvent(sessionKey, identity.userId, identity.orgId, "breaker_open_reject", "circuit-breaker",
-      `Circuit breaker open for ${resolved.resolvedModelId} (stream)`, reqId, { model: resolved.resolvedModelId });
-    reply.header("Retry-After", "30");
-    return reply.code(503).send({ error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } });
-  }
-  const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
-  const started = Date.now();
-  const oaiStreamScopeBundle = createStreamRouteScopeBundle({
+  const oaiStreamGateScope = {
     sessionKey,
     userId: identity.userId,
     orgId: identity.orgId,
     requestId: reqId,
-  }, recordSessionEvent);
+  };
+  const oaiAdmission = await streamAdmission.acquire();
+  const oaiAdmissionRejection = buildStreamAdmissionRejection({
+    admission: oaiAdmission,
+    queueStats: streamAdmission.getStats(),
+    logMessage: "stream_admission_rejected",
+    scope: oaiStreamGateScope,
+    logger: app.log,
+    recordSessionEvent,
+    payload: { error: { type: "service_unavailable", message: "Server at capacity. Try again shortly." } },
+  });
+  if (oaiAdmissionRejection) {
+    reply.header("Retry-After", oaiAdmissionRejection.retryAfter);
+    return reply.code(oaiAdmissionRejection.statusCode).send(oaiAdmissionRejection.payload);
+  }
+
+  const oaiBreakerRejection = buildStreamCircuitBreakerRejection({
+    allowed: circuitBreakers.allowRequest(resolved.resolvedModelId, identity.orgId),
+    admission: oaiAdmission,
+    model: resolved.resolvedModelId,
+    orgId: identity.orgId,
+    detail: `Circuit breaker open for ${resolved.resolvedModelId} (stream)`,
+    logMessage: "circuit_breaker_open_stream",
+    scope: oaiStreamGateScope,
+    logger: app.log,
+    recordSessionEvent,
+    payload: { error: { type: "service_unavailable", message: "Model provider temporarily unavailable. Try again shortly." } },
+  });
+  if (oaiBreakerRejection) {
+    reply.header("Retry-After", oaiBreakerRejection.retryAfter);
+    return reply.code(oaiBreakerRejection.statusCode).send(oaiBreakerRejection.payload);
+  }
+  const otelStreamSpan = getTracer().startSpan("yarn.openai.stream", { model: resolved.resolvedModelId, sessionKey });
+  const started = Date.now();
+  const oaiStreamScopeBundle = createStreamRouteScopeBundle(oaiStreamGateScope, recordSessionEvent);
   const oaiStreamScope = oaiStreamScopeBundle.scope;
   const recordOpenAIStreamEvent = oaiStreamScopeBundle.recordEvent;
   const oaiStreamToolSideEffects = createRouteToolCallSideEffects({
@@ -13157,21 +13176,41 @@ app.post("/v1/messages", async (req, reply) => {
     }
 
     const claudeAdmission = await streamAdmission.acquire();
-    if (!claudeAdmission.admitted) {
-      app.log.warn({ reason: claudeAdmission.reason, queueStats: streamAdmission.getStats() }, "stream_admission_rejected_claude");
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "stream_admission_reject", "stream-admission",
-        claudeAdmission.reason ?? "stream admission rejected", traceReqId);
-      reply.header("Retry-After", String(claudeAdmission.retryAfterSeconds ?? 5));
-      return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } });
+    const claudeStreamGateScope = {
+      sessionKey: claudeSessionKey,
+      userId: claudeIdentity.userId,
+      orgId: claudeIdentity.orgId,
+      requestId: traceReqId,
+    };
+    const claudeAdmissionRejection = buildStreamAdmissionRejection({
+      admission: claudeAdmission,
+      queueStats: streamAdmission.getStats(),
+      logMessage: "stream_admission_rejected_claude",
+      scope: claudeStreamGateScope,
+      logger: app.log,
+      recordSessionEvent,
+      payload: { type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } },
+    });
+    if (claudeAdmissionRejection) {
+      reply.header("Retry-After", claudeAdmissionRejection.retryAfter);
+      return reply.code(claudeAdmissionRejection.statusCode).send(claudeAdmissionRejection.payload);
     }
 
-    if (!circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId)) {
-      claudeAdmission.release!();
-      app.log.warn({ model: resolved.resolvedModelId, orgId: claudeIdentity.orgId }, "circuit_breaker_open_claude_stream");
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "breaker_open_reject", "circuit-breaker",
-        `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`, traceReqId, { model: resolved.resolvedModelId });
-      reply.header("Retry-After", "30");
-      return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } });
+    const claudeBreakerRejection = buildStreamCircuitBreakerRejection({
+      allowed: circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId),
+      admission: claudeAdmission,
+      model: resolved.resolvedModelId,
+      orgId: claudeIdentity.orgId,
+      detail: `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`,
+      logMessage: "circuit_breaker_open_claude_stream",
+      scope: claudeStreamGateScope,
+      logger: app.log,
+      recordSessionEvent,
+      payload: { type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } },
+    });
+    if (claudeBreakerRejection) {
+      reply.header("Retry-After", claudeBreakerRejection.retryAfter);
+      return reply.code(claudeBreakerRejection.statusCode).send(claudeBreakerRejection.payload);
     }
     const claudeStreamSpan = getTracer().startSpan("yarn.claude.stream", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
     const started = Date.now();
@@ -13188,12 +13227,7 @@ app.post("/v1/messages", async (req, reply) => {
       claudeForensicsPhasePolicy,
       claudeForensicsCapabilityMatrix,
     );
-    const claudeStreamScopeBundle = createStreamRouteScopeBundle({
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: traceReqId,
-    }, recordSessionEvent);
+    const claudeStreamScopeBundle = createStreamRouteScopeBundle(claudeStreamGateScope, recordSessionEvent);
     const claudeStreamScope = claudeStreamScopeBundle.scope;
     const claudeResponseScope = {
       ...claudeStreamScope,
