@@ -306,10 +306,6 @@ import { captureStreamRequestForensics } from "./streaming/stream-request-forens
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import {
-  createOpenAIStreamingPipelineInput,
-  runOpenAIStreamingPipeline,
-} from "./streaming/openai-streaming-pipeline.js";
-import {
   runSessionUsagePersistence,
   type RequestTrajectoryInput,
 } from "./state/session-usage-persistence.js";
@@ -339,11 +335,9 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
-import { createOpenAIStreamRouteEventPipelineHandlers } from "./pipeline/openai-stream-route-events.js";
-import { createOpenAIStreamRouteFinalizerInput } from "./pipeline/openai-stream-route-finalizer.js";
+import { runOpenAIStreamRoutePipeline } from "./pipeline/openai-stream-route-pipeline.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
-import { createOpenAIStreamRouteTelemetryInputBuilder } from "./pipeline/openai-stream-route-telemetry.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -10115,18 +10109,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
     recordBlockedDiscovery,
     getBlockedDiscoveryCount,
   });
-  const oaiHeartbeat = oaiStreamRuntime.heartbeat;
-  const oaiStreamComponents = oaiStreamRuntime.components;
-  const oaiStreamLifecycle = oaiStreamRuntime.lifecycle;
-  const oaiStreamAfterEvents = oaiStreamRuntime.afterEvents;
-
-  const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
+  await runOpenAIStreamRoutePipeline({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
-    streamState: oaiStreamComponents.streamState,
-    eventHandlers: createOpenAIStreamRouteEventPipelineHandlers({
+    runtime: oaiStreamRuntime,
+    eventHandlers: {
       scope: oaiStreamScope,
-      streamState: oaiStreamComponents.streamState,
-      writer: oaiStreamComponents.writer,
       adapter,
       resolvedModelId: resolved.resolvedModelId,
       clientKind: oaiClientKind,
@@ -10145,12 +10132,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       artifactShadows: oaiArtifactShadows,
       normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
       session,
-      acceptedGuardrailCalls: oaiStreamComponents.guardrailAccepted,
-      blockedDiscoveryDetails: oaiStreamComponents.blockedDetails,
       stats: toolArgHardeningStats,
       logger: app.log,
-      accumulator: oaiStreamComponents.accumulator,
-      scrubAndFlushText: oaiStreamComponents.scrubAndFlushText,
       isWriteCapableToolName,
       shouldRestrictDiscoveryForPlanWork,
       deserializePlanShadow: deserializeShadow,
@@ -10171,12 +10154,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
         blockedDetails,
         effectiveOaiPathCtx.projectRoot,
       ),
-    }),
-    afterEvents: oaiStreamAfterEvents,
-    lifecycle: oaiStreamLifecycle,
-    finalizerInput: createOpenAIStreamRouteFinalizerInput({
+    },
+    finalizer: {
       scope: oaiStreamScope,
-      components: oaiStreamComponents,
       streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
       streamOptions: request.stream_options,
       readUsage,
@@ -10192,10 +10172,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       finalizeCompletionText,
       finalizePostStreamText,
       endStream: () => safeEnd(reply.raw),
-      stopHeartbeat: () => oaiHeartbeat.stop(),
+      stopHeartbeat: () => oaiStreamRuntime.heartbeat.stop(),
       recordSessionEvent: recordOpenAIStreamEvent,
-    }),
-    buildTelemetryInput: createOpenAIStreamRouteTelemetryInputBuilder({
+    },
+    telemetry: {
       routeBase: {
         scope: oaiStreamScope,
         startedAtMs: started,
@@ -10239,7 +10219,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
         countMessageRoles,
         pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
       },
-      components: oaiStreamComponents,
       optimizationLedger: oaiOptLedger,
       finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, openAiStreamForensics, usage),
       recordSessionEvent: recordOpenAIStreamEvent,
@@ -10261,9 +10240,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         clientRequestedModel: request.model,
       }),
       logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
-    }),
+    },
   });
-  await runOpenAIStreamingPipeline(oaiStreamingPipelineInput);
   return reply;
 });
 
