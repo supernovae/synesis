@@ -11,6 +11,7 @@ import {
 } from "./openai-nonstream-postprocess.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 import type { OpenAINonStreamFinalizerSession } from "./openai-nonstream-finalizer.js";
+import type { OpenAINonStreamRouteScope } from "./openai-nonstream-route-scope.js";
 import type { OpenAINonStreamToolCallSession } from "./openai-nonstream-tool-calls.js";
 
 export interface OpenAINonStreamCircuitBreakers {
@@ -70,6 +71,43 @@ export interface OpenAIChatNonStreamPipelineInput<
     OpenAINonStreamPostProviderInput<TSession, TChecklist, TVerification, TPlanGraph>,
     "result" | "topLevelDirs"
   >;
+}
+
+export interface OpenAIChatNonStreamPipelineRouteInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+> extends Omit<
+    OpenAIChatNonStreamPipelineInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph>,
+    "requestId" | "sessionKey" | "userId" | "orgId" | "recordSessionEvent"
+  > {
+  scope: OpenAINonStreamRouteScope;
+}
+
+export function createOpenAIChatNonStreamPipelineInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+>(
+  input: OpenAIChatNonStreamPipelineRouteInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph>,
+): OpenAIChatNonStreamPipelineInput<TMessage, TResult, TForensics, TSession, TChecklist, TVerification, TPlanGraph> {
+  return {
+    ...input,
+    requestId: input.scope.requestId,
+    sessionKey: input.scope.sessionKey,
+    userId: input.scope.userId,
+    orgId: input.scope.orgId,
+    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
+      input.scope.recordEvent({ eventKind, component, detail, metadataJson }),
+  };
 }
 
 export async function runOpenAIChatNonStreamPipeline<

@@ -327,7 +327,10 @@ import {
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
-import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream-pipeline.js";
+import {
+  createOpenAIChatNonStreamPipelineInput,
+  runOpenAIChatNonStreamPipeline,
+} from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
@@ -9442,11 +9445,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
       }),
     });
-    const nonStreamResult = await runOpenAIChatNonStreamPipeline({
-      requestId: reqId,
-      sessionKey,
-      userId: oaiNonStreamScope.userId,
-      orgId: oaiNonStreamScope.orgId,
+    const nonStreamResult = await runOpenAIChatNonStreamPipeline(createOpenAIChatNonStreamPipelineInput({
+      scope: oaiNonStreamScope,
       resolvedModelId: resolved.resolvedModelId,
       circuitBreakers,
       logger: app.log,
@@ -9455,8 +9455,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
       onMissingToolResults: () => {
         session.skipToolIdStabilization = true;
       },
-      recordSessionEvent: (eventKind, component, detail, metadataJson) =>
-        oaiNonStreamScope.recordEvent({ eventKind, component, detail, metadataJson }),
       providerInput: createOpenAINonStreamProviderExecutorInput({
         scope: oaiNonStreamScope,
         resolvedModelId: resolved.resolvedModelId,
@@ -9636,7 +9634,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           clientKind: oaiClientKind,
         },
       }),
-    });
+    }));
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, nonStreamResult);
   }

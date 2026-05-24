@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runOpenAIChatNonStreamPipeline } from "../src/pipeline/openai-chat-nonstream-pipeline.js";
+import {
+  createOpenAIChatNonStreamPipelineInput,
+  runOpenAIChatNonStreamPipeline,
+} from "../src/pipeline/openai-chat-nonstream-pipeline.js";
 
 function baseInput(overrides: Partial<Parameters<typeof runOpenAIChatNonStreamPipeline>[0]> = {}) {
   return {
@@ -63,6 +66,40 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIChatNonStreamPi
 }
 
 describe("runOpenAIChatNonStreamPipeline", () => {
+  it("builds route input from scope identity and event recorder", () => {
+    const recordEvent = vi.fn();
+    const input = createOpenAIChatNonStreamPipelineInput({
+      ...baseInput(),
+      requestId: "ignored",
+      sessionKey: "ignored",
+      userId: "ignored",
+      orgId: "ignored",
+      scope: {
+        sessionKey: "session_1",
+        userId: "user_1",
+        orgId: "org_1",
+        requestId: "req_1",
+        recordEvent,
+        persistDecisionTelemetry: vi.fn(),
+      },
+    });
+
+    input.recordSessionEvent("event", "component", "detail", { ok: true });
+
+    expect(input).toMatchObject({
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+    });
+    expect(recordEvent).toHaveBeenCalledWith({
+      eventKind: "event",
+      component: "component",
+      detail: "detail",
+      metadataJson: { ok: true },
+    });
+  });
+
   it("returns a retryable error when the circuit breaker is open", async () => {
     const input = baseInput({
       circuitBreakers: {
