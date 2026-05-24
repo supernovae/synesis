@@ -305,7 +305,6 @@ import {
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
-import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import {
@@ -342,6 +341,7 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
+import { createOpenAIStreamRouteFinalizerInput } from "./pipeline/openai-stream-route-finalizer.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
 import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
@@ -10185,16 +10185,13 @@ app.post("/v1/chat/completions", async (req, reply) => {
     }),
     afterEvents: oaiStreamAfterEvents,
     lifecycle: oaiStreamLifecycle,
-    finalizerInput: createOpenAIStreamFinalizerInput({
-      writer: oaiStreamComponents.writer,
+    finalizerInput: createOpenAIStreamRouteFinalizerInput({
+      scope: oaiStreamScope,
+      components: oaiStreamComponents,
       streamed: streamed as { totalUsage: PromiseLike<unknown>; text: PromiseLike<string> },
       streamOptions: request.stream_options,
       readUsage,
       session,
-      requestId: oaiStreamScope.requestId,
-      sessionKey: oaiStreamScope.sessionKey,
-      userId: oaiStreamScope.userId,
-      orgId: oaiStreamScope.orgId,
       checklist: oaiRequirementChecklist,
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -10205,16 +10202,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       applyMarkdownGuardrail,
       finalizeCompletionText,
       finalizePostStreamText,
-      writeFinalText: oaiStreamComponents.scrubAndFlushText,
       endStream: () => safeEnd(reply.raw),
       stopHeartbeat: () => oaiHeartbeat.stop(),
-      onTaskLedgerOutputScrubbed: () => {
-        recordOpenAIStreamEvent({
-          eventKind: "task_ledger_output_scrubbed",
-          component: "task-ledger",
-          detail: "Removed internal task-ledger governance from streamed OpenAI history",
-        });
-      },
+      recordSessionEvent: recordOpenAIStreamEvent,
     }),
     buildTelemetryInput: createOpenAIStreamTelemetryInputBuilder({
       ...createStreamTelemetryRouteBase({
