@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import Fastify from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { Registry } from "prom-client";
-import { generateText, jsonSchema, Output as aiOutput, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import {
   createServiceMetrics,
   recordUsageMetrics,
@@ -24,7 +24,6 @@ import {
 } from "./schemas.js";
 import {
   toAiSdkJsonResponseFormat,
-  type AiSdkJsonResponseFormat,
 } from "./openai-compat.js";
 import {
   chatCompletionToResponseObject,
@@ -341,6 +340,12 @@ import {
 } from "./pipeline/openai-nonstream-provider-executor.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
+import {
+  applyOpenAiJsonSchemaStrictness,
+  buildOpenAiJsonOutput,
+  openAiMetadataProviderOptions,
+  suppressThinkingWhenRequiredToolChoice,
+} from "./pipeline/provider-options.js";
 import {
   buildGovernorPauseContextSnapshot,
   buildGovernorPauseResumeBlock,
@@ -3286,61 +3291,6 @@ function isMatrixCapabilityEnabled(
   return resolvedCapabilities[key] === true;
 }
 
-function suppressThinkingWhenRequiredToolChoice(
-  providerOptions: Record<string, Record<string, unknown>> | undefined,
-  toolChoice: PhaseAwareToolChoice | undefined,
-): { providerOptions: Record<string, Record<string, unknown>> | undefined; suppressed: boolean } {
-  if (toolChoice !== "required") {
-    return { providerOptions, suppressed: false };
-  }
-  const openaiOptions = (providerOptions?.openai ?? {}) as Record<string, unknown>;
-  const hasThinkingEnabled =
-    Object.prototype.hasOwnProperty.call(openaiOptions, "thinking")
-    || (Object.prototype.hasOwnProperty.call(openaiOptions, "enable_thinking")
-      && openaiOptions.enable_thinking !== false);
-  if (!hasThinkingEnabled) {
-    return { providerOptions, suppressed: false };
-  }
-  const nextOpenaiOptions: Record<string, unknown> = {
-    ...openaiOptions,
-    enable_thinking: false,
-  };
-  delete nextOpenaiOptions.thinking;
-  return {
-    providerOptions: {
-      ...(providerOptions ?? {}),
-      openai: nextOpenaiOptions,
-    },
-    suppressed: true,
-  };
-}
-
-function buildOpenAiJsonOutput(format: AiSdkJsonResponseFormat | undefined) {
-  if (!format) return undefined;
-  if ("schema" in format) {
-    return aiOutput.object({
-      schema: jsonSchema(format.schema),
-      ...(format.name ? { name: format.name } : {}),
-      ...(format.description ? { description: format.description } : {}),
-    });
-  }
-  return aiOutput.json();
-}
-
-function applyOpenAiJsonSchemaStrictness(
-  providerOptions: Record<string, Record<string, unknown>> | undefined,
-  format: AiSdkJsonResponseFormat | undefined,
-): Record<string, Record<string, unknown>> | undefined {
-  if (!format || !("strict" in format) || format.strict === undefined) return providerOptions;
-  return {
-    ...(providerOptions ?? {}),
-    openai: {
-      ...((providerOptions?.openai ?? {}) as Record<string, unknown>),
-      strictJsonSchema: format.strict,
-    },
-  };
-}
-
 function isQwenModelName(modelName: string | undefined): boolean {
   return /qwen/i.test((modelName ?? "").toLowerCase());
 }
@@ -4715,15 +4665,6 @@ function readUsage(input: unknown): { inputTokens: number; outputTokens: number;
     cacheCreationTokens: Number.isFinite(normalized.cache_creation_tokens) ? normalized.cache_creation_tokens! : 0,
     costUsd: Number.isFinite(cost) ? cost : 0
   };
-}
-
-function openAiMetadataProviderOptions(metadata: Record<string, unknown> | undefined): Record<string, string> | undefined {
-  if (!metadata) return undefined;
-  const entries = Object.entries(metadata)
-    .filter(([key]) => key.length <= 64)
-    .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)] as const)
-    .filter(([, value]) => typeof value === "string" && value.length <= 512);
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function resolveClaudeConversationId(
