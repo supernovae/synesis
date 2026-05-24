@@ -342,6 +342,7 @@ import {
 import { createOpenAIChatRouteFinalizerBase } from "./pipeline/openai-route-finalizer-base.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { createOpenAIChatRouteTelemetryBase } from "./pipeline/openai-route-telemetry-base.js";
+import { createOpenAIChatRouteToolHandlingBase } from "./pipeline/openai-route-tool-handling-base.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildOpenAIChatProviderRequestOptions,
@@ -9178,6 +9179,30 @@ app.post("/v1/chat/completions", async (req, reply) => {
     applyMarkdownGuardrail,
     finalizeCompletionText,
   });
+  const oaiToolHandlingRouteBase = createOpenAIChatRouteToolHandlingBase({
+    adapter,
+    clientKind: oaiClientKind,
+    effectiveTools: effectiveTools as unknown[],
+    strictGovernance: openClawStrictGovernance,
+    upperHarness: oaiUpperHarness,
+    recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
+    taskCue: oaiTaskCue,
+    planModeRequested: oaiClientToolCapabilities.planModeRequested,
+    sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
+    pathContext: effectiveOaiPathCtx,
+    enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+    blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+    pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+    artifactShadows: oaiArtifactShadows,
+    normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
+    session,
+    stats: toolArgHardeningStats,
+    logger: app.log,
+    isWriteCapableToolName,
+    shouldRestrictDiscoveryForPlanWork,
+    deserializePlanShadow: deserializeShadow,
+    buildPathSandboxPolicy: buildDefaultPolicy,
+  });
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
@@ -9261,29 +9286,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
         applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
         toolCallInput: {
           artifactToolName: ARTIFACT_TOOL_NAME,
-          adapter,
-          effectiveTools: effectiveTools as unknown[],
-          upperHarness: oaiUpperHarness,
-          clientKind: oaiClientKind,
-          recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
-          pathContext: effectiveOaiPathCtx,
-          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-          strictGovernance: openClawStrictGovernance,
-          planModeRequested: oaiClientToolCapabilities.planModeRequested,
-          session,
-          sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
-          shouldRestrictDiscoveryForPlanWork,
-          taskCue: oaiTaskCue,
-          artifactShadows: oaiArtifactShadows,
-          normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
-          pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-          deserializePlanShadow: deserializeShadow,
-          buildPathSandboxPolicy: buildDefaultPolicy,
-          isWriteCapableToolName,
-          stats: toolArgHardeningStats,
+          ...oaiToolHandlingRouteBase,
           strictGovernanceStats: openClawProfileStats,
-          logger: app.log,
           recordUpperHarnessDecision,
           updateDiffAccumulator,
           maybeUpdateTaskLedgerFromToolCall,
@@ -9335,6 +9339,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
     orgId: identity.orgId,
     requestId: reqId,
   };
+  const {
+    planModeRequested: oaiStreamPlanModeRequested,
+    ...oaiStreamToolHandlingRouteBase
+  } = oaiToolHandlingRouteBase;
   const streamResult = await runOpenAIChatStreamPipeline({
     scope: oaiStreamGateScope,
     resolvedModelId: resolved.resolvedModelId,
@@ -9388,29 +9396,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       getBlockedDiscoveryCount,
     },
     eventHandlers: {
-      adapter,
-      clientKind: oaiClientKind,
-      effectiveTools: effectiveTools as unknown[],
+      ...oaiStreamToolHandlingRouteBase,
       debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
-      strictGovernance: openClawStrictGovernance,
-      upperHarness: oaiUpperHarness,
-      recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
-      taskCue: oaiTaskCue,
-      clientPlanModeRequested: oaiClientToolCapabilities.planModeRequested,
-      sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
-      pathContext: effectiveOaiPathCtx,
-      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-      artifactShadows: oaiArtifactShadows,
-      normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
-      session,
-      stats: toolArgHardeningStats,
-      logger: app.log,
-      isWriteCapableToolName,
-      shouldRestrictDiscoveryForPlanWork,
-      deserializePlanShadow: deserializeShadow,
-      buildPathSandboxPolicy: buildDefaultPolicy,
+      clientPlanModeRequested: oaiStreamPlanModeRequested,
       sideEffects: {
         updateDiffAccumulator,
         maybeUpdateTaskLedgerFromToolCall,
