@@ -305,14 +305,8 @@ import {
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
-import { createOpenAIStreamAfterEventsHandler } from "./streaming/openai-stream-after-events.js";
-import { createOpenAIStreamComponents } from "./streaming/openai-stream-components.js";
 import { createOpenAIStreamFinalizerInput } from "./streaming/openai-stream-finalizer.js";
-import { createOpenAIStreamLifecycleHandlers } from "./streaming/openai-stream-lifecycle.js";
 import { createOpenAIStreamRouteEventHandlers } from "./streaming/openai-stream-route-event-handlers.js";
-import {
-  startOpenAIStreamSseRuntime,
-} from "./streaming/openai-stream-runtime.js";
 import { createOpenAIStreamTelemetryInputBuilder } from "./streaming/openai-stream-telemetry.js";
 import {
   createOpenAIStreamingPipelineInput,
@@ -349,6 +343,7 @@ import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/ope
 import { executeOpenAINonStreamProviderLoop } from "./pipeline/openai-nonstream-provider-executor.js";
 import { invokeOpenAIStreamProvider } from "./pipeline/openai-stream-provider-invocation.js";
 import { startOpenAIStreamRoute } from "./pipeline/openai-stream-route-start.js";
+import { createOpenAIStreamRouteRuntime } from "./pipeline/openai-stream-route-runtime.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
   buildGovernorPauseContextSnapshot,
@@ -10111,62 +10106,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiStreamAbortRuntime = oaiStreamInvocation.abortRuntime;
   modelMessages = oaiStreamInvocation.messages as typeof modelMessages;
   const streamed = oaiStreamInvocation.streamed;
-  const oaiHeartbeat = startOpenAIStreamSseRuntime({
+  const oaiStreamRuntime = createOpenAIStreamRouteRuntime({
     raw: reply.raw,
     headers: sseHeadersWithClarification(session.record.metadata),
-    model: resolved.resolvedModelId,
-    heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
-    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-    startHeartbeat: startSseHeartbeat,
-    recordSessionEvent: recordOpenAIStreamEvent,
-  });
-
-  const oaiStreamComponents = createOpenAIStreamComponents({
-    raw: reply.raw,
-    requestId: reqId,
+    scope: oaiStreamScope,
     resolvedModelId: resolved.resolvedModelId,
     messages: modelMessages as Array<{ role: string; content: unknown }>,
     tierConfig: tierRegistry.getTierConfig(resolved.resolvedModelId),
     write: safeWrite,
     computePrefixFingerprint,
+    heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+    longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+    startHeartbeat: startSseHeartbeat,
     recordSessionEvent: recordOpenAIStreamEvent,
-  });
-  const oaiStreamLifecycle = createOpenAIStreamLifecycleHandlers({
-    requestId: oaiStreamScope.requestId,
-    model: resolved.resolvedModelId,
-    orgId: oaiStreamScope.orgId,
-    sessionKey: oaiStreamScope.sessionKey,
-    userId: oaiStreamScope.userId,
-    session,
-    abortSignal: oaiStreamAbortRuntime.abortController.signal,
-    hardTimeout: oaiStreamAbortRuntime.hardTimeout,
+    abortRuntime: oaiStreamAbortRuntime,
     admissionRelease: () => oaiAdmission.release!(),
-    streamState: oaiStreamComponents.streamState,
-    writer: oaiStreamComponents.writer,
+    session,
     span: otelStreamSpan,
     circuitBreakers,
     logger: app.log,
     extractUpstreamErrorDiagnostics,
-    recordSessionEvent: recordOpenAIStreamEvent,
-  });
-  const oaiStreamAfterEvents = createOpenAIStreamAfterEventsHandler({
     adapter,
-    localLikeBaseUrl: oaiStreamComponents.localLikeBaseUrl,
-    requestId: oaiStreamScope.requestId,
-    resolvedModelId: resolved.resolvedModelId,
-    baseUrl: oaiStreamComponents.tierConfig?.baseUrl,
-    sessionKey: oaiStreamScope.sessionKey,
-    userId: oaiStreamScope.userId,
-    orgId: oaiStreamScope.orgId,
-    streamState: oaiStreamComponents.streamState,
-    accumulator: oaiStreamComponents.accumulator,
-    blockedDetails: oaiStreamComponents.blockedDetails,
     stats: toolArgHardeningStats,
-    logger: app.log,
     recordBlockedDiscovery,
     getBlockedDiscoveryCount,
-    recordSessionEvent: recordOpenAIStreamEvent,
   });
+  const oaiHeartbeat = oaiStreamRuntime.heartbeat;
+  const oaiStreamComponents = oaiStreamRuntime.components;
+  const oaiStreamLifecycle = oaiStreamRuntime.lifecycle;
+  const oaiStreamAfterEvents = oaiStreamRuntime.afterEvents;
 
   const oaiStreamingPipelineInput = createOpenAIStreamingPipelineInput({
     streamParts: streamed.fullStream as AsyncIterable<unknown>,
