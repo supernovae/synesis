@@ -226,7 +226,6 @@ import {
   claudeToolsToSDK,
   mapToolChoice,
   sdkToolCallsToOpenAI,
-  sdkToolCallsToClaude,
   claudeMessagesToOpenAI,
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
@@ -280,6 +279,7 @@ import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import { applyClaudeNonStreamDiscoveryGuardrails } from "./streaming/claude-nonstream-discovery.js";
 import { finalizeClaudeNonStreamText } from "./streaming/claude-nonstream-finalizer.js";
+import { buildClaudeNonStreamResponseContent } from "./streaming/claude-nonstream-response.js";
 import { runClaudeNonStreamTelemetry } from "./streaming/claude-nonstream-telemetry.js";
 import { prepareClaudeNonStreamToolCalls } from "./streaming/claude-nonstream-tool-calls.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -13872,47 +13872,12 @@ app.post("/v1/messages", async (req, reply) => {
     pushDiagnostic,
   });
 
-  const content: Array<Record<string, unknown>> = [];
-  if (reasoning) {
-    content.push({ type: "thinking", thinking: reasoning });
-  }
-  if (claudeServerWebSearchEvents.length > 0) {
-    for (const evt of claudeServerWebSearchEvents) {
-      content.push({
-        type: "server_tool_use",
-        id: evt.toolUseId,
-        name: evt.toolName,
-        input: evt.input,
-      });
-      if (evt.errorCode) {
-        content.push({
-          type: "web_search_tool_result",
-          tool_use_id: evt.toolUseId,
-          content: {
-            type: "web_search_tool_result_error",
-            error_code: evt.errorCode,
-          },
-        });
-      } else {
-        content.push({
-          type: "web_search_tool_result",
-          tool_use_id: evt.toolUseId,
-          content: evt.results,
-        });
-      }
-    }
-  }
-  if (finalClaudeText) {
-    content.push({ type: "text", text: finalClaudeText });
-  }
-  if (externalClaudeToolCalls.length > 0) {
-    for (const tc of sdkToolCallsToClaude(externalClaudeToolCalls)) {
-      content.push({ ...tc });
-    }
-  }
-  if (content.length === 0) {
-    content.push({ type: "text", text: "" });
-  }
+  const content = buildClaudeNonStreamResponseContent({
+    reasoning,
+    serverWebSearchEvents: claudeServerWebSearchEvents,
+    finalText: finalClaudeText,
+    toolCalls: externalClaudeToolCalls,
+  });
 
   applyClarificationRoundResponseHeader(reply, session.record.metadata);
   return reply.send({
