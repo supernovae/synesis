@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { processOpenAINonStreamProviderResult } from "../src/pipeline/openai-nonstream-postprocess.js";
+import {
+  createOpenAINonStreamPostProviderInput,
+  processOpenAINonStreamProviderResult,
+} from "../src/pipeline/openai-nonstream-postprocess.js";
 
 describe("processOpenAINonStreamProviderResult", () => {
   it("composes non-stream post-provider handling into an OpenAI response", async () => {
@@ -210,6 +213,100 @@ describe("processOpenAINonStreamProviderResult", () => {
     expect(pushDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
       path: "/v1/chat/completions",
       tokensIn: 5,
+    }));
+  });
+});
+
+describe("createOpenAINonStreamPostProviderInput", () => {
+  it("binds route scope into post-provider callbacks", () => {
+    const recordEvent = vi.fn();
+    const persistDecisionTelemetry = vi.fn();
+    const input = createOpenAINonStreamPostProviderInput({
+      scope: {
+        sessionKey: "session_1",
+        userId: "user_1",
+        orgId: "org_1",
+        requestId: "req_1",
+        recordEvent,
+        persistDecisionTelemetry,
+      },
+      responseModel: "openai-test",
+      readUsage: (usage) => usage as never,
+      toolCallInput: {
+        requestId: "old",
+        sessionKey: "old",
+        userId: "old",
+        orgId: "old",
+      } as never,
+      applyDiscoveryGuardrail: (calls) => ({
+        calls,
+        blockedCount: 0,
+        redirectedCount: 0,
+        collapsedCount: 0,
+        blockedDetails: [],
+        redirectedDetails: [],
+      }),
+      discoveryInput: {
+        projectRoot: "/repo",
+      } as never,
+      collapseInput: {
+        enabled: false,
+        rewriteNonStream: false,
+        collapseHeader: undefined,
+        workspaceRoot: null,
+        shellAllowlistEnv: "",
+        logger: { info: vi.fn() },
+        requestId: "req_1",
+      },
+      finalizerInput: {} as never,
+      telemetryInput: {
+        clientRequestedModel: "openai-test",
+        escalated: true,
+      } as never,
+      responseInput: {
+        effectiveTools: [],
+        clientKind: "opencode",
+      },
+    });
+
+    expect(input.responseId).toBe("req_1");
+    expect(input.toolCallInput).toMatchObject({
+      requestId: "req_1",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+    });
+
+    input.discoveryInput.recordSessionEvent(
+      "ignored",
+      "ignored",
+      "ignored",
+      "event",
+      "component",
+      "detail",
+      "ignored",
+      { ok: true },
+    );
+    input.telemetryInput.persistDecisionTelemetry({
+      usage: { inputTokens: 1, outputTokens: 2, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      latencyMs: 5,
+      finishReason: "stop",
+      tokensSavedByReduction: 0,
+      snapshot: {} as never,
+      trajectory: { toolSequence: [] },
+      optimizationLedger: { prefix_hash: "abc" },
+    });
+
+    expect(recordEvent).toHaveBeenCalledWith({
+      eventKind: "event",
+      component: "component",
+      detail: "detail",
+      metadataJson: { ok: true },
+    });
+    expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      finishReason: "stop",
+      escalated: true,
+      optimizationLedger: { prefix_hash: "abc" },
     }));
   });
 });

@@ -26,6 +26,7 @@ import {
 } from "./openai-nonstream-tool-calls.js";
 import type { StreamTokenUsage } from "../streaming/openai-stream-finalizer.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
+import type { OpenAINonStreamRouteScope } from "./openai-nonstream-route-scope.js";
 
 export interface OpenAINonStreamProviderResultFields {
   text?: string;
@@ -75,6 +76,122 @@ export interface OpenAINonStreamPostProviderResult {
   finishReason: string;
   finalText: string;
   toolCalls: GuardrailToolCall[];
+}
+
+export interface OpenAINonStreamPostProviderRouteInput<
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+> {
+  scope: OpenAINonStreamRouteScope;
+  responseModel: string;
+  readUsage(usage: unknown): StreamTokenUsage;
+  toolCallInput: Omit<
+    OpenAINonStreamToolCallInput<TSession>,
+    "toolCalls" | "requestId" | "sessionKey" | "userId" | "orgId"
+  >;
+  applyDiscoveryGuardrail(
+    calls: GuardrailToolCall[],
+    topLevelDirs: string[],
+  ): OpenAINonStreamDiscoveryGuardrailResult<GuardrailToolCall>;
+  discoveryInput: Omit<
+    OpenAINonStreamDiscoveryGuardrailPassInput<GuardrailToolCall>,
+    "calls" | "finalText" | "guardrail" | "recordRecoveryEvent" | "sessionKey" | "userId" | "orgId" | "requestId" | "resolvedModelId" | "recordSessionEvent"
+  >;
+  finalizerInput: Omit<
+    OpenAINonStreamFinalizerInput<TChecklist, TVerification, TPlanGraph>,
+    "finishReason" | "assistantText" | "requestId" | "sessionKey" | "userId" | "orgId" | "recordSessionEvent"
+  >;
+  telemetryInput: Omit<
+    OpenAINonStreamTelemetryInput,
+    | "usage"
+    | "finishReason"
+    | "toolNames"
+    | "gate"
+    | "requestId"
+    | "sessionKey"
+    | "userId"
+    | "orgId"
+    | "resolvedModelId"
+    | "clientRequestedModel"
+    | "recordSessionEvent"
+    | "persistDecisionTelemetry"
+  > & {
+    clientRequestedModel: string;
+    escalated: boolean;
+  };
+  collapseInput: Omit<OpenAINonStreamToolCollapseInput, "calls">;
+  responseInput: OpenAINonStreamPostProviderInput<TSession, TChecklist, TVerification, TPlanGraph>["responseInput"];
+}
+
+export function createOpenAINonStreamPostProviderInput<
+  TSession extends OpenAINonStreamToolCallSession & OpenAINonStreamFinalizerSession,
+  TChecklist,
+  TVerification,
+  TPlanGraph,
+>(
+  input: OpenAINonStreamPostProviderRouteInput<TSession, TChecklist, TVerification, TPlanGraph>,
+): Omit<OpenAINonStreamPostProviderInput<TSession, TChecklist, TVerification, TPlanGraph>, "result" | "topLevelDirs"> {
+  const recordScopedEvent = (
+    _sessionKey: string,
+    _userId: string,
+    _orgId: string,
+    eventKind: string,
+    component: string,
+    detail: string,
+    _requestId: string,
+    metadataJson?: Record<string, unknown>,
+  ): void => {
+    input.scope.recordEvent({ eventKind, component, detail, metadataJson });
+  };
+
+  return {
+    responseId: input.scope.requestId,
+    responseModel: input.responseModel,
+    readUsage: input.readUsage,
+    toolCallInput: {
+      ...input.toolCallInput,
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+    },
+    applyDiscoveryGuardrail: input.applyDiscoveryGuardrail,
+    discoveryInput: {
+      ...input.discoveryInput,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+      requestId: input.scope.requestId,
+      resolvedModelId: input.responseModel,
+      recordSessionEvent: recordScopedEvent,
+    },
+    collapseInput: input.collapseInput,
+    finalizerInput: {
+      ...input.finalizerInput,
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+      recordSessionEvent: recordScopedEvent,
+    },
+    telemetryInput: {
+      ...input.telemetryInput,
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+      resolvedModelId: input.responseModel,
+      clientRequestedModel: input.telemetryInput.clientRequestedModel,
+      recordSessionEvent: input.scope.recordEvent,
+      persistDecisionTelemetry: (telemetry) => input.scope.persistDecisionTelemetry({
+        ...telemetry,
+        escalated: input.telemetryInput.escalated,
+      }),
+    },
+    responseInput: input.responseInput,
+  };
 }
 
 export async function processOpenAINonStreamProviderResult<

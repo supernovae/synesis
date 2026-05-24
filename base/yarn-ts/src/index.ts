@@ -330,6 +330,7 @@ import { GovernorService, disabledExecutionGovernorDecision } from "./governance
 import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream-pipeline.js";
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
+import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
@@ -9521,10 +9522,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
         },
       },
       getTopLevelDirs: () => getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd),
-      postprocessInput: {
-        responseId: reqId,
+      postprocessInput: createOpenAINonStreamPostProviderInput({
+        scope: oaiNonStreamScope,
         responseModel: resolved.resolvedModelId,
         readUsage,
+        applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
         toolCallInput: {
           artifactToolName: ARTIFACT_TOOL_NAME,
           adapter,
@@ -9550,28 +9552,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
           stats: toolArgHardeningStats,
           strictGovernanceStats: openClawProfileStats,
           logger: app.log,
-          requestId: reqId,
-          sessionKey,
-          userId: oaiNonStreamScope.userId,
-          orgId: oaiNonStreamScope.orgId,
           recordUpperHarnessDecision,
           updateDiffAccumulator,
           maybeUpdateTaskLedgerFromToolCall,
           emitPlanWriteAuditEvent,
           maybeLogEnvelopeUnwrapSample,
         },
-        applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
         discoveryInput: {
-          sessionKey,
-          userId: oaiNonStreamScope.userId,
-          orgId: oaiNonStreamScope.orgId,
-          requestId: reqId,
-          resolvedModelId: resolved.resolvedModelId,
           projectRoot: effectiveOaiPathCtx.projectRoot,
           buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
           recordBlockedDiscovery,
           getBlockedDiscoveryCount,
-          recordSessionEvent,
         },
         collapseInput: {
           enabled: config.SYNESIS_YARN_TOOL_COLLAPSE_ENABLED,
@@ -9589,10 +9580,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
         },
         finalizerInput: {
           session,
-          requestId: reqId,
-          sessionKey,
-          userId: oaiNonStreamScope.userId,
-          orgId: oaiNonStreamScope.orgId,
           checklist: oaiRequirementChecklist,
           traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
           latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -9602,16 +9589,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
           responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
           applyMarkdownGuardrail,
           finalizeCompletionText,
-          recordSessionEvent,
         },
         telemetryInput: {
-          requestId: reqId,
-          sessionKey,
-          userId: oaiNonStreamScope.userId,
-          orgId: oaiNonStreamScope.orgId,
           startedAtMs: started,
-          resolvedModelId: resolved.resolvedModelId,
           clientRequestedModel: request.model,
+          escalated: orchestration.escalated,
           reductions: {
             toolResultReduction,
             validationNormalization,
@@ -9649,12 +9631,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
             estimatedTokens: oaiContextAdmission.estimatedTokens,
             estimatedChars: oaiContextAdmission.estimatedChars,
           },
-          recordSessionEvent: oaiNonStreamScope.recordEvent,
-          persistDecisionTelemetry: (telemetry) => oaiNonStreamScope.persistDecisionTelemetry({
-            ...telemetry,
-            escalated: orchestration.escalated,
-            optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
-          }),
           countMessageRoles,
           pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
           logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
@@ -9663,7 +9639,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           effectiveTools: effectiveTools as unknown[],
           clientKind: oaiClientKind,
         },
-      },
+      }),
     });
     applyClarificationRoundResponseHeader(reply, session.record.metadata);
     return sendOpenAIChatPipelineResult(reply, nonStreamResult);
