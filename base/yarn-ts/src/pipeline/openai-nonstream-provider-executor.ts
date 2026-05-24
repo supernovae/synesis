@@ -13,6 +13,7 @@ import {
 import { appendSystemMessageAndNormalize } from "../transcript/system-message-ordering.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { StreamTokenUsage } from "../streaming/openai-stream-finalizer.js";
+import type { OpenAINonStreamRouteScope } from "./openai-nonstream-route-scope.js";
 
 export interface OpenAINonStreamProviderMessage {
   role: string;
@@ -63,6 +64,87 @@ export interface OpenAINonStreamProviderExecutorResult<
   messages: TMessage[];
   toolChoice: PhaseAwareToolChoice | undefined;
   requestForensicsDone?: RequestForensicsRecord;
+}
+
+export interface OpenAINonStreamProviderForensicsContext<TMessage extends OpenAINonStreamProviderMessage> {
+  sessionKey: string;
+  requestId: string;
+  path: string;
+  resolvedModelId: string;
+  stream: boolean;
+  messages: TMessage[];
+  tools?: unknown;
+  toolChoice: PhaseAwareToolChoice | undefined;
+  providerOptions?: unknown;
+  phasePolicy?: RequestForensicsRecord["phasePolicy"];
+  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+}
+
+export interface OpenAINonStreamProviderFinalizeForensicsContext {
+  sessionKey: string;
+  requestId: string;
+  resolvedModelId: string;
+}
+
+export interface OpenAINonStreamProviderExecutorRouteInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+> extends Omit<
+    OpenAINonStreamProviderExecutorInput<TMessage, TResult, TForensics>,
+    "captureForensics" | "finalizeForensics" | "recordSessionEvent" | "serverSideToolResolvers"
+  > {
+  scope: Pick<OpenAINonStreamRouteScope, "sessionKey" | "requestId" | "recordEvent">;
+  resolvedModelId: string;
+  forensics: {
+    path: string;
+    stream: boolean;
+    tools?: unknown;
+    phasePolicy?: RequestForensicsRecord["phasePolicy"];
+    capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+    capture(context: OpenAINonStreamProviderForensicsContext<TMessage>): TForensics | null;
+    finalize(
+      forensics: TForensics | null,
+      usage: StreamTokenUsage,
+      context: OpenAINonStreamProviderFinalizeForensicsContext,
+    ): RequestForensicsRecord | undefined;
+  };
+  serverSideToolResolvers: ServerSideToolReplayResolvers;
+}
+
+export function createOpenAINonStreamProviderExecutorInput<
+  TMessage extends OpenAINonStreamProviderMessage,
+  TResult extends OpenAINonStreamProviderResultLike,
+  TForensics,
+>(
+  input: OpenAINonStreamProviderExecutorRouteInput<TMessage, TResult, TForensics>,
+): OpenAINonStreamProviderExecutorInput<TMessage, TResult, TForensics> {
+  return {
+    ...input,
+    recordSessionEvent: input.scope.recordEvent,
+    captureForensics: (messages, toolChoice) => input.forensics.capture({
+      sessionKey: input.scope.sessionKey,
+      requestId: input.scope.requestId,
+      path: input.forensics.path,
+      resolvedModelId: input.resolvedModelId,
+      stream: input.forensics.stream,
+      messages,
+      tools: input.forensics.tools,
+      toolChoice,
+      providerOptions: input.providerOptions,
+      phasePolicy: input.forensics.phasePolicy,
+      capabilityMatrix: input.forensics.capabilityMatrix,
+    }),
+    finalizeForensics: (forensics, usage) => input.forensics.finalize(
+      forensics,
+      usage,
+      {
+        sessionKey: input.scope.sessionKey,
+        requestId: input.scope.requestId,
+        resolvedModelId: input.resolvedModelId,
+      },
+    ),
+  };
 }
 
 export async function executeOpenAINonStreamProviderLoop<

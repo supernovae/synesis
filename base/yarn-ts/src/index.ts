@@ -331,6 +331,7 @@ import { runOpenAIChatNonStreamPipeline } from "./pipeline/openai-chat-nonstream
 import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
 import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
 import { createOpenAINonStreamPostProviderInput } from "./pipeline/openai-nonstream-postprocess.js";
+import { createOpenAINonStreamProviderExecutorInput } from "./pipeline/openai-nonstream-provider-executor.js";
 import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
 import { shouldRunGovernorForMode } from "./pipeline/modes.js";
 import {
@@ -9453,7 +9454,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
       recordSessionEvent: (eventKind, component, detail, metadataJson) =>
         oaiNonStreamScope.recordEvent({ eventKind, component, detail, metadataJson }),
-      providerInput: {
+      providerInput: createOpenAINonStreamProviderExecutorInput({
+        scope: oaiNonStreamScope,
+        resolvedModelId: resolved.resolvedModelId,
         initialMessages: modelMessages,
         model: resolved.model,
         orchestrationMaxOutputTokens: orchestration.maxOutputTokens,
@@ -9468,30 +9471,26 @@ app.post("/v1/chat/completions", async (req, reply) => {
         clampMaxOutputTokens: clampMaxOutputTokensForSafety,
         generateText: (options) => generateText(options as never),
         readUsage,
-        captureForensics: (messages, toolChoice) => captureRequestForensics(
-          sessionKey,
-          reqId,
-          "/v1/chat/completions",
-          resolved.resolvedModelId,
-          false,
-          messages as Array<{ role: string; content: unknown }>,
-          effectiveTools as unknown[],
-          toolChoice,
-          oaiProviderOptions,
-          oaiForensicsPhasePolicy,
-          oaiForensicsCapabilityMatrix,
-        ),
-        finalizeForensics: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
-        recordSessionEvent: (event) => {
-          recordSessionEvent(
-            sessionKey,
-            identity.userId,
-            identity.orgId,
-            event.eventKind,
-            event.component,
-            event.detail,
-            reqId,
-          );
+        forensics: {
+          path: "/v1/chat/completions",
+          stream: false,
+          tools: effectiveTools as unknown[],
+          phasePolicy: oaiForensicsPhasePolicy,
+          capabilityMatrix: oaiForensicsCapabilityMatrix,
+          capture: (context) => captureRequestForensics(
+            context.sessionKey,
+            context.requestId,
+            context.path,
+            context.resolvedModelId,
+            context.stream,
+            context.messages as Array<{ role: string; content: unknown }>,
+            context.tools as unknown[],
+            context.toolChoice,
+            context.providerOptions,
+            context.phasePolicy,
+            context.capabilityMatrix,
+          ),
+          finalize: (forensics, usage) => finalizeRequestForensics(session, reqId, forensics, usage),
         },
         serverSideToolResolvers: {
           artifactToolName: ARTIFACT_TOOL_NAME,
@@ -9520,7 +9519,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
             }),
           ),
         },
-      },
+      }),
       getTopLevelDirs: () => getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd),
       postprocessInput: createOpenAINonStreamPostProviderInput({
         scope: oaiNonStreamScope,

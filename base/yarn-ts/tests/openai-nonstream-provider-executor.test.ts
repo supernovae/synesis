@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createOpenAINonStreamProviderExecutorInput,
   executeOpenAINonStreamProviderLoop,
   type OpenAINonStreamProviderResultLike,
 } from "../src/pipeline/openai-nonstream-provider-executor.js";
@@ -100,5 +101,62 @@ describe("executeOpenAINonStreamProviderLoop", () => {
     expect(seenMessages[1]).toHaveLength(3);
     expect(seenMessages[1][1]).toMatchObject({ role: "assistant" });
     expect(seenMessages[1][2]).toMatchObject({ role: "tool" });
+  });
+});
+
+describe("createOpenAINonStreamProviderExecutorInput", () => {
+  it("binds route scope and request forensics callbacks", () => {
+    const recordEvent = vi.fn();
+    const capture = vi.fn((context) => ({ context }));
+    const finalize = vi.fn(() => undefined);
+    const input = createOpenAINonStreamProviderExecutorInput<Message, OpenAINonStreamProviderResultLike, { context: unknown }>({
+      ...baseInput(),
+      scope: {
+        sessionKey: "session_1",
+        requestId: "req_1",
+        recordEvent,
+      },
+      resolvedModelId: "openai-test",
+      forensics: {
+        path: "/v1/chat/completions",
+        stream: false,
+        tools: [{ type: "function", function: { name: "Read" } }],
+        phasePolicy: { active: false },
+        capabilityMatrix: { tools: [] },
+        capture,
+        finalize,
+      },
+    });
+
+    input.recordSessionEvent({
+      eventKind: "phase_required_validation_retry",
+      component: "execution-governor",
+      detail: "reasons=missing",
+    });
+    const forensics = input.captureForensics([{ role: "user", content: "hello" }], "auto" as never);
+    input.finalizeForensics(forensics, { inputTokens: 1, outputTokens: 1, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 });
+
+    expect(recordEvent).toHaveBeenCalledWith({
+      eventKind: "phase_required_validation_retry",
+      component: "execution-governor",
+      detail: "reasons=missing",
+    });
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey: "session_1",
+      requestId: "req_1",
+      path: "/v1/chat/completions",
+      resolvedModelId: "openai-test",
+      stream: false,
+      providerOptions: input.providerOptions,
+    }));
+    expect(finalize).toHaveBeenCalledWith(
+      forensics,
+      { inputTokens: 1, outputTokens: 1, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      {
+        sessionKey: "session_1",
+        requestId: "req_1",
+        resolvedModelId: "openai-test",
+      },
+    );
   });
 });
