@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolArgHardeningStats } from "../src/governance/tool-call-observability.js";
 import type { ModelAdapter } from "../src/providers/model-adapter.js";
-import { processClaudeNonStreamProviderResult } from "../src/streaming/claude-nonstream-postprocess.js";
+import {
+  createClaudeNonStreamPostProviderInput,
+  processClaudeNonStreamProviderResult,
+} from "../src/streaming/claude-nonstream-postprocess.js";
 
 function stats(): ToolArgHardeningStats {
   return {
@@ -182,6 +185,64 @@ describe("processClaudeNonStreamProviderResult", () => {
       path: "/v1/messages",
       tokensIn: 12,
       tokensOut: 3,
+    }));
+  });
+});
+
+describe("createClaudeNonStreamPostProviderInput", () => {
+  it("binds route scope identity into post-provider inputs", () => {
+    const recordEvent = vi.fn();
+    const persistDecisionTelemetry = vi.fn();
+
+    const input = createClaudeNonStreamPostProviderInput({
+      result: { text: "done", toolCalls: [] },
+      serverWebSearchEvents: [],
+      readUsage: vi.fn() as never,
+      scope: {
+        sessionKey: "session_scope",
+        userId: "user_scope",
+        orgId: "org_scope",
+        requestId: "req_scope",
+        recordEvent,
+        persistDecisionTelemetry,
+      },
+      resolvedModelId: "claude-resolved",
+      clientRequestedModel: "claude-requested",
+      toolCallInput: { clientKind: "claude-code" } as never,
+      discoveryInput: { projectRoot: "/repo" } as never,
+      finalizerInput: { latestUserPrompt: "hello" } as never,
+      telemetryInput: { startedAtMs: 123 } as never,
+    });
+
+    expect(input.toolCallInput).toEqual(expect.objectContaining({
+      clientKind: "claude-code",
+      requestId: "req_scope",
+    }));
+    expect(input.discoveryInput).toEqual(expect.objectContaining({
+      projectRoot: "/repo",
+      sessionKey: "session_scope",
+      userId: "user_scope",
+      orgId: "org_scope",
+      requestId: "req_scope",
+      resolvedModelId: "claude-resolved",
+    }));
+    expect(input.finalizerInput).toEqual(expect.objectContaining({
+      latestUserPrompt: "hello",
+      requestId: "req_scope",
+      sessionKey: "session_scope",
+      userId: "user_scope",
+      orgId: "org_scope",
+    }));
+    expect(input.telemetryInput).toEqual(expect.objectContaining({
+      startedAtMs: 123,
+      requestId: "req_scope",
+      sessionKey: "session_scope",
+      userId: "user_scope",
+      orgId: "org_scope",
+      resolvedModelId: "claude-resolved",
+      clientRequestedModel: "claude-requested",
+      recordSessionEvent: recordEvent,
+      persistDecisionTelemetry,
     }));
   });
 });

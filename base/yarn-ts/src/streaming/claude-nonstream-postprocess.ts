@@ -20,6 +20,7 @@ import {
   type ClaudeNonStreamToolCall,
 } from "./claude-nonstream-tool-calls.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
+import type { ClaudeNonStreamRouteScope } from "./claude-nonstream-route-scope.js";
 
 export interface ClaudeNonStreamProviderResultFields {
   text?: string;
@@ -47,6 +48,42 @@ export interface ClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPl
   >;
 }
 
+export interface ClaudeNonStreamPostProviderRouteInput<TChecklist, TVerification, TPlanGraph> {
+  result: ClaudeNonStreamProviderResultFields;
+  serverWebSearchEvents: ClaudeNonStreamServerWebSearchEvent[];
+  readUsage(usage: unknown): StreamTokenUsage;
+  scope: Pick<
+    ClaudeNonStreamRouteScope,
+    "sessionKey" | "userId" | "orgId" | "requestId" | "recordEvent" | "persistDecisionTelemetry"
+  >;
+  resolvedModelId: string;
+  clientRequestedModel: string;
+  toolCallInput: Omit<ClaudeNonStreamRouteToolCallInput, "toolCalls" | "requestId">;
+  discoveryInput: Omit<
+    ClaudeNonStreamDiscoveryInput<ClaudeNonStreamExternalToolCall>,
+    "calls" | "finalText" | "stopReason" | "sessionKey" | "userId" | "orgId" | "requestId" | "resolvedModelId"
+  >;
+  finalizerInput: Omit<
+    ClaudeNonStreamFinalizerInput<TChecklist, TVerification, TPlanGraph>,
+    "stopReason" | "assistantText" | "requestId" | "sessionKey" | "userId" | "orgId"
+  >;
+  telemetryInput: Omit<
+    ClaudeNonStreamTelemetryInput,
+    | "requestId"
+    | "sessionKey"
+    | "userId"
+    | "orgId"
+    | "resolvedModelId"
+    | "clientRequestedModel"
+    | "finishReason"
+    | "usage"
+    | "toolNames"
+    | "gate"
+    | "recordSessionEvent"
+    | "persistDecisionTelemetry"
+  >;
+}
+
 export interface ClaudeNonStreamPostProviderResult {
   content: ClaudeNonStreamResponseContentBlock[];
   usage: StreamTokenUsage;
@@ -54,6 +91,46 @@ export interface ClaudeNonStreamPostProviderResult {
   finalText: string;
   toolCalls: ClaudeNonStreamExternalToolCall[];
   finalized: ClaudeNonStreamFinalizerResult;
+}
+
+export function createClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPlanGraph>(
+  input: ClaudeNonStreamPostProviderRouteInput<TChecklist, TVerification, TPlanGraph>,
+): ClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPlanGraph> {
+  return {
+    result: input.result,
+    serverWebSearchEvents: input.serverWebSearchEvents,
+    readUsage: input.readUsage,
+    toolCallInput: {
+      ...input.toolCallInput,
+      requestId: input.scope.requestId,
+    },
+    discoveryInput: {
+      ...input.discoveryInput,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+      requestId: input.scope.requestId,
+      resolvedModelId: input.resolvedModelId,
+    },
+    finalizerInput: {
+      ...input.finalizerInput,
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+    },
+    telemetryInput: {
+      ...input.telemetryInput,
+      requestId: input.scope.requestId,
+      sessionKey: input.scope.sessionKey,
+      userId: input.scope.userId,
+      orgId: input.scope.orgId,
+      resolvedModelId: input.resolvedModelId,
+      clientRequestedModel: input.clientRequestedModel,
+      recordSessionEvent: input.scope.recordEvent,
+      persistDecisionTelemetry: input.scope.persistDecisionTelemetry,
+    },
+  };
 }
 
 export async function processClaudeNonStreamProviderResult<TChecklist, TVerification, TPlanGraph>(

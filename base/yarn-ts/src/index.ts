@@ -281,7 +281,10 @@ import {
   finalizeClaudeNonStreamProviderSuccess,
   handleClaudeNonStreamProviderError,
 } from "./streaming/claude-nonstream-lifecycle.js";
-import { processClaudeNonStreamProviderResult } from "./streaming/claude-nonstream-postprocess.js";
+import {
+  createClaudeNonStreamPostProviderInput,
+  processClaudeNonStreamProviderResult,
+} from "./streaming/claude-nonstream-postprocess.js";
 import { executeClaudeNonStreamProviderLoop } from "./streaming/claude-nonstream-provider-executor.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -13552,7 +13555,7 @@ app.post("/v1/messages", async (req, reply) => {
     span: claudeNonStreamSpan,
     circuitBreakers,
   });
-  const claudePostProvider = await processClaudeNonStreamProviderResult({
+  const claudePostProvider = await processClaudeNonStreamProviderResult(createClaudeNonStreamPostProviderInput({
     result: result as unknown as {
       text?: string;
       reasoning?: unknown;
@@ -13561,9 +13564,11 @@ app.post("/v1/messages", async (req, reply) => {
     },
     serverWebSearchEvents: claudeServerWebSearchEvents,
     readUsage,
+    scope: claudeNonStreamScope,
+    resolvedModelId: resolved.resolvedModelId,
+    clientRequestedModel: body.model,
     toolCallInput: {
       adapter: claudeAdapter,
-      requestId: reqId,
       clientKind: claudeClientKind,
       strictGovernance: claudeOpenClawStrictGovernance,
       upperHarness: claudeUpperHarness,
@@ -13602,11 +13607,6 @@ app.post("/v1/messages", async (req, reply) => {
       },
     },
     discoveryInput: {
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
       projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
       getTopLevelDirs: getCachedTopLevelDirs,
       applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
@@ -13617,10 +13617,6 @@ app.post("/v1/messages", async (req, reply) => {
     },
     finalizerInput: {
       session,
-      requestId: reqId,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
       checklist: claudeRequirementChecklist,
       traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
       latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
@@ -13633,13 +13629,7 @@ app.post("/v1/messages", async (req, reply) => {
       recordSessionEvent,
     },
     telemetryInput: {
-      requestId: reqId,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
       startedAtMs: started,
-      resolvedModelId: resolved.resolvedModelId,
-      clientRequestedModel: body.model,
       reductions: { toolResultReduction, validationNormalization },
       reducedToolResults: claudeToolResultCount,
       orchestration: claudeOrchestration,
@@ -13674,12 +13664,10 @@ app.post("/v1/messages", async (req, reply) => {
         estimatedChars: claudeContextAdmission.estimatedChars,
       },
       requestForensicsDone: lastClaudeNonStreamForensics,
-      recordSessionEvent: claudeNonStreamScope.recordEvent,
-      persistDecisionTelemetry: claudeNonStreamScope.persistDecisionTelemetry,
       countMessageRoles,
       pushDiagnostic,
     },
-  });
+  }));
 
   applyClarificationRoundResponseHeader(reply, session.record.metadata);
   return reply.send({
