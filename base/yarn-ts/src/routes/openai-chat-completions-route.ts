@@ -3,9 +3,7 @@ import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import { prepareOpenAIRouteNormalization } from "../pipeline/openai-route-normalization.js";
 import { prepareOpenAISessionWorkspace } from "../pipeline/openai-session-workspace-preparation.js";
 import { prepareOpenAIGovernedStage } from "../pipeline/openai-governed-stage.js";
-import { prepareOpenAIEnrichment } from "../pipeline/openai-enrichment-preparation.js";
-import { prepareOpenAIProviderRuntimeForRoute } from "../pipeline/openai-provider-runtime-preparation.js";
-import { executeOpenAIProviderForRoute } from "../pipeline/openai-provider-route-execution.js";
+import { runOpenAIPostGovernanceProviderStage } from "../pipeline/openai-post-governance-provider-stage.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 
 type AuthUser = import("../auth.js").AuthUser;
@@ -558,248 +556,97 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     if (oaiGovernedStage.kind === "reject") {
       return reply.code(400).send(policyRejectOpenAIBody(oaiGovernedStage.decision as never));
     }
-    let effectiveOaiPathCtx = oaiGovernedStage.effectivePathContext;
-    const effectiveOaiAdapterBlock = oaiGovernedStage.effectiveAdapterBlock;
-    const buildEffectiveOaiAdapterBlock = oaiGovernedStage.buildEffectiveAdapterBlock;
-    const oaiRequirementChecklist = oaiGovernedStage.requirementChecklist;
-    const oaiTaskIntake = oaiGovernedStage.taskIntake;
-    const oaiPlanGraph = oaiGovernedStage.planGraph;
-    const oaiPromptIntake = oaiGovernedStage.promptIntake;
-    const oaiPlannerTodoPacketBlock = oaiGovernedStage.plannerTodoPacketBlock;
-    const oaiEditMissGuard = oaiGovernedStage.editMissGuard;
-    const oaiLatestReadRefresh = oaiGovernedStage.latestReadRefresh;
-    const oaiPrefetchResult = oaiGovernedStage.prefetchResult;
-    const oaiPatternResult = oaiGovernedStage.patternResult;
-    const combinedEvidenceConfidence = oaiGovernedStage.combinedEvidenceConfidence;
-    const orchestration = oaiGovernedStage.orchestration;
-    const oaiEvidencePrefetched = oaiGovernedStage.evidencePrefetched;
-    const oaiSensemakingResult = oaiGovernedStage.sensemakingResult;
-    const oaiSensemakingBlock = oaiGovernedStage.sensemakingBlock;
-    const oaiArtifactShadows = oaiGovernedStage.artifactShadows;
-    const oaiFileState = oaiGovernedStage.fileState;
-    const oaiChatState = oaiGovernedStage.chatState;
-    const oaiObjectiveScope = oaiGovernedStage.objectiveScope;
-    const oaiScopedMessages = oaiGovernedStage.scopedMessages;
-    const oaiStateConfidence = oaiGovernedStage.stateConfidence;
-    const oaiStateConfidenceBlock = oaiGovernedStage.stateConfidenceBlock;
-    const oaiNeedsStateReground = oaiGovernedStage.needsStateReground;
-    const oaiPauseChatSummary = oaiGovernedStage.pauseChatSummary;
-    const oaiPauseFileSummary = oaiGovernedStage.pauseFileSummary;
-    const oaiChatStateBlock = oaiGovernedStage.chatStateBlock;
-    const oaiFileStateBlock = oaiGovernedStage.fileStateBlock;
-    const oaiExecutionGovernor = oaiGovernedStage.executionGovernor;
-    const oaiGovernorPauseResumeBlock = oaiGovernedStage.governorPauseResumeBlock;
-    const oaiSensemakingDecision = oaiGovernedStage.sensemakingDecision;
-    const policyPrecheck = oaiGovernedStage.policyPrecheck;
-    const oaiClientToolInventory = oaiGovernedStage.clientToolInventory;
-    const oaiGovernorPhase = oaiGovernedStage.governorPhase;
-    const endOaiEnrichmentStage = oaiOptLedger.startStage("enrichment");
-    const oaiEnrichment = await prepareOpenAIEnrichment({
-      deps: {
-        app,
-        applyWorkspaceMetadataPrebackfill,
-        buildRouteGovernanceBlocks,
-        config,
-        enrichWithFrameAndManifest,
-        extractMetadataFromMessages,
-        finalizePostEnrichmentMessages,
-        getCachedTopLevelDirs,
-        getMemoryGovernor,
-        getSessionMemoryCount,
-        getStructuralIndex,
-        inferModelFamily,
-        recordSessionEvent,
-        roleAssignmentRegistry,
-        securityIngestConfig,
-        setSessionWorkspaceContext,
-        TIER_TO_ROLE,
-      },
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      pathContext: effectiveOaiPathCtx,
-      adapterBlock: effectiveOaiAdapterBlock,
-      buildAdapterBlock: buildEffectiveOaiAdapterBlock,
-      scopedMessages: oaiScopedMessages,
-      normalizedMessages: normalizedOpenAI.messages as unknown[],
-      orchestration,
-      clientToolCapabilities: oaiClientToolCapabilities,
-      taskIntake: oaiTaskIntake,
-      planGraph: oaiPlanGraph,
-      objectiveScope: oaiObjectiveScope as { relevantEvidenceBlock?: string | null; artifactBridgeBlock?: string | null },
-      stateConfidenceBlock: oaiStateConfidenceBlock,
-      freshImplicitSessionNotice: oaiFreshImplicitSessionNotice,
-      governorPauseResumeBlock: oaiGovernorPauseResumeBlock,
-      plannerTodoPacketBlock: oaiPlannerTodoPacketBlock,
-      chatStateBlock: oaiChatStateBlock,
-      fileStateBlock: oaiFileStateBlock,
-      requirementChecklist: oaiRequirementChecklist,
-    });
-    effectiveOaiPathCtx = oaiEnrichment.pathContext;
-    if (!oaiEnrichment.ok) {
-      return sendOpenAIChatPipelineResult(reply, oaiEnrichment.result);
-    }
-    const oaiEnriched = oaiEnrichment.enriched;
-    const oaiEnrichedMsgs = oaiEnrichment.enrichedMessages;
-    const reqId = oaiTraceReqId;
-    endOaiEnrichmentStage();
-    const endOaiProviderRequestStage = oaiOptLedger.startStage("provider_request");
-    const oaiProviderRuntime = await prepareOpenAIProviderRuntimeForRoute({
-      deps: {
-        adapterUsesToolLoopSteering,
-        app,
-        applyEditContextMissReadGate,
-        applyMarkdownGuardrail,
-        artifactRetrieval,
-        artifactStore,
-        buildDefaultPolicy,
-        buildEditContextMissForcedReadPrompt,
-        buildEditContextMissGuardPrompt,
-        buildEvidenceTraceSummary,
-        buildStateRegroundReadPrompt,
-        config,
-        contextAdmissionStats,
-        deserializeShadow,
-        ensureReadToolAvailabilityForEditMissGuard,
-        evaluateCachePolicyForSession,
-        finalizeCompletionText,
-        findPreferredReadToolName,
-        forceCheckpoint,
-        formatEvidenceBlock,
-        formatPatternBlock,
-        getMetadataString,
-        inferVerificationSteps,
-        injectSessionContext,
-        isOpenClawProfile,
-        isWriteCapableToolName,
-        knowledgeSearch,
-        loadProviderCachePolicyWindow,
-        markerBackendForRequest,
-        prefixOptimizer,
-        pushDiagnostic,
-        recordSessionEvent,
-        recordUpperHarnessDecision,
-        resolveEndpointCapabilityId,
-        runOpenAIRequest,
-        sessionPersistenceRunner,
-        setSessionWorkspaceContext,
-        shouldRestrictDiscoveryForPlanWork,
-        shouldSampleBySeed,
-        tierRegistry,
-        toolArgHardeningStats,
-        transcriptPruning,
-        webSearch,
-      },
-      request,
-      normalizedOpenAI,
-      enrichedMessages: oaiEnrichedMsgs,
-      toolResultCount,
-      session,
-      sessionKey,
-      requestId: reqId,
-      identity,
-      pathContext: effectiveOaiPathCtx,
-      selectedModel: orchestration.selectedModel,
-      prefetchResult: oaiPrefetchResult,
-      patternResult: oaiPatternResult,
-      sensemakingBlock: oaiSensemakingBlock,
-      policyPrecheck: policyPrecheck as { pivotPrompt?: string | null; matchedRules: string[] },
-      latestUserText,
-      runtimePreferences: oaiRuntimePreferences,
-      enriched: oaiEnriched,
-      normalizedRequestContext: {
-        clientToolCapabilities: oaiClientToolCapabilities,
-        clientTaskCue: oaiTaskCue,
-        clientKind: oaiClientKind,
-        orchestration,
-        adapterProfile,
-        openClawStrictGovernance,
-        phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
-        governorPhase: oaiGovernorPhase as never,
-        executionGovernor: oaiExecutionGovernor as { matchedRules: string[] },
-        editMissGuard: oaiEditMissGuard,
-        needsStateReground: oaiNeedsStateReground,
-        stateConfidence: oaiStateConfidence as { recommendedReadPath?: string | null; reasons?: string[] },
-        clientToolInventory: oaiClientToolInventory,
-        workspaceInspection: oaiWorkspaceInspection,
-        latestReadRefresh: oaiLatestReadRefresh as { filePath?: string | null },
-        promptIntake: oaiPromptIntake,
-        sensemakingDecision: oaiSensemakingDecision as { responseLevel?: string; shouldPause?: boolean; shouldRestrictDiscovery?: boolean } | null | undefined,
-        chatState: oaiChatState,
-        fileState: oaiFileState,
-        compactionOptions: oaiCompactionOpts,
-        reductions: {
-          toolResultReduction,
-          validationNormalization,
-        },
-        reducedToolResults: reducedOpenAI.reducedCount,
-        evidencePrefetched: oaiEvidencePrefetched,
-        evidenceConfidence: combinedEvidenceConfidence || undefined,
-        sensemakingResult: oaiSensemakingResult as { triggered?: boolean; reason?: string } | null | undefined,
-        governorSummaries: {
-          chat: oaiPauseChatSummary,
-          file: oaiPauseFileSummary,
-        },
-        trajectoryDiagnostics: oaiTrajectoryDiagnostics,
-        requirementChecklist: oaiRequirementChecklist,
-        verificationAssessment: oaiVerificationAssessment,
-        planGraph: oaiPlanGraph,
-        artifactShadows: oaiArtifactShadows,
-      },
-      optimizationLedger: oaiOptLedger,
-    });
-    effectiveOaiPathCtx = oaiProviderRuntime.pathContext;
-    if (!oaiProviderRuntime.ok) {
-      return sendOpenAIChatPipelineResult(reply, oaiProviderRuntime.result);
-    }
-    const normalizedRequest = oaiProviderRuntime.normalizedRequest;
-    const resolved = oaiProviderRuntime.resolved as never;
-    const oaiProviderPreparation = oaiProviderRuntime.providerPreparation;
-    endOaiProviderRequestStage();
-
-    const providerExecution = await executeOpenAIProviderForRoute({
+    const providerExecution = await runOpenAIPostGovernanceProviderStage({
       deps: {
         ARTIFACT_TOOL_NAME,
         DEV_DOCS_TOOL_NAME,
         KNOWLEDGE_TOOL_NAME,
+        TIER_TO_ROLE,
         WEB_SEARCH_TOOL_ALIAS,
         WEB_SEARCH_TOOL_NAME,
+        adapterUsesToolLoopSteering,
         app,
         applyDiscoveryToolGuardrail,
+        applyEditContextMissReadGate,
+        applyMarkdownGuardrail,
+        applyWorkspaceMetadataPrebackfill,
         artifactRetrieval,
+        artifactStore,
         buildBlockedDiscoveryRecoverySnapshot,
+        buildDefaultPolicy,
+        buildEditContextMissForcedReadPrompt,
+        buildEditContextMissGuardPrompt,
+        buildEvidenceTraceSummary,
+        buildRouteGovernanceBlocks,
+        buildStateRegroundReadPrompt,
         captureRequestForensics,
         circuitBreakers,
         clampMaxOutputTokensForSafety,
         computePrefixFingerprint,
+        config,
+        contextAdmissionStats,
+        deserializeShadow,
         emitPlanWriteAuditEvent,
+        ensureReadToolAvailabilityForEditMissGuard,
+        enrichWithFrameAndManifest,
+        evaluateCachePolicyForSession,
         extractUpstreamErrorDiagnostics,
+        extractMetadataFromMessages,
+        finalizeCompletionText,
+        finalizePostEnrichmentMessages,
         finalizePostStreamText,
         finalizeRequestForensics,
+        findPreferredReadToolName,
+        forceCheckpoint,
+        formatEvidenceBlock,
+        formatPatternBlock,
         generateText,
         getBlockedDiscoveryCount,
         getCachedTopLevelDirs,
         getTracer,
+        getMemoryGovernor,
+        getMetadataString,
+        getSessionMemoryCount,
+        getStructuralIndex,
+        inferModelFamily,
+        inferVerificationSteps,
+        injectSessionContext,
+        isOpenClawProfile,
+        isWriteCapableToolName,
         knowledgeResolveContext,
         knowledgeSearch,
+        loadProviderCachePolicyWindow,
+        markerBackendForRequest,
         maybeLogEnvelopeUnwrapSample,
         maybeUpdateTaskLedgerFromToolCall,
         openAiChatPipeline,
         openClawProfileStats,
+        prefixOptimizer,
+        pushDiagnostic,
         readUsage,
         recordBlockedDiscovery,
         recordSessionEvent,
         recordUpperHarnessDecision,
+        resolveEndpointCapabilityId,
+        roleAssignmentRegistry,
+        runOpenAIRequest,
         safeEnd,
         safeWrite,
+        securityIngestConfig,
+        sessionPersistenceRunner,
+        setSessionWorkspaceContext,
+        shouldRestrictDiscoveryForPlanWork,
+        shouldSampleBySeed,
         sseHeadersWithClarification,
         startSseHeartbeat,
         streamAdmission,
         streamText,
         tierRegistry,
         toolArgHardeningStats,
+        toolResultReduction,
+        transcriptPruning,
         updateDiffAccumulator,
+        validationNormalization,
         webSearch,
         webSearchResolveContext,
         yarnDedupeLayer,
@@ -809,22 +656,30 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       requestHeaders: req.headers as Record<string, string | string[] | undefined>,
       rawReply: reply.raw,
       session,
-      identity,
-      config,
       sessionKey,
-      requestId: reqId,
-      normalizedRequest,
+      identity,
+      requestId: oaiTraceReqId,
       request,
-      resolved,
-      providerPreparation: oaiProviderPreparation,
-      governorPhase: oaiGovernorPhase,
-      forensicsCapabilityMatrix: oaiForensicsCapabilityMatrix,
-      orchestration,
-      optimizationLedger: oaiOptLedger,
-      pathContext: effectiveOaiPathCtx,
-      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null,
-      prefetchResult: oaiPrefetchResult,
+      normalizedOpenAI,
+      governedStage: oaiGovernedStage,
+      clientToolCapabilities: oaiClientToolCapabilities,
+      clientTaskCue: oaiTaskCue,
       clientKind: oaiClientKind,
+      adapterProfile,
+      openClawStrictGovernance,
+      phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
+      workspaceInspection: oaiWorkspaceInspection,
+      compactionOptions: oaiCompactionOpts,
+      reducedOpenAI,
+      toolResultCount,
+      runtimePreferences: oaiRuntimePreferences,
+      latestUserText,
+      freshImplicitSessionNotice: oaiFreshImplicitSessionNotice,
+      trajectoryDiagnostics: oaiTrajectoryDiagnostics,
+      verificationAssessment: oaiVerificationAssessment,
+      forensicsCapabilityMatrix: oaiForensicsCapabilityMatrix,
+      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null,
+      optimizationLedger: oaiOptLedger,
     });
     if (providerExecution.applyClarificationHeader) {
       applyClarificationRoundResponseHeader(reply, session.record.metadata);
