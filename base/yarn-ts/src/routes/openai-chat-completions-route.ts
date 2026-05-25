@@ -10,6 +10,7 @@ import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-prech
 import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
 import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js";
 import { prepareOpenAITurn } from "../pipeline/openai-turn-preparation.js";
+import { prepareOpenAIEnrichment } from "../pipeline/openai-enrichment-preparation.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 
@@ -726,7 +727,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, oaiWorkspaceHandshakeAction.toolCallId);
     }
     let effectiveOaiPathCtx = oaiTurn.effectivePathContext;
-    let effectiveOaiAdapterBlock = oaiTurn.effectiveAdapterBlock;
+    const effectiveOaiAdapterBlock = oaiTurn.effectiveAdapterBlock;
     const buildEffectiveOaiAdapterBlock = oaiTurn.buildEffectiveAdapterBlock;
     const oaiRecallDecision = oaiTurn.recallDecision;
     const oaiVerifState = oaiTurn.verificationState;
@@ -1057,74 +1058,54 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     }
     endOaiGovernorStage();
     const endOaiEnrichmentStage = oaiOptLedger.startStage("enrichment");
-    const oaiRole = TIER_TO_ROLE[orchestration.tier];
-    const oaiBackendModel = roleAssignmentRegistry.get(oaiRole)?.backendModel ?? "";
-    const oaiPromptContext = {
-      tier: orchestration.tier,
-      role: oaiRole,
-      modelFamily: inferModelFamily(oaiBackendModel),
-    };
-    const oaiMetadataPrebackfill = applyWorkspaceMetadataPrebackfill({
+    const oaiEnrichment = await prepareOpenAIEnrichment({
+      deps: {
+        app,
+        applyWorkspaceMetadataPrebackfill,
+        buildRouteGovernanceBlocks,
+        config,
+        enrichWithFrameAndManifest,
+        extractMetadataFromMessages,
+        finalizePostEnrichmentMessages,
+        getCachedTopLevelDirs,
+        getMemoryGovernor,
+        getSessionMemoryCount,
+        getStructuralIndex,
+        inferModelFamily,
+        recordSessionEvent,
+        roleAssignmentRegistry,
+        securityIngestConfig,
+        setSessionWorkspaceContext,
+        TIER_TO_ROLE,
+      },
+      session,
+      sessionKey,
+      identity,
+      requestId: oaiTraceReqId,
       pathContext: effectiveOaiPathCtx,
       adapterBlock: effectiveOaiAdapterBlock,
-      messages: normalizedOpenAI.messages as never,
-      session,
-      requestId: oaiTraceReqId,
-      extractMetadataFromMessages: (messages) => extractMetadataFromMessages(messages as never),
       buildAdapterBlock: buildEffectiveOaiAdapterBlock,
-      setWorkspaceContext: setSessionWorkspaceContext,
-      logInfo: (record, message) => app.log.info(record, message),
-      logSessionKey: sessionKey,
-    });
-    effectiveOaiPathCtx = oaiMetadataPrebackfill.pathContext;
-    effectiveOaiAdapterBlock = oaiMetadataPrebackfill.adapterBlock;
-    const oaiSeedDirs = await getCachedTopLevelDirs(effectiveOaiPathCtx.projectRoot ?? effectiveOaiPathCtx.shellCwd);
-    const oaiGovernanceBlocks = buildRouteGovernanceBlocks({
-      memoryTracker: getMemoryGovernor(sessionKey),
-      structuralIndex: getStructuralIndex(sessionKey),
-      sessionMemoryCount: getSessionMemoryCount(sessionKey),
+      scopedMessages: oaiScopedMessages,
+      normalizedMessages: normalizedOpenAI.messages as unknown[],
+      orchestration,
       clientToolCapabilities: oaiClientToolCapabilities,
       taskIntake: oaiTaskIntake,
       planGraph: oaiPlanGraph,
-      relevantEvidenceBlock: oaiObjectiveScope.relevantEvidenceBlock,
-      artifactBridgeBlock: oaiObjectiveScope.artifactBridgeBlock,
+      objectiveScope: oaiObjectiveScope,
       stateConfidenceBlock: oaiStateConfidenceBlock,
       freshImplicitSessionNotice: oaiFreshImplicitSessionNotice,
       governorPauseResumeBlock: oaiGovernorPauseResumeBlock,
       plannerTodoPacketBlock: oaiPlannerTodoPacketBlock,
-      taskLedger: session.taskLedger,
-      taskCapabilities: session.taskCapabilities,
-    });
-    const oaiEnriched = await enrichWithFrameAndManifest(
-      oaiScopedMessages as never,
-      sessionKey,
-      effectiveOaiAdapterBlock,
-      oaiPromptContext,
-      { projectRoot: effectiveOaiPathCtx.projectRoot, shellCwd: effectiveOaiPathCtx.shellCwd },
-      oaiGovernanceBlocks.blocks,
-      oaiSeedDirs,
-      session,
-      { chatStateBlock: oaiChatStateBlock, fileStateBlock: oaiFileStateBlock },
-    );
-    const oaiFinalizedEnrichment = finalizePostEnrichmentMessages({
-      messages: oaiEnriched.messages,
-      config,
+      chatStateBlock: oaiChatStateBlock,
+      fileStateBlock: oaiFileStateBlock,
       requirementChecklist: oaiRequirementChecklist,
-      trustContext: {
-        requestId: oaiTraceReqId,
-        sessionKey,
-        userId: identity.userId,
-        orgId: identity.orgId,
-      },
-      securityIngestConfig,
-      logger: app.log as never,
     });
-    if (!oaiFinalizedEnrichment.ok) {
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "trust_block", "transcript-trust", oaiFinalizedEnrichment.blockDetail, oaiTraceReqId);
-      return reply.code(400).send({ error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${oaiFinalizedEnrichment.trustCategory}). Rephrase and retry.` } });
+    effectiveOaiPathCtx = oaiEnrichment.pathContext;
+    if (!oaiEnrichment.ok) {
+      return sendOpenAIChatPipelineResult(reply, oaiEnrichment.result);
     }
-    const oaiEnrichedMsgs = oaiFinalizedEnrichment.messages;
-
+    const oaiEnriched = oaiEnrichment.enriched;
+    const oaiEnrichedMsgs = oaiEnrichment.enrichedMessages;
     const reqId = oaiTraceReqId;
     endOaiEnrichmentStage();
     const endOaiProviderRequestStage = oaiOptLedger.startStage("provider_request");
