@@ -1,7 +1,6 @@
 import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
-import { reconstructMissingToolCalls } from "../tool-mapping.js";
-import { sortToolSchemas } from "../compat/sorted-tools.js";
+import { prepareOpenAIRouteRequestSetup } from "../pipeline/openai-route-request-setup.js";
 import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcript-prep.js";
 import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-stabilization.js";
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
@@ -317,87 +316,33 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiDisplayName = oaiIdentity.displayName;
     endOaiIngressStage();
 
-    if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-      const rawMsgs = request.messages as Array<Record<string, unknown>>;
-      const assistantSample = rawMsgs.filter((m) => m.role === "assistant").slice(0, 3).map((m) => ({
-        keys: Object.keys(m),
-        hasToolCalls: "tool_calls" in m,
-        hasFunctionCall: "function_call" in m,
-        hasToolCallsCamel: "toolCalls" in m,
-        contentType: typeof m.content,
-        contentIsArray: Array.isArray(m.content),
-        contentSnippet: typeof m.content === "string" ? m.content.slice(0, 150) : Array.isArray(m.content) ? JSON.stringify(m.content).slice(0, 150) : String(m.content).slice(0, 80),
-        toolCallsValue: m.tool_calls ? JSON.stringify(m.tool_calls).slice(0, 200) : undefined,
-      }));
-      const toolSample = rawMsgs.filter((m) => m.role === "tool").slice(0, 2).map((m) => ({
-        keys: Object.keys(m),
-        tool_call_id: m.tool_call_id,
-        contentSnippet: typeof m.content === "string" ? m.content.slice(0, 100) : String(m.content).slice(0, 100),
-      }));
-      app.log.info({ reqId: oaiTraceReqId, assistantSample, toolSample }, "raw_message_shape_diagnostic");
-    }
-
-    const toolCallReconstruction = reconstructMissingToolCalls(
-      request.messages as Array<{ role: string; content?: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
-    );
-    if (toolCallReconstruction.reconstructedCount > 0) {
-      request.messages = toolCallReconstruction.messages as never;
-      app.log.info(
-        { reqId: oaiTraceReqId, reconstructedAssistantMessages: toolCallReconstruction.reconstructedCount },
-        "tool_calls_reconstructed",
-      );
-    }
-
-    const oaiTaskCue = extractLatestUserPromptFromMessages(request.messages as Array<{ role: string; content: unknown }>);
-    oaiOptLedger.recordOriginal(request.messages as Array<{ content?: unknown }>);
-    const endOaiNormalizationStage = oaiOptLedger.startStage("normalization");
-
-    if (config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES > 0 && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-      const ingress = applyIngressCapToToolMessages(
-        request.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown }>,
-        config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
-      );
-      if (ingress.cappedToolResults > 0) {
-        request.messages = ingress.messages as never;
-        if (config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED) {
-          app.log.info(
-            {
-              reqId: oaiTraceReqId,
-              capped_tool_results: ingress.cappedToolResults,
-              bytes_reclaimed: ingress.bytesReclaimed,
-              max_bytes: config.SYNESIS_YARN_INGRESS_MAX_TOOL_MESSAGE_BYTES,
-            },
-            "yarn_harness_ingress_cap",
-          );
-        }
-      }
-    }
-
-    // Sorted tools for cache stability
-    if (config.SYNESIS_YARN_SORTED_TOOLS_ENABLED && request.tools) {
-      request.tools = sortToolSchemas(request.tools) as never;
-    }
-
-    const oaiPeekWatermark = (() => {
-      const id: SessionIdentity = {
+    const oaiRequestSetup = prepareOpenAIRouteRequestSetup({
+      deps: {
+        app,
+        applyIngressCapToToolMessages,
+        config,
+        extractLatestUserPromptFromMessages,
+        sessions,
+      },
+      request,
+      requestId: oaiTraceReqId,
+      identity: {
         userId: oaiIdentityUserId,
         orgId: authUser.orgId,
         conversationId: oaiConversationId,
         clientKind: oaiClientKind,
         displayName: oaiDisplayName,
-      };
-      const existingKey = `${id.userId}:${id.conversationId}:${id.clientKind}`;
-      for (const [k, v] of sessions) {
-        if (k.includes(existingKey) || k.includes(id.conversationId)) return v.pruningWatermark;
-      }
-      return undefined;
-    })();
+      },
+      optimizationLedger: oaiOptLedger,
+    });
+    const oaiTaskCue = oaiRequestSetup.taskCue;
+    const endOaiNormalizationStage = oaiOptLedger.startStage("normalization");
     const oaiTranscriptPrep = await prepareOpenAIRouteTranscript({
       request,
       requestId: oaiTraceReqId,
       taskCue: oaiTaskCue,
       backendModelHint: resolveCompactionBackendModelHintFromRequestModel(request.model),
-      pruningWatermark: oaiPeekWatermark,
+      pruningWatermark: oaiRequestSetup.pruningWatermark,
       config,
       capabilityMatrix: governanceClient?.getCapabilityMatrix() ?? null,
       enrichmentPool,
