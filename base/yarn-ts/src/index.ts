@@ -255,16 +255,14 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
-import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import {
   createClaudeStreamFinalizationHandlers,
 } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
-import { prepareClaudeStreamProviderRequest } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
 import { completeClaudeStreamRoute } from "./streaming/claude-stream-route-completion.js";
-import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime.js";
+import { startClaudeStreamRoute } from "./streaming/claude-stream-route-start.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
@@ -9825,54 +9823,45 @@ app.post("/v1/messages", async (req, reply) => {
       hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
       recordSessionEvent: recordClaudeStreamEvent,
     });
-    const claudeStreamProviderRequest = prepareClaudeStreamProviderRequest({
-      requestId: traceReqId,
-      model: resolved.model,
-      messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
-      adapter: claudeAdapter,
-      abortSignal: claudeStreamAbortRuntime.abortController.signal,
-      orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
-      requestMaxTokens: body.max_tokens,
-      samplingOptions: claudeSamplingOptions,
-      stopSequences: sdkStop,
-      tools: sdkTools,
-      toolChoice: effectiveClaudeToolChoice,
-      providerOptions,
-      clampMaxOutputTokens: clampMaxOutputTokensForSafety,
-      logger: app.log,
-      recordSessionEvent: recordClaudeStreamEvent,
-    });
-    claudeModelMessages = claudeStreamProviderRequest.messages as typeof claudeModelMessages;
-    const claudeStreamCacheShapeDiagnostics = buildCacheShapeDiagnostics({
-      messages: claudeModelMessages as Array<{ role?: string; content?: unknown }>,
-      tools: effectiveClaudeTools as unknown[],
-      providerOptions: claudeStreamProviderRequest.providerOptions,
-    });
-    const streamed = streamText(claudeStreamProviderRequest.options as never);
-    const claudeRuntime = startClaudeStreamRouteRuntime({
+    const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
+    const claudeStreamStarted = startClaudeStreamRoute({
+      scope: claudeStreamScope,
+      recordSessionEvent,
       raw: reply.raw,
       headers: sseHeadersWithClarification(session.record.metadata),
-      model: resolved.resolvedModelId,
       heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
       longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
       startHeartbeat: startSseHeartbeat,
-      ...claudeStreamScope,
       createMessageId: () => `msg_${crypto.randomUUID()}`,
       sendSse: (event, data) => safeSse(reply, event, data),
-      recordSessionEvent,
+      streamText: (options) => streamText(options as never),
+      request: {
+        requestId: traceReqId,
+        model: resolved.model,
+        messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
+        adapter: claudeAdapter,
+        abortSignal: claudeStreamAbortRuntime.abortController.signal,
+        orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
+        requestMaxTokens: body.max_tokens,
+        samplingOptions: claudeSamplingOptions,
+        stopSequences: sdkStop,
+        tools: sdkTools,
+        toolChoice: effectiveClaudeToolChoice,
+        providerOptions,
+        clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+        logger: app.log,
+      },
+      components: {
+        tierConfig: resolvedTier,
+        resolvedModelId: resolved.resolvedModelId,
+        tools: effectiveClaudeTools as unknown[],
+        computePrefixFingerprint,
+      },
     });
-    const claudeHeartbeat = claudeRuntime.heartbeat;
-
-    const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const claudeStreamComponents = createClaudeStreamRouteComponents({
-      modelMessages: claudeModelMessages as Array<{ role: string; content: unknown }>,
-      tierConfig: resolvedTier,
-      resolvedModelId: resolved.resolvedModelId,
-      ...claudeStreamScope,
-      computePrefixFingerprint,
-      sendSse: (event, data) => safeSse(reply, event, data),
-      recordSessionEvent,
-    });
+    const claudeStreamCacheShapeDiagnostics = claudeStreamStarted.cacheShapeDiagnostics;
+    const streamed = claudeStreamStarted.streamed;
+    const claudeHeartbeat = claudeStreamStarted.runtime.heartbeat;
+    const claudeStreamComponents = claudeStreamStarted.components;
     const claudeStreamState = claudeStreamComponents.streamState;
     const claudeStreamGate = claudeStreamComponents.gate;
     const claudeStreamDiscovery = claudeStreamComponents.discovery;
