@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ClaudeStreamState } from "../src/streaming/claude-stream-state.js";
-import { runClaudeStreamRoutePipeline } from "../src/streaming/claude-stream-route-pipeline.js";
+import {
+  createClaudeStreamRoutePipelineInput,
+  runClaudeStreamRoutePipeline,
+} from "../src/streaming/claude-stream-route-pipeline.js";
 
 async function* parts(...items: unknown[]) {
   for (const item of items) {
@@ -10,6 +13,120 @@ async function* parts(...items: unknown[]) {
 }
 
 describe("runClaudeStreamRoutePipeline", () => {
+  it("builds route pipeline input from shared state and route identity", () => {
+    const streamState = new ClaudeStreamState();
+    const discovery = {
+      recoveryPreviewEntries: 0,
+      recoveryMode: null,
+      blockedBroadDiscovery: 0,
+      collapsedBroadDiscovery: 0,
+    };
+    const input = createClaudeStreamRoutePipelineInput({
+      streamParts: parts(),
+      state: {
+        streamState,
+        discovery,
+        blockedDetails: [],
+        acceptedGuardrailCalls: [],
+        toolSequence: ["Read"],
+        localLikeBaseUrl: true,
+      },
+      route: {
+        sessionKey: "session_1",
+        userId: "user_1",
+        orgId: "org_1",
+        requestId: "req_1",
+        resolvedModelId: "claude-test",
+        baseUrl: "http://localhost:8000",
+      },
+      eventHandlers: {
+        adapter: { family: "openai", supportsThinking: true } as never,
+        requestId: "req_1",
+        clientKind: "claude-code",
+        debugProtocol: false,
+        strictGovernance: false,
+        recentToolNames: [],
+        taskCue: null,
+        clientPlanModeRequested: false,
+        pathContext: {},
+        enforcePathRoot: false,
+        blockBashPathDrift: false,
+        pathSandboxEnabled: false,
+        artifactShadows: [],
+        normalizedMessageCount: 1,
+        session: {
+          gitInspectionBlockCount: 0,
+          blockBroadVerificationUntilEdit: false,
+          blockFailingVerificationUntilEdit: false,
+          artifactEditTurns: new Map(),
+          record: { requestCount: 1, metadata: {} },
+        },
+        stats: {} as never,
+        logger: { warn: vi.fn(), error: vi.fn() } as never,
+        sendSse: vi.fn(() => true),
+        scrubAndFlushTextBlock: vi.fn(),
+        isWriteCapableToolName: () => false,
+        shouldRestrictDiscoveryForPlanWork: () => false,
+        deserializePlanShadow: () => null,
+        buildPathSandboxPolicy: vi.fn() as never,
+        updateDiffAccumulator: vi.fn(),
+        maybeUpdateTaskLedgerFromToolCall: vi.fn(),
+        emitPlanWriteAuditEvent: vi.fn(),
+        maybeLogEnvelopeUnwrapSample: vi.fn(),
+        recordUpperHarnessDecision: vi.fn(),
+        incrementStrictGovernanceRewrites: vi.fn(),
+        recordRedirectedDiscovery: vi.fn(),
+        getTopLevelDirs: vi.fn(async () => []),
+        applyDiscoveryGuardrail: vi.fn() as never,
+        buildBlockedDiscoveryRecovery: vi.fn() as never,
+      },
+      lifecycle: {
+        session: { skipToolIdStabilization: false },
+        abortSignal: new AbortController().signal,
+        hardTimeout: setTimeout(() => undefined, 60_000),
+        admissionRelease: vi.fn(),
+        span: { setStatus: vi.fn(), end: vi.fn() },
+        circuitBreakers: { recordFailure: vi.fn(), recordSuccess: vi.fn() },
+        logger: { error: vi.fn() },
+        extractUpstreamErrorDiagnostics: vi.fn(),
+        sendSse: vi.fn(() => true),
+        recordSessionEvent: vi.fn(),
+      },
+      afterEvents: {
+        adapter: { family: "openai" },
+        stats: { qwenParserMismatchSuspectCount: 0 },
+        logger: { warn: vi.fn() },
+        recordBlockedDiscovery: vi.fn(),
+        getBlockedDiscoveryCount: vi.fn(() => 0),
+        recordSessionEvent: vi.fn(),
+      },
+    });
+
+    clearTimeout(input.lifecycleInput.hardTimeout);
+    expect(input.eventHandlersInput).toMatchObject({
+      streamState,
+      discovery,
+      toolSequence: ["Read"],
+    });
+    expect(input.lifecycleInput).toMatchObject({
+      requestId: "req_1",
+      model: "claude-test",
+      orgId: "org_1",
+      streamState,
+    });
+    expect(input.afterEventsInput).toMatchObject({
+      localLikeBaseUrl: true,
+      requestId: "req_1",
+      resolvedModelId: "claude-test",
+      baseUrl: "http://localhost:8000",
+      sessionKey: "session_1",
+      userId: "user_1",
+      orgId: "org_1",
+      streamState,
+      discovery,
+    });
+  });
+
   it("assembles route handlers, after-events, lifecycle, and streams to completion", async () => {
     const streamState = new ClaudeStreamState();
     const admissionRelease = vi.fn();
