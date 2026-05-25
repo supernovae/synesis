@@ -255,11 +255,11 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
+import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
-import { startStreamRoute } from "./streaming/stream-route-start.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
 import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
@@ -9734,24 +9734,14 @@ app.post("/v1/messages", async (req, reply) => {
       orgId: claudeIdentity.orgId,
       requestId: traceReqId,
     };
-    const claudeStreamRouteStart = await startStreamRoute({
+    const claudeStreamRouteStart = await startClaudeStreamRouteGates({
       scope: claudeStreamGateScope,
       resolvedModelId: resolved.resolvedModelId,
-      spanName: "yarn.claude.stream",
       logger: app.log,
       streamAdmission,
       circuitBreakers,
       recordSessionEvent,
       startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
-      admissionRejection: {
-        logMessage: "stream_admission_rejected_claude",
-        payload: { type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } },
-      },
-      circuitBreakerRejection: {
-        detail: `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`,
-        logMessage: "circuit_breaker_open_claude_stream",
-        payload: { type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } },
-      },
     });
     if (!claudeStreamRouteStart.ok) {
       reply.header("Retry-After", claudeStreamRouteStart.retryAfter);
