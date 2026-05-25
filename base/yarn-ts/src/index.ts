@@ -42,7 +42,6 @@ import {
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
-import { buildAiSdkTextRequestOptions } from "./providers/ai-sdk-request-options.js";
 import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
 import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
 import { resolveEndpointCapabilityId } from "./providers/endpoint-capabilities/resolve.js";
@@ -257,6 +256,7 @@ import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstrea
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
+import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import {
   createClaudeStreamCompletionFinalizerInput,
   createClaudeStreamFinalizationHandlers,
@@ -369,8 +369,6 @@ import {
   type SensemakingDecision,
 } from "./governance/sensemaking-governor.js";
 import {
-  buildRequiredRepairPrompt,
-  validateRequiredToolCalls,
   type PhaseAwareToolChoice,
 } from "./governance/phase-execution-policy.js";
 import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
@@ -9487,7 +9485,7 @@ app.post("/v1/messages", async (req, reply) => {
   const claudePhasePolicy = claudePhaseApplication.phasePolicy;
   const claudePhaseFiltered = claudePhaseApplication.phaseFiltered;
   effectiveClaudeTools = claudePhaseApplication.effectiveTools;
-  let effectiveClaudeToolChoice = claudePhaseApplication.effectiveToolChoice;
+  const effectiveClaudeToolChoice = claudePhaseApplication.effectiveToolChoice;
   const claudeThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
     providerOptions as Record<string, Record<string, unknown>> | undefined,
     effectiveClaudeToolChoice as PhaseAwareToolChoice | undefined,
@@ -9596,9 +9594,6 @@ app.post("/v1/messages", async (req, reply) => {
   if (body.stream) {
     if (claudeNativeWebSearchRequested || claudeForceNonStreamKickoff) {
       const started = Date.now();
-      let currentMessages = claudeModelMessages;
-      const serverEvents: ClaudeServerWebSearchEvent[] = [];
-      let streamedResult: Awaited<ReturnType<typeof generateText>> | null = null;
       if (claudeForceNonStreamKickoff) {
         recordSessionEvent(
           claudeSessionKey,
@@ -9610,95 +9605,57 @@ app.post("/v1/messages", async (req, reply) => {
           traceReqId,
         );
       }
-      for (let round = 0; round < 3; round++) {
-        streamedResult = await generateText(buildAiSdkTextRequestOptions({
+      const claudeKickoffResult = await runClaudeStreamKickoffPipeline({
+        model: resolved.resolvedModelId,
+        headers: sseHeadersWithClarification(session.record.metadata),
+        providerInput: {
+          initialMessages: claudeModelMessages as Array<{ role: string; content?: unknown }>,
           model: resolved.model,
-          messages: currentMessages,
-          maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
+          resolvedModelId: resolved.resolvedModelId,
+          orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
+          requestMaxTokens: body.max_tokens,
           samplingOptions: claudeSamplingOptions,
           stopSequences: sdkStop,
           tools: sdkTools,
-          toolChoice: effectiveClaudeToolChoice,
+          initialToolChoice: effectiveClaudeToolChoice,
           providerOptions,
-        }) as never);
-
-        let allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-        if (claudeForceNonStreamKickoff && round === 0 && claudePhasePolicy.toolChoice === "required") {
-          let validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
-          if (!validation.valid) {
-            recordSessionEvent(
-              claudeSessionKey,
-              claudeIdentity.userId,
-              claudeIdentity.orgId,
-              "phase_required_validation_retry",
-              "execution-governor",
-              `reasons=${validation.reasons.join(",") || "unknown"}`,
-              traceReqId,
-            );
-            currentMessages = appendSystemMessageAndNormalize(
-              currentMessages as Array<{ role: string; content?: unknown }>,
-              buildRequiredRepairPrompt(claudeGovernorPhase, claudePhasePolicy.allowedCanonicalTools),
-            ) as typeof currentMessages;
-            streamedResult = await generateText(buildAiSdkTextRequestOptions({
-              model: resolved.model,
-              messages: currentMessages,
-              maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-              samplingOptions: claudeSamplingOptions,
-              stopSequences: sdkStop,
-              tools: sdkTools,
-              toolChoice: effectiveClaudeToolChoice,
-              providerOptions,
-            }) as never);
-            allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-            validation = validateRequiredToolCalls(allCalls, claudePhasePolicy);
-            if (!validation.valid) {
-              recordSessionEvent(
-                claudeSessionKey,
-                claudeIdentity.userId,
-                claudeIdentity.orgId,
-                "phase_required_validation_fallback",
-                "execution-governor",
-                `fallback_after_retry reasons=${validation.reasons.join(",") || "unknown"}`,
-                traceReqId,
-              );
-              effectiveClaudeToolChoice = "auto";
-              currentMessages = appendSystemMessageAndNormalize(
-                currentMessages as Array<{ role: string; content?: unknown }>,
-                "Phase execution policy fallback: required tool-call contract failed after retry. Continue with tool_choice=auto and recover safely.",
-              ) as typeof currentMessages;
-              streamedResult = await generateText(buildAiSdkTextRequestOptions({
-                model: resolved.model,
-                messages: currentMessages,
-                maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-                samplingOptions: claudeSamplingOptions,
-                stopSequences: sdkStop,
-                tools: sdkTools,
-                toolChoice: effectiveClaudeToolChoice,
-                providerOptions,
-              }) as never);
-              allCalls = (streamedResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-            }
-          }
-        }
-        const serverCalls = claudeNativeWebSearchRequested
-          ? allCalls.filter((tc) => isClaudeWebSearchToolName(tc.toolName))
-          : [];
-        if (serverCalls.length === 0) break;
-
-        const assistantParts: Array<
-          { type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
-        > = [];
-        if (streamedResult.text) assistantParts.push({ type: "text", text: streamedResult.text });
-        const toolResults: Array<{
-          type: "tool-result";
-          toolCallId: string;
-          toolName: string;
-          output: { type: "text"; value: string };
-        }> = [];
-
-        for (const call of serverCalls) {
-          const input = isObjectRecord(call.input) ? call.input : {};
-          const searchOutput = await webSearch.resolve(
+          phasePolicy: claudePhasePolicy,
+          governorPhase: claudeGovernorPhase,
+          nativeWebSearchRequested: claudeNativeWebSearchRequested,
+          clampMaxOutputTokens: clampMaxOutputTokensForSafety,
+          generateText: (options) => generateText(options as never),
+          readUsage,
+          captureForensics: (messages, toolChoice) => captureRequestForensics(
+            claudeSessionKey,
+            reqId,
+            "/v1/messages",
+            resolved.resolvedModelId,
+            false,
+            messages as Array<{ role: string; content: unknown }>,
+            effectiveClaudeTools as unknown[],
+            toolChoice,
+            providerOptions,
+            claudeForensicsPhasePolicy,
+            claudeForensicsCapabilityMatrix,
+          ),
+          finalizeForensics: (forensics, usage) => finalizeRequestForensics(
+            session,
+            reqId,
+            forensics as { record: RequestForensicsRecord; serialized: string } | null,
+            usage,
+          ),
+          recordSessionEvent: (event) => recordSessionEvent(
+            claudeSessionKey,
+            claudeIdentity.userId,
+            claudeIdentity.orgId,
+            event.eventKind,
+            event.component,
+            event.detail,
+            traceReqId,
+            event.metadataJson,
+          ),
+          isServerWebSearchTool: isClaudeWebSearchToolName,
+          resolveServerWebSearch: (input) => webSearch.resolve(
             input,
             webSearchResolveContext(claudeAuthUser, req, {
               requestId: reqId,
@@ -9708,116 +9665,23 @@ app.post("/v1/messages", async (req, reply) => {
               sourceSurface: "yarn_chat",
               toolName: "web_search",
             }),
-          );
-          const payload = isObjectRecord(searchOutput) ? searchOutput : { error: "invalid_server_tool_payload" };
-          serverEvents.push(toClaudeServerWebSearchEvent(call.toolCallId, call.toolName, input, payload));
-          assistantParts.push({
-            type: "tool-call",
-            toolCallId: call.toolCallId,
-            toolName: call.toolName,
-            input,
-          });
-          toolResults.push({
-            type: "tool-result",
-            toolCallId: call.toolCallId,
-            toolName: call.toolName,
-            output: { type: "text", value: JSON.stringify(payload) },
-          });
-        }
-
-        if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
-        currentMessages = [
-          ...currentMessages,
-          { role: "assistant", content: assistantParts } as never,
-          { role: "tool", content: toolResults } as never,
-        ];
-      }
-
-      const claudeNonStreamForensics = captureRequestForensics(
-        claudeSessionKey,
-        reqId,
-        "/v1/messages",
-        resolved.resolvedModelId,
-        false,
-        currentMessages as Array<{ role: string; content: unknown }>,
-        effectiveClaudeTools as unknown[],
-        effectiveClaudeToolChoice,
-        providerOptions,
-        claudeForensicsPhasePolicy,
-        claudeForensicsCapabilityMatrix,
-      );
-      const finalResult = streamedResult ?? await generateText(buildAiSdkTextRequestOptions({
-        model: resolved.model,
-        messages: currentMessages,
-        maxOutputTokens: clampMaxOutputTokensForSafety(Math.max(claudeOrchestration.maxOutputTokens, body.max_tokens ?? 0)),
-        samplingOptions: claudeSamplingOptions,
-        stopSequences: sdkStop,
-        tools: sdkTools,
-        toolChoice: effectiveClaudeToolChoice,
-        providerOptions,
-      }) as never);
-
-      const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
-      const claudeNonStreamForensicsDone = finalizeRequestForensics(session, reqId, claudeNonStreamForensics, usage);
-      const msgId = `msg_${crypto.randomUUID()}`;
-      let idx = 0;
-      let stopReason = "end_turn";
-      const finalText = finalResult.text ?? "";
-      const finalCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }).toolCalls ?? [];
-      const externalCalls = finalCalls.filter((tc) => !isClaudeWebSearchToolName(tc.toolName));
-      if (externalCalls.length > 0) stopReason = "tool_use";
-
-      reply.raw.writeHead(200, sseHeadersWithClarification(session.record.metadata));
-      safeSse(reply, "message_start", {
-        type: "message_start",
-        message: { id: msgId, type: "message", role: "assistant", model: resolved.resolvedModelId, content: [], usage: { input_tokens: 0, output_tokens: 0 } },
+          ),
+          toServerWebSearchEvent: toClaudeServerWebSearchEvent,
+        },
+        response: {
+          writeHead: (statusCode, headers) => reply.raw.writeHead(statusCode, headers),
+          sendSse: (event, data) => safeSse(reply, event, data),
+          end: () => safeEnd(reply.raw),
+          createMessageId: () => `msg_${crypto.randomUUID()}`,
+        },
+        onAssistantText: (text) => {
+          session.history.push({ role: "assistant", content: text });
+        },
       });
-
-      for (const evt of serverEvents) {
-        safeSse(reply, "content_block_start", {
-          type: "content_block_start",
-          index: idx,
-          content_block: { type: "server_tool_use", id: evt.toolUseId, name: evt.toolName, input: evt.input },
-        });
-        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
-        idx += 1;
-        safeSse(reply, "content_block_start", {
-          type: "content_block_start",
-          index: idx,
-          content_block: evt.errorCode
-            ? {
-                type: "web_search_tool_result",
-                tool_use_id: evt.toolUseId,
-                content: { type: "web_search_tool_result_error", error_code: evt.errorCode },
-              }
-            : { type: "web_search_tool_result", tool_use_id: evt.toolUseId, content: evt.results },
-        });
-        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
-        idx += 1;
-      }
-
-      if (finalText) {
-        safeSse(reply, "content_block_start", { type: "content_block_start", index: idx, content_block: { type: "text", text: "" } });
-        safeSse(reply, "content_block_delta", { type: "content_block_delta", index: idx, delta: { type: "text_delta", text: finalText } });
-        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
-        idx += 1;
-        session.history.push({ role: "assistant", content: finalText });
-      }
-
-      for (const call of externalCalls) {
-        safeSse(reply, "content_block_start", {
-          type: "content_block_start",
-          index: idx,
-          content_block: { type: "tool_use", id: call.toolCallId, name: call.toolName },
-        });
-        safeSse(reply, "content_block_delta", {
-          type: "content_block_delta",
-          index: idx,
-          delta: { type: "input_json_delta", partial_json: JSON.stringify(call.input ?? {}) },
-        });
-        safeSse(reply, "content_block_stop", { type: "content_block_stop", index: idx });
-        idx += 1;
-      }
+      const usage = claudeKickoffResult.usage;
+      const stopReason = claudeKickoffResult.stopReason;
+      const externalCalls = claudeKickoffResult.externalToolCalls;
+      const claudeNonStreamForensicsDone = claudeKickoffResult.requestForensicsDone;
 
       const reduced = toolResultReduction.getPerRequestDelta() + validationNormalization.getPerRequestDelta();
       const verificationState = toolResultReduction.getVerificationTracker().getState();
@@ -9855,12 +9719,6 @@ app.post("/v1/messages", async (req, reply) => {
         },
       });
 
-      safeSse(reply, "message_delta", {
-        type: "message_delta",
-        delta: { stop_reason: stopReason },
-        usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
-      });
-      safeSse(reply, "message_stop", { type: "message_stop" });
       pushDiagnostic({
         timestamp: Date.now(),
         sessionKey: claudeSessionKey,
@@ -9884,7 +9742,6 @@ app.post("/v1/messages", async (req, reply) => {
         requestForensicsTokenEstimate: claudeNonStreamForensicsDone?.tokenEstimate,
         ...cacheShapeDiagnosticFields(claudeCacheShapeDiagnostics),
       });
-      safeEnd(reply.raw);
       return reply;
     }
 
