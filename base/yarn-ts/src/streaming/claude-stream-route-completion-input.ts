@@ -2,7 +2,7 @@ import type { ClaudeStreamProviderMessage } from "./claude-stream-provider-reque
 import type { ClaudeStreamRouteRunInputBuilderInput } from "./claude-stream-route-input.js";
 import type { ClaudeStreamRequestForensicsResult } from "./claude-stream-telemetry.js";
 
-interface RequirementChecklistShape {
+export interface RequirementChecklistShape {
   must: unknown[];
   should: unknown[];
 }
