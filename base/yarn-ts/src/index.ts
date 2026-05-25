@@ -110,9 +110,7 @@ import { applyIngressCapToToolMessages } from "./reduction/ingress-cap.js";
 import { ContentAddressedDedup } from "./reduction/content-addressed-dedup.js";
 import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/file-snapshot-registry.js";
 import { BlockStore } from "./store/block-store.js";
-import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
 import {
-  buildCacheShapeDiagnostics,
   summarizeCacheShapeDiagnostics,
 } from "./telemetry/cache-shape-diagnostics.js";
 import {
@@ -210,15 +208,11 @@ import {
   type UpperHarnessDecision,
 } from "./upper-harness/bridge.js";
 import {
-  openAIToolsToSDK,
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
   coalesceLeadingSystemMessages,
   sanitizeToolCalls,
-  reconstructMissingToolCalls,
 } from "./tool-mapping.js";
-import { appendSystemMessageAndNormalize, normalizeSystemMessageOrdering } from "./transcript/system-message-ordering.js";
-import { sortToolSchemas } from "./compat/sorted-tools.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -265,26 +259,7 @@ import {
 } from "./governance/governor-pause-route.js";
 import { applyGovernorPhaseRouteBookkeeping } from "./governance/governor-phase-route.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
-import {
-  createOpenAIChatNonStreamRoutePipelineInput,
-  runOpenAIChatNonStreamPipeline,
-} from "./pipeline/openai-chat-nonstream-pipeline.js";
-import { OpenAIChatPipeline, sendOpenAIChatPipelineResult } from "./pipeline/openai-chat-pipeline.js";
-import {
-  admissionErrorMessage,
-  countMessageRoles,
-} from "./pipeline/context-admission.js";
-import { runRouteContextAdmission } from "./pipeline/route-context-admission.js";
-import { runOpenAIChatStreamPipeline } from "./pipeline/openai-chat-stream-pipeline.js";
-import {
-  createOpenAIChatRouteFinalizerBase,
-  createOpenAIChatRouteTelemetryBase,
-  createOpenAIChatRouteToolHandlingBase,
-  createOpenAINonStreamCollapseRouteInput,
-  createOpenAINonStreamDiscoveryRouteInput,
-} from "./pipeline/openai-route-inputs.js";
-import { prepareOpenAIRouteTranscript } from "./pipeline/openai-route-transcript-prep.js";
-import { stabilizeOpenAITranscript } from "./pipeline/openai-route-transcript-stabilization.js";
+import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
 import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
@@ -300,16 +275,6 @@ import {
   resetQwenInterventionOnUserTurn,
 } from "./pipeline/route-adapter-pivot.js";
 import { assembleRouteModelMessages } from "./pipeline/route-model-message-assembly.js";
-import {
-  createOpenAINonStreamProviderForensics,
-  createOpenAINonStreamServerSideToolResolvers,
-} from "./pipeline/openai-nonstream-provider-executor.js";
-import { createOpenAINonStreamRouteScope } from "./pipeline/openai-nonstream-route-scope.js";
-import { shouldRunGovernorForMode } from "./pipeline/modes.js";
-import {
-  buildOpenAIChatProviderRequestOptions,
-  suppressThinkingWhenRequiredToolChoice,
-} from "./pipeline/provider-options.js";
 import {
   buildGovernorPauseContextSnapshot,
   buildGovernorPauseResumeBlock,
@@ -5438,7 +5403,6 @@ const openAIChatCompletionsRouteDependencies = {
   buildStateRegroundReadPrompt,
   circuitBreakers,
   computePrefixFingerprint,
-  countMessageRoles,
   emitPlanWriteAuditEvent,
   enrichmentPool,
   extractUpstreamErrorDiagnostics,
@@ -5466,13 +5430,11 @@ const openAIChatCompletionsRouteDependencies = {
   updateDiffAccumulator,
   validationNormalization,
   adapterUsesToolLoopSteering,
-  admissionErrorMessage,
   analyzeRecentCommandLoop,
   annotatePlanFileReads,
   annotateVerificationGaps,
   app,
   appendPathContextToAdapterBlock,
-  appendSystemMessageAndNormalize,
   applyClarificationRoundResponseHeader,
   applyDiscoveryToolGuardrail,
   applyGovernorPhaseRouteBookkeeping,
@@ -5494,14 +5456,12 @@ const openAIChatCompletionsRouteDependencies = {
   authResolver,
   buildArtifactShadows,
   buildBlockedDiscoveryRecoverySnapshot,
-  buildCacheShapeDiagnostics,
   buildDefaultPolicy,
   buildEvidenceTraceSummary,
   buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
   buildFreshImplicitSessionNotice,
   buildGovernorPauseResumeBlockForUser,
-  buildOpenAIChatProviderRequestOptions,
   buildRouteGovernanceBlocks,
   buildSensemakingGuidanceInjection,
   buildSensemakingPauseMessage,
@@ -5523,16 +5483,6 @@ const openAIChatCompletionsRouteDependencies = {
   contextAdmissionStats,
   countTurnsSinceLastUser,
   createDiffStats,
-  createOpenAIChatNonStreamRoutePipelineInput,
-  createOpenAIChatRouteFinalizerBase,
-  createOpenAIChatRouteTelemetryBase,
-  createOpenAIChatRouteToolHandlingBase,
-  createOpenAINonStreamCollapseRouteInput,
-  createOpenAINonStreamDiscoveryRouteInput,
-  createOpenAINonStreamProviderForensics,
-  createOpenAINonStreamRouteScope,
-  createOpenAINonStreamServerSideToolResolvers,
-  createRoutePersistenceScope,
   crypto,
   debugProtocolLog,
   deriveChatState,
@@ -5603,11 +5553,8 @@ const openAIChatCompletionsRouteDependencies = {
   mergeSessionPathHints,
   mergeSynesisClarificationFromRequestMetadata,
   normalizedToolOutputSignal,
-  normalizeSystemMessageOrdering,
   openAiChatPipeline,
-  openAIToolsToSDK,
   openClawProfileStats,
-  OptimizationLedger,
   parseOrchestratorPhaseHeader,
   parseSessionExecutionContext,
   persistGovernorPauseContextMetadata,
@@ -5619,8 +5566,6 @@ const openAIChatCompletionsRouteDependencies = {
   pinchCompactionBackendModelMetadata,
   policyEngine,
   policyRejectOpenAIBody,
-  prepareOpenAIRouteTranscript,
-  prepareProtocolPauseState,
   prepareRouteTools,
   processWorkspaceHandshakeRoute,
   projectInstructionFilePresent,
@@ -5629,7 +5574,6 @@ const openAIChatCompletionsRouteDependencies = {
   pushDiagnostic,
   readdir,
   readPersistedChatStateSnapshot,
-  reconstructMissingToolCalls,
   recordPromptIntakeEvent,
   recordSessionEvent,
   recordUpperHarnessDecision,
@@ -5645,16 +5589,12 @@ const openAIChatCompletionsRouteDependencies = {
   resolveWorkingPhase,
   roleAssignmentRegistry,
   runEvidencePrefetch,
-  runOpenAIChatNonStreamPipeline,
-  runOpenAIChatStreamPipeline,
   runPatternPrefetch,
   runProtocolSessionBootstrap,
-  runRouteContextAdmission,
   runSensemaking,
   runValidationTierCFallback,
   safeEnd,
   safeWrite,
-  sendOpenAIChatPipelineResult,
   sendOpenAISoftFail,
   sendOpenAIWorkspaceHandshake,
   sensemakingStats,
@@ -5663,19 +5603,15 @@ const openAIChatCompletionsRouteDependencies = {
   sessions,
   setSessionWorkspaceContext,
   shouldResetImplicitSessionForFreshTranscript,
-  shouldRunGovernorForMode,
   shouldSampleBySeed,
   shouldStripGlobFromTools,
   sliceMessagesSinceLastUserPrompt,
-  sortToolSchemas,
   sseHeadersWithClarification,
-  stabilizeOpenAITranscript,
   startSseHeartbeat,
   streamText,
   stripGlobFromTools,
   summarizeArtifactContext,
   summarizeEvidenceDelta,
-  suppressThinkingWhenRequiredToolChoice,
   TIER_TO_ROLE,
   tierRegistry,
   toolArgHardeningStats,
