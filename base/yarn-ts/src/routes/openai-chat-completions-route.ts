@@ -2,20 +2,14 @@ import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import { prepareOpenAIRouteNormalization } from "../pipeline/openai-route-normalization.js";
 import { prepareOpenAISessionWorkspace } from "../pipeline/openai-session-workspace-preparation.js";
-import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
-import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
-import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js";
-import { prepareOpenAITurn } from "../pipeline/openai-turn-preparation.js";
+import { prepareOpenAIGovernedStage } from "../pipeline/openai-governed-stage.js";
 import { prepareOpenAIEnrichment } from "../pipeline/openai-enrichment-preparation.js";
 import { prepareOpenAIProviderRuntimeForRoute } from "../pipeline/openai-provider-runtime-preparation.js";
 import { executeOpenAIProviderForRoute } from "../pipeline/openai-provider-route-execution.js";
-import { handleOpenAIGovernorResponse } from "../pipeline/openai-governor-response.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
-import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type SessionIdentity = import("../session/session-key.js").SessionIdentity;
-type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
 
 export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRouteDependencies): void {
   const {
@@ -439,311 +433,166 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiFreshImplicitSessionNotice = oaiSessionWorkspace.freshImplicitSessionNotice;
     endOaiPruningStage?.();
     const endOaiContextStage = oaiOptLedger.startStage("context");
-    const oaiTurn = await prepareOpenAITurn({
+    const oaiGovernedStage = await prepareOpenAIGovernedStage({
       deps: {
-        casSessionSave,
-        classifyLatestReadRefresh,
-        classifyLatestToolProgress,
-        classifyToolResultAsEvidence,
-        clientAdapterPacks,
-        collectToolExecutionFailureObservations,
-        config,
-        deriveEditContextMissGuardState,
-        evaluateYarnPromptIntakeSteer,
-        getChecklistSourceHash,
-        inferGovernorPhaseFromMessages,
-        maybeBuildPlannerTodoPacketBlock,
-        maybeUpdateTaskLedgerFromEvidence,
-        mergeSessionPathHints,
-        mergeSynesisClarificationFromRequestMetadata,
-        parseOrchestratorPhaseHeader,
-        persistPromptIntakeSnapshot,
-        phaseFromFrame,
-        processWorkspaceHandshakeRoute,
-        recordPromptIntakeEvent,
-        recordSessionEvent,
-        refreshRequirementChecklist,
-        refreshTaskIntake,
-        resolveWorkingPhase,
-        sliceMessagesSinceLastUserPrompt,
-        toSessionExecutionContextSystemBlock,
-        toolResultReduction,
-        updatePlanGraph,
-        updateTracePromptMetadata,
-        workingFrameService,
-      },
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      request: request as {
-        model: string;
-        messages: unknown[];
-        tools?: unknown[];
-        stream?: unknown;
-        extra_body?: Record<string, unknown> | null;
-      },
-      normalizedMessages: normalizedOpenAI.messages as Array<{
-        role: string;
-        content: unknown;
-        name?: string;
-        tool_call_id?: string;
-        tool_calls?: unknown;
-      }>,
-      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null | undefined,
-      latestUserText,
-      latestUserPrompt: oaiTaskCue,
-      clientToolCapabilities: oaiClientToolCapabilities,
-      pathContext: oaiPathCtx,
-      adapterProfile,
-      adapterBlock,
-      failingVerificationSignals: oaiVerificationAssessment.failingSignals,
-      headers: req.headers as Record<string, unknown>,
-    });
-    const oaiRequirementChecklist = oaiTurn.requirementChecklist;
-    const oaiTaskIntake = oaiTurn.taskIntake;
-    const oaiPlanGraph = oaiTurn.planGraph;
-    const oaiPromptIntake = oaiTurn.promptIntake;
-    const oaiPlannerTodoPacketBlock = oaiTurn.plannerTodoPacketBlock;
-    const oaiToolFailures = oaiTurn.toolFailures;
-    const oaiEditMissGuard = oaiTurn.editMissGuard;
-    const oaiLatestToolProgress = oaiTurn.latestToolProgress;
-    const oaiLatestReadRefresh = oaiTurn.latestReadRefresh;
-    const oaiEditMissFailureCount = oaiTurn.editMissFailureCount;
-    const oaiHasActiveEditMissFailure = oaiTurn.hasActiveEditMissFailure;
-    const oaiWorkspaceHandshakeAction = oaiTurn.workspaceHandshakeAction;
-    if (oaiWorkspaceHandshakeAction.kind === "send") {
-      return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, oaiWorkspaceHandshakeAction.toolCallId);
-    }
-    let effectiveOaiPathCtx = oaiTurn.effectivePathContext;
-    const effectiveOaiAdapterBlock = oaiTurn.effectiveAdapterBlock;
-    const buildEffectiveOaiAdapterBlock = oaiTurn.buildEffectiveAdapterBlock;
-    const oaiRecallDecision = oaiTurn.recallDecision;
-    const oaiVerifState = oaiTurn.verificationState;
-    const oaiOrchestratorPhaseOverride = oaiTurn.orchestratorPhaseOverride;
-    const oaiWorkingPhase = oaiTurn.workingPhase;
-    const oaiWorkingFrameGoal = oaiTurn.workingFrameGoal;
-
-    const oaiContext = await prepareOpenAIContext({
-      deps: {
-        app,
         analyzeRecentCommandLoop,
+        app,
         applyObjectiveScopeAndPersist,
         applySensemakingStats,
         assessStateConfidence,
         buildArtifactShadows,
+        buildExecutionGovernorHardStopUserMessage,
+        buildExecutionGovernorPauseEnvelope,
+        buildGovernorPauseResumeBlockForUser,
+        buildSensemakingGuidanceInjection,
+        buildSensemakingPauseMessage,
+        casSessionSave,
         chatPhaseFromWorkflowPhase,
         classifyIntentScope,
+        classifyLatestReadRefresh,
+        classifyLatestToolProgress,
+        classifyToolResultAsEvidence,
+        clearGovernorPauseContextMetadata,
+        clientAdapterPacks,
+        collectToolExecutionFailureObservations,
         config,
+        countTurnsSinceLastUser,
         createDiffStats,
         deriveChatState,
+        deriveEditContextMissGuardState,
         deriveFileState,
         detectLanguagesFromMessages,
         detectToolProgress,
+        distributedCounters,
+        evaluateYarnPromptIntakeSteer,
+        extractCommandEvents,
+        extractEditedFileHints,
         extractTextFromUnknownContent,
         formatStateConfidenceBlock,
+        getBlockedDiscoveryCount,
+        getChecklistSourceHash,
         getFileSnapshotRegistry,
+        governanceClient,
+        governorService,
         hashTextSignal,
+        inferGovernorPhaseFromMessages,
+        injectGovernorRecoveryMessage,
+        isPlanRecoveryDiscoveryIntent,
         knowledgeResolveContext,
         knowledgeSearch,
+        logAndPersistSafetyEvent,
         looksLikeFailureSignal,
+        maybeBuildPlannerTodoPacketBlock,
+        maybeCheckpoint,
+        maybeUpdateTaskLedgerFromEvidence,
+        mergeSessionPathHints,
+        mergeSynesisClarificationFromRequestMetadata,
         normalizedToolOutputSignal,
+        parseOrchestratorPhaseHeader,
+        persistGovernorPauseContextMetadata,
+        persistGovernorPauseSoftFail,
+        persistPromptIntakeSnapshot,
+        persistStateConfidence,
+        phaseFromFrame,
         phaseOrchestrator,
         pinchCompactionBackendModelMetadata,
-        persistStateConfidence,
+        policyEngine,
+        processWorkspaceHandshakeRoute,
         projectInstructionFilePresent,
         readPersistedChatStateSnapshot,
+        recordPromptIntakeEvent,
         recordSessionEvent,
+        refreshRequirementChecklist,
+        refreshTaskIntake,
+        resetGovernorPauseRecoveryState,
         resetQwenInterventionOnUserTurn,
+        resolveWorkingPhase,
         runEvidencePrefetch,
         runPatternPrefetch,
         runSensemaking,
         sensemakingStats,
+        sessionPersistenceRunner,
+        shouldStripGlobFromTools,
+        sliceMessagesSinceLastUserPrompt,
+        stripGlobFromTools,
         summarizeArtifactContext,
+        summarizeEvidenceDelta,
+        toSessionExecutionContextSystemBlock,
+        toolResultReduction,
+        updatePlanGraph,
+        updateTracePromptMetadata,
+        withSpan,
+        withSpanAsync,
+        workingFrameService,
       },
       authUser,
-      req,
+      req: { headers: req.headers as Record<string, string | string[] | undefined> },
       session,
       sessionKey,
       identity,
       requestId: oaiTraceReqId,
       request,
-      normalizedMessages: normalizedOpenAI.messages as Array<{
-        role: string;
-        content: unknown;
-        name?: string;
-        tool_call_id?: string;
-        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string; input?: unknown }>;
-      }>,
+      normalizedOpenAI,
+      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null | undefined,
       latestUserText,
-      preManifest,
-      recallDecision: oaiRecallDecision,
-      verificationState: oaiVerifState,
-      workingPhase: oaiWorkingPhase,
-      workingFrameGoal: oaiWorkingFrameGoal,
-      workspaceInspection: oaiWorkspaceInspection,
-      latestReadRefresh: oaiLatestReadRefresh,
-      editMissGuard: oaiEditMissGuard,
-    });
-    const oaiPrefetchResult = oaiContext.prefetchResult;
-    const oaiPatternResult = oaiContext.patternResult;
-    const combinedEvidenceConfidence = oaiContext.combinedEvidenceConfidence;
-    const orchestration = oaiContext.orchestration;
-    const oaiEvidencePrefetched = oaiContext.evidencePrefetched;
-    const oaiSensemakingResult = oaiContext.sensemakingResult;
-    const oaiSensemakingBlock = oaiContext.sensemakingBlock;
-    const oaiLastToolId = oaiContext.lastToolId;
-    const latestOpenAIUserHash = oaiContext.latestUserHash;
-    const oaiToolProgress = oaiContext.toolProgress;
-    const oaiCommandLoop = oaiContext.commandLoop;
-    const oaiArtifactShadows = oaiContext.artifactShadows;
-    const oaiArtifactContext = oaiContext.artifactContext;
-    const oaiFileState = oaiContext.fileState;
-    const oaiChatState = oaiContext.chatState;
-    const oaiObjectiveScope = oaiContext.objectiveScope;
-    const oaiScopedMessages = oaiContext.scopedMessages;
-    const oaiStateConfidence = oaiContext.stateConfidence;
-    const oaiStateConfidenceBlock = oaiContext.stateConfidenceBlock;
-    const oaiNeedsStateReground = oaiContext.needsStateReground;
-    const oaiPauseChatSummary = oaiContext.pauseChatSummary;
-    const oaiPauseFileSummary = oaiContext.pauseFileSummary;
-    const oaiPauseTaskContext = oaiContext.pauseTaskContext;
-    const oaiChatStateBlock = oaiContext.chatStateBlock;
-    const oaiFileStateBlock = oaiContext.fileStateBlock;
-    endOaiContextStage();
-    const endOaiGovernorStage = oaiOptLedger.startStage("governor");
-    const oaiExecutionGovernorPreparation = await prepareOpenAIExecutionGovernor({
-      config,
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      headers: req.headers as Record<string, unknown>,
-      pipelineMode: oaiPipelineMode,
       taskCue: oaiTaskCue,
-      scopedMessages: oaiScopedMessages,
-      planGraph: oaiPlanGraph,
-      editMissGuard: oaiEditMissGuard,
-      latestToolProgress: oaiLatestToolProgress,
-      toolFailures: oaiToolFailures,
-      artifactShadows: oaiArtifactShadows,
-      chatState: oaiChatState,
-      fileState: oaiFileState,
-      workingPhase: oaiWorkingPhase,
-      editMissFailureCount: oaiEditMissFailureCount,
-      governorCooldownMs: GOVERNOR_COOLDOWN_MS,
-      stateConfidence: oaiStateConfidence,
-      needsStateReground: oaiNeedsStateReground,
-      objectiveScope: oaiObjectiveScope,
-      artifactContext: oaiArtifactContext,
-      pauseSummaries: {
-        chat: oaiPauseChatSummary,
-        file: oaiPauseFileSummary,
-      },
-      shouldRunGovernorForMode,
-      governorService,
-      withSpanAsync,
-      summarizeEvidenceDelta,
-      recordSessionEvent,
-      buildGovernorPauseResumeBlockForUser,
-    });
-    const oaiExecutionGovernor = oaiExecutionGovernorPreparation.executionGovernor;
-    const oaiGovernorPauseResumeBlock = oaiExecutionGovernorPreparation.governorPauseResumeBlock;
-
-    const oaiGovernancePrecheck = await runOpenAIGovernancePrecheck({
-      config,
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      request,
-      scopedMessages: oaiScopedMessages,
-      taskCue: oaiTaskCue,
-      executionGovernor: oaiExecutionGovernor,
-      pipelineMode: oaiPipelineMode,
-      shouldRunGovernorForMode,
-      commandLoop: oaiCommandLoop,
-      lastToolId: oaiLastToolId,
-      latestUserHash: latestOpenAIUserHash,
-      latestToolProgress: oaiLatestToolProgress,
-      toolProgress: oaiToolProgress,
-      runtimePreferences: oaiRuntimePreferences,
-      orchestration,
-      workingPhase: oaiWorkingPhase,
-      orchestratorPhaseOverride: oaiOrchestratorPhaseOverride,
-      normalizedMessages: normalizedOpenAI.messages as GovernorInputMessage[],
-      distributedCounters,
-      policyEngine,
-      governanceClient,
-      withSpan,
-      extractCommandEvents,
-      extractEditedFileHints,
-      isPlanRecoveryDiscoveryIntent,
-      countTurnsSinceLastUser,
-      shouldStripGlobFromTools,
-      stripGlobFromTools,
-      getBlockedDiscoveryCount,
-      logWarn: (record, message) => app.log.warn(record, message),
-      logAndPersistSafetyEvent,
-      persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
-      maybeCheckpoint,
-      recordSessionEvent,
-    });
-    const oaiSensemakingDecision = oaiGovernancePrecheck.sensemakingDecision;
-    const policyPrecheck = oaiGovernancePrecheck.policyPrecheck;
-    const oaiPolicyAction = oaiGovernancePrecheck.policyAction;
-    if (oaiPolicyAction.kind === "softFail") {
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, oaiPolicyAction.content, !!request.stream);
-    }
-    if (oaiPolicyAction.kind === "reject") {
-      return reply.code(400).send(policyRejectOpenAIBody(oaiPolicyAction.decision as never));
-    }
-    const oaiClientToolInventory = oaiGovernancePrecheck.clientToolInventory;
-    const oaiGovernorPhase = oaiGovernancePrecheck.governorPhase;
-
-    const oaiSensemakingPrimaryEnabled =
-      config.SYNESIS_YARN_SENSEMAKING_ENABLED
-      && !config.SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY;
-    const oaiGovernorResponse = handleOpenAIGovernorResponse({
-      deps: {
-        buildExecutionGovernorHardStopUserMessage,
-        buildExecutionGovernorPauseEnvelope,
-        buildSensemakingGuidanceInjection,
-        buildSensemakingPauseMessage,
-        clearGovernorPauseContextMetadata,
-        config,
-        injectGovernorRecoveryMessage,
-        maybeCheckpoint,
-        persistGovernorPauseContextMetadata,
-        persistGovernorPauseSoftFail,
-        recordSessionEvent,
-        resetGovernorPauseRecoveryState,
-        sessionPersistenceRunner,
-        summarizeEvidenceDelta,
-      },
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      selectedModel: orchestration.selectedModel,
-      originalModel: request.model,
-      messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-      executionGovernor: oaiExecutionGovernor,
-      sensemakingDecision: oaiSensemakingDecision,
-      sensemakingPrimaryEnabled: oaiSensemakingPrimaryEnabled,
-      hasActiveEditMissFailure: oaiHasActiveEditMissFailure,
       clientToolCapabilities: oaiClientToolCapabilities,
-      pauseContext: {
-        artifactContext: oaiArtifactContext,
-        chatStateSummary: oaiPauseChatSummary,
-        fileStateSummary: oaiPauseFileSummary,
-        taskContext: oaiPauseTaskContext,
-      },
+      pathContext: oaiPathCtx,
+      adapterProfile,
+      adapterBlock,
+      verificationAssessment: oaiVerificationAssessment,
+      preManifest,
+      workspaceInspection: oaiWorkspaceInspection,
+      pipelineMode: oaiPipelineMode,
+      governorCooldownMs: GOVERNOR_COOLDOWN_MS,
+      runtimePreferences: oaiRuntimePreferences,
+      endContextStage: endOaiContextStage,
+      startGovernorStage: () => oaiOptLedger.startStage("governor"),
     });
-    if (oaiGovernorResponse.kind === "softFail") {
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, oaiGovernorResponse.content, !!request.stream, oaiGovernorResponse.envelope);
+    if (oaiGovernedStage.kind === "workspaceHandshake") {
+      return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, oaiGovernedStage.toolCallId);
     }
-    endOaiGovernorStage();
+    if (oaiGovernedStage.kind === "softFail") {
+      return sendOpenAISoftFail(reply, oaiTraceReqId, oaiGovernedStage.selectedModel, oaiGovernedStage.content, !!request.stream, oaiGovernedStage.envelope as never);
+    }
+    if (oaiGovernedStage.kind === "reject") {
+      return reply.code(400).send(policyRejectOpenAIBody(oaiGovernedStage.decision as never));
+    }
+    let effectiveOaiPathCtx = oaiGovernedStage.effectivePathContext;
+    const effectiveOaiAdapterBlock = oaiGovernedStage.effectiveAdapterBlock;
+    const buildEffectiveOaiAdapterBlock = oaiGovernedStage.buildEffectiveAdapterBlock;
+    const oaiRequirementChecklist = oaiGovernedStage.requirementChecklist;
+    const oaiTaskIntake = oaiGovernedStage.taskIntake;
+    const oaiPlanGraph = oaiGovernedStage.planGraph;
+    const oaiPromptIntake = oaiGovernedStage.promptIntake;
+    const oaiPlannerTodoPacketBlock = oaiGovernedStage.plannerTodoPacketBlock;
+    const oaiEditMissGuard = oaiGovernedStage.editMissGuard;
+    const oaiLatestReadRefresh = oaiGovernedStage.latestReadRefresh;
+    const oaiPrefetchResult = oaiGovernedStage.prefetchResult;
+    const oaiPatternResult = oaiGovernedStage.patternResult;
+    const combinedEvidenceConfidence = oaiGovernedStage.combinedEvidenceConfidence;
+    const orchestration = oaiGovernedStage.orchestration;
+    const oaiEvidencePrefetched = oaiGovernedStage.evidencePrefetched;
+    const oaiSensemakingResult = oaiGovernedStage.sensemakingResult;
+    const oaiSensemakingBlock = oaiGovernedStage.sensemakingBlock;
+    const oaiArtifactShadows = oaiGovernedStage.artifactShadows;
+    const oaiFileState = oaiGovernedStage.fileState;
+    const oaiChatState = oaiGovernedStage.chatState;
+    const oaiObjectiveScope = oaiGovernedStage.objectiveScope;
+    const oaiScopedMessages = oaiGovernedStage.scopedMessages;
+    const oaiStateConfidence = oaiGovernedStage.stateConfidence;
+    const oaiStateConfidenceBlock = oaiGovernedStage.stateConfidenceBlock;
+    const oaiNeedsStateReground = oaiGovernedStage.needsStateReground;
+    const oaiPauseChatSummary = oaiGovernedStage.pauseChatSummary;
+    const oaiPauseFileSummary = oaiGovernedStage.pauseFileSummary;
+    const oaiChatStateBlock = oaiGovernedStage.chatStateBlock;
+    const oaiFileStateBlock = oaiGovernedStage.fileStateBlock;
+    const oaiExecutionGovernor = oaiGovernedStage.executionGovernor;
+    const oaiGovernorPauseResumeBlock = oaiGovernedStage.governorPauseResumeBlock;
+    const oaiSensemakingDecision = oaiGovernedStage.sensemakingDecision;
+    const policyPrecheck = oaiGovernedStage.policyPrecheck;
+    const oaiClientToolInventory = oaiGovernedStage.clientToolInventory;
+    const oaiGovernorPhase = oaiGovernedStage.governorPhase;
     const endOaiEnrichmentStage = oaiOptLedger.startStage("enrichment");
     const oaiEnrichment = await prepareOpenAIEnrichment({
       deps: {
@@ -778,7 +627,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       clientToolCapabilities: oaiClientToolCapabilities,
       taskIntake: oaiTaskIntake,
       planGraph: oaiPlanGraph,
-      objectiveScope: oaiObjectiveScope,
+      objectiveScope: oaiObjectiveScope as { relevantEvidenceBlock?: string | null; artifactBridgeBlock?: string | null },
       stateConfidenceBlock: oaiStateConfidenceBlock,
       freshImplicitSessionNotice: oaiFreshImplicitSessionNotice,
       governorPauseResumeBlock: oaiGovernorPauseResumeBlock,
@@ -855,7 +704,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       prefetchResult: oaiPrefetchResult,
       patternResult: oaiPatternResult,
       sensemakingBlock: oaiSensemakingBlock,
-      policyPrecheck,
+      policyPrecheck: policyPrecheck as { pivotPrompt?: string | null; matchedRules: string[] },
       latestUserText,
       runtimePreferences: oaiRuntimePreferences,
       enriched: oaiEnriched,
@@ -867,16 +716,16 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
         adapterProfile,
         openClawStrictGovernance,
         phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
-        governorPhase: oaiGovernorPhase,
-        executionGovernor: oaiExecutionGovernor,
+        governorPhase: oaiGovernorPhase as never,
+        executionGovernor: oaiExecutionGovernor as { matchedRules: string[] },
         editMissGuard: oaiEditMissGuard,
         needsStateReground: oaiNeedsStateReground,
-        stateConfidence: oaiStateConfidence,
+        stateConfidence: oaiStateConfidence as { recommendedReadPath?: string | null; reasons?: string[] },
         clientToolInventory: oaiClientToolInventory,
         workspaceInspection: oaiWorkspaceInspection,
-        latestReadRefresh: oaiLatestReadRefresh,
+        latestReadRefresh: oaiLatestReadRefresh as { filePath?: string | null },
         promptIntake: oaiPromptIntake,
-        sensemakingDecision: oaiSensemakingDecision,
+        sensemakingDecision: oaiSensemakingDecision as { responseLevel?: string; shouldPause?: boolean; shouldRestrictDiscovery?: boolean } | null | undefined,
         chatState: oaiChatState,
         fileState: oaiFileState,
         compactionOptions: oaiCompactionOpts,
@@ -887,7 +736,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
         reducedToolResults: reducedOpenAI.reducedCount,
         evidencePrefetched: oaiEvidencePrefetched,
         evidenceConfidence: combinedEvidenceConfidence || undefined,
-        sensemakingResult: oaiSensemakingResult,
+        sensemakingResult: oaiSensemakingResult as { triggered?: boolean; reason?: string } | null | undefined,
         governorSummaries: {
           chat: oaiPauseChatSummary,
           file: oaiPauseFileSummary,
