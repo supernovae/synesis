@@ -260,6 +260,7 @@ import { buildClaudeStreamRouteEventHandlersInput } from "./streaming/claude-str
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
 import { buildClaudeStreamRouteRunInput } from "./streaming/claude-stream-route-input.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
+import { buildClaudeStreamRoutePipelineSupportInput } from "./streaming/claude-stream-route-pipeline-input.js";
 import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
 import { buildClaudeStreamRouteStartInput } from "./streaming/claude-stream-route-start-input.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
@@ -9858,21 +9859,23 @@ app.post("/v1/messages", async (req, reply) => {
           recordBlockedDiscovery,
           buildBlockedDiscoveryRecoverySnapshot,
         }),
-        lifecycle: {
-          session,
-          circuitBreakers,
-          logger: app.log,
-          extractUpstreamErrorDiagnostics,
-          recordSessionEvent: recordClaudeStreamEvent,
-        },
-        afterEvents: {
-          adapter: claudeAdapter,
-          stats: toolArgHardeningStats,
-          logger: app.log,
-          recordBlockedDiscovery,
-          getBlockedDiscoveryCount,
-          recordSessionEvent,
-        },
+        ...buildClaudeStreamRoutePipelineSupportInput({
+          lifecycle: {
+            session,
+            circuitBreakers,
+            logger: app.log,
+            extractUpstreamErrorDiagnostics,
+            recordSessionEvent: recordClaudeStreamEvent,
+          },
+          afterEvents: {
+            adapter: claudeAdapter,
+            stats: toolArgHardeningStats,
+            logger: app.log,
+            recordBlockedDiscovery,
+            getBlockedDiscoveryCount,
+            recordSessionEvent,
+          },
+        }),
       },
       completion: buildClaudeStreamRouteCompletionInput({
         scope: {
