@@ -9,6 +9,7 @@ import { prepareOpenAIChatProviderRuntime } from "../pipeline/openai-chat-provid
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
 import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
 import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js";
+import { prepareOpenAITurn } from "../pipeline/openai-turn-preparation.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 
@@ -16,8 +17,6 @@ type AuthUser = import("../auth.js").AuthUser;
 type SessionIdentity = import("../session/session-key.js").SessionIdentity;
 type RequestForensicsRecord = import("../telemetry/request-forensics.js").RequestForensicsRecord;
 type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
-type WorkflowPhase = import("../orchestration/phase-model-orchestrator.js").WorkflowPhase;
-type SessionPathHints = import("../state/workspace-session-boundary.js").SessionPathHints;
 
 export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRouteDependencies): void {
   const {
@@ -650,240 +649,90 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     oaiOptLedger.recordAfterPruning(normalizedOpenAI.messages as Array<{ content?: unknown }>);
     endOaiPruningStage?.();
     const endOaiContextStage = oaiOptLedger.startStage("context");
-    mergeSynesisClarificationFromRequestMetadata(session.record.metadata, oaiBodyMeta ?? undefined);
-    const priorOaiChecklistHash = getChecklistSourceHash(session.record.metadata);
-    if (latestUserText && typeof latestUserText.content === "string") {
-      updateTracePromptMetadata(session, latestUserText.content);
-    }
-    const oaiRequirementChecklist = refreshRequirementChecklist(session);
-    const oaiTaskIntake = refreshTaskIntake(session);
-    const oaiPlanGraph = updatePlanGraph(
-      session,
-      oaiTaskIntake,
-      normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-      oaiVerificationAssessment.failingSignals,
-    );
-    const oaiPromptIntake = evaluateYarnPromptIntakeSteer({
-      enabled: config.SYNESIS_YARN_PROMPT_INTAKE_STEER_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-      latestUserPrompt: oaiTaskCue,
-      metadata: oaiBodyMeta,
-      extraBody: request.extra_body ?? null,
-      clientToolCapabilities: oaiClientToolCapabilities,
-    });
-    persistPromptIntakeSnapshot(session, oaiPromptIntake);
-    recordPromptIntakeEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      oaiTraceReqId,
-      "openai",
-      oaiPromptIntake,
-    );
-    const oaiPlannerTodoPacketBlock = await maybeBuildPlannerTodoPacketBlock({
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      surface: "openai",
-      latestUserPrompt: oaiTaskCue,
-      promptIntake: oaiPromptIntake,
-      clientToolCapabilities: oaiClientToolCapabilities,
-    });
-    if (oaiRequirementChecklist && oaiRequirementChecklist.sourceHash !== priorOaiChecklistHash) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "requirements_checklist",
-        "completion-gate",
-        `Checklist initialized (must=${oaiRequirementChecklist.must.length}, should=${oaiRequirementChecklist.should.length})`,
-        oaiTraceReqId,
-      );
-    }
-    const oaiTurnMessages = sliceMessagesSinceLastUserPrompt(
-      normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
-    );
-    const oaiToolFailures = collectToolExecutionFailureObservations(
-      oaiTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-    );
-    const oaiEditMissGuard = deriveEditContextMissGuardState(
-      oaiTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
-    );
-    const oaiLatestToolProgress = classifyLatestToolProgress(
-      oaiTurnMessages,
-    );
-    if (oaiLatestToolProgress.toolName && oaiLatestToolProgress.snippet) {
-      const oaiEvidenceSignals = classifyToolResultAsEvidence(
-        oaiLatestToolProgress.toolName,
-        oaiLatestToolProgress.snippet,
-        session.record.requestCount,
-      );
-      maybeUpdateTaskLedgerFromEvidence(session, oaiEvidenceSignals);
-    }
-    const oaiLatestReadRefresh = classifyLatestReadRefresh(
-      oaiTurnMessages,
-    );
-    const oaiHadForceReadPending = session.editMissForceReadPending;
-    if (oaiHadForceReadPending && oaiLatestReadRefresh.hasRecentReadSuccess) {
-      session.editMissForceReadPending = false;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "edit_context_miss_forced_read_satisfied",
-        "execution-governor",
-        `Forced read recovery satisfied via ${oaiLatestReadRefresh.toolName || "read"} ${oaiLatestReadRefresh.filePath || "<unknown file>"}`,
-        oaiTraceReqId,
-        {
-          toolName: oaiLatestReadRefresh.toolName || null,
-          toolCallId: oaiLatestReadRefresh.toolCallId || null,
-          filePath: oaiLatestReadRefresh.filePath || null,
-          snippet: oaiLatestReadRefresh.snippet || null,
-        },
-      );
-    }
-    for (const failure of oaiToolFailures) {
-      const oaiFailureEventKind = failure.reason === "edit_already_applied"
-        ? "client_tool_idempotent_observed"
-        : "client_tool_error_observed";
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        oaiFailureEventKind,
-        "tool-result-monitor",
-        `tool=${failure.toolName} reason=${failure.reason} ${failure.snippet}`,
-        oaiTraceReqId,
-        {
-          toolName: failure.toolName,
-          toolCallId: failure.toolCallId || null,
-          filePath: failure.filePath || null,
-          reason: failure.reason,
-          snippet: failure.snippet,
-        },
-      );
-    }
-    if (oaiEditMissGuard?.active) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "edit_context_miss_guard_active",
-        "tool-result-monitor",
-        `forcing_read_before_edit file=${oaiEditMissGuard.filePath} misses=${oaiEditMissGuard.missCount}`,
-        oaiTraceReqId,
-        {
-          filePath: oaiEditMissGuard.filePath,
-          missCount: oaiEditMissGuard.missCount,
-        },
-      );
-    }
-    const oaiEditMissFailureCount = oaiToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
-    const oaiAnyWriteToolEditFailure = oaiToolFailures.some(
-      (f) => f.reason === "edit_error"
-        || f.reason === "edit_context_miss"
-        || f.reason === "write_tool_error"
-        || f.reason === "patch_apply_failed",
-    );
-    const oaiHasActiveEditMissFailure =
-      oaiEditMissFailureCount > 0
-      || oaiAnyWriteToolEditFailure
-      || oaiLatestToolProgress.hasRecentEditContextMiss
-      || oaiEditMissGuard?.active === true
-      || session.editMissForceReadPending;
-    if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure) {
-      session.stagnantToolCycles = 0;
-      session.lastToolSignalHash = "";
-      session.consecutiveEditContextMisses = 0;
-      session.editReplayHardStopGraceUsed = false;
-      session.editMissForceReadPending = false;
-    } else if (oaiEditMissFailureCount > 0) {
-      session.consecutiveEditContextMisses += 1;
-    } else if (oaiLatestToolProgress.hasRecentFailure) {
-      session.consecutiveEditContextMisses = 0;
-    }
-    const oaiShouldArmForceReadRecovery =
-      oaiLatestToolProgress.hasRecentEditContextMiss
-      && (oaiEditMissFailureCount >= 1 || session.consecutiveEditContextMisses >= 1);
-    if (oaiShouldArmForceReadRecovery) {
-      if (!session.editMissForceReadPending) {
-        recordSessionEvent(
-          sessionKey,
-          identity.userId,
-          identity.orgId,
-          "edit_context_miss_forced_read_armed",
-          "execution-governor",
-          `Armed forced read recovery after edit misses (turn=${oaiEditMissFailureCount}, consecutive=${session.consecutiveEditContextMisses})`,
-          oaiTraceReqId,
-          {
-            edit_miss_failures: oaiEditMissFailureCount,
-            consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
-          },
-        );
-      }
-      session.editMissForceReadPending = true;
-    }
-    if (oaiLatestToolProgress.hasRecentWriteSuccess && !oaiHasActiveEditMissFailure && session.consecutiveRecoveryFires > 0) {
-      session.consecutiveRecoveryFires = 0;
-      session.governorPrePauseAttemptsByRule.clear();
-      session.implementationSoftStallNudgeStrikes = 0;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_recovery_reset",
-        "execution-governor",
-        `Recovery streak reset after successful ${oaiLatestToolProgress.toolName || "write"} tool result`,
-        oaiTraceReqId,
-        {
-          toolName: oaiLatestToolProgress.toolName || null,
-          toolCallId: oaiLatestToolProgress.toolCallId || null,
-          snippet: oaiLatestToolProgress.snippet || null,
-        },
-      );
-    }
-    const oaiWorkspaceHandshakeAction = await processWorkspaceHandshakeRoute({
-      protocol: "openai",
+    const oaiTurn = await prepareOpenAITurn({
+      deps: {
+        casSessionSave,
+        classifyLatestReadRefresh,
+        classifyLatestToolProgress,
+        classifyToolResultAsEvidence,
+        clientAdapterPacks,
+        collectToolExecutionFailureObservations,
+        config,
+        deriveEditContextMissGuardState,
+        evaluateYarnPromptIntakeSteer,
+        getChecklistSourceHash,
+        inferGovernorPhaseFromMessages,
+        maybeBuildPlannerTodoPacketBlock,
+        maybeUpdateTaskLedgerFromEvidence,
+        mergeSessionPathHints,
+        mergeSynesisClarificationFromRequestMetadata,
+        parseOrchestratorPhaseHeader,
+        persistPromptIntakeSnapshot,
+        phaseFromFrame,
+        processWorkspaceHandshakeRoute,
+        recordPromptIntakeEvent,
+        recordSessionEvent,
+        refreshRequirementChecklist,
+        refreshTaskIntake,
+        resolveWorkingPhase,
+        sliceMessagesSinceLastUserPrompt,
+        toSessionExecutionContextSystemBlock,
+        toolResultReduction,
+        updatePlanGraph,
+        updateTracePromptMetadata,
+        workingFrameService,
+      },
       session,
       sessionKey,
       identity,
       requestId: oaiTraceReqId,
+      request: request as {
+        model: string;
+        messages: unknown[];
+        tools?: unknown[];
+        stream?: unknown;
+        extra_body?: Record<string, unknown> | null;
+      },
+      normalizedMessages: normalizedOpenAI.messages as Array<{
+        role: string;
+        content: unknown;
+        name?: string;
+        tool_call_id?: string;
+        tool_calls?: unknown;
+      }>,
+      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null | undefined,
+      latestUserText,
+      latestUserPrompt: oaiTaskCue,
+      clientToolCapabilities: oaiClientToolCapabilities,
       pathContext: oaiPathCtx,
-      messages: request.messages as unknown[],
-      tools: request.tools as unknown[] | undefined,
-      saveSession: casSessionSave,
-      recordSessionEvent,
+      adapterProfile,
+      adapterBlock,
+      failingVerificationSignals: oaiVerificationAssessment.failingSignals,
+      headers: req.headers as Record<string, unknown>,
     });
+    const oaiRequirementChecklist = oaiTurn.requirementChecklist;
+    const oaiTaskIntake = oaiTurn.taskIntake;
+    const oaiPlanGraph = oaiTurn.planGraph;
+    const oaiPromptIntake = oaiTurn.promptIntake;
+    const oaiPlannerTodoPacketBlock = oaiTurn.plannerTodoPacketBlock;
+    const oaiToolFailures = oaiTurn.toolFailures;
+    const oaiEditMissGuard = oaiTurn.editMissGuard;
+    const oaiLatestToolProgress = oaiTurn.latestToolProgress;
+    const oaiLatestReadRefresh = oaiTurn.latestReadRefresh;
+    const oaiEditMissFailureCount = oaiTurn.editMissFailureCount;
+    const oaiHasActiveEditMissFailure = oaiTurn.hasActiveEditMissFailure;
+    const oaiWorkspaceHandshakeAction = oaiTurn.workspaceHandshakeAction;
     if (oaiWorkspaceHandshakeAction.kind === "send") {
       return sendOpenAIWorkspaceHandshake(reply, oaiTraceReqId, request.model, !!request.stream, oaiWorkspaceHandshakeAction.toolCallId);
     }
-    let effectiveOaiPathCtx = mergeSessionPathHints(oaiPathCtx, session);
-    const buildEffectiveOaiAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {
-      const ctxBlock = toSessionExecutionContextSystemBlock(pathCtx);
-      if (!ctxBlock) return adapterBlock;
-      return `${clientAdapterPacks.toSystemBlock(adapterProfile)}\n\n${ctxBlock}`;
-    };
-    let effectiveOaiAdapterBlock = buildEffectiveOaiAdapterBlock(effectiveOaiPathCtx);
-
-    const oaiRecallDecision = toolResultReduction.getLastRecallDecision();
-    const oaiVerifState = toolResultReduction.getVerificationTracker().getState();
-
-    const oaiPreFrame = config.SYNESIS_YARN_WORKING_FRAME_ENABLED
-      ? workingFrameService.build(normalizedOpenAI.messages as never)
-      : undefined;
-    const oaiOrchestratorPhaseOverride = parseOrchestratorPhaseHeader(
-      String(req.headers["x-synesis-orchestrator-phase"] ?? ""),
-    );
-    const oaiGovernorPreviewPhase = inferGovernorPhaseFromMessages(
-      normalizedOpenAI.messages as Array<GovernorInputMessage>,
-    );
-    const oaiFramePhase = oaiPreFrame ? phaseFromFrame(oaiPreFrame.currentPhase) : undefined;
-    const oaiWorkingPhase: WorkflowPhase | undefined = resolveWorkingPhase({
-      orchestratorOverride: oaiOrchestratorPhaseOverride,
-      framePhase: oaiFramePhase,
-      governorPreviewPhase: oaiGovernorPreviewPhase,
-    });
-    const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
+    let effectiveOaiPathCtx = oaiTurn.effectivePathContext;
+    let effectiveOaiAdapterBlock = oaiTurn.effectiveAdapterBlock;
+    const buildEffectiveOaiAdapterBlock = oaiTurn.buildEffectiveAdapterBlock;
+    const oaiRecallDecision = oaiTurn.recallDecision;
+    const oaiVerifState = oaiTurn.verificationState;
+    const oaiOrchestratorPhaseOverride = oaiTurn.orchestratorPhaseOverride;
+    const oaiWorkingPhase = oaiTurn.workingPhase;
+    const oaiWorkingFrameGoal = oaiTurn.workingFrameGoal;
 
     const oaiContext = await prepareOpenAIContext({
       deps: {
