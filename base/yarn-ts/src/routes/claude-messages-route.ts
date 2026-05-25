@@ -36,6 +36,106 @@ import {
   sendClaudeWorkspaceHandshake,
 } from "../protocol/route-response-senders.js";
 import { ClaudeMessagesRequestSchema } from "../schemas.js";
+import {
+  applyRuntimePreferenceLoopLimits,
+} from "../runtime/user-preferences.js";
+import {
+  applySessionTaskCapabilities,
+  buildProtocolSessionIdentity,
+  runProtocolSessionBootstrap,
+} from "../session/protocol-session.js";
+import {
+  applyWorkspaceBoundary,
+  hasPersistedWorkspaceState,
+  mergeSessionPathHints,
+  setSessionWorkspaceContext,
+} from "../state/workspace-session-boundary.js";
+import {
+  appendPathContextToAdapterBlock,
+  parseSessionExecutionContext,
+} from "../adapters/client-adapter-packs.js";
+import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
+import { detectClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
+import {
+  normalizeHistoricalContent,
+  stabilizeToolCallIds,
+} from "../reduction/historical-normalizer.js";
+import { normalizeReadSnapshotMessages } from "../reduction/read-snapshot-normalizer.js";
+import {
+  buildRouteGovernanceBlocks,
+} from "../pipeline/route-governance-blocks.js";
+import { finalizePostEnrichmentMessages } from "../pipeline/post-enrichment-finalization.js";
+import { applyWorkspaceMetadataPrebackfill } from "../pipeline/workspace-metadata-prebackfill.js";
+import {
+  extractRecentToolNames,
+  injectGovernorRecoveryMessage,
+  prepareRouteTools,
+} from "../pipeline/route-tool-preparation.js";
+import { applyRoutePhasePolicy } from "../pipeline/route-phase-policy.js";
+import {
+  applyRouteAdapterPivot,
+  resetQwenInterventionOnUserTurn,
+} from "../pipeline/route-adapter-pivot.js";
+import { assembleRouteModelMessages } from "../pipeline/route-model-message-assembly.js";
+import { finalizeOpenAIProviderRequest } from "../pipeline/openai-route-provider-finalization.js";
+import {
+  admissionErrorMessage,
+  countMessageRoles,
+} from "../pipeline/context-admission.js";
+import { runRouteContextAdmission } from "../pipeline/route-context-admission.js";
+import {
+  cacheShapeDiagnosticFields,
+  buildCacheShapeDiagnostics,
+} from "../telemetry/cache-shape-diagnostics.js";
+import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import {
+  runEvidencePrefetch,
+  formatEvidenceBlock,
+  runPatternPrefetch,
+  formatPatternBlock,
+  buildEvidenceTraceSummary,
+} from "../evidence/fast-path.js";
+import { buildDefaultPolicy } from "../path-governance/path-sandbox.js";
+import { detectToolProgress } from "../policy/tool-progress-detector.js";
+import {
+  buildYarnUpperHarnessContext,
+  evaluateYarnPromptIntakeSteer,
+} from "../upper-harness/bridge.js";
+import {
+  assessVerificationFromMessages as assessVerificationSignals,
+} from "../verification/staff-completion.js";
+import {
+  evaluateExecutionGovernor,
+  buildExecutionGovernorHardStopUserMessage,
+  buildExecutionGovernorPauseEnvelope,
+  inferGovernorPhaseFromMessages,
+  extractCommandEvents,
+  extractEditedFileHints,
+  isPlanRecoveryDiscoveryIntent,
+} from "../governance/execution-governor.js";
+import {
+  persistGovernorPauseSoftFail,
+  resetGovernorPauseRecoveryState,
+} from "../governance/governor-pause-route.js";
+import { applyGovernorPhaseRouteBookkeeping } from "../governance/governor-phase-route.js";
+import {
+  evaluateSensemakingGovernor,
+  compareSensemakingWithLegacy,
+  buildSensemakingPauseMessage,
+  buildSensemakingGuidanceInjection,
+} from "../governance/sensemaking-governor.js";
+import { deriveGovernorLoopObservability } from "../governance/governor-observability.js";
+import { buildArtifactShadows, summarizeArtifactContext } from "../governance/artifact-shadow.js";
+import { summarizeEvidenceDelta } from "../governance/evidence-delta.js";
+import { deriveChatState } from "../governance/chat-state.js";
+import { deriveFileState } from "../governance/file-state.js";
+import {
+  assessStateConfidence,
+  formatStateConfidenceBlock,
+} from "../governance/state-confidence.js";
+import { projectInstructionFilePresent } from "../governance/workspace-boundary.js";
+import { detectClientTaskCapabilities } from "../task-ledger/index.js";
+import { createDiffStats } from "../governance/diff-accumulator.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type FastPathResult = import("../evidence/fast-path.js").FastPathResult;
@@ -105,9 +205,6 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       maybeCheckpoint,
       readUsage,
       securityIngestConfig,
-      applyRuntimePreferenceLoopLimits,
-      applySessionTaskCapabilities,
-      buildProtocolSessionIdentity,
       cachePolicyLogRecord,
       casSessionSave,
       clearGovernorPauseContextMetadata,
@@ -118,36 +215,24 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       getMetadataString,
       loadUserRuntimePreferences,
       persistGovernorPauseContextMetadata,
-      persistGovernorPauseSoftFail,
       persistPromptIntakeSnapshot,
       persistStateConfidence,
       prepareProtocolPauseState,
       readPersistedChatStateSnapshot,
       recordPromptIntakeEvent,
       recordSessionEvent,
-      resetGovernorPauseRecoveryState,
-      runProtocolSessionBootstrap,
       sessionPersistenceRunner,
       sessions,
-      setSessionWorkspaceContext,
       updateTracePromptMetadata,
     },
     workspace: {
-      appendPathContextToAdapterBlock,
-      applyWorkspaceBoundary,
-      applyWorkspaceMetadataPrebackfill,
       enrichWithFrameAndManifest,
-      hasPersistedWorkspaceState,
       injectSessionContext,
       lastToolUseIdFromClaudeMessages,
-      mergeSessionPathHints,
-      parseSessionExecutionContext,
       pinchCompactionBackendModelMetadata,
       processWorkspaceHandshakeRoute,
-      projectInstructionFilePresent,
       projectManifestService,
       resetWorkspaceScopedSessionState,
-      toSessionExecutionContextSystemBlock,
       workingFrameService,
       workspaceStatePresence,
     },
@@ -163,14 +248,11 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       getFileSnapshotRegistry,
       getMemoryGovernor,
       getStructuralIndex,
-      normalizeHistoricalContent,
-      normalizeReadSnapshotMessages,
       remediatePlanFileStubs,
       resolveCompactionBackendModelHintFromRequestModel,
       runValidationTierCFallback,
       serializeShadow,
       sliceMessagesSinceLastUserPrompt,
-      stabilizeToolCallIds,
       toolResultReduction,
       transcriptPruning,
       validationNormalization,
@@ -190,14 +272,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       updateDiffAccumulator,
       applyDiscoveryToolGuardrail,
       buildBlockedDiscoveryRecoverySnapshot,
-      buildDefaultPolicy,
-      detectClientTaskCapabilities,
-      detectClientToolCapabilities,
       ensureReadToolAvailabilityForEditMissGuard,
-      extractRecentToolNames,
       getBlockedDiscoveryCount,
       getCachedTopLevelDirs,
-      prepareRouteTools,
       shouldStripGlobFromTools,
       stripGlobFromTools,
       toolArgHardeningStats,
@@ -207,42 +284,23 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       shouldRestrictDiscoveryForPlanWork,
       adapterUsesToolLoopSteering,
       analyzeRecentCommandLoop,
-      applyGovernorPhaseRouteBookkeeping,
       applySensemakingStats,
       assessProportionality,
-      assessStateConfidence,
-      buildExecutionGovernorHardStopUserMessage,
-      buildExecutionGovernorPauseEnvelope,
-      buildRouteGovernanceBlocks,
-      buildSensemakingGuidanceInjection,
-      buildSensemakingPauseMessage,
       chatPhaseFromWorkflowPhase,
       classifyIntentScope,
       classifyLatestReadRefresh,
       classifyLatestToolProgress,
       collectToolExecutionFailureObservations,
-      compareSensemakingWithLegacy,
       countTurnsSinceLastUser,
-      deriveChatState,
       deriveEditContextMissGuardState,
-      deriveFileState,
-      deriveGovernorLoopObservability,
-      evaluateExecutionGovernor,
-      evaluateSensemakingGovernor,
-      extractCommandEvents,
-      extractEditedFileHints,
-      formatStateConfidenceBlock,
       governanceClient,
       GOVERNOR_COOLDOWN_MS,
       handleDeterministicPolicyPrecheck,
       hashTextSignal,
-      inferGovernorPhaseFromMessages,
       inferModelFamily,
-      injectGovernorRecoveryMessage,
       isGenuineUserPromptMessage,
       isMatrixCapabilityEnabled,
       isOpenClawProfile,
-      isPlanRecoveryDiscoveryIntent,
       logAndPersistSafetyEvent,
       looksLikeFailureSignal,
       normalizedToolOutputSignal,
@@ -251,7 +309,6 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       phaseOrchestrator,
       policyEngine,
       proportionalityToSignal,
-      resetQwenInterventionOnUserTurn,
       resolveCapabilityMatrix,
       resolveWorkingPhase,
       runSensemaking,
@@ -262,15 +319,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       finalizeCompletionText,
       finalizePostStreamText,
       applyObjectiveScopeAndPersist,
-      assessVerificationSignals,
-      buildArtifactShadows,
-      buildDecisionSnapshot,
       buildGovernorPauseResumeBlockForUser,
-      buildYarnUpperHarnessContext,
       classifyToolResultAsEvidence,
       detectLanguagesFromMessages,
-      detectToolProgress,
-      evaluateYarnPromptIntakeSteer,
       getChecklistSourceHash,
       inferTrajectoryDiagnosticsFromMessages,
       inferVerificationSteps,
@@ -280,8 +331,6 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       recordUpperHarnessDecision,
       refreshRequirementChecklist,
       refreshTaskIntake,
-      summarizeArtifactContext,
-      summarizeEvidenceDelta,
       updatePlanGraph,
     },
     provider: {
@@ -292,14 +341,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       prefixOptimizer,
       runOpenAIRequest,
       streamAdmission,
-      applyRouteAdapterPivot,
-      applyRoutePhasePolicy,
-      assembleRouteModelMessages,
       captureRequestForensics,
       clampMaxOutputTokensForSafety,
       extractMetadataFromMessages,
-      finalizeOpenAIProviderRequest,
-      finalizePostEnrichmentMessages,
       finalizeRequestForensics,
       generateText,
       resolveEndpointCapabilityId,
@@ -311,26 +355,15 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     },
     evidence: {
       artifactStore,
-      buildEvidenceTraceSummary,
-      formatEvidenceBlock,
-      formatPatternBlock,
       getSessionMemoryCount,
       knowledgeResolveContext,
       knowledgeSearch,
-      runEvidencePrefetch,
-      runPatternPrefetch,
       webSearch,
       webSearchResolveContext,
     },
     telemetry: {
-      admissionErrorMessage,
-      buildCacheShapeDiagnostics,
-      cacheShapeDiagnosticFields,
       contextAdmissionStats,
-      countMessageRoles,
-      createDiffStats,
       pushDiagnostic,
-      runRouteContextAdmission,
     },
     adapter: {
       clientAdapterPacks,
