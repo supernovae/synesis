@@ -7,7 +7,7 @@ import {
   type StreamRouteEventSink,
 } from "../streaming/stream-route-scope.js";
 
-export interface OpenAINonStreamRouteScopeInput<TSession> {
+export interface OpenAINonStreamRouteScopeInput {
   sessionKey: string;
   userId: string;
   orgId: string;
@@ -43,8 +43,8 @@ export interface OpenAINonStreamRouteScope {
   }): void;
 }
 
-export function createOpenAINonStreamRouteScope<TSession>(
-  input: OpenAINonStreamRouteScopeInput<TSession>,
+export function createOpenAINonStreamRouteScope(
+  input: OpenAINonStreamRouteScopeInput,
 ): OpenAINonStreamRouteScope {
   const scope = {
     sessionKey: input.sessionKey,

@@ -114,7 +114,7 @@ export interface ClaudeStreamTelemetryInput {
   pushDiagnostic(diagnostic: Record<string, unknown>): void;
 }
 
-export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
+export interface ClaudeStreamTelemetryRouteInput {
   requestId: string;
   sessionKey: string;
   userId: string;
@@ -198,8 +198,8 @@ export interface ClaudeStreamTelemetryResult {
   snapshot: DecisionSnapshot;
 }
 
-export function createClaudeStreamTelemetryInput<TSession>(
-  input: ClaudeStreamTelemetryRouteInput<TSession>,
+export function createClaudeStreamTelemetryInput(
+  input: ClaudeStreamTelemetryRouteInput,
 ): ClaudeStreamTelemetryInput {
   return {
     requestId: input.requestId,

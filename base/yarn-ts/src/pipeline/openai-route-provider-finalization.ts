@@ -122,7 +122,7 @@ export interface OpenAIProviderFinalizationResult<TResolveResult> {
 export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProviderFinalizationSession, TResolveResult>(
   input: OpenAIProviderFinalizationInput<TSession, TResolveResult>,
 ): Promise<OpenAIProviderFinalizationResult<TResolveResult>> {
-  let normalizedRequest: OpenAIChatCompletionRequest = {
+  const normalizedRequest: OpenAIChatCompletionRequest = {
     ...input.request,
     model: input.selectedModel,
     messages: input.enrichedMessages as never,

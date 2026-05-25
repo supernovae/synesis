@@ -7,7 +7,7 @@ import {
   type StreamRouteEventSink,
 } from "./stream-route-scope.js";
 
-export interface ClaudeNonStreamRouteScopeInput<TSession> {
+export interface ClaudeNonStreamRouteScopeInput {
   sessionKey: string;
   userId: string;
   orgId: string;
@@ -41,8 +41,8 @@ export interface ClaudeNonStreamRouteScope {
   }): void;
 }
 
-export function createClaudeNonStreamRouteScope<TSession>(
-  input: ClaudeNonStreamRouteScopeInput<TSession>,
+export function createClaudeNonStreamRouteScope(
+  input: ClaudeNonStreamRouteScopeInput,
 ): ClaudeNonStreamRouteScope {
   const recordEvent = createStreamRouteEventRecorder({
     sessionKey: input.sessionKey,

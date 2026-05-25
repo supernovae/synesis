@@ -414,7 +414,6 @@ import {
   hasPersistedWorkspaceState,
   mergeSessionPathHints,
   setSessionWorkspaceContext,
-  type HandshakeStatus,
   type SessionPathHints,
 } from "./state/workspace-session-boundary.js";
 import type { CompactionMode } from "./governance/context-budget-manager.js";
@@ -2343,7 +2342,6 @@ const contextAdmissionStats = {
   },
 };
 const requestForensicsLastBySession = new Map<string, { requestId: string; serialized: string }>();
-let diagnosticRegistry: RequestDiagnosticRegistry;
 
 function captureRequestForensics(
   sessionKey: string,
@@ -2507,7 +2505,7 @@ const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPO
 const sessions = new Map<string, SessionState>();
 const rotatedSessionByBaseKey = new Map<string, string>();
 const sessionStore = new SessionStore(config);
-diagnosticRegistry = new RequestDiagnosticRegistry(config);
+const diagnosticRegistry = new RequestDiagnosticRegistry(config);
 const memoryStoreRedis = config.SYNESIS_YARN_SESSION_REDIS_URL
   ? new IORedis(config.SYNESIS_YARN_SESSION_REDIS_URL, {
       maxRetriesPerRequest: 1,
@@ -7243,7 +7241,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const oaiPhasePolicy = oaiPhaseApplication.phasePolicy;
   const oaiPhaseFiltered = oaiPhaseApplication.phaseFiltered;
   effectiveTools = oaiPhaseApplication.effectiveTools;
-  let effectiveToolChoice = oaiPhaseApplication.effectiveToolChoice;
+  const effectiveToolChoice = oaiPhaseApplication.effectiveToolChoice;
   const sdkTools = openAIToolsToSDK(effectiveTools as never);
   const oaiForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
     enabled: oaiPhasePolicy.active,
