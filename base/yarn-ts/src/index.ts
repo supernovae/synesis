@@ -255,6 +255,7 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
+import { buildClaudeStreamRouteCompletionInput } from "./streaming/claude-stream-route-completion-input.js";
 import { buildClaudeStreamRouteEventHandlersInput } from "./streaming/claude-stream-route-event-input.js";
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
 import { buildClaudeStreamRouteRunInput } from "./streaming/claude-stream-route-input.js";
@@ -9870,23 +9871,28 @@ app.post("/v1/messages", async (req, reply) => {
           recordSessionEvent,
         },
       },
-      completion: {
+      completion: buildClaudeStreamRouteCompletionInput({
+        scope: {
+          pendingRequestId: traceReqId,
+          historyRequestId: reqId,
+          sessionKey: claudeSessionKey,
+          userId: claudeIdentity.userId,
+          orgId: claudeIdentity.orgId,
+        },
+        metadata: {
+          source: session.record.metadata,
+          getString: getMetadataString,
+        },
+        recentMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
+        extractRecentToolNames,
+        checklist: claudeRequirementChecklist,
         finalizer: {
           session,
           readUsage,
           finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
           handlerInput: {
             session,
-            pendingRequestId: traceReqId,
-            historyRequestId: reqId,
-            sessionKey: claudeSessionKey,
-            userId: claudeIdentity.userId,
-            orgId: claudeIdentity.orgId,
-            checklist: claudeRequirementChecklist,
-            traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-            latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
             verification: claudeVerificationAssessment,
-            recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
             planGraph: claudePlanGraph,
             responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
             applyMarkdownGuardrail,
@@ -9925,15 +9931,13 @@ app.post("/v1/messages", async (req, reply) => {
           promptProfileHashes: claudeEnriched.promptProfileHashes,
           prefixHash: claudeEnriched.prefixHash,
           prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-          requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
-          requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
           contextAdmission: claudeContextAdmission,
           countMessageRoles,
           pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
           recordSessionEvent,
           persistDecisionTelemetry: persistClaudeDecisionTelemetry,
         },
-      },
+      }),
     }));
     return reply;
   }
