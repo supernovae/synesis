@@ -10,6 +10,7 @@ import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js"
 import { prepareOpenAITurn } from "../pipeline/openai-turn-preparation.js";
 import { prepareOpenAIEnrichment } from "../pipeline/openai-enrichment-preparation.js";
 import { prepareOpenAIProviderRuntimeForRoute } from "../pipeline/openai-provider-runtime-preparation.js";
+import { handleOpenAIGovernorResponse } from "../pipeline/openai-governor-response.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 
@@ -914,146 +915,44 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiSensemakingPrimaryEnabled =
       config.SYNESIS_YARN_SENSEMAKING_ENABLED
       && !config.SYNESIS_YARN_SENSEMAKING_HARD_STOP_ONLY;
-    if (
-      !oaiSensemakingPrimaryEnabled
-      && oaiExecutionGovernor.pause
-      && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED
-    ) {
-      const pause = persistGovernorPauseSoftFail({
-        session,
-        sessionKey,
-        identity,
-        requestId: oaiTraceReqId,
-        selectedModel: orchestration.selectedModel,
-        originalModel: request.model,
-        finishReason: "stop",
-        buildPause: (consecutiveRecoveryFires) => {
-          const content = buildExecutionGovernorHardStopUserMessage({
-            consecutiveRecoveryFires,
-            matchedRules: oaiExecutionGovernor.matchedRules,
-            questionToolName: oaiClientToolCapabilities.questionToolName,
-            taskContext: oaiPauseTaskContext,
-          });
-          const envelope = buildExecutionGovernorPauseEnvelope({
-            matchedRules: oaiExecutionGovernor.matchedRules,
-            consecutiveRecoveryFires,
-            hardStopThreshold: config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER,
-            evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-            activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
-            artifactContext: oaiArtifactContext,
-            chatStateSummary: oaiPauseChatSummary,
-            fileStateSummary: oaiPauseFileSummary,
-            taskContext: oaiPauseTaskContext,
-            questionToolName: oaiClientToolCapabilities.questionToolName,
-          });
-          return {
-            content,
-            envelope,
-            eventType: "execution_governor_pause",
-            eventSource: "execution-governor",
-            eventSummary: `Pause: rules=${oaiExecutionGovernor.matchedRules.slice(0, 3).join(",") || "unknown"}`,
-            eventMetadata: {
-              matchedRules: oaiExecutionGovernor.matchedRules,
-              reason: oaiExecutionGovernor.reason,
-              consecutiveRecoveryFires,
-            },
-          };
-        },
-        persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }) => persistGovernorPauseContextMetadata({
-          session: pauseSession,
-          surface: "openai",
-          requestId: oaiTraceReqId,
-          pauseEnvelope,
-          pauseContent,
-          clientToolCapabilities: oaiClientToolCapabilities,
-        }),
-        persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
+    const oaiGovernorResponse = handleOpenAIGovernorResponse({
+      deps: {
+        buildExecutionGovernorHardStopUserMessage,
+        buildExecutionGovernorPauseEnvelope,
+        buildSensemakingGuidanceInjection,
+        buildSensemakingPauseMessage,
+        clearGovernorPauseContextMetadata,
+        config,
+        injectGovernorRecoveryMessage,
         maybeCheckpoint,
+        persistGovernorPauseContextMetadata,
+        persistGovernorPauseSoftFail,
         recordSessionEvent,
-      });
-      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pause.content, !!request.stream, pause.envelope);
-    }
-
-    // Sensemaking-driven response: graduated allow/nudge/guide/intervene
-    if (oaiSensemakingPrimaryEnabled && oaiSensemakingDecision && config.SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED) {
-      if (oaiSensemakingDecision.shouldPause) {
-        // Chaotic domain — hard pause
-        const pause = persistGovernorPauseSoftFail({
-          session,
-          sessionKey,
-          identity,
-          requestId: oaiTraceReqId,
-          selectedModel: orchestration.selectedModel,
-          originalModel: request.model,
-          finishReason: "stop",
-          buildPause: (consecutiveRecoveryFires) => {
-            const content = buildSensemakingPauseMessage(oaiSensemakingDecision);
-            const envelope = buildExecutionGovernorPauseEnvelope({
-              matchedRules: oaiSensemakingDecision.matchedRules,
-              consecutiveRecoveryFires,
-              hardStopThreshold: 7,
-              evidenceDelta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-              activeGuards: oaiExecutionGovernor.telemetry.activeGuards,
-              artifactContext: oaiArtifactContext,
-              chatStateSummary: oaiPauseChatSummary,
-              fileStateSummary: oaiPauseFileSummary,
-              taskContext: oaiPauseTaskContext,
-              questionToolName: oaiClientToolCapabilities.questionToolName,
-            });
-            return {
-              content,
-              envelope,
-              eventType: "sensemaking_governor_pause",
-              eventSource: "sensemaking-governor",
-              eventSummary: `Pause: domain=${oaiSensemakingDecision.domain} friction=${(oaiSensemakingDecision.frictionScore * 100).toFixed(0)}% signals=${oaiSensemakingDecision.matchedRules.slice(0, 3).join(",")}`,
-              eventMetadata: {
-                domain: oaiSensemakingDecision.domain,
-                frictionScore: oaiSensemakingDecision.frictionScore,
-                matchedRules: oaiSensemakingDecision.matchedRules,
-                consecutiveRecoveryFires,
-              },
-            };
-          },
-          persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }) => persistGovernorPauseContextMetadata({
-            session: pauseSession,
-            surface: "openai",
-            requestId: oaiTraceReqId,
-            pauseEnvelope,
-            pauseContent,
-            clientToolCapabilities: oaiClientToolCapabilities,
-          }),
-          persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
-          maybeCheckpoint,
-          recordSessionEvent,
-        });
-        return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, pause.content, !!request.stream, pause.envelope);
-      }
-
-      const guidanceInjection = buildSensemakingGuidanceInjection(oaiSensemakingDecision);
-      if (guidanceInjection) {
-        injectGovernorRecoveryMessage(
-          normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-          guidanceInjection,
-        );
-        recordSessionEvent(
-          sessionKey, identity.userId, identity.orgId,
-          "sensemaking_governor_guidance",
-          "sensemaking-governor",
-          `${oaiSensemakingDecision.responseLevel}: domain=${oaiSensemakingDecision.domain} friction=${(oaiSensemakingDecision.frictionScore * 100).toFixed(0)}%`,
-          oaiTraceReqId,
-          {
-            responseLevel: oaiSensemakingDecision.responseLevel,
-            domain: oaiSensemakingDecision.domain,
-            frictionScore: oaiSensemakingDecision.frictionScore,
-            guidance: guidanceInjection.slice(0, 200),
-          },
-        );
-      }
-
-      // Reset recovery counters on non-pause outcomes
-      resetGovernorPauseRecoveryState(session, oaiHasActiveEditMissFailure, clearGovernorPauseContextMetadata);
-    } else if (!oaiExecutionGovernor.pause) {
-      resetGovernorPauseRecoveryState(session, oaiHasActiveEditMissFailure, clearGovernorPauseContextMetadata);
+        resetGovernorPauseRecoveryState,
+        sessionPersistenceRunner,
+        summarizeEvidenceDelta,
+      },
+      session,
+      sessionKey,
+      identity,
+      requestId: oaiTraceReqId,
+      selectedModel: orchestration.selectedModel,
+      originalModel: request.model,
+      messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
+      executionGovernor: oaiExecutionGovernor,
+      sensemakingDecision: oaiSensemakingDecision,
+      sensemakingPrimaryEnabled: oaiSensemakingPrimaryEnabled,
+      hasActiveEditMissFailure: oaiHasActiveEditMissFailure,
+      clientToolCapabilities: oaiClientToolCapabilities,
+      pauseContext: {
+        artifactContext: oaiArtifactContext,
+        chatStateSummary: oaiPauseChatSummary,
+        fileStateSummary: oaiPauseFileSummary,
+        taskContext: oaiPauseTaskContext,
+      },
+    });
+    if (oaiGovernorResponse.kind === "softFail") {
+      return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, oaiGovernorResponse.content, !!request.stream, oaiGovernorResponse.envelope);
     }
     endOaiGovernorStage();
     const endOaiEnrichmentStage = oaiOptLedger.startStage("enrichment");
