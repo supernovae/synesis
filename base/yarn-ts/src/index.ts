@@ -7,7 +7,6 @@ import { generateText, streamText } from "ai";
 import {
   createServiceMetrics,
   recordUsageMetrics,
-  extractUsage,
   emitTrace,
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
@@ -280,6 +279,7 @@ import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js"
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createDecisionTelemetryPersister } from "./state/decision-telemetry-persister.js";
+import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
 import {
   readPersistedChatStateSnapshot,
 } from "./state/persistence-state-channels.js";
@@ -4119,23 +4119,10 @@ function recordUpperHarnessDecision(
   );
 }
 
-function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
-  const obj = (input ?? {}) as Record<string, unknown>;
-
-  if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-    app.log.debug({ rawUsage: obj }, "raw_usage_from_sdk");
-  }
-
-  const normalized = extractUsage(obj as never);
-  const cost = Number(obj.costUsd ?? obj.cost_usd ?? obj.estimated_cost ?? normalized.actual_cost_usd ?? 0);
-  return {
-    inputTokens: Number.isFinite(normalized.prompt_tokens) ? normalized.prompt_tokens : 0,
-    outputTokens: Number.isFinite(normalized.completion_tokens) ? normalized.completion_tokens : 0,
-    cachedTokens: Number.isFinite(normalized.cached_prompt_tokens) ? normalized.cached_prompt_tokens : 0,
-    cacheCreationTokens: Number.isFinite(normalized.cache_creation_tokens) ? normalized.cache_creation_tokens! : 0,
-    costUsd: Number.isFinite(cost) ? cost : 0
-  };
-}
+const readUsage = (input: unknown) => normalizeProviderUsage(input, {
+  debug: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+  logger: app.log,
+});
 
 function resolveClaudeConversationId(
   metadata: Record<string, unknown> | undefined,
