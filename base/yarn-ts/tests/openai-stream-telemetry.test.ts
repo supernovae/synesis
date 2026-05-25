@@ -107,6 +107,16 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIStreamTelemetry
     },
     cacheStrategy: "anthropic_explicit",
     prefixFingerprint: "fingerprint",
+    cacheShapeDiagnostics: {
+      messageCount: 2,
+      stablePrefixHash: "stable-prefix",
+      stablePrefixBytes: 100,
+      toolCount: 3,
+      toolSchemaHash: "tool-schema",
+      toolSchemaBytes: 200,
+      providerOptionsHash: "provider-options",
+      providerOptionsBytes: 50,
+    },
     finalizeRequestForensics: vi.fn(() => ({
       summary: "summary",
       lcpRatio: 0.9,
@@ -248,6 +258,14 @@ describe("runOpenAIStreamTelemetry", () => {
       requestForensicsSummary: "summary",
       cacheStrategy: "anthropic_explicit",
       prefixFingerprint: "fingerprint",
+      cacheShapeStablePrefixHash: "stable-prefix",
+      cacheShapeToolSchemaHash: "tool-schema",
+      cacheShapeProviderOptionsHash: "provider-options",
+      cacheShapePromptTokens: 10,
+      cacheShapeCachedTokens: 3,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 30,
+      cacheShapeOutcome: "hit",
     }));
     expect(input.logOptimizationLedger).toHaveBeenCalledWith({ total: 1 });
   });

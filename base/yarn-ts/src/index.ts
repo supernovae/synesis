@@ -121,6 +121,7 @@ import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
 import {
   buildCacheShapeDiagnostics,
   cacheShapeDiagnosticFields,
+  summarizeCacheShapeDiagnostics,
 } from "./telemetry/cache-shape-diagnostics.js";
 import {
   cachePolicyLogRecord,
@@ -2358,6 +2359,11 @@ interface RequestDiagnostic {
   cacheShapeToolSchemaBytes?: number;
   cacheShapeProviderOptionsHash?: string;
   cacheShapeProviderOptionsBytes?: number;
+  cacheShapePromptTokens?: number;
+  cacheShapeCachedTokens?: number;
+  cacheShapeCacheCreationTokens?: number;
+  cacheShapeHitPct?: number;
+  cacheShapeOutcome?: "hit" | "write" | "miss" | "unknown";
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -2469,6 +2475,25 @@ function pushDiagnostic(d: RequestDiagnostic): void {
   if (d.requestId) {
     diagnosticStore.persistDiagnostic(d.requestId, d as unknown as Record<string, unknown>);
   }
+}
+
+async function listRecentRequestDiagnostics(limit = DIAGNOSTIC_RING_MAX): Promise<{
+  diagnostics: RequestDiagnostic[];
+  source: "memory" | "redis_empty" | "redis";
+}> {
+  if (diagnosticRing.length > 0) {
+    return { diagnostics: [...diagnosticRing].slice(-limit), source: "memory" };
+  }
+  const recentIds = await diagnosticStore.listRecentDiagnostics(limit);
+  if (recentIds.length === 0) {
+    return { diagnostics: [], source: "redis_empty" };
+  }
+  const redisDiags: RequestDiagnostic[] = [];
+  for (const id of recentIds) {
+    const d = await diagnosticStore.getDiagnostic(id);
+    if (d) redisDiags.push(d as unknown as RequestDiagnostic);
+  }
+  return { diagnostics: redisDiags, source: "redis" };
 }
 
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
@@ -5349,19 +5374,25 @@ app.get("/v1/diagnostics/recent", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
-  if (diagnosticRing.length > 0) {
-    return { diagnostics: [...diagnosticRing], count: diagnosticRing.length, source: "memory" };
+  const recent = await listRecentRequestDiagnostics(DIAGNOSTIC_RING_MAX);
+  return { diagnostics: recent.diagnostics, count: recent.diagnostics.length, source: recent.source };
+});
+
+app.get("/v1/diagnostics/cache-shapes/recent", async (req, reply) => {
+  if (!requireInternalToken(req as never)) {
+    return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
-  const recentIds = await diagnosticStore.listRecentDiagnostics(DIAGNOSTIC_RING_MAX);
-  if (recentIds.length === 0) {
-    return { diagnostics: [], count: 0, source: "redis_empty" };
-  }
-  const redisDiags: RequestDiagnostic[] = [];
-  for (const id of recentIds) {
-    const d = await diagnosticStore.getDiagnostic(id);
-    if (d) redisDiags.push(d as unknown as RequestDiagnostic);
-  }
-  return { diagnostics: redisDiags, count: redisDiags.length, source: "redis" };
+  const recent = await listRecentRequestDiagnostics(DIAGNOSTIC_RING_MAX);
+  const summaries = summarizeCacheShapeDiagnostics(
+    recent.diagnostics as unknown as Array<Record<string, unknown>>,
+    DIAGNOSTIC_RING_MAX,
+  );
+  return {
+    summaries,
+    count: summaries.length,
+    diagnosticCount: recent.diagnostics.length,
+    source: recent.source,
+  };
 });
 
 app.get("/v1/diagnostics/:requestId", async (req, reply) => {
@@ -7476,11 +7507,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     });
   }
-  oaiOptLedger.recordCacheDiagnostics(buildCacheShapeDiagnostics({
+  const oaiCacheShapeDiagnostics = buildCacheShapeDiagnostics({
     messages: modelMessages as Array<{ role?: string; content?: unknown }>,
     tools: effectiveTools as unknown[],
     providerOptions: oaiProviderOptions,
-  }));
+  });
+  oaiOptLedger.recordCacheDiagnostics(oaiCacheShapeDiagnostics);
 
   const oaiTelemetryRouteBase = createOpenAIChatRouteTelemetryBase({
     clientRequestedModel: request.model,
@@ -7519,6 +7551,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       estimatedTokens: oaiContextAdmission.estimatedTokens,
       estimatedChars: oaiContextAdmission.estimatedChars,
     },
+    cacheShapeDiagnostics: oaiCacheShapeDiagnostics,
     countMessageRoles,
     pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
   });

@@ -1,6 +1,10 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
-import { buildCacheShapeOutcomeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
+import {
+  buildCacheShapeOutcomeDiagnostics,
+  cacheShapeDiagnosticFields,
+} from "../telemetry/cache-shape-diagnostics.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type {
   OpenAIStreamTelemetryLedger,
   OpenAIStreamTelemetryReductions,
@@ -68,6 +72,7 @@ export interface OpenAINonStreamTelemetryInput {
     estimatedTokens?: number;
     estimatedChars?: number;
   };
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   requestForensics?: OpenAINonStreamRequestForensicsSummary;
   recordSessionEvent(event: {
     eventKind: string;
@@ -226,6 +231,8 @@ export function runOpenAINonStreamTelemetry(
     requestForensicsLcpRatio: input.requestForensics?.lcpRatio,
     requestForensicsFirstChangedSection: input.requestForensics?.firstChangedSection,
     requestForensicsTokenEstimate: input.requestForensics?.tokenEstimate,
+    ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
+    ...cacheShapeDiagnosticFields(buildCacheShapeOutcomeDiagnostics(input.usage)),
   });
 
   return {

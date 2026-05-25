@@ -1,6 +1,9 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
-import { buildCacheShapeOutcomeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
+import {
+  buildCacheShapeOutcomeDiagnostics,
+  cacheShapeDiagnosticFields,
+} from "../telemetry/cache-shape-diagnostics.js";
 import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { OpenAIStreamFinalizerResult, StreamTokenUsage } from "./openai-stream-finalizer.js";
 
@@ -72,6 +75,7 @@ export interface OpenAIStreamTelemetryInput {
   };
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   finalizeRequestForensics(usage: StreamTokenUsage): {
     summary?: string;
     lcpRatio?: number;
@@ -153,6 +157,7 @@ export interface OpenAIStreamTelemetryBuilderInput {
   contextAdmission?: OpenAIStreamTelemetryInput["contextAdmission"];
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   finalizeRequestForensics: OpenAIStreamTelemetryInput["finalizeRequestForensics"];
   recordSessionEvent: OpenAIStreamTelemetryInput["recordSessionEvent"];
   persistDecisionTelemetry(input: {
@@ -208,6 +213,7 @@ export function createOpenAIStreamTelemetryInputBuilder(
     contextAdmission: input.contextAdmission,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
+    cacheShapeDiagnostics: input.cacheShapeDiagnostics,
     finalizeRequestForensics: input.finalizeRequestForensics,
     recordSessionEvent: input.recordSessionEvent,
     persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
@@ -351,6 +357,8 @@ export function runOpenAIStreamTelemetry(
     requestForensicsTokenEstimate: requestForensicsDone?.tokenEstimate,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
+    ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
+    ...cacheShapeDiagnosticFields(buildCacheShapeOutcomeDiagnostics(usage)),
   });
 
   return {

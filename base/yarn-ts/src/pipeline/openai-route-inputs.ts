@@ -57,6 +57,7 @@ export function createOpenAIChatRouteTelemetryBase(
     requirementChecklistMust: input.requirementChecklistMust,
     requirementChecklistShould: input.requirementChecklistShould,
     contextAdmission: input.contextAdmission,
+    cacheShapeDiagnostics: input.cacheShapeDiagnostics,
     countMessageRoles: input.countMessageRoles,
     pushDiagnostic: input.pushDiagnostic,
   };

@@ -20,6 +20,25 @@ export interface CacheShapeOutcomeInput {
   cacheCreationTokens?: number | null;
 }
 
+export interface CacheShapeSummary {
+  cacheShapeKey: string;
+  path?: string;
+  stablePrefixHash?: string;
+  toolSchemaHash?: string;
+  providerOptionsHash?: string;
+  samples: number;
+  hits: number;
+  writes: number;
+  misses: number;
+  unknown: number;
+  promptTokens: number;
+  cachedTokens: number;
+  cacheCreationTokens: number;
+  hitPct: number;
+  lastSeenAt?: number;
+  lastRequestId?: string;
+}
+
 function stableSerialize(value: unknown): string {
   try {
     const serialized = stableJsonStringify(value);
@@ -110,4 +129,83 @@ export function cacheShapeDiagnosticFields(
   if (diagnostics.cacheShapeHitPct !== undefined) fields.cacheShapeHitPct = diagnostics.cacheShapeHitPct;
   if (diagnostics.cacheShapeOutcome !== undefined) fields.cacheShapeOutcome = diagnostics.cacheShapeOutcome;
   return fields;
+}
+
+function recordString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function recordNumber(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function recordOutcome(record: Record<string, unknown>): OptimizationCacheDiagnostics["cacheShapeOutcome"] {
+  const value = record.cacheShapeOutcome;
+  if (value === "hit" || value === "write" || value === "miss" || value === "unknown") return value;
+  return undefined;
+}
+
+export function summarizeCacheShapeDiagnostics(
+  records: Array<Record<string, unknown>>,
+  limit = 20,
+): CacheShapeSummary[] {
+  const grouped = new Map<string, CacheShapeSummary>();
+  for (const record of records) {
+    const stablePrefixHash = recordString(record, "cacheShapeStablePrefixHash");
+    const toolSchemaHash = recordString(record, "cacheShapeToolSchemaHash");
+    const providerOptionsHash = recordString(record, "cacheShapeProviderOptionsHash");
+    const outcome = recordOutcome(record);
+    if (!stablePrefixHash && !toolSchemaHash && !providerOptionsHash && !outcome) continue;
+
+    const path = recordString(record, "path");
+    const cacheShapeKey = [
+      path ?? "unknown-path",
+      stablePrefixHash ?? "unknown-prefix",
+      toolSchemaHash ?? "unknown-tools",
+      providerOptionsHash ?? "unknown-provider-options",
+    ].join(":");
+    const current = grouped.get(cacheShapeKey) ?? {
+      cacheShapeKey,
+      path,
+      stablePrefixHash,
+      toolSchemaHash,
+      providerOptionsHash,
+      samples: 0,
+      hits: 0,
+      writes: 0,
+      misses: 0,
+      unknown: 0,
+      promptTokens: 0,
+      cachedTokens: 0,
+      cacheCreationTokens: 0,
+      hitPct: 0,
+    };
+
+    current.samples += 1;
+    const normalizedOutcome = outcome ?? "unknown";
+    if (normalizedOutcome === "hit") current.hits += 1;
+    else if (normalizedOutcome === "write") current.writes += 1;
+    else if (normalizedOutcome === "miss") current.misses += 1;
+    else current.unknown += 1;
+
+    current.promptTokens += nonNegativeInt(recordNumber(record, "cacheShapePromptTokens"));
+    current.cachedTokens += nonNegativeInt(recordNumber(record, "cacheShapeCachedTokens"));
+    current.cacheCreationTokens += nonNegativeInt(recordNumber(record, "cacheShapeCacheCreationTokens"));
+    const timestamp = recordNumber(record, "timestamp");
+    if (timestamp > (current.lastSeenAt ?? 0)) {
+      current.lastSeenAt = timestamp;
+      current.lastRequestId = recordString(record, "requestId");
+    }
+    grouped.set(cacheShapeKey, current);
+  }
+
+  return [...grouped.values()]
+    .map((summary) => ({
+      ...summary,
+      hitPct: summary.promptTokens > 0 ? Math.round((summary.cachedTokens / summary.promptTokens) * 100) : 0,
+    }))
+    .sort((left, right) => (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0) || right.samples - left.samples)
+    .slice(0, Math.max(0, Math.round(limit)));
 }

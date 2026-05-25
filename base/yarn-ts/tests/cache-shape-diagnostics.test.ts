@@ -4,6 +4,7 @@ import {
   buildCacheShapeDiagnostics,
   buildCacheShapeOutcomeDiagnostics,
   cacheShapeDiagnosticFields,
+  summarizeCacheShapeDiagnostics,
 } from "../src/telemetry/cache-shape-diagnostics.js";
 
 describe("buildCacheShapeDiagnostics", () => {
@@ -133,5 +134,70 @@ describe("buildCacheShapeDiagnostics", () => {
     })).toMatchObject({
       cacheShapeOutcome: "unknown",
     });
+  });
+
+  it("summarizes recent cache shape diagnostics by stable shape", () => {
+    const summaries = summarizeCacheShapeDiagnostics([
+      {
+        timestamp: 100,
+        requestId: "req_1",
+        path: "/v1/chat/completions",
+        cacheShapeStablePrefixHash: "prefix-a",
+        cacheShapeToolSchemaHash: "tools-a",
+        cacheShapeProviderOptionsHash: "provider-a",
+        cacheShapePromptTokens: 100,
+        cacheShapeCachedTokens: 20,
+        cacheShapeCacheCreationTokens: 0,
+        cacheShapeOutcome: "hit",
+      },
+      {
+        timestamp: 200,
+        requestId: "req_2",
+        path: "/v1/chat/completions",
+        cacheShapeStablePrefixHash: "prefix-a",
+        cacheShapeToolSchemaHash: "tools-a",
+        cacheShapeProviderOptionsHash: "provider-a",
+        cacheShapePromptTokens: 50,
+        cacheShapeCachedTokens: 0,
+        cacheShapeCacheCreationTokens: 10,
+        cacheShapeOutcome: "write",
+      },
+      {
+        timestamp: 300,
+        requestId: "req_3",
+        path: "/v1/messages",
+        cacheShapeStablePrefixHash: "prefix-b",
+        cacheShapeToolSchemaHash: "tools-b",
+        cacheShapeProviderOptionsHash: "provider-b",
+        cacheShapePromptTokens: 10,
+        cacheShapeCachedTokens: 0,
+        cacheShapeCacheCreationTokens: 0,
+        cacheShapeOutcome: "miss",
+      },
+      { timestamp: 400, requestId: "req_ignored", path: "/health" },
+    ]);
+
+    expect(summaries).toEqual([
+      expect.objectContaining({
+        path: "/v1/messages",
+        stablePrefixHash: "prefix-b",
+        samples: 1,
+        misses: 1,
+        hitPct: 0,
+        lastRequestId: "req_3",
+      }),
+      expect.objectContaining({
+        path: "/v1/chat/completions",
+        stablePrefixHash: "prefix-a",
+        samples: 2,
+        hits: 1,
+        writes: 1,
+        promptTokens: 150,
+        cachedTokens: 20,
+        cacheCreationTokens: 10,
+        hitPct: 13,
+        lastRequestId: "req_2",
+      }),
+    ]);
   });
 });

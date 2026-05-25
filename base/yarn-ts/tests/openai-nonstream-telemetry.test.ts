@@ -83,6 +83,16 @@ describe("runOpenAINonStreamTelemetry", () => {
         estimatedTokens: 10,
         estimatedChars: 40,
       },
+      cacheShapeDiagnostics: {
+        messageCount: 2,
+        stablePrefixHash: "stable-prefix",
+        stablePrefixBytes: 100,
+        toolCount: 3,
+        toolSchemaHash: "tool-schema",
+        toolSchemaBytes: 200,
+        providerOptionsHash: "provider-options",
+        providerOptionsBytes: 50,
+      },
       requestForensics: {
         summary: "stable",
         lcpRatio: 0.5,
@@ -144,6 +154,14 @@ describe("runOpenAINonStreamTelemetry", () => {
       verificationStalled: true,
       evidencePrefetchHit: true,
       requestForensicsSummary: "stable",
+      cacheShapeStablePrefixHash: "stable-prefix",
+      cacheShapeToolSchemaHash: "tool-schema",
+      cacheShapeProviderOptionsHash: "provider-options",
+      cacheShapePromptTokens: 12,
+      cacheShapeCachedTokens: 3,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 25,
+      cacheShapeOutcome: "hit",
     }));
     expect(result.tokensSavedByReduction).toBe(10);
   });
