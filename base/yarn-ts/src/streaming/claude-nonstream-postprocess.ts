@@ -49,8 +49,8 @@ export interface ClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPl
 }
 
 export interface ClaudeNonStreamPostProviderRouteInput<TChecklist, TVerification, TPlanGraph> {
-  result: ClaudeNonStreamProviderResultFields;
-  serverWebSearchEvents: ClaudeNonStreamServerWebSearchEvent[];
+  result?: ClaudeNonStreamProviderResultFields;
+  serverWebSearchEvents?: ClaudeNonStreamServerWebSearchEvent[];
   readUsage(usage: unknown): StreamTokenUsage;
   scope: Pick<
     ClaudeNonStreamRouteScope,
@@ -97,8 +97,8 @@ export function createClaudeNonStreamPostProviderInput<TChecklist, TVerification
   input: ClaudeNonStreamPostProviderRouteInput<TChecklist, TVerification, TPlanGraph>,
 ): ClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPlanGraph> {
   return {
-    result: input.result,
-    serverWebSearchEvents: input.serverWebSearchEvents,
+    result: input.result ?? {},
+    serverWebSearchEvents: input.serverWebSearchEvents ?? [],
     readUsage: input.readUsage,
     toolCallInput: {
       ...input.toolCallInput,

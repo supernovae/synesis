@@ -250,17 +250,9 @@ import {
 import { DistributedCounterService } from "./state/distributed-counters.js";
 import { StreamAdmissionController } from "./middleware/stream-admission.js";
 import {
-  finalizeClaudeNonStreamProviderSuccess,
-  handleClaudeNonStreamProviderError,
-} from "./streaming/claude-nonstream-lifecycle.js";
-import {
-  createClaudeNonStreamPostProviderInput,
-  processClaudeNonStreamProviderResult,
-} from "./streaming/claude-nonstream-postprocess.js";
-import {
-  createClaudeNonStreamProviderExecutorInput,
-  executeClaudeNonStreamProviderLoop,
-} from "./streaming/claude-nonstream-provider-executor.js";
+  createClaudeNonStreamRoutePipelineInput,
+  runClaudeNonStreamPipeline,
+} from "./streaming/claude-nonstream-pipeline.js";
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
@@ -10217,14 +10209,6 @@ app.post("/v1/messages", async (req, reply) => {
   }
 
   // Non-streaming
-  if (!circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId)) {
-    app.log.warn({ model: resolved.resolvedModelId, orgId: claudeIdentity.orgId }, "circuit_breaker_open_claude");
-    recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "breaker_open_reject", "circuit-breaker",
-      `Circuit breaker open for ${resolved.resolvedModelId} (claude)`, reqId, { model: resolved.resolvedModelId });
-    reply.header("Retry-After", "30");
-    return reply.code(503).send({ type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } });
-  }
-  const claudeNonStreamSpan = getTracer().startSpan("yarn.claude.generate", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
   const started = Date.now();
   const claudeNonStreamScope = createClaudeNonStreamRouteScope({
     sessionKey: claudeSessionKey,
@@ -10250,11 +10234,17 @@ app.post("/v1/messages", async (req, reply) => {
     maybeLogEnvelopeUnwrapSample,
     recordUpperHarnessDecision,
   });
-  let result: Awaited<ReturnType<typeof generateText>>;
-  let claudeServerWebSearchEvents: ClaudeServerWebSearchEvent[];
-  let lastClaudeNonStreamForensics: RequestForensicsRecord | undefined;
-  try {
-    const executed = await executeClaudeNonStreamProviderLoop(createClaudeNonStreamProviderExecutorInput({
+  const claudeNonStreamResult = await runClaudeNonStreamPipeline(createClaudeNonStreamRoutePipelineInput({
+    scope: claudeNonStreamScope,
+    resolvedModelId: resolved.resolvedModelId,
+    circuitBreakers,
+    logger: app.log,
+    startSpan: () => getTracer().startSpan("yarn.claude.generate", {
+      model: resolved.resolvedModelId,
+      sessionKey: claudeSessionKey,
+    }),
+    extractUpstreamErrorDiagnostics,
+    providerRouteInput: {
       initialMessages: claudeModelMessages as Array<{ role: string; content?: unknown }>,
       model: resolved.model,
       resolvedModelId: resolved.resolvedModelId,
@@ -10309,131 +10299,106 @@ app.post("/v1/messages", async (req, reply) => {
         ),
       },
       toServerWebSearchEvent: toClaudeServerWebSearchEvent,
-    }));
-    result = executed.result as Awaited<ReturnType<typeof generateText>>;
-    claudeServerWebSearchEvents = executed.serverWebSearchEvents;
-    lastClaudeNonStreamForensics = executed.requestForensicsDone;
-  } catch (err) {
-    const errorResponse = handleClaudeNonStreamProviderError(
-      {
-        requestId: reqId,
-        model: resolved.resolvedModelId,
-        orgId: claudeIdentity.orgId,
-        span: claudeNonStreamSpan,
-        circuitBreakers,
+    },
+    postprocessRouteInput: {
+      readUsage,
+      scope: claudeNonStreamScope,
+      resolvedModelId: resolved.resolvedModelId,
+      clientRequestedModel: body.model,
+      toolCallInput: {
+        adapter: claudeAdapter,
+        clientKind: claudeClientKind,
+        strictGovernance: claudeOpenClawStrictGovernance,
+        upperHarness: claudeUpperHarness,
+        recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+        pathContext: effectiveClaudePathCtx,
+        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+        planModeRequested: claudeClientToolCapabilities.planModeRequested,
+        session,
+        restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery,
+        taskCue: claudeTaskCue,
+        normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
+        artifactShadows: claudeArtifactShadows,
+        stats: toolArgHardeningStats,
         logger: app.log,
-        extractUpstreamErrorDiagnostics,
-        recordSessionEvent: claudeNonStreamScope.recordEvent,
+        isWriteCapableToolName,
+        shouldRestrictDiscoveryForPlanWork,
+        deserializePlanShadow: deserializeShadow,
+        buildPathSandboxPolicy: buildDefaultPolicy,
+        ...claudeNonStreamToolSideEffects,
       },
-      err,
-    );
-    return reply.code(errorResponse.statusCode).send(errorResponse.payload);
-  }
-  finalizeClaudeNonStreamProviderSuccess({
-    model: resolved.resolvedModelId,
-    orgId: claudeIdentity.orgId,
-    span: claudeNonStreamSpan,
-    circuitBreakers,
-  });
-  const claudePostProvider = await processClaudeNonStreamProviderResult(createClaudeNonStreamPostProviderInput({
-    result: result as unknown as {
-      text?: string;
-      reasoning?: unknown;
-      usage?: unknown;
-      toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>;
-    },
-    serverWebSearchEvents: claudeServerWebSearchEvents,
-    readUsage,
-    scope: claudeNonStreamScope,
-    resolvedModelId: resolved.resolvedModelId,
-    clientRequestedModel: body.model,
-    toolCallInput: {
-      adapter: claudeAdapter,
-      clientKind: claudeClientKind,
-      strictGovernance: claudeOpenClawStrictGovernance,
-      upperHarness: claudeUpperHarness,
-      recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
-      pathContext: effectiveClaudePathCtx,
-      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-      planModeRequested: claudeClientToolCapabilities.planModeRequested,
-      session,
-      restrictDiscoveryForPlanWork: claudeSensemakingDecision?.shouldRestrictDiscovery,
-      taskCue: claudeTaskCue,
-      normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
-      artifactShadows: claudeArtifactShadows,
-      stats: toolArgHardeningStats,
-      logger: app.log,
-      isWriteCapableToolName,
-      shouldRestrictDiscoveryForPlanWork,
-      deserializePlanShadow: deserializeShadow,
-      buildPathSandboxPolicy: buildDefaultPolicy,
-      ...claudeNonStreamToolSideEffects,
-    },
-    discoveryInput: {
-      projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
-      getTopLevelDirs: getCachedTopLevelDirs,
-      applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
-      buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
-      recordBlockedDiscovery,
-      getBlockedDiscoveryCount,
-      recordSessionEvent,
-    },
-    finalizerInput: {
-      session,
-      checklist: claudeRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: claudeVerificationAssessment,
-      recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
-      planGraph: claudePlanGraph,
-      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-      applyMarkdownGuardrail,
-      finalizeCompletionText,
-      recordSessionEvent,
-    },
-    telemetryInput: {
-      startedAtMs: started,
-      reductions: { toolResultReduction, validationNormalization },
-      reducedToolResults: claudeToolResultCount,
-      orchestration: claudeOrchestration,
-      policyMatchedRules: claudePolicyPrecheck.matchedRules,
-      evidencePrefetched: claudeEvidencePrefetched,
-      evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0,
-      evidenceConfidence: claudeCombinedConfidence || undefined,
-      evidenceAuthoritative: claudePrefetchResult?.authoritative,
-      evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
-      evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
-      sensemakingTriggered: claudeSensemakingResult?.triggered,
-      sensemakingReason: claudeSensemakingResult?.reason,
-      governorDecision: claudeExecutionGovernor,
-      governorChatStateSummary: claudePauseChatSummary,
-      governorFileStateSummary: claudePauseFileSummary,
-      normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
-      inferVerificationSteps,
-      trajectoryDiagnostics: claudeTrajectoryDiagnostics,
-      toolDefinitionCount: effectiveClaudeTools.length,
-      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
-      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-      promptProfileIds: claudeEnriched.promptProfileIds,
-      promptProfileHashes: claudeEnriched.promptProfileHashes,
-      prefixHash: claudeEnriched.prefixHash,
-      prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-      requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
-      requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
-      contextAdmission: {
-        decision: claudeContextAdmission.decision,
-        reason: claudeContextAdmission.reason,
-        estimatedTokens: claudeContextAdmission.estimatedTokens,
-        estimatedChars: claudeContextAdmission.estimatedChars,
+      discoveryInput: {
+        projectRoot: effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd,
+        getTopLevelDirs: getCachedTopLevelDirs,
+        applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+        buildBlockedDiscoveryRecovery: buildBlockedDiscoveryRecoverySnapshot,
+        recordBlockedDiscovery,
+        getBlockedDiscoveryCount,
+        recordSessionEvent,
       },
-      requestForensicsDone: lastClaudeNonStreamForensics,
-      cacheShapeDiagnostics: claudeCacheShapeDiagnostics,
-      countMessageRoles,
-      pushDiagnostic,
+      finalizerInput: {
+        session,
+        checklist: claudeRequirementChecklist,
+        traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
+        latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
+        verification: claudeVerificationAssessment,
+        recentToolNames: extractRecentToolNames(openAIShape.messages as Array<{ role: string; content: unknown }>),
+        planGraph: claudePlanGraph,
+        responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+        applyMarkdownGuardrail,
+        finalizeCompletionText,
+        recordSessionEvent,
+      },
+      telemetryInput: {
+        startedAtMs: started,
+        reductions: { toolResultReduction, validationNormalization },
+        reducedToolResults: claudeToolResultCount,
+        orchestration: claudeOrchestration,
+        policyMatchedRules: claudePolicyPrecheck.matchedRules,
+        evidencePrefetched: claudeEvidencePrefetched,
+        evidencePrefetchHit: claudePrefetchResult?.matched && (claudePrefetchResult?.confidence ?? 0) > 0,
+        evidenceConfidence: claudeCombinedConfidence || undefined,
+        evidenceAuthoritative: claudePrefetchResult?.authoritative,
+        evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+        evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
+        sensemakingTriggered: claudeSensemakingResult?.triggered,
+        sensemakingReason: claudeSensemakingResult?.reason,
+        governorDecision: claudeExecutionGovernor,
+        governorChatStateSummary: claudePauseChatSummary,
+        governorFileStateSummary: claudePauseFileSummary,
+        normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
+        inferVerificationSteps,
+        trajectoryDiagnostics: claudeTrajectoryDiagnostics,
+        toolDefinitionCount: effectiveClaudeTools.length,
+        artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+        knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+        promptProfileIds: claudeEnriched.promptProfileIds,
+        promptProfileHashes: claudeEnriched.promptProfileHashes,
+        prefixHash: claudeEnriched.prefixHash,
+        prefixChangeReasons: claudeEnriched.prefixChangeReasons,
+        requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
+        requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
+        contextAdmission: {
+          decision: claudeContextAdmission.decision,
+          reason: claudeContextAdmission.reason,
+          estimatedTokens: claudeContextAdmission.estimatedTokens,
+          estimatedChars: claudeContextAdmission.estimatedChars,
+        },
+        cacheShapeDiagnostics: claudeCacheShapeDiagnostics,
+        countMessageRoles,
+        pushDiagnostic,
+      },
     },
   }));
+  if (claudeNonStreamResult.kind === "error") {
+    for (const [header, value] of Object.entries(claudeNonStreamResult.headers ?? {})) {
+      reply.header(header, value);
+    }
+    return reply.code(claudeNonStreamResult.statusCode).send(claudeNonStreamResult.body);
+  }
+  const claudePostProvider = claudeNonStreamResult.processed;
 
   applyClarificationRoundResponseHeader(reply, session.record.metadata);
   return reply.send(buildClaudeNonStreamMessageResponse({

@@ -54,6 +54,7 @@ export interface ClaudeNonStreamProviderExecutorInput<
     eventKind: string;
     component: string;
     detail: string;
+    metadataJson?: Record<string, unknown>;
   }): void;
   isServerWebSearchTool(toolName: string): boolean;
   resolveServerWebSearch(input: Record<string, unknown>): Promise<unknown>;
