@@ -4119,36 +4119,6 @@ function recordUpperHarnessDecision(
   );
 }
 
-function persistSessionAndUsage(
-  state: SessionState,
-  requestId: string,
-  resolvedModelId: string,
-  usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
-  latencyMs: number,
-  finishReason: string,
-  tokensSavedByReduction = 0,
-  escalated = false,
-  snapshot?: DecisionSnapshot,
-  trajectory?: RequestTrajectoryInput,
-  optimizationLedger?: OptimizationLedgerSnapshot,
-  clientRequestedModel?: string,
-): void {
-  sessionPersistenceRunner.persistSessionAndUsage({
-    state,
-    requestId,
-    resolvedModelId,
-    usage,
-    latencyMs,
-    finishReason,
-    tokensSavedByReduction,
-    escalated,
-    snapshot,
-    trajectory,
-    optimizationLedger,
-    clientRequestedModel,
-  });
-}
-
 function persistAndEmitDecisionTelemetry(input: {
   state: SessionState;
   requestId: string;
@@ -6945,7 +6915,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserHash: latestOpenAIUserHash,
     finishReason: "stop",
     logSafetyEvent: logAndPersistSafetyEvent,
-    persistSessionAndUsage,
+    persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
     maybeCheckpoint,
     recordSessionEvent,
   });
@@ -7032,7 +7002,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         pauseContent,
         clientToolCapabilities: oaiClientToolCapabilities,
       }),
-      persistSessionAndUsage,
+      persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
       maybeCheckpoint,
       recordSessionEvent,
     });
@@ -7087,7 +7057,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
           pauseContent,
           clientToolCapabilities: oaiClientToolCapabilities,
         }),
-        persistSessionAndUsage,
+        persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
         maybeCheckpoint,
         recordSessionEvent,
       });
@@ -9119,7 +9089,7 @@ app.post("/v1/messages", async (req, reply) => {
     latestUserHash: latestClaudeUserHash,
     finishReason: "end_turn",
     logSafetyEvent: logAndPersistSafetyEvent,
-    persistSessionAndUsage,
+    persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
     maybeCheckpoint,
     recordSessionEvent,
   });
@@ -9206,7 +9176,7 @@ app.post("/v1/messages", async (req, reply) => {
         pauseContent,
         clientToolCapabilities: claudeClientToolCapabilities,
       }),
-      persistSessionAndUsage,
+      persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
       maybeCheckpoint,
       recordSessionEvent,
     });
@@ -9260,7 +9230,7 @@ app.post("/v1/messages", async (req, reply) => {
           pauseContent,
           clientToolCapabilities: claudeClientToolCapabilities,
         }),
-        persistSessionAndUsage,
+        persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
         maybeCheckpoint,
         recordSessionEvent,
       });

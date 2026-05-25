@@ -30,20 +30,17 @@ export interface DeterministicPolicyRouteInput<TSession extends DeterministicPol
   latestUserHash: string;
   finishReason: string;
   logSafetyEvent: (decision: PolicyDecision, sessionKey: string, sessionTokensIn: number) => void;
-  persistSessionAndUsage: (
-    session: TSession,
-    requestId: string,
-    model: string,
-    usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
-    latencyMs: number,
-    finishReason: string,
-    forcedInputTokens: number,
-    retry: boolean,
-    snapshot?: undefined,
-    trajectory?: undefined,
-    optimizationLedger?: undefined,
-    originalModel?: string,
-  ) => void;
+  persistSessionAndUsage: (input: {
+    state: TSession;
+    requestId: string;
+    resolvedModelId: string;
+    usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number };
+    latencyMs: number;
+    finishReason: string;
+    tokensSavedByReduction?: number;
+    escalated?: boolean;
+    clientRequestedModel?: string;
+  }) => void;
   maybeCheckpoint: (session: TSession) => void;
   recordSessionEvent: (
     sessionKey: string,
@@ -123,20 +120,17 @@ function persistSoftFail<TSession extends DeterministicPolicyRouteSession>(
   }
 
   input.session.history.push({ role: "assistant", content: softFail.content });
-  input.persistSessionAndUsage(
-    input.session,
-    input.requestId,
-    input.selectedModel,
+  input.persistSessionAndUsage({
+    state: input.session,
+    requestId: input.requestId,
+    resolvedModelId: input.selectedModel,
     usage,
-    Date.now() - started,
-    input.finishReason,
-    0,
-    false,
-    undefined,
-    undefined,
-    undefined,
-    input.originalModel,
-  );
+    latencyMs: Date.now() - started,
+    finishReason: input.finishReason,
+    tokensSavedByReduction: 0,
+    escalated: false,
+    clientRequestedModel: input.originalModel,
+  });
   input.maybeCheckpoint(input.session);
   input.recordSessionEvent(
     input.sessionKey,

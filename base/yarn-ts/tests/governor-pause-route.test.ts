@@ -65,20 +65,17 @@ describe("governor pause route helpers", () => {
       { consecutiveRecoveryFires: 3 },
     );
     expect(state.history).toEqual([{ role: "assistant", content: "pause 3" }]);
-    expect(persistSessionAndUsage).toHaveBeenCalledWith(
+    expect(persistSessionAndUsage).toHaveBeenCalledWith({
       state,
-      "req-1",
-      "selected",
-      { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
-      expect.any(Number),
-      "stop",
-      0,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      "requested",
-    );
+      requestId: "req-1",
+      resolvedModelId: "selected",
+      usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      latencyMs: expect.any(Number),
+      finishReason: "stop",
+      tokensSavedByReduction: 0,
+      escalated: false,
+      clientRequestedModel: "requested",
+    });
     expect(maybeCheckpoint).toHaveBeenCalledWith(state);
   });
 

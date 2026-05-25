@@ -36,20 +36,17 @@ export interface GovernorPauseRouteInput<TSession extends GovernorPauseRouteSess
     pauseEnvelope: GovernorPauseEnvelope;
     pauseContent: string;
   }) => void;
-  persistSessionAndUsage: (
-    session: TSession,
-    requestId: string,
-    model: string,
-    usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
-    latencyMs: number,
-    finishReason: string,
-    forcedInputTokens: number,
-    retry: boolean,
-    snapshot?: undefined,
-    trajectory?: undefined,
-    optimizationLedger?: undefined,
-    originalModel?: string,
-  ) => void;
+  persistSessionAndUsage: (input: {
+    state: TSession;
+    requestId: string;
+    resolvedModelId: string;
+    usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number };
+    latencyMs: number;
+    finishReason: string;
+    tokensSavedByReduction?: number;
+    escalated?: boolean;
+    clientRequestedModel?: string;
+  }) => void;
   maybeCheckpoint: (session: TSession) => void;
   recordSessionEvent: (
     sessionKey: string,
@@ -90,20 +87,17 @@ export function persistGovernorPauseSoftFail<TSession extends GovernorPauseRoute
     pause.eventMetadata,
   );
   input.session.history.push({ role: "assistant", content: pause.content });
-  input.persistSessionAndUsage(
-    input.session,
-    input.requestId,
-    input.selectedModel,
-    { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
-    Date.now() - pauseStarted,
-    input.finishReason,
-    0,
-    false,
-    undefined,
-    undefined,
-    undefined,
-    input.originalModel,
-  );
+  input.persistSessionAndUsage({
+    state: input.session,
+    requestId: input.requestId,
+    resolvedModelId: input.selectedModel,
+    usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+    latencyMs: Date.now() - pauseStarted,
+    finishReason: input.finishReason,
+    tokensSavedByReduction: 0,
+    escalated: false,
+    clientRequestedModel: input.originalModel,
+  });
   input.maybeCheckpoint(input.session);
   return {
     content: pause.content,

@@ -69,20 +69,17 @@ describe("deterministic policy route helper", () => {
     expect(routeInput.session.toolLoopAckAnchorUserHash).toBe("user-hash");
     expect(routeInput.session.toolLoopNoUserAckCount).toBe(0);
     expect(routeInput.session.history[0]?.content).toContain("too many tool calls");
-    expect(routeInput.persistSessionAndUsage).toHaveBeenCalledWith(
-      routeInput.session,
-      "req-1",
-      "selected",
-      { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
-      expect.any(Number),
-      "stop",
-      0,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      "requested",
-    );
+    expect(routeInput.persistSessionAndUsage).toHaveBeenCalledWith({
+      state: routeInput.session,
+      requestId: "req-1",
+      resolvedModelId: "selected",
+      usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0, costUsd: 0 },
+      latencyMs: expect.any(Number),
+      finishReason: "stop",
+      tokensSavedByReduction: 0,
+      escalated: false,
+      clientRequestedModel: "requested",
+    });
     expect(routeInput.recordSessionEvent).toHaveBeenCalledWith(
       "sess",
       "user",
