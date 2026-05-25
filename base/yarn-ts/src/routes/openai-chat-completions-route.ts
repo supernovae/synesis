@@ -8,9 +8,9 @@ import { finalizeOpenAIProviderRequestForRoute } from "../pipeline/openai-route-
 import { prepareOpenAIChatProviderRuntime } from "../pipeline/openai-chat-provider-preparation.js";
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
 import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
+import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
-import { prepareProtocolPauseState } from "../session/protocol-pause-state.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type SessionIdentity = import("../session/session-key.js").SessionIdentity;
@@ -18,19 +18,6 @@ type RequestForensicsRecord = import("../telemetry/request-forensics.js").Reques
 type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
 type WorkflowPhase = import("../orchestration/phase-model-orchestrator.js").WorkflowPhase;
 type SessionPathHints = import("../state/workspace-session-boundary.js").SessionPathHints;
-type SensemakingResult = import("../sensemaking/index.js").SensemakingResult;
-
-type ToolLoopMessage = {
-  role: string;
-  content: unknown;
-  tool_call_id?: string;
-  tool_calls?: Array<{
-    id?: string;
-    function?: { name?: string; arguments?: unknown };
-    name?: string;
-    input?: unknown;
-  }>;
-};
 
 export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRouteDependencies): void {
   const {
@@ -898,252 +885,92 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     });
     const oaiWorkingFrameGoal: string | undefined = oaiPreFrame?.goal;
 
-    let oaiPrefetchResult: import("../evidence/fast-path.js").FastPathResult | undefined;
-    if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
-      const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
-      if (prefetchText.length > 0) {
-        oaiPrefetchResult = await runEvidencePrefetch(
-          prefetchText, knowledgeSearch,
-          config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
-          config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
-          { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
-          knowledgeResolveContext(authUser, req),
-        );
-        if (oaiPrefetchResult.matched) {
-          app.log.info({
-            pattern: oaiPrefetchResult.pattern, hasEvidence: Boolean(oaiPrefetchResult.evidence),
-            timedOut: oaiPrefetchResult.timedOut, latencyMs: Math.round(oaiPrefetchResult.latencyMs),
-            confidence: oaiPrefetchResult.confidence, authoritative: oaiPrefetchResult.authoritative,
-          }, "evidence_prefetch_result");
-        }
-      }
-    }
-
-    let oaiPatternResult: import("../evidence/fast-path.js").PatternPrefetchResult | undefined;
-    if (config.SYNESIS_YARN_PATTERN_RECALL_ENABLED && latestUserText && !oaiPrefetchResult?.matched) {
-      const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
-      if (prefetchText.length > 0) {
-        oaiPatternResult = await runPatternPrefetch(
-          prefetchText, knowledgeSearch,
-          config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
-          oaiWorkingPhase,
-          knowledgeResolveContext(authUser, req),
-        );
-        if (oaiPatternResult.matched) {
-          app.log.info({
-            intent: oaiPatternResult.intent, hasEvidence: Boolean(oaiPatternResult.evidence),
-            timedOut: oaiPatternResult.timedOut, latencyMs: Math.round(oaiPatternResult.latencyMs),
-            confidence: oaiPatternResult.confidence,
-          }, "pattern_prefetch_result");
-        }
-      }
-    }
-
-    const combinedEvidenceConfidence = Math.max(
-      oaiPrefetchResult?.confidence ?? 0,
-      oaiPatternResult?.confidence ?? 0,
-    );
-
-    const orchestration = phaseOrchestrator.decide({
-      requestedModel: request.model,
-      modelSelectionMode: config.SYNESIS_YARN_GOVERNANCE_DISABLED ? "lock" : config.SYNESIS_YARN_MODEL_SELECTION_MODE,
-      latestUserText: String(latestUserText?.content ?? ""),
-      workingPhase: oaiWorkingPhase,
-      planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
-      riskProfile: preManifest.riskProfile,
-      decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
-      evidence: {
-        recallConfidence: oaiRecallDecision?.resolution?.confidence,
-        recallRouting: oaiRecallDecision?.routing,
-        evidenceConfidence: combinedEvidenceConfidence || undefined,
-        evidenceAuthoritative: oaiPrefetchResult?.authoritative,
-        verificationRound: oaiVerifState.round > 0 ? oaiVerifState.round : undefined,
-        verificationStalled: oaiVerifState.stalled || undefined,
-        consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      },
-    }, sessionKey);
-    if (orchestration.escalated) {
-      session.record.escalationCount += 1;
-    }
-    session.record.lastTier = orchestration.tier;
-    pinchCompactionBackendModelMetadata(session, orchestration.tier, request.model);
-
-    const oaiEvidencePrefetched = Boolean(
-      oaiPrefetchResult?.matched
-      || oaiPatternResult?.matched,
-    );
-    let oaiSensemakingResult: SensemakingResult | undefined;
-    let oaiSensemakingBlock: string | null = null;
-    if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
-      const oaiSm = runSensemaking({
+    const oaiContext = await prepareOpenAIContext({
+      deps: {
+        app,
+        analyzeRecentCommandLoop,
+        applyObjectiveScopeAndPersist,
+        applySensemakingStats,
+        assessStateConfidence,
+        buildArtifactShadows,
+        chatPhaseFromWorkflowPhase,
+        classifyIntentScope,
         config,
-        messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-        getLanguages: detectLanguagesFromMessages,
-        orchestration,
-        recallDecision: oaiRecallDecision,
-        verificationState: oaiVerifState,
-        evidencePrefetched: oaiEvidencePrefetched,
-        evidenceConfidence: combinedEvidenceConfidence,
-        evidenceAuthoritative: oaiPrefetchResult?.authoritative,
-        userText: String(latestUserText?.content ?? ""),
-        workingFrameGoal: oaiWorkingFrameGoal,
-        consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      });
-      oaiSensemakingResult = oaiSm.result;
-      oaiSensemakingBlock = config.SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED
-        ? (oaiSm.block || null)
-        : null;
-      applySensemakingStats(sensemakingStats, oaiSm.result, oaiSm.evaluated);
-    }
-
-    const oaiLastToolId = [...(request.messages as Array<{ role: string; tool_call_id?: string }>)]
-      .reverse().find((m) => m.role === "tool")?.tool_call_id ?? "";
-    const latestOpenAIUserHash = hashTextSignal(latestUserText?.content ?? "");
-    if (session.awaitingToolLoopUserAck) {
-      if (latestOpenAIUserHash && latestOpenAIUserHash !== session.toolLoopAckAnchorUserHash) {
-        session.awaitingToolLoopUserAck = false;
-        session.toolLoopNoUserAckCount = 0;
-        session.toolLoopAckAnchorUserHash = "";
-        resetQwenInterventionOnUserTurn(sessionKey);
-      } else {
-        session.toolLoopNoUserAckCount += 1;
-      }
-    }
-    const oaiToolProgress = detectToolProgress(
+        createDiffStats,
+        deriveChatState,
+        deriveFileState,
+        detectLanguagesFromMessages,
+        detectToolProgress,
+        extractTextFromUnknownContent,
+        formatStateConfidenceBlock,
+        getFileSnapshotRegistry,
+        hashTextSignal,
+        knowledgeResolveContext,
+        knowledgeSearch,
+        looksLikeFailureSignal,
+        normalizedToolOutputSignal,
+        phaseOrchestrator,
+        pinchCompactionBackendModelMetadata,
+        persistStateConfidence,
+        projectInstructionFilePresent,
+        readPersistedChatStateSnapshot,
+        recordSessionEvent,
+        resetQwenInterventionOnUserTurn,
+        runEvidencePrefetch,
+        runPatternPrefetch,
+        runSensemaking,
+        sensemakingStats,
+        summarizeArtifactContext,
+      },
+      authUser,
+      req,
       session,
-      normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
-      {
-        normalizeSignal: (content) => normalizedToolOutputSignal(content),
-        looksLikeFailure: looksLikeFailureSignal,
-      },
-    );
-    const oaiCommandLoop = analyzeRecentCommandLoop(
-      normalizedOpenAI.messages as Array<ToolLoopMessage>,
-    );
-    const oaiArtifactShadows = buildArtifactShadows(
-      getFileSnapshotRegistry(sessionKey),
-      session.artifactEditTurns,
-    );
-    const oaiArtifactContext = summarizeArtifactContext(oaiArtifactShadows);
-    const oaiFileState = deriveFileState({
-      registry: getFileSnapshotRegistry(sessionKey),
-      artifactShadows: oaiArtifactShadows,
-      messages: normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string }>,
-    });
-    const oaiPersistedChatState = readPersistedChatStateSnapshot(session.record.metadata);
-    const oaiChatState = deriveChatState(
-      normalizedOpenAI.messages as Array<GovernorInputMessage>,
-      {
-        phaseHint: chatPhaseFromWorkflowPhase(oaiWorkingPhase),
-        previousSnapshot: oaiPersistedChatState,
-      },
-    );
-
-    // Proportionality: classify intent scope from the latest user directive
-    if (config.SYNESIS_YARN_PROPORTIONALITY_ENABLED && oaiChatState.pendingUserDirective) {
-      const scopeClassification = classifyIntentScope(oaiChatState.pendingUserDirective);
-      if (scopeClassification.envelope !== "unconstrained") {
-        session.scopeEnvelope = scopeClassification.envelope;
-        session.diffStats = createDiffStats();
-      }
-    }
-
-    const oaiObjectiveScope = applyObjectiveScopeAndPersist({
-      state: session,
       sessionKey,
+      identity,
       requestId: oaiTraceReqId,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      messages: normalizedOpenAI.messages as Array<{
+      request,
+      normalizedMessages: normalizedOpenAI.messages as Array<{
         role: string;
         content: unknown;
         name?: string;
         tool_call_id?: string;
-        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string }>;
+        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string; input?: unknown }>;
       }>,
-      chatState: oaiChatState,
-      fileState: oaiFileState,
-      latestUserPromptText: latestUserText ? extractTextFromUnknownContent(latestUserText.content) : "",
+      latestUserText,
+      preManifest,
+      recallDecision: oaiRecallDecision,
+      verificationState: oaiVerifState,
+      workingPhase: oaiWorkingPhase,
+      workingFrameGoal: oaiWorkingFrameGoal,
+      workspaceInspection: oaiWorkspaceInspection,
+      latestReadRefresh: oaiLatestReadRefresh,
+      editMissGuard: oaiEditMissGuard,
     });
-    const oaiScopedMessages = oaiObjectiveScope.scopedMessages;
-    if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-      const preScopeChars = (normalizedOpenAI.messages as Array<{ content?: unknown }>).reduce(
-        (s, m) => s + (typeof m.content === "string" ? m.content.length : m.content != null ? JSON.stringify(m.content).length : 0), 0,
-      );
-      const postScopeChars = (oaiScopedMessages as Array<{ content?: unknown }>).reduce(
-        (s, m) => s + (typeof m.content === "string" ? m.content.length : m.content != null ? JSON.stringify(m.content).length : 0), 0,
-      );
-      app.log.info(
-        {
-          reqId: oaiTraceReqId,
-          preScopeMsgCount: (normalizedOpenAI.messages as unknown[]).length,
-          postScopeMsgCount: oaiScopedMessages.length,
-          preScopeChars,
-          postScopeChars,
-          boundaryIndex: oaiObjectiveScope.boundaryIndex,
-          droppedPreBoundary: oaiObjectiveScope.droppedPreBoundaryCount,
-          retainedEvidence: oaiObjectiveScope.retainedEvidenceCount,
-        },
-        "objective_scope_diagnostic",
-      );
-    }
-    const oaiRawStateConfidence = assessStateConfidence({
-      chatState: oaiChatState,
-      fileState: oaiFileState,
-      recentReadSatisfied: oaiLatestReadRefresh.hasRecentReadSuccess,
-    });
-    const oaiSuppressInstructionReground =
-      oaiWorkspaceInspection.isEmpty
-      && oaiWorkspaceInspection.projectInstructionFiles.length === 0
-      && projectInstructionFilePresent(oaiRawStateConfidence.recommendedReadPath);
-    const oaiStateConfidence = oaiSuppressInstructionReground
-      ? {
-          ...oaiRawStateConfidence,
-          needsReground: false,
-          recommendedReadPath: null,
-          reasons: [...new Set([...oaiRawStateConfidence.reasons, "empty_workspace_project_guidance_absent"])],
-        }
-      : oaiRawStateConfidence;
-    persistStateConfidence(session.record.metadata, oaiStateConfidence);
-    const oaiStateConfidenceBlock = formatStateConfidenceBlock(oaiStateConfidence);
-    if (session.regroundCooldownRemaining > 0) {
-      session.regroundCooldownRemaining -= 1;
-    }
-    const oaiNeedsStateReground =
-      oaiStateConfidence.needsReground
-      && !oaiEditMissGuard?.active
-      && !session.editMissForceReadPending
-      && session.regroundCooldownRemaining <= 0;
-    if (oaiNeedsStateReground) {
-      session.regroundCooldownRemaining = 2;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "state_confidence_reground_required",
-        "state-confidence",
-        `overall=${oaiStateConfidence.overallConfidence.toFixed(3)} path=${oaiStateConfidence.recommendedReadPath ?? "<none>"}`,
-        oaiTraceReqId,
-        {
-          chat_confidence: oaiStateConfidence.chatConfidence,
-          file_confidence: oaiStateConfidence.fileConfidence,
-          overall_confidence: oaiStateConfidence.overallConfidence,
-          recommended_read_path: oaiStateConfidence.recommendedReadPath,
-          reasons: oaiStateConfidence.reasons,
-        },
-      );
-    }
-    const oaiPauseState = prepareProtocolPauseState({
-      metadata: session.record.metadata,
-      chatState: oaiChatState,
-      fileState: oaiFileState,
-      taskLedger: session.taskLedger,
-    });
-    const oaiPauseChatSummary = oaiPauseState.pauseChatSummary;
-    const oaiPauseFileSummary = oaiPauseState.pauseFileSummary;
-    const oaiPauseTaskContext = oaiPauseState.pauseTaskContext;
-    const oaiChatStateBlock = oaiPauseState.chatStateBlock;
-    const oaiFileStateBlock = oaiPauseState.fileStateBlock;
+    const oaiPrefetchResult = oaiContext.prefetchResult;
+    const oaiPatternResult = oaiContext.patternResult;
+    const combinedEvidenceConfidence = oaiContext.combinedEvidenceConfidence;
+    const orchestration = oaiContext.orchestration;
+    const oaiEvidencePrefetched = oaiContext.evidencePrefetched;
+    const oaiSensemakingResult = oaiContext.sensemakingResult;
+    const oaiSensemakingBlock = oaiContext.sensemakingBlock;
+    const oaiLastToolId = oaiContext.lastToolId;
+    const latestOpenAIUserHash = oaiContext.latestUserHash;
+    const oaiToolProgress = oaiContext.toolProgress;
+    const oaiCommandLoop = oaiContext.commandLoop;
+    const oaiArtifactShadows = oaiContext.artifactShadows;
+    const oaiArtifactContext = oaiContext.artifactContext;
+    const oaiFileState = oaiContext.fileState;
+    const oaiChatState = oaiContext.chatState;
+    const oaiObjectiveScope = oaiContext.objectiveScope;
+    const oaiScopedMessages = oaiContext.scopedMessages;
+    const oaiStateConfidence = oaiContext.stateConfidence;
+    const oaiStateConfidenceBlock = oaiContext.stateConfidenceBlock;
+    const oaiNeedsStateReground = oaiContext.needsStateReground;
+    const oaiPauseChatSummary = oaiContext.pauseChatSummary;
+    const oaiPauseFileSummary = oaiContext.pauseFileSummary;
+    const oaiPauseTaskContext = oaiContext.pauseTaskContext;
+    const oaiChatStateBlock = oaiContext.chatStateBlock;
+    const oaiFileStateBlock = oaiContext.fileStateBlock;
     endOaiContextStage();
     const endOaiGovernorStage = oaiOptLedger.startStage("governor");
     const oaiExecutionGovernorPreparation = await prepareOpenAIExecutionGovernor({
