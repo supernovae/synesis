@@ -256,8 +256,7 @@ import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstrea
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import { runClaudeStreamRouteFromInput } from "./streaming/claude-stream-route-facade-input.js";
-import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
-import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
+import { prepareClaudeStreamRoute } from "./streaming/claude-stream-route-prepare.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
@@ -9733,49 +9732,51 @@ app.post("/v1/messages", async (req, reply) => {
       orgId: claudeIdentity.orgId,
       requestId: traceReqId,
     };
-    const claudeStreamRouteStart = await startClaudeStreamRouteGates({
-      scope: claudeStreamGateScope,
-      resolvedModelId: resolved.resolvedModelId,
-      logger: app.log,
-      streamAdmission,
-      circuitBreakers,
-      recordSessionEvent,
-      startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
+    const claudeStreamPrepared = await prepareClaudeStreamRoute({
+      gates: {
+        scope: claudeStreamGateScope,
+        resolvedModelId: resolved.resolvedModelId,
+        logger: app.log,
+        streamAdmission,
+        circuitBreakers,
+        recordSessionEvent,
+        startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
+      },
+      runtime: {
+        requestIds: {
+          traceRequestId: traceReqId,
+          responseRequestId: reqId,
+        },
+        resolvedModelId: resolved.resolvedModelId,
+        messages: claudeModelMessages as Array<{ role: string; content: unknown }>,
+        tools: effectiveClaudeTools as unknown[],
+        toolChoice: effectiveClaudeToolChoice,
+        providerOptions,
+        phasePolicy: claudeForensicsPhasePolicy,
+        capabilityMatrix: claudeForensicsCapabilityMatrix,
+        captureRequestForensics,
+        sideEffects: {
+          session,
+          clientKind: claudeClientKind,
+          logger: app.log as never,
+          strictGovernanceStats: openClawProfileStats,
+          updateDiffAccumulator,
+          maybeUpdateTaskLedgerFromToolCall,
+          emitPlanWriteAuditEvent,
+          maybeLogEnvelopeUnwrapSample,
+          recordUpperHarnessDecision,
+        },
+        abort: {
+          longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+          hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+        },
+      },
     });
-    if (!claudeStreamRouteStart.ok) {
-      reply.header("Retry-After", claudeStreamRouteStart.retryAfter);
-      return reply.code(claudeStreamRouteStart.statusCode).send(claudeStreamRouteStart.payload);
+    if (!claudeStreamPrepared.ok) {
+      reply.header("Retry-After", claudeStreamPrepared.rejection.retryAfter);
+      return reply.code(claudeStreamPrepared.rejection.statusCode).send(claudeStreamPrepared.rejection.payload);
     }
-    const claudeStreamRuntime = createClaudeStreamRouteRuntime({
-      started: claudeStreamRouteStart,
-      requestIds: {
-        traceRequestId: traceReqId,
-        responseRequestId: reqId,
-      },
-      resolvedModelId: resolved.resolvedModelId,
-      messages: claudeModelMessages as Array<{ role: string; content: unknown }>,
-      tools: effectiveClaudeTools as unknown[],
-      toolChoice: effectiveClaudeToolChoice,
-      providerOptions,
-      phasePolicy: claudeForensicsPhasePolicy,
-      capabilityMatrix: claudeForensicsCapabilityMatrix,
-      captureRequestForensics,
-      sideEffects: {
-        session,
-        clientKind: claudeClientKind,
-        logger: app.log as never,
-        strictGovernanceStats: openClawProfileStats,
-        updateDiffAccumulator,
-        maybeUpdateTaskLedgerFromToolCall,
-        emitPlanWriteAuditEvent,
-        maybeLogEnvelopeUnwrapSample,
-        recordUpperHarnessDecision,
-      },
-      abort: {
-        longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-        hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-      },
-    });
+    const claudeStreamRuntime = claudeStreamPrepared.runtime;
     const claudeStreamForensics = claudeStreamRuntime.streamForensics;
     const recordClaudeStreamEvent = claudeStreamRuntime.recordStreamEvent;
     const claudeStreamToolSideEffects = claudeStreamRuntime.streamToolSideEffects;
