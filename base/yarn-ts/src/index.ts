@@ -255,9 +255,8 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
-import { buildClaudeStreamRouteInput } from "./streaming/claude-stream-route-facade-input.js";
+import { runClaudeStreamRouteFromInput } from "./streaming/claude-stream-route-facade-input.js";
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
-import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
 import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
@@ -9781,7 +9780,7 @@ app.post("/v1/messages", async (req, reply) => {
     const recordClaudeStreamEvent = claudeStreamRuntime.recordStreamEvent;
     const claudeStreamToolSideEffects = claudeStreamRuntime.streamToolSideEffects;
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    await runClaudeStreamRoute(buildClaudeStreamRouteInput({
+    await runClaudeStreamRouteFromInput({
       runtime: claudeStreamRuntime,
       start: {
         recordSessionEvent,
@@ -9938,7 +9937,7 @@ app.post("/v1/messages", async (req, reply) => {
           persistDecisionTelemetry: persistClaudeDecisionTelemetry,
         },
       },
-    }));
+    });
     return reply;
   }
 

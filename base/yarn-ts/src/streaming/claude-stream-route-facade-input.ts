@@ -12,6 +12,10 @@ import {
 } from "./claude-stream-route-input.js";
 import type { ClaudeStreamRouteRunInput } from "./claude-stream-route-orchestrator.js";
 import {
+  runClaudeStreamRoute,
+  type ClaudeStreamRouteRunResult,
+} from "./claude-stream-route-orchestrator.js";
+import {
   buildClaudeStreamRoutePipelineSupportInput,
   type ClaudeStreamRoutePipelineSupportBuilderInput,
 } from "./claude-stream-route-pipeline-input.js";
@@ -59,4 +63,18 @@ export function buildClaudeStreamRouteInput<
     },
     completion: buildClaudeStreamRouteCompletionInput(input.completion),
   });
+}
+
+export async function runClaudeStreamRouteFromInput<
+  TMessage extends ClaudeStreamProviderMessage,
+  TChecklist extends RequirementChecklistShape,
+  TVerification,
+  TPlanGraph,
+>(
+  input: ClaudeStreamRouteInputBuilderInput<TMessage, TChecklist, TVerification, TPlanGraph>,
+): Promise<ClaudeStreamRouteRunResult<
+  TMessage,
+  ClaudeStreamRequestForensicsResult | null | undefined
+>> {
+  return runClaudeStreamRoute(buildClaudeStreamRouteInput(input));
 }
