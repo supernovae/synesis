@@ -35,6 +35,13 @@ import {
   sendClaudeSoftFail,
   sendClaudeWorkspaceHandshake,
 } from "../protocol/route-response-senders.js";
+import {
+  claudeSystemToMessage,
+  hasClaudeNativeWebSearchTool,
+  isClaudeWebSearchToolName,
+  resolveClaudeConversationId,
+  toClaudeServerWebSearchEvent,
+} from "../protocol/claude-messages-helpers.js";
 import { ClaudeMessagesRequestSchema } from "../schemas.js";
 import {
   applyRuntimePreferenceLoopLimits,
@@ -185,17 +192,12 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     },
     protocol: {
       applyClarificationRoundResponseHeader,
-      claudeSystemToMessage,
       debugProtocolLog,
       extractLatestUserPromptFromMessages,
       extractTextFromUnknownContent,
       formatValidationError,
-      hasClaudeNativeWebSearchTool,
-      isClaudeWebSearchToolName,
-      resolveClaudeConversationId,
       resolveRequestId,
       sseHeadersWithClarification,
-      toClaudeServerWebSearchEvent,
     },
     session: {
       applyAuthKeyAttribution,
@@ -423,7 +425,14 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     const claudeTaskCue = extractLatestUserPromptFromMessages(body.messages as Array<{ role: string; content: unknown }>);
 
     const claudeClientKind = String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
-    const claudeConversationId = resolveClaudeConversationId(body.metadata, req.headers as Record<string, unknown>);
+    const claudeConversationId = resolveClaudeConversationId(
+      body.metadata,
+      req.headers as Record<string, unknown>,
+      {
+        debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+        debugLog: (record, message) => app.log.debug(record, message),
+      },
+    );
     const claudePeekWatermark = (() => {
       const existingKey = `${claudeAuthUser.userId}:${claudeConversationId}:${claudeClientKind}`;
       for (const [k, v] of sessions) {
