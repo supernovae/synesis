@@ -5,15 +5,11 @@ describe("createOpenAINonStreamRouteScope", () => {
   it("binds event recording and decision telemetry to route identity", () => {
     const recordSessionEvent = vi.fn();
     const persistDecisionTelemetry = vi.fn();
-    const state = { id: "session" };
     const scope = createOpenAINonStreamRouteScope({
       sessionKey: "session_1",
       userId: "user_1",
       orgId: "org_1",
       requestId: "req_1",
-      state,
-      resolvedModelId: "openai-test",
-      clientRequestedModel: "openai-test",
       recordSessionEvent,
       persistDecisionTelemetry,
     });
@@ -46,13 +42,10 @@ describe("createOpenAINonStreamRouteScope", () => {
       { status: 500 },
     );
     expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
-      state,
-      requestId: "req_1",
-      resolvedModelId: "openai-test",
-      sessionKey: "session_1",
-      userId: "user_1",
-      orgId: "org_1",
-      clientRequestedModel: "openai-test",
+      latencyMs: 12,
+      finishReason: "stop",
+      tokensSavedByReduction: 3,
+      escalated: false,
       optimizationLedger: { prefix_hash: "abc" },
     }));
   });

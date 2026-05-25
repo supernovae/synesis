@@ -118,7 +118,7 @@ import { FileSnapshotRegistry, parseReadSnapshotEnvelope } from "./reduction/fil
 import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normalizer.js";
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
-import { OptimizationLedger, type OptimizationLedgerSnapshot } from "./telemetry/optimization-ledger.js";
+import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
 import {
   cachePolicyLogRecord,
   evaluateCachePolicyController,
@@ -279,6 +279,7 @@ import { captureStreamRequestForensics } from "./streaming/stream-request-forens
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
+import { createDecisionTelemetryPersister } from "./state/decision-telemetry-persister.js";
 import {
   readPersistedChatStateSnapshot,
 } from "./state/persistence-state-channels.js";
@@ -7529,6 +7530,15 @@ app.post("/v1/chat/completions", async (req, reply) => {
     applyMarkdownGuardrail,
     finalizeCompletionText,
   });
+  const persistOaiDecisionTelemetry = createDecisionTelemetryPersister({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    clientRequestedModel: request.model,
+  }, sessionPersistenceRunner.persistAndEmitDecisionTelemetry);
   const oaiToolHandlingRouteBase = createOpenAIChatRouteToolHandlingBase({
     adapter,
     clientKind: oaiClientKind,
@@ -7562,14 +7572,8 @@ app.post("/v1/chat/completions", async (req, reply) => {
       userId: identity.userId,
       orgId: identity.orgId,
       requestId: reqId,
-      state: session,
-      resolvedModelId: resolved.resolvedModelId,
-      clientRequestedModel: request.model,
       recordSessionEvent,
-      persistDecisionTelemetry: (telemetry) => sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
-        ...telemetry,
-        optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
-      }),
+      persistDecisionTelemetry: persistOaiDecisionTelemetry,
     });
     const nonStreamResult = await runOpenAIChatNonStreamPipeline(createOpenAIChatNonStreamRoutePipelineInput({
       scope: oaiNonStreamScope,
@@ -7778,22 +7782,10 @@ app.post("/v1/chat/completions", async (req, reply) => {
       routeBase: oaiTelemetryRouteBase,
       optimizationLedger: oaiOptLedger,
       finalizeRequestForensics: (usage, forensics) => finalizeRequestForensics(session, reqId, forensics, usage),
-      persistDecisionTelemetry: ({ finishReason, telemetry }) => sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
-        state: session,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
-        usage: telemetry.usage,
-        latencyMs: telemetry.latencyMs,
+      persistDecisionTelemetry: ({ finishReason, telemetry }) => persistOaiDecisionTelemetry({
+        ...telemetry,
         finishReason,
-        tokensSavedByReduction: telemetry.tokensSavedByReduction,
         escalated: orchestration.escalated,
-        snapshot: telemetry.snapshot,
-        trajectory: telemetry.trajectory,
-        sessionKey,
-        userId: identity.userId,
-        orgId: identity.orgId,
-        optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
-        clientRequestedModel: request.model,
       }),
       logOptimizationLedger: (record) => app.log.info({ reqId, ...record }, "optimization_ledger"),
     },
@@ -9650,6 +9642,16 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
 
+  const persistClaudeDecisionTelemetry = createDecisionTelemetryPersister({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    clientRequestedModel: body.model,
+  }, sessionPersistenceRunner.persistAndEmitDecisionTelemetry);
+
   if (body.stream) {
     if (claudeNativeWebSearchRequested || claudeForceNonStreamKickoff) {
       const started = Date.now();
@@ -9898,10 +9900,7 @@ app.post("/v1/messages", async (req, reply) => {
         governorChatStateSummary: claudePauseChatSummary,
         governorFileStateSummary: claudePauseFileSummary,
       });
-      sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
-        state: session,
-        requestId: reqId,
-        resolvedModelId: resolved.resolvedModelId,
+      persistClaudeDecisionTelemetry({
         usage,
         latencyMs: Date.now() - started,
         finishReason: stopReason,
@@ -9913,10 +9912,6 @@ app.post("/v1/messages", async (req, reply) => {
           verificationSteps: inferVerificationSteps(externalCalls.map((c) => c.toolName)),
           diagnostics: claudeTrajectoryDiagnostics,
         },
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-        clientRequestedModel: body.model,
       });
 
       safeSse(reply, "message_delta", {
@@ -10259,9 +10254,8 @@ app.post("/v1/messages", async (req, reply) => {
       toolNames: claudeStreamToolSequence,
       gate: claudeStreamGate,
       requestForensicsDone: claudeStreamFinalized.requestForensicsDone,
-      session,
       recordSessionEvent,
-      persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
+      persistDecisionTelemetry: persistClaudeDecisionTelemetry,
     }));
     return reply;
   }
@@ -10281,11 +10275,8 @@ app.post("/v1/messages", async (req, reply) => {
     userId: claudeIdentity.userId,
     orgId: claudeIdentity.orgId,
     requestId: reqId,
-    state: session,
-    resolvedModelId: resolved.resolvedModelId,
-    clientRequestedModel: body.model,
     recordSessionEvent,
-    persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
+    persistDecisionTelemetry: persistClaudeDecisionTelemetry,
   });
   const claudeNonStreamToolSideEffects = createRouteToolCallSideEffects({
     session,

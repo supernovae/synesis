@@ -12,14 +12,8 @@ export interface ClaudeNonStreamRouteScopeInput<TSession> {
   userId: string;
   orgId: string;
   requestId: string;
-  state: TSession;
-  resolvedModelId: string;
-  clientRequestedModel: string;
   recordSessionEvent: StreamRouteEventSink;
   persistDecisionTelemetry(input: {
-    state: TSession;
-    requestId: string;
-    resolvedModelId: string;
     usage: StreamTokenUsage;
     latencyMs: number;
     finishReason: string;
@@ -27,10 +21,6 @@ export interface ClaudeNonStreamRouteScopeInput<TSession> {
     escalated: boolean;
     snapshot: DecisionSnapshot;
     trajectory?: RequestTrajectoryInput;
-    sessionKey: string;
-    userId: string;
-    orgId: string;
-    clientRequestedModel: string;
   }): void;
 }
 
@@ -67,21 +57,6 @@ export function createClaudeNonStreamRouteScope<TSession>(
     orgId: input.orgId,
     requestId: input.requestId,
     recordEvent,
-    persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
-      state: input.state,
-      requestId: input.requestId,
-      resolvedModelId: input.resolvedModelId,
-      usage: telemetry.usage,
-      latencyMs: telemetry.latencyMs,
-      finishReason: telemetry.finishReason,
-      tokensSavedByReduction: telemetry.tokensSavedByReduction,
-      escalated: telemetry.escalated,
-      snapshot: telemetry.snapshot,
-      trajectory: telemetry.trajectory,
-      sessionKey: input.sessionKey,
-      userId: input.userId,
-      orgId: input.orgId,
-      clientRequestedModel: input.clientRequestedModel,
-    }),
+    persistDecisionTelemetry: input.persistDecisionTelemetry,
   };
 }

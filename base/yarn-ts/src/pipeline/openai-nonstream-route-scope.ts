@@ -12,14 +12,8 @@ export interface OpenAINonStreamRouteScopeInput<TSession> {
   userId: string;
   orgId: string;
   requestId: string;
-  state: TSession;
-  resolvedModelId: string;
-  clientRequestedModel: string;
   recordSessionEvent: StreamRouteEventSink;
   persistDecisionTelemetry(input: {
-    state: TSession;
-    requestId: string;
-    resolvedModelId: string;
     usage: StreamTokenUsage;
     latencyMs: number;
     finishReason: string;
@@ -27,11 +21,7 @@ export interface OpenAINonStreamRouteScopeInput<TSession> {
     escalated: boolean;
     snapshot: DecisionSnapshot;
     trajectory?: RequestTrajectoryInput;
-    sessionKey: string;
-    userId: string;
-    orgId: string;
     optimizationLedger?: unknown;
-    clientRequestedModel: string;
   }): void;
 }
 
@@ -67,22 +57,6 @@ export function createOpenAINonStreamRouteScope<TSession>(
   return {
     ...scope,
     recordEvent,
-    persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
-      state: input.state,
-      requestId: input.requestId,
-      resolvedModelId: input.resolvedModelId,
-      usage: telemetry.usage,
-      latencyMs: telemetry.latencyMs,
-      finishReason: telemetry.finishReason,
-      tokensSavedByReduction: telemetry.tokensSavedByReduction,
-      escalated: telemetry.escalated,
-      snapshot: telemetry.snapshot,
-      trajectory: telemetry.trajectory,
-      sessionKey: input.sessionKey,
-      userId: input.userId,
-      orgId: input.orgId,
-      optimizationLedger: telemetry.optimizationLedger,
-      clientRequestedModel: input.clientRequestedModel,
-    }),
+    persistDecisionTelemetry: input.persistDecisionTelemetry,
   };
 }

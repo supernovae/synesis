@@ -3,7 +3,6 @@ import { createClaudeNonStreamRouteScope } from "../src/streaming/claude-nonstre
 
 describe("createClaudeNonStreamRouteScope", () => {
   it("binds route identity to event recording and persistence", () => {
-    const state = { id: "session-state" };
     const recordSessionEvent = vi.fn();
     const persistDecisionTelemetry = vi.fn();
     const scope = createClaudeNonStreamRouteScope({
@@ -11,9 +10,6 @@ describe("createClaudeNonStreamRouteScope", () => {
       userId: "user_1",
       orgId: "org_1",
       requestId: "req_1",
-      state,
-      resolvedModelId: "claude-test",
-      clientRequestedModel: "claude-requested",
       recordSessionEvent,
       persistDecisionTelemetry,
     });
@@ -51,16 +47,10 @@ describe("createClaudeNonStreamRouteScope", () => {
       { code: "rate_limit" },
     );
     expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
-      state,
-      requestId: "req_1",
-      resolvedModelId: "claude-test",
-      sessionKey: "session_1",
-      userId: "user_1",
-      orgId: "org_1",
-      clientRequestedModel: "claude-requested",
       latencyMs: 25,
       finishReason: "end_turn",
       tokensSavedByReduction: 3,
+      escalated: false,
       trajectory: { toolSequence: ["Read"] },
     }));
   });

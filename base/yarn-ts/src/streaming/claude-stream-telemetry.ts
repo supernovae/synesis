@@ -150,7 +150,6 @@ export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
   requestForensicsDone?: ClaudeStreamRequestForensicsResult;
   cacheStrategy?: string;
   prefixFingerprint?: string;
-  session: TSession;
   recordSessionEvent(
     sessionKey: string,
     userId: string,
@@ -161,9 +160,6 @@ export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
     requestId: string,
   ): void;
   persistDecisionTelemetry(input: {
-    state: TSession;
-    requestId: string;
-    resolvedModelId: string;
     usage: StreamTokenUsage;
     latencyMs: number;
     finishReason: string;
@@ -179,10 +175,6 @@ export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
       outcomeState?: "partial";
       failureStage?: "verification";
     };
-    sessionKey: string;
-    userId: string;
-    orgId: string;
-    clientRequestedModel: string;
   }): void;
   countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
     systemMessageCount: number;
@@ -253,22 +245,7 @@ export function createClaudeStreamTelemetryInput<TSession>(
       event.detail,
       input.requestId,
     ),
-    persistDecisionTelemetry: (telemetry) => input.persistDecisionTelemetry({
-      state: input.session,
-      requestId: input.requestId,
-      resolvedModelId: input.resolvedModelId,
-      usage: telemetry.usage,
-      latencyMs: telemetry.latencyMs,
-      finishReason: telemetry.finishReason,
-      tokensSavedByReduction: telemetry.tokensSavedByReduction,
-      escalated: telemetry.escalated,
-      snapshot: telemetry.snapshot,
-      trajectory: telemetry.trajectory,
-      sessionKey: input.sessionKey,
-      userId: input.userId,
-      orgId: input.orgId,
-      clientRequestedModel: input.clientRequestedModel,
-    }),
+    persistDecisionTelemetry: input.persistDecisionTelemetry,
     countMessageRoles: input.countMessageRoles,
     pushDiagnostic: input.pushDiagnostic,
   };

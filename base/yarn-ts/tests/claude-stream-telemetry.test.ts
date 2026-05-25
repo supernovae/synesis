@@ -159,8 +159,7 @@ describe("runClaudeStreamTelemetry", () => {
     }));
   });
 
-  it("creates route telemetry input with session-scoped event and persistence callbacks", () => {
-    const session = { id: "state-1" };
+  it("creates route telemetry input with session-scoped event and scoped persistence callbacks", () => {
     const recordSessionEvent = vi.fn();
     const persistDecisionTelemetry = vi.fn();
     const input = createClaudeStreamTelemetryInput({
@@ -168,7 +167,6 @@ describe("runClaudeStreamTelemetry", () => {
         recordSessionEvent: undefined as never,
         persistDecisionTelemetry: undefined as never,
       }),
-      session,
       recordSessionEvent,
       persistDecisionTelemetry,
     });
@@ -201,14 +199,10 @@ describe("runClaudeStreamTelemetry", () => {
       "req_1",
     );
     expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
-      state: session,
-      requestId: "req_1",
-      resolvedModelId: "claude-model",
-      sessionKey: "session_1",
-      userId: "user_1",
-      orgId: "org_1",
-      clientRequestedModel: "claude-model",
       latencyMs: 42,
+      finishReason: "stop",
+      tokensSavedByReduction: 5,
+      escalated: false,
     }));
   });
 });
