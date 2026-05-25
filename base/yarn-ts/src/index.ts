@@ -257,9 +257,8 @@ import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-ro
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
+import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
-import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
-import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
 import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
@@ -9747,12 +9746,12 @@ app.post("/v1/messages", async (req, reply) => {
       reply.header("Retry-After", claudeStreamRouteStart.retryAfter);
       return reply.code(claudeStreamRouteStart.statusCode).send(claudeStreamRouteStart.payload);
     }
-    const claudeStreamSpan = claudeStreamRouteStart.span;
-    const started = claudeStreamRouteStart.startedAtMs;
-    const claudeStreamScope = claudeStreamRouteStart.scope;
-    const claudeStreamForensics = captureStreamRequestForensics({
-      scope: claudeStreamScope,
-      path: "/v1/messages (stream)",
+    const claudeStreamRuntime = createClaudeStreamRouteRuntime({
+      started: claudeStreamRouteStart,
+      requestIds: {
+        traceRequestId: traceReqId,
+        responseRequestId: reqId,
+      },
       resolvedModelId: resolved.resolvedModelId,
       messages: claudeModelMessages as Array<{ role: string; content: unknown }>,
       tools: effectiveClaudeTools as unknown[],
@@ -9760,37 +9759,31 @@ app.post("/v1/messages", async (req, reply) => {
       providerOptions,
       phasePolicy: claudeForensicsPhasePolicy,
       capabilityMatrix: claudeForensicsCapabilityMatrix,
-      capture: captureRequestForensics,
+      captureRequestForensics,
+      sideEffects: {
+        session,
+        clientKind: claudeClientKind,
+        logger: app.log as never,
+        strictGovernanceStats: openClawProfileStats,
+        updateDiffAccumulator,
+        maybeUpdateTaskLedgerFromToolCall,
+        emitPlanWriteAuditEvent,
+        maybeLogEnvelopeUnwrapSample,
+        recordUpperHarnessDecision,
+      },
+      abort: {
+        longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+        hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
+      },
     });
-    const claudeResponseScope = {
-      ...claudeStreamScope,
-      requestId: reqId,
-    };
-    const recordClaudeStreamEvent = claudeStreamRouteStart.recordEvent;
-    const claudeStreamToolSideEffects = createRouteToolCallSideEffects({
-      session,
-      sessionKey: claudeSessionKey,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      requestId: traceReqId,
-      clientKind: claudeClientKind,
-      upperHarnessComponent: "upper-harness:claude-stream",
-      logger: app.log as never,
-      strictGovernanceStats: openClawProfileStats,
-      updateDiffAccumulator,
-      maybeUpdateTaskLedgerFromToolCall,
-      emitPlanWriteAuditEvent,
-      maybeLogEnvelopeUnwrapSample,
-      recordUpperHarnessDecision,
-    });
-    const claudeStreamAbortRuntime = createStreamAbortRuntime({
-      protocolLabel: "Claude",
-      model: resolved.resolvedModelId,
-      startedAtMs: started,
-      longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-      hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
-      recordSessionEvent: recordClaudeStreamEvent,
-    });
+    const claudeStreamSpan = claudeStreamRuntime.streamSpan;
+    const started = claudeStreamRuntime.startedAtMs;
+    const claudeStreamScope = claudeStreamRuntime.streamScope;
+    const claudeStreamForensics = claudeStreamRuntime.streamForensics;
+    const claudeResponseScope = claudeStreamRuntime.responseScope;
+    const recordClaudeStreamEvent = claudeStreamRuntime.recordStreamEvent;
+    const claudeStreamToolSideEffects = claudeStreamRuntime.streamToolSideEffects;
+    const claudeStreamAbortRuntime = claudeStreamRuntime.streamAbortRuntime;
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
     await runClaudeStreamRoute({
       start: {
