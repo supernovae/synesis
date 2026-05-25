@@ -255,6 +255,7 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
+import { buildClaudeStreamRouteEventHandlersInput } from "./streaming/claude-stream-route-event-input.js";
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
 import { buildClaudeStreamRouteRunInput } from "./streaming/claude-stream-route-input.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
@@ -9816,42 +9817,43 @@ app.post("/v1/messages", async (req, reply) => {
         },
       },
       pipeline: {
-        eventHandlers: {
-          adapter: claudeAdapter,
-          requestId: traceReqId,
-          clientKind: claudeClientKind,
-          debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
-          strictGovernance: claudeOpenClawStrictGovernance,
-          upperHarness: claudeUpperHarness,
-          recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
-          taskCue: claudeTaskCue,
-          clientPlanModeRequested: claudeClientToolCapabilities.planModeRequested,
-          sensemakingRestrictDiscovery: claudeSensemakingDecision?.shouldRestrictDiscovery,
-          pathContext: effectiveClaudePathCtx,
-          enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-          blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-          pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-          artifactShadows: claudeArtifactShadows,
-          normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
-          session,
-          stats: toolArgHardeningStats,
-          logger: app.log,
-          isWriteCapableToolName,
-          shouldRestrictDiscoveryForPlanWork,
-          deserializePlanShadow: deserializeShadow,
-          buildPathSandboxPolicy: buildDefaultPolicy,
-          ...claudeStreamToolSideEffects,
-          recordRedirectedDiscovery: (count) => {
-            recordBlockedDiscovery(claudeSessionKey, count);
+        eventHandlers: buildClaudeStreamRouteEventHandlersInput({
+          base: {
+            adapter: claudeAdapter,
+            requestId: traceReqId,
+            clientKind: claudeClientKind,
+            debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+            strictGovernance: claudeOpenClawStrictGovernance,
+            upperHarness: claudeUpperHarness,
+            taskCue: claudeTaskCue,
+            clientPlanModeRequested: claudeClientToolCapabilities.planModeRequested,
+            sensemakingRestrictDiscovery: claudeSensemakingDecision?.shouldRestrictDiscovery,
+            pathContext: effectiveClaudePathCtx,
+            enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+            blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+            pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+            artifactShadows: claudeArtifactShadows,
+            session,
+            stats: toolArgHardeningStats,
+            logger: app.log,
+            isWriteCapableToolName,
+            shouldRestrictDiscoveryForPlanWork,
+            deserializePlanShadow: deserializeShadow,
+            buildPathSandboxPolicy: buildDefaultPolicy,
+            getTopLevelDirs: getCachedTopLevelDirs,
+            applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
           },
-          getTopLevelDirs: getCachedTopLevelDirs,
-          applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
-          buildBlockedDiscoveryRecovery: (blockedDetails) => buildBlockedDiscoveryRecoverySnapshot(
-            resolved.resolvedModelId,
-            blockedDetails,
-            effectiveClaudePathCtx.projectRoot,
-          ),
-        },
+          toolSideEffects: claudeStreamToolSideEffects,
+          recentCalls: claudeRecentCallsForSteering,
+          normalizedMessages: normalizedFromClaude.messages as Array<{ role: string }>,
+          route: {
+            sessionKey: claudeSessionKey,
+            resolvedModelId: resolved.resolvedModelId,
+            projectRoot: effectiveClaudePathCtx.projectRoot,
+          },
+          recordBlockedDiscovery,
+          buildBlockedDiscoveryRecoverySnapshot,
+        }),
         lifecycle: {
           session,
           circuitBreakers,
