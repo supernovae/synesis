@@ -286,7 +286,7 @@ import { captureStreamRequestForensics } from "./streaming/stream-request-forens
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
-import { createDecisionTelemetryPersister } from "./state/decision-telemetry-persister.js";
+import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
 import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
 import {
   readPersistedChatStateSnapshot,
@@ -7140,6 +7140,17 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
   }
   const { resolved, messages, transforms: oaiTranscriptTransforms } = resolveResult;
+  const oaiRoutePersistence = createRoutePersistenceScope({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    sessionKey,
+    userId: identity.userId,
+    orgId: identity.orgId,
+    clientRequestedModel: request.model,
+    recordSessionEvent,
+    persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
+  });
   if (
     (oaiTranscriptTransforms.systemMessagesReordered || oaiTranscriptTransforms.toolCallsSanitized)
     && shouldSampleBySeed(
@@ -7198,8 +7209,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     stats: toolSchemaPruningStats,
     logger: app.log,
     isWriteCapableToolName,
-    recordSessionEvent: (eventKind, component, detail) =>
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, oaiTraceReqId),
+    recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
   });
   const oaiRecentCallsForSteering = oaiToolPreparation.recentCallsForSteering;
   let effectiveTools = oaiToolPreparation.effectiveTools;
@@ -7232,8 +7242,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     stateRegroundRequired: oaiNeedsStateReground,
     stateRegroundReadPath: oaiStateConfidence.recommendedReadPath,
     clientToolInventory: oaiClientToolInventory,
-    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, reqId, metadataJson),
+    recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
     applyEditContextMissReadGate,
     findPreferredReadToolName,
     ensureReadToolAvailability: ensureReadToolAvailabilityForEditMissGuard,
@@ -7327,8 +7336,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       messagesToAppend,
       content,
     ) as typeof messagesToAppend,
-    recordSessionEvent: (eventKind, component, detail) =>
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, oaiTraceReqId),
+    recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
   }).modelMessages as typeof modelMessages;
 
   modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
@@ -7390,8 +7398,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     backendModelHint: oaiCompactionOpts.backendModelHint,
     transcriptPruning,
     logger: app.log,
-    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, eventKind, component, detail, reqId, metadataJson),
+    recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
     recordUpperHarnessDecision: (label, decision, options) =>
       recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, label, decision, options),
     forceCheckpoint: () => { void forceCheckpoint(session); },
@@ -7476,15 +7483,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     applyMarkdownGuardrail,
     finalizeCompletionText,
   });
-  const persistOaiDecisionTelemetry = createDecisionTelemetryPersister({
-    state: session,
-    requestId: reqId,
-    resolvedModelId: resolved.resolvedModelId,
-    sessionKey,
-    userId: identity.userId,
-    orgId: identity.orgId,
-    clientRequestedModel: request.model,
-  }, sessionPersistenceRunner.persistAndEmitDecisionTelemetry);
+  const persistOaiDecisionTelemetry = oaiRoutePersistence.persistDecisionTelemetry;
   const oaiToolHandlingRouteBase = createOpenAIChatRouteToolHandlingBase({
     adapter,
     clientKind: oaiClientKind,
@@ -9308,6 +9307,17 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const { resolved, messages, transforms: claudeTranscriptTransforms } = claudeResolveResult;
+  const claudeRoutePersistence = createRoutePersistenceScope({
+    state: session,
+    requestId: reqId,
+    resolvedModelId: resolved.resolvedModelId,
+    sessionKey: claudeSessionKey,
+    userId: claudeIdentity.userId,
+    orgId: claudeIdentity.orgId,
+    clientRequestedModel: body.model,
+    recordSessionEvent,
+    persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
+  });
   if (
     (claudeTranscriptTransforms.systemMessagesReordered || claudeTranscriptTransforms.toolCallsSanitized)
     && shouldSampleBySeed(
@@ -9367,8 +9377,7 @@ app.post("/v1/messages", async (req, reply) => {
     stats: toolSchemaPruningStats,
     logger: app.log,
     isWriteCapableToolName,
-    recordSessionEvent: (eventKind, component, detail) =>
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId),
+    recordSessionEvent: claudeRoutePersistence.recordSessionEvent,
   });
   const claudeRecentCallsForSteering = claudeToolPreparation.recentCallsForSteering;
   let effectiveClaudeTools = claudeToolPreparation.effectiveTools;
@@ -9445,8 +9454,7 @@ app.post("/v1/messages", async (req, reply) => {
       messagesToAppend,
       content,
     ) as typeof messagesToAppend,
-    recordSessionEvent: (eventKind, component, detail) =>
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId),
+    recordSessionEvent: claudeRoutePersistence.recordSessionEvent,
   }).modelMessages as typeof claudeModelMessages;
 
   claudeModelMessages = normalizeSystemMessageOrdering(claudeModelMessages as Array<{ role: string }>) as typeof claudeModelMessages;
@@ -9479,8 +9487,7 @@ app.post("/v1/messages", async (req, reply) => {
     stateRegroundRequired: claudeNeedsStateReground,
     stateRegroundReadPath: claudeStateConfidence.recommendedReadPath,
     clientToolInventory: claudeClientToolInventory,
-    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId, metadataJson),
+    recordSessionEvent: claudeRoutePersistence.recordSessionEvent,
     applyEditContextMissReadGate,
     findPreferredReadToolName,
     ensureReadToolAvailability: ensureReadToolAvailabilityForEditMissGuard,
@@ -9564,8 +9571,7 @@ app.post("/v1/messages", async (req, reply) => {
     backendModelHint: claudeCompactionOpts.backendModelHint,
     transcriptPruning,
     logger: app.log,
-    recordSessionEvent: (eventKind, component, detail, metadataJson) =>
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, eventKind, component, detail, traceReqId, metadataJson),
+    recordSessionEvent: claudeRoutePersistence.recordSessionEvent,
     recordUpperHarnessDecision: (label, decision, options) =>
       recordUpperHarnessDecision(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, traceReqId, label, decision, options),
     forceCheckpoint: () => { void forceCheckpoint(session); },
@@ -9593,15 +9599,7 @@ app.post("/v1/messages", async (req, reply) => {
     providerOptions,
   });
 
-  const persistClaudeDecisionTelemetry = createDecisionTelemetryPersister({
-    state: session,
-    requestId: reqId,
-    resolvedModelId: resolved.resolvedModelId,
-    sessionKey: claudeSessionKey,
-    userId: claudeIdentity.userId,
-    orgId: claudeIdentity.orgId,
-    clientRequestedModel: body.model,
-  }, sessionPersistenceRunner.persistAndEmitDecisionTelemetry);
+  const persistClaudeDecisionTelemetry = claudeRoutePersistence.persistDecisionTelemetry;
 
   if (body.stream) {
     if (claudeNativeWebSearchRequested || claudeForceNonStreamKickoff) {
