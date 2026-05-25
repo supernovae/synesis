@@ -23,19 +23,19 @@ export type ClaudeStreamRouteCompletionTelemetryBase = Omit<
   "finishReason" | "usage" | "toolNames" | "gate" | "requestForensicsDone"
 >;
 
-export interface ClaudeStreamRouteCompletionInput<TForensics extends ClaudeStreamRequestForensicsResult | undefined> {
+export interface ClaudeStreamRouteCompletionInput<TForensics extends ClaudeStreamRequestForensicsResult | null | undefined> {
   finalizerInput: ClaudeStreamCompletionFinalizerRouteInput<TForensics>;
   telemetryBase: ClaudeStreamRouteCompletionTelemetryBase;
   toolNames: string[];
 }
 
-export interface ClaudeStreamRouteCompletionResult<TForensics extends ClaudeStreamRequestForensicsResult | undefined> {
+export interface ClaudeStreamRouteCompletionResult<TForensics extends ClaudeStreamRequestForensicsResult | null | undefined> {
   finalized: ClaudeStreamCompletionFinalizerResult<TForensics>;
   telemetry: ClaudeStreamTelemetryResult;
 }
 
 export interface ClaudeStreamRouteCompletionFactoryInput<
-  TForensics extends ClaudeStreamRequestForensicsResult | undefined,
+  TForensics extends ClaudeStreamRequestForensicsResult | null | undefined,
   TChecklist,
   TVerification,
   TPlanGraph,
@@ -51,7 +51,7 @@ export interface ClaudeStreamRouteCompletionFactoryInput<
 }
 
 export function createClaudeStreamRouteCompletionInput<
-  TForensics extends ClaudeStreamRequestForensicsResult | undefined,
+  TForensics extends ClaudeStreamRequestForensicsResult | null | undefined,
   TChecklist,
   TVerification,
   TPlanGraph,
@@ -73,7 +73,7 @@ export function createClaudeStreamRouteCompletionInput<
   };
 }
 
-export async function completeClaudeStreamRoute<TForensics extends ClaudeStreamRequestForensicsResult | undefined>(
+export async function completeClaudeStreamRoute<TForensics extends ClaudeStreamRequestForensicsResult | null | undefined>(
   input: ClaudeStreamRouteCompletionInput<TForensics>,
 ): Promise<ClaudeStreamRouteCompletionResult<TForensics>> {
   const finalized = await finalizeClaudeStreamCompletion(
@@ -85,7 +85,7 @@ export async function completeClaudeStreamRoute<TForensics extends ClaudeStreamR
     usage: finalized.usage,
     toolNames: input.toolNames,
     gate: input.finalizerInput.gate,
-    requestForensicsDone: finalized.requestForensicsDone,
+    requestForensicsDone: finalized.requestForensicsDone ?? undefined,
   }));
 
   return {

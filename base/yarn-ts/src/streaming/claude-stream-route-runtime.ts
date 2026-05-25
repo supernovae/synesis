@@ -60,6 +60,7 @@ export interface ClaudeStreamRouteRuntimeResult<TForensics> {
   streamScope: StreamRouteScope;
   responseScope: StreamRouteScope;
   recordStreamEvent(event: StreamRouteEvent): void;
+  admissionRelease(): void;
   streamForensics: TForensics;
   streamToolSideEffects: RouteToolCallSideEffects;
   streamAbortRuntime: StreamAbortRuntime;
@@ -108,6 +109,7 @@ export function createClaudeStreamRouteRuntime<TSession extends RouteToolCallSid
       requestId: input.requestIds.responseRequestId,
     },
     recordStreamEvent,
+    admissionRelease: () => input.started.admission.release!(),
     streamForensics,
     streamToolSideEffects,
     streamAbortRuntime,

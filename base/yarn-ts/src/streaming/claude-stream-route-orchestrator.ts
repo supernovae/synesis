@@ -20,7 +20,7 @@ import type { StreamTelemetryRouteBaseInput } from "./stream-telemetry-route-bas
 
 export interface ClaudeStreamRouteRunInput<
   TMessage extends ClaudeStreamProviderMessage,
-  TForensics extends ClaudeStreamRequestForensicsResult | undefined,
+  TForensics extends ClaudeStreamRequestForensicsResult | null | undefined,
   TChecklist,
   TVerification,
   TPlanGraph,
@@ -68,7 +68,7 @@ export interface ClaudeStreamRouteRunInput<
 
 export interface ClaudeStreamRouteRunResult<
   TMessage extends ClaudeStreamProviderMessage,
-  TForensics extends ClaudeStreamRequestForensicsResult | undefined,
+  TForensics extends ClaudeStreamRequestForensicsResult | null | undefined,
 > {
   started: ClaudeStreamRouteStartResult<TMessage>;
   stopReason: string;
@@ -77,7 +77,7 @@ export interface ClaudeStreamRouteRunResult<
 
 export async function runClaudeStreamRoute<
   TMessage extends ClaudeStreamProviderMessage,
-  TForensics extends ClaudeStreamRequestForensicsResult | undefined,
+  TForensics extends ClaudeStreamRequestForensicsResult | null | undefined,
   TChecklist,
   TVerification,
   TPlanGraph,

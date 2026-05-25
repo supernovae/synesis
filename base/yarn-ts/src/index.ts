@@ -256,6 +256,7 @@ import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstrea
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gates.js";
+import { buildClaudeStreamRouteRunInput } from "./streaming/claude-stream-route-input.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
 import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
@@ -9776,18 +9777,13 @@ app.post("/v1/messages", async (req, reply) => {
         hardTimeoutMs: config.SYNESIS_YARN_SSE_STREAM_HARD_TIMEOUT_MS,
       },
     });
-    const claudeStreamSpan = claudeStreamRuntime.streamSpan;
-    const started = claudeStreamRuntime.startedAtMs;
-    const claudeStreamScope = claudeStreamRuntime.streamScope;
     const claudeStreamForensics = claudeStreamRuntime.streamForensics;
-    const claudeResponseScope = claudeStreamRuntime.responseScope;
     const recordClaudeStreamEvent = claudeStreamRuntime.recordStreamEvent;
     const claudeStreamToolSideEffects = claudeStreamRuntime.streamToolSideEffects;
-    const claudeStreamAbortRuntime = claudeStreamRuntime.streamAbortRuntime;
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    await runClaudeStreamRoute({
+    await runClaudeStreamRoute(buildClaudeStreamRouteRunInput({
+      runtime: claudeStreamRuntime,
       start: {
-        scope: claudeStreamScope,
         recordSessionEvent,
         raw: reply.raw,
         headers: sseHeadersWithClarification(session.record.metadata),
@@ -9802,7 +9798,6 @@ app.post("/v1/messages", async (req, reply) => {
           model: resolved.model,
           messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
           adapter: claudeAdapter,
-          abortSignal: claudeStreamAbortRuntime.abortController.signal,
           orchestrationMaxOutputTokens: claudeOrchestration.maxOutputTokens,
           requestMaxTokens: body.max_tokens,
           samplingOptions: claudeSamplingOptions,
@@ -9859,10 +9854,6 @@ app.post("/v1/messages", async (req, reply) => {
         },
         lifecycle: {
           session,
-          abortSignal: claudeStreamAbortRuntime.abortController.signal,
-          hardTimeout: claudeStreamAbortRuntime.hardTimeout,
-          admissionRelease: () => claudeStreamRouteStart.admission.release!(),
-          span: claudeStreamSpan,
           circuitBreakers,
           logger: app.log,
           extractUpstreamErrorDiagnostics,
@@ -9880,7 +9871,6 @@ app.post("/v1/messages", async (req, reply) => {
       completion: {
         finalizer: {
           session,
-          ...claudeResponseScope,
           readUsage,
           finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
           handlerInput: {
@@ -9905,9 +9895,6 @@ app.post("/v1/messages", async (req, reply) => {
           recordSessionEvent,
         },
         telemetry: {
-          scope: claudeResponseScope,
-          startedAtMs: started,
-          resolvedModelId: resolved.resolvedModelId,
           clientRequestedModel: body.model,
           reductions: {
             toolResultReduction,
@@ -9945,7 +9932,7 @@ app.post("/v1/messages", async (req, reply) => {
           persistDecisionTelemetry: persistClaudeDecisionTelemetry,
         },
       },
-    });
+    }));
     return reply;
   }
 
