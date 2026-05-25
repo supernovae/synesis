@@ -258,12 +258,8 @@ import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickof
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
-import {
-  buildStreamAdmissionRejection,
-  buildStreamCircuitBreakerRejection,
-} from "./streaming/stream-route-gates.js";
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
-import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
+import { startStreamRoute } from "./streaming/stream-route-start.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
 import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
@@ -9732,47 +9728,38 @@ app.post("/v1/messages", async (req, reply) => {
       return reply;
     }
 
-    const claudeAdmission = await streamAdmission.acquire();
     const claudeStreamGateScope = {
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
       orgId: claudeIdentity.orgId,
       requestId: traceReqId,
     };
-    const claudeAdmissionRejection = buildStreamAdmissionRejection({
-      admission: claudeAdmission,
-      queueStats: streamAdmission.getStats(),
-      logMessage: "stream_admission_rejected_claude",
+    const claudeStreamRouteStart = await startStreamRoute({
       scope: claudeStreamGateScope,
+      resolvedModelId: resolved.resolvedModelId,
+      spanName: "yarn.claude.stream",
       logger: app.log,
+      streamAdmission,
+      circuitBreakers,
       recordSessionEvent,
-      payload: { type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } },
+      startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
+      admissionRejection: {
+        logMessage: "stream_admission_rejected_claude",
+        payload: { type: "error", error: { type: "overloaded_error", message: "Server at capacity. Try again shortly." } },
+      },
+      circuitBreakerRejection: {
+        detail: `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`,
+        logMessage: "circuit_breaker_open_claude_stream",
+        payload: { type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } },
+      },
     });
-    if (claudeAdmissionRejection) {
-      reply.header("Retry-After", claudeAdmissionRejection.retryAfter);
-      return reply.code(claudeAdmissionRejection.statusCode).send(claudeAdmissionRejection.payload);
+    if (!claudeStreamRouteStart.ok) {
+      reply.header("Retry-After", claudeStreamRouteStart.retryAfter);
+      return reply.code(claudeStreamRouteStart.statusCode).send(claudeStreamRouteStart.payload);
     }
-
-    const claudeBreakerRejection = buildStreamCircuitBreakerRejection({
-      allowed: circuitBreakers.allowRequest(resolved.resolvedModelId, claudeIdentity.orgId),
-      admission: claudeAdmission,
-      model: resolved.resolvedModelId,
-      orgId: claudeIdentity.orgId,
-      detail: `Circuit breaker open for ${resolved.resolvedModelId} (claude stream)`,
-      logMessage: "circuit_breaker_open_claude_stream",
-      scope: claudeStreamGateScope,
-      logger: app.log,
-      recordSessionEvent,
-      payload: { type: "error", error: { type: "overloaded_error", message: "Model provider temporarily unavailable. Try again shortly." } },
-    });
-    if (claudeBreakerRejection) {
-      reply.header("Retry-After", claudeBreakerRejection.retryAfter);
-      return reply.code(claudeBreakerRejection.statusCode).send(claudeBreakerRejection.payload);
-    }
-    const claudeStreamSpan = getTracer().startSpan("yarn.claude.stream", { model: resolved.resolvedModelId, sessionKey: claudeSessionKey });
-    const started = Date.now();
-    const claudeStreamScopeBundle = createStreamRouteScopeBundle(claudeStreamGateScope, recordSessionEvent);
-    const claudeStreamScope = claudeStreamScopeBundle.scope;
+    const claudeStreamSpan = claudeStreamRouteStart.span;
+    const started = claudeStreamRouteStart.startedAtMs;
+    const claudeStreamScope = claudeStreamRouteStart.scope;
     const claudeStreamForensics = captureStreamRequestForensics({
       scope: claudeStreamScope,
       path: "/v1/messages (stream)",
@@ -9789,7 +9776,7 @@ app.post("/v1/messages", async (req, reply) => {
       ...claudeStreamScope,
       requestId: reqId,
     };
-    const recordClaudeStreamEvent = claudeStreamScopeBundle.recordEvent;
+    const recordClaudeStreamEvent = claudeStreamRouteStart.recordEvent;
     const claudeStreamToolSideEffects = createRouteToolCallSideEffects({
       session,
       sessionKey: claudeSessionKey,
@@ -9891,7 +9878,7 @@ app.post("/v1/messages", async (req, reply) => {
           session,
           abortSignal: claudeStreamAbortRuntime.abortController.signal,
           hardTimeout: claudeStreamAbortRuntime.hardTimeout,
-          admissionRelease: () => claudeAdmission.release!(),
+          admissionRelease: () => claudeStreamRouteStart.admission.release!(),
           span: claudeStreamSpan,
           circuitBreakers,
           logger: app.log,
