@@ -279,7 +279,6 @@ import { captureStreamRequestForensics } from "./streaming/stream-request-forens
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
-import type { RequestTrajectoryInput } from "./state/session-usage-persistence.js";
 import {
   readPersistedChatStateSnapshot,
 } from "./state/persistence-state-channels.js";
@@ -4119,26 +4118,6 @@ function recordUpperHarnessDecision(
   );
 }
 
-function persistAndEmitDecisionTelemetry(input: {
-  state: SessionState;
-  requestId: string;
-  resolvedModelId: string;
-  usage: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number };
-  latencyMs: number;
-  finishReason: string;
-  tokensSavedByReduction: number;
-  escalated: boolean;
-  snapshot: DecisionSnapshot;
-  trajectory?: RequestTrajectoryInput;
-  sessionKey: string;
-  userId: string;
-  orgId: string;
-  optimizationLedger?: OptimizationLedgerSnapshot;
-  clientRequestedModel?: string;
-}): void {
-  sessionPersistenceRunner.persistAndEmitDecisionTelemetry(input);
-}
-
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
   const obj = (input ?? {}) as Record<string, unknown>;
 
@@ -7587,7 +7566,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       resolvedModelId: resolved.resolvedModelId,
       clientRequestedModel: request.model,
       recordSessionEvent,
-      persistDecisionTelemetry: (telemetry) => persistAndEmitDecisionTelemetry({
+      persistDecisionTelemetry: (telemetry) => sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
         ...telemetry,
         optimizationLedger: telemetry.optimizationLedger as OptimizationLedgerSnapshot,
       }),
@@ -7799,7 +7778,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
       routeBase: oaiTelemetryRouteBase,
       optimizationLedger: oaiOptLedger,
       finalizeRequestForensics: (usage, forensics) => finalizeRequestForensics(session, reqId, forensics, usage),
-      persistDecisionTelemetry: ({ finishReason, telemetry }) => persistAndEmitDecisionTelemetry({
+      persistDecisionTelemetry: ({ finishReason, telemetry }) => sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
         state: session,
         requestId: reqId,
         resolvedModelId: resolved.resolvedModelId,
@@ -9919,7 +9898,7 @@ app.post("/v1/messages", async (req, reply) => {
         governorChatStateSummary: claudePauseChatSummary,
         governorFileStateSummary: claudePauseFileSummary,
       });
-      persistAndEmitDecisionTelemetry({
+      sessionPersistenceRunner.persistAndEmitDecisionTelemetry({
         state: session,
         requestId: reqId,
         resolvedModelId: resolved.resolvedModelId,
@@ -10282,7 +10261,7 @@ app.post("/v1/messages", async (req, reply) => {
       requestForensicsDone: claudeStreamFinalized.requestForensicsDone,
       session,
       recordSessionEvent,
-      persistDecisionTelemetry: persistAndEmitDecisionTelemetry,
+      persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
     }));
     return reply;
   }
@@ -10306,7 +10285,7 @@ app.post("/v1/messages", async (req, reply) => {
     resolvedModelId: resolved.resolvedModelId,
     clientRequestedModel: body.model,
     recordSessionEvent,
-    persistDecisionTelemetry: persistAndEmitDecisionTelemetry,
+    persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
   });
   const claudeNonStreamToolSideEffects = createRouteToolCallSideEffects({
     session,
