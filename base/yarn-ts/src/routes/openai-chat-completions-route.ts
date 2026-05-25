@@ -1,41 +1,19 @@
 import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
-import { reconstructMissingToolCalls, openAIToolsToSDK } from "../tool-mapping.js";
-import {
-  appendSystemMessageAndNormalize,
-  normalizeSystemMessageOrdering,
-} from "../transcript/system-message-ordering.js";
+import { reconstructMissingToolCalls } from "../tool-mapping.js";
 import { sortToolSchemas } from "../compat/sorted-tools.js";
 import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcript-prep.js";
 import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-stabilization.js";
 import { finalizeOpenAIProviderRequestForRoute } from "../pipeline/openai-route-provider-finalization.js";
-import {
-  createOpenAIChatRouteFinalizerBase,
-  createOpenAIChatRouteTelemetryBase,
-  createOpenAIChatRouteToolHandlingBase,
-} from "../pipeline/openai-route-inputs.js";
-import {
-  buildOpenAIChatProviderRequestOptions,
-  suppressThinkingWhenRequiredToolChoice,
-} from "../pipeline/provider-options.js";
+import { prepareOpenAIChatProviderRuntime } from "../pipeline/openai-chat-provider-preparation.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
-import {
-  admissionErrorMessage,
-  countMessageRoles,
-} from "../pipeline/context-admission.js";
-import { runRouteContextAdmission } from "../pipeline/route-context-admission.js";
-import {
-  buildCacheShapeDiagnostics,
-} from "../telemetry/cache-shape-diagnostics.js";
 import { prepareProtocolPauseState } from "../session/protocol-pause-state.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type SessionIdentity = import("../session/session-key.js").SessionIdentity;
 type RequestForensicsRecord = import("../telemetry/request-forensics.js").RequestForensicsRecord;
-type RequestDiagnostic = import("../telemetry/request-diagnostics.js").RequestDiagnostic;
 type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
-type PhaseAwareToolChoice = import("../governance/phase-execution-policy.js").PhaseAwareToolChoice;
 type WorkflowPhase = import("../orchestration/phase-model-orchestrator.js").WorkflowPhase;
 type SessionPathHints = import("../state/workspace-session-boundary.js").SessionPathHints;
 type SensemakingResult = import("../sensemaking/index.js").SensemakingResult;
@@ -101,8 +79,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     applyGovernorPhaseRouteBookkeeping,
     applyIngressCapToToolMessages,
     applyObjectiveScopeAndPersist,
-    applyRouteAdapterPivot,
-    applyRoutePhasePolicy,
     applyRuntimePreferenceLoopLimits,
     applySensemakingStats,
     applySessionTaskCapabilities,
@@ -110,7 +86,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     applyWorkspaceMetadataPrebackfill,
     ARTIFACT_TOOL_NAME,
     artifactRetrieval,
-    assembleRouteModelMessages,
     assessProportionality,
     assessStateConfidence,
     assessVerificationSignals,
@@ -126,8 +101,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     buildRouteGovernanceBlocks,
     buildSensemakingGuidanceInjection,
     buildSensemakingPauseMessage,
-    buildYarnUpperHarnessContext,
-    cachePolicyLogRecord,
     captureRequestForensics,
     casSessionSave,
     chatPhaseFromWorkflowPhase,
@@ -168,7 +141,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     extractLatestUserPromptFromMessages,
     extractMetadataFromMessages,
     extractPlanContentShadow,
-    extractRecentToolNames,
     extractTextFromUnknownContent,
     fgaCheck,
     finalizePostEnrichmentMessages,
@@ -226,7 +198,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     pinchCompactionBackendModelMetadata,
     policyEngine,
     policyRejectOpenAIBody,
-    prepareRouteTools,
     processWorkspaceHandshakeRoute,
     projectInstructionFilePresent,
     projectManifestService,
@@ -276,7 +247,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     tierRegistry,
     toolArgHardeningStats,
     toolResultReduction,
-    toolSchemaPruningStats,
     toSessionExecutionContextSystemBlock,
     updatePlanGraph,
     updateTracePromptMetadata,
@@ -1820,339 +1790,98 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiCachePolicy = oaiProviderFinalization.cachePolicy;
     const { resolved, messages } = oaiProviderFinalization.resolveResult;
     const oaiRoutePersistence = oaiProviderFinalization.routePersistence;
-    const { adapter } = resolved;
-    const oaiResolvedTierForHarness = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const oaiUpperHarness = buildYarnUpperHarnessContext({
-      surface: "openai",
-      modelId: oaiResolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
-      requestedModel: request.model,
-      baseUrl: oaiResolvedTierForHarness?.baseUrl,
-      provider: oaiResolvedTierForHarness
-        ? resolveEndpointCapabilityId(oaiResolvedTierForHarness.baseUrl)
-        : undefined,
-    });
-    const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
-    const oaiToolPreparation = prepareRouteTools({
-      rawTools,
-      adapter,
-      clientCapabilities: oaiClientToolCapabilities,
-      clientKind: oaiClientKind,
-      phase: orchestration.phase,
-      profileToolBudgetCap: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED && isOpenClawProfile(adapterProfile)
-        ? Math.max(1, config.SYNESIS_YARN_OPENCLAW_TOOL_SCHEMA_CAP)
-        : adapterProfile.features.toolSchemaBudgetCap,
-      pruningEnabled: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_ENABLED,
-      pruningMaxOverride: config.SYNESIS_YARN_TOOL_SCHEMA_PRUNING_MAX_OVERRIDE,
-      toolChoice: normalizedRequest.tool_choice,
-      latestUserContent: latestUserText?.content,
-      recentCallMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-      recoveryMessages: normalizedOpenAI.messages as Array<{ role: string; content: unknown }>,
-      governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-      toolLoopSteeringEnabled: adapterUsesToolLoopSteering(adapter.family),
-      harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
-      requestId: oaiTraceReqId,
-      stats: toolSchemaPruningStats,
+    const oaiProviderPreparation = prepareOpenAIChatProviderRuntime({
+      config,
       logger: app.log,
-      isWriteCapableToolName,
-      recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
-    });
-    const oaiRecentCallsForSteering = oaiToolPreparation.recentCallsForSteering;
-    let effectiveTools = oaiToolPreparation.effectiveTools;
-    const clientToolChoice = oaiToolPreparation.clientToolChoice;
-    if (oaiToolPreparation.invalidToolChoice) {
-      return reply.code(400).send({
-        error: {
-          type: "invalid_request_error",
-          message: "Invalid tool_choice. Expected auto|none|required|any or object form {type:\"tool\",name:\"...\"}.",
-        },
-      });
-    }
-    const oaiForceReadRecovery =
-      session.editMissForceReadPending
-      && oaiExecutionGovernor.matchedRules.includes("edit_failure_replay");
-    const oaiPhaseApplication = applyRoutePhasePolicy({
-      adapterFamily: adapter.family,
-      basePolicyEnabled: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && oaiPhasePolicyEnabledByMatrix,
-      policyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
-      enabledFamilies: config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES,
-      phase: oaiGovernorPhase,
-      matchedRules: oaiExecutionGovernor.matchedRules,
-      stream: !!normalizedRequest.stream,
-      effectiveTools,
-      clientToolChoice: clientToolChoice as PhaseAwareToolChoice | undefined,
-      editMissGuard: oaiEditMissGuard,
-      editMissForceReadPending: session.editMissForceReadPending,
-      forceReadRecovery: oaiForceReadRecovery,
-      consecutiveEditContextMisses: session.consecutiveEditContextMisses,
-      stateRegroundRequired: oaiNeedsStateReground,
-      stateRegroundReadPath: oaiStateConfidence.recommendedReadPath,
-      clientToolInventory: oaiClientToolInventory,
-      recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
-      applyEditContextMissReadGate,
-      findPreferredReadToolName,
-      ensureReadToolAvailability: ensureReadToolAvailabilityForEditMissGuard,
-    });
-    const oaiPhasePolicy = oaiPhaseApplication.phasePolicy;
-    const oaiPhaseFiltered = oaiPhaseApplication.phaseFiltered;
-    effectiveTools = oaiPhaseApplication.effectiveTools;
-    const effectiveToolChoice = oaiPhaseApplication.effectiveToolChoice;
-    const sdkTools = openAIToolsToSDK(effectiveTools as never);
-    const oaiForensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {
-      enabled: oaiPhasePolicy.active,
-      source: clientToolChoice !== undefined ? "client" : (effectiveToolChoice !== undefined ? "phase_policy" : "none"),
-      phase: oaiGovernorPhase,
-      effectiveToolChoice: typeof effectiveToolChoice === "string" ? effectiveToolChoice : effectiveToolChoice ? "tool" : undefined,
-      filteredToolCount: oaiPhaseFiltered.removed.length,
-    };
-    if (oaiPhasePolicy.active && (oaiPhaseFiltered.filtered || clientToolChoice === undefined)) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "phase_execution_policy_applied",
-        "execution-governor",
-        `phase=${oaiGovernorPhase} reason=${oaiPhasePolicy.reason ?? "none"} tool_choice=${typeof effectiveToolChoice === "string" ? effectiveToolChoice : "tool"} filtered=${oaiPhaseFiltered.removed.length}`,
-        reqId,
-        {
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          removed_tools: oaiPhaseFiltered.removed,
-          state_confidence_reground: oaiNeedsStateReground,
-          state_confidence_recommended_path: oaiStateConfidence.recommendedReadPath,
-        },
-      );
-    }
-
-    let modelMessages = assembleRouteModelMessages({
-      adapter,
-      effectiveTools: effectiveTools as unknown[],
-      messages,
-      workspaceInspection: oaiWorkspaceInspection,
-      policyPivotPrompt: policyPrecheck.pivotPrompt,
-      editMissGuard: oaiEditMissGuard,
-      forceReadRecovery: oaiForceReadRecovery,
-      latestReadRefreshFilePath: oaiLatestReadRefresh.filePath,
-      consecutiveEditContextMisses: session.consecutiveEditContextMisses,
-      stateReground: {
-        required: oaiNeedsStateReground,
-        recommendedReadPath: oaiStateConfidence.recommendedReadPath,
-        reasons: oaiStateConfidence.reasons,
-      },
-      promptIntakeSystemBlock: oaiPromptIntake.systemBlock,
-      buildEditContextMissGuardPrompt,
-      buildEditContextMissForcedReadPrompt,
-      buildStateRegroundReadPrompt,
-    }).messages as typeof messages;
-
-    const oaiGovernanceRecoveryActive = Boolean(
-      policyPrecheck.pivotPrompt
-      || oaiEditMissGuard?.active
-      || oaiForceReadRecovery
-      || oaiNeedsStateReground
-      || (oaiSensemakingDecision && oaiSensemakingDecision.responseLevel !== "allow"),
-    );
-    modelMessages = applyRouteAdapterPivot({
-      surface: "openai",
-      adapter,
-      sessionKey,
-      requestId: oaiTraceReqId,
-      modelMessages: modelMessages as Array<{ role: string; content?: unknown }>,
-      normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
-      recentCalls: oaiRecentCallsForSteering,
-      recentUserPrompt: oaiTaskCue,
-      governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-      toolLoopSteeringEnabled: adapterUsesToolLoopSteering(adapter.family),
-      governanceRecoveryActive: oaiGovernanceRecoveryActive,
-      harnessTelemetryEnabled: config.SYNESIS_YARN_HARNESS_TELEMETRY_ENABLED,
-      skipTelemetry: {
-          policy_pivot: Boolean(policyPrecheck.pivotPrompt),
-          edit_miss_guard: Boolean(oaiEditMissGuard?.active),
-          force_read_recovery: oaiForceReadRecovery,
-          state_confidence_reground: oaiNeedsStateReground,
-          governor_soft_fail_pause: Boolean(oaiSensemakingDecision?.shouldPause),
-      },
-      cooldownTurns: config.SYNESIS_YARN_QWEN_RESUME_NUDGE_COOLDOWN_TURNS,
-      stagnationWindow: config.SYNESIS_YARN_QWEN_STAGNATION_WINDOW,
-      stagnationThreshold: config.SYNESIS_YARN_QWEN_STAGNATION_THRESHOLD,
-      planNoActionLimit: config.SYNESIS_YARN_QWEN_PLAN_NO_ACTION_LIMIT,
-      editRetryLimit: config.SYNESIS_YARN_QWEN_EDIT_RETRY_LIMIT,
-      dampeningLogEvent: "adapter_dampening_oai",
-      logger: app.log,
-      appendSystemMessageAndNormalize: (messagesToAppend, content) => appendSystemMessageAndNormalize(
-        messagesToAppend,
-        content,
-      ) as typeof messagesToAppend,
-      recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
-    }).modelMessages as typeof modelMessages;
-
-    modelMessages = normalizeSystemMessageOrdering(modelMessages as Array<{ role: string }>) as typeof modelMessages;
-
-    const resolvedTierConfig = tierRegistry.getTierConfig(resolved.resolvedModelId);
-    const oaiProviderRequestOptions = buildOpenAIChatProviderRequestOptions({
       request,
-      tierSamplingDefaults: resolvedTierConfig?.samplingDefaults,
-      adapterProviderOptions: adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined,
-      adapterSampling: adapter.defaultSamplingParams?.(),
-      supportsTopK: adapter.family !== "minimax",
-    });
-    const oaiSamplingOptions = oaiProviderRequestOptions.samplingOptions;
-    const oaiStructuredOutput = oaiProviderRequestOptions.structuredOutput;
-    let oaiProviderOptions = oaiProviderRequestOptions.providerOptions;
-    const oaiThinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
-      oaiProviderOptions,
-      effectiveToolChoice as PhaseAwareToolChoice | undefined,
-    );
-    oaiProviderOptions = oaiThinkingToolChoiceGuard.providerOptions;
-    if (oaiThinkingToolChoiceGuard.suppressed) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "phase_required_tool_choice_thinking_guard",
-        "execution-governor",
-        "Suppressed thinking because tool_choice=required is incompatible with provider thinking mode.",
-        reqId,
-        {
-          path: "openai",
-          phase: oaiGovernorPhase,
-          phase_reason: oaiPhasePolicy.reason ?? null,
-        },
-      );
-    }
-    const oaiAdmissionResult = runRouteContextAdmission({
-      surface: "openai",
-      messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
-      tools: effectiveTools as unknown[],
+      normalizedRequest,
+      normalizedOpenAI,
+      resolved,
+      messages,
+      session,
       sessionKey,
-      logRequestId: reqId,
-      metadata: session.record.metadata,
+      identity,
+      requestId: reqId,
+      routePersistence: oaiRoutePersistence,
+      cachePolicy: oaiCachePolicy,
+      clientToolCapabilities: oaiClientToolCapabilities,
+      clientTaskCue: oaiTaskCue,
+      clientKind: oaiClientKind,
+      orchestration,
+      adapterProfile,
+      openClawStrictGovernance,
+      phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
+      governorPhase: oaiGovernorPhase,
+      executionGovernor: oaiExecutionGovernor,
+      editMissGuard: oaiEditMissGuard,
+      needsStateReground: oaiNeedsStateReground,
+      stateConfidence: oaiStateConfidence,
+      clientToolInventory: oaiClientToolInventory,
+      workspaceInspection: oaiWorkspaceInspection,
+      latestUserText,
+      policyPrecheck,
+      latestReadRefresh: oaiLatestReadRefresh,
+      promptIntake: oaiPromptIntake,
+      sensemakingDecision: oaiSensemakingDecision,
+      taskCue: oaiTaskCue,
+      tierRegistry,
+      resolveEndpointCapabilityId,
       chatState: oaiChatState,
       fileState: oaiFileState,
       artifactStore,
-      contextBudgetEnabled: config.SYNESIS_YARN_CONTEXT_BUDGET_ENABLED,
-      modelContextCeilingTokens: resolvedTierConfig?.contextCeilingTokens,
-      budgetCeilingTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS,
-      outputReserveTokens: config.SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE,
-      admissionMode: config.SYNESIS_YARN_CONTEXT_ADMISSION_MODE,
-      admissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
-      admissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
-      compactionMode: oaiCachePolicy.compactionMode,
-      cachePolicyRecord: cachePolicyLogRecord(oaiCachePolicy),
-      upperHarnessContext: oaiUpperHarness,
-      upperHarnessCeilingTokens: oaiResolvedTierForHarness?.contextCeilingTokens,
-      stats: contextAdmissionStats,
-      backendModelHint: oaiCompactionOpts.backendModelHint,
+      contextAdmissionStats,
+      compactionOptions: oaiCompactionOpts,
       transcriptPruning,
-      logger: app.log,
-      recordSessionEvent: oaiRoutePersistence.recordSessionEvent,
-      recordUpperHarnessDecision: (label, decision, options) =>
-        recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, label, decision, options),
       forceCheckpoint: () => { void forceCheckpoint(session); },
-    });
-    modelMessages = oaiAdmissionResult.messages as typeof modelMessages;
-    const oaiContextAdmission = oaiAdmissionResult.contextAdmission;
-    if (oaiAdmissionResult.rejected) {
-      return sendOpenAIChatPipelineResult(reply, {
-        kind: "error",
-        statusCode: 400,
-        body: {
-          error: {
-            type: "invalid_request_error",
-            message: admissionErrorMessage(oaiContextAdmission),
-          },
-          context_admission: {
-            decision: oaiContextAdmission.decision,
-            estimated_tokens: oaiContextAdmission.estimatedTokens,
-            estimated_chars: oaiContextAdmission.estimatedChars,
-            reason: oaiContextAdmission.reason,
-          },
-        },
-      });
-    }
-    const oaiCacheShapeDiagnostics = buildCacheShapeDiagnostics({
-      messages: modelMessages as Array<{ role?: string; content?: unknown }>,
-      tools: effectiveTools as unknown[],
-      providerOptions: oaiProviderOptions,
-    });
-    oaiOptLedger.recordCacheDiagnostics(oaiCacheShapeDiagnostics);
-
-    const oaiTelemetryRouteBase = createOpenAIChatRouteTelemetryBase({
-      clientRequestedModel: request.model,
+      recordUpperHarnessDecision: (label, decision, options) =>
+        recordUpperHarnessDecision(sessionKey, identity.userId, identity.orgId, reqId, label, decision as never, options as never),
+      optimizationLedger: oaiOptLedger,
       reductions: {
         toolResultReduction,
         validationNormalization,
       },
       reducedToolResults: reducedOpenAI.reducedCount,
-      orchestration,
-      policyMatchedRules: policyPrecheck.matchedRules,
-      evidencePrefetched: oaiEvidencePrefetched,
-      evidenceConfidence: combinedEvidenceConfidence || undefined,
-      evidenceAuthoritative: oaiPrefetchResult?.authoritative,
-      evidencePrefetchLatencyMs: oaiPrefetchResult ? Math.round(oaiPrefetchResult.latencyMs) : undefined,
-      evidenceQuality: buildEvidenceTraceSummary(oaiPrefetchResult, oaiPatternResult),
-      sensemakingTriggered: oaiSensemakingResult?.triggered,
-      sensemakingReason: oaiSensemakingResult?.reason,
-      governorDecision: oaiExecutionGovernor,
-      governorChatStateSummary: oaiPauseChatSummary,
-      governorFileStateSummary: oaiPauseFileSummary,
-      normalizedMessages: normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+      evidence: {
+        prefetched: oaiEvidencePrefetched,
+        confidence: combinedEvidenceConfidence || undefined,
+        prefetchResult: oaiPrefetchResult,
+        patternResult: oaiPatternResult,
+      },
+      sensemakingResult: oaiSensemakingResult,
+      governorSummaries: {
+        chat: oaiPauseChatSummary,
+        file: oaiPauseFileSummary,
+      },
       inferVerificationSteps,
       trajectoryDiagnostics: oaiTrajectoryDiagnostics,
-      toolDefinitionCount: effectiveTools.length,
-      artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
-      knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-      promptProfileIds: oaiEnriched.promptProfileIds,
-      promptProfileHashes: oaiEnriched.promptProfileHashes,
-      prefixHash: oaiEnriched.prefixHash,
-      prefixChangeReasons: oaiEnriched.prefixChangeReasons,
-      requirementChecklistMust: oaiRequirementChecklist?.must.length || undefined,
-      requirementChecklistShould: oaiRequirementChecklist?.should.length || undefined,
-      contextAdmission: {
-        decision: oaiContextAdmission.decision,
-        reason: oaiContextAdmission.reason,
-        estimatedTokens: oaiContextAdmission.estimatedTokens,
-        estimatedChars: oaiContextAdmission.estimatedChars,
-      },
-      cacheShapeDiagnostics: oaiCacheShapeDiagnostics,
-      countMessageRoles,
-      pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
-    });
-    const oaiFinalizerRouteBase = createOpenAIChatRouteFinalizerBase({
-      session,
-      checklist: oaiRequirementChecklist,
-      traceRootPrompt: getMetadataString(session.record.metadata, "trace_root_prompt"),
-      latestUserPrompt: getMetadataString(session.record.metadata, "latest_user_prompt"),
-      verification: oaiVerificationAssessment,
-      recentToolNames: extractRecentToolNames(normalizedRequest.messages as Array<{ role: string; content: unknown }>),
+      enriched: oaiEnriched,
+      requirementChecklist: oaiRequirementChecklist,
+      pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as never),
+      getMetadataString,
+      verificationAssessment: oaiVerificationAssessment,
       planGraph: oaiPlanGraph,
-      responseStyleMode: config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
+      effectivePathContext: effectiveOaiPathCtx,
+      artifactShadows: oaiArtifactShadows,
+      toolArgHardeningStats,
       applyMarkdownGuardrail,
       finalizeCompletionText,
-    });
-    const persistOaiDecisionTelemetry = oaiRoutePersistence.persistDecisionTelemetry;
-    const oaiToolHandlingRouteBase = createOpenAIChatRouteToolHandlingBase({
-      adapter,
-      clientKind: oaiClientKind,
-      effectiveTools: effectiveTools as unknown[],
-      strictGovernance: openClawStrictGovernance,
-      upperHarness: oaiUpperHarness,
-      recentToolNames: oaiRecentCallsForSteering.map((call) => call.toolName),
-      taskCue: oaiTaskCue,
-      planModeRequested: oaiClientToolCapabilities.planModeRequested,
-      sensemakingRestrictDiscovery: oaiSensemakingDecision?.shouldRestrictDiscovery,
-      pathContext: effectiveOaiPathCtx,
-      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-      artifactShadows: oaiArtifactShadows,
-      normalizedMessageCount: (normalizedOpenAI.messages as Array<{ role: string }>).length,
-      session,
-      stats: toolArgHardeningStats,
-      logger: app.log,
+      isOpenClawProfile,
+      adapterUsesToolLoopSteering,
       isWriteCapableToolName,
+      applyEditContextMissReadGate,
+      findPreferredReadToolName,
+      ensureReadToolAvailabilityForEditMissGuard,
+      buildEditContextMissGuardPrompt,
+      buildEditContextMissForcedReadPrompt,
+      buildStateRegroundReadPrompt,
       shouldRestrictDiscoveryForPlanWork,
-      deserializePlanShadow: deserializeShadow,
-      buildPathSandboxPolicy: buildDefaultPolicy,
+      deserializeShadow,
+      buildDefaultPolicy,
+      buildEvidenceTraceSummary,
     });
+    if (!oaiProviderPreparation.ok) {
+      return sendOpenAIChatPipelineResult(reply, oaiProviderPreparation.result);
+    }
     endOaiProviderRequestStage();
 
     const providerExecution = await openAiChatPipeline.executePreparedProviderCall({
@@ -2172,22 +1901,22 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       normalizedRequest: normalizedRequest as never,
       request,
       resolved,
-      adapter,
-      modelMessages,
-      effectiveTools: effectiveTools as unknown[],
-      sdkTools,
-      effectiveToolChoice,
-      providerOptions: oaiProviderOptions,
-      structuredOutput: oaiStructuredOutput,
-      samplingOptions: oaiSamplingOptions,
-      phasePolicy: oaiPhasePolicy,
+      adapter: oaiProviderPreparation.adapter,
+      modelMessages: oaiProviderPreparation.modelMessages,
+      effectiveTools: oaiProviderPreparation.effectiveTools,
+      sdkTools: oaiProviderPreparation.sdkTools,
+      effectiveToolChoice: oaiProviderPreparation.effectiveToolChoice,
+      providerOptions: oaiProviderPreparation.providerOptions,
+      structuredOutput: oaiProviderPreparation.structuredOutput,
+      samplingOptions: oaiProviderPreparation.samplingOptions,
+      phasePolicy: oaiProviderPreparation.phasePolicy,
       governorPhase: oaiGovernorPhase,
-      forensicsPhasePolicy: oaiForensicsPhasePolicy,
+      forensicsPhasePolicy: oaiProviderPreparation.forensicsPhasePolicy,
       forensicsCapabilityMatrix: oaiForensicsCapabilityMatrix,
       orchestration,
-      toolHandlingRouteBase: oaiToolHandlingRouteBase as never,
-      finalizerRouteBase: oaiFinalizerRouteBase as never,
-      telemetryRouteBase: oaiTelemetryRouteBase as never,
+      toolHandlingRouteBase: oaiProviderPreparation.toolHandlingRouteBase as never,
+      finalizerRouteBase: oaiProviderPreparation.finalizerRouteBase as never,
+      telemetryRouteBase: oaiProviderPreparation.telemetryRouteBase as never,
       optimizationLedger: oaiOptLedger,
       pathContext: effectiveOaiPathCtx,
       bodyMetadata: oaiBodyMeta,
@@ -2207,7 +1936,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       streamText: (options) => streamText(options as never),
       readUsage,
       recordSessionEvent,
-      persistDecisionTelemetry: persistOaiDecisionTelemetry,
+      persistDecisionTelemetry: oaiProviderPreparation.persistDecisionTelemetry,
       captureRequestForensics,
       finalizeRequestForensics: (state, requestId, forensics, usage) =>
         finalizeRequestForensics(state as never, requestId, forensics as never, usage as never),

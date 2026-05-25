@@ -201,7 +201,6 @@ import { AttentionPositioningService } from "./context/attention-positioning.js"
 import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-style.js";
 import {
-  buildYarnUpperHarnessContext,
   evaluateYarnPromptIntakeSteer,
   formatUpperHarnessDecisionSummary,
   type YarnPromptIntakeResult,
@@ -266,14 +265,10 @@ import { applyWorkspaceMetadataPrebackfill } from "./pipeline/workspace-metadata
 import {
   extractRecentToolNames,
   injectGovernorRecoveryMessage,
-  prepareRouteTools,
 } from "./pipeline/route-tool-preparation.js";
-import { applyRoutePhasePolicy } from "./pipeline/route-phase-policy.js";
 import {
-  applyRouteAdapterPivot,
   resetQwenInterventionOnUserTurn,
 } from "./pipeline/route-adapter-pivot.js";
-import { assembleRouteModelMessages } from "./pipeline/route-model-message-assembly.js";
 import {
   buildGovernorPauseContextSnapshot,
   buildGovernorPauseResumeBlock,
@@ -5439,8 +5434,6 @@ const openAIChatCompletionsRouteDependencies = {
   applyGovernorPhaseRouteBookkeeping,
   applyIngressCapToToolMessages,
   applyObjectiveScopeAndPersist,
-  applyRouteAdapterPivot,
-  applyRoutePhasePolicy,
   applyRuntimePreferenceLoopLimits,
   applySensemakingStats,
   applySessionTaskCapabilities,
@@ -5448,7 +5441,6 @@ const openAIChatCompletionsRouteDependencies = {
   applyWorkspaceMetadataPrebackfill,
   ARTIFACT_TOOL_NAME,
   artifactRetrieval,
-  assembleRouteModelMessages,
   assessProportionality,
   assessStateConfidence,
   assessVerificationSignals,
@@ -5464,8 +5456,6 @@ const openAIChatCompletionsRouteDependencies = {
   buildRouteGovernanceBlocks,
   buildSensemakingGuidanceInjection,
   buildSensemakingPauseMessage,
-  buildYarnUpperHarnessContext,
-  cachePolicyLogRecord,
   captureRequestForensics,
   casSessionSave,
   chatPhaseFromWorkflowPhase,
@@ -5506,7 +5496,6 @@ const openAIChatCompletionsRouteDependencies = {
   extractLatestUserPromptFromMessages,
   extractMetadataFromMessages,
   extractPlanContentShadow,
-  extractRecentToolNames,
   extractTextFromUnknownContent,
   fgaCheck,
   finalizePostEnrichmentMessages,
@@ -5564,7 +5553,6 @@ const openAIChatCompletionsRouteDependencies = {
   pinchCompactionBackendModelMetadata,
   policyEngine,
   policyRejectOpenAIBody,
-  prepareRouteTools,
   processWorkspaceHandshakeRoute,
   projectInstructionFilePresent,
   projectManifestService,
@@ -5614,7 +5602,6 @@ const openAIChatCompletionsRouteDependencies = {
   tierRegistry,
   toolArgHardeningStats,
   toolResultReduction,
-  toolSchemaPruningStats,
   toSessionExecutionContextSystemBlock,
   updatePlanGraph,
   updateTracePromptMetadata,
