@@ -125,7 +125,6 @@ import {
 } from "./telemetry/cache-policy-controller.js";
 import {
   DEFAULT_USER_RUNTIME_PREFERENCES,
-  applyRuntimePreferenceLoopLimits,
   normalizeUserRuntimePreferences,
   userRuntimePreferencesResponse,
   type UserRuntimePreferences,
@@ -256,7 +255,6 @@ import {
   persistGovernorPauseSoftFail,
   resetGovernorPauseRecoveryState,
 } from "./governance/governor-pause-route.js";
-import { applyGovernorPhaseRouteBookkeeping } from "./governance/governor-phase-route.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
@@ -279,8 +277,6 @@ import {
   type GovernorPauseSurface,
 } from "./governance/governor-pause-context.js";
 import {
-  evaluateSensemakingGovernor,
-  compareSensemakingWithLegacy,
   buildSensemakingPauseMessage,
   buildSensemakingGuidanceInjection,
 } from "./governance/sensemaking-governor.js";
@@ -5431,17 +5427,14 @@ const openAIChatCompletionsRouteDependencies = {
   appendPathContextToAdapterBlock,
   applyClarificationRoundResponseHeader,
   applyDiscoveryToolGuardrail,
-  applyGovernorPhaseRouteBookkeeping,
   applyIngressCapToToolMessages,
   applyObjectiveScopeAndPersist,
-  applyRuntimePreferenceLoopLimits,
   applySensemakingStats,
   applySessionTaskCapabilities,
   applyWorkspaceBoundary,
   applyWorkspaceMetadataPrebackfill,
   ARTIFACT_TOOL_NAME,
   artifactRetrieval,
-  assessProportionality,
   assessStateConfidence,
   assessVerificationSignals,
   authResolver,
@@ -5467,7 +5460,6 @@ const openAIChatCompletionsRouteDependencies = {
   clearGovernorPauseContextMetadata,
   clientAdapterPacks,
   collectToolExecutionFailureObservations,
-  compareSensemakingWithLegacy,
   config,
   contextAdmissionStats,
   countTurnsSinceLastUser,
@@ -5489,7 +5481,6 @@ const openAIChatCompletionsRouteDependencies = {
   enrichWithFrameAndManifest,
   ensureReadToolAvailabilityForEditMissGuard,
   evaluateCachePolicyForSession,
-  evaluateSensemakingGovernor,
   evaluateYarnPromptIntakeSteer,
   extractCommandEvents,
   extractEditedFileHints,
@@ -5517,7 +5508,6 @@ const openAIChatCompletionsRouteDependencies = {
   governanceClient,
   GOVERNOR_COOLDOWN_MS,
   governorService,
-  handleDeterministicPolicyPrecheck,
   hashTextSignal,
   hasPersistedWorkspaceState,
   inferGovernorPhaseFromMessages,
@@ -5556,7 +5546,6 @@ const openAIChatCompletionsRouteDependencies = {
   processWorkspaceHandshakeRoute,
   projectInstructionFilePresent,
   projectManifestService,
-  proportionalityToSignal,
   pushDiagnostic,
   readdir,
   readPersistedChatStateSnapshot,

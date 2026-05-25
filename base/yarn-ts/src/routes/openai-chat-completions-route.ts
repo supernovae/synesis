@@ -6,6 +6,7 @@ import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcrip
 import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-stabilization.js";
 import { finalizeOpenAIProviderRequestForRoute } from "../pipeline/openai-route-provider-finalization.js";
 import { prepareOpenAIChatProviderRuntime } from "../pipeline/openai-chat-provider-preparation.js";
+import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 import { prepareProtocolPauseState } from "../session/protocol-pause-state.js";
@@ -17,7 +18,6 @@ type GovernorInputMessage = import("../governance/execution-governor.js").Govern
 type WorkflowPhase = import("../orchestration/phase-model-orchestrator.js").WorkflowPhase;
 type SessionPathHints = import("../state/workspace-session-boundary.js").SessionPathHints;
 type SensemakingResult = import("../sensemaking/index.js").SensemakingResult;
-type SensemakingDecision = import("../governance/sensemaking-governor.js").SensemakingDecision;
 
 type ToolLoopMessage = {
   role: string;
@@ -76,17 +76,14 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     appendPathContextToAdapterBlock,
     applyClarificationRoundResponseHeader,
     applyDiscoveryToolGuardrail,
-    applyGovernorPhaseRouteBookkeeping,
     applyIngressCapToToolMessages,
     applyObjectiveScopeAndPersist,
-    applyRuntimePreferenceLoopLimits,
     applySensemakingStats,
     applySessionTaskCapabilities,
     applyWorkspaceBoundary,
     applyWorkspaceMetadataPrebackfill,
     ARTIFACT_TOOL_NAME,
     artifactRetrieval,
-    assessProportionality,
     assessStateConfidence,
     assessVerificationSignals,
     authResolver,
@@ -112,7 +109,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     clearGovernorPauseContextMetadata,
     clientAdapterPacks,
     collectToolExecutionFailureObservations,
-    compareSensemakingWithLegacy,
     config,
     contextAdmissionStats,
     countTurnsSinceLastUser,
@@ -134,7 +130,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     enrichWithFrameAndManifest,
     ensureReadToolAvailabilityForEditMissGuard,
     evaluateCachePolicyForSession,
-    evaluateSensemakingGovernor,
     evaluateYarnPromptIntakeSteer,
     extractCommandEvents,
     extractEditedFileHints,
@@ -162,7 +157,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     governanceClient,
     GOVERNOR_COOLDOWN_MS,
     governorService,
-    handleDeterministicPolicyPrecheck,
     hashTextSignal,
     hasPersistedWorkspaceState,
     inferGovernorPhaseFromMessages,
@@ -201,7 +195,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     processWorkspaceHandshakeRoute,
     projectInstructionFilePresent,
     projectManifestService,
-    proportionalityToSignal,
     pushDiagnostic,
     readdir,
     readPersistedChatStateSnapshot,
@@ -1344,173 +1337,56 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       );
     }
 
-    // Sensemaking governor — primary decision-maker
-    let oaiSensemakingDecision: SensemakingDecision | null = null;
-    if (
-      config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
-      && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-      && shouldRunGovernorForMode(oaiPipelineMode)
-    ) {
-      const oaiGovEvents = extractCommandEvents(
-        (oaiScopedMessages as GovernorInputMessage[]).slice(
-          Math.max(0, (oaiScopedMessages as GovernorInputMessage[]).length - 50),
-        ),
-      );
-      const oaiGovChangedFiles = extractEditedFileHints(oaiGovEvents);
-      const oaiPlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
-        typeof oaiTaskCue === "string" ? oaiTaskCue : "",
-      ) && oaiGovChangedFiles.length === 0 && oaiGovEvents.length <= 30;
-      // Proportionality assessment
-      const oaiProportionality = config.SYNESIS_YARN_PROPORTIONALITY_ENABLED
-        ? assessProportionality(session.diffStats, session.scopeEnvelope)
-        : null;
-      const oaiProportionalitySignal = oaiProportionality
-        ? proportionalityToSignal(oaiProportionality.level)
-        : null;
-
-      oaiSensemakingDecision = evaluateSensemakingGovernor(
-        oaiExecutionGovernor,
-        oaiGovEvents,
-        countTurnsSinceLastUser(oaiScopedMessages as readonly { role: string }[]),
-        oaiGovChangedFiles.length,
-        oaiPlanRecoveryGrace,
-        null,
-        oaiProportionalitySignal,
-      );
-      const smComparison = compareSensemakingWithLegacy(oaiExecutionGovernor, oaiSensemakingDecision);
-      recordSessionEvent(
-        sessionKey, identity.userId, identity.orgId,
-        "sensemaking_governor_evaluated",
-        "sensemaking-governor",
-        `domain=${oaiSensemakingDecision.domain} response=${oaiSensemakingDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} legacy_agreement=${smComparison.agreement}`,
-        oaiTraceReqId,
-        {
-          ...smComparison,
-          guidance: oaiSensemakingDecision.guidance?.slice(0, 200),
-          shouldPause: oaiSensemakingDecision.shouldPause,
-          shouldRestrictDiscovery: oaiSensemakingDecision.shouldRestrictDiscovery,
-          planRecoveryGrace: oaiPlanRecoveryGrace,
-        },
-      );
-      if (oaiProportionality && oaiProportionality.level !== "proportional") {
-        recordSessionEvent(
-          sessionKey, identity.userId, identity.orgId,
-          "proportionality_check", "proportionality",
-          `level=${oaiProportionality.level} scope=${session.scopeEnvelope} files=${session.diffStats.filesModified} deleted=${session.diffStats.filesDeleted} net_removed=${session.diffStats.netLinesRemoved} breaches=${oaiProportionality.breaches.join(";")}`,
-          oaiTraceReqId,
-          {
-            level: oaiProportionality.level,
-            scopeEnvelope: session.scopeEnvelope,
-            filesModified: session.diffStats.filesModified,
-            filesDeleted: session.diffStats.filesDeleted,
-            netLinesRemoved: session.diffStats.netLinesRemoved,
-            totalLinesChanged: session.diffStats.totalLinesChanged,
-            breaches: oaiProportionality.breaches,
-            signal: oaiProportionalitySignal,
-          },
-        );
-      }
-    }
-
-    const oaiAggressiveRepeatGuard =
-      (oaiCommandLoop.commandRepeatCount >= 2 && Boolean(oaiCommandLoop.failureSignatureHash))
-      || oaiCommandLoop.broadDiscoveryRepeatCount >= 4;
-    const oaiRepeatAwarePivot = oaiAggressiveRepeatGuard
-      ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
-      : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
-    const oaiRepeatAwareHardReject = oaiAggressiveRepeatGuard
-      ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
-      : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
-    const oaiLoopLimits = applyRuntimePreferenceLoopLimits({
-      consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-      consecutiveToolCallsPivot: oaiRepeatAwarePivot,
-      stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
-      toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-      hardRejectAfter: oaiRepeatAwareHardReject,
-    }, oaiRuntimePreferences);
-    const distToolCalls = await distributedCounters.getConsecutiveToolCalls(sessionKey);
-    if (distToolCalls !== null && distToolCalls !== session.consecutiveToolCalls) {
-      session.consecutiveToolCalls = distToolCalls;
-    }
-    const policyPrecheck = withSpan("yarn.policy.evaluate", { "yarn.path": "openai" }, () => policyEngine.evaluate({
-      tools: request.tools as unknown[],
-      repeatAttempt: {
-        action: "chat_completion",
-        args: {
-          model: request.model,
-          lastToolId: oaiLastToolId,
-          messageCount: request.messages.length,
-          latestUserHash: latestOpenAIUserHash || "none",
-          commandSignature: oaiCommandLoop.commandSignatureHash || "none",
-          commandRepeatCount: oaiCommandLoop.commandRepeatCount,
-          failureSignature: oaiCommandLoop.failureSignatureHash || "none",
-        },
-        fsFingerprint: oaiCommandLoop.commandSignatureHash
-          ? `${oaiCommandLoop.commandSignatureHash}:${oaiCommandLoop.failureSignatureHash || "none"}:${latestOpenAIUserHash || "none"}`
-          : `${oaiLastToolId || "none"}:${request.messages.length}:${latestOpenAIUserHash || "none"}`,
-      },
-      sessionKey,
-      sessionTokensIn: session.record.totalTokensIn,
-      maxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
-      hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
-      sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
-      consecutiveToolCalls: session.consecutiveToolCalls,
-      consecutiveToolCallsLimit: oaiLoopLimits.consecutiveToolCallsLimit,
-      consecutiveToolCallsPivot: oaiLoopLimits.consecutiveToolCallsPivot,
-      toolProgressState: oaiLatestToolProgress.hasRecentWriteSuccess
-        ? "progress"
-        : (oaiLatestToolProgress.hasRecentFailure ? "stagnant" : oaiToolProgress.state),
-      stagnantToolCycles: oaiLatestToolProgress.hasRecentWriteSuccess
-        ? 0
-        : (oaiLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
-      stagnantToolCyclesLimit: oaiLoopLimits.stagnantToolCyclesLimit,
-      toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
-      toolLoopNoUserAckHardLimit: oaiLoopLimits.toolLoopNoUserAckHardLimit,
-      hardRejectAfter: oaiLoopLimits.hardRejectAfter,
-      governanceRules: governanceClient?.getRules(),
-    }));
-    const oaiPolicyAction = handleDeterministicPolicyPrecheck({
-      decision: policyPrecheck,
-      softFailEnabled: config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED,
+    const oaiGovernancePrecheck = await runOpenAIGovernancePrecheck({
+      config,
       session,
       sessionKey,
       identity,
       requestId: oaiTraceReqId,
-      selectedModel: orchestration.selectedModel,
-      originalModel: request.model,
+      request,
+      scopedMessages: oaiScopedMessages,
+      taskCue: oaiTaskCue,
+      executionGovernor: oaiExecutionGovernor,
+      pipelineMode: oaiPipelineMode,
+      shouldRunGovernorForMode,
+      commandLoop: oaiCommandLoop,
+      lastToolId: oaiLastToolId,
       latestUserHash: latestOpenAIUserHash,
-      finishReason: "stop",
-      logSafetyEvent: logAndPersistSafetyEvent,
+      latestToolProgress: oaiLatestToolProgress,
+      toolProgress: oaiToolProgress,
+      runtimePreferences: oaiRuntimePreferences,
+      orchestration,
+      workingPhase: oaiWorkingPhase,
+      orchestratorPhaseOverride: oaiOrchestratorPhaseOverride,
+      normalizedMessages: normalizedOpenAI.messages as GovernorInputMessage[],
+      distributedCounters,
+      policyEngine,
+      governanceClient,
+      withSpan,
+      extractCommandEvents,
+      extractEditedFileHints,
+      isPlanRecoveryDiscoveryIntent,
+      countTurnsSinceLastUser,
+      shouldStripGlobFromTools,
+      stripGlobFromTools,
+      getBlockedDiscoveryCount,
+      logWarn: (record, message) => app.log.warn(record, message),
+      logAndPersistSafetyEvent,
       persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
       maybeCheckpoint,
       recordSessionEvent,
     });
+    const oaiSensemakingDecision = oaiGovernancePrecheck.sensemakingDecision;
+    const policyPrecheck = oaiGovernancePrecheck.policyPrecheck;
+    const oaiPolicyAction = oaiGovernancePrecheck.policyAction;
     if (oaiPolicyAction.kind === "softFail") {
       return sendOpenAISoftFail(reply, oaiTraceReqId, orchestration.selectedModel, oaiPolicyAction.content, !!request.stream);
     }
     if (oaiPolicyAction.kind === "reject") {
-      return reply.code(400).send(policyRejectOpenAIBody(oaiPolicyAction.decision));
+      return reply.code(400).send(policyRejectOpenAIBody(oaiPolicyAction.decision as never));
     }
-    const oaiClientToolInventory = Array.isArray(request.tools) ? [...(request.tools as unknown[])] : [];
-    if (shouldStripGlobFromTools(sessionKey)) {
-      const globStrip = stripGlobFromTools(request.tools as unknown[] | undefined);
-      if (globStrip.stripped) {
-        request.tools = globStrip.tools as never;
-        app.log.warn({ reqId: oaiTraceReqId, sessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(sessionKey) }, "proactive_glob_strip_from_tools");
-      }
-    }
-    const oaiGovernorPhase = oaiExecutionGovernor.telemetry.phase;
-    applyGovernorPhaseRouteBookkeeping({
-      session,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
-      governorPhase: oaiGovernorPhase,
-      workingPhase: oaiWorkingPhase,
-      orchestratorPhaseOverride: oaiOrchestratorPhaseOverride,
-      messages: normalizedOpenAI.messages as GovernorInputMessage[],
-      recordSessionEvent,
-    });
+    const oaiClientToolInventory = oaiGovernancePrecheck.clientToolInventory;
+    const oaiGovernorPhase = oaiGovernancePrecheck.governorPhase;
 
     const oaiSensemakingPrimaryEnabled =
       config.SYNESIS_YARN_SENSEMAKING_ENABLED
