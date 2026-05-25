@@ -30,6 +30,14 @@ export interface OptimizationCacheDiagnostics {
   prefixChangeReasons?: string[];
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  messageCount?: number;
+  stablePrefixHash?: string;
+  stablePrefixBytes?: number;
+  toolCount?: number;
+  toolSchemaHash?: string;
+  toolSchemaBytes?: number;
+  providerOptionsHash?: string;
+  providerOptionsBytes?: number;
 }
 
 export interface OptimizationLedgerSnapshot {

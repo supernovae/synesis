@@ -118,6 +118,7 @@ import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normali
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
+import { buildCacheShapeDiagnostics } from "./telemetry/cache-shape-diagnostics.js";
 import {
   cachePolicyLogRecord,
   evaluateCachePolicyController,
@@ -7464,6 +7465,11 @@ app.post("/v1/chat/completions", async (req, reply) => {
       },
     });
   }
+  oaiOptLedger.recordCacheDiagnostics(buildCacheShapeDiagnostics({
+    messages: modelMessages as Array<{ role?: string; content?: unknown }>,
+    tools: effectiveTools as unknown[],
+    providerOptions: oaiProviderOptions,
+  }));
 
   const oaiTelemetryRouteBase = createOpenAIChatRouteTelemetryBase({
     clientRequestedModel: request.model,
