@@ -255,6 +255,7 @@ import {
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
+import { createClaudeStreamRouteContext } from "./streaming/claude-stream-route-context.js";
 import { runClaudeStreamRouteFromInput } from "./streaming/claude-stream-route-facade-input.js";
 import { prepareClaudeStreamRoute } from "./streaming/claude-stream-route-prepare.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
@@ -9726,16 +9727,19 @@ app.post("/v1/messages", async (req, reply) => {
       return reply;
     }
 
-    const claudeStreamGateScope = {
+    const claudeStreamContext = createClaudeStreamRouteContext({
       sessionKey: claudeSessionKey,
       userId: claudeIdentity.userId,
       orgId: claudeIdentity.orgId,
-      requestId: traceReqId,
-    };
+      traceRequestId: traceReqId,
+      responseRequestId: reqId,
+      resolvedModelId: resolved.resolvedModelId,
+      projectRoot: effectiveClaudePathCtx.projectRoot,
+    });
     const claudeStreamPrepared = await prepareClaudeStreamRoute({
       gates: {
-        scope: claudeStreamGateScope,
-        resolvedModelId: resolved.resolvedModelId,
+        scope: claudeStreamContext.streamScope,
+        resolvedModelId: claudeStreamContext.resolvedModelId,
         logger: app.log,
         streamAdmission,
         circuitBreakers,
@@ -9743,11 +9747,8 @@ app.post("/v1/messages", async (req, reply) => {
         startSpan: (name, attributes) => getTracer().startSpan(name, attributes),
       },
       runtime: {
-        requestIds: {
-          traceRequestId: traceReqId,
-          responseRequestId: reqId,
-        },
-        resolvedModelId: resolved.resolvedModelId,
+        requestIds: claudeStreamContext.requestIds,
+        resolvedModelId: claudeStreamContext.resolvedModelId,
         messages: claudeModelMessages as Array<{ role: string; content: unknown }>,
         tools: effectiveClaudeTools as unknown[],
         toolChoice: effectiveClaudeToolChoice,
@@ -9780,7 +9781,7 @@ app.post("/v1/messages", async (req, reply) => {
     const claudeStreamForensics = claudeStreamRuntime.streamForensics;
     const recordClaudeStreamEvent = claudeStreamRuntime.recordStreamEvent;
     const claudeStreamToolSideEffects = claudeStreamRuntime.streamToolSideEffects;
-    const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
+    const resolvedTier = tierRegistry.getTierConfig(claudeStreamContext.resolvedModelId);
     await runClaudeStreamRouteFromInput({
       runtime: claudeStreamRuntime,
       start: {
@@ -9796,7 +9797,7 @@ app.post("/v1/messages", async (req, reply) => {
           streamText: (options) => streamText(options as never),
         },
         provider: {
-          requestId: traceReqId,
+          requestId: claudeStreamContext.requestIds.traceRequestId,
           model: resolved.model,
           messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
           adapter: claudeAdapter,
@@ -9812,7 +9813,7 @@ app.post("/v1/messages", async (req, reply) => {
         },
         components: {
           tierConfig: resolvedTier,
-          resolvedModelId: resolved.resolvedModelId,
+          resolvedModelId: claudeStreamContext.resolvedModelId,
           tools: effectiveClaudeTools as unknown[],
           computePrefixFingerprint,
         },
@@ -9820,7 +9821,7 @@ app.post("/v1/messages", async (req, reply) => {
       eventHandlers: {
         base: {
           adapter: claudeAdapter,
-          requestId: traceReqId,
+          requestId: claudeStreamContext.requestIds.traceRequestId,
           clientKind: claudeClientKind,
           debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
           strictGovernance: claudeOpenClawStrictGovernance,
@@ -9846,11 +9847,7 @@ app.post("/v1/messages", async (req, reply) => {
         toolSideEffects: claudeStreamToolSideEffects,
         recentCalls: claudeRecentCallsForSteering,
         normalizedMessages: normalizedFromClaude.messages as Array<{ role: string }>,
-        route: {
-          sessionKey: claudeSessionKey,
-          resolvedModelId: resolved.resolvedModelId,
-          projectRoot: effectiveClaudePathCtx.projectRoot,
-        },
+        route: claudeStreamContext.eventRoute,
         recordBlockedDiscovery,
         buildBlockedDiscoveryRecoverySnapshot,
       },
@@ -9872,13 +9869,7 @@ app.post("/v1/messages", async (req, reply) => {
         },
       },
       completion: {
-        scope: {
-          pendingRequestId: traceReqId,
-          historyRequestId: reqId,
-          sessionKey: claudeSessionKey,
-          userId: claudeIdentity.userId,
-          orgId: claudeIdentity.orgId,
-        },
+        scope: claudeStreamContext.completionScope,
         metadata: {
           source: session.record.metadata,
           getString: getMetadataString,
@@ -9889,7 +9880,12 @@ app.post("/v1/messages", async (req, reply) => {
         finalizer: {
           session,
           readUsage,
-          finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
+          finalizeRequestForensics: (usage) => finalizeRequestForensics(
+            session,
+            claudeStreamContext.requestIds.responseRequestId,
+            claudeStreamForensics,
+            usage,
+          ),
           handlerInput: {
             session,
             verification: claudeVerificationAssessment,
