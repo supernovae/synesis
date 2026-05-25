@@ -64,7 +64,6 @@ import {
   buildProtocolSessionIdentity,
   runProtocolSessionBootstrap,
 } from "./session/protocol-session.js";
-import { DiagnosticStore } from "./state/diagnostic-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { createSessionEventRecorder } from "./state/session-event-recorder.js";
 import { AuthResolver } from "./auth.js";
@@ -123,6 +122,10 @@ import {
   cacheShapeDiagnosticFields,
   summarizeCacheShapeDiagnostics,
 } from "./telemetry/cache-shape-diagnostics.js";
+import {
+  RequestDiagnosticRegistry,
+  type RequestDiagnostic,
+} from "./telemetry/request-diagnostics.js";
 import {
   cachePolicyLogRecord,
   evaluateCachePolicyController,
@@ -2301,73 +2304,6 @@ function parseTierCFallbackJson(raw: string, maxFindings: number): TierCFallback
   return { findings };
 }
 
-interface RequestDiagnostic {
-  timestamp: number;
-  sessionKey: string;
-  path: string;
-  systemMessageCount: number;
-  userMessageCount: number;
-  toolMessageCount: number;
-  totalInputChars: number;
-  toolDefinitionCount: number;
-  artifactToolInjected: boolean;
-  knowledgeToolInjected: boolean;
-  reducedToolResults: number;
-  finishReason: string;
-  tokensIn: number;
-  tokensOut: number;
-  policyDecision: string;
-  latencyMs: number;
-  recallRouting?: string;
-  recallConfidence?: number;
-  verificationRound?: number;
-  verificationFindings?: number;
-  verificationStalled?: boolean;
-  decisionPath?: string;
-  decisionEscalated?: boolean;
-  sensemakingTriggered?: boolean;
-  sensemakingReason?: string;
-  evidencePrefetchHit?: boolean;
-  evidencePrefetchConfidence?: number;
-  evidencePrefetchMs?: number;
-  evidenceQuality?: Record<string, unknown>;
-  requestId?: string;
-  promptProfileIds?: number[];
-  promptProfileHashes?: string[];
-  prefixHash?: string;
-  prefixChangeReasons?: string[];
-  completionGateApplied?: boolean;
-  missingMustRequirements?: number;
-  missingShouldRequirements?: number;
-  requirementChecklistMust?: number;
-  requirementChecklistShould?: number;
-  contextAdmissionDecision?: "allow" | "warn" | "reject";
-  contextAdmissionReason?: string;
-  contextAdmissionEstimatedTokens?: number;
-  contextAdmissionEstimatedChars?: number;
-  requestForensicsSummary?: string;
-  requestForensicsLcpRatio?: number;
-  requestForensicsFirstChangedSection?: string;
-  requestForensicsTokenEstimate?: number;
-  cacheStrategy?: string;
-  prefixFingerprint?: string;
-  cacheShapeMessageCount?: number;
-  cacheShapeStablePrefixHash?: string;
-  cacheShapeStablePrefixBytes?: number;
-  cacheShapeToolCount?: number;
-  cacheShapeToolSchemaHash?: string;
-  cacheShapeToolSchemaBytes?: number;
-  cacheShapeProviderOptionsHash?: string;
-  cacheShapeProviderOptionsBytes?: number;
-  cacheShapePromptTokens?: number;
-  cacheShapeCachedTokens?: number;
-  cacheShapeCacheCreationTokens?: number;
-  cacheShapeHitPct?: number;
-  cacheShapeOutcome?: "hit" | "write" | "miss" | "unknown";
-}
-
-const diagnosticRing: RequestDiagnostic[] = [];
-let DIAGNOSTIC_RING_MAX = 20;
 const toolArgHardeningStats = {
   normalizedPathCount: 0,
   projectRootConstrainedCount: 0,
@@ -2407,6 +2343,7 @@ const contextAdmissionStats = {
   },
 };
 const requestForensicsLastBySession = new Map<string, { requestId: string; serialized: string }>();
+let diagnosticRegistry: RequestDiagnosticRegistry;
 
 function captureRequestForensics(
   sessionKey: string,
@@ -2470,30 +2407,7 @@ function finalizeRequestForensics(
 }
 
 function pushDiagnostic(d: RequestDiagnostic): void {
-  diagnosticRing.push(d);
-  if (diagnosticRing.length > DIAGNOSTIC_RING_MAX) diagnosticRing.shift();
-  if (d.requestId) {
-    diagnosticStore.persistDiagnostic(d.requestId, d as unknown as Record<string, unknown>);
-  }
-}
-
-async function listRecentRequestDiagnostics(limit = DIAGNOSTIC_RING_MAX): Promise<{
-  diagnostics: RequestDiagnostic[];
-  source: "memory" | "redis_empty" | "redis";
-}> {
-  if (diagnosticRing.length > 0) {
-    return { diagnostics: [...diagnosticRing].slice(-limit), source: "memory" };
-  }
-  const recentIds = await diagnosticStore.listRecentDiagnostics(limit);
-  if (recentIds.length === 0) {
-    return { diagnostics: [], source: "redis_empty" };
-  }
-  const redisDiags: RequestDiagnostic[] = [];
-  for (const id of recentIds) {
-    const d = await diagnosticStore.getDiagnostic(id);
-    if (d) redisDiags.push(d as unknown as RequestDiagnostic);
-  }
-  return { diagnostics: redisDiags, source: "redis" };
+  diagnosticRegistry.push(d);
 }
 
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
@@ -2593,7 +2507,7 @@ const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPO
 const sessions = new Map<string, SessionState>();
 const rotatedSessionByBaseKey = new Map<string, string>();
 const sessionStore = new SessionStore(config);
-const diagnosticStore = new DiagnosticStore(config);
+diagnosticRegistry = new RequestDiagnosticRegistry(config);
 const memoryStoreRedis = config.SYNESIS_YARN_SESSION_REDIS_URL
   ? new IORedis(config.SYNESIS_YARN_SESSION_REDIS_URL, {
       maxRetriesPerRequest: 1,
@@ -2933,7 +2847,6 @@ const streamAdmission = new StreamAdmissionController({
   maxQueueDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
   queueWaitTimeoutMs: config.SYNESIS_YARN_STREAM_QUEUE_WAIT_TIMEOUT_MS,
 });
-DIAGNOSTIC_RING_MAX = config.SYNESIS_YARN_DIAGNOSTIC_RING_MAX;
 await initOtel(config);
 startEventLoopMonitor();
 const phaseOrchestrator = new PhaseModelOrchestrator(config.SYNESIS_YARN_CLAUDE_TIER_MAP);
@@ -5172,7 +5085,7 @@ async function shutdown(): Promise<void> {
   artifactStore.close();
   await snapshotSessionsToRedis();
   await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticStore.close(), enrichmentPool.close(), memoryStoreRedis?.quit()]);
+  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticRegistry.close(), enrichmentPool.close(), memoryStoreRedis?.quit()]);
 }
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
@@ -5301,8 +5214,8 @@ app.get("/health/telemetry", async (req, reply) => {
     },
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
-    diagnosticRingMax: DIAGNOSTIC_RING_MAX,
-    diagnosticRingCurrent: diagnosticRing.length,
+    diagnosticRingMax: diagnosticRegistry.getRingStats().max,
+    diagnosticRingCurrent: diagnosticRegistry.getRingStats().current,
     featureFlags: {
       toolBlobRedis: Boolean(toolBlobTier),
       artifactRedisReplica: config.SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED,
@@ -5374,7 +5287,7 @@ app.get("/v1/diagnostics/recent", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
-  const recent = await listRecentRequestDiagnostics(DIAGNOSTIC_RING_MAX);
+  const recent = await diagnosticRegistry.listRecent();
   return { diagnostics: recent.diagnostics, count: recent.diagnostics.length, source: recent.source };
 });
 
@@ -5382,10 +5295,10 @@ app.get("/v1/diagnostics/cache-shapes/recent", async (req, reply) => {
   if (!requireInternalToken(req as never)) {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
-  const recent = await listRecentRequestDiagnostics(DIAGNOSTIC_RING_MAX);
+  const recent = await diagnosticRegistry.listRecent();
   const summaries = summarizeCacheShapeDiagnostics(
     recent.diagnostics as unknown as Array<Record<string, unknown>>,
-    DIAGNOSTIC_RING_MAX,
+    diagnosticRegistry.getRingStats().max,
   );
   return {
     summaries,
@@ -5400,10 +5313,8 @@ app.get("/v1/diagnostics/:requestId", async (req, reply) => {
     return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
   }
   const { requestId } = req.params as { requestId: string };
-  const inMemory = diagnosticRing.find((d) => d.requestId === requestId);
-  if (inMemory) return inMemory;
-  const persisted = await diagnosticStore.getDiagnostic(requestId);
-  if (persisted) return persisted;
+  const diagnostic = await diagnosticRegistry.getByRequestId(requestId);
+  if (diagnostic) return diagnostic;
   return reply.code(404).send({ error: { type: "not_found", message: "Diagnostic not found" } });
 });
 
