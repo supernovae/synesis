@@ -1,5 +1,7 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import { cacheShapeDiagnosticFields } from "../telemetry/cache-shape-diagnostics.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
 
 export interface ClaudeStreamTelemetryReductions {
@@ -76,6 +78,7 @@ export interface ClaudeStreamTelemetryInput {
   };
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   requestForensicsDone?: ClaudeStreamRequestForensicsResult;
   recordSessionEvent(event: {
     eventKind: string;
@@ -150,6 +153,7 @@ export interface ClaudeStreamTelemetryRouteInput<TSession = unknown> {
   requestForensicsDone?: ClaudeStreamRequestForensicsResult;
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   recordSessionEvent(
     sessionKey: string,
     userId: string,
@@ -236,6 +240,7 @@ export function createClaudeStreamTelemetryInput<TSession>(
     requestForensicsDone: input.requestForensicsDone,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
+    cacheShapeDiagnostics: input.cacheShapeDiagnostics,
     recordSessionEvent: (event) => input.recordSessionEvent(
       input.sessionKey,
       input.userId,
@@ -365,6 +370,7 @@ export function runClaudeStreamTelemetry(
     requestForensicsTokenEstimate: input.requestForensicsDone?.tokenEstimate,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
+    ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
   });
 
   return {

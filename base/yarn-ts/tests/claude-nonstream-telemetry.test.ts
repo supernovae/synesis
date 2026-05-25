@@ -81,6 +81,16 @@ describe("runClaudeNonStreamTelemetry", () => {
         firstChangedSection: "messages",
         tokenEstimate: 200,
       },
+      cacheShapeDiagnostics: {
+        messageCount: 2,
+        stablePrefixHash: "stable-prefix",
+        stablePrefixBytes: 100,
+        toolCount: 3,
+        toolSchemaHash: "tool-schema",
+        toolSchemaBytes: 200,
+        providerOptionsHash: "provider-options",
+        providerOptionsBytes: 50,
+      },
       recordSessionEvent,
       persistDecisionTelemetry,
       countMessageRoles: () => ({
@@ -124,6 +134,9 @@ describe("runClaudeNonStreamTelemetry", () => {
       evidencePrefetchHit: true,
       completionGateApplied: true,
       requestForensicsSummary: "stable",
+      cacheShapeStablePrefixHash: "stable-prefix",
+      cacheShapeToolSchemaHash: "tool-schema",
+      cacheShapeProviderOptionsHash: "provider-options",
     }));
     expect(result.tokensSavedByReduction).toBe(15);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);

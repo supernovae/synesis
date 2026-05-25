@@ -1,5 +1,7 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import { cacheShapeDiagnosticFields } from "../telemetry/cache-shape-diagnostics.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
 
 export interface ClaudeNonStreamTelemetryReductions {
@@ -78,6 +80,14 @@ export interface ClaudeNonStreamRequestDiagnostic {
   requestForensicsLcpRatio?: number;
   requestForensicsFirstChangedSection?: string;
   requestForensicsTokenEstimate?: number;
+  cacheShapeMessageCount?: number;
+  cacheShapeStablePrefixHash?: string;
+  cacheShapeStablePrefixBytes?: number;
+  cacheShapeToolCount?: number;
+  cacheShapeToolSchemaHash?: string;
+  cacheShapeToolSchemaBytes?: number;
+  cacheShapeProviderOptionsHash?: string;
+  cacheShapeProviderOptionsBytes?: number;
 }
 
 export interface ClaudeNonStreamTelemetryInput {
@@ -126,6 +136,7 @@ export interface ClaudeNonStreamTelemetryInput {
     estimatedChars?: number;
   };
   requestForensicsDone?: ClaudeNonStreamRequestForensicsResult;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   recordSessionEvent(event: {
     eventKind: string;
     component: string;
@@ -275,6 +286,7 @@ export function runClaudeNonStreamTelemetry(
     requestForensicsLcpRatio: input.requestForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: input.requestForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: input.requestForensicsDone?.tokenEstimate,
+    ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
   });
 
   return {

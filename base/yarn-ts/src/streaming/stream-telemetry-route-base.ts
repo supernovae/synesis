@@ -1,4 +1,5 @@
 import type { SnapshotInputs } from "../telemetry/decision-snapshot.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { StreamRouteScope } from "./stream-route-scope.js";
 
 export interface StreamTelemetryReductions {
@@ -55,6 +56,7 @@ export interface StreamTelemetryRouteBaseInput {
   contextAdmission?: StreamTelemetryContextAdmission;
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
   countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
     systemMessageCount: number;
     userMessageCount: number;
@@ -106,6 +108,7 @@ export function createStreamTelemetryRouteBase(
     contextAdmission: input.contextAdmission,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
+    cacheShapeDiagnostics: input.cacheShapeDiagnostics,
     countMessageRoles: input.countMessageRoles,
     pushDiagnostic: input.pushDiagnostic,
   };

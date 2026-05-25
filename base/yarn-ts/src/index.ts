@@ -118,7 +118,10 @@ import { normalizeReadSnapshotMessages } from "./reduction/read-snapshot-normali
 import { normalizeHistoricalContent, stabilizeToolCallIds } from "./reduction/historical-normalizer.js";
 import { BlockStore } from "./store/block-store.js";
 import { OptimizationLedger } from "./telemetry/optimization-ledger.js";
-import { buildCacheShapeDiagnostics } from "./telemetry/cache-shape-diagnostics.js";
+import {
+  buildCacheShapeDiagnostics,
+  cacheShapeDiagnosticFields,
+} from "./telemetry/cache-shape-diagnostics.js";
 import {
   cachePolicyLogRecord,
   evaluateCachePolicyController,
@@ -2347,6 +2350,14 @@ interface RequestDiagnostic {
   requestForensicsTokenEstimate?: number;
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  cacheShapeMessageCount?: number;
+  cacheShapeStablePrefixHash?: string;
+  cacheShapeStablePrefixBytes?: number;
+  cacheShapeToolCount?: number;
+  cacheShapeToolSchemaHash?: string;
+  cacheShapeToolSchemaBytes?: number;
+  cacheShapeProviderOptionsHash?: string;
+  cacheShapeProviderOptionsBytes?: number;
 }
 
 const diagnosticRing: RequestDiagnostic[] = [];
@@ -9634,6 +9645,11 @@ app.post("/v1/messages", async (req, reply) => {
       },
     });
   }
+  const claudeCacheShapeDiagnostics = buildCacheShapeDiagnostics({
+    messages: claudeModelMessages as Array<{ role?: string; content?: unknown }>,
+    tools: effectiveClaudeTools as unknown[],
+    providerOptions,
+  });
 
   const persistClaudeDecisionTelemetry = createDecisionTelemetryPersister({
     state: session,
@@ -9934,6 +9950,7 @@ app.post("/v1/messages", async (req, reply) => {
         requestForensicsLcpRatio: claudeNonStreamForensicsDone?.lcpRatio,
         requestForensicsFirstChangedSection: claudeNonStreamForensicsDone?.firstChangedSection,
         requestForensicsTokenEstimate: claudeNonStreamForensicsDone?.tokenEstimate,
+        ...cacheShapeDiagnosticFields(claudeCacheShapeDiagnostics),
       });
       safeEnd(reply.raw);
       return reply;
@@ -10039,6 +10056,11 @@ app.post("/v1/messages", async (req, reply) => {
       recordSessionEvent: recordClaudeStreamEvent,
     });
     claudeModelMessages = claudeStreamProviderRequest.messages as typeof claudeModelMessages;
+    const claudeStreamCacheShapeDiagnostics = buildCacheShapeDiagnostics({
+      messages: claudeModelMessages as Array<{ role?: string; content?: unknown }>,
+      tools: effectiveClaudeTools as unknown[],
+      providerOptions: claudeStreamProviderRequest.providerOptions,
+    });
     const streamed = streamText(claudeStreamProviderRequest.options as never);
     const claudeRuntime = startClaudeStreamRouteRuntime({
       raw: reply.raw,
@@ -10239,6 +10261,7 @@ app.post("/v1/messages", async (req, reply) => {
         contextAdmission: claudeContextAdmission,
         cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
         prefixFingerprint: claudePrefixFingerprint,
+        cacheShapeDiagnostics: claudeStreamCacheShapeDiagnostics,
         countMessageRoles,
         pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
       }),
@@ -10466,6 +10489,7 @@ app.post("/v1/messages", async (req, reply) => {
         estimatedChars: claudeContextAdmission.estimatedChars,
       },
       requestForensicsDone: lastClaudeNonStreamForensics,
+      cacheShapeDiagnostics: claudeCacheShapeDiagnostics,
       countMessageRoles,
       pushDiagnostic,
     },

@@ -57,3 +57,19 @@ export function buildCacheShapeDiagnostics(
     providerOptionsBytes: input.providerOptions ? byteLengthStable(input.providerOptions) : 0,
   };
 }
+
+export function cacheShapeDiagnosticFields(
+  diagnostics: OptimizationCacheDiagnostics | undefined,
+): Record<string, unknown> {
+  if (!diagnostics) return {};
+  return {
+    cacheShapeMessageCount: diagnostics.messageCount,
+    cacheShapeStablePrefixHash: diagnostics.stablePrefixHash,
+    cacheShapeStablePrefixBytes: diagnostics.stablePrefixBytes,
+    cacheShapeToolCount: diagnostics.toolCount,
+    cacheShapeToolSchemaHash: diagnostics.toolSchemaHash,
+    cacheShapeToolSchemaBytes: diagnostics.toolSchemaBytes,
+    cacheShapeProviderOptionsHash: diagnostics.providerOptionsHash,
+    cacheShapeProviderOptionsBytes: diagnostics.providerOptionsBytes,
+  };
+}

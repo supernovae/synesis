@@ -96,6 +96,16 @@ function baseInput(overrides: Partial<Parameters<typeof runClaudeStreamTelemetry
     },
     cacheStrategy: "anthropic_explicit",
     prefixFingerprint: "fingerprint",
+    cacheShapeDiagnostics: {
+      messageCount: 2,
+      stablePrefixHash: "stable-prefix",
+      stablePrefixBytes: 100,
+      toolCount: 3,
+      toolSchemaHash: "tool-schema",
+      toolSchemaBytes: 200,
+      providerOptionsHash: "provider-options",
+      providerOptionsBytes: 50,
+    },
     requestForensicsDone: {
       summary: "summary",
       lcpRatio: 0.9,
@@ -156,6 +166,9 @@ describe("runClaudeStreamTelemetry", () => {
       requestForensicsSummary: "summary",
       cacheStrategy: "anthropic_explicit",
       prefixFingerprint: "fingerprint",
+      cacheShapeStablePrefixHash: "stable-prefix",
+      cacheShapeToolSchemaHash: "tool-schema",
+      cacheShapeProviderOptionsHash: "provider-options",
     }));
   });
 

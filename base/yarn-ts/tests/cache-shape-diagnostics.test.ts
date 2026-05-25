@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCacheShapeDiagnostics } from "../src/telemetry/cache-shape-diagnostics.js";
+import {
+  buildCacheShapeDiagnostics,
+  cacheShapeDiagnosticFields,
+} from "../src/telemetry/cache-shape-diagnostics.js";
 
 describe("buildCacheShapeDiagnostics", () => {
   it("hashes stable prefix, tools, and provider options without exposing payload content", () => {
@@ -67,6 +70,28 @@ describe("buildCacheShapeDiagnostics", () => {
       toolSchemaBytes: 0,
       providerOptionsHash: "0:empty",
       providerOptionsBytes: 0,
+    });
+  });
+
+  it("maps diagnostics to prefixed request diagnostic fields", () => {
+    expect(cacheShapeDiagnosticFields({
+      messageCount: 2,
+      stablePrefixHash: "prefix",
+      stablePrefixBytes: 50,
+      toolCount: 1,
+      toolSchemaHash: "tool",
+      toolSchemaBytes: 75,
+      providerOptionsHash: "provider",
+      providerOptionsBytes: 25,
+    })).toEqual({
+      cacheShapeMessageCount: 2,
+      cacheShapeStablePrefixHash: "prefix",
+      cacheShapeStablePrefixBytes: 50,
+      cacheShapeToolCount: 1,
+      cacheShapeToolSchemaHash: "tool",
+      cacheShapeToolSchemaBytes: 75,
+      cacheShapeProviderOptionsHash: "provider",
+      cacheShapeProviderOptionsBytes: 25,
     });
   });
 });
