@@ -170,7 +170,6 @@ import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize
 import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
 import { registerEvalRoutes } from "./eval/routes.js";
 import { enableObserver as enableEvalObserver } from "./eval/session-observer.js";
-import { runEvalObserverPersistence } from "./eval/session-observer-persistence.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import {
@@ -279,11 +278,8 @@ import {
 import { captureStreamRequestForensics } from "./streaming/stream-request-forensics.js";
 import { createStreamRouteScopeBundle } from "./streaming/stream-route-scope.js";
 import { createStreamTelemetryRouteBase } from "./streaming/stream-telemetry-route-base.js";
-import {
-  runSessionUsagePersistence,
-  type RequestTrajectoryInput,
-} from "./state/session-usage-persistence.js";
-import { runPersistenceTokenEconomicsAccounting } from "./state/persistence-token-economics.js";
+import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
+import type { RequestTrajectoryInput } from "./state/session-usage-persistence.js";
 import {
   readPersistedChatStateSnapshot,
 } from "./state/persistence-state-channels.js";
@@ -2858,6 +2854,43 @@ const stateTransitionGlobalCalibrator = new StateTransitionGlobalCalibrator({
     writeScope: async (scopeKey, payload) => distributedCounters.setStateTransitionGlobalCalibrationScope(scopeKey, payload),
   },
 });
+const sessionPersistenceRunner = createSessionPersistenceRunner<SessionState>({
+  config: {
+    cachePolicyProviderWindowHours: config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS,
+    conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
+    hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
+    hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
+    hourlyTokenThrottleSessionLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT,
+    hourlyTokenThrottleUserLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT,
+  },
+  tierRegistry,
+  sessionStore,
+  writer: usageWriter,
+  saveSession: (state) => casSessionSave(state),
+  counter: distributedCounters,
+  globalCalibrator: stateTransitionGlobalCalibrator,
+  recordSessionEvent,
+  maybeCheckpoint,
+  emitDecisionEvents,
+  recordUsageMetrics: (
+    metricsTraceModel,
+    metricsResolvedModelId,
+    telemetryUsage,
+    latencySeconds,
+  ) => {
+    recordUsageMetrics(
+      svcMetrics,
+      metricsTraceModel,
+      metricsResolvedModelId,
+      telemetryUsage,
+      latencySeconds,
+    );
+  },
+  emitTrace: (trace) => {
+    emitTrace(trace, traceEmitterConfig, app.log);
+  },
+  logger: app.log,
+});
 const streamAdmission = new StreamAdmissionController({
   maxConcurrentStreams: config.SYNESIS_YARN_MAX_CONCURRENT_STREAMS,
   maxQueueDepth: config.SYNESIS_YARN_STREAM_QUEUE_MAX_DEPTH,
@@ -4100,40 +4133,10 @@ function persistSessionAndUsage(
   optimizationLedger?: OptimizationLedgerSnapshot,
   clientRequestedModel?: string,
 ): void {
-  const origRaw = (clientRequestedModel ?? "").trim();
-  const orig = origRaw && origRaw.toLowerCase() !== "auto" ? origRaw : "";
-  const traceModel = orig || resolvedModelId;
-  const persistSpan = getTracer().startSpan("yarn.persist_session", {
-    "yarn.request_id": requestId,
-    "yarn.model": traceModel,
-    "yarn.latency_ms": latencyMs,
-  });
-  const tier = tierRegistry.getTierConfig(resolvedModelId);
-  const tokenAccounting = runPersistenceTokenEconomicsAccounting({
-    resolvedModelId,
-    traceModel,
-    tier,
-    metadata: state.record.metadata,
-    orgId: state.record.orgId,
-    clientKind: state.record.clientKind,
-    usage,
-    optimizationLedger,
-    providerObservationTtlMs: Math.max(2, config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS + 1) * 3_600_000,
-    recordProviderCacheObservation: (...args) => sessionStore.recordProviderCacheObservation(...args),
-    logFallbackPricing: (notice) => {
-      app.log.info(notice, "fallback_pricing_in_effect: set rates in admin Model Registry for accurate costs");
-    },
-    warnProviderCacheObservation: (err, provider) => {
-      app.log.warn({ err, provider }, "provider_cache_observation_record_failed");
-    },
-  });
-  runSessionUsagePersistence({
+  sessionPersistenceRunner.persistSessionAndUsage({
     state,
     requestId,
     resolvedModelId,
-    traceModel,
-    backendModel: tier?.backendModel,
-    clientRequestedModel,
     usage,
     latencyMs,
     finishReason,
@@ -4142,58 +4145,8 @@ function persistSessionAndUsage(
     snapshot,
     trajectory,
     optimizationLedger,
-    costBreakdown: tokenAccounting.costBreakdown,
-    normalizedEstimatedCostUsd: tokenAccounting.normalizedEstimatedCostUsd,
-    normalizedActualCostUsd: tokenAccounting.normalizedActualCostUsd,
-    pricingSource: tokenAccounting.pricingSource,
-    tierRates: tokenAccounting.tierRates,
-    tokenEconomicsRecommendation: tokenAccounting.tokenEconomicsDecision.recommendation,
-    tokenEconomicsWarnings: tokenAccounting.tokenEconomicsDecision.warnings,
-    tokenEconomicsMetadata: tokenAccounting.tokenEconomicsMetadata,
-    conversationMemoryEnabled: config.SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED,
-    hourlyTokenThrottleEnabled: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED,
-    hourlyTokenThrottleWindowMs: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS,
-    hourlyTokenThrottleSessionLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_SESSION_LIMIT,
-    hourlyTokenThrottleUserLimit: config.SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_USER_LIMIT,
-    toolCallsSinceCheckpoint: state.toolCallsSinceCheckpoint,
-    evidenceDelta: summarizeEvidenceDelta(state.lastEvidenceDelta),
-    writer: usageWriter,
-    saveSession: () => casSessionSave(state),
-    counter: distributedCounters,
-    recordSessionEvent: (event) => {
-      recordSessionEvent(
-        event.sessionKey,
-        event.userId,
-        event.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        event.requestId,
-        event.metadataJson,
-      );
-    },
-    globalCalibrator: stateTransitionGlobalCalibrator,
-    recordUsageMetrics: (
-      metricsTraceModel,
-      metricsResolvedModelId,
-      telemetryUsage,
-      latencySeconds,
-    ) => {
-      recordUsageMetrics(
-        svcMetrics,
-        metricsTraceModel,
-        metricsResolvedModelId,
-        telemetryUsage,
-        latencySeconds,
-      );
-    },
-    emitTrace: (trace) => {
-      emitTrace(trace, traceEmitterConfig, app.log);
-    },
-    warn: (message, err) => app.log.warn({ err }, message),
+    clientRequestedModel,
   });
-  persistSpan.setStatus("ok");
-  persistSpan.end();
 }
 
 function persistAndEmitDecisionTelemetry(input: {
@@ -4213,43 +4166,7 @@ function persistAndEmitDecisionTelemetry(input: {
   optimizationLedger?: OptimizationLedgerSnapshot;
   clientRequestedModel?: string;
 }): void {
-  persistSessionAndUsage(
-    input.state,
-    input.requestId,
-    input.resolvedModelId,
-    input.usage,
-    input.latencyMs,
-    input.finishReason,
-    input.tokensSavedByReduction,
-    input.escalated,
-    input.snapshot,
-    input.trajectory,
-    input.optimizationLedger,
-    input.clientRequestedModel,
-  );
-  maybeCheckpoint(input.state);
-  emitDecisionEvents(input.sessionKey, input.userId, input.orgId, input.requestId, input.snapshot);
-  runEvalObserverPersistence({
-    sessionKey: input.sessionKey,
-    userId: input.userId,
-    orgId: input.orgId,
-    requestId: input.requestId,
-    history: input.state.history,
-    snapshot: input.snapshot,
-    recordSessionEvent: (event) => {
-      recordSessionEvent(
-        event.sessionKey,
-        event.userId,
-        event.orgId,
-        event.eventKind,
-        event.component,
-        event.detail,
-        event.requestId,
-        event.metadataJson,
-      );
-    },
-    warn: (err) => app.log.warn({ err }, "eval_observer_error"),
-  });
+  sessionPersistenceRunner.persistAndEmitDecisionTelemetry(input);
 }
 
 function readUsage(input: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number } {
