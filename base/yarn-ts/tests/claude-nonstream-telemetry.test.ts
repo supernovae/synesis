@@ -137,6 +137,11 @@ describe("runClaudeNonStreamTelemetry", () => {
       cacheShapeStablePrefixHash: "stable-prefix",
       cacheShapeToolSchemaHash: "tool-schema",
       cacheShapeProviderOptionsHash: "provider-options",
+      cacheShapePromptTokens: 100,
+      cacheShapeCachedTokens: 10,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 10,
+      cacheShapeOutcome: "hit",
     }));
     expect(result.tokensSavedByReduction).toBe(15);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);

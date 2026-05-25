@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCacheShapeDiagnostics,
+  buildCacheShapeOutcomeDiagnostics,
   cacheShapeDiagnosticFields,
 } from "../src/telemetry/cache-shape-diagnostics.js";
 
@@ -92,6 +93,45 @@ describe("buildCacheShapeDiagnostics", () => {
       cacheShapeToolSchemaBytes: 75,
       cacheShapeProviderOptionsHash: "provider",
       cacheShapeProviderOptionsBytes: 25,
+    });
+  });
+
+  it("classifies cache shape outcomes from provider usage", () => {
+    expect(buildCacheShapeOutcomeDiagnostics({
+      inputTokens: 100,
+      cachedTokens: 37,
+      cacheCreationTokens: 0,
+    })).toEqual({
+      cacheShapePromptTokens: 100,
+      cacheShapeCachedTokens: 37,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 37,
+      cacheShapeOutcome: "hit",
+    });
+
+    expect(buildCacheShapeOutcomeDiagnostics({
+      inputTokens: 100,
+      cachedTokens: 0,
+      cacheCreationTokens: 25,
+    })).toMatchObject({
+      cacheShapeHitPct: 0,
+      cacheShapeOutcome: "write",
+    });
+
+    expect(buildCacheShapeOutcomeDiagnostics({
+      inputTokens: 100,
+      cachedTokens: 0,
+      cacheCreationTokens: 0,
+    })).toMatchObject({
+      cacheShapeOutcome: "miss",
+    });
+
+    expect(buildCacheShapeOutcomeDiagnostics({
+      inputTokens: 0,
+      cachedTokens: 0,
+      cacheCreationTokens: 0,
+    })).toMatchObject({
+      cacheShapeOutcome: "unknown",
     });
   });
 });

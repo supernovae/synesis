@@ -1,5 +1,6 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import { buildCacheShapeOutcomeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
 import type {
   OpenAIStreamTelemetryLedger,
   OpenAIStreamTelemetryReductions,
@@ -154,6 +155,7 @@ export function runOpenAINonStreamTelemetry(
   });
 
   input.optimizationLedger.setUpstreamCachedTokens(input.usage.cachedTokens ?? 0);
+  input.optimizationLedger.recordCacheDiagnostics?.(buildCacheShapeOutcomeDiagnostics(input.usage));
   input.optimizationLedger.recordFinal(input.normalizedMessages);
   const optimizationLedger = input.optimizationLedger.finalize();
 

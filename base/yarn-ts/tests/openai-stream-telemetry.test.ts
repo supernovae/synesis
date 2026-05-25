@@ -78,6 +78,7 @@ function baseInput(overrides: Partial<Parameters<typeof runOpenAIStreamTelemetry
     governorFileStateSummary: undefined,
     optimizationLedger: {
       setUpstreamCachedTokens: vi.fn(),
+      recordCacheDiagnostics: vi.fn(),
       recordFinal: vi.fn(),
       finalize: vi.fn(() => ({ tokens: 1 })),
       toLogRecord: vi.fn(() => ({ total: 1 })),
@@ -218,6 +219,13 @@ describe("runOpenAIStreamTelemetry", () => {
       detail: "count=1",
     });
     expect(input.optimizationLedger.setUpstreamCachedTokens).toHaveBeenCalledWith(3);
+    expect(input.optimizationLedger.recordCacheDiagnostics).toHaveBeenCalledWith(expect.objectContaining({
+      cacheShapePromptTokens: 10,
+      cacheShapeCachedTokens: 3,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 30,
+      cacheShapeOutcome: "hit",
+    }));
     expect(input.persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({
       usage: input.streamFinalized.usage,
       tokensSavedByReduction: 10,

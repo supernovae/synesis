@@ -169,6 +169,11 @@ describe("runClaudeStreamTelemetry", () => {
       cacheShapeStablePrefixHash: "stable-prefix",
       cacheShapeToolSchemaHash: "tool-schema",
       cacheShapeProviderOptionsHash: "provider-options",
+      cacheShapePromptTokens: 10,
+      cacheShapeCachedTokens: 3,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 30,
+      cacheShapeOutcome: "hit",
     }));
   });
 

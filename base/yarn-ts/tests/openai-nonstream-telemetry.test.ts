@@ -9,6 +9,7 @@ describe("runOpenAINonStreamTelemetry", () => {
     const logOptimizationLedger = vi.fn();
     const optimizationLedger = {
       setUpstreamCachedTokens: vi.fn(),
+      recordCacheDiagnostics: vi.fn(),
       recordFinal: vi.fn(),
       finalize: vi.fn(() => ({ prefix_hash: "abc" })),
       toLogRecord: vi.fn(() => ({ prefix_hash: "abc" })),
@@ -111,6 +112,13 @@ describe("runOpenAINonStreamTelemetry", () => {
       detail: "count=1",
     });
     expect(optimizationLedger.setUpstreamCachedTokens).toHaveBeenCalledWith(3);
+    expect(optimizationLedger.recordCacheDiagnostics).toHaveBeenCalledWith(expect.objectContaining({
+      cacheShapePromptTokens: 12,
+      cacheShapeCachedTokens: 3,
+      cacheShapeCacheCreationTokens: 0,
+      cacheShapeHitPct: 25,
+      cacheShapeOutcome: "hit",
+    }));
     expect(optimizationLedger.recordFinal).toHaveBeenCalledWith([{ role: "user", content: "hello" }]);
     expect(logOptimizationLedger).toHaveBeenCalledWith({ prefix_hash: "abc" });
     expect(persistDecisionTelemetry).toHaveBeenCalledWith(expect.objectContaining({

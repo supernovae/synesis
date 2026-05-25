@@ -38,6 +38,11 @@ export interface OptimizationCacheDiagnostics {
   toolSchemaBytes?: number;
   providerOptionsHash?: string;
   providerOptionsBytes?: number;
+  cacheShapePromptTokens?: number;
+  cacheShapeCachedTokens?: number;
+  cacheShapeCacheCreationTokens?: number;
+  cacheShapeHitPct?: number;
+  cacheShapeOutcome?: "hit" | "write" | "miss" | "unknown";
 }
 
 export interface OptimizationLedgerSnapshot {

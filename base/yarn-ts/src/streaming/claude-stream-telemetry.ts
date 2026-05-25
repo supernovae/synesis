@@ -1,6 +1,9 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
-import { cacheShapeDiagnosticFields } from "../telemetry/cache-shape-diagnostics.js";
+import {
+  buildCacheShapeOutcomeDiagnostics,
+  cacheShapeDiagnosticFields,
+} from "../telemetry/cache-shape-diagnostics.js";
 import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
 
@@ -371,6 +374,7 @@ export function runClaudeStreamTelemetry(
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
+    ...cacheShapeDiagnosticFields(buildCacheShapeOutcomeDiagnostics(input.usage)),
   });
 
   return {

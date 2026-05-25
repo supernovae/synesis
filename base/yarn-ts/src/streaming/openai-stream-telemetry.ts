@@ -1,5 +1,7 @@
 import type { DecisionSnapshot, SnapshotInputs } from "../telemetry/decision-snapshot.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
+import { buildCacheShapeOutcomeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import type { OpenAIStreamFinalizerResult, StreamTokenUsage } from "./openai-stream-finalizer.js";
 
 export interface OpenAIStreamTelemetryReductions {
@@ -17,7 +19,7 @@ export interface OpenAIStreamTelemetryReductions {
 
 export interface OpenAIStreamTelemetryLedger {
   startStage?(stage: string): () => void;
-  recordCacheDiagnostics?(diagnostics: { cacheStrategy?: string; prefixFingerprint?: string }): void;
+  recordCacheDiagnostics?(diagnostics: OptimizationCacheDiagnostics): void;
   setUpstreamCachedTokens(tokens: number): void;
   recordFinal(messages: Array<{ content?: unknown }>): void;
   finalize(): unknown;
@@ -275,6 +277,7 @@ export function runOpenAIStreamTelemetry(
   });
 
   input.optimizationLedger.setUpstreamCachedTokens(usage.cachedTokens ?? 0);
+  input.optimizationLedger.recordCacheDiagnostics?.(buildCacheShapeOutcomeDiagnostics(usage));
   input.optimizationLedger.recordFinal(input.normalizedMessages);
   const optimizationLedger = input.optimizationLedger.finalize();
 
