@@ -261,6 +261,7 @@ import { startClaudeStreamRouteGates } from "./streaming/claude-stream-route-gat
 import { buildClaudeStreamRouteRunInput } from "./streaming/claude-stream-route-input.js";
 import { runClaudeStreamRoute } from "./streaming/claude-stream-route-orchestrator.js";
 import { createClaudeStreamRouteRuntime } from "./streaming/claude-stream-route-runtime.js";
+import { buildClaudeStreamRouteStartInput } from "./streaming/claude-stream-route-start-input.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createSessionPersistenceRunner } from "./state/session-persistence-runner.js";
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
@@ -9785,17 +9786,19 @@ app.post("/v1/messages", async (req, reply) => {
     const resolvedTier = tierRegistry.getTierConfig(resolved.resolvedModelId);
     await runClaudeStreamRoute(buildClaudeStreamRouteRunInput({
       runtime: claudeStreamRuntime,
-      start: {
+      start: buildClaudeStreamRouteStartInput({
         recordSessionEvent,
-        raw: reply.raw,
-        headers: sseHeadersWithClarification(session.record.metadata),
-        heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
-        longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
-        startHeartbeat: startSseHeartbeat,
-        createMessageId: () => `msg_${crypto.randomUUID()}`,
-        sendSse: (event, data) => safeSse(reply, event, data),
-        streamText: (options) => streamText(options as never),
-        request: {
+        transport: {
+          raw: reply.raw,
+          headers: sseHeadersWithClarification(session.record.metadata),
+          heartbeatIntervalMs: config.SYNESIS_YARN_SSE_HEARTBEAT_INTERVAL_MS,
+          longWaitEventMs: config.SYNESIS_YARN_SSE_LONG_WAIT_EVENT_MS,
+          startHeartbeat: startSseHeartbeat,
+          createMessageId: () => `msg_${crypto.randomUUID()}`,
+          sendSse: (event, data) => safeSse(reply, event, data),
+          streamText: (options) => streamText(options as never),
+        },
+        provider: {
           requestId: traceReqId,
           model: resolved.model,
           messages: claudeModelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
@@ -9816,7 +9819,7 @@ app.post("/v1/messages", async (req, reply) => {
           tools: effectiveClaudeTools as unknown[],
           computePrefixFingerprint,
         },
-      },
+      }),
       pipeline: {
         eventHandlers: buildClaudeStreamRouteEventHandlersInput({
           base: {
