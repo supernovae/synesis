@@ -7,6 +7,7 @@ import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-s
 import { finalizeOpenAIProviderRequestForRoute } from "../pipeline/openai-route-provider-finalization.js";
 import { prepareOpenAIChatProviderRuntime } from "../pipeline/openai-chat-provider-preparation.js";
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
+import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 import { prepareProtocolPauseState } from "../session/protocol-pause-state.js";
@@ -118,14 +119,12 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     deriveChatState,
     deriveEditContextMissGuardState,
     deriveFileState,
-    deriveGovernorLoopObservability,
     deserializeShadow,
     detectClientTaskCapabilities,
     detectClientToolCapabilities,
     detectLanguagesFromMessages,
     detectToolProgress,
     DEV_DOCS_TOOL_NAME,
-    disabledExecutionGovernorDecision,
     distributedCounters,
     enrichWithFrameAndManifest,
     ensureReadToolAvailabilityForEditMissGuard,
@@ -1147,195 +1146,43 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiFileStateBlock = oaiPauseState.fileStateBlock;
     endOaiContextStage();
     const endOaiGovernorStage = oaiOptLedger.startStage("governor");
-    const oaiGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
+    const oaiExecutionGovernorPreparation = await prepareOpenAIExecutionGovernor({
+      config,
       session,
-      typeof oaiTaskCue === "string" ? oaiTaskCue : "",
-    );
-    const oaiGovernorPauseSummaryRequested = Boolean(oaiGovernorPauseResumeBlock);
-    const oaiGovernorCooldownActive =
-      session.lastGovernorCachedResult
-      && !session.lastGovernorCachedResult.pause
-      && (Date.now() - session.lastGovernorNoPauseAt) < GOVERNOR_COOLDOWN_MS;
-    const oaiPipelineContext = {
+      sessionKey,
+      identity,
       requestId: oaiTraceReqId,
-      mode: oaiPipelineMode,
-      userId: identity.userId,
-      orgId: identity.orgId,
-      clientKind: identity.clientKind,
-      conversationId: identity.conversationId,
-      sessionKey,
-      startedAt: Date.now(),
       headers: req.headers as Record<string, unknown>,
-    };
-    let oaiExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED
-      && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-      && shouldRunGovernorForMode(oaiPipelineMode)
-      ? (oaiGovernorCooldownActive
-        ? session.lastGovernorCachedResult!
-        : await withSpanAsync("yarn.execution_governor.evaluate", {}, async (govSpan) => {
-          const governorDecision = await governorService.beforeProviderCall(
-            oaiPipelineContext,
-            {
-              messages: oaiScopedMessages as Array<GovernorInputMessage>,
-              options: {
-                profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-                activePlanStage: oaiPlanGraph?.activeStage ?? null,
-                editContextMissActive:
-                  oaiEditMissGuard?.active === true
-                  || oaiLatestToolProgress.hasRecentEditContextMiss
-                  || session.editMissForceReadPending
-                  || oaiToolFailures.some((failure) => failure.reason === "edit_context_miss"),
-                artifactShadows: oaiArtifactShadows,
-                chatState: oaiChatState,
-                fileState: oaiFileState,
-                orchestratorWorkflowPhase: oaiWorkingPhase,
-                taskLedgerOpenCount: session.taskLedger
-                  ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-                  : undefined,
-              },
-            },
-          );
-          const decision = governorDecision.execution ?? disabledExecutionGovernorDecision();
-          if (!decision.pause) {
-            session.lastGovernorNoPauseAt = Date.now();
-            session.lastGovernorCachedResult = decision;
-          } else {
-            session.lastGovernorCachedResult = null;
-          }
-          if (oaiWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", oaiWorkingPhase);
-          govSpan.setAttribute("governor.pause", decision.pause);
-          govSpan.setAttribute("governor.reason", decision.reason ?? "");
-          govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
-          govSpan.setAttribute("governor.phase", decision.telemetry.phase);
-          govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
-          govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
-          return decision;
-        }))
-      : disabledExecutionGovernorDecision();
-    if (
-      oaiExecutionGovernor.matchedRules.includes("verification_green_repeat_block")
-      || oaiExecutionGovernor.matchedRules.includes("verification_already_green")
-    ) {
-      session.blockBroadVerificationUntilEdit = true;
-    }
-    if (
-      session.consecutiveRecoveryFires >= 2
-      && (
-        oaiExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
-        || oaiExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
-        || oaiExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
-      )
-    ) {
-      session.blockFailingVerificationUntilEdit = true;
-    }
-    if (
-      (oaiEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2)
-      && !oaiExecutionGovernor.matchedRules.includes("edit_failure_replay")
-    ) {
-      oaiExecutionGovernor = {
-        ...oaiExecutionGovernor,
-        pause: true,
-        reason: "edit_failure_replay",
-        matchedRules: ["edit_failure_replay", ...new Set(oaiExecutionGovernor.matchedRules)],
-        suggestedNextStep:
-          oaiExecutionGovernor.suggestedNextStep
-          ?? "Repeated edit anchor failures detected. Read the file once, choose an exact current anchor, and apply one focused edit. If the behavior is already present, verify and move on.",
-      };
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "execution_governor_edit_miss_override",
-        "execution-governor",
-        `Forced edit_failure_replay (turn_misses=${oaiEditMissFailureCount}, consecutive_turn_misses=${session.consecutiveEditContextMisses})`,
-        oaiTraceReqId,
-        {
-          edit_miss_failures: oaiEditMissFailureCount,
-          consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-        },
-      );
-    }
-    if (oaiGovernorPauseSummaryRequested && oaiExecutionGovernor.pause) {
-      const priorRules = oaiExecutionGovernor.matchedRules;
-      oaiExecutionGovernor = {
-        ...oaiExecutionGovernor,
-        pause: false,
-        reason: "user_requested_governor_summary",
-        matchedRules: ["user_requested_governor_summary"],
-        suggestedNextStep: "Summarize current status without tool calls, edits, or command retries.",
-      };
-      session.lastGovernorCachedResult = null;
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "governor_pause_summary_resume",
-        "execution-governor",
-        `Allowed explicit summarize/status reply after pause (prior_rules=${priorRules.slice(0, 3).join(",") || "unknown"})`,
-        oaiTraceReqId,
-        {
-          prior_matched_rules: priorRules,
-          summary_resume: true,
-        },
-      );
-    }
-    const oaiLoopObs = deriveGovernorLoopObservability(
-      oaiScopedMessages as Array<{ role: string; tool_calls?: unknown }>,
-    );
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "execution_governor_evaluated",
-      "execution-governor",
-      `phase=${oaiExecutionGovernor.telemetry.phase} rules=${oaiExecutionGovernor.matchedRules.join(",") || "allow"} pause=${oaiExecutionGovernor.pause}`,
-      oaiTraceReqId,
-      {
-        pause: oaiExecutionGovernor.pause,
-        reason: oaiExecutionGovernor.reason,
-        phase: oaiExecutionGovernor.telemetry.phase,
-        matched_rules: oaiExecutionGovernor.matchedRules,
-        suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
-        has_run_test: oaiLoopObs.hasRunTest,
-        last_assistant_tool_calls: oaiLoopObs.lastAssistantToolCalls,
-        assistant_tool_calls_since_latest_user: oaiLoopObs.assistantToolCallsSinceLatestUser,
-        objective_epoch_id: oaiObjectiveScope.epochId,
-        objective_scope_boundary_index: oaiObjectiveScope.boundaryIndex,
-        objective_scope_retained_evidence: oaiObjectiveScope.retainedEvidenceCount,
-        objective_scope_dropped_pre_boundary: oaiObjectiveScope.droppedPreBoundaryCount,
-        state_confidence_chat: oaiStateConfidence.chatConfidence,
-        state_confidence_file: oaiStateConfidence.fileConfidence,
-        state_confidence_overall: oaiStateConfidence.overallConfidence,
-        state_confidence_needs_reground: oaiNeedsStateReground,
-        state_confidence_recommended_path: oaiStateConfidence.recommendedReadPath,
-        evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        artifact_context: oaiArtifactContext,
-        chat_state_summary: oaiPauseChatSummary,
-        file_state_summary: oaiPauseFileSummary,
-        telemetry: oaiExecutionGovernor.telemetry,
+      pipelineMode: oaiPipelineMode,
+      taskCue: oaiTaskCue,
+      scopedMessages: oaiScopedMessages,
+      planGraph: oaiPlanGraph,
+      editMissGuard: oaiEditMissGuard,
+      latestToolProgress: oaiLatestToolProgress,
+      toolFailures: oaiToolFailures,
+      artifactShadows: oaiArtifactShadows,
+      chatState: oaiChatState,
+      fileState: oaiFileState,
+      workingPhase: oaiWorkingPhase,
+      editMissFailureCount: oaiEditMissFailureCount,
+      governorCooldownMs: GOVERNOR_COOLDOWN_MS,
+      stateConfidence: oaiStateConfidence,
+      needsStateReground: oaiNeedsStateReground,
+      objectiveScope: oaiObjectiveScope,
+      artifactContext: oaiArtifactContext,
+      pauseSummaries: {
+        chat: oaiPauseChatSummary,
+        file: oaiPauseFileSummary,
       },
-    );
-    if (oaiExecutionGovernor.matchedRules.includes("discovery_churn_nudge")) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "discovery_churn_guard_nudge",
-        "execution-governor",
-        `Nudge-only discovery churn detected (explore_trail=${oaiExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0}, repeated_reads=${oaiExecutionGovernor.telemetry.repeatedReadSearchCalls})`,
-        oaiTraceReqId,
-        {
-          phase: oaiExecutionGovernor.telemetry.phase,
-          matched_rules: oaiExecutionGovernor.matchedRules,
-          trailing_exploration_run_length: oaiExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0,
-          repeated_read_search_calls: oaiExecutionGovernor.telemetry.repeatedReadSearchCalls,
-          repeated_broad_discovery_calls: oaiExecutionGovernor.telemetry.repeatedBroadDiscoveryCalls,
-          total_broad_discovery_calls: oaiExecutionGovernor.telemetry.totalBroadDiscoveryCalls,
-          suggested_next_step: oaiExecutionGovernor.suggestedNextStep?.slice(0, 200),
-        },
-      );
-    }
+      shouldRunGovernorForMode,
+      governorService,
+      withSpanAsync,
+      summarizeEvidenceDelta,
+      recordSessionEvent,
+      buildGovernorPauseResumeBlockForUser,
+    });
+    const oaiExecutionGovernor = oaiExecutionGovernorPreparation.executionGovernor;
+    const oaiGovernorPauseResumeBlock = oaiExecutionGovernorPreparation.governorPauseResumeBlock;
 
     const oaiGovernancePrecheck = await runOpenAIGovernancePrecheck({
       config,

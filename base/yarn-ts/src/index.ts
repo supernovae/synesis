@@ -255,7 +255,7 @@ import {
   persistGovernorPauseSoftFail,
   resetGovernorPauseRecoveryState,
 } from "./governance/governor-pause-route.js";
-import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
+import { GovernorService } from "./governance/governor-service.js";
 import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
@@ -280,7 +280,6 @@ import {
   buildSensemakingPauseMessage,
   buildSensemakingGuidanceInjection,
 } from "./governance/sensemaking-governor.js";
-import { deriveGovernorLoopObservability } from "./governance/governor-observability.js";
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
 import { toolDefinitionName, type GuardrailToolCall } from "./tools/tool-call-availability.js";
 import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
@@ -5469,14 +5468,12 @@ const openAIChatCompletionsRouteDependencies = {
   deriveChatState,
   deriveEditContextMissGuardState,
   deriveFileState,
-  deriveGovernorLoopObservability,
   deserializeShadow,
   detectClientTaskCapabilities,
   detectClientToolCapabilities,
   detectLanguagesFromMessages,
   detectToolProgress,
   DEV_DOCS_TOOL_NAME,
-  disabledExecutionGovernorDecision,
   distributedCounters,
   enrichWithFrameAndManifest,
   ensureReadToolAvailabilityForEditMissGuard,
