@@ -9,6 +9,11 @@ import { normalizeToolDescriptions, type ToolDescriptionTruncation } from "../co
 import { type SessionIdentity } from "../session/session-key.js";
 import { buildProtocolSessionIdentity } from "../session/protocol-session.js";
 import { resolvePipelineMode, shouldRunGovernorForMode, type PipelineModeResolution } from "./modes.js";
+import {
+  runPreparedOpenAIChatProviderExecution,
+  type PreparedOpenAIChatProviderExecutionInput,
+  type PreparedOpenAIChatProviderExecutionResult,
+} from "./openai-chat-provider-execution.js";
 export type { OpenAIChatPipelineResult, OpenAIChatReplyAdapter } from "./openai-chat-results.js";
 export { sendOpenAIChatPipelineResult } from "./openai-chat-results.js";
 
@@ -259,5 +264,11 @@ export class OpenAIChatPipeline {
       messages: request.messages,
       options: request.governorOptions,
     });
+  }
+
+  executePreparedProviderCall(
+    input: PreparedOpenAIChatProviderExecutionInput,
+  ): Promise<PreparedOpenAIChatProviderExecutionResult> {
+    return runPreparedOpenAIChatProviderExecution(input);
   }
 }
