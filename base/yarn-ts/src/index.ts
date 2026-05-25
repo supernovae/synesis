@@ -254,16 +254,13 @@ import {
 } from "./streaming/claude-nonstream-pipeline.js";
 import { buildClaudeNonStreamMessageResponse } from "./streaming/claude-nonstream-response.js";
 import { createClaudeNonStreamRouteScope } from "./streaming/claude-nonstream-route-scope.js";
-import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-after-events.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import {
   createClaudeStreamFinalizationHandlers,
 } from "./streaming/claude-stream-finalizer.js";
-import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
-import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
 import { completeClaudeStreamRoute } from "./streaming/claude-stream-route-completion.js";
+import { runClaudeStreamRoutePipeline } from "./streaming/claude-stream-route-pipeline.js";
 import { startClaudeStreamRoute } from "./streaming/claude-stream-route-start.js";
-import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
 import {
@@ -9891,91 +9888,85 @@ app.post("/v1/messages", async (req, reply) => {
       finalizeCompletionText,
       finalizePostStreamText,
     });
-    const claudeStreamRouteHandlers = createClaudeStreamRouteEventHandlers({
-      streamState: claudeStreamState,
-      adapter: claudeAdapter,
-      requestId: traceReqId,
-      clientKind: claudeClientKind,
-      debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
-      strictGovernance: claudeOpenClawStrictGovernance,
-      upperHarness: claudeUpperHarness,
-      recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
-      taskCue: claudeTaskCue,
-      clientPlanModeRequested: claudeClientToolCapabilities.planModeRequested,
-      sensemakingRestrictDiscovery: claudeSensemakingDecision?.shouldRestrictDiscovery,
-      pathContext: effectiveClaudePathCtx,
-      enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
-      blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
-      pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
-      artifactShadows: claudeArtifactShadows,
-      normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
-      session,
-      acceptedGuardrailCalls: claudeStreamGuardrailAccepted,
-      blockedDiscoveryDetails: claudeStreamBlockedDetails,
-      discovery: claudeStreamDiscovery,
-      toolSequence: claudeStreamToolSequence,
-      stats: toolArgHardeningStats,
-      logger: app.log,
-      sendSse: (eventName, data) => safeSse(reply, eventName, data),
-      scrubAndFlushTextBlock: scrubAndFlushClaudeTextBlock,
-      isWriteCapableToolName,
-      shouldRestrictDiscoveryForPlanWork,
-      deserializePlanShadow: deserializeShadow,
-      buildPathSandboxPolicy: buildDefaultPolicy,
-      ...claudeStreamToolSideEffects,
-      recordRedirectedDiscovery: (count) => {
-        recordBlockedDiscovery(claudeSessionKey, count);
-      },
-      getTopLevelDirs: getCachedTopLevelDirs,
-      applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
-      buildBlockedDiscoveryRecovery: (blockedDetails) => buildBlockedDiscoveryRecoverySnapshot(
-        resolved.resolvedModelId,
-        blockedDetails,
-        effectiveClaudePathCtx.projectRoot,
-      ),
-    });
-    const claudeStreamLifecycle = createClaudeStreamLifecycleHandlers({
-      requestId: traceReqId,
-      model: resolved.resolvedModelId,
-      orgId: claudeIdentity.orgId,
-      session,
-      abortSignal: claudeStreamAbortRuntime.abortController.signal,
-      hardTimeout: claudeStreamAbortRuntime.hardTimeout,
-      admissionRelease: () => claudeAdmission.release!(),
-      streamState: claudeStreamState,
-      span: claudeStreamSpan,
-      circuitBreakers,
-      logger: app.log,
-      extractUpstreamErrorDiagnostics,
-      sendSse: (eventName, data) => safeSse(reply, eventName, data),
-      recordSessionEvent: recordClaudeStreamEvent,
-    });
-    const claudeStreamAfterEvents = createClaudeStreamAfterEventsHandler({
-      adapter: claudeAdapter,
-      localLikeBaseUrl: isLocalLikeBaseUrl,
-      requestId: traceReqId,
-      resolvedModelId: resolved.resolvedModelId,
-      baseUrl: resolvedTier?.baseUrl,
-      sessionKey: claudeStreamScope.sessionKey,
-      userId: claudeStreamScope.userId,
-      orgId: claudeStreamScope.orgId,
-      streamState: claudeStreamState,
-      discovery: claudeStreamDiscovery,
-      blockedDetails: claudeStreamBlockedDetails,
-      stats: toolArgHardeningStats,
-      logger: app.log,
-      recordBlockedDiscovery,
-      getBlockedDiscoveryCount,
-      recordSessionEvent,
-    });
-
-    const claudeStreamingPipeline = await runClaudeStreamingPipeline({
+    const claudeStreamingPipeline = await runClaudeStreamRoutePipeline({
       streamParts: streamed.fullStream,
-      handleLocalEvent: claudeStreamRouteHandlers.handleLocalEvent,
-      handleToolCall: claudeStreamRouteHandlers.handleToolCall,
-      afterEvents: claudeStreamAfterEvents,
-      onEventError: claudeStreamLifecycle.onEventError,
-      finalizeLifecycle: claudeStreamLifecycle.finalizeLifecycle,
+      eventHandlersInput: {
+        streamState: claudeStreamState,
+        adapter: claudeAdapter,
+        requestId: traceReqId,
+        clientKind: claudeClientKind,
+        debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+        strictGovernance: claudeOpenClawStrictGovernance,
+        upperHarness: claudeUpperHarness,
+        recentToolNames: claudeRecentCallsForSteering.map((call) => call.toolName),
+        taskCue: claudeTaskCue,
+        clientPlanModeRequested: claudeClientToolCapabilities.planModeRequested,
+        sensemakingRestrictDiscovery: claudeSensemakingDecision?.shouldRestrictDiscovery,
+        pathContext: effectiveClaudePathCtx,
+        enforcePathRoot: config.SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE,
+        blockBashPathDrift: config.SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED,
+        pathSandboxEnabled: config.SYNESIS_YARN_PATH_SANDBOX_ENABLED,
+        artifactShadows: claudeArtifactShadows,
+        normalizedMessageCount: (normalizedFromClaude.messages as Array<{ role: string }>).length,
+        session,
+        acceptedGuardrailCalls: claudeStreamGuardrailAccepted,
+        blockedDiscoveryDetails: claudeStreamBlockedDetails,
+        discovery: claudeStreamDiscovery,
+        toolSequence: claudeStreamToolSequence,
+        stats: toolArgHardeningStats,
+        logger: app.log,
+        sendSse: (eventName, data) => safeSse(reply, eventName, data),
+        scrubAndFlushTextBlock: scrubAndFlushClaudeTextBlock,
+        isWriteCapableToolName,
+        shouldRestrictDiscoveryForPlanWork,
+        deserializePlanShadow: deserializeShadow,
+        buildPathSandboxPolicy: buildDefaultPolicy,
+        ...claudeStreamToolSideEffects,
+        recordRedirectedDiscovery: (count) => {
+          recordBlockedDiscovery(claudeSessionKey, count);
+        },
+        getTopLevelDirs: getCachedTopLevelDirs,
+        applyDiscoveryGuardrail: applyDiscoveryToolGuardrail,
+        buildBlockedDiscoveryRecovery: (blockedDetails) => buildBlockedDiscoveryRecoverySnapshot(
+          resolved.resolvedModelId,
+          blockedDetails,
+          effectiveClaudePathCtx.projectRoot,
+        ),
+      },
+      lifecycleInput: {
+        requestId: traceReqId,
+        model: resolved.resolvedModelId,
+        orgId: claudeIdentity.orgId,
+        session,
+        abortSignal: claudeStreamAbortRuntime.abortController.signal,
+        hardTimeout: claudeStreamAbortRuntime.hardTimeout,
+        admissionRelease: () => claudeAdmission.release!(),
+        streamState: claudeStreamState,
+        span: claudeStreamSpan,
+        circuitBreakers,
+        logger: app.log,
+        extractUpstreamErrorDiagnostics,
+        sendSse: (eventName, data) => safeSse(reply, eventName, data),
+        recordSessionEvent: recordClaudeStreamEvent,
+      },
+      afterEventsInput: {
+        adapter: claudeAdapter,
+        localLikeBaseUrl: isLocalLikeBaseUrl,
+        requestId: traceReqId,
+        resolvedModelId: resolved.resolvedModelId,
+        baseUrl: resolvedTier?.baseUrl,
+        sessionKey: claudeStreamScope.sessionKey,
+        userId: claudeStreamScope.userId,
+        orgId: claudeStreamScope.orgId,
+        streamState: claudeStreamState,
+        discovery: claudeStreamDiscovery,
+        blockedDetails: claudeStreamBlockedDetails,
+        stats: toolArgHardeningStats,
+        logger: app.log,
+        recordBlockedDiscovery,
+        getBlockedDiscoveryCount,
+        recordSessionEvent,
+      },
     });
     const stopReason = claudeStreamingPipeline.stopReason;
 
