@@ -8,6 +8,7 @@ import {
 import { sortToolSchemas } from "../compat/sorted-tools.js";
 import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcript-prep.js";
 import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-stabilization.js";
+import { finalizeOpenAIProviderRequestForRoute } from "../pipeline/openai-route-provider-finalization.js";
 import {
   createOpenAIChatRouteFinalizerBase,
   createOpenAIChatRouteTelemetryBase,
@@ -27,7 +28,6 @@ import { runRouteContextAdmission } from "../pipeline/route-context-admission.js
 import {
   buildCacheShapeDiagnostics,
 } from "../telemetry/cache-shape-diagnostics.js";
-import { createRoutePersistenceScope } from "../state/route-persistence-scope.js";
 import { prepareProtocolPauseState } from "../session/protocol-pause-state.js";
 
 type AuthUser = import("../auth.js").AuthUser;
@@ -171,7 +171,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     extractRecentToolNames,
     extractTextFromUnknownContent,
     fgaCheck,
-    finalizeOpenAIProviderRequest,
     finalizePostEnrichmentMessages,
     finalizeRequestForensics,
     forceCheckpoint,
@@ -1760,7 +1759,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const reqId = oaiTraceReqId;
     endOaiEnrichmentStage();
     const endOaiProviderRequestStage = oaiOptLedger.startStage("provider_request");
-    const oaiProviderFinalization = await finalizeOpenAIProviderRequest({
+    const oaiProviderFinalization = await finalizeOpenAIProviderRequestForRoute({
       request,
       selectedModel: orchestration.selectedModel,
       enrichedMessages: oaiEnrichedMsgs,
@@ -1808,50 +1807,19 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       setWorkspaceContext: setSessionWorkspaceContext,
       recordSessionEvent,
       runOpenAIRequest,
-    });
-    const normalizedRequest = oaiProviderFinalization.normalizedRequest;
-    effectiveOaiPathCtx = oaiProviderFinalization.pathContext;
-    const oaiCachePolicy = oaiProviderFinalization.cachePolicy;
-    const resolveResult = oaiProviderFinalization.resolveResult;
-    if (!resolveResult.ok) {
-      recordSessionEvent(sessionKey, identity.userId, identity.orgId, "resolve_failure", "tier-registry", resolveResult.error, reqId);
-      return reply.code(503).send({ error: { type: "service_unavailable", message: resolveResult.error } });
-    }
-    const { resolved, messages, transforms: oaiTranscriptTransforms } = resolveResult;
-    const oaiRoutePersistence = createRoutePersistenceScope({
-      state: session,
-      requestId: reqId,
-      resolvedModelId: resolved.resolvedModelId,
-      sessionKey,
-      userId: identity.userId,
-      orgId: identity.orgId,
       clientRequestedModel: request.model,
-      recordSessionEvent,
+      transcriptTransformLogSampleRate: config.SYNESIS_YARN_TRANSCRIPT_TRANSFORM_LOG_SAMPLE_RATE,
+      shouldSampleBySeed,
       persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
     });
-    if (
-      (oaiTranscriptTransforms.systemMessagesReordered || oaiTranscriptTransforms.toolCallsSanitized)
-      && shouldSampleBySeed(
-        `${sessionKey}:${reqId}:openai-transform`,
-        config.SYNESIS_YARN_TRANSCRIPT_TRANSFORM_LOG_SAMPLE_RATE,
-      )
-    ) {
-      recordSessionEvent(
-        sessionKey,
-        identity.userId,
-        identity.orgId,
-        "transcript_transform_applied",
-        "request-normalizer",
-        `system_reordered=${oaiTranscriptTransforms.systemMessagesReordered} tool_sanitized=${oaiTranscriptTransforms.toolCallsSanitized} delta=${oaiTranscriptTransforms.messageCountDelta}`,
-        reqId,
-        {
-          path: "openai",
-          system_messages_reordered: oaiTranscriptTransforms.systemMessagesReordered,
-          tool_calls_sanitized: oaiTranscriptTransforms.toolCallsSanitized,
-          message_count_delta: oaiTranscriptTransforms.messageCountDelta,
-        },
-      );
+    effectiveOaiPathCtx = oaiProviderFinalization.pathContext;
+    if (!oaiProviderFinalization.ok) {
+      return sendOpenAIChatPipelineResult(reply, oaiProviderFinalization.result);
     }
+    const normalizedRequest = oaiProviderFinalization.normalizedRequest;
+    const oaiCachePolicy = oaiProviderFinalization.cachePolicy;
+    const { resolved, messages } = oaiProviderFinalization.resolveResult;
+    const oaiRoutePersistence = oaiProviderFinalization.routePersistence;
     const { adapter } = resolved;
     const oaiResolvedTierForHarness = tierRegistry.getTierConfig(resolved.resolvedModelId);
     const oaiUpperHarness = buildYarnUpperHarnessContext({

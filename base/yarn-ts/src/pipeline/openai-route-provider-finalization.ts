@@ -9,6 +9,8 @@ import { cachePolicyLogRecord } from "../telemetry/cache-policy-controller.js";
 import type { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import type { PrefixOptimizer } from "../providers/prefix-optimizer/index.js";
 import type { MarkerBackend } from "../providers/prefix-optimizer/types.js";
+import { createRoutePersistenceScope } from "../state/route-persistence-scope.js";
+import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 
 type RouteMessage = { role: string; content: unknown; [key: string]: unknown };
 
@@ -273,5 +275,128 @@ export async function finalizeOpenAIProviderRequest<TSession extends OpenAIProvi
     cachePolicy,
     cachePolicyProvider,
     resolveResult: input.runOpenAIRequest(normalizedRequest),
+  };
+}
+
+export interface OpenAIProviderRouteResolveSuccess {
+  ok: true;
+  resolved: { resolvedModelId: string };
+  messages: unknown;
+  transforms: {
+    systemMessagesReordered: boolean;
+    toolCallsSanitized: boolean;
+    messageCountDelta: number;
+  };
+}
+
+export interface OpenAIProviderRouteResolveFailure {
+  ok: false;
+  error: string;
+}
+
+export type OpenAIProviderRouteResolveResult =
+  | OpenAIProviderRouteResolveSuccess
+  | OpenAIProviderRouteResolveFailure;
+
+export interface OpenAIProviderRouteFinalizationInput<
+  TSession extends OpenAIProviderFinalizationSession,
+  TResolveResult extends OpenAIProviderRouteResolveResult,
+> extends OpenAIProviderFinalizationInput<TSession, TResolveResult> {
+  clientRequestedModel: string;
+  transcriptTransformLogSampleRate: number;
+  shouldSampleBySeed(seed: string, rate: number): boolean;
+  persistDecisionTelemetry(input: unknown): unknown;
+}
+
+export type OpenAIProviderRouteFinalizationRouteResult<
+  TResolveResult extends OpenAIProviderRouteResolveResult,
+> =
+  | {
+      ok: false;
+      result: OpenAIChatPipelineResult;
+      pathContext: OpenAIProviderFinalizationPathContext;
+    }
+  | {
+      ok: true;
+      normalizedRequest: OpenAIChatCompletionRequest;
+      pathContext: OpenAIProviderFinalizationPathContext;
+      cachePolicy: CachePolicyControllerDecision;
+      resolveResult: Extract<TResolveResult, { ok: true }>;
+      routePersistence: ReturnType<typeof createRoutePersistenceScope>;
+    };
+
+export async function finalizeOpenAIProviderRequestForRoute<
+  TSession extends OpenAIProviderFinalizationSession,
+  TResolveResult extends OpenAIProviderRouteResolveResult,
+>(
+  input: OpenAIProviderRouteFinalizationInput<TSession, TResolveResult>,
+): Promise<OpenAIProviderRouteFinalizationRouteResult<TResolveResult>> {
+  const finalization = await finalizeOpenAIProviderRequest(input);
+  const resolveResult = finalization.resolveResult;
+  if (!resolveResult.ok) {
+    input.recordSessionEvent(
+      input.sessionKey,
+      input.identity.userId,
+      input.identity.orgId,
+      "resolve_failure",
+      "tier-registry",
+      resolveResult.error,
+      input.requestId,
+    );
+    return {
+      ok: false,
+      pathContext: finalization.pathContext,
+      result: {
+        kind: "error",
+        statusCode: 503,
+        body: { error: { type: "service_unavailable", message: resolveResult.error } },
+      },
+    };
+  }
+
+  const routePersistence = createRoutePersistenceScope({
+    state: input.session as never,
+    requestId: input.requestId,
+    resolvedModelId: resolveResult.resolved.resolvedModelId,
+    sessionKey: input.sessionKey,
+    userId: input.identity.userId,
+    orgId: input.identity.orgId,
+    clientRequestedModel: input.clientRequestedModel,
+    recordSessionEvent: input.recordSessionEvent,
+    persistDecisionTelemetry: input.persistDecisionTelemetry,
+  });
+
+  const transforms = resolveResult.transforms;
+  if (
+    (transforms.systemMessagesReordered || transforms.toolCallsSanitized)
+    && input.shouldSampleBySeed(
+      `${input.sessionKey}:${input.requestId}:openai-transform`,
+      input.transcriptTransformLogSampleRate,
+    )
+  ) {
+    input.recordSessionEvent(
+      input.sessionKey,
+      input.identity.userId,
+      input.identity.orgId,
+      "transcript_transform_applied",
+      "request-normalizer",
+      `system_reordered=${transforms.systemMessagesReordered} tool_sanitized=${transforms.toolCallsSanitized} delta=${transforms.messageCountDelta}`,
+      input.requestId,
+      {
+        path: "openai",
+        system_messages_reordered: transforms.systemMessagesReordered,
+        tool_calls_sanitized: transforms.toolCallsSanitized,
+        message_count_delta: transforms.messageCountDelta,
+      },
+    );
+  }
+
+  return {
+    ok: true,
+    normalizedRequest: finalization.normalizedRequest,
+    pathContext: finalization.pathContext,
+    cachePolicy: finalization.cachePolicy,
+    resolveResult: resolveResult as Extract<TResolveResult, { ok: true }>,
+    routePersistence,
   };
 }

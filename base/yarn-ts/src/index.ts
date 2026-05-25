@@ -260,7 +260,6 @@ import {
 import { applyGovernorPhaseRouteBookkeeping } from "./governance/governor-phase-route.js";
 import { GovernorService, disabledExecutionGovernorDecision } from "./governance/governor-service.js";
 import { OpenAIChatPipeline } from "./pipeline/openai-chat-pipeline.js";
-import { finalizeOpenAIProviderRequest } from "./pipeline/openai-route-provider-finalization.js";
 import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.js";
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
 import { applyWorkspaceMetadataPrebackfill } from "./pipeline/workspace-metadata-prebackfill.js";
@@ -5510,7 +5509,6 @@ const openAIChatCompletionsRouteDependencies = {
   extractRecentToolNames,
   extractTextFromUnknownContent,
   fgaCheck,
-  finalizeOpenAIProviderRequest,
   finalizePostEnrichmentMessages,
   finalizeRequestForensics,
   forceCheckpoint,
