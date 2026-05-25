@@ -1,4 +1,41 @@
 import type { ClaudeMessagesRouteDependencies } from "../index.js";
+import { normalizeToolDescriptions } from "../compat/tool-description-normalizer.js";
+import { applyToolSearchPolicy } from "../compat/tool-search-policy.js";
+import { sortToolSchemas } from "../compat/sorted-tools.js";
+import { parseOrchestratorPhaseHeader } from "../validation/orchestrator-phase.js";
+import {
+  mergeSynesisClarificationFromRequestMetadata,
+} from "../validation/clarification-schema.js";
+import {
+  claudeMessagesToOpenAI,
+  claudeToolsToSDK,
+  sanitizeToolCalls,
+} from "../tool-mapping.js";
+import {
+  appendSystemMessageAndNormalize,
+  normalizeSystemMessageOrdering,
+} from "../transcript/system-message-ordering.js";
+import {
+  buildClaudeMessagesProviderRequestOptions,
+  suppressThinkingWhenRequiredToolChoice,
+} from "../pipeline/provider-options.js";
+import {
+  createClaudeNonStreamRoutePipelineInput,
+  runClaudeNonStreamPipeline,
+} from "../streaming/claude-nonstream-pipeline.js";
+import { buildClaudeNonStreamMessageResponse } from "../streaming/claude-nonstream-response.js";
+import { createClaudeNonStreamRouteScope } from "../streaming/claude-nonstream-route-scope.js";
+import { runClaudeStreamKickoffPipeline } from "../streaming/claude-stream-kickoff-pipeline.js";
+import { createClaudeStreamRouteContext } from "../streaming/claude-stream-route-context.js";
+import { runClaudeStreamRouteFromInput } from "../streaming/claude-stream-route-facade-input.js";
+import { prepareClaudeStreamRoute } from "../streaming/claude-stream-route-prepare.js";
+import { createRouteToolCallSideEffects } from "../streaming/route-tool-call-side-effects.js";
+import {
+  policyRejectClaudeBody,
+  sendClaudeSoftFail,
+  sendClaudeWorkspaceHandshake,
+} from "../protocol/route-response-senders.js";
+import { ClaudeMessagesRequestSchema } from "../schemas.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type FastPathResult = import("../evidence/fast-path.js").FastPathResult;
@@ -47,11 +84,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       userRateLimiter,
     },
     protocol: {
-      appendSystemMessageAndNormalize,
       applyClarificationRoundResponseHeader,
-      buildClaudeNonStreamMessageResponse,
-      ClaudeMessagesRequestSchema,
-      claudeMessagesToOpenAI,
       claudeSystemToMessage,
       debugProtocolLog,
       extractLatestUserPromptFromMessages,
@@ -59,16 +92,8 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       formatValidationError,
       hasClaudeNativeWebSearchTool,
       isClaudeWebSearchToolName,
-      mergeSynesisClarificationFromRequestMetadata,
-      normalizeSystemMessageOrdering,
-      normalizeToolDescriptions,
-      parseOrchestratorPhaseHeader,
-      policyRejectClaudeBody,
       resolveClaudeConversationId,
       resolveRequestId,
-      sanitizeToolCalls,
-      sendClaudeSoftFail,
-      sendClaudeWorkspaceHandshake,
       sseHeadersWithClarification,
       toClaudeServerWebSearchEvent,
     },
@@ -164,12 +189,8 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       recordBlockedDiscovery,
       updateDiffAccumulator,
       applyDiscoveryToolGuardrail,
-      applyToolSearchPolicy,
       buildBlockedDiscoveryRecoverySnapshot,
-      buildClaudeMessagesProviderRequestOptions,
       buildDefaultPolicy,
-      claudeToolsToSDK,
-      createRouteToolCallSideEffects,
       detectClientTaskCapabilities,
       detectClientToolCapabilities,
       ensureReadToolAvailabilityForEditMissGuard,
@@ -178,9 +199,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       getCachedTopLevelDirs,
       prepareRouteTools,
       shouldStripGlobFromTools,
-      sortToolSchemas,
       stripGlobFromTools,
-      suppressThinkingWhenRequiredToolChoice,
       toolArgHardeningStats,
       toolSchemaPruningStats,
     },
@@ -278,20 +297,13 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       assembleRouteModelMessages,
       captureRequestForensics,
       clampMaxOutputTokensForSafety,
-      createClaudeNonStreamRoutePipelineInput,
-      createClaudeNonStreamRouteScope,
-      createClaudeStreamRouteContext,
       extractMetadataFromMessages,
       finalizeOpenAIProviderRequest,
       finalizePostEnrichmentMessages,
       finalizeRequestForensics,
       generateText,
-      prepareClaudeStreamRoute,
       resolveEndpointCapabilityId,
       roleAssignmentRegistry,
-      runClaudeNonStreamPipeline,
-      runClaudeStreamKickoffPipeline,
-      runClaudeStreamRouteFromInput,
       shouldSampleBySeed,
       streamText,
       TIER_TO_ROLE,
