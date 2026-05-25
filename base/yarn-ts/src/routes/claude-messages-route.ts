@@ -2238,6 +2238,18 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       messages: claudeModelMessages as Array<{ role?: string; content?: unknown }>,
       tools: effectiveClaudeTools as unknown[],
       providerOptions,
+      cachePolicy: claudeCachePolicy,
+      modelProviderResolution: {
+        surface: "claude",
+        requestedModel: body.model,
+        resolvedModelId: resolved.resolvedModelId,
+        adapterFamily: claudeAdapter.family,
+        backendModel: claudeResolvedTierForHarness?.backendModel ?? resolvedClaudeTierConfig?.backendModel,
+        baseUrl: claudeResolvedTierForHarness?.baseUrl ?? resolvedClaudeTierConfig?.baseUrl,
+        provider: (claudeResolvedTierForHarness?.baseUrl ?? resolvedClaudeTierConfig?.baseUrl)
+          ? resolveEndpointCapabilityId((claudeResolvedTierForHarness?.baseUrl ?? resolvedClaudeTierConfig?.baseUrl) as string)
+          : "anthropic",
+      },
     });
 
     const persistClaudeDecisionTelemetry = claudeRoutePersistence.persistDecisionTelemetry;

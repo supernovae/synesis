@@ -38,6 +38,12 @@ export interface OptimizationCacheDiagnostics {
   toolSchemaBytes?: number;
   providerOptionsHash?: string;
   providerOptionsBytes?: number;
+  normalizedTranscriptPrefixHash?: string;
+  normalizedTranscriptPrefixBytes?: number;
+  cachePolicyHash?: string;
+  cachePolicyBytes?: number;
+  modelProviderResolutionHash?: string;
+  modelProviderResolutionBytes?: number;
   cacheShapePromptTokens?: number;
   cacheShapeCachedTokens?: number;
   cacheShapeCacheCreationTokens?: number;

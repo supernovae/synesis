@@ -12,6 +12,9 @@ export interface BuildCacheShapeDiagnosticsInput {
   messages: CacheShapeMessage[];
   tools?: unknown[];
   providerOptions?: unknown;
+  cachePolicy?: unknown;
+  modelProviderResolution?: unknown;
+  normalizedTranscriptPrefixMessages?: CacheShapeMessage[];
 }
 
 export interface CacheShapeOutcomeInput {
@@ -26,6 +29,9 @@ export interface CacheShapeSummary {
   stablePrefixHash?: string;
   toolSchemaHash?: string;
   providerOptionsHash?: string;
+  normalizedTranscriptPrefixHash?: string;
+  cachePolicyHash?: string;
+  modelProviderResolutionHash?: string;
   samples: number;
   hits: number;
   writes: number;
@@ -66,6 +72,18 @@ function stablePrefixMessages(messages: CacheShapeMessage[]): CacheShapeMessage[
   return prefix;
 }
 
+function normalizedTranscriptPrefixMessages(messages: CacheShapeMessage[]): CacheShapeMessage[] {
+  let lastUserIndex = -1;
+  for (let idx = messages.length - 1; idx >= 0; idx--) {
+    if (String(messages[idx]?.role ?? "") === "user") {
+      lastUserIndex = idx;
+      break;
+    }
+  }
+  if (lastUserIndex <= 0) return [];
+  return messages.slice(0, lastUserIndex);
+}
+
 function nonNegativeInt(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
@@ -76,6 +94,8 @@ export function buildCacheShapeDiagnostics(
 ): OptimizationCacheDiagnostics {
   const tools = input.tools ?? [];
   const stablePrefix = stablePrefixMessages(input.messages);
+  const transcriptPrefix = input.normalizedTranscriptPrefixMessages
+    ?? normalizedTranscriptPrefixMessages(input.messages);
   return {
     messageCount: input.messages.length,
     stablePrefixHash: hashStable(stablePrefix),
@@ -85,6 +105,12 @@ export function buildCacheShapeDiagnostics(
     toolSchemaBytes: tools.length > 0 ? byteLengthStable(tools) : 0,
     providerOptionsHash: input.providerOptions ? hashStable(input.providerOptions) : "0:empty",
     providerOptionsBytes: input.providerOptions ? byteLengthStable(input.providerOptions) : 0,
+    normalizedTranscriptPrefixHash: transcriptPrefix.length > 0 ? hashStable(transcriptPrefix) : "0:empty",
+    normalizedTranscriptPrefixBytes: transcriptPrefix.length > 0 ? byteLengthStable(transcriptPrefix) : 0,
+    cachePolicyHash: input.cachePolicy ? hashStable(input.cachePolicy) : "0:empty",
+    cachePolicyBytes: input.cachePolicy ? byteLengthStable(input.cachePolicy) : 0,
+    modelProviderResolutionHash: input.modelProviderResolution ? hashStable(input.modelProviderResolution) : "0:empty",
+    modelProviderResolutionBytes: input.modelProviderResolution ? byteLengthStable(input.modelProviderResolution) : 0,
   };
 }
 
@@ -121,6 +147,20 @@ export function cacheShapeDiagnosticFields(
   if (diagnostics.toolSchemaBytes !== undefined) fields.cacheShapeToolSchemaBytes = diagnostics.toolSchemaBytes;
   if (diagnostics.providerOptionsHash !== undefined) fields.cacheShapeProviderOptionsHash = diagnostics.providerOptionsHash;
   if (diagnostics.providerOptionsBytes !== undefined) fields.cacheShapeProviderOptionsBytes = diagnostics.providerOptionsBytes;
+  if (diagnostics.normalizedTranscriptPrefixHash !== undefined) {
+    fields.cacheShapeNormalizedTranscriptPrefixHash = diagnostics.normalizedTranscriptPrefixHash;
+  }
+  if (diagnostics.normalizedTranscriptPrefixBytes !== undefined) {
+    fields.cacheShapeNormalizedTranscriptPrefixBytes = diagnostics.normalizedTranscriptPrefixBytes;
+  }
+  if (diagnostics.cachePolicyHash !== undefined) fields.cacheShapeCachePolicyHash = diagnostics.cachePolicyHash;
+  if (diagnostics.cachePolicyBytes !== undefined) fields.cacheShapeCachePolicyBytes = diagnostics.cachePolicyBytes;
+  if (diagnostics.modelProviderResolutionHash !== undefined) {
+    fields.cacheShapeModelProviderResolutionHash = diagnostics.modelProviderResolutionHash;
+  }
+  if (diagnostics.modelProviderResolutionBytes !== undefined) {
+    fields.cacheShapeModelProviderResolutionBytes = diagnostics.modelProviderResolutionBytes;
+  }
   if (diagnostics.cacheShapePromptTokens !== undefined) fields.cacheShapePromptTokens = diagnostics.cacheShapePromptTokens;
   if (diagnostics.cacheShapeCachedTokens !== undefined) fields.cacheShapeCachedTokens = diagnostics.cacheShapeCachedTokens;
   if (diagnostics.cacheShapeCacheCreationTokens !== undefined) {
@@ -156,8 +196,21 @@ export function summarizeCacheShapeDiagnostics(
     const stablePrefixHash = recordString(record, "cacheShapeStablePrefixHash");
     const toolSchemaHash = recordString(record, "cacheShapeToolSchemaHash");
     const providerOptionsHash = recordString(record, "cacheShapeProviderOptionsHash");
+    const normalizedTranscriptPrefixHash = recordString(record, "cacheShapeNormalizedTranscriptPrefixHash");
+    const cachePolicyHash = recordString(record, "cacheShapeCachePolicyHash");
+    const modelProviderResolutionHash = recordString(record, "cacheShapeModelProviderResolutionHash");
     const outcome = recordOutcome(record);
-    if (!stablePrefixHash && !toolSchemaHash && !providerOptionsHash && !outcome) continue;
+    if (
+      !stablePrefixHash
+      && !toolSchemaHash
+      && !providerOptionsHash
+      && !normalizedTranscriptPrefixHash
+      && !cachePolicyHash
+      && !modelProviderResolutionHash
+      && !outcome
+    ) {
+      continue;
+    }
 
     const path = recordString(record, "path");
     const cacheShapeKey = [
@@ -165,6 +218,9 @@ export function summarizeCacheShapeDiagnostics(
       stablePrefixHash ?? "unknown-prefix",
       toolSchemaHash ?? "unknown-tools",
       providerOptionsHash ?? "unknown-provider-options",
+      normalizedTranscriptPrefixHash ?? "unknown-transcript-prefix",
+      cachePolicyHash ?? "unknown-cache-policy",
+      modelProviderResolutionHash ?? "unknown-model-resolution",
     ].join(":");
     const current = grouped.get(cacheShapeKey) ?? {
       cacheShapeKey,
@@ -172,6 +228,9 @@ export function summarizeCacheShapeDiagnostics(
       stablePrefixHash,
       toolSchemaHash,
       providerOptionsHash,
+      normalizedTranscriptPrefixHash,
+      cachePolicyHash,
+      modelProviderResolutionHash,
       samples: 0,
       hits: 0,
       writes: 0,

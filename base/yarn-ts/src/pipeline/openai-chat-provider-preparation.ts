@@ -474,6 +474,18 @@ export function prepareOpenAIChatProviderRuntime(
     messages: modelMessages as Array<{ role?: string; content?: unknown }>,
     tools: effectiveTools,
     providerOptions,
+    cachePolicy: input.cachePolicy,
+    modelProviderResolution: {
+      surface: "openai",
+      requestedModel: input.request.model,
+      resolvedModelId: resolved.resolvedModelId,
+      adapterFamily: adapter.family,
+      backendModel: resolvedTierForHarness?.backendModel ?? resolvedTierConfig?.backendModel,
+      baseUrl: resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl,
+      provider: (resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl)
+        ? input.resolveEndpointCapabilityId((resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl) as string)
+        : undefined,
+    },
   });
   input.optimizationLedger.recordCacheDiagnostics(cacheShapeDiagnostics as Record<string, unknown>);
 
