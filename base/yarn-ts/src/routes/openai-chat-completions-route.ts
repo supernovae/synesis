@@ -2,7 +2,7 @@ import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import { prepareOpenAIRouteRequestSetup } from "../pipeline/openai-route-request-setup.js";
 import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcript-prep.js";
-import { stabilizeOpenAITranscript } from "../pipeline/openai-route-transcript-stabilization.js";
+import { prepareOpenAISessionWorkspace } from "../pipeline/openai-session-workspace-preparation.js";
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
 import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
 import { prepareOpenAIContext } from "../pipeline/openai-context-preparation.js";
@@ -15,7 +15,6 @@ import { shouldRunGovernorForMode } from "../pipeline/modes.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type SessionIdentity = import("../session/session-key.js").SessionIdentity;
-type RequestForensicsRecord = import("../telemetry/request-forensics.js").RequestForensicsRecord;
 type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
 
 export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRouteDependencies): void {
@@ -100,7 +99,6 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     contextAdmissionStats,
     countTurnsSinceLastUser,
     createDiffStats,
-    crypto,
     debugProtocolLog,
     deriveChatState,
     deriveEditContextMissGuardState,
@@ -410,189 +408,66 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
       top_p: request.top_p,
     });
     const identity: SessionIdentity = oaiIdentity.identity;
-    let oaiFreshImplicitSessionNotice: string | null = null;
-    const oaiBootstrap = await runProtocolSessionBootstrap({
-      identity,
+    const oaiSessionWorkspace = await prepareOpenAISessionWorkspace({
+      deps: {
+        app,
+        annotatePlanFileReads,
+        annotateVerificationGaps,
+        applyAuthKeyAttribution,
+        applySessionTaskCapabilities,
+        applyWorkspaceBoundary,
+        buildFreshImplicitSessionNotice,
+        config,
+        detectClientTaskCapabilities,
+        detectClientToolCapabilities,
+        distributedCounters,
+        extractPlanContentShadow,
+        getContentDedup,
+        getFileSnapshotRegistry,
+        getMemoryGovernor,
+        getSessionKey,
+        getSessionState,
+        hasPersistedWorkspaceState,
+        injectPlanModeRecoveryHint,
+        isGenuineUserPromptMessage,
+        loadUserRuntimePreferences,
+        recordSessionEvent,
+        readdir,
+        remediatePlanFileStubs,
+        resetWorkspaceScopedSessionState,
+        runProtocolSessionBootstrap,
+        serializeShadow,
+        shouldResetImplicitSessionForFreshTranscript,
+        transcriptPruning,
+        workspaceStatePresence,
+        yarnDedupeLayer,
+      },
       authUser,
-      getSessionKey,
-      getSessionState,
-      applyAuthKeyAttribution,
-      loadRuntimePreferences: loadUserRuntimePreferences,
-      debugEnabled: config.SYNESIS_YARN_DEBUG_PROTOCOL,
-      debugConversationSource: "conversation_resolved",
-      debugFallbackSource: "conversation_fallback",
-      debugLog: (record) => app.log.debug(record, "session_resolution"),
-      afterSessionLoaded: ({ sessionKey: loadedSessionKey, session: loadedSession }) => {
-        if (shouldResetImplicitSessionForFreshTranscript({
-          clientKind: oaiClientKind,
-          conversationId: oaiConversationId,
-          messages: request.messages as Array<{ role?: unknown }>,
-          hasPersistedState: hasPersistedWorkspaceState(loadedSession, workspaceStatePresence(loadedSessionKey)),
-        })) {
-          resetWorkspaceScopedSessionState(loadedSessionKey, loadedSession);
-          oaiFreshImplicitSessionNotice = buildFreshImplicitSessionNotice(
-            oaiClientKind,
-            (request.messages as unknown[]).length,
-          );
-          recordSessionEvent(
-            loadedSessionKey,
-            identity.userId,
-            identity.orgId,
-            "implicit_session_fresh_transcript_reset",
-            "session-boundary",
-            `client=${oaiClientKind} messages=${(request.messages as unknown[]).length}`,
-            oaiTraceReqId,
-            {
-              client_kind: oaiClientKind,
-              conversation_id_present: false,
-              message_count: (request.messages as unknown[]).length,
-            },
-          );
-        }
-      },
-    });
-    const sessionKey = oaiBootstrap.sessionKey;
-    const session = oaiBootstrap.session;
-    const oaiRuntimePreferences = oaiBootstrap.runtimePreferences;
-    const oaiToolDefs = (request as Record<string, unknown>).tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
-    const oaiClientToolCapabilities = detectClientToolCapabilities(oaiToolDefs, oaiClientKind, oaiTaskCue);
-    const detectedOaiTaskCapabilities = detectClientTaskCapabilities(oaiToolDefs, oaiClientKind);
-    applySessionTaskCapabilities(session, detectedOaiTaskCapabilities);
-
-    const oaiCapabilityHash = crypto
-      .createHash("sha256")
-      .update(
-        JSON.stringify(
-          Object.entries(oaiCapabilityResolution.resolved_capabilities)
-            .sort(([a], [b]) => a.localeCompare(b)),
-        ),
-      )
-      .digest("hex")
-      .slice(0, 16);
-    const oaiForensicsCapabilityMatrix: RequestForensicsRecord["capabilityMatrix"] = {
-      mode: oaiCapabilityResolution.mode,
-      globalOptimizationsEnabled: oaiCapabilityResolution.global_optimizations_enabled,
-      modelId: oaiMatrixModelId,
-      modelPath: oaiMatrixModelPath,
-      family: oaiMatrixFamily,
-      matchedOverrideIds: oaiCapabilityResolution.matched_override_ids,
-      capabilityHash: oaiCapabilityHash,
-    };
-    recordSessionEvent(
-      sessionKey,
-      identity.userId,
-      identity.orgId,
-      "capability_matrix_resolution_v1",
-      "capability-matrix",
-      `mode=${oaiCapabilityResolution.mode} global=${oaiCapabilityResolution.global_optimizations_enabled ? "on" : "off"} matched=${oaiCapabilityResolution.matched_override_ids.join(",") || "none"}`,
-      oaiTraceReqId,
-      {
-        mode: oaiCapabilityResolution.mode,
-        global_optimizations_enabled: oaiCapabilityResolution.global_optimizations_enabled,
-        model_id: oaiMatrixModelId,
-        model_path: oaiMatrixModelPath,
-        family: oaiMatrixFamily,
-        matched_override_ids: oaiCapabilityResolution.matched_override_ids,
-        matched_selectors: oaiCapabilityResolution.matched_selectors,
-        capability_hash: oaiCapabilityHash,
-        resolved_capabilities: oaiCapabilityResolution.resolved_capabilities,
-      },
-    );
-    const oaiMsgCount = (request.messages as unknown[]).length;
-    const oaiRecentExempt = Number(config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
-    session.pruningWatermark = Math.max(session.pruningWatermark, oaiMsgCount - oaiRecentExempt);
-    // Reset loop counters only on a genuine user prompt (not synthetic tool-result wrappers).
-    const oaiLastIncomingMessage = Array.isArray(request.messages) && request.messages.length > 0
-      ? (request.messages[request.messages.length - 1] as { role?: string; content?: unknown })
-      : undefined;
-    if (isGenuineUserPromptMessage(oaiLastIncomingMessage)) {
-      session.consecutiveToolCalls = 0;
-      session.stagnantToolCycles = 0;
-      session.lastToolSignalHash = "";
-      session.awaitingToolLoopUserAck = false;
-      session.toolLoopAckAnchorUserHash = "";
-      session.toolLoopNoUserAckCount = 0;
-      session.consecutiveRecoveryFires = 0;
-      session.consecutiveEditContextMisses = 0;
-      session.editReplayHardStopGraceUsed = false;
-      session.editMissForceReadPending = false;
-      session.lastGovernorCachedResult = null;
-      session.lastGovernorNoPauseAt = 0;
-      // Also clear verification-block flags so a prior turn's failed/green verification
-      // loop does not gate the new task attempt before it even starts.
-      session.blockBroadVerificationUntilEdit = false;
-      session.blockFailingVerificationUntilEdit = false;
-      session.governorPrePauseAttemptsByRule.clear();
-      session.implementationSoftStallNudgeStrikes = 0;
-      void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err) => { console.warn("[session] counter reset failed:", (err as Error).message ?? err); });
-    }
-    const oaiWorkspaceInspection = await applyWorkspaceBoundary({
-      state: session,
-      sessionKey,
       identity,
+      request,
+      normalizedOpenAI,
       requestId: oaiTraceReqId,
-      pathHints: oaiPathCtx,
-      readDir: async (root) => readdir(root, { withFileTypes: true }),
-      hasPersistedState: hasPersistedWorkspaceState(session, workspaceStatePresence(sessionKey)),
-      resetWorkspaceState: resetWorkspaceScopedSessionState,
-      recordSessionEvent,
-    });
-    const oaiStabilizedTranscript = await stabilizeOpenAITranscript({
-      messages: normalizedOpenAI.messages as Array<{ role: string; name?: string; tool_call_id?: string; content: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }>,
-      originalMessageCount: oaiMsgCount,
-      sessionKey,
-      identity,
-      requestId: oaiTraceReqId,
+      clientKind: oaiClientKind,
+      conversationId: oaiConversationId,
+      taskCue: oaiTaskCue,
       pathContext: oaiPathCtx,
-      governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-      debugProtocol: config.SYNESIS_YARN_DEBUG_PROTOCOL,
+      capabilityResolution: oaiCapabilityResolution,
+      matrixModelId: oaiMatrixModelId,
+      matrixModelPath: oaiMatrixModelPath,
+      matrixFamily: oaiMatrixFamily,
+      compactionBackendModelHint: oaiCompactionOpts.backendModelHint,
       contentDedupeEnabled: oaiContentDedupeEnabled,
       responseDedupeEnabled: oaiResponseDedupeEnabled,
       historicalNormalizeEnabled: oaiHistoricalNormalizeEnabled,
-      compactionBackendModelHint: oaiCompactionOpts.backendModelHint,
-      yarnDedupeLayer,
-      transcriptPruning,
       optimizationLedger: oaiOptLedger,
-      logger: app.log,
-      getFileSnapshotRegistry,
-      getContentDedup,
-      getMemoryGovernor,
-      session,
-      recordSessionEvent,
     });
-    normalizedOpenAI.messages = oaiStabilizedTranscript.messages as never;
-    if (!config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-      const oaiPlanRemediation = remediatePlanFileStubs(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>);
-      if (oaiPlanRemediation.remediatedCount > 0) {
-        normalizedOpenAI.messages = oaiPlanRemediation.messages as never;
-        app.log.warn({ reqId: oaiTraceReqId, count: oaiPlanRemediation.remediatedCount }, "plan_file_dedup_remediated");
-      }
-      const oaiPlanAnnotation = annotatePlanFileReads(normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
-      if (oaiPlanAnnotation.annotatedCount > 0) {
-        normalizedOpenAI.messages = oaiPlanAnnotation.messages as never;
-        if (config.SYNESIS_YARN_DEBUG_PROTOCOL) {
-          app.log.debug({ reqId: oaiTraceReqId, count: oaiPlanAnnotation.annotatedCount }, "plan_file_read_annotated");
-        }
-      }
-      if (oaiPlanAnnotation.planFilePaths.length > 0) {
-        session.record.metadata.plan_file_path = oaiPlanAnnotation.planFilePaths[oaiPlanAnnotation.planFilePaths.length - 1];
-        const freshShadow = extractPlanContentShadow(
-          normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>,
-          oaiPlanAnnotation.planFilePaths,
-        );
-        if (freshShadow) {
-          session.record.metadata.plan_content_shadow = serializeShadow(freshShadow) as unknown as Record<string, unknown>;
-        }
-      }
-      const oaiVerifGaps = annotateVerificationGaps(normalizedOpenAI.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>);
-      if (oaiVerifGaps.annotatedCount > 0) {
-        normalizedOpenAI.messages = oaiVerifGaps.messages as never;
-      }
-      if (injectPlanModeRecoveryHint(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)) {
-        app.log.info({ reqId: oaiTraceReqId }, "plan_mode_recovery_hint_injected");
-      }
-    }
-    oaiOptLedger.recordAfterPruning(normalizedOpenAI.messages as Array<{ content?: unknown }>);
+    const sessionKey = oaiSessionWorkspace.sessionKey;
+    const session = oaiSessionWorkspace.session;
+    const oaiRuntimePreferences = oaiSessionWorkspace.runtimePreferences;
+    const oaiClientToolCapabilities = oaiSessionWorkspace.clientToolCapabilities;
+    const oaiForensicsCapabilityMatrix = oaiSessionWorkspace.forensicsCapabilityMatrix;
+    const oaiWorkspaceInspection = oaiSessionWorkspace.workspaceInspection;
+    const oaiFreshImplicitSessionNotice = oaiSessionWorkspace.freshImplicitSessionNotice;
     endOaiPruningStage?.();
     const endOaiContextStage = oaiOptLedger.startStage("context");
     const oaiTurn = await prepareOpenAITurn({
