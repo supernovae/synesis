@@ -258,15 +258,13 @@ import { createClaudeStreamAfterEventsHandler } from "./streaming/claude-stream-
 import { createClaudeStreamRouteComponents } from "./streaming/claude-stream-components.js";
 import { runClaudeStreamKickoffPipeline } from "./streaming/claude-stream-kickoff-pipeline.js";
 import {
-  createClaudeStreamCompletionFinalizerInput,
   createClaudeStreamFinalizationHandlers,
-  finalizeClaudeStreamCompletion,
 } from "./streaming/claude-stream-finalizer.js";
 import { createClaudeStreamLifecycleHandlers } from "./streaming/claude-stream-lifecycle.js";
 import { prepareClaudeStreamProviderRequest } from "./streaming/claude-stream-provider-request.js";
 import { createClaudeStreamRouteEventHandlers } from "./streaming/claude-stream-route-event-handlers.js";
+import { completeClaudeStreamRoute } from "./streaming/claude-stream-route-completion.js";
 import { startClaudeStreamRouteRuntime } from "./streaming/claude-stream-runtime.js";
-import { createClaudeStreamTelemetryInput, runClaudeStreamTelemetry } from "./streaming/claude-stream-telemetry.js";
 import { runClaudeStreamingPipeline } from "./streaming/claude-streaming-pipeline.js";
 import { createRouteToolCallSideEffects } from "./streaming/route-tool-call-side-effects.js";
 import { createStreamAbortRuntime } from "./streaming/stream-abort-runtime.js";
@@ -9992,76 +9990,74 @@ app.post("/v1/messages", async (req, reply) => {
     });
     const stopReason = claudeStreamingPipeline.stopReason;
 
-    const claudeStreamFinalized = await finalizeClaudeStreamCompletion(createClaudeStreamCompletionFinalizerInput({
-      streamState: claudeStreamState,
-      gate: claudeStreamGate,
-      stopReason,
-      streamed: {
-        totalUsage: streamed.totalUsage as PromiseLike<unknown>,
-        text: streamed.text,
-      },
-      session,
-      ...claudeResponseScope,
-      readUsage,
-      finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
-      handlers: claudeStreamFinalization,
-      writeFinalText: scrubAndFlushClaudeTextBlock,
-      closeTextBlock: closeClaudeStreamingTextBlock,
-      sendSse: (eventName, data) => safeSse(reply, eventName, data),
-      endStream: () => safeEnd(reply.raw),
-      stopHeartbeat: () => claudeHeartbeat.stop(),
-      recordSessionEvent,
-    }));
-    runClaudeStreamTelemetry(createClaudeStreamTelemetryInput({
-      ...createStreamTelemetryRouteBase({
-        scope: claudeResponseScope,
-        startedAtMs: started,
-        resolvedModelId: resolved.resolvedModelId,
-        clientRequestedModel: body.model,
-        reductions: {
-          toolResultReduction,
-          validationNormalization,
+    await completeClaudeStreamRoute({
+      finalizerInput: {
+        streamState: claudeStreamState,
+        gate: claudeStreamGate,
+        stopReason,
+        streamed: {
+          totalUsage: streamed.totalUsage as PromiseLike<unknown>,
+          text: streamed.text,
         },
-        reducedToolResults: claudeToolResultCount,
-        orchestration: claudeOrchestration,
-        policyMatchedRules: claudePolicyPrecheck.matchedRules,
-        evidencePrefetched: claudeEvidencePrefetched,
-        evidenceConfidence: claudeCombinedConfidence || undefined,
-        evidenceAuthoritative: claudePrefetchResult?.authoritative,
-        evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
-        evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
-        sensemakingTriggered: claudeSensemakingResult?.triggered,
-        sensemakingReason: claudeSensemakingResult?.reason,
-        governorDecision: claudeExecutionGovernor,
-        governorChatStateSummary: claudePauseChatSummary,
-        governorFileStateSummary: claudePauseFileSummary,
-        normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
-        inferVerificationSteps,
-        trajectoryDiagnostics: claudeTrajectoryDiagnostics,
-        toolDefinitionCount: effectiveClaudeTools.length,
-        artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
-        knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
-        promptProfileIds: claudeEnriched.promptProfileIds,
-        promptProfileHashes: claudeEnriched.promptProfileHashes,
-        prefixHash: claudeEnriched.prefixHash,
-        prefixChangeReasons: claudeEnriched.prefixChangeReasons,
-        requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
-        requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
-        contextAdmission: claudeContextAdmission,
-        cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
-        prefixFingerprint: claudePrefixFingerprint,
-        cacheShapeDiagnostics: claudeStreamCacheShapeDiagnostics,
-        countMessageRoles,
-        pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
-      }),
-      finishReason: stopReason,
-      usage: claudeStreamFinalized.usage,
+        session,
+        ...claudeResponseScope,
+        readUsage,
+        finalizeRequestForensics: (usage) => finalizeRequestForensics(session, reqId, claudeStreamForensics, usage),
+        handlers: claudeStreamFinalization,
+        writeFinalText: scrubAndFlushClaudeTextBlock,
+        closeTextBlock: closeClaudeStreamingTextBlock,
+        sendSse: (eventName, data) => safeSse(reply, eventName, data),
+        endStream: () => safeEnd(reply.raw),
+        stopHeartbeat: () => claudeHeartbeat.stop(),
+        recordSessionEvent,
+      },
+      telemetryBase: {
+        ...createStreamTelemetryRouteBase({
+          scope: claudeResponseScope,
+          startedAtMs: started,
+          resolvedModelId: resolved.resolvedModelId,
+          clientRequestedModel: body.model,
+          reductions: {
+            toolResultReduction,
+            validationNormalization,
+          },
+          reducedToolResults: claudeToolResultCount,
+          orchestration: claudeOrchestration,
+          policyMatchedRules: claudePolicyPrecheck.matchedRules,
+          evidencePrefetched: claudeEvidencePrefetched,
+          evidenceConfidence: claudeCombinedConfidence || undefined,
+          evidenceAuthoritative: claudePrefetchResult?.authoritative,
+          evidencePrefetchLatencyMs: claudePrefetchResult ? Math.round(claudePrefetchResult.latencyMs) : undefined,
+          evidenceQuality: buildEvidenceTraceSummary(claudePrefetchResult, claudePatternResult),
+          sensemakingTriggered: claudeSensemakingResult?.triggered,
+          sensemakingReason: claudeSensemakingResult?.reason,
+          governorDecision: claudeExecutionGovernor,
+          governorChatStateSummary: claudePauseChatSummary,
+          governorFileStateSummary: claudePauseFileSummary,
+          normalizedMessages: openAIShape.messages as Array<{ role: string; content: unknown }>,
+          inferVerificationSteps,
+          trajectoryDiagnostics: claudeTrajectoryDiagnostics,
+          toolDefinitionCount: effectiveClaudeTools.length,
+          artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
+          knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
+          promptProfileIds: claudeEnriched.promptProfileIds,
+          promptProfileHashes: claudeEnriched.promptProfileHashes,
+          prefixHash: claudeEnriched.prefixHash,
+          prefixChangeReasons: claudeEnriched.prefixChangeReasons,
+          requirementChecklistMust: claudeRequirementChecklist?.must.length || undefined,
+          requirementChecklistShould: claudeRequirementChecklist?.should.length || undefined,
+          contextAdmission: claudeContextAdmission,
+          cacheStrategy: claudeCacheStrategy !== "none" ? claudeCacheStrategy : undefined,
+          prefixFingerprint: claudePrefixFingerprint,
+          cacheShapeDiagnostics: claudeStreamCacheShapeDiagnostics,
+          countMessageRoles,
+          pushDiagnostic: (diagnostic) => pushDiagnostic(diagnostic as unknown as RequestDiagnostic),
+        }),
+        recordSessionEvent,
+        persistDecisionTelemetry: persistClaudeDecisionTelemetry,
+      },
       toolNames: claudeStreamToolSequence,
-      gate: claudeStreamGate,
-      requestForensicsDone: claudeStreamFinalized.requestForensicsDone,
-      recordSessionEvent,
-      persistDecisionTelemetry: persistClaudeDecisionTelemetry,
-    }));
+    });
     return reply;
   }
 
