@@ -1,7 +1,6 @@
 import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
-import { prepareOpenAIRouteRequestSetup } from "../pipeline/openai-route-request-setup.js";
-import { prepareOpenAIRouteTranscript } from "../pipeline/openai-route-transcript-prep.js";
+import { prepareOpenAIRouteNormalization } from "../pipeline/openai-route-normalization.js";
 import { prepareOpenAISessionWorkspace } from "../pipeline/openai-session-workspace-preparation.js";
 import { runOpenAIGovernancePrecheck } from "../pipeline/openai-governance-precheck.js";
 import { prepareOpenAIExecutionGovernor } from "../pipeline/openai-execution-governor-preparation.js";
@@ -315,16 +314,33 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     const oaiDisplayName = oaiIdentity.displayName;
     endOaiIngressStage();
 
-    const oaiRequestSetup = prepareOpenAIRouteRequestSetup({
+    const oaiNormalization = await prepareOpenAIRouteNormalization({
       deps: {
         app,
+        appendPathContextToAdapterBlock,
         applyIngressCapToToolMessages,
+        assessVerificationSignals,
+        clientAdapterPacks,
         config,
+        debugProtocolLog,
+        enrichmentPool,
         extractLatestUserPromptFromMessages,
+        governanceClient,
+        inferTrajectoryDiagnosticsFromMessages,
+        isOpenClawProfile,
+        openClawProfileStats,
+        parseSessionExecutionContext,
+        projectManifestService,
+        resolveCompactionBackendModelHintFromRequestModel,
+        runValidationTierCFallback,
         sessions,
+        toolResultReduction,
+        transcriptPruning,
+        validationNormalization,
       },
       request,
       requestId: oaiTraceReqId,
+      authUser,
       identity: {
         userId: oaiIdentityUserId,
         orgId: authUser.orgId,
@@ -332,82 +348,34 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
         clientKind: oaiClientKind,
         displayName: oaiDisplayName,
       },
-      optimizationLedger: oaiOptLedger,
-    });
-    const oaiTaskCue = oaiRequestSetup.taskCue;
-    const endOaiNormalizationStage = oaiOptLedger.startStage("normalization");
-    const oaiTranscriptPrep = await prepareOpenAIRouteTranscript({
-      request,
-      requestId: oaiTraceReqId,
-      taskCue: oaiTaskCue,
-      backendModelHint: resolveCompactionBackendModelHintFromRequestModel(request.model),
-      pruningWatermark: oaiRequestSetup.pruningWatermark,
-      config,
-      capabilityMatrix: governanceClient?.getCapabilityMatrix() ?? null,
-      enrichmentPool,
-      toolResultReduction,
-      validationNormalization,
-      transcriptPruning,
-      validationTierCFallback: runValidationTierCFallback,
-      optimizationLedger: oaiOptLedger,
-      endNormalizationStage: endOaiNormalizationStage,
-      startPruningStage: () => oaiOptLedger.startStage("pruning"),
-      logger: app.log,
-    });
-    const {
-      compactionOpts: oaiCompactionOpts,
-      matrixModelPath: oaiMatrixModelPath,
-      matrixModelId: oaiMatrixModelId,
-      matrixFamily: oaiMatrixFamily,
-      capabilityResolution: oaiCapabilityResolution,
-      phasePolicyEnabledByMatrix: oaiPhasePolicyEnabledByMatrix,
-      contentDedupeEnabled: oaiContentDedupeEnabled,
-      responseDedupeEnabled: oaiResponseDedupeEnabled,
-      historicalNormalizeEnabled: oaiHistoricalNormalizeEnabled,
-      reducedOpenAI,
-      normalizedOpenAI,
-      toolResultCount,
-      endPruningStage: endOaiPruningStage,
-    } = oaiTranscriptPrep;
-    const oaiTrajectoryDiagnostics = inferTrajectoryDiagnosticsFromMessages(
-      request.messages as Array<{ role: string; content: unknown }>,
-    );
-    const oaiVerificationAssessment = assessVerificationSignals(
-      request.messages as Array<{ role: string; content: unknown; name?: string }>,
-    );
-    const adapterProfile = clientAdapterPacks.resolve(
-      oaiClientKind,
-      String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
-    );
-    const openClawStrictGovernance =
-      config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED
-      && config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED
-      && isOpenClawProfile(adapterProfile);
-    if (isOpenClawProfile(adapterProfile)) {
-      openClawProfileStats.requestsObserved += 1;
-    }
-    const oaiPathCtx = parseSessionExecutionContext(req.headers as Record<string, string | string[] | undefined>, oaiBodyMeta);
-    const adapterBlock = appendPathContextToAdapterBlock(
-      clientAdapterPacks.toSystemBlock(adapterProfile),
-      req.headers as Record<string, string | string[] | undefined>,
-      oaiBodyMeta,
-      oaiClientKind,
-      { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
-    );
-    const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
-    const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
-
-    debugProtocolLog(app.log as never, oaiTraceReqId, "/v1/chat/completions", {
-      protocol: oaiCanonicalRequest.protocol,
+      canonicalRequest: oaiCanonicalRequest,
       pipelineMode: oaiPipelineMode,
-      model: request.model,
-      messageCount: (request.messages as unknown[]).length,
-      hasTools: !!(request.tools as unknown[])?.length,
-      stream: request.stream,
-      client: adapterProfile.client,
-      temperature: request.temperature,
-      top_p: request.top_p,
+      bodyMetadata: oaiBodyMeta as Record<string, unknown> | null,
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      optimizationLedger: oaiOptLedger,
     });
+    const oaiTaskCue = oaiNormalization.taskCue;
+    const oaiCompactionOpts = oaiNormalization.compactionOpts;
+    const oaiMatrixModelPath = oaiNormalization.matrixModelPath;
+    const oaiMatrixModelId = oaiNormalization.matrixModelId;
+    const oaiMatrixFamily = oaiNormalization.matrixFamily;
+    const oaiCapabilityResolution = oaiNormalization.capabilityResolution;
+    const oaiPhasePolicyEnabledByMatrix = oaiNormalization.phasePolicyEnabledByMatrix;
+    const oaiContentDedupeEnabled = oaiNormalization.contentDedupeEnabled;
+    const oaiResponseDedupeEnabled = oaiNormalization.responseDedupeEnabled;
+    const oaiHistoricalNormalizeEnabled = oaiNormalization.historicalNormalizeEnabled;
+    const reducedOpenAI = oaiNormalization.reducedOpenAI;
+    const normalizedOpenAI = oaiNormalization.normalizedOpenAI;
+    const toolResultCount = oaiNormalization.toolResultCount;
+    const endOaiPruningStage = oaiNormalization.endPruningStage;
+    const oaiTrajectoryDiagnostics = oaiNormalization.trajectoryDiagnostics;
+    const oaiVerificationAssessment = oaiNormalization.verificationAssessment;
+    const adapterProfile = oaiNormalization.adapterProfile;
+    const openClawStrictGovernance = oaiNormalization.openClawStrictGovernance;
+    const oaiPathCtx = oaiNormalization.pathContext;
+    const adapterBlock = oaiNormalization.adapterBlock;
+    const latestUserText = oaiNormalization.latestUserText;
+    const preManifest = oaiNormalization.preManifest;
     const identity: SessionIdentity = oaiIdentity.identity;
     const oaiSessionWorkspace = await prepareOpenAISessionWorkspace({
       deps: {
