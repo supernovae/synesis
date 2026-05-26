@@ -51,6 +51,34 @@ export interface PipelineStageTelemetry {
   recordStageDuration?(stage: string, durationMs: number): void;
 }
 
+export type PipelineStageName =
+  | "ingress"
+  | "normalization"
+  | "pruning"
+  | "enrichment"
+  | "governor"
+  | "provider_options"
+  | "provider_call"
+  | "stream"
+  | "persistence";
+
+export interface PipelineStepCheckpoint<TPayload = unknown> {
+  stage: PipelineStageName | string;
+  ctx: PipelineContext;
+  payload?: TPayload;
+  telemetry?: Record<string, unknown>;
+}
+
+export interface PipelineStepGovernor {
+  beforeStage<TPayload = unknown>(
+    checkpoint: PipelineStepCheckpoint<TPayload>,
+  ): Promise<GovernorDecision> | GovernorDecision;
+  afterStage?<TPayload = unknown>(
+    checkpoint: PipelineStepCheckpoint<TPayload>,
+    result: unknown,
+  ): Promise<void> | void;
+}
+
 export interface PipelineResult {
   kind: "json" | "stream" | "soft_fail";
   statusCode?: number;

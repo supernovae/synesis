@@ -103,7 +103,6 @@ import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import {
   PhaseModelOrchestrator,
   type EffortTier,
-  type WorkflowPhase,
 } from "./orchestration/phase-model-orchestrator.js";
 import {
   appendPathContextToAdapterBlock,
@@ -154,15 +153,13 @@ import {
 } from "./state/persistence-state-channels.js";
 import { prepareProtocolPauseState } from "./session/protocol-pause-state.js";
 import { EnrichmentPool } from "./workers/pool.js";
-import type { TierCFallbackContext, TierCFallbackResult } from "./validation/normalizer.js";
+import { createValidationTierCFallbackRunner } from "./validation/tier-c-fallback-runner.js";
 import {
   buildExecutionGovernorHardStopUserMessage,
   buildExecutionGovernorPauseEnvelope,
   inferGovernorPhaseFromMessages,
-  governorPhaseToWorkflowPhase,
   extractCommandEvents,
   extractEditedFileHints,
-  type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
 import {
@@ -214,7 +211,6 @@ import {
 import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import {
   deriveChatState,
-  type ChatPhase,
 } from "./governance/chat-state.js";
 import { deriveFileState } from "./governance/file-state.js";
 import {
@@ -235,71 +231,22 @@ import { createWorkspaceSessionStateHelpers } from "./state/workspace-session-st
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
-  detectClientTaskCapabilities,
-  isTaskToolCall,
-  normalizeTaskToolCall,
-  reconcileFromToolCall,
-  reconcileFromEvidence,
-  createEmptyLedger,
-  type EvidenceSignal,
-} from "./task-ledger/index.js";
-
-function inferVerificationSteps(sequence: string[]): string[] {
-  const steps: string[] = [];
-  for (const name of sequence) {
-    if (name === "run_lint" && !steps.includes("run_lint")) steps.push("run_lint");
-    else if (name === "run_build" && !steps.includes("run_build")) steps.push("run_build");
-    else if (name === "run_test" && !steps.includes("run_test_targeted")) steps.push("run_test_targeted");
-  }
-  return steps;
-}
+  chatPhaseFromWorkflowPhase,
+  countTurnsSinceLastUser,
+  inferVerificationSteps,
+  isMatrixCapabilityEnabled,
+  isOpenClawProfile,
+  resolveWorkingPhase,
+  shouldRestrictDiscoveryForPlanWork,
+} from "./server/route-governance-helpers.js";
+import { detectClientTaskCapabilities } from "./task-ledger/index.js";
+import {
+  classifyToolResultAsEvidence,
+  maybeUpdateTaskLedgerFromEvidence,
+  maybeUpdateTaskLedgerFromToolCall,
+} from "./task-ledger/route-task-ledger-helpers.js";
 
 const GOVERNOR_COOLDOWN_MS = 3_000;
-
-function isOpenClawProfile(profile: { family?: string }): boolean {
-  return profile.family === "openclaw";
-}
-
-function parseTierCFallbackJson(raw: string, maxFindings: number): TierCFallbackResult | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const findingsRaw = (parsed as Record<string, unknown>).findings;
-  if (!Array.isArray(findingsRaw) || findingsRaw.length === 0) return null;
-  const findings = findingsRaw
-    .slice(0, maxFindings)
-    .map((f) => {
-      if (!f || typeof f !== "object") return null;
-      const row = f as Record<string, unknown>;
-      const message = String(row.message ?? "").trim();
-      if (!message) return null;
-      const severityRaw = String(row.severity ?? "error").toLowerCase();
-      const severity: "error" | "warning" | "info" =
-        severityRaw === "warning" || severityRaw === "info" ? severityRaw : "error";
-      return {
-        family: "generic" as const,
-        severity,
-        file: typeof row.file === "string" ? row.file : undefined,
-        line: typeof row.line === "number" ? row.line : undefined,
-        column: typeof row.column === "number" ? row.column : undefined,
-        ruleId: typeof row.ruleId === "string" ? row.ruleId : undefined,
-        excerpt: typeof row.excerpt === "string" ? row.excerpt : undefined,
-        message,
-      };
-    })
-    .filter((f): f is NonNullable<typeof f> => Boolean(f));
-  if (findings.length === 0) return null;
-  return { findings };
-}
 
 const toolArgHardeningStats = {
   normalizedPathCount: 0,
@@ -345,7 +292,10 @@ function pushDiagnostic(d: RequestDiagnostic): void {
 }
 
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
-import { registerConfiguredRoutes } from "./server/route-registration.js";
+import {
+  registerConfiguredRoutes,
+  type RouteDependencyGroups,
+} from "./server/route-registration.js";
 import {
   createGracefulShutdown,
   registerShutdownSignals,
@@ -680,7 +630,7 @@ const {
 });
 
 import { GovernanceClient } from "./policy/governance-client.js";
-import { resolveCapabilityMatrix, type CapabilityKey } from "./policy/capability-matrix.js";
+import { resolveCapabilityMatrix } from "./policy/capability-matrix.js";
 const governanceClient = config.SYNESIS_YARN_GOVERNANCE_ENABLED
   ? new GovernanceClient(config)
   : null;
@@ -791,48 +741,6 @@ const { enrichWithFrameAndManifest } = createRouteEnrichmentService({
   getMemoryGovernor,
 });
 
-function isMatrixCapabilityEnabled(
-  governanceDisabled: boolean,
-  mode: "enforced" | "shadow",
-  resolvedCapabilities: Record<string, boolean>,
-  key: CapabilityKey,
-): boolean {
-  if (governanceDisabled) return true;
-  if (mode !== "enforced") return true;
-  return resolvedCapabilities[key] === true;
-}
-
-function chatPhaseFromWorkflowPhase(phase?: WorkflowPhase): ChatPhase | undefined {
-  if (!phase) return undefined;
-  if (phase === "explore") return "inspect";
-  if (phase === "planning") return "interpret";
-  if (phase === "validation") return "verify";
-  return "edit";
-}
-
-function resolveWorkingPhase(args: {
-  orchestratorOverride?: WorkflowPhase;
-  framePhase?: WorkflowPhase;
-  governorPreviewPhase?: SessionPhase;
-}): WorkflowPhase | undefined {
-  if (args.orchestratorOverride) return args.orchestratorOverride;
-  const governorPhase = args.governorPreviewPhase
-    ? governorPhaseToWorkflowPhase(args.governorPreviewPhase)
-    : undefined;
-  const framePhase = args.framePhase;
-  if (!framePhase) return governorPhase;
-  if (!governorPhase || governorPhase === framePhase) return framePhase;
-  // If the frame lags behind observed execution behavior, trust governor phase
-  // to avoid planning-vs-implementation drift that can cause pause churn.
-  if (
-    (framePhase === "explore" || framePhase === "planning")
-    && (governorPhase === "implementation" || governorPhase === "validation")
-  ) {
-    return governorPhase;
-  }
-  return framePhase;
-}
-
 function applyAuthKeyAttribution(
   state: SessionState,
   authUser: Pick<import("./auth.js").AuthUser, "authMethod" | "authKeyId" | "authKeyName" | "authKeyPrefix">,
@@ -843,92 +751,6 @@ function applyAuthKeyAttribution(
   state.record.metadata.auth_key_prefix = authUser.authKeyPrefix ?? "";
 }
 
-
-/**
- * Update the task ledger when a tool call is detected as a todo/task tool.
- * Call after governToolCall for every tool call in the pipeline.
- */
-function maybeUpdateTaskLedgerFromToolCall(
-  session: SessionState,
-  toolName: string,
-  args: Record<string, unknown>,
-  turn: number,
-): void {
-  if (!isTaskToolCall(toolName)) return;
-  if (!session.taskCapabilities) return;
-
-  const normalized = normalizeTaskToolCall(
-    { toolName, args, turn },
-    session.taskCapabilities,
-  );
-  if (normalized.length === 0) return;
-
-  if (!session.taskLedger) {
-    session.taskLedger = createEmptyLedger(
-      session.record.sessionKey,
-      session.taskCapabilities.hasExplicitTodoTool,
-      session.taskCapabilities.hasExplicitPlanMode,
-    );
-  }
-  session.taskLedger = reconcileFromToolCall(session.taskLedger, normalized, turn);
-}
-
-/**
- * Update the task ledger with evidence signals from tool results.
- */
-function maybeUpdateTaskLedgerFromEvidence(
-  session: SessionState,
-  signals: EvidenceSignal[],
-): void {
-  if (!session.taskLedger || session.taskLedger.tasks.length === 0) return;
-  if (signals.length === 0) return;
-  session.taskLedger = reconcileFromEvidence(session.taskLedger, signals);
-}
-
-/**
- * Classify a tool result into evidence signals for the task ledger.
- */
-function classifyToolResultAsEvidence(
-  toolName: string,
-  resultText: string,
-  turn: number,
-): EvidenceSignal[] {
-  const signals: EvidenceSignal[] = [];
-  const lower = toolName.toLowerCase().replace(/-/g, "_");
-  const resultLower = resultText.toLowerCase();
-
-  if (lower.includes("write") || lower.includes("edit") || lower.includes("patch") || lower.includes("replace") || lower.includes("str_replace")) {
-    if (!resultLower.includes("error") && !resultLower.includes("failed")) {
-      signals.push({ kind: "file_edit", detail: resultText.slice(0, 200), turn });
-    }
-  }
-
-  if (lower.includes("test") || lower.includes("bash") || lower.includes("shell") || lower.includes("terminal") || lower.includes("command")) {
-    if (/\b(pass|ok|passed|success)\b/i.test(resultText) && !/\b(fail|error|FAIL)\b/.test(resultText)) {
-      signals.push({ kind: "test_pass", detail: resultText.slice(0, 200), turn });
-    } else if (/\b(fail|FAIL|error|Error)\b/.test(resultText)) {
-      signals.push({ kind: "test_fail", detail: resultText.slice(0, 200), turn });
-    } else if (!resultLower.includes("error") && !resultLower.includes("failed") && resultText.length > 5) {
-      signals.push({ kind: "command_success", detail: resultText.slice(0, 200), turn });
-    }
-  }
-
-  return signals;
-}
-
-/**
- * Count assistant turns since the last user message in a scoped message window.
- * Used for sensemaking friction decay — prevents exponential decay from using
- * total event count (which grows unboundedly in client-driven tool loops).
- */
-function countTurnsSinceLastUser(messages: readonly { role: string }[]): number {
-  let count = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") break;
-    if (messages[i].role === "assistant") count++;
-  }
-  return Math.max(1, count);
-}
 
 function injectSessionContext(
   messages: Array<{ role: string; content: unknown }>,
@@ -1009,67 +831,24 @@ async function refreshTierRegistry(): Promise<void> {
   }
 }
 
-async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<TierCFallbackResult | null> {
-  if (!config.SYNESIS_YARN_VALIDATION_TIER_C_ENABLED) return null;
-  const role = config.SYNESIS_YARN_VALIDATION_TIER_C_ROLE;
-  const assigned = roleAssignmentRegistry.get(role);
-  if (!assigned?.assigned || !assigned.backendModel) return null;
-
-  const rawOutput = ctx.rawOutput.slice(0, Math.max(1000, config.SYNESIS_YARN_VALIDATION_TIER_C_MAX_INPUT_CHARS));
-  const findingsTarget = Math.max(1, Math.min(ctx.maxFindings, config.SYNESIS_YARN_VALIDATION_TIER_C_MAX_FINDINGS));
-  try {
-    const { model } = tierRegistry.resolveAdHoc(
-      `synesis-tierc-${role}`,
-      assigned.backendModel,
-      assigned.baseUrl,
-      assigned.apiKey,
-    );
-    const result = await generateText({
-      model: model as never,
-      maxOutputTokens: 700,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You extract validation findings from noisy tool output.",
-            "Return strict JSON only with this shape:",
-            '{"findings":[{"severity":"error|warning|info","file":"optional","line":0,"column":0,"ruleId":"optional","message":"required","excerpt":"optional"}]}',
-            `Return at most ${findingsTarget} findings.`,
-            "Do not include markdown, prose, or code fences.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: [
-            `Tool: ${ctx.toolName ?? "unknown"}`,
-            `Family hint: ${ctx.family}`,
-            "Output:",
-            rawOutput,
-          ].join("\n\n"),
-        },
-      ] as never,
-      abortSignal: AbortSignal.timeout(Math.max(300, config.SYNESIS_YARN_VALIDATION_TIER_C_TIMEOUT_MS)),
-    });
-    return parseTierCFallbackJson(result.text, findingsTarget);
-  } catch {
-    return null;
-  }
-}
+const runValidationTierCFallback = createValidationTierCFallbackRunner({
+  config,
+  generateText,
+  roleAssignmentRegistry,
+  tierRegistry,
+});
 
 import {
   adapterUsesToolLoopSteering,
 } from "./providers/model-adapter.js";
-import type { GovernedToolCall } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
 import {
   createDiffStats,
-  recordEditOperation,
-  recordFileDeletion,
-  isFileDeletion,
   assessProportionality,
   proportionalityToSignal,
 } from "./governance/diff-accumulator.js";
+import { createRouteDiffAccumulatorUpdater } from "./governance/route-diff-accumulator.js";
 import { lastToolUseIdFromClaudeMessages } from "./session/workspace-context-handshake.js";
 import { processWorkspaceHandshakeRoute } from "./session/workspace-handshake-route.js";
 import {
@@ -1078,45 +857,9 @@ import {
   sendOpenAIWorkspaceHandshake,
 } from "./protocol/route-response-senders.js";
 
-/**
- * Update the session's diff accumulator from a governed tool call.
- * Called from all 4 governance call sites.
- */
-function updateDiffAccumulator(session: SessionState, governed: GovernedToolCall): void {
-  if (!config.SYNESIS_YARN_PROPORTIONALITY_ENABLED) return;
-  if (session.scopeEnvelope === "unconstrained" || session.scopeEnvelope === "removal_ok") return;
-
-  const logicalName = governed.toolName;
-  const input = governed.input;
-
-  // Skip blocked/error tool calls
-  if (logicalName.startsWith("Synesis_Error")) return;
-
-  const WRITE_TOOLS = new Set(["Write", "Edit", "Update", "MultiEdit", "FileWrite", "ApplyPatch", "StrReplace"]);
-  if (!WRITE_TOOLS.has(logicalName) && logicalName !== "Bash") return;
-
-  const filePath = typeof input.file_path === "string" ? input.file_path.trim()
-    : typeof input.path === "string" ? input.path.trim() : "";
-
-  if (WRITE_TOOLS.has(logicalName) && filePath) {
-    const content = typeof input.content === "string" ? input.content : undefined;
-    if (logicalName === "Write" || logicalName === "FileWrite") {
-      if (isFileDeletion(content)) {
-        recordFileDeletion(session.diffStats, filePath, 50);
-      } else {
-        const lines = (content ?? "").split("\n").length;
-        recordEditOperation(session.diffStats, filePath, lines, 0);
-      }
-    } else {
-      // Edit/Update/StrReplace: estimate from old_string vs new_string
-      const oldStr = typeof input.old_string === "string" ? input.old_string : "";
-      const newStr = typeof input.new_string === "string" ? input.new_string : "";
-      const oldLines = oldStr ? oldStr.split("\n").length : 0;
-      const newLines = newStr ? newStr.split("\n").length : 0;
-      recordEditOperation(session.diffStats, filePath, newLines, oldLines);
-    }
-  }
-}
+const updateDiffAccumulator = createRouteDiffAccumulatorUpdater({
+  proportionalityEnabled: config.SYNESIS_YARN_PROPORTIONALITY_ENABLED,
+});
 
 function recordUpperHarnessDecision(
   sessionKey: string,
@@ -1144,21 +887,6 @@ const readUsage = (input: unknown) => normalizeProviderUsage(input, {
   debug: config.SYNESIS_YARN_DEBUG_PROTOCOL,
   logger: app.log,
 });
-
-function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
-  const text = typeof userPrompt === "string" ? userPrompt.toLowerCase() : "";
-  if (!text) return false;
-  if (!text.includes("plan")) return false;
-  // "continue with plan" is a strong resume signal on its own — the model
-  // needs full tool access to orient after a crash or session break.
-  const strongResumeCue = /\b(continue with (?:completing |the )?plan|resume (?:the )?plan|pick up (?:the |where )?plan)\b/.test(text);
-  if (strongResumeCue) return false;
-  const resumeRecoveryIntent =
-    /\b(continue|resume|pick up|pick-up|where we left off|continue with plan|last stuck session|please continue)\b/.test(text)
-    && /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|left off|prior run|previous run|incomplete|remaining)\b/.test(text);
-  if (resumeRecoveryIntent) return false;
-  return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
-}
 
 function debugProtocolLog(
   logger: { info(obj: Record<string, unknown>, msg: string): void },
@@ -1212,7 +940,7 @@ await registerNonChatRoutes({
   requireInternalToken,
 });
 
-const routeDependencyGroups = {
+const routeDependencyGroups: RouteDependencyGroups = {
   runtime: {
     app,
     config,
