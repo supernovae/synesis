@@ -125,6 +125,12 @@ export interface ClaudeMessagesRouteDependencies {
 export type RouteRequest = FastifyRequest;
 export type RouteReply = FastifyReply;
 
+export function buildOpenAIChatCompletionsRouteDependencies(
+  source: OpenAIChatCompletionsRouteDependencies,
+): OpenAIChatCompletionsRouteDependencies {
+  return source;
+}
+
 export interface ClaudeMessagesRouteDependencySource extends AnyRecord {
   app: FastifyInstance;
   config: AppConfig;
