@@ -4698,6 +4698,7 @@ const routeDependencySource = {
   persistGovernorPauseSoftFail,
   persistPromptIntakeSnapshot,
   persistStateConfidence,
+  prepareProtocolPauseState,
   phaseFromFrame,
   phaseOrchestrator,
   pinchCompactionBackendModelMetadata,
