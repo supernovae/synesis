@@ -11,9 +11,6 @@ import {
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
-  type OpenAIChatCompletionRequest
-} from "./schemas.js";
-import {
   fetchTierRegistrySnapshot,
   fetchPublicOfferingsForYarn,
   mergeYarnPublicOfferingsIntoTiers,
@@ -22,8 +19,8 @@ import {
   type PromptSnapshot,
   type RoleAssignmentConfig,
 } from "./providers/admin-tier-registry.js";
-import { SynesisProviderRegistry, type DashScopeCacheOpts } from "./providers/synesis-provider.js";
-import { PrefixOptimizer, extractMetadataFromMessages, type MarkerBackend } from "./providers/prefix-optimizer/index.js";
+import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
+import { PrefixOptimizer, extractMetadataFromMessages } from "./providers/prefix-optimizer/index.js";
 import { resolveEndpointCapabilityId } from "./providers/endpoint-capabilities/resolve.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
 import { SessionStore } from "./state/session-store.js";
@@ -78,15 +75,7 @@ import {
 } from "./telemetry/request-diagnostics.js";
 import {
   cachePolicyLogRecord,
-  evaluateCachePolicyController,
-  type CachePolicyControllerDecision,
-  type ProviderCachePolicyWindow,
 } from "./telemetry/cache-policy-controller.js";
-import {
-  DEFAULT_USER_RUNTIME_PREFERENCES,
-  normalizeUserRuntimePreferences,
-  type UserRuntimePreferences,
-} from "./runtime/user-preferences.js";
 import {
   detectClientToolCapabilities,
 } from "./adapters/client-tool-capabilities.js";
@@ -139,12 +128,6 @@ import {
   formatUpperHarnessDecisionSummary,
   type UpperHarnessDecision,
 } from "./upper-harness/bridge.js";
-import {
-  openAIMessagesToModelMessages,
-  ensureSystemMessagesAtBeginning,
-  coalesceLeadingSystemMessages,
-  sanitizeToolCalls,
-} from "./tool-mapping.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -165,6 +148,7 @@ import { createSessionPersistenceRunner } from "./state/session-persistence-runn
 import { createRoutePersistenceScope } from "./state/route-persistence-scope.js";
 import { createSessionResourceRegistry } from "./state/session-resource-registry.js";
 import { createSessionLifecycleHelpers } from "./state/session-lifecycle.js";
+import { createProviderRequestSupport } from "./providers/provider-request-support.js";
 import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
 import {
   readPersistedChatStateSnapshot,
@@ -249,7 +233,6 @@ import {
   setSessionWorkspaceContext,
 } from "./state/workspace-session-boundary.js";
 import { createWorkspaceSessionStateHelpers } from "./state/workspace-session-state-helpers.js";
-import type { CompactionMode } from "./governance/context-budget-manager.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
@@ -539,7 +522,7 @@ const tierRegistry = new SynesisProviderRegistry({
 // markerBackend="none" and rely on implicit prefix reuse.
 const prefixOptimizer = config.SYNESIS_YARN_PREFIX_OPTIMIZER_ENABLED
   ? new PrefixOptimizer({
-      markerBackend: "none" as MarkerBackend,
+      markerBackend: "none",
       maxMarkers: Math.max(0, config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS),
       enableReduction: true,
       enableDiagnosticLogging: true,
@@ -745,6 +728,20 @@ const {
   getFileSnapshotRegistry,
   getContentDedup,
   recordSessionEvent,
+});
+const {
+  loadUserRuntimePreferences,
+  loadProviderCachePolicyWindow,
+  evaluateCachePolicyForSession,
+  markerBackendForRequest,
+  runOpenAIRequest,
+  shouldSampleBySeed,
+  maybeLogEnvelopeUnwrapSample,
+} = createProviderRequestSupport({
+  config,
+  logger: app.log,
+  tierRegistry,
+  sessionStore,
 });
 
 import { GovernanceClient } from "./policy/governance-client.js";
@@ -1124,7 +1121,6 @@ async function runValidationTierCFallback(ctx: TierCFallbackContext): Promise<Ti
   }
 }
 
-import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
   adapterUsesToolLoopSteering,
 } from "./providers/model-adapter.js";
@@ -1146,137 +1142,6 @@ import {
   sendOpenAISoftFail,
   sendOpenAIWorkspaceHandshake,
 } from "./protocol/route-response-senders.js";
-
-type ResolveResult =
-  | {
-      ok: true;
-      resolved: { model: unknown; resolvedModelId: string; adapter: ModelAdapter };
-      messages: ReturnType<typeof openAIMessagesToModelMessages>;
-      transforms: {
-        systemMessagesReordered: boolean;
-        toolCallsSanitized: boolean;
-        messageCountDelta: number;
-      };
-    }
-  | { ok: false; error: string };
-
-const dashScopeCacheOpts: DashScopeCacheOpts = {
-  enabled: false,
-  maxMarkers: 0,
-};
-/** Intentional no-op: keeps `resolve()` call-site shape; DashScope markers now live in endpoint-capabilities. */
-
-function dashscopeCanaryEnabledForSession(sessionKey: string): boolean {
-  const pct = Math.max(0, Math.min(100, Math.floor(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT)));
-  if (pct <= 0) return false;
-  if (pct >= 100) return true;
-  const hash = crypto.createHash("sha256").update(sessionKey || "anon").digest();
-  return hash.readUInt32BE(0) % 100 < pct;
-}
-
-function markerBackendForRequest(
-  modelId: string,
-  fallbackModelId: string,
-  sessionKey: string,
-  cachePolicy?: CachePolicyControllerDecision,
-): MarkerBackend {
-  if (cachePolicy && !cachePolicy.allowExplicitCacheMarkers) return "none";
-  const mode = config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE;
-  if (mode === "off") return "none";
-  if (mode === "canary" && !dashscopeCanaryEnabledForSession(sessionKey)) return "none";
-  const primary = tierRegistry.getTierConfig(modelId);
-  const fallback = tierRegistry.getTierConfig(fallbackModelId);
-  const tier = primary ?? fallback;
-  if (!tier || resolveEndpointCapabilityId(tier.baseUrl) !== "dashscope") return "none";
-  return "dashscope";
-}
-
-async function loadUserRuntimePreferences(userId: string): Promise<UserRuntimePreferences> {
-  if (!config.SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED || !userId || userId === "anon") {
-    return DEFAULT_USER_RUNTIME_PREFERENCES;
-  }
-  try {
-    const raw = await sessionStore.loadUserRuntimePreferences(userId);
-    return normalizeUserRuntimePreferences(raw);
-  } catch (err) {
-    app.log.warn({ err, userId }, "user_runtime_preferences_load_failed");
-    return DEFAULT_USER_RUNTIME_PREFERENCES;
-  }
-}
-
-async function loadProviderCachePolicyWindow(
-  orgId: string,
-  provider: string,
-  clientKind: string,
-): Promise<ProviderCachePolicyWindow | null> {
-  if (!config.SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED) return null;
-  try {
-    return await sessionStore.loadProviderCacheWindow(
-      orgId || "no-org",
-      provider || "unknown",
-      config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS,
-      clientKind || "unknown-client",
-    );
-  } catch (err) {
-    app.log.warn({ err, orgId, provider, clientKind }, "provider_cache_policy_window_load_failed");
-    return null;
-  }
-}
-
-function evaluateCachePolicyForSession(
-  session: SessionState,
-  provider: string,
-  configuredCompactionMode: CompactionMode,
-  providerWindow?: ProviderCachePolicyWindow | null,
-  runtimePreferences?: UserRuntimePreferences | null,
-): CachePolicyControllerDecision {
-  return evaluateCachePolicyController({
-    enabled: config.SYNESIS_YARN_CACHE_POLICY_CONTROLLER_ENABLED,
-    metadata: session.record.metadata,
-    provider,
-    configuredCompactionMode,
-    missStreakThreshold: config.SYNESIS_YARN_CACHE_POLICY_MISS_STREAK_THRESHOLD,
-    telemetryMissingThreshold: config.SYNESIS_YARN_CACHE_POLICY_TELEMETRY_MISSING_THRESHOLD,
-    premiumWriteWithoutReadThreshold: config.SYNESIS_YARN_CACHE_POLICY_PREMIUM_WRITE_STREAK_THRESHOLD,
-    retryRiskStagnantCycles: config.SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES,
-    stagnantToolCycles: session.stagnantToolCycles,
-    awaitingToolLoopUserAck: session.awaitingToolLoopUserAck,
-    toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
-    consecutiveRecoveryFires: session.consecutiveRecoveryFires,
-    consecutiveEditContextMisses: session.consecutiveEditContextMisses,
-    providerWindow,
-    providerWindowMinRequests: config.SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_MIN_REQUESTS,
-    runtimePreferences,
-  });
-}
-
-function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
-  try {
-    const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
-    const systemOrdered = ensureSystemMessagesAtBeginning(request.messages as never);
-    const systemCoalesced = coalesceLeadingSystemMessages(systemOrdered as never);
-    const sanitized = sanitizeToolCalls(systemCoalesced as never);
-    let toolCallsSanitized = false;
-    try {
-      toolCallsSanitized = JSON.stringify(systemCoalesced) !== JSON.stringify(sanitized);
-    } catch {
-      toolCallsSanitized = systemCoalesced.length !== sanitized.length;
-    }
-    const messages = openAIMessagesToModelMessages(sanitized);
-    return {
-      ok: true,
-      resolved,
-      messages,
-      transforms: {
-        systemMessagesReordered: systemOrdered !== (request.messages as never),
-        toolCallsSanitized,
-        messageCountDelta: sanitized.length - ((request.messages as unknown[])?.length ?? 0),
-      },
-    };
-  } catch {
-    return { ok: false, error: "No model configuration available — the service may still be initializing" };
-  }
-}
 
 /**
  * Update the session's diff accumulator from a governed tool call.
@@ -1316,43 +1181,6 @@ function updateDiffAccumulator(session: SessionState, governed: GovernedToolCall
       recordEditOperation(session.diffStats, filePath, newLines, oldLines);
     }
   }
-}
-
-function shouldSampleBySeed(seed: string, rate: number): boolean {
-  if (rate >= 1) return true;
-  if (rate <= 0) return false;
-  let hash = 2166136261;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  const normalized = (hash >>> 0) / 0xffffffff;
-  return normalized < rate;
-}
-
-function maybeLogEnvelopeUnwrapSample(
-  logger: { info: (obj: Record<string, unknown>, msg?: string) => void },
-  reqId: string,
-  toolName: string,
-  clientKind: string,
-  governed: GovernedToolCall,
-  toolCallId?: string,
-): void {
-  if (!governed.envelopeUnwrapped) return;
-  const source = governed.envelopeSource ?? "unknown";
-  const seed = `${reqId}:${toolCallId ?? "_"}:${toolName}:${source}:${clientKind}`;
-  if (!shouldSampleBySeed(seed, config.SYNESIS_YARN_ENVELOPE_UNWRAP_LOG_SAMPLE_RATE)) return;
-  logger.info(
-    {
-      reqId,
-      toolName,
-      toolCallId: toolCallId ?? null,
-      clientKind,
-      envelopeSource: source,
-      sampled: true,
-    },
-    "tool_args_envelope_unwrapped",
-  );
 }
 
 function recordUpperHarnessDecision(
