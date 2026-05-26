@@ -39,7 +39,6 @@ import { ValidationNormalizationService } from "./validation/service.js";
 import { deserializeShadow, serializeShadow } from "./planning/plan-content-shadow.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
-  parseSynesisClarificationRound,
 } from "./validation/clarification-schema.js";
 import { parseOrchestratorPhaseHeader } from "./validation/orchestrator-phase.js";
 import { ArtifactStore } from "./state/artifact-store.js";
@@ -245,37 +244,6 @@ import {
   type EvidenceSignal,
 } from "./task-ledger/index.js";
 
-function extractTextFromUnknownContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const parts: string[] = [];
-    for (const item of content) {
-      if (!item || typeof item !== "object") continue;
-      const row = item as Record<string, unknown>;
-      if (typeof row.text === "string" && row.text.trim()) parts.push(row.text.trim());
-      if (typeof row.content === "string" && row.content.trim()) parts.push(row.content.trim());
-    }
-    return parts.join("\n").trim();
-  }
-  if (content && typeof content === "object") {
-    const row = content as Record<string, unknown>;
-    if (typeof row.text === "string") return row.text;
-    if (typeof row.content === "string") return row.content;
-  }
-  return "";
-}
-
-function extractLatestUserPromptFromMessages(
-  messages: Array<{ role: string; content: unknown }>,
-): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role !== "user") continue;
-    const text = extractTextFromUnknownContent(messages[i].content).trim();
-    if (text) return text.slice(0, 4000);
-  }
-  return "";
-}
-
 function inferVerificationSteps(sequence: string[]): string[] {
   const steps: string[] = [];
   for (const name of sequence) {
@@ -284,47 +252,6 @@ function inferVerificationSteps(sequence: string[]): string[] {
     else if (name === "run_test" && !steps.includes("run_test_targeted")) steps.push("run_test_targeted");
   }
   return steps;
-}
-
-function getMetadataString(meta: Record<string, unknown>, key: string): string {
-  const value = meta[key];
-  return typeof value === "string" ? value : "";
-}
-
-function trimSnippet(text: string, max = 2000): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function updateTracePromptMetadata(state: SessionState, latestUserText: string): void {
-  const latest = trimSnippet(latestUserText);
-  if (!latest) return;
-  state.record.metadata.latest_user_prompt = latest;
-  if (!getMetadataString(state.record.metadata, "trace_root_prompt")) {
-    state.record.metadata.trace_root_prompt = latest;
-  }
-}
-
-function applyClarificationRoundResponseHeader(
-  reply: { header: (k: string, v: string) => unknown },
-  recordMetadata: Record<string, unknown>,
-): void {
-  const parsed = parseSynesisClarificationRound(recordMetadata.synesis_clarification_round);
-  if (parsed) {
-    reply.header("X-Synesis-Clarification-Round", JSON.stringify(parsed));
-  }
-}
-
-function sseHeadersWithClarification(recordMetadata: Record<string, unknown>): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  };
-  const parsed = parseSynesisClarificationRound(recordMetadata.synesis_clarification_round);
-  if (parsed) {
-    h["X-Synesis-Clarification-Round"] = JSON.stringify(parsed);
-  }
-  return h;
 }
 
 const GOVERNOR_COOLDOWN_MS = 3_000;
@@ -435,6 +362,14 @@ import {
   selectedOpenAiCompatHeaders,
   startSseHeartbeat,
 } from "./server/http-utils.js";
+import {
+  applyClarificationRoundResponseHeader,
+  extractLatestUserPromptFromMessages,
+  extractTextFromUnknownContent,
+  getMetadataString,
+  sseHeadersWithClarification,
+  updateTracePromptMetadata,
+} from "./server/route-protocol-helpers.js";
 import { createInternalTokenRequirement } from "./server/internal-auth.js";
 import { extractUpstreamErrorDiagnostics } from "./server/upstream-errors.js";
 import {
