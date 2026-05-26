@@ -571,6 +571,51 @@ export const permissionSeekingStopLoop: EvalScenario = {
 };
 
 // ---------------------------------------------------------------------------
+// 15. Dirty workspace recovery should preserve forward discovery momentum
+// ---------------------------------------------------------------------------
+
+export const dirtyWorkspaceRecoveryMomentum: EvalScenario = {
+  id: "dirty-workspace-recovery-momentum",
+  name: "Dirty workspace recovery momentum",
+  category: "governor_regression",
+  description:
+    "Model resumes in a workspace with duplicate paths and existing code. " +
+    "Distinct discovery plus a first verification should not be hard-stopped.",
+  target: {},
+  systemPrompt:
+    "You are a coding assistant. When existing files are present, identify the canonical project root, " +
+    "update task state as you verify components, and run one targeted test before finalizing.",
+  turns: [
+    {
+      messages: [
+        {
+          role: "user",
+          content:
+            "Build the complete TaskPulse FastAPI app. A prior bad run may have left files in the workspace; " +
+            "inspect what exists, continue from the canonical project root, then run tests.",
+        },
+      ],
+      simulatedToolResults: {
+        Glob: "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/api/tasks.py\ntaskpulse/app/main.py\ntaskpulse/ui/app.js",
+        Read: "from fastapi import FastAPI\napp = FastAPI()\n# existing TaskPulse file",
+        Bash: "============================= test session starts ==============================\ncollected 8 items\ntests/test_tasks.py PASSED\n",
+        TodoWrite: "updated todos: discovery completed; API verified; tests in progress",
+      },
+      maxToolRounds: 4,
+      assertions: [
+        { type: "tool_name_present", params: { name: "Bash" } },
+        { type: "tool_count_lte", params: { max: 10 } },
+      ],
+    },
+  ],
+  scoring: {
+    maxTotalTurns: 2,
+    maxGovernorInterventions: 1,
+    failIfRules: ["no_progress_loop", "exploration_stall_no_edit", "verification_churn_no_edit"],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -589,4 +634,5 @@ export const GOVERNOR_REGRESSION_SCENARIOS: EvalScenario[] = [
   completionClaimEditMissCollision,
   editWithoutReadDiscipline,
   permissionSeekingStopLoop,
+  dirtyWorkspaceRecoveryMomentum,
 ];

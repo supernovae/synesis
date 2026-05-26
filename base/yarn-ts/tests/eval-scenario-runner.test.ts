@@ -175,6 +175,72 @@ describe("runScenario", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("supports sequenced simulated tool results for repeated tool calls", async () => {
+    const scenarioWithSequence: EvalScenario = {
+      id: "test-sequence-tools",
+      name: "Sequenced tool loop test",
+      category: "governor_regression",
+      description: "Tests per-tool call sequence simulation",
+      target: {},
+      turns: [{
+        messages: [{ role: "user", content: "Run tests twice" }],
+        simulatedToolResults: {
+          Bash: ["first run failed", "second run passed"],
+        },
+        maxToolRounds: 3,
+      }],
+      scoring: { maxTotalTurns: 3 },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("", [
+        { id: "tc-1", function: { name: "Bash", arguments: '{"command":"python -m pytest tests/ -q"}' } },
+      ]))
+      .mockResolvedValueOnce(makeOaiResponse("", [
+        { id: "tc-2", function: { name: "Bash", arguments: '{"command":"python -m pytest tests/ -q"}' } },
+      ]))
+      .mockResolvedValueOnce(makeOaiResponse("Done"));
+
+    const result = await runScenario(baseConfig, scenarioWithSequence);
+    const toolMessages = result.turnResults[0].messages.filter((m) => m.role === "tool");
+    expect(toolMessages.map((m) => m.content)).toEqual(["first run failed", "second run passed"]);
+  });
+
+  it("supports command-signature simulated tool dispatch", async () => {
+    const scenarioWithSignatures: EvalScenario = {
+      id: "test-signature-tools",
+      name: "Signature tool loop test",
+      category: "governor_regression",
+      description: "Tests signature-specific simulated tool output",
+      target: {},
+      turns: [{
+        messages: [{ role: "user", content: "Inspect and test" }],
+        simulatedToolResults: {
+          Bash: {
+            bySignature: {
+              "command:ls -la": "directory listing",
+              "command:python -m pytest tests/ -q": "pytest passed",
+            },
+            default: "default bash result",
+          },
+        },
+        maxToolRounds: 2,
+      }],
+      scoring: { maxTotalTurns: 3 },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce(makeOaiResponse("", [
+        { id: "tc-1", function: { name: "Bash", arguments: '{"command":"ls -la"}' } },
+        { id: "tc-2", function: { name: "Bash", arguments: '{"command":"python -m pytest tests/ -q"}' } },
+      ]))
+      .mockResolvedValueOnce(makeOaiResponse("Done"));
+
+    const result = await runScenario(baseConfig, scenarioWithSignatures);
+    const toolMessages = result.turnResults[0].messages.filter((m) => m.role === "tool");
+    expect(toolMessages.map((m) => m.content)).toEqual(["directory listing", "pytest passed"]);
+  });
+
   it("counts policy-layer intervention rules from admin session events", async () => {
     const configWithAdmin = {
       ...baseConfig,

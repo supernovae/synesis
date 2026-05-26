@@ -34,6 +34,8 @@
     "eval:budget": "tsx scripts/eval-regression-budget.ts",
     "eval:scorecard": "tsx scripts/eval-harness-scorecard.ts",
     "eval:rollback": "tsx scripts/eval-rollback-policy.ts",
+    "eval:lab": "tsx scripts/eval-client-lab.ts",
+    "harness:lab": "tsx scripts/harness-lab.ts",
     "test:governor:unit": "vitest run tests/execution-governor.test.ts tests/governor-replay-fixtures.test.ts tests/eval-regression-budget.test.ts",
     "test:governor:smoke": "vitest run tests/eval-scenario-runner.test.ts tests/eval-turn-scorer.test.ts",
     "test:bench:gate": "vitest run tests/execution-governor.test.ts tests/governor-workflow-matrix.test.ts tests/governor-replay-fixtures.test.ts tests/deterministic-policy-engine.test.ts tests/phase-execution-policy.test.ts tests/recovery-progress.test.ts tests/read-snapshot-normalizer.test.ts tests/eval-regression-budget.test.ts tests/eval-scenario-runner.test.ts tests/eval-turn-scorer.test.ts tests/model-adapter.test.ts tests/tool-progress-detector.test.ts && npm run build",

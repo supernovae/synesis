@@ -664,6 +664,12 @@ function isTaskLifecycleCommand(command: string): boolean {
     || normalized.startsWith("todowrite:");
 }
 
+function isSuccessfulTaskLifecycleBoundary(event: CommandEvent): boolean {
+  if (!isTaskLifecycleCommand(event.command)) return false;
+  const sig = event.resultSignature;
+  return !(sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match")));
+}
+
 function extractCommandTarget(command: string): string {
   const normalized = normalizeString(command);
   const idx = normalized.indexOf(":");
@@ -1937,6 +1943,7 @@ export function evaluateExecutionGovernor(
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const vc = events[i].command;
     if (isEditCommand(vc)) break;
+    if (isSuccessfulTaskLifecycleBoundary(events[i])) break;
     if (isDependencyInstallCommand(vc) && hasSuccessfulDependencyInstallSignature(events[i].resultSignature)) {
       break;
     }
@@ -1970,6 +1977,7 @@ export function evaluateExecutionGovernor(
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const ec = events[i].command;
     if (isEditCommand(ec)) break;
+    if (isSuccessfulTaskLifecycleBoundary(events[i])) break;
     if (isVerificationCommand(events[i].toolName, ec)) break;
     const cmd = ec;
     if (cmd.startsWith("search:") || cmd.startsWith("glob:") || cmd.startsWith("list:")) {

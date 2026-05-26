@@ -1,0 +1,30 @@
+{
+  "name": "python-first-failing-test-after-edit-allowed",
+  "description": "The first failing pytest after a concrete edit is useful feedback, not verification churn.",
+  "tags": ["allow", "python", "edit", "first-failure"],
+  "source": "manual",
+  "messages": [
+    { "role": "user", "content": "Implement FastAPI task creation and run tests." },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "write", "arguments": { "file_path": "taskpulse/app/api/tasks.py", "content": "from fastapi import APIRouter\nrouter = APIRouter()\n" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "Wrote 42 lines" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "bash", "arguments": { "command": "python -m pytest tests/test_tasks.py -q" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "FAILED tests/test_tasks.py::test_create_task - AssertionError: expected 201 got 422\nExit code 1" }
+  ],
+  "expected": {
+    "pause": false,
+    "phase": "verify",
+    "matchedRulesExcludes": ["verification_churn_no_edit", "verification_fail_repeat_block", "verification_same_failure_signature_replay"]
+  }
+}

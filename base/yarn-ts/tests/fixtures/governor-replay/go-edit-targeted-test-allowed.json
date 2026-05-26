@@ -1,0 +1,48 @@
+{
+  "name": "go-edit-targeted-test-allowed",
+  "description": "A normal Go implementation flow with an edit followed by a scoped passing test should stay out of the way.",
+  "tags": ["allow", "go", "edit", "targeted-test"],
+  "source": "manual",
+  "messages": [
+    { "role": "user", "content": "Add timeout handling to the Go HTTP server and test it." },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "read_file", "arguments": { "path": "server/server.go" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "package server\nfunc NewServer() {}" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "2",
+          "function": {
+            "name": "str_replace",
+            "arguments": {
+              "file_path": "server/server.go",
+              "old_string": "func NewServer() {}",
+              "new_string": "func NewServer() { /* timeout configured */ }"
+            }
+          }
+        }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "Applied edit" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "bash", "arguments": { "command": "go test ./server -run TestServerTimeout -v" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "=== RUN   TestServerTimeout\n--- PASS: TestServerTimeout (0.01s)\nPASS\nok  example/server 0.012s" }
+  ],
+  "expected": {
+    "pause": false,
+    "phase": "verify",
+    "matchedRulesExcludes": ["verification_churn_no_edit", "verification_stall_no_edit", "false_green_suspected"]
+  }
+}

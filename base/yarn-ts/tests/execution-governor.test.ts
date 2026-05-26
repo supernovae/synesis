@@ -1879,6 +1879,47 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("source_file_stale_reread");
   });
 
+  it("treats successful todo updates as a boundary before post-discovery verification", () => {
+    const messages = [
+      { role: "user", content: "Build the complete TaskPulse app in this existing workspace" },
+      assistantCall("1", "glob", { pattern: "**/*.py" }),
+      toolResult("1", "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/api/tasks.py"),
+      assistantCall("2", "read_file", { path: "src/test/taskpulse/app/main.py" }),
+      toolResult("2", "from fastapi import FastAPI\napp = FastAPI()"),
+      assistantCall("3", "read_file", { path: "src/test/taskpulse/app/api/tasks.py" }),
+      toolResult("3", "from fastapi import APIRouter\nrouter = APIRouter()"),
+      assistantCall("4", "read_file", { path: "src/test/taskpulse/app/api/summary.py" }),
+      toolResult("4", "from fastapi import APIRouter\nrouter = APIRouter()"),
+      assistantCall("5", "read_file", { path: "src/test/taskpulse/app/models/task.py" }),
+      toolResult("5", "from pydantic import BaseModel\nclass Task(BaseModel): pass"),
+      assistantCall("6", "read_file", { path: "src/test/taskpulse/ui/app.js" }),
+      toolResult("6", "async function loadTasks() { return fetch('/tasks'); }"),
+      assistantCall("7", "todowrite", {
+        todos: [
+          { content: "Explore current project state and existing files", status: "completed" },
+          { content: "Verify all required API endpoints exist with Pydantic validation", status: "completed" },
+          { content: "Run validation tests to ensure all components work together", status: "in_progress" },
+        ],
+      }),
+      toolResult("7", "ok"),
+      assistantCall("8", "bash", { command: "cd /home/byron/src/test/src/test/taskpulse && python -m pytest tests/ -v 2>&1 | head -100" }),
+      toolResult("8", "============================= test session starts ==============================\nplatform linux -- Python 3.11.11\ncollected 8 items\n"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, {
+      modelAdapterFamily: "minimax",
+      chatState: {
+        activeObjective: "Build the complete TaskPulse app",
+        pendingUserDirective: "Build the complete TaskPulse app",
+        completionStatus: "blocked",
+        lastVerificationOutcome: "fail",
+      },
+    });
+
+    expect(out.matchedRules).not.toContain("verification_churn_no_edit");
+    expect(out.telemetry.trailingVerificationRunLength).toBe(1);
+  });
+
   it("does not fire exploration_stall when edits are present", () => {
     const messages = [
       { role: "user", content: "implement the feature" },

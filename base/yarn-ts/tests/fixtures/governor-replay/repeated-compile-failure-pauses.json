@@ -1,0 +1,55 @@
+{
+  "name": "repeated-compile-failure-pauses",
+  "description": "Repeated compile/test failures without an intervening edit should pause and request a focused fix.",
+  "tags": ["pause", "verification", "compile-failure"],
+  "source": "manual",
+  "messages": [
+    { "role": "user", "content": "Fix completion tests and continue" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "write", "arguments": { "file_path": "cmd/synesis/completion_test.go", "content": "package main\n// updated test" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "Wrote 42 lines" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "4", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "4", "content": "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "5", "function": { "name": "bash", "arguments": { "command": "go test ./cmd/synesis -run TestRunCompletion -v 2>&1" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "5", "content": "cmd/synesis/completion_test.go:11:2: declared and not used: originalStdout" }
+  ],
+  "expected": {
+    "pause": true,
+    "reason": "verification_churn_no_edit",
+    "matchedRulesIncludes": ["verification_churn_no_edit"],
+    "matchedRulesExcludes": ["recovery_discovery_momentum"]
+  }
+}

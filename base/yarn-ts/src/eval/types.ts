@@ -55,16 +55,40 @@ export interface EvalTurn {
   /** Messages the exerciser sends (user prompts + tool results). */
   messages: EvalChatMessage[];
   /**
-   * Map from tool name → simulated result content.
+   * Map from tool name → simulated result content or script.
    * When the model issues a tool_call with a matching name, the runner
    * injects a tool-role message with this content and re-sends.
+   *
+   * Backward-compatible forms:
+   * - string: same result every time
+   * - string[]: per-tool call sequence, reusing the last value after exhaustion
+   * - object: optional signature-specific results plus default/sequence fallback
    */
-  simulatedToolResults?: Record<string, string>;
+  simulatedToolResults?: Record<string, SimulatedToolResult>;
   /** Maximum tool-call round-trips before the runner moves on (default 3). */
   maxToolRounds?: number;
   /** Per-turn assertions evaluated after the model responds. */
   assertions?: TurnAssertion[];
 }
+
+export type SimulatedToolResult =
+  | string
+  | string[]
+  | {
+    /**
+     * Match against normalized signatures derived from the tool call.
+     * Useful keys include:
+     * - `command:<shell command>`
+     * - `path:<path>`
+     * - `pattern:<glob/search pattern>`
+     * - `<tool-name>:<raw normalized arguments>`
+     */
+    bySignature?: Record<string, string | string[]>;
+    /** Per-tool fallback sequence. */
+    sequence?: string[];
+    /** Fallback when no signature or sequence entry matches. */
+    default?: string;
+  };
 
 // ---------------------------------------------------------------------------
 // Assertions
@@ -173,6 +197,8 @@ export interface ScenarioResult {
   targetUrl: string;
   model: string;
   timestamp: string;
+  /** Optional eval client profile used for profile sweeps. */
+  clientProfileId?: string;
   sessionCompletionKpi?: {
     taskFinished: boolean;
     verificationEvidence: boolean;
@@ -203,6 +229,24 @@ export interface EvalRunnerConfig {
   timeoutMs?: number;
   /** Conversation ID prefix for session isolation. */
   conversationIdPrefix?: string;
+  /** Optional client profile for OpenCode/Claude Code/Codex-like request semantics. */
+  clientProfile?: EvalClientProfile;
+  /** Additional headers layered onto eval requests. Authorization and Content-Type are protected. */
+  extraHeaders?: Record<string, string>;
+  /** Optional User-Agent header for client compatibility sweeps. */
+  userAgent?: string;
+  /** Optional session client id override sent as x-synesis-client. */
+  adminSessionClientId?: string;
+}
+
+export interface EvalClientProfile {
+  id: string;
+  displayName?: string;
+  description?: string;
+  extraHeaders?: Record<string, string>;
+  userAgent?: string;
+  adminSessionClientId?: string;
+  model?: string;
 }
 
 // ---------------------------------------------------------------------------

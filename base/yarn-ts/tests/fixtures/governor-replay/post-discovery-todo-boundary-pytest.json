@@ -1,0 +1,88 @@
+{
+  "name": "post-discovery-todo-boundary-pytest",
+  "description": "After distinct discovery and a successful todo update, the first pytest command is new verification signal and must not inherit earlier read/list churn.",
+  "tags": ["allow", "minimax", "opencode", "todo-boundary", "python", "verification"],
+  "source": "trace",
+  "options": {
+    "modelAdapterFamily": "minimax",
+    "chatState": {
+      "activeObjective": "Build the complete TaskPulse app",
+      "pendingUserDirective": "Build the complete TaskPulse app",
+      "completionStatus": "blocked",
+      "lastVerificationOutcome": "fail"
+    }
+  },
+  "messages": [
+    { "role": "user", "content": "Build the complete TaskPulse app in this existing workspace" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "glob", "arguments": { "pattern": "**/*.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/api/tasks.py" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/main.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "from fastapi import FastAPI\napp = FastAPI()" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/api/tasks.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "from fastapi import APIRouter\nrouter = APIRouter()" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "4", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/models/task.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "4", "content": "from pydantic import BaseModel\nclass Task(BaseModel): pass" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "5",
+          "function": {
+            "name": "todowrite",
+            "arguments": {
+              "todos": [
+                { "content": "Explore current project state and existing files", "status": "completed" },
+                { "content": "Verify all required API endpoints exist with Pydantic validation", "status": "completed" },
+                { "content": "Run validation tests to ensure all components work together", "status": "in_progress" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "5", "content": "ok" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "6",
+          "function": {
+            "name": "bash",
+            "arguments": { "command": "cd /home/byron/src/test/src/test/taskpulse && python -m pytest tests/ -v 2>&1 | head -100" }
+          }
+        }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "6", "content": "============================= test session starts ==============================\nplatform linux -- Python 3.11.11\ncollected 8 items\n" }
+  ],
+  "expected": {
+    "pause": false,
+    "matchedRulesExcludes": ["verification_churn_no_edit", "no_progress_loop", "exploration_stall_no_edit"]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "name": "dirty-workspace-discovery-momentum",
+  "description": "A MiniMax/OpenCode recovery run inventories distinct files and path-corrects a dirty TaskPulse workspace. This is forward discovery, not a loop.",
+  "tags": ["allow", "minimax", "opencode", "dirty-workspace", "python"],
+  "source": "trace",
+  "options": {
+    "modelAdapterFamily": "minimax",
+    "chatState": {
+      "activeObjective": "Build the complete TaskPulse app",
+      "pendingUserDirective": "Build the complete TaskPulse app",
+      "completionStatus": "blocked",
+      "lastVerificationOutcome": "fail"
+    }
+  },
+  "messages": [
+    { "role": "user", "content": "Build the complete TaskPulse app in this existing workspace" },
+    { "role": "assistant", "content": "Let me inspect the current project state before changing files." },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "1", "function": { "name": "glob", "arguments": { "pattern": "**/*.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "1", "content": "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/db/sqlite.py\nsrc/test/taskpulse/app/api/tasks.py" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "2", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/db/sqlite.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "2", "content": "<path>/home/byron/src/test/src/test/taskpulse/app/db/sqlite.py</path>\nclass SQLiteStorage: pass" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "3", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/main.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "3", "content": "from fastapi import FastAPI\napp = FastAPI()" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "4", "function": { "name": "read_file", "arguments": { "path": "src/test/taskpulse/app/api/tasks.py" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "4", "content": "from fastapi import APIRouter\nrouter = APIRouter()" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "5", "function": { "name": "read_file", "arguments": { "path": "app.js" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "5", "content": "File not found: /home/byron/src/test/app.js" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "6", "function": { "name": "read_file", "arguments": { "path": "taskpulse/ui/app.js" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "6", "content": "async function loadTasks() { return fetch('/tasks'); }" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        { "id": "7", "function": { "name": "bash", "arguments": { "command": "ls -la /home/byron/src/test/" } } }
+      ]
+    },
+    { "role": "tool", "tool_call_id": "7", "content": "drwxrwxr-x taskpulse\ndrwxrwxr-x src" }
+  ],
+  "expected": {
+    "pause": false,
+    "forbiddenRules": ["no_progress_loop", "exploration_stall_no_edit", "verification_churn_no_edit"]
+  }
+}

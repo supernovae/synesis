@@ -12,6 +12,7 @@ import type {
   EvalRunnerConfig,
   EvalChatMessage,
   EvalToolCall,
+  SimulatedToolResult,
   TurnResult,
   ScenarioResult,
 } from "./types.js";
@@ -70,6 +71,29 @@ function buildRequestUrl(baseUrl: string, path: string): string {
     throw new Error("URL base must not include credentials, query, or hash");
   }
   return new URL(path, `${trimTrailingSlashes(base.toString())}/`).toString();
+}
+
+export function buildEvalRequestHeaders(config: EvalRunnerConfig): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${config.apiKey}`,
+    "x-synesis-client": config.adminSessionClientId
+      ?? config.clientProfile?.adminSessionClientId
+      ?? config.clientProfile?.id
+      ?? "eval-gym",
+  };
+  const profileHeaders = config.clientProfile?.extraHeaders ?? {};
+  const extraHeaders = config.extraHeaders ?? {};
+  for (const [key, value] of Object.entries({ ...profileHeaders, ...extraHeaders })) {
+    const lower = key.toLowerCase();
+    if (lower === "authorization" || lower === "content-type") continue;
+    headers[key] = value;
+  }
+  const userAgent = config.userAgent ?? config.clientProfile?.userAgent;
+  if (userAgent) {
+    headers["User-Agent"] = userAgent;
+  }
+  return headers;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +213,7 @@ async function chatCompletions(
   const completionsUrl = buildRequestUrl(config.targetUrl, "/v1/chat/completions");
   const res = await fetch(completionsUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-      "x-synesis-client": "eval-gym",
-    },
+    headers: buildEvalRequestHeaders(config),
     body: JSON.stringify({
       model,
       messages,
@@ -201,6 +221,7 @@ async function chatCompletions(
       stream: false,
       max_tokens: 4096,
       conversation_id: conversationId,
+      ...(config.clientProfile ? { metadata: { eval_client_profile: config.clientProfile.id } } : {}),
     }),
     signal: AbortSignal.timeout(timeout),
   });
@@ -245,33 +266,111 @@ const TOOL_NAME_EQUIVALENTS: Record<string, string[]> = {
   synesis_inspect_repo: ["list_dir", "glob", "search", "search_code", "read", "read_file", "bash"],
 };
 
-function findCaseInsensitiveKey(map: Record<string, string>, candidate: string): string | undefined {
+function findCaseInsensitiveKey(map: Record<string, unknown>, candidate: string): string | undefined {
   if (candidate in map) return candidate;
   const lower = candidate.toLowerCase();
   return Object.keys(map).find((k) => k.toLowerCase() === lower);
 }
 
+interface SimulatedToolState {
+  counts: Map<string, number>;
+}
+
+function nextScriptedResult(value: string | string[], counterKey: string, state: SimulatedToolState): string {
+  if (typeof value === "string") return value;
+  if (value.length === 0) return "";
+  const idx = state.counts.get(counterKey) ?? 0;
+  state.counts.set(counterKey, idx + 1);
+  return value[Math.min(idx, value.length - 1)] ?? "";
+}
+
+function parseToolArgs(args: string): Record<string, unknown> | null {
+  const trimmed = args.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSignaturePart(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function toolSignatureCandidates(toolName: string, rawArgs: string): string[] {
+  const normalizedTool = normalizeSignaturePart(toolName);
+  const normalizedArgs = normalizeSignaturePart(rawArgs);
+  const candidates = new Set<string>();
+  if (normalizedTool || normalizedArgs) candidates.add(`${normalizedTool}:${normalizedArgs}`);
+  const parsed = parseToolArgs(rawArgs);
+  if (parsed) {
+    for (const key of ["command", "cmd", "script"]) {
+      const value = normalizeSignaturePart(parsed[key]);
+      if (value) candidates.add(`command:${value}`);
+    }
+    for (const key of ["path", "file_path", "filePath", "target_file", "directory", "dir"]) {
+      const value = normalizeSignaturePart(parsed[key]);
+      if (value) candidates.add(`path:${value}`);
+    }
+    for (const key of ["pattern", "glob", "glob_pattern", "query", "search", "search_code"]) {
+      const value = normalizeSignaturePart(parsed[key]);
+      if (value) candidates.add(`pattern:${value}`);
+    }
+  }
+  return [...candidates];
+}
+
+function resolveSimulatedResultValue(
+  value: SimulatedToolResult,
+  toolKey: string,
+  signatures: string[],
+  state: SimulatedToolState,
+): string | undefined {
+  if (typeof value === "string" || Array.isArray(value)) {
+    return nextScriptedResult(value, `tool:${toolKey}`, state);
+  }
+  if (value.bySignature) {
+    for (const signature of signatures) {
+      const matched = findCaseInsensitiveKey(value.bySignature, signature);
+      if (matched) {
+        return nextScriptedResult(value.bySignature[matched] ?? "", `tool:${toolKey}:signature:${matched}`, state);
+      }
+    }
+  }
+  if (value.sequence) {
+    return nextScriptedResult(value.sequence, `tool:${toolKey}:sequence`, state);
+  }
+  return value.default;
+}
+
 function lookupSimulatedResult(
-  simulatedToolResults: Record<string, string>,
+  simulatedToolResults: Record<string, SimulatedToolResult>,
   toolName: string,
+  rawArgs: string,
+  state: SimulatedToolState,
 ): string | undefined {
   const normalized = toolName.trim().toLowerCase();
+  const signatures = toolSignatureCandidates(toolName, rawArgs);
   if (!normalized) {
-    if ("*" in simulatedToolResults) return simulatedToolResults["*"];
+    if ("*" in simulatedToolResults) return resolveSimulatedResultValue(simulatedToolResults["*"], "*", signatures, state);
     const firstKey = Object.keys(simulatedToolResults)[0];
-    return firstKey ? simulatedToolResults[firstKey] : undefined;
+    return firstKey ? resolveSimulatedResultValue(simulatedToolResults[firstKey], firstKey, signatures, state) : undefined;
   }
 
   const direct = findCaseInsensitiveKey(simulatedToolResults, toolName.trim());
-  if (direct) return simulatedToolResults[direct];
+  if (direct) return resolveSimulatedResultValue(simulatedToolResults[direct], direct, signatures, state);
 
   const equivalents = TOOL_NAME_EQUIVALENTS[normalized] ?? [];
   for (const alias of equivalents) {
     const mapped = findCaseInsensitiveKey(simulatedToolResults, alias);
-    if (mapped) return simulatedToolResults[mapped];
+    if (mapped) return resolveSimulatedResultValue(simulatedToolResults[mapped], mapped, signatures, state);
   }
 
-  if ("*" in simulatedToolResults) return simulatedToolResults["*"];
+  if ("*" in simulatedToolResults) return resolveSimulatedResultValue(simulatedToolResults["*"], "*", signatures, state);
   return undefined;
 }
 
@@ -325,6 +424,7 @@ async function executeTurn(
   const governorRules: string[] = [];
   let adminTelemetryStatus: "ok" | "unreachable" | "unauthorized" | "disabled" = "disabled";
   let adminTelemetryDetail: string | undefined;
+  const simulatedToolState: SimulatedToolState = { counts: new Map() };
 
   const working = [...conversationMessages, ...turn.messages];
   const evalTools = buildEvalToolSchemas(turn.simulatedToolResults);
@@ -348,7 +448,12 @@ async function executeTurn(
 
     let handledAny = false;
     for (const tc of choice.message.tool_calls) {
-      const simResult = lookupSimulatedResult(turn.simulatedToolResults, tc.function.name);
+      const simResult = lookupSimulatedResult(
+        turn.simulatedToolResults,
+        tc.function.name,
+        tc.function.arguments,
+        simulatedToolState,
+      );
       if (simResult !== undefined) {
         const toolMsg: EvalChatMessage = {
           role: "tool",
@@ -419,7 +524,7 @@ function extractRulesFromDetail(detail: string | undefined): string[] {
   return [...out];
 }
 
-function buildEvalToolSchemas(simulatedToolResults?: Record<string, string>): OaiToolSchema[] | undefined {
+function buildEvalToolSchemas(simulatedToolResults?: Record<string, SimulatedToolResult>): OaiToolSchema[] | undefined {
   if (!simulatedToolResults) return undefined;
   const names = Object.keys(simulatedToolResults)
     .filter((name) => name && name !== "*")
@@ -539,6 +644,7 @@ export async function runScenario(
     targetUrl: config.targetUrl,
     model,
     timestamp: new Date().toISOString(),
+    clientProfileId: config.clientProfile?.id,
     sessionCompletionKpi,
     adminTelemetry: {
       status: aggregateTelemetryStatus,
