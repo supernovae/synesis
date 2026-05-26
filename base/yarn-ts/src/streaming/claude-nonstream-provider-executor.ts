@@ -31,6 +31,7 @@ export interface ClaudeNonStreamProviderMessage {
 export interface ClaudeNonStreamProviderExecutorInput<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 > {
   initialMessages: TMessage[];
   model: unknown;
@@ -48,8 +49,8 @@ export interface ClaudeNonStreamProviderExecutorInput<
   clampMaxOutputTokens(tokens: number): number;
   generateText(options: Record<string, unknown>): Promise<TResult>;
   readUsage(usage: unknown): StreamTokenUsage;
-  captureForensics(messages: TMessage[], toolChoice: unknown): unknown;
-  finalizeForensics(forensics: unknown, usage: StreamTokenUsage): RequestForensicsRecord | undefined;
+  captureForensics(messages: TMessage[], toolChoice: unknown): TForensics | null;
+  finalizeForensics(forensics: TForensics | null, usage: StreamTokenUsage): RequestForensicsRecord | undefined;
   recordSessionEvent(event: {
     eventKind: string;
     component: string;
@@ -100,7 +101,7 @@ export interface ClaudeNonStreamProviderExecutorRouteInput<
   TResult extends ClaudeNonStreamProviderResultLike,
   TForensics,
 > extends Omit<
-    ClaudeNonStreamProviderExecutorInput<TMessage, TResult>,
+    ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>,
     "captureForensics" | "finalizeForensics" | "recordSessionEvent" | "resolveServerWebSearch"
   > {
   scope: Pick<ClaudeNonStreamRouteScope, "sessionKey" | "requestId" | "recordEvent">;
@@ -137,7 +138,7 @@ export function createClaudeNonStreamProviderExecutorInput<
   TForensics,
 >(
   input: ClaudeNonStreamProviderExecutorRouteInput<TMessage, TResult, TForensics>,
-): ClaudeNonStreamProviderExecutorInput<TMessage, TResult> {
+): ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics> {
   return {
     ...input,
     recordSessionEvent: input.scope.recordEvent,
@@ -154,15 +155,11 @@ export function createClaudeNonStreamProviderExecutorInput<
       phasePolicy: input.forensics.phasePolicy,
       capabilityMatrix: input.forensics.capabilityMatrix,
     }),
-    finalizeForensics: (forensics, usage) => input.forensics.finalize(
-      forensics as TForensics | null,
-      usage,
-      {
-        sessionKey: input.scope.sessionKey,
-        requestId: input.scope.requestId,
-        resolvedModelId: input.resolvedModelId,
-      },
-    ),
+    finalizeForensics: (forensics, usage) => input.forensics.finalize(forensics, usage, {
+      sessionKey: input.scope.sessionKey,
+      requestId: input.scope.requestId,
+      resolvedModelId: input.resolvedModelId,
+    }),
     resolveServerWebSearch: (serverInput) => input.serverWebSearch.resolve(serverInput, {
       requestId: input.scope.requestId,
       sessionKey: input.scope.sessionKey,
@@ -177,8 +174,9 @@ export function createClaudeNonStreamProviderExecutorInput<
 export async function executeClaudeNonStreamProviderLoop<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 >(
-  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>,
+  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>,
 ): Promise<ClaudeNonStreamProviderExecutorResult<TResult>> {
   let currentMessages = input.initialMessages;
   let effectiveToolChoice = input.initialToolChoice;
@@ -238,8 +236,9 @@ export async function executeClaudeNonStreamProviderLoop<
 async function satisfyRequiredToolPolicy<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 >(args: {
-  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>;
+  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>;
   currentMessages: TMessage[];
   effectiveToolChoice: unknown;
   result: TResult;
@@ -304,8 +303,9 @@ async function satisfyRequiredToolPolicy<
 async function generateWithForensics<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 >(
-  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>,
+  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>,
   messages: TMessage[],
   toolChoice: unknown,
 ): Promise<{ result: TResult; requestForensicsDone?: RequestForensicsRecord }> {
@@ -332,8 +332,9 @@ async function generateWithForensics<
 async function buildServerWebSearchReplay<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 >(
-  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>,
+  input: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>,
   result: TResult,
   serverCalls: ClaudeNonStreamProviderToolCall[],
 ): Promise<{

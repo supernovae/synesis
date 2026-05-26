@@ -14,7 +14,7 @@ import { cacheShapeDiagnosticFields } from "../telemetry/cache-shape-diagnostics
 import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
 import type { RequestDiagnostic } from "../telemetry/request-diagnostics.js";
-import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
+import type { RequestForensicsBuildResult, RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { VerificationLoopState } from "../verification/types.js";
 import {
   runClaudeStreamKickoffPipeline,
@@ -124,11 +124,11 @@ export interface ClaudeStreamKickoffRouteInput {
     providerOptions: unknown,
     phasePolicy?: RequestForensicsRecord["phasePolicy"],
     capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
-  ): unknown;
+  ): RequestForensicsBuildResult | null;
   finalizeRequestForensics(
     session: KickoffSession,
     requestId: string,
-    forensics: { record: RequestForensicsRecord; serialized: string } | null,
+    forensics: RequestForensicsBuildResult | null,
     usage: StreamTokenUsage,
   ): RequestForensicsRecord | undefined;
   recordSessionEvent(
@@ -197,7 +197,7 @@ export async function runClaudeStreamKickoffRoute(input: ClaudeStreamKickoffRout
       finalizeForensics: (forensics, usage) => input.finalizeRequestForensics(
         input.session,
         input.responseRequestId,
-        forensics as { record: RequestForensicsRecord; serialized: string } | null,
+        forensics,
         usage,
       ),
       recordSessionEvent: (event) => input.recordSessionEvent(

@@ -341,7 +341,7 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
           context.resolvedModelId,
           context.stream,
           context.messages as Array<{ role: string; content: unknown }>,
-          context.tools as unknown[],
+          Array.isArray(context.tools) ? context.tools : [],
           context.toolChoice,
           context.providerOptions,
           context.phasePolicy,

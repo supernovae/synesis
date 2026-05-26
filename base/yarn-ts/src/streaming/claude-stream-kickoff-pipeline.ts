@@ -19,10 +19,11 @@ export interface ClaudeStreamKickoffResponseWriter {
 export interface ClaudeStreamKickoffPipelineInput<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 > {
   model: string;
   headers: Record<string, string>;
-  providerInput: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>;
+  providerInput: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>;
   response: ClaudeStreamKickoffResponseWriter;
   onAssistantText(text: string): void;
 }
@@ -37,8 +38,9 @@ export interface ClaudeStreamKickoffPipelineResult {
 export async function runClaudeStreamKickoffPipeline<
   TMessage extends ClaudeNonStreamProviderMessage,
   TResult extends ClaudeNonStreamProviderResultLike,
+  TForensics = unknown,
 >(
-  input: ClaudeStreamKickoffPipelineInput<TMessage, TResult>,
+  input: ClaudeStreamKickoffPipelineInput<TMessage, TResult, TForensics>,
 ): Promise<ClaudeStreamKickoffPipelineResult> {
   const providerResult = await executeClaudeNonStreamProviderLoop(input.providerInput);
   const usage = input.providerInput.readUsage(providerResult.result.usage);

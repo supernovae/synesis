@@ -16,7 +16,7 @@ import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { ClientTaskCapabilities, TaskLedger } from "../task-ledger/index.js";
 import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
-import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
+import type { RequestForensicsBuildResult, RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { YarnUpperHarnessContext } from "../upper-harness/bridge.js";
 import {
   createClaudeStreamRouteContext,
@@ -172,11 +172,11 @@ interface ClaudeStreamProviderDeps {
     providerOptions: unknown,
     phasePolicy?: RequestForensicsRecord["phasePolicy"],
     capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
-  ): unknown;
+  ): RequestForensicsBuildResult | null;
   finalizeRequestForensics(
     session: ClaudeStreamSession,
     requestId: string,
-    forensics: unknown,
+    forensics: RequestForensicsBuildResult | null | undefined,
     usage: StreamTokenUsage,
   ): RequestForensicsRecord | undefined;
   extractUpstreamErrorDiagnostics(error: unknown): OpenAIStreamUpstreamErrorDiagnostics;
