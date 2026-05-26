@@ -4860,7 +4860,7 @@ if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
 }
 
 // --- OpenAI chat completions ---
-export const openAIChatCompletionsRouteDependencies = {
+const openAIChatCompletionsRouteDependencies = {
   applyAuthKeyAttribution,
   applyEditContextMissReadGate,
   applyMarkdownGuardrail,
@@ -5084,7 +5084,7 @@ export const openAIChatCompletionsRouteDependencies = {
 registerOpenAIChatCompletionsRoute(openAIChatCompletionsRouteDependencies);
 
 // --- Claude Messages API ---
-export const claudeMessagesRouteDependencies = {
+const claudeMessagesRouteDependencies = {
   runtime: {
     app,
     config,
