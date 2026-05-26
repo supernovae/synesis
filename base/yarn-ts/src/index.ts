@@ -191,11 +191,7 @@ import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
 import { type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
-import {
-  buildRequestForensics,
-  withUsage as withForensicsUsage,
-  type RequestForensicsRecord,
-} from "./telemetry/request-forensics.js";
+import { createRequestForensicsRecorder } from "./telemetry/request-forensics-recorder.js";
 import {
   applySensemakingStats,
   createEmptySensemakingStats,
@@ -2151,68 +2147,6 @@ const contextAdmissionStats = {
     claude: 0,
   },
 };
-const requestForensicsLastBySession = new Map<string, { requestId: string; serialized: string }>();
-
-function captureRequestForensics(
-  sessionKey: string,
-  requestId: string,
-  path: string,
-  providerModel: string,
-  stream: boolean,
-  messages: Array<{ role: string; content: unknown }>,
-  tools: unknown[] | undefined,
-  toolChoice: unknown,
-  providerOptions: unknown,
-  phasePolicy?: RequestForensicsRecord["phasePolicy"],
-  capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
-): { record: RequestForensicsRecord; serialized: string } | null {
-  if (config.SYNESIS_YARN_REQUEST_FORENSICS_MODE === "off") return null;
-  const previous = requestForensicsLastBySession.get(sessionKey);
-  const built = buildRequestForensics({
-    providerModel,
-    path,
-    requestId,
-    stream,
-    messages,
-    tools,
-    toolChoice,
-    providerOptions,
-    phasePolicy,
-    capabilityMatrix,
-    previous,
-    capturePayload: config.SYNESIS_YARN_REQUEST_FORENSICS_MODE === "full",
-    maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
-  });
-  return built;
-}
-
-function finalizeRequestForensics(
-  session: SessionState,
-  requestId: string,
-  forensics: { record: RequestForensicsRecord; serialized: string } | null,
-  usage?: { inputTokens: number; outputTokens: number; cachedTokens: number; cacheCreationTokens: number; costUsd: number },
-): RequestForensicsRecord | undefined {
-  if (!forensics) return undefined;
-  const record = usage ? withForensicsUsage(forensics.record, usage) : forensics.record;
-  requestForensicsLastBySession.set(session.record.sessionKey, {
-    requestId,
-    serialized: forensics.serialized,
-  });
-  usageWriter.enqueueSessionEvent({
-    sessionKey: session.record.sessionKey,
-    requestId,
-    userId: session.record.userId,
-    orgId: session.record.orgId,
-    eventKind: "request_forensics_v1",
-    component: "yarn",
-    detail: record.summary.slice(0, 2048),
-    metadataJson: {
-      schema_version: "request_forensics_v1",
-      ...record,
-    },
-  });
-  return record;
-}
 
 function pushDiagnostic(d: RequestDiagnostic): void {
   diagnosticRegistry.push(d);
@@ -2356,6 +2290,14 @@ const memoryStore = new MemoryStore(
 );
 initMemoryToolStore(memoryStore);
 const usageWriter = new UsageWriter(config);
+const {
+  captureRequestForensics,
+  finalizeRequestForensics,
+} = createRequestForensicsRecorder({
+  mode: config.SYNESIS_YARN_REQUEST_FORENSICS_MODE,
+  maxPreviewChars: config.SYNESIS_YARN_REQUEST_FORENSICS_MAX_PREVIEW_CHARS,
+  usageWriter,
+});
 const recordSessionEvent = createSessionEventRecorder({
   writer: usageWriter,
   logger: app.log,
