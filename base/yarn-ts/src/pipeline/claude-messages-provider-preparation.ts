@@ -27,6 +27,13 @@ import {
   buildClaudeMessagesProviderRequestOptions,
   suppressThinkingWhenRequiredToolChoice,
 } from "./provider-options.js";
+import {
+  architecturePolicyTrace,
+  buildArchitecturePolicySystemHint,
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+  type ModelArchitectureProfileOverride,
+} from "../providers/model-architecture-profile.js";
 import { prepareRouteTools } from "./route-tool-preparation.js";
 
 type Logger = {
@@ -57,6 +64,7 @@ type TierRegistryLike = {
     baseUrl: string;
     samplingDefaults?: unknown;
     contextCeilingTokens?: number | null;
+    architectureProfile?: ModelArchitectureProfileOverride | null;
   } | undefined;
 };
 
@@ -169,15 +177,24 @@ export function prepareClaudeMessagesProviderRuntime(
   const { resolved, session, routePersistence, config, logger } = input;
   const { adapter } = resolved;
   const resolvedTierForHarness = input.tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const providerForHarness = resolvedTierForHarness
+    ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
+    : "anthropic";
+  const architectureProfile = resolveModelArchitectureProfile({
+    modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+    provider: providerForHarness,
+    family: adapter.family,
+    declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
+    override: resolvedTierForHarness?.architectureProfile,
+  });
+  const modelExecutionPolicy = deriveModelExecutionPolicy(architectureProfile);
   const upperHarness = buildYarnUpperHarnessContext({
     surface: "claude",
     modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
     requestedModel: input.body.model,
     adapter: adapter as never,
     baseUrl: resolvedTierForHarness?.baseUrl,
-    provider: resolvedTierForHarness
-      ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
-      : "anthropic",
+    provider: providerForHarness,
   });
 
   const toolPreparation = prepareRouteTools({
@@ -240,6 +257,7 @@ export function prepareClaudeMessagesProviderRuntime(
       reasons: input.stateConfidence.reasons ?? [],
     },
     promptIntakeSystemBlock: input.promptIntake.systemBlock,
+    architecturePolicySystemHint: buildArchitecturePolicySystemHint(modelExecutionPolicy),
     buildEditContextMissGuardPrompt: input.buildEditContextMissGuardPrompt as never,
     buildEditContextMissForcedReadPrompt: input.buildEditContextMissForcedReadPrompt as never,
     buildStateRegroundReadPrompt: input.buildStateRegroundReadPrompt as never,
@@ -385,6 +403,7 @@ export function prepareClaudeMessagesProviderRuntime(
     admissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
     admissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
     compactionMode: input.cachePolicy.compactionMode as never,
+    modelExecutionPolicy,
     cachePolicyRecord: cachePolicyLogRecord(input.cachePolicy as never),
     upperHarnessContext: upperHarness,
     upperHarnessCeilingTokens: resolvedTierForHarness?.contextCeilingTokens,
@@ -419,23 +438,37 @@ export function prepareClaudeMessagesProviderRuntime(
     };
   }
 
-  const cacheShapeDiagnostics = buildCacheShapeDiagnostics({
-    messages: modelMessages as Array<{ role?: string; content?: unknown }>,
-    tools: effectiveTools,
-    providerOptions,
-    cachePolicy: input.cachePolicy,
-    modelProviderResolution: {
-      surface: "claude",
-      requestedModel: input.body.model,
-      resolvedModelId: resolved.resolvedModelId,
-      adapterFamily: adapter.family,
-      backendModel: resolvedTierForHarness?.backendModel ?? resolvedTierConfig?.backendModel,
-      baseUrl: resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl,
-      provider: (resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl)
-        ? input.resolveEndpointCapabilityId((resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl) as string)
-        : "anthropic",
-    },
-  });
+  const cacheShapeDiagnostics = {
+    ...buildCacheShapeDiagnostics({
+      messages: modelMessages as Array<{ role?: string; content?: unknown }>,
+      tools: effectiveTools,
+      providerOptions,
+      cachePolicy: input.cachePolicy,
+      modelProviderResolution: {
+        surface: "claude",
+        requestedModel: input.body.model,
+        resolvedModelId: resolved.resolvedModelId,
+        adapterFamily: adapter.family,
+        backendModel: resolvedTierForHarness?.backendModel ?? resolvedTierConfig?.backendModel,
+        baseUrl: resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl,
+        provider: (resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl)
+          ? input.resolveEndpointCapabilityId((resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl) as string)
+          : "anthropic",
+      },
+    }),
+    architectureAttention: architectureProfile.attention,
+    architectureActivation: architectureProfile.activation,
+    architectureDecoding: architectureProfile.decoding,
+    executionPolicyHash: modelExecutionPolicy.policyHash,
+    effectiveContextCeilingTokens: modelExecutionPolicy.effectiveContextCeilingTokens,
+    architecturePolicyReasons: modelExecutionPolicy.reasons,
+  };
+  routePersistence.recordSessionEvent(
+    "model_architecture_profile_selected",
+    "model-architecture",
+    `attention=${architectureProfile.attention} activation=${architectureProfile.activation} decoding=${architectureProfile.decoding}`,
+    architecturePolicyTrace(architectureProfile, modelExecutionPolicy),
+  );
 
   return {
     ok: true,

@@ -44,6 +44,12 @@ export interface OptimizationCacheDiagnostics {
   cachePolicyBytes?: number;
   modelProviderResolutionHash?: string;
   modelProviderResolutionBytes?: number;
+  architectureAttention?: string;
+  architectureActivation?: string;
+  architectureDecoding?: string;
+  executionPolicyHash?: string;
+  effectiveContextCeilingTokens?: number;
+  architecturePolicyReasons?: string[];
   cacheShapePromptTokens?: number;
   cacheShapeCachedTokens?: number;
   cacheShapeCacheCreationTokens?: number;

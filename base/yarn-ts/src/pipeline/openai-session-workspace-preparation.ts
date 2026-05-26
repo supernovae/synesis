@@ -4,6 +4,10 @@ import type { SessionIdentity } from "../session/session-key.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
+import {
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+} from "../providers/model-architecture-profile.js";
 import { stabilizeOpenAITranscript } from "./openai-route-transcript-stabilization.js";
 
 type Deps = Pick<
@@ -216,6 +220,20 @@ export async function prepareOpenAISessionWorkspace(
     matchedOverrideIds: capabilityResolution.matched_override_ids,
     capabilityHash,
   };
+  const architectureProfile = resolveModelArchitectureProfile({
+    modelId: matrixModelPath || matrixModelId,
+    family: matrixFamily,
+  });
+  const architecturePolicy = deriveModelExecutionPolicy(architectureProfile);
+  forensicsCapabilityMatrix.architecturePolicy = {
+    profileId: architecturePolicy.profileId,
+    policyHash: architecturePolicy.policyHash,
+    attention: architecturePolicy.attention,
+    activation: architecturePolicy.activation,
+    decoding: architecturePolicy.decoding,
+    effectiveContextCeilingTokens: architecturePolicy.effectiveContextCeilingTokens,
+    reasons: architecturePolicy.reasons,
+  };
   recordSessionEvent(
     sessionKey,
     identity.userId,
@@ -234,6 +252,7 @@ export async function prepareOpenAISessionWorkspace(
       matched_selectors: capabilityResolution.matched_selectors,
       capability_hash: capabilityHash,
       resolved_capabilities: capabilityResolution.resolved_capabilities,
+      architecture_policy: forensicsCapabilityMatrix.architecturePolicy,
     },
   );
 

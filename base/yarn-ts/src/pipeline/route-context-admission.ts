@@ -12,6 +12,7 @@ import type { TranscriptPruningService } from "../reduction/transcript-pruning.j
 import type { ArtifactStore } from "../state/artifact-store.js";
 import type { UpperHarnessDecision, YarnUpperHarnessContext } from "../upper-harness/bridge.js";
 import { evaluateUpperHarnessBudget } from "../upper-harness/bridge.js";
+import type { ModelExecutionPolicy } from "../providers/model-architecture-profile.js";
 import {
   evaluateContextAdmission,
   type ContextAdmissionMessage,
@@ -50,6 +51,7 @@ export interface RunRouteContextAdmissionInput<TMessage extends ContextBudgetMes
   admissionWarnTokens: number;
   admissionHardTokens: number;
   compactionMode: CompactionMode;
+  modelExecutionPolicy?: ModelExecutionPolicy | null;
   cachePolicyRecord: Record<string, unknown>;
   upperHarnessContext: YarnUpperHarnessContext;
   upperHarnessCeilingTokens?: number | null;
@@ -85,11 +87,34 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
   let budgetEvaluation: BudgetEvaluation | null = null;
 
   if (input.contextBudgetEnabled) {
-    const budgetCeiling = input.modelContextCeilingTokens
+    const configuredCeiling = input.modelContextCeilingTokens
       ?? (input.budgetCeilingTokens > 0
         ? input.budgetCeilingTokens
         : input.admissionHardTokens);
-    const budgetPolicy = buildBudgetPolicy(budgetCeiling, input.outputReserveTokens, input.compactionMode);
+    const architectureCeiling = input.modelExecutionPolicy?.effectiveContextCeilingTokens;
+    const budgetCeiling = architectureCeiling && architectureCeiling > 0
+      ? Math.min(configuredCeiling, architectureCeiling)
+      : configuredCeiling;
+    const compactionMode = input.modelExecutionPolicy?.compactionMode === "aggressive"
+      ? "aggressive"
+      : input.compactionMode;
+    if (budgetCeiling !== configuredCeiling || compactionMode !== input.compactionMode) {
+      input.recordSessionEvent(
+        "model_architecture_policy_applied",
+        "model-architecture",
+        `ceiling=${budgetCeiling}/${configuredCeiling} compaction=${compactionMode}`,
+        {
+          profile_id: input.modelExecutionPolicy?.profileId,
+          policy_hash: input.modelExecutionPolicy?.policyHash,
+          effective_context_ceiling_tokens: budgetCeiling,
+          configured_context_ceiling_tokens: configuredCeiling,
+          compaction_mode: compactionMode,
+          configured_compaction_mode: input.compactionMode,
+          reasons: input.modelExecutionPolicy?.reasons ?? [],
+        },
+      );
+    }
+    const budgetPolicy = buildBudgetPolicy(budgetCeiling, input.outputReserveTokens, compactionMode);
     const planPaths = input.metadata.plan_file_path
       ? [input.metadata.plan_file_path as string]
       : [];
@@ -120,7 +145,7 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
       },
       enableCompaction: true,
       artifactStore: input.artifactStore,
-      compactionMode: input.compactionMode,
+      compactionMode,
     });
     budgetEvaluation = budgetResult.evaluation;
     if (budgetEvaluation.compactionApplied !== "none") {
@@ -137,6 +162,16 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
         compactionApplied: budgetEvaluation.compactionApplied,
         tokensRecovered: budgetEvaluation.tokensRecovered,
         cachePolicy: input.cachePolicyRecord,
+        modelExecutionPolicy: input.modelExecutionPolicy
+          ? {
+              profileId: input.modelExecutionPolicy.profileId,
+              policyHash: input.modelExecutionPolicy.policyHash,
+              attention: input.modelExecutionPolicy.attention,
+              activation: input.modelExecutionPolicy.activation,
+              decoding: input.modelExecutionPolicy.decoding,
+              reasons: input.modelExecutionPolicy.reasons,
+            }
+          : undefined,
       },
     );
     if (budgetEvaluation.checkpoint) {
@@ -158,7 +193,8 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
   const upperBudgetDecision = evaluateUpperHarnessBudget({
     context: input.upperHarnessContext,
     estimatedInputTokens: contextAdmission.estimatedTokens,
-    ceilingTokens: input.upperHarnessCeilingTokens
+    ceilingTokens: input.modelExecutionPolicy?.effectiveContextCeilingTokens
+      ?? input.upperHarnessCeilingTokens
       ?? (input.budgetCeilingTokens > 0 ? input.budgetCeilingTokens : input.admissionHardTokens),
     outputReserveTokens: input.outputReserveTokens,
   });

@@ -117,4 +117,45 @@ describe("runRouteContextAdmission", () => {
       "context_admission_reject_claude",
     );
   });
+
+  it("applies model execution policy ceilings and compaction mode", () => {
+    const input = baseInput({
+      contextBudgetEnabled: true,
+      modelContextCeilingTokens: 100_000,
+      modelExecutionPolicy: {
+        profileId: "minimax-m2.1",
+        policyHash: "policy123",
+        attention: "hybrid",
+        activation: "moe",
+        decoding: "speculative_friendly",
+        effectiveContextCeilingTokens: 65_000,
+        safeInstructionTokens: 10_000,
+        safeToolOutputTokens: 14_000,
+        compactionMode: "aggressive",
+        preferMemoryStitching: true,
+        preferFrontLoadedInstructions: true,
+        preferRecentToolStateReplay: true,
+        preferStructuredToolDigests: true,
+        preferShorterTurns: true,
+        preferExplicitStateHeaders: true,
+        preferDeterministicValidation: true,
+        strictStreamToolBoundaryValidation: true,
+        reasons: ["weak_long_tail_retention"],
+      },
+    });
+
+    const result = runRouteContextAdmission(input);
+
+    expect(result.budgetEvaluation?.policy.ceilingTokens).toBe(65_000);
+    expect(result.budgetEvaluation?.policy.softTokens).toBe(Math.floor(65_000 * 0.75));
+    expect(input.recordSessionEvent).toHaveBeenCalledWith(
+      "model_architecture_policy_applied",
+      "model-architecture",
+      expect.stringContaining("ceiling=65000/100000"),
+      expect.objectContaining({
+        profile_id: "minimax-m2.1",
+        compaction_mode: "aggressive",
+      }),
+    );
+  });
 });

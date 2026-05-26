@@ -66,6 +66,15 @@ export interface RequestForensicsRecord {
     family?: string;
     matchedOverrideIds: string[];
     capabilityHash: string;
+    architecturePolicy?: {
+      profileId: string;
+      policyHash: string;
+      attention: string;
+      activation: string;
+      decoding: string;
+      effectiveContextCeilingTokens?: number;
+      reasons: string[];
+    };
   };
 }
 

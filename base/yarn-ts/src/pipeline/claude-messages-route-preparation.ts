@@ -25,6 +25,10 @@ import {
 } from "../adapters/client-adapter-packs.js";
 import { detectClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
 import {
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+} from "../providers/model-architecture-profile.js";
+import {
   normalizeHistoricalContent,
   stabilizeToolCallIds,
 } from "../reduction/historical-normalizer.js";
@@ -428,6 +432,20 @@ export async function prepareClaudeMessagesRoute(
     matchedOverrideIds: capabilityResolution.matched_override_ids,
     capabilityHash,
   };
+  const architectureProfile = resolveModelArchitectureProfile({
+    modelId: matrixModelPath || matrixModelId,
+    family: matrixFamily,
+  });
+  const architecturePolicy = deriveModelExecutionPolicy(architectureProfile);
+  forensicsCapabilityMatrix.architecturePolicy = {
+    profileId: architecturePolicy.profileId,
+    policyHash: architecturePolicy.policyHash,
+    attention: architecturePolicy.attention,
+    activation: architecturePolicy.activation,
+    decoding: architecturePolicy.decoding,
+    effectiveContextCeilingTokens: architecturePolicy.effectiveContextCeilingTokens,
+    reasons: architecturePolicy.reasons,
+  };
   recordSessionEvent(
     sessionKey,
     identity.userId,
@@ -446,6 +464,7 @@ export async function prepareClaudeMessagesRoute(
       matched_selectors: capabilityResolution.matched_selectors,
       capability_hash: capabilityHash,
       resolved_capabilities: capabilityResolution.resolved_capabilities,
+      architecture_policy: forensicsCapabilityMatrix.architecturePolicy,
     },
   );
   const msgCount = (body.messages as unknown[]).length;

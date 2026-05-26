@@ -6,6 +6,7 @@ import {
   type PricingSource,
 } from "@synesis/telemetry";
 import type { AppConfig } from "../config.js";
+import type { ModelArchitectureProfileOverride } from "./model-architecture-profile.js";
 
 const SAFE_ENV_VAR_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 function isSafeEnvVarName(name: string): boolean {
@@ -86,6 +87,8 @@ export interface TierConfig {
   samplingDefaults?: ModelSamplingDefaults;
   /** Optional per-tier context ceiling for budget manager (overrides global config). */
   contextCeilingTokens?: number | null;
+  /** Optional operator override for Yarn architecture-aware mediation. */
+  architectureProfile?: ModelArchitectureProfileOverride | null;
 }
 
 export interface RoleAssignmentConfig {
@@ -232,6 +235,61 @@ function parseSamplingDefaults(lp: Record<string, unknown>): ModelSamplingDefaul
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  const n = asFiniteNumber(value);
+  return n !== undefined && n > 0 ? Math.trunc(n) : undefined;
+}
+
+function parseArchitectureProfileOverride(lp: Record<string, unknown>): ModelArchitectureProfileOverride | null {
+  const embedded = lp.architecture_profile;
+  const out: ModelArchitectureProfileOverride =
+    embedded && typeof embedded === "object" && !Array.isArray(embedded)
+      ? { ...(embedded as Record<string, unknown>) } as ModelArchitectureProfileOverride
+      : {};
+
+  const attention = stringValue(lp.architecture_attention);
+  const activation = stringValue(lp.architecture_activation);
+  const decoding = stringValue(lp.architecture_decoding);
+  const effectiveWorkingContextTokens = numberValue(lp.effective_working_context_tokens);
+  const safeInstructionTokens = numberValue(lp.safe_instruction_tokens);
+  const safeToolOutputTokens = numberValue(lp.safe_tool_output_tokens);
+
+  if (attention) out.attention = attention as ModelArchitectureProfileOverride["attention"];
+  if (activation) out.activation = activation as ModelArchitectureProfileOverride["activation"];
+  if (decoding) out.decoding = decoding as ModelArchitectureProfileOverride["decoding"];
+  if (effectiveWorkingContextTokens) out.effectiveWorkingContextTokens = effectiveWorkingContextTokens;
+  if (safeInstructionTokens) out.safeInstructionTokens = safeInstructionTokens;
+  if (safeToolOutputTokens) out.safeToolOutputTokens = safeToolOutputTokens;
+
+  const traitKeys = [
+    "long_tail_retention",
+    "tool_calling_reliability",
+    "long_context_reliability",
+    "output_throughput_bias",
+    "retry_sensitivity",
+    "compaction_sensitivity",
+  ] as const;
+  const traitMap: Record<typeof traitKeys[number], keyof NonNullable<ModelArchitectureProfileOverride["traits"]>> = {
+    long_tail_retention: "longTailRetention",
+    tool_calling_reliability: "toolCallingReliability",
+    long_context_reliability: "longContextReliability",
+    output_throughput_bias: "outputThroughputBias",
+    retry_sensitivity: "retrySensitivity",
+    compaction_sensitivity: "compactionSensitivity",
+  };
+  for (const key of traitKeys) {
+    const value = stringValue(lp[`architecture_${key}`]);
+    if (!value) continue;
+    out.traits = { ...(out.traits ?? {}), [traitMap[key]]: value } as NonNullable<ModelArchitectureProfileOverride["traits"]>;
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export function resolveTierRates(
   registryRates: PricingRates | undefined,
   registrySource: PricingSource | undefined,
@@ -292,6 +350,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
     const provider = (row.provider ?? "").toLowerCase();
     const lp = (row.route_params ?? {}) as Record<string, unknown>;
     const samplingDefaults = parseSamplingDefaults(lp);
+    const architectureProfile = parseArchitectureProfileOverride(lp);
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv && isSafeEnvVarName(keyEnv) ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
@@ -339,6 +398,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       adapterHint: row.adapter_hint ?? null,
       samplingDefaults,
       contextCeilingTokens: row.context_window ?? null,
+      architectureProfile,
     });
   }
   return { tiers: out, roleAssignments, promptSnapshot };
@@ -443,6 +503,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
         baseUrl: endpoint,
         apiKey,
         samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
+        architectureProfile: parseArchitectureProfileOverride(o.generation_params ?? {}) ?? base.architectureProfile,
       });
       continue;
     }
@@ -451,6 +512,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
       id: cid,
       backendModel: override || base.backendModel,
       samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
+      architectureProfile: parseArchitectureProfileOverride(o.generation_params ?? {}) ?? base.architectureProfile,
     });
   }
   return [...baseTiers, ...extra];

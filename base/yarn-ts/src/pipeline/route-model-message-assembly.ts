@@ -44,6 +44,7 @@ export interface RouteModelMessageAssemblyInput<TMessage extends RouteModelMessa
   consecutiveEditContextMisses: number;
   stateReground: RouteStateReground;
   promptIntakeSystemBlock?: string | null;
+  architecturePolicySystemHint?: string | null;
   buildEditContextMissGuardPrompt(filePath: string, missCount: number): string;
   buildEditContextMissForcedReadPrompt(filePath?: string): string;
   buildStateRegroundReadPrompt(path: string, reasons: string[]): string;
@@ -94,6 +95,9 @@ export function assembleRouteModelMessages<TMessage extends RouteModelMessage>(
   }
   if (input.promptIntakeSystemBlock) {
     messages = appendSystemMessageAndNormalize(messages, input.promptIntakeSystemBlock) as TMessage[];
+  }
+  if (input.architecturePolicySystemHint) {
+    messages = appendSystemMessageAndNormalize(messages, input.architecturePolicySystemHint) as TMessage[];
   }
 
   return { messages, toolPrompt };

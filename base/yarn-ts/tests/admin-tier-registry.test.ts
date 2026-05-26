@@ -204,6 +204,40 @@ describe("fetchTierConfigs", () => {
       enable_thinking: true,
     });
   });
+
+  it("parses architecture profile overrides from route params", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "deepseek/deepseek-r1",
+            endpoint: "",
+            route_params: {
+              architecture_attention: "full_attention",
+              effective_working_context_tokens: 120000,
+              architecture_compaction_sensitivity: "low",
+              architecture_profile: {
+                recommendations: { preferShorterTurns: false },
+              },
+            },
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+
+    expect(tiers[0].architectureProfile).toMatchObject({
+      attention: "full_attention",
+      effectiveWorkingContextTokens: 120000,
+      traits: { compactionSensitivity: "low" },
+      recommendations: { preferShorterTurns: false },
+    });
+  });
 });
 
 describe("normalizeOpenAICompatTierModelId", () => {

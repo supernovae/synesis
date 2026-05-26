@@ -22,6 +22,13 @@ import {
   suppressThinkingWhenRequiredToolChoice,
 } from "./provider-options.js";
 import {
+  architecturePolicyTrace,
+  buildArchitecturePolicySystemHint,
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+  type ModelArchitectureProfileOverride,
+} from "../providers/model-architecture-profile.js";
+import {
   extractRecentToolNames,
   prepareRouteTools,
 } from "./route-tool-preparation.js";
@@ -59,6 +66,7 @@ type TierRegistryLike = {
     baseUrl: string;
     samplingDefaults?: unknown;
     contextCeilingTokens?: number | null;
+    architectureProfile?: ModelArchitectureProfileOverride | null;
   } | undefined;
 };
 
@@ -220,14 +228,23 @@ export function prepareOpenAIChatProviderRuntime(
   const { resolved, session, normalizedRequest, routePersistence, config, logger } = input;
   const { adapter } = resolved;
   const resolvedTierForHarness = input.tierRegistry.getTierConfig(resolved.resolvedModelId);
+  const providerForHarness = resolvedTierForHarness
+    ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
+    : undefined;
+  const architectureProfile = resolveModelArchitectureProfile({
+    modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+    provider: providerForHarness,
+    family: adapter.family,
+    declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
+    override: resolvedTierForHarness?.architectureProfile,
+  });
+  const modelExecutionPolicy = deriveModelExecutionPolicy(architectureProfile);
   const upperHarness = buildYarnUpperHarnessContext({
     surface: "openai",
     modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
     requestedModel: String(input.request.model ?? ""),
     baseUrl: resolvedTierForHarness?.baseUrl,
-    provider: resolvedTierForHarness
-      ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
-      : undefined,
+    provider: providerForHarness,
   });
   const rawTools = ((normalizedRequest.tools as unknown[]) ?? []);
   const toolPreparation = prepareRouteTools({
@@ -341,6 +358,7 @@ export function prepareOpenAIChatProviderRuntime(
       reasons: input.stateConfidence.reasons ?? [],
     },
     promptIntakeSystemBlock: input.promptIntake.systemBlock,
+    architecturePolicySystemHint: buildArchitecturePolicySystemHint(modelExecutionPolicy),
     buildEditContextMissGuardPrompt: input.buildEditContextMissGuardPrompt as never,
     buildEditContextMissForcedReadPrompt: input.buildEditContextMissForcedReadPrompt as never,
     buildStateRegroundReadPrompt: input.buildStateRegroundReadPrompt as never,
@@ -435,6 +453,7 @@ export function prepareOpenAIChatProviderRuntime(
     admissionWarnTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS,
     admissionHardTokens: config.SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS,
     compactionMode: input.cachePolicy.compactionMode as never,
+    modelExecutionPolicy,
     cachePolicyRecord: cachePolicyLogRecord(input.cachePolicy as never),
     upperHarnessContext: upperHarness,
     upperHarnessCeilingTokens: resolvedTierForHarness?.contextCeilingTokens,
@@ -488,6 +507,20 @@ export function prepareOpenAIChatProviderRuntime(
     },
   });
   input.optimizationLedger.recordCacheDiagnostics(cacheShapeDiagnostics as Record<string, unknown>);
+  input.optimizationLedger.recordCacheDiagnostics({
+    architectureAttention: architectureProfile.attention,
+    architectureActivation: architectureProfile.activation,
+    architectureDecoding: architectureProfile.decoding,
+    executionPolicyHash: modelExecutionPolicy.policyHash,
+    effectiveContextCeilingTokens: modelExecutionPolicy.effectiveContextCeilingTokens,
+    architecturePolicyReasons: modelExecutionPolicy.reasons,
+  });
+  routePersistence.recordSessionEvent(
+    "model_architecture_profile_selected",
+    "model-architecture",
+    `attention=${architectureProfile.attention} activation=${architectureProfile.activation} decoding=${architectureProfile.decoding}`,
+    architecturePolicyTrace(architectureProfile, modelExecutionPolicy),
+  );
 
   const telemetryRouteBase = createOpenAIChatRouteTelemetryBase({
     clientRequestedModel: String(input.request.model ?? ""),
