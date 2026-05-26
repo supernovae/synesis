@@ -66,6 +66,8 @@ interface ClaudeMessagesDispatchInput {
   taskCue: unknown;
   orchestration: Parameters<typeof runClaudeStreamKickoffRoute>[0]["orchestration"];
   forensicsCapabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
+  onProviderComplete?(): void;
+  getStageTimingsMs?(): Record<string, number>;
 }
 
 export async function runClaudeMessagesDispatchForRoute(input: ClaudeMessagesDispatchInput): Promise<FastifyReply> {
@@ -195,6 +197,8 @@ export async function runClaudeMessagesDispatchForRoute(input: ClaudeMessagesDis
         forensicsPhasePolicy: providerPreparation.forensicsPhasePolicy,
         forensicsCapabilityMatrix: input.forensicsCapabilityMatrix,
         cacheShapeDiagnostics: providerPreparation.cacheShapeDiagnostics,
+        onProviderComplete: input.onProviderComplete,
+        getStageTimingsMs: input.getStageTimingsMs,
         normalizedMessages: input.normalizedMessages,
         toolResultCount: input.toolResultCount,
         policyMatchedRules: input.policyMatchedRules,
@@ -304,6 +308,8 @@ export async function runClaudeMessagesDispatchForRoute(input: ClaudeMessagesDis
       prefixHash: enriched.prefixHash,
       prefixChangeReasons: enriched.prefixChangeReasons,
       contextAdmission,
+      onProviderComplete: input.onProviderComplete,
+      getStageTimingsMs: input.getStageTimingsMs,
       artifactToolInjected: config.SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED,
       knowledgeToolInjected: config.SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED,
       transport: {
@@ -428,6 +434,8 @@ export async function runClaudeMessagesDispatchForRoute(input: ClaudeMessagesDis
     prefixChangeReasons: enriched.prefixChangeReasons,
     contextAdmission: contextAdmissionTelemetry,
     cacheShapeDiagnostics: providerPreparation.cacheShapeDiagnostics,
+    onProviderComplete: input.onProviderComplete,
+    getStageTimingsMs: input.getStageTimingsMs,
     toolResultReduction,
     validationNormalization,
     toolResultCount: input.toolResultCount,

@@ -871,6 +871,12 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     );
     claudeOptLedger.recordCacheDiagnostics(claudeProviderRuntime.providerPreparation.cacheShapeDiagnostics);
     const endClaudeProviderStage = claudeOptLedger.startStage(body.stream ? "stream" : "provider");
+    let claudeProviderStageEnded = false;
+    const finishClaudeProviderStage = (): void => {
+      if (claudeProviderStageEnded) return;
+      claudeProviderStageEnded = true;
+      endClaudeProviderStage();
+    };
     const claudeDispatchResult = await runClaudeMessagesDispatchForRoute({
       deps,
       request: req,
@@ -908,8 +914,10 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       taskCue: claudeTaskCue,
       orchestration: claudeOrchestration,
       forensicsCapabilityMatrix: claudeForensicsCapabilityMatrix,
+      onProviderComplete: finishClaudeProviderStage,
+      getStageTimingsMs: () => claudeOptLedger.finalize().stageTimingsMs,
     });
-    endClaudeProviderStage();
+    finishClaudeProviderStage();
     app.log.info({ reqId: traceReqId, ...claudeOptLedger.toLogRecord() }, "optimization_ledger");
     return claudeDispatchResult;
   });

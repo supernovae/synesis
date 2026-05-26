@@ -69,6 +69,13 @@ export interface ClaudeStreamRouteRunInputBuilderInput<
       RuntimeTelemetryFields
     >;
   };
+  onProviderComplete?: ClaudeStreamRouteRunInput<
+    TMessage,
+    TForensics,
+    TChecklist,
+    TVerification,
+    TPlanGraph
+  >["onProviderComplete"];
 }
 
 export function buildClaudeStreamRouteRunInput<
@@ -118,5 +125,6 @@ export function buildClaudeStreamRouteRunInput<
         resolvedModelId: input.start.components.resolvedModelId,
       },
     },
+    onProviderComplete: input.onProviderComplete,
   };
 }

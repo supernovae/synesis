@@ -285,6 +285,8 @@ export interface ClaudeStreamRouteInput {
     estimatedTokens: number;
     estimatedChars: number;
   };
+  onProviderComplete?(): void;
+  getStageTimingsMs?(): Record<string, number>;
   artifactToolInjected: boolean;
   knowledgeToolInjected: boolean;
   transport: {
@@ -511,12 +513,14 @@ export async function runClaudeStreamRoute(input: ClaudeStreamRouteInput): Promi
         prefixHash: input.prefixHash,
         prefixChangeReasons: input.prefixChangeReasons,
         contextAdmission: input.contextAdmission,
+        getStageTimingsMs: input.getStageTimingsMs,
         countMessageRoles: input.telemetry.countMessageRoles,
         pushDiagnostic: input.telemetry.pushDiagnostic,
         recordSessionEvent: input.telemetry.recordSessionEvent,
         persistDecisionTelemetry: input.telemetry.persistDecisionTelemetry,
       },
     },
+    onProviderComplete: input.onProviderComplete,
   });
 
   return { kind: "started" };

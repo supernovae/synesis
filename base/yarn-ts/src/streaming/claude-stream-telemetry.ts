@@ -82,6 +82,7 @@ export interface ClaudeStreamTelemetryInput {
   cacheStrategy?: string;
   prefixFingerprint?: string;
   cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
+  getStageTimingsMs?(): Record<string, number>;
   requestForensicsDone?: ClaudeStreamRequestForensicsResult;
   recordSessionEvent(event: {
     eventKind: string;
@@ -157,6 +158,7 @@ export interface ClaudeStreamTelemetryRouteInput {
   cacheStrategy?: string;
   prefixFingerprint?: string;
   cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
+  getStageTimingsMs?(): Record<string, number>;
   recordSessionEvent(
     sessionKey: string,
     userId: string,
@@ -244,6 +246,7 @@ export function createClaudeStreamTelemetryInput(
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
     cacheShapeDiagnostics: input.cacheShapeDiagnostics,
+    getStageTimingsMs: input.getStageTimingsMs,
     recordSessionEvent: (event) => input.recordSessionEvent(
       input.sessionKey,
       input.userId,
@@ -371,6 +374,7 @@ export function runClaudeStreamTelemetry(
     requestForensicsLcpRatio: input.requestForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: input.requestForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: input.requestForensicsDone?.tokenEstimate,
+    stageTimingsMs: input.getStageTimingsMs?.(),
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),

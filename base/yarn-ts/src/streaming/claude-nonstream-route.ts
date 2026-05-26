@@ -137,6 +137,8 @@ export interface ClaudeNonStreamRouteInput {
     estimatedChars: number;
   };
   cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
+  onProviderComplete?(): void;
+  getStageTimingsMs?(): Record<string, number>;
   toolResultReduction: ClaudeNonStreamTelemetryReductions["toolResultReduction"];
   validationNormalization: ClaudeNonStreamTelemetryReductions["validationNormalization"];
   toolResultCount: number;
@@ -310,6 +312,7 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
       sessionKey: input.sessionKey,
     }),
     extractUpstreamErrorDiagnostics: input.extractUpstreamErrorDiagnostics,
+    onProviderComplete: input.onProviderComplete,
     providerRouteInput: {
       initialMessages: input.messages,
       model: input.model,
@@ -448,6 +451,7 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
         requirementChecklistShould: input.requirementChecklist?.should.length || undefined,
         contextAdmission: input.contextAdmission,
         cacheShapeDiagnostics: input.cacheShapeDiagnostics,
+        getStageTimingsMs: input.getStageTimingsMs,
         countMessageRoles: input.countMessageRoles,
         pushDiagnostic: input.pushDiagnostic,
       },

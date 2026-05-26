@@ -83,6 +83,8 @@ export interface ClaudeStreamKickoffRouteInput {
   forensicsPhasePolicy?: RequestForensicsRecord["phasePolicy"];
   forensicsCapabilityMatrix?: RequestForensicsRecord["capabilityMatrix"];
   cacheShapeDiagnostics: OptimizationCacheDiagnostics;
+  onProviderComplete?(): void;
+  getStageTimingsMs?(): Record<string, number>;
   normalizedMessages: Array<{ role: string; content: unknown }>;
   toolResultCount: number;
   policyMatchedRules: string[];
@@ -226,6 +228,7 @@ export async function runClaudeStreamKickoffRoute(input: ClaudeStreamKickoffRout
     },
   });
 
+  input.onProviderComplete?.();
   const usage = kickoffResult.usage;
   const stopReason = kickoffResult.stopReason;
   const externalCalls = kickoffResult.externalToolCalls;
@@ -310,6 +313,7 @@ function recordClaudeStreamKickoffTelemetry(
     requestForensicsLcpRatio: telemetry.requestForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: telemetry.requestForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: telemetry.requestForensicsDone?.tokenEstimate,
+    stageTimingsMs: input.getStageTimingsMs?.(),
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
   });
 }

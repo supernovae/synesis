@@ -48,6 +48,7 @@ export interface ClaudeNonStreamPipelineInput<
   logger: ClaudeNonStreamRouteLogger;
   startSpan(): ClaudeNonStreamLifecycleInput["span"];
   extractUpstreamErrorDiagnostics: ClaudeNonStreamLifecycleInput["extractUpstreamErrorDiagnostics"];
+  onProviderComplete?(): void;
   providerInput: ClaudeNonStreamProviderExecutorInput<TMessage, TResult>;
   postprocessInput: Omit<
     ClaudeNonStreamPostProviderInput<TChecklist, TVerification, TPlanGraph>,
@@ -196,6 +197,7 @@ export async function runClaudeNonStreamPipeline<
     span,
     circuitBreakers: input.circuitBreakers,
   });
+  input.onProviderComplete?.();
 
   const processed = await processClaudeNonStreamProviderResult({
     ...input.postprocessInput,

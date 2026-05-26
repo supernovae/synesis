@@ -50,6 +50,7 @@ export interface ClaudeStreamRouteRunInput<
       StreamTelemetryRouteBaseInput,
       "cacheStrategy" | "prefixFingerprint" | "cacheShapeDiagnostics"
     > & {
+      getStageTimingsMs?: () => Record<string, number>;
       recordSessionEvent: ClaudeStreamRouteCompletionFactoryInput<
         TForensics,
         TChecklist,
@@ -64,6 +65,7 @@ export interface ClaudeStreamRouteRunInput<
       >["telemetry"]["persistDecisionTelemetry"];
     };
   };
+  onProviderComplete?(): void;
 }
 
 export interface ClaudeStreamRouteRunResult<
@@ -116,6 +118,7 @@ export async function runClaudeStreamRoute<
     afterEvents: input.pipeline.afterEvents,
   }));
 
+  input.onProviderComplete?.();
   const completed = await completeClaudeStreamRoute(createClaudeStreamRouteCompletionInput({
     finalizer: {
       ...input.completion.finalizer,

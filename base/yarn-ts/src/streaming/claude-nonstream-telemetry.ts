@@ -91,6 +91,18 @@ export interface ClaudeNonStreamRequestDiagnostic {
   cacheShapeToolSchemaBytes?: number;
   cacheShapeProviderOptionsHash?: string;
   cacheShapeProviderOptionsBytes?: number;
+  cacheShapeNormalizedTranscriptPrefixHash?: string;
+  cacheShapeNormalizedTranscriptPrefixBytes?: number;
+  cacheShapeCachePolicyHash?: string;
+  cacheShapeCachePolicyBytes?: number;
+  cacheShapeModelProviderResolutionHash?: string;
+  cacheShapeModelProviderResolutionBytes?: number;
+  stageTimingsMs?: Record<string, number>;
+  cacheShapePromptTokens?: number;
+  cacheShapeCachedTokens?: number;
+  cacheShapeCacheCreationTokens?: number;
+  cacheShapeHitPct?: number;
+  cacheShapeOutcome?: "hit" | "write" | "miss" | "unknown";
 }
 
 export interface ClaudeNonStreamTelemetryInput {
@@ -140,6 +152,7 @@ export interface ClaudeNonStreamTelemetryInput {
   };
   requestForensicsDone?: ClaudeNonStreamRequestForensicsResult;
   cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
+  getStageTimingsMs?(): Record<string, number>;
   recordSessionEvent(event: {
     eventKind: string;
     component: string;
@@ -289,6 +302,7 @@ export function runClaudeNonStreamTelemetry(
     requestForensicsLcpRatio: input.requestForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: input.requestForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: input.requestForensicsDone?.tokenEstimate,
+    stageTimingsMs: input.getStageTimingsMs?.(),
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
     ...cacheShapeDiagnosticFields(buildCacheShapeOutcomeDiagnostics(input.usage)),
   });

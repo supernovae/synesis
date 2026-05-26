@@ -38,6 +38,13 @@ export interface ClaudeStreamRouteInputBuilderInput<
   eventHandlers: ClaudeStreamRouteEventHandlersBuilderInput;
   pipelineSupport: ClaudeStreamRoutePipelineSupportBuilderInput;
   completion: ClaudeStreamRouteCompletionBuilderInput<TChecklist, TVerification, TPlanGraph>;
+  onProviderComplete?: ClaudeStreamRouteRunInput<
+    TMessage,
+    ClaudeStreamRequestForensicsResult | null | undefined,
+    TChecklist,
+    TVerification,
+    TPlanGraph
+  >["onProviderComplete"];
 }
 
 export function buildClaudeStreamRouteInput<
@@ -62,6 +69,7 @@ export function buildClaudeStreamRouteInput<
       ...buildClaudeStreamRoutePipelineSupportInput(input.pipelineSupport),
     },
     completion: buildClaudeStreamRouteCompletionInput(input.completion),
+    onProviderComplete: input.onProviderComplete,
   });
 }
 
