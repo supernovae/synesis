@@ -972,6 +972,13 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
   ),
   getTool("yarn_diagnostics_recent", "Recent Yarn request diagnostics snapshots.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/diagnostics/recent"),
   getTool(
+    "yarn_optimization_watcher",
+    "Summarize Yarn cache-shape stability, stage timing, and likely cache/prefix issues.",
+    "org_admin",
+    EMPTY_SCHEMA,
+    "/api/v1/yarn/optimization-watcher",
+  ),
+  getTool(
     "yarn_user_usage",
     "Return Yarn usage for the current authenticated user.",
     "user",

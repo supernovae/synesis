@@ -28,6 +28,7 @@ describe("admin MCP tool catalog", () => {
       "knowledge_gaps",
       "yarn_runtime_telemetry",
       "yarn_reducer_telemetry_history",
+      "yarn_optimization_watcher",
       "model_performance_detailed",
       "model_costs_by_model",
       "provider_governance_list",

@@ -22,6 +22,10 @@ from ..services.account_usage_service import account_usage_identity_candidates
 from ..services.archive_store import ArchiveConfigError
 from ..services.health_prober import probe_service
 from ..services.telemetry_scraper import get_yarn_reducer_scrape_status
+from ..services.yarn_optimization import (
+    build_yarn_optimization_health,
+    build_yarn_optimization_watcher,
+)
 from ..services.yarn_reducer_history import (
     cumulative_reducer_snapshots,
     reducer_snapshot_freshness,
@@ -80,8 +84,26 @@ def _internal_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _optional_internal_headers() -> dict[str, str]:
+    token = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "").strip()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": "Bearer admin-internal"}
+
+
 def _user_pref_id(user: UserInfo) -> str:
     return quote((user.user_id or user.username or "").strip(), safe="")
+
+
+async def _fetch_yarn_recent_diagnostics() -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{_YARN_URL.rstrip('/')}/v1/diagnostics/recent",
+            headers=_optional_internal_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, dict) else {"diagnostics": [], "source": "invalid"}
 
 
 @router.get("/runtime-preferences")
@@ -542,13 +564,34 @@ async def yarn_diagnostics_recent(
 ):
     """Proxy recent request diagnostics from Yarn service."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{_YARN_URL.rstrip('/')}/v1/diagnostics/recent")
-            resp.raise_for_status()
-            return resp.json()
+        return await _fetch_yarn_recent_diagnostics()
     except Exception as exc:
         logger.warning("yarn_diagnostics_recent_proxy_error: %s", str(exc)[:120])
         raise HTTPException(status_code=502, detail="Could not reach Yarn diagnostics endpoint")
+
+
+@router.get("/optimization-health")
+async def yarn_optimization_health(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Aggregate recent Yarn cache-shape and stage timing diagnostics."""
+    try:
+        return build_yarn_optimization_health(await _fetch_yarn_recent_diagnostics())
+    except Exception as exc:
+        logger.warning("yarn_optimization_health_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not summarize Yarn optimization diagnostics")
+
+
+@router.get("/optimization-watcher")
+async def yarn_optimization_watcher(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """AI-ready watcher report for Yarn cache-shape and pipeline health."""
+    try:
+        return build_yarn_optimization_watcher(await _fetch_yarn_recent_diagnostics())
+    except Exception as exc:
+        logger.warning("yarn_optimization_watcher_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not summarize Yarn optimization diagnostics")
 
 
 # ── User-scoped usage (for account page) ─────────────────────────────────────

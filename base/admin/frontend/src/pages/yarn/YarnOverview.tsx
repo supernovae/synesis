@@ -27,6 +27,7 @@ import {
   useYarnOverview,
   useYarnPerformance,
   useYarnIntelligence,
+  useYarnOptimizationWatcher,
   useYarnRuntimeTelemetry,
   useYarnReducerTelemetryHistory,
   type YarnPerformanceBucket,
@@ -44,6 +45,13 @@ const PERIOD_OPTIONS = [
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function statusBadgeClass(status: string | undefined): string {
+  if (status === "healthy") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "critical") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "warn") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-gray-200 bg-gray-50 text-gray-600";
 }
 
 function fmtBucketLabel(iso: string | null): string {
@@ -99,6 +107,7 @@ export default function YarnOverview() {
   const { data: overview, isLoading: ovLoading } = useYarnOverview(sinceHours);
   const { data: perf, isLoading: perfLoading } = useYarnPerformance(sinceHours);
   const { data: intelligence, isLoading: intelLoading } = useYarnIntelligence(sinceHours);
+  const { data: optimizationWatcher } = useYarnOptimizationWatcher();
   const { data: runtimeTelemetry } = useYarnRuntimeTelemetry();
   const { data: reducerHistory } = useYarnReducerTelemetryHistory(sinceHours);
 
@@ -119,6 +128,11 @@ export default function YarnOverview() {
   const cumulativeTaskTotal = cumulativeTaskKept + cumulativeTaskDropped;
   const cumulativeTaskKeepRatio = cumulativeTaskTotal > 0 ? (cumulativeTaskKept / cumulativeTaskTotal) * 100 : null;
   const transitionQuality = intelligence?.state_transition_quality;
+  const optimizationFindings = optimizationWatcher?.watcher_report?.findings ?? optimizationWatcher?.findings ?? [];
+  const optimizationStatus = optimizationWatcher?.watcher_report?.status ?? optimizationWatcher?.status;
+  const optimizationStages = Object.entries(optimizationWatcher?.stage_timings ?? {})
+    .sort(([, a], [, b]) => b.p95_ms - a.p95_ms)
+    .slice(0, 4);
   const transitionQualityActions = (() => {
     if (!transitionQuality) return [];
     const actions: string[] = [];
@@ -291,6 +305,105 @@ export default function YarnOverview() {
                     <span className="font-medium">{intelligence.trajectory_events.toLocaleString()}</span>
                   </div>
                 </div>
+              </ChartCard>
+
+              <ChartCard
+                title="Optimization Watcher"
+                subtitle="Cache-shape stability and pipeline timing from recent diagnostics"
+              >
+                {!optimizationWatcher ? (
+                  <p className="text-sm text-gray-500">No watcher report loaded yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span
+                          className={clsx(
+                            "inline-flex rounded-md border px-2 py-1 text-xs font-medium uppercase",
+                            statusBadgeClass(optimizationStatus),
+                          )}
+                        >
+                          {optimizationStatus ?? "unknown"}
+                        </span>
+                        <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                          {optimizationWatcher.watcher_report.summary}
+                        </p>
+                      </div>
+                      <div className="text-right text-xs text-gray-500 dark:text-gray-400">
+                        <div>{optimizationWatcher.summary.sample_count.toLocaleString()} samples</div>
+                        <div>{optimizationWatcher.summary.source}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Token cache hit</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {optimizationWatcher.summary.cache_hit_token_pct.toFixed(1)}%
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Tool schema hashes</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {optimizationWatcher.stability.tool_schema?.unique ?? 0}
+                          <span className="text-xs font-normal text-gray-500">
+                            {" / "}
+                            {optimizationWatcher.stability.tool_schema?.observed ?? 0}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Provider option hashes</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {optimizationWatcher.stability.provider_options?.unique ?? 0}
+                          <span className="text-xs font-normal text-gray-500">
+                            {" / "}
+                            {optimizationWatcher.stability.provider_options?.observed ?? 0}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Current findings
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {optimizationFindings.slice(0, 3).map((finding) => (
+                          <div key={finding.code} className="rounded-md border border-gray-200 p-2 dark:border-gray-700">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {finding.title}
+                              </span>
+                              <span className={clsx("rounded px-1.5 py-0.5 text-[11px]", statusBadgeClass(finding.severity === "warning" ? "warn" : finding.severity))}>
+                                {finding.severity}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-400">
+                              {finding.recommended_action}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {optimizationStages.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Slowest stages by p95
+                        </p>
+                        <div className="mt-2 space-y-1.5">
+                          {optimizationStages.map(([stage, timing]) => (
+                            <div key={stage} className="flex items-center justify-between text-sm">
+                              <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{stage}</span>
+                              <span className="text-gray-500 dark:text-gray-400">{fmtDurationMs(timing.p95_ms)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </ChartCard>
 
               <ChartCard

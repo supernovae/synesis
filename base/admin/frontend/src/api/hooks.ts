@@ -2871,6 +2871,74 @@ export interface YarnVerifyResult {
   checks: YarnVerifyCheck[];
 }
 
+export interface YarnOptimizationFinding {
+  severity: "info" | "warning" | "critical" | string;
+  code: string;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+  recommended_action: string;
+}
+
+export interface YarnOptimizationHealth {
+  generated_at: string;
+  status: "healthy" | "warn" | "critical" | "unknown" | string;
+  summary: {
+    sample_count: number;
+    source: string;
+    cache_hit_avg_pct: number;
+    cache_hit_token_pct: number;
+    latest_cache_hit_pct: number;
+    prompt_tokens: number;
+    cached_tokens: number;
+    cache_creation_tokens: number;
+    outcome_counts: Record<string, number>;
+  };
+  stability: Record<
+    string,
+    {
+      observed: number;
+      unique: number;
+      latest_hash: string;
+      avg_bytes: number;
+      latest_bytes: number;
+      stability_ratio: number;
+    }
+  >;
+  stage_timings: Record<
+    string,
+    {
+      samples: number;
+      avg_ms: number;
+      p95_ms: number;
+      max_ms: number;
+    }
+  >;
+  latest: {
+    request_id?: string | null;
+    path?: string | null;
+    session_key?: string | null;
+    cache_shape_outcome?: string | null;
+    cache_hit_pct?: number;
+    latency_ms?: number | null;
+    finish_reason?: string | null;
+    decision_path?: string | null;
+  };
+  findings: YarnOptimizationFinding[];
+  next_actions: string[];
+}
+
+export interface YarnOptimizationWatcher extends YarnOptimizationHealth {
+  watcher_report: {
+    status: string;
+    summary: string;
+    findings: YarnOptimizationFinding[];
+    next_actions: string[];
+    model_assist_ready: boolean;
+    model_assist_prompt: string;
+  };
+}
+
 export function useYarnOverview(sinceHours: number) {
   return useQuery<YarnOverview>({
     queryKey: ["yarn", "overview", sinceHours],
@@ -2918,6 +2986,14 @@ export function useYarnIntelligence(sinceHours: number) {
     queryKey: ["yarn", "intelligence", sinceHours],
     queryFn: () =>
       client.get("/yarn/intelligence", { params: { since_hours: sinceHours } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useYarnOptimizationWatcher() {
+  return useQuery<YarnOptimizationWatcher>({
+    queryKey: ["yarn", "optimization-watcher"],
+    queryFn: () => client.get("/yarn/optimization-watcher").then((r) => r.data),
     refetchInterval: 60_000,
   });
 }

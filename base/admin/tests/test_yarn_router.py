@@ -482,6 +482,81 @@ def test_yarn_health_uses_probe_service(client, monkeypatch):
     assert svc["url"].endswith("/health")
 
 
+def test_yarn_optimization_watcher_summarizes_recent_diagnostics(client, monkeypatch):
+    async def _mock_recent():
+        return {
+            "source": "memory",
+            "diagnostics": [
+                {
+                    "requestId": "req-1",
+                    "path": "/v1/chat/completions",
+                    "cacheShapeStablePrefixHash": "prefix-a",
+                    "cacheShapeStablePrefixBytes": 900,
+                    "cacheShapeToolSchemaHash": "tools-a",
+                    "cacheShapeToolSchemaBytes": 1200,
+                    "cacheShapeProviderOptionsHash": "provider-a",
+                    "cacheShapeProviderOptionsBytes": 180,
+                    "cacheShapeCachePolicyHash": "policy-a",
+                    "cacheShapeModelProviderResolutionHash": "model-a",
+                    "cacheShapePromptTokens": 1000,
+                    "cacheShapeCachedTokens": 50,
+                    "cacheShapeCacheCreationTokens": 0,
+                    "cacheShapeHitPct": 5,
+                    "cacheShapeOutcome": "miss",
+                    "stageTimingsMs": {"normalization": 10, "provider": 1000},
+                },
+                {
+                    "requestId": "req-2",
+                    "path": "/v1/chat/completions",
+                    "cacheShapeStablePrefixHash": "prefix-a",
+                    "cacheShapeStablePrefixBytes": 1000,
+                    "cacheShapeToolSchemaHash": "tools-b",
+                    "cacheShapeToolSchemaBytes": 1200,
+                    "cacheShapeProviderOptionsHash": "provider-b",
+                    "cacheShapeProviderOptionsBytes": 180,
+                    "cacheShapeCachePolicyHash": "policy-a",
+                    "cacheShapeModelProviderResolutionHash": "model-a",
+                    "cacheShapePromptTokens": 1000,
+                    "cacheShapeCachedTokens": 100,
+                    "cacheShapeCacheCreationTokens": 0,
+                    "cacheShapeHitPct": 10,
+                    "cacheShapeOutcome": "miss",
+                    "stageTimingsMs": {"normalization": 12, "provider": 1200},
+                },
+                {
+                    "requestId": "req-3",
+                    "path": "/v1/messages",
+                    "cacheShapeStablePrefixHash": "prefix-a",
+                    "cacheShapeStablePrefixBytes": 950,
+                    "cacheShapeToolSchemaHash": "tools-c",
+                    "cacheShapeToolSchemaBytes": 1200,
+                    "cacheShapeProviderOptionsHash": "provider-c",
+                    "cacheShapeProviderOptionsBytes": 180,
+                    "cacheShapeCachePolicyHash": "policy-a",
+                    "cacheShapeModelProviderResolutionHash": "model-a",
+                    "cacheShapePromptTokens": 1000,
+                    "cacheShapeCachedTokens": 0,
+                    "cacheShapeCacheCreationTokens": 20,
+                    "cacheShapeHitPct": 0,
+                    "cacheShapeOutcome": "write",
+                    "stageTimingsMs": {"normalization": 11, "provider": 900},
+                },
+            ],
+        }
+
+    monkeypatch.setattr("app.routers.yarn._fetch_yarn_recent_diagnostics", _mock_recent)
+
+    resp = client.get("/api/v1/yarn/optimization-watcher")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"]["sample_count"] == 3
+    assert data["summary"]["cache_hit_token_pct"] == 5.0
+    assert data["stability"]["tool_schema"]["unique"] == 3
+    assert data["stage_timings"]["provider"]["p95_ms"] == 1200
+    assert data["watcher_report"]["status"] in {"warn", "healthy"}
+    assert data["watcher_report"]["model_assist_ready"] is True
+
+
 def test_yarn_user_usage_any_authenticated_user(client, monkeypatch):
     regular = _user(role="user", user_id="plain-user", username="plain-user")
     _auth_ctx["user"] = regular
