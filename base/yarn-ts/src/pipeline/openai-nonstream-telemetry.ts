@@ -231,6 +231,7 @@ export function runOpenAINonStreamTelemetry(
     requestForensicsLcpRatio: input.requestForensics?.lcpRatio,
     requestForensicsFirstChangedSection: input.requestForensics?.firstChangedSection,
     requestForensicsTokenEstimate: input.requestForensics?.tokenEstimate,
+    stageTimingsMs: optimizationLedger.stageTimingsMs,
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),
     ...cacheShapeDiagnosticFields(buildCacheShapeOutcomeDiagnostics(input.usage)),
   });

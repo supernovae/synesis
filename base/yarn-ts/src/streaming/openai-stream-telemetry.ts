@@ -25,7 +25,7 @@ export interface OpenAIStreamTelemetryLedger {
   recordCacheDiagnostics?(diagnostics: OptimizationCacheDiagnostics): void;
   setUpstreamCachedTokens(tokens: number): void;
   recordFinal(messages: Array<{ content?: unknown }>): void;
-  finalize(): unknown;
+  finalize(): { stageTimingsMs?: Record<string, number> } & Record<string, unknown>;
   toLogRecord(): Record<string, unknown>;
 }
 
@@ -355,6 +355,7 @@ export function runOpenAIStreamTelemetry(
     requestForensicsLcpRatio: requestForensicsDone?.lcpRatio,
     requestForensicsFirstChangedSection: requestForensicsDone?.firstChangedSection,
     requestForensicsTokenEstimate: requestForensicsDone?.tokenEstimate,
+    stageTimingsMs: optimizationLedger.stageTimingsMs,
     cacheStrategy: input.cacheStrategy,
     prefixFingerprint: input.prefixFingerprint,
     ...cacheShapeDiagnosticFields(input.cacheShapeDiagnostics),

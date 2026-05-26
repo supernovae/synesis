@@ -51,6 +51,7 @@ export interface RequestDiagnostic {
   requestForensicsTokenEstimate?: number;
   cacheStrategy?: string;
   prefixFingerprint?: string;
+  stageTimingsMs?: Record<string, number>;
   cacheShapeMessageCount?: number;
   cacheShapeStablePrefixHash?: string;
   cacheShapeStablePrefixBytes?: number;
@@ -59,6 +60,12 @@ export interface RequestDiagnostic {
   cacheShapeToolSchemaBytes?: number;
   cacheShapeProviderOptionsHash?: string;
   cacheShapeProviderOptionsBytes?: number;
+  cacheShapeNormalizedTranscriptPrefixHash?: string;
+  cacheShapeNormalizedTranscriptPrefixBytes?: number;
+  cacheShapeCachePolicyHash?: string;
+  cacheShapeCachePolicyBytes?: number;
+  cacheShapeModelProviderResolutionHash?: string;
+  cacheShapeModelProviderResolutionBytes?: number;
   cacheShapePromptTokens?: number;
   cacheShapeCachedTokens?: number;
   cacheShapeCacheCreationTokens?: number;
