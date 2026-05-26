@@ -112,7 +112,6 @@ import { MemoryGovernorTracker } from "./memory/governor-integration.js";
 import { clearSessionMemory, getSessionMemoryCount, initMemoryToolStore } from "./mcp/handlers/memory-tools.js";
 import { MemoryStore } from "./memory/memory-store.js";
 import { Redis as IORedis } from "ioredis";
-import { normalizeCommandOutputForComparison } from "./reduction/output-normalization.js";
 import { WorkingFrameService, type ManifestContext } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
 import { getTemplate as manifestGetTemplate } from "@synesis/manifest";
@@ -138,6 +137,12 @@ import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import { registerNonChatRoutes } from "./server/non-chat-routes.js";
 import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
 import { handleDeterministicPolicyPrecheck } from "./policy/deterministic-policy-route.js";
+import {
+  analyzeRecentCommandLoop,
+  hashTextSignal,
+  looksLikeFailureSignal,
+  normalizedToolOutputSignal,
+} from "./policy/command-loop-analysis.js";
 import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import {
   PhaseModelOrchestrator,
@@ -174,6 +179,7 @@ import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.j
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
 import { type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
 import { createRequestForensicsRecorder } from "./telemetry/request-forensics-recorder.js";
+import { inferTrajectoryDiagnosticsFromMessages } from "./telemetry/trajectory-diagnostics.js";
 import {
   applySensemakingStats,
   createEmptySensemakingStats,
@@ -2103,76 +2109,6 @@ function parseJsonIfPossible(raw: string): unknown | null {
   }
 }
 
-function extractBestDiagnosticsFromValue(
-  value: unknown,
-  depth = 0,
-  seen = new Set<object>(),
-): { structuredErrorsCount: number; diagnosticLinesCount: number } {
-  if (depth > 6 || value === null || value === undefined) {
-    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
-  }
-  if (typeof value === "string") {
-    const parsed = parseJsonIfPossible(value);
-    if (!parsed) return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
-    return extractBestDiagnosticsFromValue(parsed, depth + 1, seen);
-  }
-  if (typeof value !== "object") {
-    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
-  }
-  if (seen.has(value as object)) {
-    return { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
-  }
-  seen.add(value as object);
-
-  const score = (candidate: { structuredErrorsCount: number; diagnosticLinesCount: number }) =>
-    candidate.diagnosticLinesCount * 1000 + candidate.structuredErrorsCount;
-  let best = { structuredErrorsCount: 0, diagnosticLinesCount: 0 };
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const nested = extractBestDiagnosticsFromValue(item, depth + 1, seen);
-      if (score(nested) > score(best)) best = nested;
-    }
-    return best;
-  }
-
-  const row = value as Record<string, unknown>;
-  const errors = Array.isArray(row.errors) ? row.errors : null;
-  const errorLines = Array.isArray(row.errorLines) ? row.errorLines : null;
-  if (errors || errorLines) {
-    best = {
-      structuredErrorsCount: errors?.length ?? 0,
-      diagnosticLinesCount: errorLines?.length ?? 0,
-    };
-  }
-
-  const nestedKeys = ["result", "content", "data", "payload", "output", "text"];
-  for (const key of nestedKeys) {
-    if (!(key in row)) continue;
-    const nested = extractBestDiagnosticsFromValue(row[key], depth + 1, seen);
-    if (score(nested) > score(best)) best = nested;
-  }
-
-  return best;
-}
-
-function inferTrajectoryDiagnosticsFromMessages(
-  messages: Array<{ role: string; content: unknown }>,
-): { structuredErrorsCount: number; diagnosticLinesCount: number; structuredErrorCoverage: number } {
-  let structuredErrorsCount = 0;
-  let diagnosticLinesCount = 0;
-  for (const message of messages) {
-    if (message.role !== "tool" && message.role !== "tool_result") continue;
-    const found = extractBestDiagnosticsFromValue(message.content);
-    structuredErrorsCount += found.structuredErrorsCount;
-    diagnosticLinesCount += found.diagnosticLinesCount;
-  }
-  const structuredErrorCoverage = diagnosticLinesCount > 0
-    ? Number((structuredErrorsCount / diagnosticLinesCount).toFixed(3))
-    : (structuredErrorsCount > 0 ? 1 : 0);
-  return { structuredErrorsCount, diagnosticLinesCount, structuredErrorCoverage };
-}
-
 type CompletionFinalizeResult = {
   finalText: string;
   applied: boolean;
@@ -2476,183 +2412,6 @@ async function runPreFinalizeCritic(
       source: "deterministic",
     };
   }
-}
-
-function normalizeForSignal(value: unknown): unknown {
-  if (value === null || value === undefined) return value ?? "";
-  if (typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map((v) => normalizeForSignal(v));
-  const out: Record<string, unknown> = {};
-  const keys = Object.keys(value as Record<string, unknown>).sort();
-  for (const key of keys) out[key] = normalizeForSignal((value as Record<string, unknown>)[key]);
-  return out;
-}
-
-function stableSignalString(value: unknown): string {
-  if (typeof value === "string") {
-    return value.replace(/\s+/g, " ").trim();
-  }
-  return JSON.stringify(normalizeForSignal(value));
-}
-
-function hashTextSignal(value: unknown): string {
-  const text = typeof value === "string"
-    ? value.replace(/\s+/g, " ").trim()
-    : stableSignalString(value).replace(/\s+/g, " ").trim();
-  if (!text) return "";
-  return crypto.createHash("sha256").update(text.slice(0, 4000)).digest("hex");
-}
-
-const LOOP_TRACKED_TOOL_NAMES = new Set([
-  "bash",
-  "shell",
-  "terminal",
-  "run_command",
-  "run_terminal_command",
-  "execute_command",
-  "run_bash",
-  "glob",
-  "list_files",
-  "read_dir",
-  "read_directory",
-]);
-
-type ToolLoopMessage = {
-  role: string;
-  content: unknown;
-  tool_call_id?: string;
-  tool_calls?: Array<{
-    id?: string;
-    function?: { name?: string; arguments?: unknown };
-    name?: string;
-    input?: unknown;
-  }>;
-};
-
-type CommandLoopSignal = {
-  commandSignatureHash: string;
-  commandRepeatCount: number;
-  failureSignatureHash: string;
-  broadDiscoveryRepeatCount: number;
-};
-
-function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("{")) return null;
-  try {
-    const parsed = JSON.parse(trimmed);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function commandFromArgs(args: unknown): string {
-  if (typeof args === "string") {
-    const parsed = parseJsonObjectLoose(args);
-    if (parsed) {
-      return commandFromArgs(parsed);
-    }
-    return args.replace(/\s+/g, " ").trim().slice(0, 512);
-  }
-  if (!args || typeof args !== "object") return "";
-  const row = args as Record<string, unknown>;
-  for (const key of ["command", "cmd", "script"]) {
-    const v = row[key];
-    if (typeof v === "string" && v.trim()) {
-      return v.replace(/\s+/g, " ").trim().slice(0, 512);
-    }
-  }
-  const globPattern = row.glob_pattern;
-  if (typeof globPattern === "string" && globPattern.trim()) {
-    return `glob:${globPattern.replace(/\s+/g, " ").trim().slice(0, 256)}`;
-  }
-  const path = row.path ?? row.dir ?? row.directory;
-  if (typeof path === "string" && path.trim()) {
-    return `path:${path.replace(/\s+/g, " ").trim().slice(0, 256)}`;
-  }
-  return "";
-}
-
-function isBroadDiscoveryLoopCall(toolName: string, command: string): boolean {
-  const tool = toolName.toLowerCase();
-  const cmd = command.toLowerCase();
-  if (tool === "glob") {
-    return cmd === "glob:*" || cmd === "glob:**/*" || cmd.startsWith("glob:**/");
-  }
-  return (tool === "list_files" || tool === "read_dir" || tool === "read_directory")
-    && (cmd === "path:." || cmd === "path:/" || cmd === "path:");
-}
-
-function normalizedToolOutputSignal(content: unknown): string {
-  if (typeof content === "string") {
-    return normalizeCommandOutputForComparison(content).slice(0, 1600);
-  }
-  return normalizeCommandOutputForComparison(stableSignalString(content)).slice(0, 1600);
-}
-
-function looksLikeFailureSignal(value: string): boolean {
-  if (!value) return false;
-  return /(fail|error|panic|traceback|exception|not found|undefined|cannot|fatal|exit code)/i.test(value);
-}
-
-function analyzeRecentCommandLoop(messages: ToolLoopMessage[]): CommandLoopSignal {
-  const callMap = new Map<string, { command: string; toolName: string }>();
-  const history: Array<{ command: string; toolName: string; failureHash: string }> = [];
-  for (const message of messages) {
-    if (message.role === "assistant" && Array.isArray(message.tool_calls)) {
-      for (const call of message.tool_calls) {
-        const id = typeof call.id === "string" ? call.id : "";
-        if (!id) continue;
-        const toolName = String(call.function?.name ?? call.name ?? "").toLowerCase();
-        if (!LOOP_TRACKED_TOOL_NAMES.has(toolName)) continue;
-        const command = commandFromArgs(call.function?.arguments ?? call.input);
-        if (!command) continue;
-        callMap.set(id, { command, toolName });
-      }
-      continue;
-    }
-    if (message.role !== "tool" && message.role !== "tool_result") continue;
-    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id : "";
-    if (!toolCallId) continue;
-    const call = callMap.get(toolCallId);
-    if (!call) continue;
-    const out = normalizedToolOutputSignal(message.content);
-    const failureHash = looksLikeFailureSignal(out) ? hashTextSignal(out) : "";
-    history.push({ command: call.command, toolName: call.toolName, failureHash });
-  }
-  if (history.length === 0) {
-    return {
-      commandSignatureHash: "",
-      commandRepeatCount: 0,
-      failureSignatureHash: "",
-      broadDiscoveryRepeatCount: 0,
-    };
-  }
-
-  const latest = history[history.length - 1];
-  let commandRepeatCount = 0;
-  let failureRepeatCount = 0;
-  let broadDiscoveryRepeatCount = 0;
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    if (history[i].command !== latest.command) break;
-    commandRepeatCount += 1;
-    if (isBroadDiscoveryLoopCall(history[i].toolName, history[i].command)) {
-      broadDiscoveryRepeatCount += 1;
-    }
-    if (latest.failureHash && history[i].failureHash === latest.failureHash) {
-      failureRepeatCount += 1;
-    }
-  }
-
-  return {
-    commandSignatureHash: hashTextSignal(latest.command),
-    commandRepeatCount,
-    failureSignatureHash: failureRepeatCount >= 2 ? latest.failureHash : "",
-    broadDiscoveryRepeatCount,
-  };
 }
 
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
