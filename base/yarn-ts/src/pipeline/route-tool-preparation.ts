@@ -1,5 +1,6 @@
 import { type ClientToolCapabilities, enrichToolSchemasForClient } from "../adapters/client-tool-capabilities.js";
 import { extractToolSchemaName, pruneToolSchemas, type ToolPruningResult } from "../compat/tool-schema-pruning.js";
+import { detectNonGitWorkspaceDiagnostic } from "../governance/non-git-workspace-diagnostic.js";
 import { detectPythonRuntimeDiscoveryLoop } from "../governance/python-runtime-discovery-loop.js";
 import { detectStdoutCaptureLoop } from "../governance/stdout-capture-loop.js";
 import { detectVerificationRerunLoop } from "../governance/verification-rerun-loop.js";
@@ -82,6 +83,16 @@ export function extractRecentToolNames(messages: Array<{ role: string; content: 
 }
 
 export function extractRecentToolCallDetails(messages: Array<{ role: string; content: unknown }>): RecentToolCall[] {
+  const resultByCallId = new Map<string, string>();
+  for (const m of messages) {
+    if ((m.role !== "tool" && m.role !== "tool_result") || !m || typeof m !== "object") continue;
+    const row = m as Record<string, unknown>;
+    const id = row.tool_call_id;
+    if (typeof id !== "string" || !id.trim()) continue;
+    const content = row.content;
+    resultByCallId.set(id.trim(), typeof content === "string" ? content : JSON.stringify(content ?? ""));
+  }
+
   const calls: RecentToolCall[] = [];
   for (const m of messages) {
     if (m.role !== "assistant" || !m || typeof m !== "object") continue;
@@ -96,6 +107,7 @@ export function extractRecentToolCallDetails(messages: Array<{ role: string; con
       if (typeof name !== "string" || !name.trim()) continue;
       let args: Record<string, unknown> | undefined;
       const rawArgs = (fn as Record<string, unknown>).arguments;
+      const callId = (tc as Record<string, unknown>).id;
       if (typeof rawArgs === "string") {
         try {
           args = JSON.parse(rawArgs) as Record<string, unknown>;
@@ -110,6 +122,7 @@ export function extractRecentToolCallDetails(messages: Array<{ role: string; con
         toolName: name.trim(),
         filePath: typeof filePath === "string" ? filePath : undefined,
         args,
+        resultContent: typeof callId === "string" ? resultByCallId.get(callId.trim()) : undefined,
       });
     }
   }
@@ -302,6 +315,16 @@ export function prepareRouteTools(input: RouteToolPreparationInput): RouteToolPr
         "verification_rerun_loop_detected",
         "governor",
         `fingerprint=${rerunLoop.fingerprint.slice(0, 120)} repeats=${rerunLoop.repeatCount}`,
+      );
+    }
+
+    const nonGitWorkspace = detectNonGitWorkspaceDiagnostic(recentCallsForSteering);
+    if (nonGitWorkspace) {
+      injectGovernorRecoveryMessage(input.recoveryMessages, nonGitWorkspace.guidance);
+      input.recordSessionEvent(
+        "non_git_workspace_diagnostic",
+        "governor",
+        `source=${nonGitWorkspace.source}`,
       );
     }
 

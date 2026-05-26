@@ -1664,8 +1664,8 @@ describe("execution governor", () => {
     });
     expect(message).toContain("Many verification or build steps in a row");
     expect(message).toContain("Reason: verification_churn_no_edit");
-    expect(message).toContain("Continue with one focused fix");
-    expect(message).toContain("targeted verification command");
+    expect(message).toContain("Inspect one failing traceback/assertion");
+    expect(message).toContain("narrow verification command after that edit");
     expect(message).toContain("question tool");
   });
 
@@ -1767,6 +1767,25 @@ describe("execution governor", () => {
     expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_fix");
     expect(envelope.next_actions.map((a) => a.id)).toContain("continue_with_verification");
     expect(envelope.default_recommended_action).toBe("continue_with_fix");
+  });
+
+  it("uses directional verification-churn recovery copy instead of continue loops", () => {
+    const message = buildExecutionGovernorHardStopUserMessage({
+      matchedRules: ["verification_churn_no_edit"],
+      consecutiveRecoveryFires: 1,
+    });
+    expect(message).toContain("Inspect one failing traceback/assertion");
+    expect(message).toContain("Run one narrow verification command after that edit");
+    expect(message).not.toContain("Continue with one focused fix");
+
+    const envelope = buildExecutionGovernorPauseEnvelope({
+      matchedRules: ["verification_churn_no_edit"],
+      consecutiveRecoveryFires: 1,
+      hardStopThreshold: 3,
+    });
+    expect(envelope.next_actions[0]?.label).toBe("Inspect failure and edit");
+    expect(envelope.next_actions[1]?.label).toBe("Verify after edit");
+    expect(envelope.concrete_nudge).toContain("Do not answer by repeating 'continue'");
   });
 
   it("respects explicit user opt-out for TODO/FIXME harvest", () => {

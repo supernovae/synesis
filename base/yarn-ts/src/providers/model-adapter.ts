@@ -13,6 +13,7 @@ export interface RecentToolCall {
   toolName: string;
   filePath?: string;
   args?: Record<string, unknown>;
+  resultContent?: string;
 }
 
 export interface QwenPivotOptions {

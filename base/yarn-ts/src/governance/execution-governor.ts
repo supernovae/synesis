@@ -3423,7 +3423,7 @@ const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
   },
   verification_churn_no_edit: {
     what: "Many verification or build steps in a row did not add new signal and no edit was written to break the loop.",
-    nudge: "Pick one failure line, one file, one small fix, then a single re-check—or stop and report what is blocked in two sentences.",
+    nudge: "Do not answer by repeating 'continue'. Pick one failing traceback/assertion line, edit the implicated file once, then run one narrow verification command.",
   },
   verification_stall_no_edit: {
     what: "Verification and exploration were repeated without a successful edit or a clear written conclusion.",
@@ -3479,6 +3479,12 @@ export function buildExecutionGovernorHardStopUserMessage(params: {
     || r === "verbal_intent_without_action"
     || r === "no_progress_loop",
   );
+  const verificationChurn = matchedRules.some((r) =>
+    r === "verification_churn_no_edit"
+    || r === "verification_same_failure_signature_replay"
+    || r === "verification_fail_repeat_block"
+    || r === "verification_truncated_output",
+  );
   const taskNudge = taskContext?.recommended_next_step
     ? taskContext.recommended_next_step
     : taskContext?.current_task
@@ -3506,7 +3512,14 @@ export function buildExecutionGovernorHardStopUserMessage(params: {
     "",
   ];
 
-  const options = taskContext?.current_task
+  const options = verificationChurn
+    ? [
+        "Choose the next action by replying with one option:",
+        "1) Inspect one failing traceback/assertion and edit the implicated file",
+        "2) Run one narrow verification command after that edit",
+        "3) Stop and summarize the current blocker",
+      ]
+    : taskContext?.current_task
     ? [
         "Choose the next action by replying with one option:",
         "1) Continue the current task now",
@@ -3637,6 +3650,12 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     || r === "verbal_intent_without_action"
     || r === "no_progress_loop",
   );
+  const isVerificationChurn = matchedRules.some((r) =>
+    r === "verification_churn_no_edit"
+    || r === "verification_same_failure_signature_replay"
+    || r === "verification_fail_repeat_block"
+    || r === "verification_truncated_output",
+  );
 
   const hasCurrentTask = typeof taskContext?.current_task === "string" && taskContext.current_task.trim().length > 0;
   const currentTask = hasCurrentTask ? taskContext!.current_task!.trim() : "";
@@ -3644,16 +3663,20 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     ? [
         {
           id: "continue_current_task",
-          label: "Continue current task",
-          description: `Continue: ${currentTask}`,
+          label: isVerificationChurn ? "Fix current failure" : "Continue current task",
+          description: isVerificationChurn
+            ? `Inspect one failing line for current task and edit the implicated file: ${currentTask}`
+            : `Continue: ${currentTask}`,
           requires_user_input: false,
           can_auto_execute: true,
           expected_arguments: ["file_path", "change_summary"],
         },
         {
           id: "verify_current_task",
-          label: "Verify current task",
-          description: "Run one narrow verification command for the current task, then use the result.",
+          label: isVerificationChurn ? "Verify after fix" : "Verify current task",
+          description: isVerificationChurn
+            ? "Run one narrow verification command only after the targeted fix is applied."
+            : "Run one narrow verification command for the current task, then use the result.",
           requires_user_input: true,
           can_auto_execute: true,
           expected_arguments: ["command"],
@@ -3695,16 +3718,20 @@ export function buildExecutionGovernorPauseEnvelope(params: {
     : [
         {
           id: "continue_with_fix",
-          label: "Continue with one focused fix",
-          description: "Make one targeted fix and then verify once.",
+          label: isVerificationChurn ? "Inspect failure and edit" : "Continue with one focused fix",
+          description: isVerificationChurn
+            ? "Pick one failing traceback/assertion line and make one targeted edit."
+            : "Make one targeted fix and then verify once.",
           requires_user_input: true,
           can_auto_execute: true,
           expected_arguments: ["file_path", "change_summary"],
         },
         {
           id: "continue_with_verification",
-          label: "Run one targeted verification command",
-          description: "Run one narrow verification command only.",
+          label: isVerificationChurn ? "Verify after edit" : "Run one targeted verification command",
+          description: isVerificationChurn
+            ? "Run one narrow verification command only after the edit."
+            : "Run one narrow verification command only.",
           requires_user_input: true,
           can_auto_execute: true,
           expected_arguments: ["command"],
