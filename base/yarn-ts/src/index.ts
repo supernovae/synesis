@@ -48,13 +48,11 @@ import { createSessionEventRecorder } from "./state/session-event-recorder.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import {
-  buildChecklistFromPrompt,
   evaluateRequirementCoverage,
   summarizeMissingCoverage,
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
-import { buildTaskIntake, type TaskIntake } from "./planning/task-intake.js";
-import { advancePlanGraph, createPlanGraph, formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
+import { formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
 import { deserializeShadow, serializeShadow } from "./planning/plan-content-shadow.js";
 import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import {
@@ -128,14 +126,9 @@ import { compareManifests as manifestCompare } from "./manifest/comparator.js";
 import { critiquStructure as manifestCritique } from "./manifest/structural-critic.js";
 import { buildVerificationPlan, formatVerificationPlanBlock } from "./verification/planner.js";
 import {
-  buildPlannerTodoPacketPrompt,
-  deserializePlannerTodoPacket,
-  formatPlannerTodoPacketBlock,
-  parsePlannerTodoPacket,
-  plannerTodoPacketToHarnessTasks,
-  serializePlannerTodoPacket,
-  shouldGeneratePlannerTodoPacket,
-} from "./planning/planner-todo-packet.js";
+  createPlanningStateHelpers,
+  parsePlanGraph,
+} from "./planning/planning-state-helpers.js";
 import {
   assessVerificationFromMessages as assessVerificationSignals,
   evaluateDeterministicPreFinalize,
@@ -167,7 +160,6 @@ import { applyMarkdownGuardrail, buildResponseStyleBlock } from "./response-styl
 import {
   evaluateYarnPromptIntakeSteer,
   formatUpperHarnessDecisionSummary,
-  type YarnPromptIntakeResult,
   type UpperHarnessDecision,
 } from "./upper-harness/bridge.js";
 import {
@@ -221,7 +213,6 @@ import { buildRouteGovernanceBlocks } from "./pipeline/route-governance-blocks.j
 import { finalizePostEnrichmentMessages } from "./pipeline/post-enrichment-finalization.js";
 import { applyWorkspaceMetadataPrebackfill } from "./pipeline/workspace-metadata-prebackfill.js";
 import {
-  extractRecentToolNames,
   injectGovernorRecoveryMessage,
 } from "./pipeline/route-tool-preparation.js";
 import {
@@ -290,7 +281,6 @@ import {
   isTaskToolCall,
   normalizeTaskToolCall,
   reconcileFromToolCall,
-  reconcileFromText,
   reconcileFromEvidence,
   createEmptyLedger,
   serializeTaskLedger,
@@ -513,288 +503,6 @@ function updateTracePromptMetadata(state: SessionState, latestUserText: string):
   if (!getMetadataString(state.record.metadata, "trace_root_prompt")) {
     state.record.metadata.trace_root_prompt = latest;
   }
-}
-
-function buildRequirementChecklistSnapshot(checklist: RequirementChecklist): Record<string, unknown> {
-  return {
-    version: checklist.version,
-    sourceHash: checklist.sourceHash,
-    sourcePreview: checklist.sourcePreview,
-    updatedAt: Date.now(),
-    must: checklist.must.map((r) => ({ id: r.id, title: r.title })),
-    should: checklist.should.map((r) => ({ id: r.id, title: r.title })),
-  };
-}
-
-function refreshRequirementChecklist(state: SessionState): RequirementChecklist | null {
-  const rootPrompt = getMetadataString(state.record.metadata, "trace_root_prompt");
-  if (!rootPrompt) return null;
-  const sourceHash = hashTextSignal(rootPrompt);
-  if (!sourceHash) return null;
-  const checklist = buildChecklistFromPrompt(rootPrompt, sourceHash);
-  state.record.metadata.requirement_checklist = buildRequirementChecklistSnapshot(checklist);
-  return checklist;
-}
-
-function buildTaskIntakeSnapshot(intake: TaskIntake): Record<string, unknown> {
-  return {
-    sourceHash: intake.sourceHash,
-    sourcePreview: intake.sourcePreview,
-    acceptanceCriteriaCount: intake.acceptanceCriteria.length,
-    rubric: intake.rubric,
-    updatedAt: Date.now(),
-  };
-}
-
-function persistPromptIntakeSnapshot(
-  state: SessionState,
-  result: YarnPromptIntakeResult,
-): void {
-  state.record.metadata.prompt_intake = result.metadataSnapshot;
-  state.record.metadata.prompt_scope = result.decision.scope;
-  state.record.metadata.prompt_intake_source_hash = result.decision.source_hash;
-  state.record.metadata.prompt_intake_planning_steered = result.shouldAppend;
-  state.record.metadata.prompt_intake_override = result.decision.override;
-}
-
-function recordPromptIntakeEvent(
-  sessionKey: string,
-  userId: string,
-  orgId: string,
-  requestId: string,
-  surface: string,
-  result: YarnPromptIntakeResult,
-): void {
-  if (result.decision.scope === "micro" && !result.shouldAppend && !result.decision.override) return;
-  const planMode = result.metadataSnapshot.plan_mode_requested === true ? " plan_mode=true" : "";
-  recordSessionEvent(
-    sessionKey,
-    userId,
-    orgId,
-    "prompt_intake_evaluated",
-    "upper-harness",
-    `${surface} scope=${result.decision.scope} action=${result.decision.action} steered=${result.shouldAppend} override=${result.decision.override}${planMode}`,
-    requestId,
-    result.metadataSnapshot,
-  );
-}
-
-async function maybeBuildPlannerTodoPacketBlock(options: {
-  session: SessionState;
-  sessionKey: string;
-  identity: SessionIdentity;
-  requestId: string;
-  surface: "openai" | "claude";
-  latestUserPrompt: string;
-  promptIntake: YarnPromptIntakeResult;
-  clientToolCapabilities: ClientToolCapabilities;
-}): Promise<string | null> {
-  const sourceHash = options.promptIntake.decision.source_hash || hashTextSignal(options.latestUserPrompt);
-  if (!sourceHash) return null;
-  const cachedSourceHash = getMetadataString(options.session.record.metadata, "planner_todo_packet_source_hash");
-  const cachedPacket = cachedSourceHash === sourceHash
-    ? deserializePlannerTodoPacket(options.session.record.metadata.planner_todo_packet)
-    : null;
-  const cachedModelId = getMetadataString(options.session.record.metadata, "planner_todo_packet_model");
-  const effectiveExistingTaskCount = cachedSourceHash === sourceHash
-    ? options.session.taskLedger?.tasks.length ?? 0
-    : 0;
-
-  const basePlannerTodoDecision = {
-    enabled: config.SYNESIS_YARN_PLANNER_TODO_PACKET_ENABLED,
-    governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
-    requireClientPlanningTool: config.SYNESIS_YARN_PLANNER_TODO_REQUIRE_NATIVE_TOOL,
-    promptScope: options.promptIntake.decision.scope,
-    planningSteered: options.promptIntake.shouldAppend,
-    planningOverride: options.promptIntake.decision.override,
-    planModeRequested: options.promptIntake.metadataSnapshot.plan_mode_requested === true
-      || options.clientToolCapabilities.planModeRequested,
-    capabilities: options.clientToolCapabilities,
-  };
-  const cachedPacketAllowed = shouldGeneratePlannerTodoPacket({
-    ...basePlannerTodoDecision,
-    existingTaskCount: effectiveExistingTaskCount,
-  });
-  if (cachedPacket && cachedPacketAllowed) {
-    return formatPlannerTodoPacketBlock({
-      packet: cachedPacket,
-      sourceHash,
-      modelId: cachedModelId || config.SYNESIS_YARN_PLANNER_TODO_MODEL,
-      capabilities: options.clientToolCapabilities,
-    });
-  }
-
-  const shouldGenerate = shouldGeneratePlannerTodoPacket({
-    ...basePlannerTodoDecision,
-    existingTaskCount: effectiveExistingTaskCount,
-  });
-  if (!shouldGenerate) return null;
-
-  try {
-    tierRegistry.setCurrentRequestContext({
-      sessionKey: options.sessionKey,
-      requestId: options.requestId,
-      clientKind: options.identity.clientKind,
-    });
-    const plannerModelId = (config.SYNESIS_YARN_PLANNER_TODO_MODEL || "coder-horizon").trim() || "coder-horizon";
-    const resolved = tierRegistry.resolve(plannerModelId, "synesis-horizon");
-    const plannerPrompt = buildPlannerTodoPacketPrompt({
-      prompt: options.latestUserPrompt,
-      sourceHash,
-      capabilities: options.clientToolCapabilities,
-      maxPromptChars: Math.max(1000, config.SYNESIS_YARN_PLANNER_TODO_MAX_PROMPT_CHARS),
-    });
-    const result = await generateText({
-      model: resolved.model as never,
-      maxOutputTokens: clampMaxOutputTokensForSafety(
-        Math.max(300, config.SYNESIS_YARN_PLANNER_TODO_MAX_OUTPUT_TOKENS),
-      ),
-      messages: [
-        {
-          role: "system",
-          content: "Return strict JSON only. You are planning for another coding model; never write implementation code.",
-        },
-        { role: "user", content: plannerPrompt },
-      ] as never,
-      abortSignal: AbortSignal.timeout(Math.max(500, config.SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS)),
-    });
-    const parsed = parsePlannerTodoPacket(result.text);
-    if (!parsed.packet) {
-      recordSessionEvent(
-        options.sessionKey,
-        options.identity.userId,
-        options.identity.orgId,
-        "planner_todo_packet_failed",
-        "planner-todo",
-        `surface=${options.surface} model=${resolved.resolvedModelId} parse_error=${parsed.parseError ?? "unknown"}`,
-        options.requestId,
-        {
-          surface: options.surface,
-          source_hash: sourceHash,
-          model_id: resolved.resolvedModelId,
-          parse_error: parsed.parseError ?? "unknown",
-        },
-      );
-      return null;
-    }
-
-    options.session.record.metadata.planner_todo_packet = serializePlannerTodoPacket(parsed.packet);
-    options.session.record.metadata.planner_todo_packet_source_hash = sourceHash;
-    options.session.record.metadata.planner_todo_packet_model = resolved.resolvedModelId;
-    options.session.record.metadata.planner_todo_packet_updated_at = Date.now();
-    options.session.record.metadata.planner_todo_packet_ambiguity = parsed.packet.ambiguity;
-    options.session.record.metadata.planner_todo_packet_todos = parsed.packet.todos.length;
-    options.session.record.metadata.planner_todo_packet_questions = parsed.packet.questions.length;
-    options.session.record.metadata.planner_todo_packet_carrier = options.clientToolCapabilities.hasTodoTool
-      ? "native_todo_tool"
-      : "prompt_block";
-
-    if (!options.session.taskLedger || options.session.taskLedger.tasks.length === 0) {
-      options.session.taskLedger = createEmptyLedger(
-        options.session.record.sessionKey,
-        Boolean(options.session.taskCapabilities?.hasExplicitTodoTool ?? options.clientToolCapabilities.hasTodoTool),
-        Boolean(options.session.taskCapabilities?.hasExplicitPlanMode ?? options.clientToolCapabilities.planModeRequested),
-      );
-      options.session.taskLedger = reconcileFromText(
-        options.session.taskLedger,
-        plannerTodoPacketToHarnessTasks(parsed.packet, options.session.record.requestCount),
-        options.session.record.requestCount,
-      );
-    }
-
-    recordSessionEvent(
-      options.sessionKey,
-      options.identity.userId,
-      options.identity.orgId,
-      "planner_todo_packet_generated",
-      "planner-todo",
-      `surface=${options.surface} model=${resolved.resolvedModelId} todos=${parsed.packet.todos.length} questions=${parsed.packet.questions.length} ambiguity=${parsed.packet.ambiguity}`,
-      options.requestId,
-      {
-        surface: options.surface,
-        source_hash: sourceHash,
-        model_id: resolved.resolvedModelId,
-        todo_count: parsed.packet.todos.length,
-        question_count: parsed.packet.questions.length,
-        ambiguity: parsed.packet.ambiguity,
-        todo_tool: options.clientToolCapabilities.todoToolName,
-        question_tool: options.clientToolCapabilities.questionToolName,
-        carrier: options.clientToolCapabilities.hasTodoTool ? "native_todo_tool" : "prompt_block",
-      },
-    );
-
-    return formatPlannerTodoPacketBlock({
-      packet: parsed.packet,
-      sourceHash,
-      modelId: resolved.resolvedModelId,
-      capabilities: options.clientToolCapabilities,
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    app.log.warn({ err, sessionKey: options.sessionKey, surface: options.surface }, "planner_todo_packet_failed");
-    recordSessionEvent(
-      options.sessionKey,
-      options.identity.userId,
-      options.identity.orgId,
-      "planner_todo_packet_failed",
-      "planner-todo",
-      `surface=${options.surface} ${detail.slice(0, 240)}`,
-      options.requestId,
-      {
-        surface: options.surface,
-        source_hash: sourceHash,
-        model_id: config.SYNESIS_YARN_PLANNER_TODO_MODEL,
-        error: detail.slice(0, 500),
-      },
-    );
-    return null;
-  }
-}
-
-function refreshTaskIntake(state: SessionState): TaskIntake | null {
-  if (!config.SYNESIS_YARN_TASK_INTAKE_ENABLED) return null;
-  const rootPrompt = getMetadataString(state.record.metadata, "trace_root_prompt");
-  if (!rootPrompt) return null;
-  const sourceHash = hashTextSignal(rootPrompt);
-  if (!sourceHash) return null;
-  const intake = buildTaskIntake(rootPrompt, sourceHash);
-  state.record.metadata.task_intake = buildTaskIntakeSnapshot(intake);
-  return intake;
-}
-
-function parsePlanGraph(meta: Record<string, unknown>): PlanGraph | null {
-  const raw = meta.plan_graph;
-  if (!raw || typeof raw !== "object") return null;
-  return deserializePlanGraph(raw as Record<string, unknown>);
-}
-
-function updatePlanGraph(
-  state: SessionState,
-  intake: TaskIntake | null,
-  messages: Array<{ role: string; content: unknown }>,
-  verificationFailures: number,
-): PlanGraph | null {
-  if (!config.SYNESIS_YARN_PLAN_GRAPH_ENABLED || !intake) return null;
-  const existing = parsePlanGraph(state.record.metadata);
-  const base = !existing || existing.sourceHash !== intake.sourceHash
-    ? createPlanGraph(intake)
-    : existing;
-  const recentTools = extractRecentToolNames(messages);
-  const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-  const advanced = advancePlanGraph(base, {
-    recentToolNames: recentTools,
-    latestAssistantText: typeof latestAssistant?.content === "string" ? latestAssistant.content : "",
-    verificationFailures,
-  });
-  state.record.metadata.plan_graph = advanced as unknown as Record<string, unknown>;
-  return advanced;
-}
-
-function getChecklistSourceHash(meta: Record<string, unknown>): string {
-  const row = meta.requirement_checklist;
-  if (!row || typeof row !== "object") return "";
-  const value = (row as Record<string, unknown>).sourceHash;
-  return typeof value === "string" ? value : "";
 }
 
 function buildCompletionGapMessage(missingSummary: string): string {
@@ -1819,6 +1527,24 @@ const {
 });
 const recordSessionEvent = createSessionEventRecorder({
   writer: usageWriter,
+  logger: app.log,
+});
+const {
+  getChecklistSourceHash,
+  maybeBuildPlannerTodoPacketBlock,
+  persistPromptIntakeSnapshot,
+  recordPromptIntakeEvent,
+  refreshRequirementChecklist,
+  refreshTaskIntake,
+  updatePlanGraph,
+} = createPlanningStateHelpers({
+  config,
+  tierRegistry,
+  generateText,
+  clampMaxOutputTokensForSafety,
+  hashTextSignal,
+  getMetadataString,
+  recordSessionEvent,
   logger: app.log,
 });
 const usagePersistenceEnabled =
