@@ -48,13 +48,10 @@ import { createSessionEventRecorder } from "./state/session-event-recorder.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import {
-  evaluateRequirementCoverage,
-  summarizeMissingCoverage,
   type RequirementChecklist,
 } from "./validation/requirement-coverage.js";
-import { formatPlanProgressBlock, isPlanComplete, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
+import { formatPlanProgressBlock, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
 import { deserializeShadow, serializeShadow } from "./planning/plan-content-shadow.js";
-import { looksLikeClarificationTurnAssistantMessage } from "./validation/clarification-turn.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
   parseSynesisClarificationRound,
@@ -131,7 +128,10 @@ import {
 import {
   assessVerificationFromMessages as assessVerificationSignals,
   evaluateDeterministicPreFinalize,
+  type CriticAssessment,
+  type VerificationAssessment,
 } from "./verification/staff-completion.js";
+import { applyCompletionGate } from "./validation/completion-gate.js";
 import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
@@ -286,8 +286,6 @@ import {
   type EvidenceSignal,
 } from "./task-ledger/index.js";
 
-import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
-
 function extractTextFromUnknownContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -347,44 +345,6 @@ function updateTracePromptMetadata(state: SessionState, latestUserText: string):
   }
 }
 
-function buildCompletionGapMessage(missingSummary: string): string {
-  return [
-    "Partial completion detected. I have not yet implemented all required request items.",
-    "",
-    "Missing requirements:",
-    missingSummary,
-    "",
-    "Next step: continue implementation to close these gaps (instead of marking the task done).",
-  ].join("\n");
-}
-
-function extractNewFileMentions(text: string): string[] {
-  const out = new Set<string>();
-  const rx = /\b(?:created|added|new file)\b[^.\n]*\b([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9_]+)\b/gi;
-  let m: RegExpExecArray | null;
-  while ((m = rx.exec(text)) !== null) {
-    if (m[1]) out.add(m[1]);
-    if (out.size >= 12) break;
-  }
-  return [...out];
-}
-
-function hasUsageOrReferenceCue(text: string, filePath: string): boolean {
-  const escaped = filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rx = new RegExp(`\\b(import|use|used by|wired|hooked|referenced|route|register|include)\\b[^\\n]{0,140}${escaped}`, "i");
-  return rx.test(text);
-}
-
-type CompletionGateOutcome = {
-  finalText: string;
-  applied: boolean;
-  missingMust: number;
-  missingShould: number;
-  blockedByVerification: boolean;
-  blockingVerificationFailures: number;
-  suggestedNextActions: string[];
-};
-
 function applyClarificationRoundResponseHeader(
   reply: { header: (k: string, v: string) => unknown },
   recordMetadata: Record<string, unknown>,
@@ -406,152 +366,6 @@ function sseHeadersWithClarification(recordMetadata: Record<string, unknown>): R
     h["X-Synesis-Clarification-Round"] = JSON.stringify(parsed);
   }
   return h;
-}
-
-function applyCompletionGate(
-  checklist: RequirementChecklist | null,
-  originalText: string,
-  traceRootPrompt: string,
-  latestUserPrompt: string,
-  verification: VerificationAssessment,
-  planGraph?: PlanGraph | null,
-): CompletionGateOutcome {
-  const blockedByVerification =
-    config.SYNESIS_YARN_COMPLETION_GATE_BLOCK_VERIFICATION
-    && verification.hasBlockingFailures;
-  if (blockedByVerification) {
-    const top = verification.failures.slice(0, 3);
-    const detail = top.map((f, i) => `- ${i + 1}. [${f.category}] ${f.summary}`).join("\n");
-    const boundedCleanup = config.SYNESIS_YARN_COMPLETION_GATE_BOUNDED_CLEANUP_PASS
-      ? [
-          "Run one bounded cleanup pass before finalizing:",
-          "- Scope: changed files / touched package only",
-          "- Fix only blocking diagnostics and obvious patch debris",
-          "- Re-run the same failing verification preset(s)",
-        ].join("\n")
-      : "";
-    const nextActions = [
-      ...top.map((f) => `rerun verification preset ${f.preset ?? "unknown"} after minimal fix`),
-      "only finalize when blocking verification failures are cleared",
-    ];
-    return {
-      finalText: [
-        "Not complete: blocking verification failures remain.",
-        "",
-        "Blocking failures:",
-        detail || "- (no details)",
-        ...(boundedCleanup ? ["", boundedCleanup] : []),
-        "",
-        "Next: repair these failures and rerun verification before finalizing.",
-      ].join("\n"),
-      applied: true,
-      missingMust: 0,
-      missingShould: 0,
-      blockedByVerification: true,
-      blockingVerificationFailures: verification.failingSignals,
-      suggestedNextActions: nextActions,
-    };
-  }
-  if (!config.SYNESIS_YARN_COMPLETION_GATE_ENABLED || !checklist) {
-    return {
-      finalText: originalText,
-      applied: false,
-      missingMust: 0,
-      missingShould: 0,
-      blockedByVerification: false,
-      blockingVerificationFailures: 0,
-      suggestedNextActions: [],
-    };
-  }
-  if (checklist.must.length === 0 && checklist.should.length === 0) {
-    return {
-      finalText: originalText,
-      applied: false,
-      missingMust: 0,
-      missingShould: 0,
-      blockedByVerification: false,
-      blockingVerificationFailures: 0,
-      suggestedNextActions: [],
-    };
-  }
-  if (
-    config.SYNESIS_YARN_COMPLETION_GATE_SKIP_CLARIFICATION &&
-    looksLikeClarificationTurnAssistantMessage(originalText)
-  ) {
-    return {
-      finalText: originalText,
-      applied: false,
-      missingMust: 0,
-      missingShould: 0,
-      blockedByVerification: false,
-      blockingVerificationFailures: 0,
-      suggestedNextActions: [],
-    };
-  }
-  const evidence = [traceRootPrompt, latestUserPrompt, originalText].filter(Boolean).join("\n");
-  const report = evaluateRequirementCoverage(checklist, evidence);
-  let cliAcceptanceNotes: string[] = [];
-  if (config.SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED) {
-    const fileMatches = evidence.match(/[a-zA-Z0-9_\-./]+/g) ?? [];
-    const acceptance = evaluateCliProjectAcceptance({
-      repoTree: fileMatches.filter((v) => v.includes("/") || v.includes(".")),
-      promptText: traceRootPrompt,
-      verificationSummary: originalText,
-    });
-    if (!acceptance.passed) {
-      cliAcceptanceNotes = [
-        ...acceptance.missingRequired.map((v) => `missing required path: ${v}`),
-        ...acceptance.notes,
-      ];
-    }
-  }
-  const newFileNotes: string[] = [];
-  const mentionedNewFiles = extractNewFileMentions(originalText);
-  for (const fp of mentionedNewFiles) {
-    if (!hasUsageOrReferenceCue(originalText, fp) && !hasUsageOrReferenceCue(latestUserPrompt, fp)) {
-      newFileNotes.push(`new file mentioned without usage reference: ${fp}`);
-    }
-  }
-  const planAdvisory: string[] = [];
-  if (planGraph && !isPlanComplete(planGraph)) {
-    planAdvisory.push(`Plan stage is "${planGraph.activeStage}", not finalize. Advance plan stages before final completion.`);
-  }
-  if (report.missingMust.length === 0) {
-    return {
-      finalText: originalText,
-      applied: false,
-      missingMust: 0,
-      missingShould: report.missingShould.length,
-      blockedByVerification: false,
-      blockingVerificationFailures: 0,
-      suggestedNextActions: [...planAdvisory, ...cliAcceptanceNotes, ...newFileNotes],
-    };
-  }
-  const summary = summarizeMissingCoverage(report);
-  const replacement = config.SYNESIS_YARN_COMPLETION_GATE_HARD_FAIL
-    ? [
-        "Completion blocked: required items are still missing.",
-        "",
-        "Missing requirements:",
-        summary,
-        "",
-        "Continue implementation before declaring completion.",
-      ].join("\n")
-    : buildCompletionGapMessage(summary);
-  return {
-    finalText: replacement,
-    applied: true,
-    missingMust: report.missingMust.length,
-    missingShould: report.missingShould.length,
-    blockedByVerification: false,
-    blockingVerificationFailures: 0,
-    suggestedNextActions: [
-      "continue implementation to close missing must-have requirements",
-      ...planAdvisory,
-      ...cliAcceptanceNotes,
-      ...newFileNotes,
-    ],
-  };
 }
 
 const GOVERNOR_COOLDOWN_MS = 3_000;
@@ -2359,28 +2173,6 @@ function inferTrajectoryDiagnosticsFromMessages(
   return { structuredErrorsCount, diagnosticLinesCount, structuredErrorCoverage };
 }
 
-type VerificationFailure = {
-  tool: string;
-  preset?: string;
-  summary: string;
-  category: "format_or_lint" | "build_or_typecheck" | "test" | "runtime";
-  topErrorLines: string[];
-};
-
-type VerificationAssessment = {
-  verificationSignals: number;
-  failingSignals: number;
-  failures: VerificationFailure[];
-  hasBlockingFailures: boolean;
-};
-
-type CriticAssessment = {
-  blocked: boolean;
-  findings: string[];
-  suggestedNextActions: string[];
-  source: "deterministic" | "llm_fallback";
-};
-
 type CompletionFinalizeResult = {
   finalText: string;
   applied: boolean;
@@ -2430,14 +2222,15 @@ async function finalizeCompletionText(
     }
   }
 
-  const gate = applyCompletionGate(
-    input.checklist,
-    input.assistantText,
-    input.traceRootPrompt,
-    input.latestUserPrompt,
-    input.verification,
-    input.planGraph,
-  );
+  const gate = applyCompletionGate({
+    config,
+    checklist: input.checklist,
+    originalText: input.assistantText,
+    traceRootPrompt: input.traceRootPrompt,
+    latestUserPrompt: input.latestUserPrompt,
+    verification: input.verification,
+    planGraph: input.planGraph,
+  });
 
   let finalText = gate.finalText;
   if (gate.applied) {
@@ -2557,14 +2350,15 @@ function finalizePostStreamText(
   let missingShould = 0;
   let blockedByVerification = false;
   if (input.applyGate && !input.toolStopReason) {
-    const gate = applyCompletionGate(
-      input.checklist,
-      finalText,
-      input.traceRootPrompt,
-      input.latestUserPrompt,
-      input.verification,
-      input.planGraph,
-    );
+    const gate = applyCompletionGate({
+      config,
+      checklist: input.checklist,
+      originalText: finalText,
+      traceRootPrompt: input.traceRootPrompt,
+      latestUserPrompt: input.latestUserPrompt,
+      verification: input.verification,
+      planGraph: input.planGraph,
+    });
     finalText = gate.finalText;
     missingMust = gate.missingMust;
     missingShould = gate.missingShould;
