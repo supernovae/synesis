@@ -49,11 +49,7 @@ import {
   stabilizeToolCallIds,
 } from "../reduction/historical-normalizer.js";
 import { normalizeReadSnapshotMessages } from "../reduction/read-snapshot-normalizer.js";
-import {
-  buildRouteGovernanceBlocks,
-} from "../pipeline/route-governance-blocks.js";
-import { finalizePostEnrichmentMessages } from "../pipeline/post-enrichment-finalization.js";
-import { applyWorkspaceMetadataPrebackfill } from "../pipeline/workspace-metadata-prebackfill.js";
+import { runClaudeMessagesEnrichment } from "../pipeline/claude-messages-enrichment.js";
 import {
   extractRecentToolNames,
   injectGovernorRecoveryMessage,
@@ -1050,7 +1046,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       if (!ctxBlock) return claudeAdapterBlock;
       return `${clientAdapterPacks.toSystemBlock(claudeAdapterProfile)}\n\n${ctxBlock}`;
     };
-    let effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
+    const effectiveClaudeAdapterBlock = buildEffectiveClaudeAdapterBlock(effectiveClaudePathCtx);
 
     const claudeRecallDecision = toolResultReduction.getLastRecallDecision();
     const claudeVerifState = toolResultReduction.getVerificationTracker().getState();
@@ -1793,25 +1789,19 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       role: claudeRole,
       modelFamily: inferModelFamily(claudeBackendModel),
     };
-    const claudeMetadataPrebackfill = applyWorkspaceMetadataPrebackfill({
+    const claudeEnrichment = await runClaudeMessagesEnrichment({
+      config,
+      logger: app.log as never,
+      securityIngestConfig,
+      session,
+      sessionKey: claudeSessionKey,
+      requestId: traceReqId,
+      identity: claudeIdentity,
       pathContext: effectiveClaudePathCtx,
       adapterBlock: effectiveClaudeAdapterBlock,
-      messages: normalizedFromClaude.messages as never,
-      session,
-      requestId: traceReqId,
-      extractMetadataFromMessages: (messages) => extractMetadataFromMessages(messages as never),
-      buildAdapterBlock: buildEffectiveClaudeAdapterBlock,
-      setWorkspaceContext: setSessionWorkspaceContext,
-      logInfo: (record, message) => app.log.info(record, message),
-      logSessionKey: claudeSessionKey,
-    });
-    effectiveClaudePathCtx = claudeMetadataPrebackfill.pathContext;
-    effectiveClaudeAdapterBlock = claudeMetadataPrebackfill.adapterBlock;
-    const claudeSeedDirs = await getCachedTopLevelDirs(effectiveClaudePathCtx.projectRoot ?? effectiveClaudePathCtx.shellCwd);
-    const claudeGovernanceBlocks = buildRouteGovernanceBlocks({
-      memoryTracker: getMemoryGovernor(claudeSessionKey),
-      structuralIndex: getStructuralIndex(claudeSessionKey),
-      sessionMemoryCount: getSessionMemoryCount(claudeSessionKey),
+      normalizedMessages: normalizedFromClaude.messages as never,
+      scopedMessages: claudeScopedMessages as never,
+      promptContext: claudePromptContext,
       clientToolCapabilities: claudeClientToolCapabilities,
       taskIntake: claudeTaskIntake,
       planGraph: claudePlanGraph,
@@ -1820,41 +1810,36 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       stateConfidenceBlock: claudeStateConfidenceBlock,
       governorPauseResumeBlock: claudeGovernorPauseResumeBlock,
       plannerTodoPacketBlock: claudePlannerTodoPacketBlock,
-      taskLedger: session.taskLedger,
-      taskCapabilities: session.taskCapabilities,
-    });
-    const claudeEnriched = await enrichWithFrameAndManifest(
-      claudeScopedMessages as never,
-      claudeSessionKey,
-      effectiveClaudeAdapterBlock,
-      claudePromptContext,
-      { projectRoot: effectiveClaudePathCtx.projectRoot, shellCwd: effectiveClaudePathCtx.shellCwd },
-      claudeGovernanceBlocks.blocks,
-      claudeSeedDirs,
-      session,
-      { chatStateBlock: claudeChatStateBlock, fileStateBlock: claudeFileStateBlock },
-    );
-    const claudeFinalizedEnrichment = finalizePostEnrichmentMessages({
-      messages: claudeEnriched.messages,
-      config,
+      chatStateBlock: claudeChatStateBlock,
+      fileStateBlock: claudeFileStateBlock,
       requirementChecklist: claudeRequirementChecklist,
-      trustContext: {
-        requestId: traceReqId,
-        sessionKey: claudeSessionKey,
-        userId: claudeIdentity.userId,
-        orgId: claudeIdentity.orgId,
-      },
-      securityIngestConfig,
-      logger: app.log as never,
+      extractMetadataFromMessages: (messagesToExtract) => extractMetadataFromMessages(messagesToExtract as never),
+      buildAdapterBlock: buildEffectiveClaudeAdapterBlock,
+      setWorkspaceContext: setSessionWorkspaceContext,
+      getCachedTopLevelDirs,
+      getMemoryGovernor,
+      getStructuralIndex,
+      getSessionMemoryCount,
+      enrichWithFrameAndManifest: (messagesToEnrich, requestSessionKey, adapterBlock, promptContext, pathContext, governanceBlocks, seedDirs, requestSession, stateBlocks) =>
+        enrichWithFrameAndManifest(
+          messagesToEnrich as never,
+          requestSessionKey,
+          adapterBlock,
+          promptContext,
+          pathContext,
+          governanceBlocks,
+          seedDirs,
+          requestSession as typeof session,
+          stateBlocks,
+        ),
+      recordSessionEvent,
     });
-    if (!claudeFinalizedEnrichment.ok) {
-      recordSessionEvent(claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId, "trust_block", "transcript-trust", claudeFinalizedEnrichment.blockDetail, traceReqId);
-      return reply.code(400).send({
-        type: "error",
-        error: { type: "invalid_request_error", message: `Request blocked by content safety policy (${claudeFinalizedEnrichment.trustCategory}). Rephrase and retry.` }
-      });
+    if (!claudeEnrichment.ok) {
+      return reply.code(claudeEnrichment.statusCode).send(claudeEnrichment.body);
     }
-    const enrichedClaudeMsgs = claudeFinalizedEnrichment.messages;
+    effectiveClaudePathCtx = claudeEnrichment.pathContext;
+    const claudeEnriched = claudeEnrichment.enriched;
+    const enrichedClaudeMsgs = claudeEnrichment.messages;
 
     const claudeOpenAIShape: OpenAIChatCompletionRequest = {
       model: claudeOrchestration.selectedModel,
