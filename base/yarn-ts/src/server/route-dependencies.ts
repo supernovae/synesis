@@ -5,6 +5,7 @@ import type { AuthResolver, AuthUser } from "../auth.js";
 import type { AppConfig } from "../config.js";
 import type { OpenAIChatPipeline } from "../pipeline/openai-chat-pipeline.js";
 import type { ModelAdapter } from "../providers/model-adapter.js";
+import type { PlatformRouteDependencies } from "../routes/platform-route-support.js";
 import type { OpenAIChatCompletionRequest } from "../schemas.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { SessionState } from "../state/session-state.js";
@@ -124,6 +125,68 @@ export interface ClaudeMessagesRouteDependencies {
 
 export type RouteRequest = FastifyRequest;
 export type RouteReply = FastifyReply;
+
+export function buildPlatformRouteDependencies(source: AnyRecord): PlatformRouteDependencies {
+  return {
+    app: source.app,
+    config: source.config,
+    authResolver: source.authResolver,
+    fgaCheck: source.fgaCheck,
+    userRateLimiter: source.userRateLimiter,
+    requireInternalToken: source.requireInternalToken,
+    promRegistry: source.promRegistry,
+    usagePersistenceEnabled: source.usagePersistenceEnabled,
+    usageWriter: source.usageWriter,
+    sessionStore: source.sessionStore,
+    sessions: source.sessions,
+    validationNormalization: source.validationNormalization,
+    toolResultReduction: source.toolResultReduction,
+    transcriptPruning: source.transcriptPruning,
+    contentDedupBySession: source.contentDedupBySession,
+    toolArgHardeningStats: source.toolArgHardeningStats,
+    toolSchemaPruningStats: source.toolSchemaPruningStats,
+    toolBlobRedisEnabled: source.toolBlobRedisEnabled,
+    openClawProfileStats: source.openClawProfileStats,
+    contextAdmissionStats: source.contextAdmissionStats,
+    workingFrameService: source.workingFrameService,
+    projectManifestService: source.projectManifestService,
+    policyEngine: source.policyEngine,
+    governanceClient: source.governanceClient,
+    phaseOrchestrator: source.phaseOrchestrator,
+    clientAdapterPacks: source.clientAdapterPacks,
+    stablePrefixService: source.stablePrefixService,
+    yarnToolPrefixCache: source.yarnToolPrefixCache,
+    artifactRetrieval: source.artifactRetrieval,
+    knowledgeSearch: source.knowledgeSearch,
+    getEvidencePrefetchStats: source.getEvidencePrefetchStats,
+    getPatternPrefetchStats: source.getPatternPrefetchStats,
+    getPatternFeedbackStats: source.getPatternFeedbackStats,
+    artifactStore: source.artifactStore,
+    circuitBreakers: source.circuitBreakers,
+    distributedCounters: source.distributedCounters,
+    streamAdmission: source.streamAdmission,
+    attentionPositioning: source.attentionPositioning,
+    languagePacksConformance: source.languagePacksConformance,
+    sessionContinuity: source.sessionContinuity,
+    enrichmentPool: source.enrichmentPool,
+    sensemakingStats: source.sensemakingStats,
+    getEventLoopStats: source.getEventLoopStats,
+    promptSnapshotRegistry: source.promptSnapshotRegistry,
+    diagnosticRegistry: source.diagnosticRegistry,
+    resolveRequestId: source.resolveRequestId,
+    formatValidationError: source.formatValidationError,
+    selectedOpenAiCompatHeaders: source.selectedOpenAiCompatHeaders,
+    safeWrite: source.safeWrite,
+    safeEnd: source.safeEnd,
+    tierRegistry: source.tierRegistry,
+    loadUserRuntimePreferences: source.loadUserRuntimePreferences,
+    getSessionKey: source.getSessionKey,
+    getSessionState: source.getSessionState,
+    forceCheckpoint: source.forceCheckpoint,
+    casSessionSave: source.casSessionSave,
+    recordSessionEvent: source.recordSessionEvent,
+  };
+}
 
 export function buildOpenAIChatCompletionsRouteDependencies(
   source: OpenAIChatCompletionsRouteDependencies,
