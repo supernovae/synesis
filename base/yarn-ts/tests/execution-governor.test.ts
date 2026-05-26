@@ -1811,6 +1811,74 @@ describe("execution governor", () => {
     expect(out.telemetry.trailingExplorationRunLength).toBeGreaterThanOrEqual(6);
   });
 
+  it("allows dirty-workspace recovery discovery when distinct path inventory is still moving forward", () => {
+    const messages = [
+      { role: "user", content: "Build the complete TaskPulse app in this existing workspace" },
+      { role: "assistant", content: "Let me inspect the current project state before changing files." },
+      assistantCall("1", "glob", { pattern: "**/*.py" }),
+      toolResult("1", "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/db/sqlite.py\nsrc/test/taskpulse/app/api/tasks.py"),
+      assistantCall("2", "read_file", { path: "src/test/taskpulse/app/db/sqlite.py" }),
+      toolResult("2", "<path>/home/byron/src/test/src/test/taskpulse/app/db/sqlite.py</path>\nclass SQLiteStorage: pass"),
+      assistantCall("3", "read_file", { path: "src/test/taskpulse/app/main.py" }),
+      toolResult("3", "from fastapi import FastAPI\napp = FastAPI()"),
+      assistantCall("4", "read_file", { path: "src/test/taskpulse/app/models/task.py" }),
+      toolResult("4", "from pydantic import BaseModel\nclass Task(BaseModel): pass"),
+      assistantCall("5", "read_file", { path: "src/test/taskpulse/app/api/tasks.py" }),
+      toolResult("5", "from fastapi import APIRouter\nrouter = APIRouter()"),
+      assistantCall("6", "read_file", { path: "src/test/taskpulse/app/api/summary.py" }),
+      toolResult("6", "from fastapi import APIRouter\nrouter = APIRouter()"),
+      assistantCall("7", "read_file", { path: "app.js" }),
+      toolResult("7", "File not found: /home/byron/src/test/app.js"),
+      assistantCall("8", "read_file", { path: "taskpulse/ui/app.js" }),
+      toolResult("8", "async function loadTasks() { return fetch('/tasks'); }"),
+      assistantCall("9", "glob", { pattern: "**/*.py" }),
+      toolResult("9", "src/test/taskpulse/app/main.py\nsrc/test/taskpulse/app/db/sqlite.py\nsrc/test/taskpulse/app/api/tasks.py"),
+      assistantCall("10", "read_file", { path: "src/test/taskpulse/app/main.py" }),
+      toolResult("10", "from fastapi import FastAPI\napp = FastAPI()"),
+      assistantCall("11", "bash", { command: "ls -la /home/byron/src/test/" }),
+      toolResult("11", "drwxrwxr-x taskpulse\ndrwxrwxr-x src"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, {
+      modelAdapterFamily: "minimax",
+      chatState: {
+        activeObjective: "Build the complete TaskPulse app",
+        pendingUserDirective: "Build the complete TaskPulse app",
+        completionStatus: "blocked",
+        lastVerificationOutcome: "fail",
+      },
+    });
+
+    expect(out.pause).toBe(false);
+    expect(out.reason).toBe("recovery_discovery_momentum");
+    expect(out.matchedRules).toEqual(["recovery_discovery_momentum"]);
+    expect(out.telemetry.recoveryDiscoveryMomentum).toBe(true);
+  });
+
+  it("does not treat repeated reads of the same target as recovery discovery momentum", () => {
+    const messages = [
+      { role: "user", content: "Build the complete TaskPulse app in this existing workspace" },
+    ];
+    for (let i = 0; i < 6; i++) {
+      messages.push(assistantCall(`r${i}`, "read_file", { path: "taskpulse/app/main.py" }));
+      messages.push(toolResult(`r${i}`, "from fastapi import FastAPI\napp = FastAPI()"));
+    }
+
+    const out = evaluateExecutionGovernor(messages, {
+      modelAdapterFamily: "minimax",
+      chatState: {
+        activeObjective: "Build the complete TaskPulse app",
+        pendingUserDirective: "Build the complete TaskPulse app",
+        completionStatus: "blocked",
+        lastVerificationOutcome: "fail",
+      },
+    });
+
+    expect(out.pause).toBe(true);
+    expect(out.reason).not.toBe("recovery_discovery_momentum");
+    expect(out.matchedRules).toContain("source_file_stale_reread");
+  });
+
   it("does not fire exploration_stall when edits are present", () => {
     const messages = [
       { role: "user", content: "implement the feature" },

@@ -42,6 +42,8 @@ export interface ExecutionGovernorDecision {
     repeatedAssistantIntroEdges?: number;
     /** Whether plan recovery discovery grace is active for this evaluation. */
     planRecoveryDiscoveryGraceActive?: boolean;
+    /** Whether dirty-workspace recovery discovery is making bounded forward progress. */
+    recoveryDiscoveryMomentum?: boolean;
   };
 }
 
@@ -985,6 +987,74 @@ function isCompileLikeFailureSignature(sig: string): boolean {
 function hasSuccessSignature(sig: string): boolean {
   if (!sig) return false;
   return /\bok\b|\bpass(ed)?\b|\bbuild successful\b|\bsuccess\b|\bno test files\b/.test(sig);
+}
+
+function hasPathMissSignature(sig: string): boolean {
+  if (!sig) return false;
+  return /\b(file|path|directory)\s+not\s+found\b|\bno such file\b|\bcannot access\b|\bdoes not exist\b/.test(sig);
+}
+
+function isDiscoveryCommandEvent(event: CommandEvent): boolean {
+  const tool = normalizeString(event.toolName).toLowerCase();
+  const cmd = normalizeString(event.command).toLowerCase();
+  if (cmd.startsWith("read:") || cmd.startsWith("glob:") || cmd.startsWith("search:") || cmd.startsWith("list:")) {
+    return true;
+  }
+  if (tool.includes("read") || tool.includes("glob") || tool.includes("search") || tool.includes("grep") || tool.includes("list")) {
+    return true;
+  }
+  if (tool === "bash" || tool === "shell" || tool.includes("bash")) {
+    return /\b(pwd|ls|find|tree|git\s+ls-files)\b/.test(cmd);
+  }
+  return false;
+}
+
+function discoveryTarget(event: CommandEvent): string {
+  const cmd = normalizeString(event.command).toLowerCase();
+  if (cmd.startsWith("read:") || cmd.startsWith("glob:") || cmd.startsWith("search:") || cmd.startsWith("list:")) {
+    return cmd;
+  }
+  return cmd.slice(0, 180);
+}
+
+function hasUsefulDiscoveryResult(event: CommandEvent): boolean {
+  const sig = event.resultSignature;
+  if (!sig || hasPathMissSignature(sig)) return false;
+  return sig.length >= 20 || hasSuccessSignature(sig);
+}
+
+function hasForwardRecoveryDiscoveryMomentum(events: CommandEvent[]): boolean {
+  const tail = events.slice(-18);
+  const discoveryEvents = tail.filter(isDiscoveryCommandEvent);
+  if (discoveryEvents.length < 5) return false;
+
+  const exactCounts = new Map<string, number>();
+  const targets = new Set<string>();
+  let maxExactRepeat = 0;
+  for (const event of discoveryEvents) {
+    const target = discoveryTarget(event);
+    if (!target) continue;
+    targets.add(target);
+    const count = (exactCounts.get(target) ?? 0) + 1;
+    exactCounts.set(target, count);
+    maxExactRepeat = Math.max(maxExactRepeat, count);
+  }
+
+  // Repeating the same read/search/list is still a loop; this grace only covers
+  // inventory/path-correction momentum across new targets in dirty workspaces.
+  if (maxExactRepeat >= 3) return false;
+  if (targets.size < 5) return false;
+
+  const usefulResults = discoveryEvents.filter(hasUsefulDiscoveryResult).length;
+  if (usefulResults < 3) return false;
+
+  const pathMissCount = discoveryEvents.filter((event) => hasPathMissSignature(event.resultSignature)).length;
+  const sawPathCorrection =
+    pathMissCount > 0
+    || discoveryEvents.some((event) => /\/src\/test\/src\/test\/|\/src\/src\/|\/test\/test\//.test(discoveryTarget(event)))
+    || discoveryEvents.some((event) => /\/src\/test\/src\/test\/|\/src\/src\/|\/test\/test\//.test(event.resultSignature));
+
+  return sawPathCorrection || targets.size >= 7;
 }
 
 function hasNoTestFilesSignature(sig: string): boolean {
@@ -2357,6 +2427,49 @@ export function evaluateExecutionGovernor(
 
   if (activeGuards.includes("false_green_suspected")) {
     pushRule("false_green_suspected");
+  }
+
+  const recoveryDiscoveryMomentum =
+    changedFiles.length === 0
+    && !hasRunTest
+    && !hasCompletionClaim
+    && hasForwardRecoveryDiscoveryMomentum(events);
+  const RECOVERY_DISCOVERY_RULES = new Set([
+    "no_progress_loop",
+    "exploration_stall_no_edit",
+    "discovery_churn_nudge",
+    "verification_intent_without_action",
+    "verbal_intent_without_action",
+    "broad_discovery_repeat",
+    "bounded_exploration_budget",
+  ]);
+  if (
+    recoveryDiscoveryMomentum
+    && matchedRules.length > 0
+    && matchedRules.every((rule) => RECOVERY_DISCOVERY_RULES.has(rule))
+  ) {
+    return {
+      pause: false,
+      reason: "recovery_discovery_momentum",
+      suggestedNextStep:
+        "Continue bounded dirty-workspace discovery: read/list each distinct target once, identify the canonical project root, then either run one targeted verification command from that root or summarize what is complete and what remains.",
+      matchedRules: ["recovery_discovery_momentum"],
+      telemetry: {
+        phase: sessionPhase,
+        repeatedTestCommands,
+        repeatedReadSearchCalls,
+        repeatedBroadDiscoveryCalls,
+        totalBroadDiscoveryCalls,
+        broadTestRepeat,
+        noEditEvidence,
+        trailingVerificationRunLength,
+        trailingExplorationRunLength,
+        hasPlanInContext,
+        hasPlanEdit,
+        activeGuards: activeGuards.length > 0 ? activeGuards : undefined,
+        recoveryDiscoveryMomentum: true,
+      },
+    };
   }
 
   if (matchedRules.length === 0) {
