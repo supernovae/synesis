@@ -106,7 +106,6 @@ import {
 } from "./runtime/user-preferences.js";
 import {
   detectClientToolCapabilities,
-  type ClientToolCapabilities,
 } from "./adapters/client-tool-capabilities.js";
 import { type PromptFrame, computeVolatileFingerprint } from "./context/prompt-frame.js";
 import { generateExtendedMemoryContext } from "./memory/context-injector.js";
@@ -199,7 +198,6 @@ import {
   governorPhaseToWorkflowPhase,
   extractCommandEvents,
   extractEditedFileHints,
-  type GovernorPauseEnvelope,
   type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
 } from "./governance/execution-governor.js";
@@ -218,15 +216,7 @@ import {
 import {
   resetQwenInterventionOnUserTurn,
 } from "./pipeline/route-adapter-pivot.js";
-import {
-  buildGovernorPauseContextSnapshot,
-  buildGovernorPauseResumeBlock,
-  GOVERNOR_PAUSE_CONTEXT_METADATA_KEY,
-  GOVERNOR_PAUSE_PENDING_METADATA_KEY,
-  isGovernorPauseSummaryRequest,
-  parseGovernorPauseContextSnapshot,
-  type GovernorPauseSurface,
-} from "./governance/governor-pause-context.js";
+import { createRouteGovernanceStateHelpers } from "./governance/route-governance-state.js";
 import {
   buildSensemakingPauseMessage,
   buildSensemakingGuidanceInjection,
@@ -261,20 +251,11 @@ import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
 import {
   deriveChatState,
   type ChatPhase,
-  type ChatState,
 } from "./governance/chat-state.js";
-import {
-  deriveFileState,
-  type FileState,
-} from "./governance/file-state.js";
-import {
-  applyObjectiveScope,
-  resolveObjectiveEpoch,
-} from "./governance/objective-scope.js";
+import { deriveFileState } from "./governance/file-state.js";
 import {
   assessStateConfidence,
   formatStateConfidenceBlock,
-  type StateConfidenceAssessment,
 } from "./governance/state-confidence.js";
 import {
   projectInstructionFilePresent,
@@ -351,159 +332,6 @@ function inferVerificationSteps(sequence: string[]): string[] {
 function getMetadataString(meta: Record<string, unknown>, key: string): string {
   const value = meta[key];
   return typeof value === "string" ? value : "";
-}
-
-function persistGovernorPauseContextMetadata(params: {
-  session: SessionState;
-  surface: GovernorPauseSurface;
-  requestId: string;
-  pauseEnvelope: GovernorPauseEnvelope;
-  pauseContent: string;
-  clientToolCapabilities: ClientToolCapabilities;
-}): void {
-  const snapshot = buildGovernorPauseContextSnapshot({
-    surface: params.surface,
-    requestId: params.requestId,
-    envelope: params.pauseEnvelope,
-    pauseMessage: params.pauseContent,
-    questionToolName: params.clientToolCapabilities.hasQuestionTool
-      ? params.clientToolCapabilities.questionToolName
-      : null,
-  });
-  params.session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY] = snapshot as unknown as Record<string, unknown>;
-  params.session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] = true;
-}
-
-function clearGovernorPauseContextMetadata(session: SessionState): void {
-  delete session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY];
-  delete session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY];
-}
-
-function buildGovernorPauseResumeBlockForUser(session: SessionState, latestUserPrompt: string): string | null {
-  if (!isGovernorPauseSummaryRequest(latestUserPrompt)) return null;
-  const rawSnapshot = session.record.metadata[GOVERNOR_PAUSE_CONTEXT_METADATA_KEY];
-  const pending = session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] === true;
-  const snapshot = parseGovernorPauseContextSnapshot(rawSnapshot);
-  if (!pending || !snapshot) return null;
-  session.record.metadata[GOVERNOR_PAUSE_PENDING_METADATA_KEY] = false;
-  return buildGovernorPauseResumeBlock(snapshot, latestUserPrompt);
-}
-
-function applyObjectiveScopeAndPersist<TMessage extends {
-  role: string;
-  content: unknown;
-  name?: string;
-  tool_call_id?: string;
-}>(
-  params: {
-    state: SessionState;
-    sessionKey: string;
-    requestId: string;
-    userId: string;
-    orgId: string;
-    messages: TMessage[];
-    chatState: ChatState;
-    fileState: FileState;
-    latestUserPromptText: string | null;
-  },
-): {
-  scopedMessages: TMessage[];
-  relevantEvidenceBlock: string | null;
-  artifactBridgeBlock: string | null;
-  boundaryIndex: number;
-  retainedEvidenceCount: number;
-  droppedPreBoundaryCount: number;
-  objectiveChanged: boolean;
-  epochId: number;
-} {
-  const requestOrdinal = params.state.record.requestCount + 1;
-  const objectiveEpoch = resolveObjectiveEpoch({
-    metadata: params.state.record.metadata,
-    chatState: params.chatState,
-    latestUserPromptText: params.latestUserPromptText,
-    requestOrdinal,
-  });
-  const msgCount = params.messages.length;
-  const scaledEvidence = msgCount > 200 ? 12 : msgCount > 100 ? 9 : 6;
-  const epochInterval = Number(config.SYNESIS_YARN_SCOPE_EPOCH_INTERVAL ?? 10) || 10;
-  const messageGrowthThreshold = Number(config.SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD ?? 80) || 80;
-  const bucketSize = Number(config.SYNESIS_YARN_SCOPE_BUCKET_SIZE ?? 50) || 50;
-  const scoped = applyObjectiveScope({
-    messages: params.messages,
-    chatState: params.chatState,
-    fileState: params.fileState,
-    epoch: objectiveEpoch,
-    maxRelevantEvidence: scaledEvidence,
-    preBoundaryWindow: 80,
-    minimumScore: 3,
-    requestOrdinal,
-    epochInterval,
-    messageGrowthThreshold,
-    bucketSize,
-  });
-
-  params.state.record.metadata.objective_epoch_id = objectiveEpoch.epochId;
-  params.state.record.metadata.objective_epoch_objective_hash = objectiveEpoch.objectiveHash;
-  params.state.record.metadata.objective_epoch_objective_text = objectiveEpoch.objectiveText;
-  params.state.record.metadata.objective_epoch_anchor_user_hash = objectiveEpoch.anchorUserHash;
-  params.state.record.metadata.objective_epoch_set_request = objectiveEpoch.objectiveSetRequest;
-  params.state.record.metadata.objective_scope_boundary_index = scoped.boundaryIndex;
-  params.state.record.metadata.objective_scope_retained_evidence = scoped.retainedEvidenceCount;
-  params.state.record.metadata.objective_scope_dropped_pre_boundary = scoped.droppedPreBoundaryCount;
-
-  params.state.record.metadata.objective_epoch_pruning_frozen_boundary = scoped.updatedCheckpoint.frozenBoundaryIndex;
-  params.state.record.metadata.objective_epoch_pruning_frozen_at_request = scoped.updatedCheckpoint.frozenAtRequest;
-  params.state.record.metadata.objective_epoch_pruning_frozen_message_count = scoped.updatedCheckpoint.frozenMessageCount;
-
-  if (
-    objectiveEpoch.objectiveChanged
-    || scoped.droppedPreBoundaryCount > 0
-    || scoped.retainedEvidenceCount > 0
-    || scoped.reanchored
-  ) {
-    recordSessionEvent(
-      params.sessionKey,
-      params.userId,
-      params.orgId,
-      "objective_scope_applied",
-      "objective-scope",
-      `epoch=${objectiveEpoch.epochId} changed=${objectiveEpoch.objectiveChanged} boundary=${scoped.boundaryIndex} retained=${scoped.retainedEvidenceCount} dropped=${scoped.droppedPreBoundaryCount} reanchored=${scoped.reanchored}`,
-      params.requestId,
-      {
-        objective_epoch_id: objectiveEpoch.epochId,
-        objective_changed: objectiveEpoch.objectiveChanged,
-        objective_similarity: objectiveEpoch.similarityToPrevious,
-        boundary_index: scoped.boundaryIndex,
-        retained_evidence: scoped.retainedEvidenceCount,
-        dropped_pre_boundary: scoped.droppedPreBoundaryCount,
-        anchor_matched: scoped.anchorMatched,
-        reanchored: scoped.reanchored,
-      },
-    );
-  }
-
-  return {
-    scopedMessages: scoped.scopedMessages,
-    relevantEvidenceBlock: scoped.relevantEvidenceBlock,
-    artifactBridgeBlock: scoped.artifactBridgeBlock,
-    boundaryIndex: scoped.boundaryIndex,
-    retainedEvidenceCount: scoped.retainedEvidenceCount,
-    droppedPreBoundaryCount: scoped.droppedPreBoundaryCount,
-    objectiveChanged: objectiveEpoch.objectiveChanged,
-    epochId: objectiveEpoch.epochId,
-  };
-}
-
-function persistStateConfidence(
-  metadata: Record<string, unknown>,
-  assessment: StateConfidenceAssessment,
-): void {
-  metadata.state_confidence_chat = assessment.chatConfidence;
-  metadata.state_confidence_file = assessment.fileConfidence;
-  metadata.state_confidence_overall = assessment.overallConfidence;
-  metadata.state_confidence_needs_reground = assessment.needsReground;
-  metadata.state_confidence_recommended_path = assessment.recommendedReadPath ?? "";
-  metadata.state_confidence_reasons = assessment.reasons;
 }
 
 function trimSnippet(text: string, max = 2000): string {
@@ -987,6 +815,16 @@ const {
   getMetadataString,
   recordSessionEvent,
   logger: app.log,
+});
+const {
+  persistGovernorPauseContextMetadata,
+  clearGovernorPauseContextMetadata,
+  buildGovernorPauseResumeBlockForUser,
+  applyObjectiveScopeAndPersist,
+  persistStateConfidence,
+} = createRouteGovernanceStateHelpers({
+  config,
+  recordSessionEvent,
 });
 const usagePersistenceEnabled =
   config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
