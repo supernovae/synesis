@@ -3,6 +3,7 @@ import type { Registry } from "prom-client";
 
 import type { AuthResolver } from "../auth.js";
 import type { AppConfig } from "../config.js";
+import type { ModelArchitectureProfileOverride } from "../providers/model-architecture-profile.js";
 import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 import type { SessionIdentity } from "../session/session-key.js";
 
@@ -97,6 +98,14 @@ export interface UserRateLimiterLike {
 
 export interface TierRegistryLike {
   getAvailableModels(): Array<{ id: string; [key: string]: unknown }>;
+  getTierConfig?(modelId: string): {
+    id: string;
+    backendModel: string;
+    baseUrl: string;
+    adapterHint?: string | null;
+    contextCeilingTokens?: number | null;
+    architectureProfile?: ModelArchitectureProfileOverride | null;
+  } | undefined;
 }
 
 export interface ArtifactStoreLike extends StatsProvider {

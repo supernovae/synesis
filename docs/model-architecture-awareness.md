@@ -65,6 +65,21 @@ These overrides are harness policy, not claims about the actual inference
 engine. Operators should prefer cautious settings unless they have trace data
 showing stronger behavior.
 
+## Operator Diagnostics
+
+Yarn exposes the selected profile and derived execution policy through the
+internal diagnostics surface:
+
+```text
+GET /v1/diagnostics/model-architecture
+```
+
+The route requires the same internal diagnostics token as the other diagnostics
+endpoints and does not change the public OpenAI-compatible `/v1/models` shape.
+It reports each configured model alias, resolved backend model, endpoint
+provider, adapter family, whether an admin override applied, and the compact
+architecture policy trace used by request handling.
+
 ## Examples
 
 - DeepSeek-style MLA model: Yarn treats declared context as larger than reliable
