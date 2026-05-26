@@ -982,7 +982,7 @@ function repairShellCwdPrefixedFilePath(
 ): { input: Record<string, unknown>; repaired: boolean } {
   if (!["Write", "Read", "Edit", "Update"].includes(logicalName)) return { input, repaired: false };
   const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  const cwd = shellCwd?.trim();
+  const cwd = shellCwd?.trim() || projectRoot?.trim();
   if (!raw || !cwd) return { input, repaired: false };
   if (path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
     return { input, repaired: false };

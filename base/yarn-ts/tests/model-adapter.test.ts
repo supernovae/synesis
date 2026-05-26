@@ -515,6 +515,20 @@ describe("MiniMaxAdapter", () => {
     expect(nudge).toContain("does NOT mean the writes failed");
     expect(nudge).toContain("Do not rebuild the app");
   });
+
+  it("detects duplicated cwd prefixes in path-not-found results", () => {
+    const nudge = adapter.getEarlyPivotPrompt!(
+      [{ toolName: "Read", filePath: "src/test/taskpulse/app/models/task.py" }],
+      {
+        recentToolResultText:
+          "File not found: /home/byron/src/test/src/test/taskpulse/app/models/task.py",
+      },
+    );
+
+    expect(nudge).toContain("src/test/src/test");
+    expect(nudge).toContain("taskpulse/app/models/task.py");
+    expect(nudge).toContain("Do not retry the same duplicated path");
+  });
 });
 
 describe("defaultSamplingParams", () => {

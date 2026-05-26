@@ -44,6 +44,20 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
+  it("repairs project-root-prefixed OpenCode paths when shell_cwd is absent", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { path: "src/test/taskpulse/app/models/task.py" },
+      projectRoot: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.input.file_path).toBe("taskpulse/app/models/task.py");
+    expect(out.normalizedPath).toBe(true);
+  });
+
   it("repairs paths that repeat a suffix of shell_cwd without project_root", () => {
     const out = governToolCall({
       toolName: "Read",

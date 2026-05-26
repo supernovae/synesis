@@ -895,6 +895,8 @@ export class MiniMaxAdapter implements ModelAdapter {
   getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
     const trackerFailure = this._detectTaskTrackerSchemaFailure(recentToolCalls, options.recentToolResultText);
     if (trackerFailure) return trackerFailure;
+    const duplicatedPathMiss = this._detectDuplicatedRootPathMiss(options.recentToolResultText);
+    if (duplicatedPathMiss) return duplicatedPathMiss;
     const writeVerificationDrift = this._detectWriteVerificationDrift(
       recentToolCalls,
       options.recentToolResultText,
@@ -1005,6 +1007,44 @@ export class MiniMaxAdapter implements ModelAdapter {
       "Do not rebuild the app. Verify the exact path used in the prior Write/Edit once, then continue from the existing files.",
     ].join(" ");
   }
+
+  private _detectDuplicatedRootPathMiss(recentToolResultText?: string | null): string | null {
+    const text = recentToolResultText ?? "";
+    if (!/no such file|file not found|cannot access|enoent/i.test(text)) return null;
+    const absolutePaths = text.match(/\/[A-Za-z0-9._/-]+/g) ?? [];
+    for (const candidate of absolutePaths) {
+      const duplicate = duplicatedAdjacentPathSuffix(candidate);
+      if (!duplicate) continue;
+      return [
+        `The failed path appears to duplicate the working-root prefix: ${duplicate.duplicatedPrefix}/${duplicate.duplicatedPrefix}/...`,
+        duplicate.repairedExample
+          ? `Use the shorter client-tool path \`${duplicate.repairedExample}\` instead of prepending \`${duplicate.duplicatedPrefix}\`.`
+          : `Strip the repeated \`${duplicate.duplicatedPrefix}\` prefix before retrying.`,
+        "Do not retry the same duplicated path and do not rebuild files that were already written.",
+      ].join(" ");
+    }
+    return null;
+  }
+}
+
+function duplicatedAdjacentPathSuffix(
+  filePath: string,
+): { duplicatedPrefix: string; repairedExample: string | null } | null {
+  const parts = filePath.split("/").filter(Boolean);
+  for (let start = 0; start < parts.length - 2; start++) {
+    const maxLen = Math.min(4, Math.floor((parts.length - start) / 2));
+    for (let len = maxLen; len >= 1; len--) {
+      const first = parts.slice(start, start + len);
+      const second = parts.slice(start + len, start + (len * 2));
+      if (second.length !== first.length || !first.every((part, index) => second[index] === part)) continue;
+      const repaired = parts.slice(start + (len * 2)).join("/");
+      return {
+        duplicatedPrefix: first.join("/"),
+        repairedExample: repaired || null,
+      };
+    }
+  }
+  return null;
 }
 
 export class ClaudeAdapter implements ModelAdapter {
