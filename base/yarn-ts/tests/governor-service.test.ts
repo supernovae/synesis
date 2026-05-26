@@ -76,4 +76,36 @@ describe("GovernorService", () => {
     expect(out.reason).toBe("identical_tool_repeat");
     expect(out.execution?.pause).toBe(true);
   });
+
+  it("implements the optional step-governor stage hook", async () => {
+    const evaluate = vi.fn(() => decision({ matchedRules: ["stage_governed"] }));
+    const service = new GovernorService({ enabled: true, evaluate });
+
+    const out = await service.beforeStage({
+      stage: "governor",
+      ctx,
+      payload: {
+        messages: [{ role: "user", content: "continue" }],
+        options: { activePlanStage: "tests" },
+      },
+    });
+
+    expect(evaluate).toHaveBeenCalledWith(
+      [{ role: "user", content: "continue" }],
+      expect.objectContaining({ activePlanStage: "tests", profile: "balanced_completion" }),
+    );
+    expect(out.action).toBe("pass");
+    expect(out.matchedRules).toEqual(["stage_governed"]);
+  });
+
+  it("passes through stages that are not governed yet", async () => {
+    const evaluate = vi.fn();
+    const service = new GovernorService({ enabled: true, evaluate });
+
+    const out = await service.beforeStage({ stage: "provider_call", ctx });
+
+    expect(out.action).toBe("pass");
+    expect(out.reason).toBe("stage_not_governed");
+    expect(evaluate).not.toHaveBeenCalled();
+  });
 });

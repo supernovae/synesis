@@ -4,6 +4,7 @@ import type { ModelMessage } from "ai";
 import type { AuthResolver, AuthUser } from "../auth.js";
 import type { AppConfig } from "../config.js";
 import type { OpenAIChatPipeline } from "../pipeline/openai-chat-pipeline.js";
+import type { PipelineStepGovernor } from "../pipeline/types.js";
 import type { ModelAdapter } from "../providers/model-adapter.js";
 import type { PlatformRouteDependencies } from "../routes/platform-route-support.js";
 import type { OpenAIChatCompletionRequest } from "../schemas.js";
@@ -34,6 +35,7 @@ export interface OpenAIChatCompletionsRouteDependencies extends TransitionalRout
   fgaCheck: TransitionalRouteFn;
   userRateLimiter: RateLimiterLike;
   openAiChatPipeline: OpenAIChatPipeline;
+  stepGovernor?: PipelineStepGovernor;
   resolveRequestId(headers: Record<string, unknown>): string;
   recordSessionEvent: TransitionalRouteFn;
   applyClarificationRoundResponseHeader: TransitionalRouteFn;

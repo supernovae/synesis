@@ -1,4 +1,9 @@
-import type { PipelineContext, GovernorDecision } from "../pipeline/types.js";
+import type {
+  PipelineContext,
+  PipelineStepCheckpoint,
+  PipelineStepGovernor,
+  GovernorDecision,
+} from "../pipeline/types.js";
 import {
   evaluateExecutionGovernor,
   type ExecutionGovernorDecision,
@@ -36,7 +41,7 @@ export interface GovernorProviderResult {
   usage?: unknown;
 }
 
-export class GovernorService {
+export class GovernorService implements PipelineStepGovernor {
   private readonly evaluate: typeof evaluateExecutionGovernor;
 
   constructor(private readonly options: GovernorServiceOptions) {
@@ -55,6 +60,32 @@ export class GovernorService {
       profile: request.options?.profile ?? this.options.defaultProfile ?? "balanced_completion",
     });
     return executionDecisionToGovernorDecision(execution, ctx);
+  }
+
+  async beforeStage<TPayload = unknown>(
+    checkpoint: PipelineStepCheckpoint<TPayload>,
+  ): Promise<GovernorDecision> {
+    if (checkpoint.stage !== "governor") {
+      return {
+        action: "pass",
+        reason: "stage_not_governed",
+        matchedRules: [],
+        mutations: [],
+      };
+    }
+    const payload = checkpoint.payload as Partial<GovernorBeforeProviderRequest> | undefined;
+    if (!payload || !Array.isArray(payload.messages)) {
+      return {
+        action: "pass",
+        reason: "missing_governor_messages",
+        matchedRules: [],
+        mutations: [],
+      };
+    }
+    return this.beforeProviderCall(checkpoint.ctx, {
+      messages: payload.messages,
+      options: payload.options,
+    });
   }
 
   async afterToolEvent(_ctx: PipelineContext, _event: GovernorToolEvent): Promise<void> {

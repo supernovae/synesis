@@ -4,6 +4,7 @@ import {
   disabledExecutionGovernorDecision,
 } from "../governance/governor-service.js";
 import { deriveGovernorLoopObservability } from "../governance/governor-observability.js";
+import type { PipelineMode, PipelineStepGovernor } from "./types.js";
 
 type ConfigSlice = Pick<
   AppConfig,
@@ -75,6 +76,7 @@ export interface OpenAIExecutionGovernorPreparationInput {
   governorService: {
     beforeProviderCall(ctx: unknown, request: unknown): Promise<{ execution?: ExecutionGovernorDecision | null }>;
   };
+  stepGovernor?: PipelineStepGovernor;
   withSpanAsync<T>(name: string, attributes: Record<string, unknown>, fn: (span: SpanLike) => Promise<T>): Promise<T>;
   summarizeEvidenceDelta(delta: unknown): unknown;
   recordSessionEvent(
@@ -109,11 +111,11 @@ export async function prepareOpenAIExecutionGovernor(
     && (Date.now() - input.session.lastGovernorNoPauseAt) < input.governorCooldownMs;
   const pipelineContext = {
     requestId: input.requestId,
-    mode: input.pipelineMode,
+    mode: input.pipelineMode as PipelineMode,
     userId: input.identity.userId,
     orgId: input.identity.orgId,
-    clientKind: input.identity.clientKind,
-    conversationId: input.identity.conversationId,
+    clientKind: input.identity.clientKind ?? "unknown",
+    conversationId: input.identity.conversationId ?? "unknown",
     sessionKey: input.sessionKey,
     startedAt: Date.now(),
     headers: input.headers,
@@ -124,28 +126,32 @@ export async function prepareOpenAIExecutionGovernor(
     ? (governorCooldownActive
       ? input.session.lastGovernorCachedResult!
       : await input.withSpanAsync("yarn.execution_governor.evaluate", {}, async (govSpan) => {
-        const governorDecision = await input.governorService.beforeProviderCall(
-          pipelineContext,
-          {
-            messages: input.scopedMessages as Array<GovernorInputMessage>,
-            options: {
-              profile: input.config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-              activePlanStage: input.planGraph?.activeStage ?? null,
-              editContextMissActive:
-                input.editMissGuard?.active === true
-                || input.latestToolProgress.hasRecentEditContextMiss
-                || input.session.editMissForceReadPending
-                || input.toolFailures.some((failure) => failure.reason === "edit_context_miss"),
-              artifactShadows: input.artifactShadows,
-              chatState: input.chatState,
-              fileState: input.fileState,
-              orchestratorWorkflowPhase: input.workingPhase,
-              taskLedgerOpenCount: input.session.taskLedger
-                ? input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-                : undefined,
-            },
+        const governorRequest = {
+          messages: input.scopedMessages as Array<GovernorInputMessage>,
+          options: {
+            profile: input.config.SYNESIS_YARN_GOVERNANCE_PROFILE,
+            activePlanStage: input.planGraph?.activeStage ?? null,
+            editContextMissActive:
+              input.editMissGuard?.active === true
+              || input.latestToolProgress.hasRecentEditContextMiss
+              || input.session.editMissForceReadPending
+              || input.toolFailures.some((failure) => failure.reason === "edit_context_miss"),
+            artifactShadows: input.artifactShadows,
+            chatState: input.chatState,
+            fileState: input.fileState,
+            orchestratorWorkflowPhase: input.workingPhase,
+            taskLedgerOpenCount: input.session.taskLedger
+              ? input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
+              : undefined,
           },
-        );
+        };
+        const governorDecision = input.stepGovernor
+          ? await input.stepGovernor.beforeStage({
+            stage: "governor",
+            ctx: pipelineContext,
+            payload: governorRequest,
+          })
+          : await input.governorService.beforeProviderCall(pipelineContext, governorRequest);
         const decision = governorDecision.execution ?? disabledExecutionGovernorDecision();
         if (!decision.pause) {
           input.session.lastGovernorNoPauseAt = Date.now();

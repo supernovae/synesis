@@ -51,6 +51,7 @@ type Deps = Pick<
   | "getFileSnapshotRegistry"
   | "governanceClient"
   | "governorService"
+  | "stepGovernor"
   | "hashTextSignal"
   | "inferGovernorPhaseFromMessages"
   | "injectGovernorRecoveryMessage"
@@ -346,8 +347,9 @@ export async function prepareOpenAIGovernedStage(
       file: context.pauseFileSummary,
     },
     shouldRunGovernorForMode,
-    governorService: deps.governorService,
-    withSpanAsync: deps.withSpanAsync,
+      governorService: deps.governorService,
+      stepGovernor: deps.stepGovernor,
+      withSpanAsync: deps.withSpanAsync,
     summarizeEvidenceDelta: deps.summarizeEvidenceDelta,
     recordSessionEvent: deps.recordSessionEvent,
     buildGovernorPauseResumeBlockForUser: deps.buildGovernorPauseResumeBlockForUser,
