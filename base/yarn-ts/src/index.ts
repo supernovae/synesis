@@ -435,14 +435,7 @@ function pushDiagnostic(d: RequestDiagnostic): void {
 }
 
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
-import { registerOpenAIChatCompletionsRoute } from "./routes/openai-chat-completions-route.js";
-import { registerClaudeMessagesRoute } from "./routes/claude-messages-route.js";
-import { registerPlatformRoutes } from "./routes/platform-routes.js";
-import {
-  buildClaudeMessagesRouteDependencies,
-  buildOpenAIChatCompletionsRouteDependencies,
-  buildPlatformRouteDependencies,
-} from "./server/route-dependencies.js";
+import { registerConfiguredRoutes } from "./server/route-registration.js";
 import {
   createGracefulShutdown,
   registerShutdownSignals,
@@ -1707,14 +1700,7 @@ const routeDependencySource = {
   languagePacksConformance: () => getLanguagePackRegistry().getConformanceMatrix(),
   proportionalityToSignal,
 };
-registerPlatformRoutes(buildPlatformRouteDependencies(routeDependencySource));
-// --- OpenAI chat completions ---
-const openAIChatCompletionsRouteDependencies = buildOpenAIChatCompletionsRouteDependencies(routeDependencySource);
-registerOpenAIChatCompletionsRoute(openAIChatCompletionsRouteDependencies);
-
-// --- Claude Messages API ---
-const claudeMessagesRouteDependencies = buildClaudeMessagesRouteDependencies(routeDependencySource);
-registerClaudeMessagesRoute(claudeMessagesRouteDependencies);
+registerConfiguredRoutes(routeDependencySource);
 
 tierPollTimer = await startTierPolling({
   refreshTierRegistry,
