@@ -25,9 +25,6 @@ import {
 } from "../protocol/claude-messages-helpers.js";
 import { ClaudeMessagesRequestSchema } from "../schemas.js";
 import {
-  applyRuntimePreferenceLoopLimits,
-} from "../runtime/user-preferences.js";
-import {
   applySessionTaskCapabilities,
   buildProtocolSessionIdentity,
   runProtocolSessionBootstrap,
@@ -50,6 +47,9 @@ import {
 } from "../reduction/historical-normalizer.js";
 import { normalizeReadSnapshotMessages } from "../reduction/read-snapshot-normalizer.js";
 import { runClaudeMessagesEnrichment } from "../pipeline/claude-messages-enrichment.js";
+import { prepareClaudeContext } from "../pipeline/claude-context-preparation.js";
+import { prepareClaudeGovernance } from "../pipeline/claude-governance-preparation.js";
+import { runClaudePolicyPrecheck } from "../pipeline/claude-policy-precheck.js";
 import {
   extractRecentToolNames,
   injectGovernorRecoveryMessage,
@@ -88,14 +88,12 @@ import {
   persistGovernorPauseSoftFail,
   resetGovernorPauseRecoveryState,
 } from "../governance/governor-pause-route.js";
-import { applyGovernorPhaseRouteBookkeeping } from "../governance/governor-phase-route.js";
 import {
   evaluateSensemakingGovernor,
   compareSensemakingWithLegacy,
   buildSensemakingPauseMessage,
   buildSensemakingGuidanceInjection,
 } from "../governance/sensemaking-governor.js";
-import { deriveGovernorLoopObservability } from "../governance/governor-observability.js";
 import { buildArtifactShadows, summarizeArtifactContext } from "../governance/artifact-shadow.js";
 import { summarizeEvidenceDelta } from "../governance/evidence-delta.js";
 import { deriveChatState } from "../governance/chat-state.js";
@@ -112,7 +110,6 @@ type AuthUser = import("../auth.js").AuthUser;
 type FastPathResult = import("../evidence/fast-path.js").FastPathResult;
 type PatternPrefetchResult = import("../evidence/fast-path.js").PatternPrefetchResult;
 type GovernorInputMessage = import("../governance/execution-governor.js").GovernorInputMessage;
-type SensemakingDecision = import("../governance/sensemaking-governor.js").SensemakingDecision;
 type SensemakingResult = import("../sensemaking/index.js").SensemakingResult;
 type OpenAIChatCompletionRequest = import("../schemas.js").OpenAIChatCompletionRequest;
 type ClaudeMessagesRequest = import("../schemas.js").ClaudeMessagesRequest;
@@ -121,18 +118,6 @@ type RequestDiagnostic = import("../telemetry/request-diagnostics.js").RequestDi
 type RequestForensicsRecord = import("../telemetry/request-forensics.js").RequestForensicsRecord;
 type SessionPathHints = import("../state/workspace-session-boundary.js").SessionPathHints;
 type WorkflowPhase = import("../orchestration/phase-model-orchestrator.js").WorkflowPhase;
-
-type ToolLoopMessage = {
-  role: string;
-  content: unknown;
-  tool_call_id?: string;
-  tool_calls?: Array<{
-    id?: string;
-    function?: { name?: string; arguments?: unknown };
-    name?: string;
-    input?: unknown;
-  }>;
-};
 
 export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencies): void {
   const {
@@ -259,7 +244,6 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       deriveEditContextMissGuardState,
       governanceClient,
       GOVERNOR_COOLDOWN_MS,
-      handleDeterministicPolicyPrecheck,
       hashTextSignal,
       inferModelFamily,
       isGenuineUserPromptMessage,
@@ -1068,576 +1052,186 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     });
     const claudeWorkingFrameGoal: string | undefined = claudePreFrame?.goal;
 
-    let claudePrefetchResult: FastPathResult | undefined;
-    if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestClaudeUser) {
-      const claudePrefetchText = typeof latestClaudeUser.content === "string" ? latestClaudeUser.content : "";
-      if (claudePrefetchText.length > 0) {
-        claudePrefetchResult = await runEvidencePrefetch(
-          claudePrefetchText, knowledgeSearch,
-          config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
-          config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
-          { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
-          knowledgeResolveContext(claudeAuthUser, req),
-        );
-        if (claudePrefetchResult.matched) {
-          app.log.info({
-            pattern: claudePrefetchResult.pattern, hasEvidence: Boolean(claudePrefetchResult.evidence),
-            timedOut: claudePrefetchResult.timedOut, latencyMs: Math.round(claudePrefetchResult.latencyMs),
-            confidence: claudePrefetchResult.confidence, authoritative: claudePrefetchResult.authoritative,
-          }, "evidence_prefetch_result_claude");
-        }
-      }
-    }
-
-    let claudePatternResult: PatternPrefetchResult | undefined;
-    if (config.SYNESIS_YARN_PATTERN_RECALL_ENABLED && latestClaudeUser && !claudePrefetchResult?.matched) {
-      const claudePatternText = typeof latestClaudeUser.content === "string" ? latestClaudeUser.content : "";
-      if (claudePatternText.length > 0) {
-        claudePatternResult = await runPatternPrefetch(
-          claudePatternText, knowledgeSearch,
-          config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
-          claudeWorkingPhase,
-          knowledgeResolveContext(claudeAuthUser, req),
-        );
-      }
-    }
-
-    const claudeCombinedConfidence = Math.max(
-      claudePrefetchResult?.confidence ?? 0,
-      claudePatternResult?.confidence ?? 0,
-    );
-
-    const claudeOrchestration = phaseOrchestrator.decide({
-      requestedModel: body.model,
-      modelSelectionMode: config.SYNESIS_YARN_GOVERNANCE_DISABLED ? "lock" : config.SYNESIS_YARN_MODEL_SELECTION_MODE,
-      latestUserText: String(latestClaudeUser?.content ?? ""),
-      workingPhase: claudeWorkingPhase,
-      planningUseHorizon: config.SYNESIS_YARN_PLANNING_USE_HORIZON,
-      riskProfile: claudeManifest.riskProfile,
-      decisionMatrixEnabled: config.SYNESIS_YARN_DECISION_MATRIX_ENABLED,
-      evidence: {
-        recallConfidence: claudeRecallDecision?.resolution?.confidence,
-        recallRouting: claudeRecallDecision?.routing,
-        evidenceConfidence: claudeCombinedConfidence || undefined,
-        evidenceAuthoritative: claudePrefetchResult?.authoritative,
-        verificationRound: claudeVerifState.round > 0 ? claudeVerifState.round : undefined,
-        verificationStalled: claudeVerifState.stalled || undefined,
-        consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      },
-    }, claudeSessionKey);
-    if (claudeOrchestration.escalated) {
-      session.record.escalationCount += 1;
-    }
-    session.record.lastTier = claudeOrchestration.tier;
-    pinchCompactionBackendModelMetadata(session, claudeOrchestration.tier, body.model);
-
-    const claudeEvidencePrefetched = Boolean(
-      claudePrefetchResult?.matched
-      || claudePatternResult?.matched,
-    );
-    let claudeSensemakingResult: SensemakingResult | undefined;
-    let claudeSensemakingBlock: string | null = null;
-    if (config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
-      const claudeSm = runSensemaking({
-        config,
-        messages: normalizedFromClaude.messages as Array<{ role: string; content: unknown }>,
-        getLanguages: detectLanguagesFromMessages,
-        orchestration: claudeOrchestration,
-        recallDecision: claudeRecallDecision,
-        verificationState: claudeVerifState,
-        evidencePrefetched: claudeEvidencePrefetched,
-        evidenceConfidence: claudeCombinedConfidence,
-        evidenceAuthoritative: claudePrefetchResult?.authoritative,
-        userText: String(latestClaudeUser?.content ?? ""),
-        workingFrameGoal: claudeWorkingFrameGoal,
-        consecutiveFailedVerifications: session.record.consecutiveFailedVerifications,
-      });
-      claudeSensemakingResult = claudeSm.result;
-      claudeSensemakingBlock = config.SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED
-        ? (claudeSm.block || null)
-        : null;
-      applySensemakingStats(sensemakingStats, claudeSm.result, claudeSm.evaluated);
-    }
-
     const claudeLastToolUseId = lastToolUseIdFromClaudeMessages(
       body.messages as Array<{ role: string; content: unknown }>,
     );
-    const latestClaudeUserHash = hashTextSignal(latestClaudeUser?.content ?? "");
     const claudeUserIsRealAck = isGenuineUserPromptMessage(latestClaudeUser);
-    if (session.awaitingToolLoopUserAck) {
-      if (claudeUserIsRealAck && latestClaudeUserHash !== session.toolLoopAckAnchorUserHash) {
-        session.awaitingToolLoopUserAck = false;
-        session.toolLoopNoUserAckCount = 0;
-        session.toolLoopAckAnchorUserHash = "";
-        resetQwenInterventionOnUserTurn(claudeSessionKey);
-      } else {
-        session.toolLoopNoUserAckCount += 1;
-      }
-    }
-    const claudeToolProgress = detectToolProgress(
-      session,
-      normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: Array<{ id?: string; function?: { name?: string }; name?: string }> }>,
-      {
-        normalizeSignal: (content) => normalizedToolOutputSignal(content),
-        looksLikeFailure: looksLikeFailureSignal,
-      },
-    );
-    const claudeCommandLoop = analyzeRecentCommandLoop(
-      normalizedFromClaude.messages as Array<ToolLoopMessage>,
-    );
-    const claudeArtifactShadows = buildArtifactShadows(
-      getFileSnapshotRegistry(claudeSessionKey),
-      session.artifactEditTurns,
-    );
-    const claudeArtifactContext = summarizeArtifactContext(claudeArtifactShadows);
-    const claudeFileState = deriveFileState({
-      registry: getFileSnapshotRegistry(claudeSessionKey),
-      artifactShadows: claudeArtifactShadows,
-      messages: normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string }>,
-    });
-    const claudePersistedChatState = readPersistedChatStateSnapshot(session.record.metadata);
-    const claudeChatState = deriveChatState(
-      normalizedFromClaude.messages as Array<GovernorInputMessage>,
-      {
-        phaseHint: chatPhaseFromWorkflowPhase(claudeWorkingPhase),
-        previousSnapshot: claudePersistedChatState,
-      },
-    );
-
-    // Proportionality: classify intent scope from the latest user directive
-    if (config.SYNESIS_YARN_PROPORTIONALITY_ENABLED && claudeChatState.pendingUserDirective) {
-      const scopeClassification = classifyIntentScope(claudeChatState.pendingUserDirective);
-      if (scopeClassification.envelope !== "unconstrained") {
-        session.scopeEnvelope = scopeClassification.envelope;
-        session.diffStats = createDiffStats();
-      }
-    }
-
-    const claudeObjectiveScope = applyObjectiveScopeAndPersist({
-      state: session,
-      sessionKey: claudeSessionKey,
-      requestId: traceReqId,
-      userId: claudeIdentity.userId,
-      orgId: claudeIdentity.orgId,
-      messages: normalizedFromClaude.messages as Array<{
-        role: string;
-        content: unknown;
-        name?: string;
-        tool_call_id?: string;
-        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown }; name?: string }>;
-      }>,
-      chatState: claudeChatState,
-      fileState: claudeFileState,
-      latestUserPromptText: latestClaudeUser ? extractTextFromUnknownContent(latestClaudeUser.content) : "",
-    });
-    const claudeScopedMessages = claudeObjectiveScope.scopedMessages;
-    const claudeRawStateConfidence = assessStateConfidence({
-      chatState: claudeChatState,
-      fileState: claudeFileState,
-      recentReadSatisfied: claudeLatestReadRefresh.hasRecentReadSuccess,
-    });
-    const claudeSuppressInstructionReground =
-      claudeWorkspaceInspection.isEmpty
-      && claudeWorkspaceInspection.projectInstructionFiles.length === 0
-      && projectInstructionFilePresent(claudeRawStateConfidence.recommendedReadPath);
-    const claudeStateConfidence = claudeSuppressInstructionReground
-      ? {
-          ...claudeRawStateConfidence,
-          needsReground: false,
-          recommendedReadPath: null,
-          reasons: [...new Set([...claudeRawStateConfidence.reasons, "empty_workspace_project_guidance_absent"])],
-        }
-      : claudeRawStateConfidence;
-    persistStateConfidence(session.record.metadata, claudeStateConfidence);
-    const claudeStateConfidenceBlock = formatStateConfidenceBlock(claudeStateConfidence);
-    if (session.regroundCooldownRemaining > 0) {
-      session.regroundCooldownRemaining -= 1;
-    }
-    const claudeNeedsStateReground =
-      claudeStateConfidence.needsReground
-      && !claudeEditMissGuard?.active
-      && !session.editMissForceReadPending
-      && session.regroundCooldownRemaining <= 0;
-    if (claudeNeedsStateReground) {
-      session.regroundCooldownRemaining = 2;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "state_confidence_reground_required",
-        "state-confidence",
-        `overall=${claudeStateConfidence.overallConfidence.toFixed(3)} path=${claudeStateConfidence.recommendedReadPath ?? "<none>"}`,
-        traceReqId,
-        {
-          chat_confidence: claudeStateConfidence.chatConfidence,
-          file_confidence: claudeStateConfidence.fileConfidence,
-          overall_confidence: claudeStateConfidence.overallConfidence,
-          recommended_read_path: claudeStateConfidence.recommendedReadPath,
-          reasons: claudeStateConfidence.reasons,
-        },
-      );
-    }
-    const claudePauseState = prepareProtocolPauseState({
-      metadata: session.record.metadata,
-      chatState: claudeChatState,
-      fileState: claudeFileState,
-      taskLedger: session.taskLedger,
-    });
-    const claudePauseChatSummary = claudePauseState.pauseChatSummary;
-    const claudePauseFileSummary = claudePauseState.pauseFileSummary;
-    const claudePauseTaskContext = claudePauseState.pauseTaskContext;
-    const claudeChatStateBlock = claudePauseState.chatStateBlock;
-    const claudeFileStateBlock = claudePauseState.fileStateBlock;
-    const claudeGovernorPauseResumeBlock = buildGovernorPauseResumeBlockForUser(
-      session,
-      typeof claudeTaskCue === "string" ? claudeTaskCue : "",
-    );
-    const claudeGovernorPauseSummaryRequested = Boolean(claudeGovernorPauseResumeBlock);
-    const claudeGovernorCooldownActive =
-      session.lastGovernorCachedResult
-      && !session.lastGovernorCachedResult.pause
-      && (Date.now() - session.lastGovernorNoPauseAt) < GOVERNOR_COOLDOWN_MS;
-    let claudeExecutionGovernor = config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED
-      ? (claudeGovernorCooldownActive
-        ? session.lastGovernorCachedResult!
-        : withSpan("yarn.execution_governor.evaluate", {}, (govSpan) => {
-          const decision = evaluateExecutionGovernor(
-            claudeScopedMessages as Array<GovernorInputMessage>,
-            {
-              profile: config.SYNESIS_YARN_GOVERNANCE_PROFILE,
-              activePlanStage: claudePlanGraph?.activeStage ?? null,
-              editContextMissActive:
-                claudeEditMissGuard?.active === true
-                || claudeLatestToolProgress.hasRecentEditContextMiss
-                || session.editMissForceReadPending
-                || claudeToolFailures.some((failure) => failure.reason === "edit_context_miss"),
-              artifactShadows: claudeArtifactShadows,
-              chatState: claudeChatState,
-              fileState: claudeFileState,
-              orchestratorWorkflowPhase: claudeWorkingPhase,
-              taskLedgerOpenCount: session.taskLedger
-                ? session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-                : undefined,
-            },
-          );
-          if (!decision.pause) {
-            session.lastGovernorNoPauseAt = Date.now();
-            session.lastGovernorCachedResult = decision;
-          } else {
-            session.lastGovernorCachedResult = null;
-          }
-          if (claudeWorkingPhase) govSpan.setAttribute("governor.orchestrator_workflow_phase", claudeWorkingPhase);
-          govSpan.setAttribute("governor.pause", decision.pause);
-          govSpan.setAttribute("governor.reason", decision.reason ?? "");
-          govSpan.setAttribute("governor.matched_rules", decision.matchedRules.join(","));
-          govSpan.setAttribute("governor.phase", decision.telemetry.phase);
-          govSpan.setAttribute("governor.trailing_verification_run", decision.telemetry.trailingVerificationRunLength);
-          govSpan.setAttribute("governor.no_edit_evidence", decision.telemetry.noEditEvidence);
-          return decision;
-        }))
-      : {
-          pause: false,
-          reason: "disabled",
-          matchedRules: ["disabled"],
-          telemetry: {
-            phase: "edit" as const,
-            repeatedTestCommands: 0,
-            repeatedReadSearchCalls: 0,
-            repeatedBroadDiscoveryCalls: 0,
-            totalBroadDiscoveryCalls: 0,
-            broadTestRepeat: false,
-            noEditEvidence: false,
-            trailingVerificationRunLength: 0,
-          },
-        };
-    if (
-      claudeExecutionGovernor.matchedRules.includes("verification_green_repeat_block")
-      || claudeExecutionGovernor.matchedRules.includes("verification_already_green")
-    ) {
-      session.blockBroadVerificationUntilEdit = true;
-    }
-    if (
-      session.consecutiveRecoveryFires >= 2
-      && (
-        claudeExecutionGovernor.matchedRules.includes("verification_fail_repeat_block")
-        || claudeExecutionGovernor.matchedRules.includes("verification_same_failure_signature_replay")
-        || claudeExecutionGovernor.matchedRules.includes("verification_churn_no_edit")
-      )
-    ) {
-      session.blockFailingVerificationUntilEdit = true;
-    }
-    if (
-      (claudeEditMissFailureCount >= 2 || session.consecutiveEditContextMisses >= 2)
-      && !claudeExecutionGovernor.matchedRules.includes("edit_failure_replay")
-    ) {
-      claudeExecutionGovernor = {
-        ...claudeExecutionGovernor,
-        pause: true,
-        reason: "edit_failure_replay",
-        matchedRules: ["edit_failure_replay", ...new Set(claudeExecutionGovernor.matchedRules)],
-        suggestedNextStep:
-          claudeExecutionGovernor.suggestedNextStep
-          ?? "Repeated edit anchor failures detected. Read the file once, choose an exact current anchor, and apply one focused edit. If the behavior is already present, verify and move on.",
-      };
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "execution_governor_edit_miss_override",
-        "execution-governor",
-        `Forced edit_failure_replay (turn_misses=${claudeEditMissFailureCount}, consecutive_turn_misses=${session.consecutiveEditContextMisses})`,
-        traceReqId,
-        {
-          edit_miss_failures: claudeEditMissFailureCount,
-          consecutive_turn_edit_miss_failures: session.consecutiveEditContextMisses,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-        },
-      );
-    }
-    if (claudeGovernorPauseSummaryRequested && claudeExecutionGovernor.pause) {
-      const priorRules = claudeExecutionGovernor.matchedRules;
-      claudeExecutionGovernor = {
-        ...claudeExecutionGovernor,
-        pause: false,
-        reason: "user_requested_governor_summary",
-        matchedRules: ["user_requested_governor_summary"],
-        suggestedNextStep: "Summarize current status without tool calls, edits, or command retries.",
-      };
-      session.lastGovernorCachedResult = null;
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "governor_pause_summary_resume",
-        "execution-governor",
-        `Allowed explicit summarize/status reply after pause (prior_rules=${priorRules.slice(0, 3).join(",") || "unknown"})`,
-        traceReqId,
-        {
-          prior_matched_rules: priorRules,
-          summary_resume: true,
-        },
-      );
-    }
-    const claudeLoopObs = deriveGovernorLoopObservability(
-      claudeScopedMessages as Array<{ role: string; tool_calls?: unknown }>,
-    );
-    recordSessionEvent(
-      claudeSessionKey,
-      claudeIdentity.userId,
-      claudeIdentity.orgId,
-      "execution_governor_evaluated",
-      "execution-governor",
-      `phase=${claudeExecutionGovernor.telemetry.phase} rules=${claudeExecutionGovernor.matchedRules.join(",") || "allow"} pause=${claudeExecutionGovernor.pause}`,
-      traceReqId,
-      {
-        pause: claudeExecutionGovernor.pause,
-        reason: claudeExecutionGovernor.reason,
-        phase: claudeExecutionGovernor.telemetry.phase,
-        matched_rules: claudeExecutionGovernor.matchedRules,
-        suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
-        has_run_test: claudeLoopObs.hasRunTest,
-        last_assistant_tool_calls: claudeLoopObs.lastAssistantToolCalls,
-        assistant_tool_calls_since_latest_user: claudeLoopObs.assistantToolCallsSinceLatestUser,
-        objective_epoch_id: claudeObjectiveScope.epochId,
-        objective_scope_boundary_index: claudeObjectiveScope.boundaryIndex,
-        objective_scope_retained_evidence: claudeObjectiveScope.retainedEvidenceCount,
-        objective_scope_dropped_pre_boundary: claudeObjectiveScope.droppedPreBoundaryCount,
-        state_confidence_chat: claudeStateConfidence.chatConfidence,
-        state_confidence_file: claudeStateConfidence.fileConfidence,
-        state_confidence_overall: claudeStateConfidence.overallConfidence,
-        state_confidence_needs_reground: claudeNeedsStateReground,
-        state_confidence_recommended_path: claudeStateConfidence.recommendedReadPath,
-        evidence_delta: summarizeEvidenceDelta(session.lastEvidenceDelta),
-        artifact_context: claudeArtifactContext,
-        chat_state_summary: claudePauseChatSummary,
-        file_state_summary: claudePauseFileSummary,
-        telemetry: claudeExecutionGovernor.telemetry,
-      },
-    );
-    if (claudeExecutionGovernor.matchedRules.includes("discovery_churn_nudge")) {
-      recordSessionEvent(
-        claudeSessionKey,
-        claudeIdentity.userId,
-        claudeIdentity.orgId,
-        "discovery_churn_guard_nudge",
-        "execution-governor",
-        `Nudge-only discovery churn detected (explore_trail=${claudeExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0}, repeated_reads=${claudeExecutionGovernor.telemetry.repeatedReadSearchCalls})`,
-        traceReqId,
-        {
-          phase: claudeExecutionGovernor.telemetry.phase,
-          matched_rules: claudeExecutionGovernor.matchedRules,
-          trailing_exploration_run_length: claudeExecutionGovernor.telemetry.trailingExplorationRunLength ?? 0,
-          repeated_read_search_calls: claudeExecutionGovernor.telemetry.repeatedReadSearchCalls,
-          repeated_broad_discovery_calls: claudeExecutionGovernor.telemetry.repeatedBroadDiscoveryCalls,
-          total_broad_discovery_calls: claudeExecutionGovernor.telemetry.totalBroadDiscoveryCalls,
-          suggested_next_step: claudeExecutionGovernor.suggestedNextStep?.slice(0, 200),
-        },
-      );
-    }
-
-    // Sensemaking governor — primary decision-maker
-    let claudeSensemakingDecision: SensemakingDecision | null = null;
-    if (config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED && !config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
-      const claudeGovEvents = extractCommandEvents(
-        (claudeScopedMessages as GovernorInputMessage[]).slice(
-          Math.max(0, (claudeScopedMessages as GovernorInputMessage[]).length - 50),
-        ),
-      );
-      const claudeGovChangedFiles = extractEditedFileHints(claudeGovEvents);
-      const claudePlanRecoveryGrace = isPlanRecoveryDiscoveryIntent(
-        typeof claudeTaskCue === "string" ? claudeTaskCue : "",
-      ) && claudeGovChangedFiles.length === 0 && claudeGovEvents.length <= 30;
-      // Proportionality assessment
-      const claudeProportionality = config.SYNESIS_YARN_PROPORTIONALITY_ENABLED
-        ? assessProportionality(session.diffStats, session.scopeEnvelope)
-        : null;
-      const claudeProportionalitySignal = claudeProportionality
-        ? proportionalityToSignal(claudeProportionality.level)
-        : null;
-
-      claudeSensemakingDecision = evaluateSensemakingGovernor(
-        claudeExecutionGovernor,
-        claudeGovEvents,
-        countTurnsSinceLastUser(claudeScopedMessages as readonly { role: string }[]),
-        claudeGovChangedFiles.length,
-        claudePlanRecoveryGrace,
-        null,
-        claudeProportionalitySignal,
-      );
-      const smComparison = compareSensemakingWithLegacy(claudeExecutionGovernor, claudeSensemakingDecision);
-      recordSessionEvent(
-        claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-        "sensemaking_governor_evaluated",
-        "sensemaking-governor",
-        `domain=${claudeSensemakingDecision.domain} response=${claudeSensemakingDecision.responseLevel} friction=${smComparison.frictionScore} momentum=${smComparison.productiveMomentum} legacy_agreement=${smComparison.agreement}`,
-        traceReqId,
-        {
-          ...smComparison,
-          guidance: claudeSensemakingDecision.guidance?.slice(0, 200),
-          shouldPause: claudeSensemakingDecision.shouldPause,
-          shouldRestrictDiscovery: claudeSensemakingDecision.shouldRestrictDiscovery,
-          planRecoveryGrace: claudePlanRecoveryGrace,
-        },
-      );
-      if (claudeProportionality && claudeProportionality.level !== "proportional") {
-        recordSessionEvent(
-          claudeSessionKey, claudeIdentity.userId, claudeIdentity.orgId,
-          "proportionality_check", "proportionality",
-          `level=${claudeProportionality.level} scope=${session.scopeEnvelope} files=${session.diffStats.filesModified} deleted=${session.diffStats.filesDeleted} net_removed=${session.diffStats.netLinesRemoved} breaches=${claudeProportionality.breaches.join(";")}`,
-          traceReqId,
-          {
-            level: claudeProportionality.level,
-            scopeEnvelope: session.scopeEnvelope,
-            filesModified: session.diffStats.filesModified,
-            filesDeleted: session.diffStats.filesDeleted,
-            netLinesRemoved: session.diffStats.netLinesRemoved,
-            totalLinesChanged: session.diffStats.totalLinesChanged,
-            breaches: claudeProportionality.breaches,
-            signal: claudeProportionalitySignal,
-          },
-        );
-      }
-    }
-
-    const claudeAggressiveRepeatGuard =
-      (claudeCommandLoop.commandRepeatCount >= 2 && Boolean(claudeCommandLoop.failureSignatureHash))
-      || claudeCommandLoop.broadDiscoveryRepeatCount >= 4;
-    const claudeRepeatAwarePivot = claudeAggressiveRepeatGuard
-      ? Math.max(3, Math.min(config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT, 6))
-      : config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_PIVOT;
-    const claudeRepeatAwareHardReject = claudeAggressiveRepeatGuard
-      ? Math.max(3, Math.min(config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER, 4))
-      : config.SYNESIS_YARN_POLICY_HARD_REJECT_AFTER;
-    const claudeLoopLimits = applyRuntimePreferenceLoopLimits({
-      consecutiveToolCallsLimit: config.SYNESIS_YARN_CONSECUTIVE_TOOL_CALLS_LIMIT,
-      consecutiveToolCallsPivot: claudeRepeatAwarePivot,
-      stagnantToolCyclesLimit: config.SYNESIS_YARN_STAGNANT_TOOL_CYCLES_LIMIT,
-      toolLoopNoUserAckHardLimit: config.SYNESIS_YARN_TOOL_LOOP_NO_USER_ACK_LIMIT,
-      hardRejectAfter: claudeRepeatAwareHardReject,
-    }, claudeRuntimePreferences);
-    const claudeDistToolCalls = await distributedCounters.getConsecutiveToolCalls(claudeSessionKey);
-    if (claudeDistToolCalls !== null && claudeDistToolCalls !== session.consecutiveToolCalls) {
-      session.consecutiveToolCalls = claudeDistToolCalls;
-    }
-    const claudePolicyPrecheck = withSpan("yarn.policy.evaluate", { "yarn.path": "claude" }, () => policyEngine.evaluate({
-      tools: (body.tools as unknown[]) ?? [],
-      repeatAttempt: {
-        action: "claude_messages",
-        args: {
-          model: body.model,
-          lastToolUseId: claudeLastToolUseId,
-          messageCount: body.messages.length,
-          latestUserHash: latestClaudeUserHash || "none",
-          commandSignature: claudeCommandLoop.commandSignatureHash || "none",
-          commandRepeatCount: claudeCommandLoop.commandRepeatCount,
-          failureSignature: claudeCommandLoop.failureSignatureHash || "none",
-        },
-        fsFingerprint: claudeCommandLoop.commandSignatureHash
-          ? `${claudeCommandLoop.commandSignatureHash}:${claudeCommandLoop.failureSignatureHash || "none"}:${latestClaudeUserHash || "none"}`
-          : `${claudeLastToolUseId || "none"}:${body.messages.length}:${latestClaudeUserHash || "none"}`,
-      },
-      sessionKey: claudeSessionKey,
-      sessionTokensIn: session.record.totalTokensIn,
-      maxInputTokens: config.SYNESIS_YARN_SESSION_SOFT_MAX_INPUT_TOKENS,
-      hardMaxInputTokens: config.SYNESIS_YARN_SESSION_MAX_INPUT_TOKENS,
-      sessionBudgetMode: config.SYNESIS_YARN_SESSION_BUDGET_MODE,
-      consecutiveToolCalls: session.consecutiveToolCalls,
-      consecutiveToolCallsLimit: claudeLoopLimits.consecutiveToolCallsLimit,
-      consecutiveToolCallsPivot: claudeLoopLimits.consecutiveToolCallsPivot,
-      toolProgressState: claudeLatestToolProgress.hasRecentWriteSuccess
-        ? "progress"
-        : (claudeLatestToolProgress.hasRecentFailure ? "stagnant" : claudeToolProgress.state),
-      stagnantToolCycles: claudeLatestToolProgress.hasRecentWriteSuccess
-        ? 0
-        : (claudeLatestToolProgress.hasRecentFailure ? Math.max(session.stagnantToolCycles, 1) : session.stagnantToolCycles),
-      stagnantToolCyclesLimit: claudeLoopLimits.stagnantToolCyclesLimit,
-      toolLoopNoUserAckCount: session.toolLoopNoUserAckCount,
-      toolLoopNoUserAckHardLimit: claudeLoopLimits.toolLoopNoUserAckHardLimit,
-      hardRejectAfter: claudeLoopLimits.hardRejectAfter,
-      governanceRules: governanceClient?.getRules(),
-    }));
-    const claudePolicyAction = handleDeterministicPolicyPrecheck({
-      decision: claudePolicyPrecheck,
-      softFailEnabled: config.SYNESIS_YARN_TOOL_LOOP_SOFT_FAIL_ENABLED,
+    const claudeContext = await prepareClaudeContext({
+      config,
+      logger: app.log,
       session,
       sessionKey: claudeSessionKey,
       identity: claudeIdentity,
       requestId: traceReqId,
-      selectedModel: claudeOrchestration.selectedModel,
-      originalModel: body.model,
+      requestedModel: body.model,
+      latestUser: latestClaudeUser,
+      latestUserIsRealAck: claudeUserIsRealAck,
+      taskCue: claudeTaskCue,
+      normalizedMessages: normalizedFromClaude.messages as never,
+      manifest: claudeManifest,
+      recallDecision: claudeRecallDecision,
+      verificationState: claudeVerifState,
+      workingPhase: claudeWorkingPhase,
+      workingFrameGoal: claudeWorkingFrameGoal,
+      workspaceInspection: claudeWorkspaceInspection,
+      latestReadRefresh: claudeLatestReadRefresh,
+      editMissGuard: claudeEditMissGuard,
+      knowledgeSearch,
+      knowledgeContext: knowledgeResolveContext(claudeAuthUser, req),
+      phaseOrchestrator,
+      pinchCompactionBackendModelMetadata,
+      runEvidencePrefetch,
+      runPatternPrefetch,
+      runSensemaking: (sensemakingInput) => runSensemaking(sensemakingInput as never),
+      detectLanguagesFromMessages,
+      applySensemakingStats,
+      sensemakingStats,
+      hashTextSignal,
+      resetQwenInterventionOnUserTurn,
+      detectToolProgress: (progressSession, messages, options) => detectToolProgress(
+        progressSession as typeof session,
+        messages as never,
+        options,
+      ),
+      normalizedToolOutputSignal,
+      looksLikeFailureSignal,
+      analyzeRecentCommandLoop: (messages) => analyzeRecentCommandLoop(messages as never),
+      buildArtifactShadows,
+      getFileSnapshotRegistry,
+      summarizeArtifactContext,
+      deriveFileState: (fileStateInput) => deriveFileState(fileStateInput as never),
+      readPersistedChatStateSnapshot,
+      deriveChatState: (messages, options) => deriveChatState(messages, options as never),
+      chatPhaseFromWorkflowPhase,
+      classifyIntentScope,
+      createDiffStats,
+      applyObjectiveScopeAndPersist: (scopeInput) => applyObjectiveScopeAndPersist(scopeInput as never),
+      extractTextFromUnknownContent,
+      assessStateConfidence: (confidenceInput) => assessStateConfidence(confidenceInput as never),
+      projectInstructionFilePresent,
+      persistStateConfidence,
+      formatStateConfidenceBlock,
+      prepareProtocolPauseState,
+      recordSessionEvent,
+    });
+    const claudePrefetchResult = claudeContext.prefetchResult as FastPathResult | undefined;
+    const claudePatternResult = claudeContext.patternResult as PatternPrefetchResult | undefined;
+    const claudeCombinedConfidence = claudeContext.combinedConfidence;
+    const claudeOrchestration = claudeContext.orchestration as ReturnType<typeof phaseOrchestrator.decide>;
+    const claudeEvidencePrefetched = claudeContext.evidencePrefetched;
+    const claudeSensemakingResult = claudeContext.sensemakingResult as SensemakingResult | undefined;
+    const claudeSensemakingBlock = claudeContext.sensemakingBlock;
+    const latestClaudeUserHash = claudeContext.latestUserHash;
+    const claudeToolProgress = claudeContext.toolProgress as ReturnType<typeof detectToolProgress>;
+    const claudeCommandLoop = claudeContext.commandLoop as ReturnType<typeof analyzeRecentCommandLoop>;
+    const claudeArtifactShadows = claudeContext.artifactShadows as ReturnType<typeof buildArtifactShadows>;
+    const claudeArtifactContext = claudeContext.artifactContext as ReturnType<typeof summarizeArtifactContext>;
+    const claudeFileState = claudeContext.fileState as ReturnType<typeof deriveFileState>;
+    const claudeChatState = claudeContext.chatState as ReturnType<typeof deriveChatState>;
+    const claudeObjectiveScope = claudeContext.objectiveScope as ReturnType<typeof applyObjectiveScopeAndPersist>;
+    const claudeScopedMessages = claudeContext.scopedMessages as ReturnType<typeof applyObjectiveScopeAndPersist>["scopedMessages"];
+    const claudeStateConfidence = claudeContext.stateConfidence as ReturnType<typeof assessStateConfidence>;
+    const claudeStateConfidenceBlock = claudeContext.stateConfidenceBlock;
+    const claudeNeedsStateReground = claudeContext.needsStateReground;
+    const claudePauseChatSummary = claudeContext.pauseChatSummary as ReturnType<typeof prepareProtocolPauseState>["pauseChatSummary"];
+    const claudePauseFileSummary = claudeContext.pauseFileSummary as ReturnType<typeof prepareProtocolPauseState>["pauseFileSummary"];
+    const claudePauseTaskContext = claudeContext.pauseTaskContext as ReturnType<typeof prepareProtocolPauseState>["pauseTaskContext"];
+    const claudeChatStateBlock = claudeContext.chatStateBlock;
+    const claudeFileStateBlock = claudeContext.fileStateBlock;
+    const claudeGovernance = await prepareClaudeGovernance({
+      config,
+      session,
+      sessionKey: claudeSessionKey,
+      identity: claudeIdentity,
+      requestId: traceReqId,
+      taskCue: claudeTaskCue,
+      scopedMessages: claudeScopedMessages,
+      planGraph: claudePlanGraph,
+      editMissGuard: claudeEditMissGuard,
+      latestToolProgress: claudeLatestToolProgress,
+      toolFailures: claudeToolFailures,
+      artifactShadows: claudeArtifactShadows,
+      chatState: claudeChatState,
+      fileState: claudeFileState,
+      workingPhase: claudeWorkingPhase,
+      editMissFailureCount: claudeEditMissFailureCount,
+      stateConfidence: claudeStateConfidence,
+      needsStateReground: claudeNeedsStateReground,
+      objectiveScope: claudeObjectiveScope,
+      artifactContext: claudeArtifactContext,
+      pauseSummaries: {
+        chat: claudePauseChatSummary,
+        file: claudePauseFileSummary,
+      },
+      governorCooldownMs: GOVERNOR_COOLDOWN_MS,
+      buildGovernorPauseResumeBlockForUser,
+      evaluateExecutionGovernor,
+      withSpan,
+      extractCommandEvents,
+      extractEditedFileHints,
+      isPlanRecoveryDiscoveryIntent,
+      assessProportionality,
+      proportionalityToSignal,
+      evaluateSensemakingGovernor: (executionGovernor, events, turnsSinceLastUser, changedFileCount, planRecoveryGrace, reserved, proportionalitySignal) =>
+        evaluateSensemakingGovernor(
+          executionGovernor,
+          events as never,
+          turnsSinceLastUser,
+          changedFileCount,
+          planRecoveryGrace,
+          reserved as never,
+          proportionalitySignal as never,
+        ),
+      compareSensemakingWithLegacy,
+      countTurnsSinceLastUser,
+      summarizeEvidenceDelta,
+      recordSessionEvent,
+    });
+    const claudeExecutionGovernor = claudeGovernance.executionGovernor;
+    const claudeGovernorPauseResumeBlock = claudeGovernance.governorPauseResumeBlock;
+    const claudeSensemakingDecision = claudeGovernance.sensemakingDecision;
+
+    const claudePolicy = await runClaudePolicyPrecheck({
+      config,
+      session,
+      sessionKey: claudeSessionKey,
+      identity: claudeIdentity,
+      requestId: traceReqId,
+      request: body,
+      runtimePreferences: claudeRuntimePreferences,
+      executionGovernor: claudeExecutionGovernor,
+      commandLoop: claudeCommandLoop,
+      lastToolUseId: claudeLastToolUseId,
       latestUserHash: latestClaudeUserHash,
-      finishReason: "end_turn",
-      logSafetyEvent: logAndPersistSafetyEvent,
+      latestToolProgress: claudeLatestToolProgress,
+      toolProgress: claudeToolProgress,
+      orchestration: claudeOrchestration,
+      workingPhase: claudeWorkingPhase,
+      orchestratorPhaseOverride: claudeOrchestratorPhaseOverride,
+      normalizedMessages: normalizedFromClaude.messages as GovernorInputMessage[],
+      distributedCounters,
+      policyEngine,
+      governanceClient,
+      shouldStripGlobFromTools,
+      stripGlobFromTools,
+      getBlockedDiscoveryCount,
+      logWarn: (record, message) => app.log.warn(record, message),
+      withSpan,
+      logAndPersistSafetyEvent,
       persistSessionAndUsage: sessionPersistenceRunner.persistSessionAndUsage,
       maybeCheckpoint,
       recordSessionEvent,
     });
+    const claudePolicyPrecheck = claudePolicy.policyPrecheck;
+    const claudePolicyAction = claudePolicy.policyAction;
     if (claudePolicyAction.kind === "softFail") {
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, claudePolicyAction.content, !!body.stream);
     }
     if (claudePolicyAction.kind === "reject") {
-      return reply.code(400).send(policyRejectClaudeBody(claudePolicyAction.decision));
+      return reply.code(400).send(policyRejectClaudeBody(claudePolicyAction.decision as never));
     }
-    const claudeClientToolInventory = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : [];
-    if (shouldStripGlobFromTools(claudeSessionKey)) {
-      const claudeGlobStrip = stripGlobFromTools(body.tools as unknown[] | undefined);
-      if (claudeGlobStrip.stripped) {
-        body.tools = claudeGlobStrip.tools as never;
-        app.log.warn({ reqId: traceReqId, sessionKey: claudeSessionKey, sessionBlockedTotal: getBlockedDiscoveryCount(claudeSessionKey) }, "proactive_glob_strip_from_tools");
-      }
-    }
-    const claudeGovernorPhase = claudeExecutionGovernor.telemetry.phase;
-    applyGovernorPhaseRouteBookkeeping({
-      session,
-      sessionKey: claudeSessionKey,
-      identity: claudeIdentity,
-      requestId: traceReqId,
-      governorPhase: claudeGovernorPhase,
-      workingPhase: claudeWorkingPhase,
-      orchestratorPhaseOverride: claudeOrchestratorPhaseOverride,
-      messages: normalizedFromClaude.messages as GovernorInputMessage[],
-      recordSessionEvent,
-    });
+    const claudeClientToolInventory = claudePolicy.clientToolInventory;
+    const claudeGovernorPhase = claudePolicy.governorPhase;
 
     const claudeSensemakingPrimaryEnabled =
       config.SYNESIS_YARN_SENSEMAKING_ENABLED
