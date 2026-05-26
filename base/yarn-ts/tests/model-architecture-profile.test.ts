@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
+  buildArchitecturePolicySystemHint,
 } from "../src/providers/model-architecture-profile.js";
 
 describe("model architecture profile", () => {
@@ -74,5 +77,46 @@ describe("model architecture profile", () => {
     expect(profile.decoding).toBe("speculative_friendly");
     expect(policy.strictStreamToolBoundaryValidation).toBe(true);
     expect(policy.reasons).toContain("stream_boundary_sensitive_decoding");
+  });
+
+  it("resolves architecture mediation mode from request metadata before config", () => {
+    expect(resolveArchitectureMediationMode({
+      metadata: { synesis_architecture_mediation: "observe" },
+      configMode: "strict",
+    })).toBe("observe");
+    expect(resolveArchitectureMediationMode({
+      extraBody: { architecture_mediation: "hands-off" },
+    })).toBe("off");
+    expect(resolveArchitectureMediationMode({ configMode: "assertive" })).toBe("strict");
+    expect(resolveArchitectureMediationMode({ configMode: "unexpected" })).toBe("adapt");
+  });
+
+  it("observe mode traces policy without applying budget or prompt mediation", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "deepseek/deepseek-v3.2",
+      declaredContextTokens: 128_000,
+      family: "deepseek",
+    });
+    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "observe");
+
+    expect(policy.mediationMode).toBe("observe");
+    expect(policy.applyContextBudgetPolicy).toBe(false);
+    expect(policy.applySystemHint).toBe(false);
+    expect(policy.effectiveContextCeilingTokens).toBeUndefined();
+    expect(policy.compactionMode).toBeUndefined();
+    expect(policy.reasons).toContain("architecture_mediation_observe");
+    expect(buildArchitecturePolicySystemHint(policy)).toBeNull();
+  });
+
+  it("strict mode opts into stronger boundary validation", () => {
+    const profile = resolveModelArchitectureProfile({ modelId: "gpt-4.1", provider: "openai" });
+    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "strict");
+
+    expect(policy.mediationMode).toBe("strict");
+    expect(policy.applyContextBudgetPolicy).toBe(true);
+    expect(policy.applySystemHint).toBe(true);
+    expect(policy.applyGovernorBias).toBe(true);
+    expect(policy.strictStreamToolBoundaryValidation).toBe(true);
+    expect(buildArchitecturePolicySystemHint(policy)).toContain("mode=strict");
   });
 });

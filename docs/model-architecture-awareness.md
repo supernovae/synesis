@@ -44,6 +44,24 @@ Unknown models degrade to conservative defaults: explicit state headers,
 structured tool digests, recent task replay, deterministic validation, and a
 reduced effective working context when no better signal exists.
 
+## Mediation Modes
+
+Architecture policy is deterministic and can be dialed per deployment or per
+request. The deployment default is `adapt`, which preserves normal Yarn
+developer-harness behavior. Requests can override it with
+`metadata.synesis_architecture_mediation` or
+`extra_body.synesis_architecture_mediation`:
+
+- `off`: do not apply architecture budget or prompt mediation for the request;
+- `observe`: resolve and trace the profile/policy, but do not alter budget
+  ceilings, compaction, or prompt hints;
+- `adapt`: apply the normal architecture-aware context and prompt mediation;
+- `strict`: opt in to stronger stream/tool boundary validation for experiments.
+
+This keeps raw OpenAI-compatible usage and conservative client rollouts possible
+while letting developer tools opt into a stronger upper harness when the model
+architecture benefits from it.
+
 ## Admin Overrides
 
 Admins can override inferred profiles through model registry route params. The
@@ -79,6 +97,10 @@ endpoints and does not change the public OpenAI-compatible `/v1/models` shape.
 It reports each configured model alias, resolved backend model, endpoint
 provider, adapter family, whether an admin override applied, and the compact
 architecture policy trace used by request handling.
+
+The trace includes `mediation_mode` plus booleans for context-budget, prompt-hint,
+and governor-bias application, so admins can distinguish “observed profile” from
+“profile actively changed request handling.”
 
 ## Examples
 

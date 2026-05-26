@@ -29,8 +29,10 @@ import {
 } from "./provider-options.js";
 import {
   architecturePolicyTrace,
+  applyArchitectureMediationMode,
   buildArchitecturePolicySystemHint,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
   type ModelArchitectureProfileOverride,
 } from "../providers/model-architecture-profile.js";
@@ -89,6 +91,7 @@ type ConfigSlice = Pick<
   | "SYNESIS_YARN_CONTEXT_ADMISSION_MODE"
   | "SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS"
   | "SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS"
+  | "SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE"
 >;
 
 export interface ClaudeMessagesProviderPreparationInput {
@@ -187,7 +190,14 @@ export function prepareClaudeMessagesProviderRuntime(
     declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
     override: resolvedTierForHarness?.architectureProfile,
   });
-  const modelExecutionPolicy = deriveModelExecutionPolicy(architectureProfile);
+  const architectureMediationMode = resolveArchitectureMediationMode({
+    metadata: recordOrNull(input.body.metadata),
+    configMode: config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE,
+  });
+  const modelExecutionPolicy = applyArchitectureMediationMode(
+    deriveModelExecutionPolicy(architectureProfile),
+    architectureMediationMode,
+  );
   const upperHarness = buildYarnUpperHarnessContext({
     surface: "claude",
     modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
@@ -489,4 +499,10 @@ export function prepareClaudeMessagesProviderRuntime(
     persistDecisionTelemetry: routePersistence.persistDecisionTelemetry,
     modelMessages,
   };
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }

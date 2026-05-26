@@ -8,6 +8,7 @@ import type { PlatformRouteDependencies } from "../src/routes/platform-route-sup
 describe("model architecture diagnostics route", () => {
   it("reports resolved architecture policy for configured model tiers", () => {
     const diagnostics = buildModelArchitectureDiagnostics({
+      config: { SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: "adapt" } as never,
       tierRegistry: {
         getAvailableModels: () => [{ id: "core" }],
         getTierConfig: () => ({
@@ -46,6 +47,7 @@ describe("model architecture diagnostics route", () => {
 
   it("degrades safely when registry entries have no tier config", () => {
     const diagnostics = buildModelArchitectureDiagnostics({
+      config: { SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: "observe" } as never,
       tierRegistry: {
         getAvailableModels: () => [{ id: "auto" }, { id: "unknown-model" }],
       },
@@ -62,6 +64,8 @@ describe("model architecture diagnostics route", () => {
         attention: "unknown",
         prefer_memory_stitching: true,
         prefer_explicit_state_headers: true,
+        mediation_mode: "observe",
+        apply_context_budget_policy: false,
       },
     });
   });

@@ -89,6 +89,7 @@ function ModelPolicyCard({ model }: { model: YarnModelArchitectureDiagnostic }) 
               <ArchitectureChip value={arch.attention} />
               <ArchitectureChip value={arch.activation} />
               <ArchitectureChip value={arch.decoding} />
+              {arch.mediation_mode ? <ArchitectureChip value={`mediation:${arch.mediation_mode}`} /> : null}
               {arch.compaction_mode ? <ArchitectureChip value={`compaction:${arch.compaction_mode}`} /> : null}
               {arch.strict_stream_tool_boundary_validation ? <ArchitectureChip value="strict stream/tool validation" /> : null}
             </div>
@@ -102,6 +103,8 @@ function ModelPolicyCard({ model }: { model: YarnModelArchitectureDiagnostic }) 
               <Recommendation enabled={arch.prefer_structured_tool_digests} label="structured tool digests" />
               <Recommendation enabled={arch.prefer_explicit_state_headers} label="explicit state headers" />
               <Recommendation enabled={arch.prefer_deterministic_validation} label="deterministic validation" />
+              <Recommendation enabled={arch.apply_context_budget_policy} label="context budget mediation" />
+              <Recommendation enabled={arch.apply_system_hint} label="policy prompt hint" />
             </div>
           </div>
 

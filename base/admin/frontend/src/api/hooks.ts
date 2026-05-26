@@ -2950,6 +2950,10 @@ export interface YarnModelArchitectureTrace {
   profile_id?: string;
   policy_hash?: string;
   provider?: string;
+  mediation_mode?: string;
+  apply_context_budget_policy?: boolean;
+  apply_system_hint?: boolean;
+  apply_governor_bias?: boolean;
   attention?: string;
   activation?: string;
   decoding?: string;

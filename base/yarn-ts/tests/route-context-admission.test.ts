@@ -125,6 +125,7 @@ describe("runRouteContextAdmission", () => {
       modelExecutionPolicy: {
         profileId: "minimax-m2.1",
         policyHash: "policy123",
+        mediationMode: "adapt",
         attention: "hybrid",
         activation: "moe",
         decoding: "speculative_friendly",
@@ -140,6 +141,9 @@ describe("runRouteContextAdmission", () => {
         preferExplicitStateHeaders: true,
         preferDeterministicValidation: true,
         strictStreamToolBoundaryValidation: true,
+        applyContextBudgetPolicy: true,
+        applySystemHint: true,
+        applyGovernorBias: true,
         reasons: ["weak_long_tail_retention"],
       },
     });

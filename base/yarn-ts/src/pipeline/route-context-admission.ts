@@ -91,11 +91,14 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
       ?? (input.budgetCeilingTokens > 0
         ? input.budgetCeilingTokens
         : input.admissionHardTokens);
-    const architectureCeiling = input.modelExecutionPolicy?.effectiveContextCeilingTokens;
+    const architectureCeiling = input.modelExecutionPolicy?.applyContextBudgetPolicy
+      ? input.modelExecutionPolicy.effectiveContextCeilingTokens
+      : undefined;
     const budgetCeiling = architectureCeiling && architectureCeiling > 0
       ? Math.min(configuredCeiling, architectureCeiling)
       : configuredCeiling;
-    const compactionMode = input.modelExecutionPolicy?.compactionMode === "aggressive"
+    const compactionMode = input.modelExecutionPolicy?.applyContextBudgetPolicy
+      && input.modelExecutionPolicy.compactionMode === "aggressive"
       ? "aggressive"
       : input.compactionMode;
     if (budgetCeiling !== configuredCeiling || compactionMode !== input.compactionMode) {
@@ -106,6 +109,8 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
         {
           profile_id: input.modelExecutionPolicy?.profileId,
           policy_hash: input.modelExecutionPolicy?.policyHash,
+          mediation_mode: input.modelExecutionPolicy?.mediationMode,
+          apply_context_budget_policy: input.modelExecutionPolicy?.applyContextBudgetPolicy,
           effective_context_ceiling_tokens: budgetCeiling,
           configured_context_ceiling_tokens: configuredCeiling,
           compaction_mode: compactionMode,
@@ -166,6 +171,8 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
           ? {
               profileId: input.modelExecutionPolicy.profileId,
               policyHash: input.modelExecutionPolicy.policyHash,
+              mediationMode: input.modelExecutionPolicy.mediationMode,
+              applyContextBudgetPolicy: input.modelExecutionPolicy.applyContextBudgetPolicy,
               attention: input.modelExecutionPolicy.attention,
               activation: input.modelExecutionPolicy.activation,
               decoding: input.modelExecutionPolicy.decoding,
@@ -193,7 +200,9 @@ export function runRouteContextAdmission<TMessage extends ContextBudgetMessage>(
   const upperBudgetDecision = evaluateUpperHarnessBudget({
     context: input.upperHarnessContext,
     estimatedInputTokens: contextAdmission.estimatedTokens,
-    ceilingTokens: input.modelExecutionPolicy?.effectiveContextCeilingTokens
+    ceilingTokens: (input.modelExecutionPolicy?.applyContextBudgetPolicy
+      ? input.modelExecutionPolicy.effectiveContextCeilingTokens
+      : undefined)
       ?? input.upperHarnessCeilingTokens
       ?? (input.budgetCeilingTokens > 0 ? input.budgetCeilingTokens : input.admissionHardTokens),
     outputReserveTokens: input.outputReserveTokens,

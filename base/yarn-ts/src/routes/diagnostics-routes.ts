@@ -1,6 +1,8 @@
 import {
   architecturePolicyTrace,
+  applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
 } from "../providers/model-architecture-profile.js";
 import { resolveAdapter } from "../providers/model-adapter.js";
@@ -28,7 +30,7 @@ export interface ModelArchitectureDiagnostic {
 }
 
 export function buildModelArchitectureDiagnostics(
-  deps: Pick<PlatformRouteDependencies, "tierRegistry">,
+  deps: Pick<PlatformRouteDependencies, "tierRegistry" | "config">,
 ): ModelArchitectureDiagnosticsEnvelope {
   const models = deps.tierRegistry.getAvailableModels().map((entry): ModelArchitectureDiagnostic => {
     const modelId = entry.id;
@@ -43,7 +45,12 @@ export function buildModelArchitectureDiagnostics(
       declaredContextTokens: tier?.contextCeilingTokens,
       override: tier?.architectureProfile ?? null,
     });
-    const policy = deriveModelExecutionPolicy(profile);
+    const policy = applyArchitectureMediationMode(
+      deriveModelExecutionPolicy(profile),
+      resolveArchitectureMediationMode({
+        configMode: deps.config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE,
+      }),
+    );
     return {
       model_id: modelId,
       resolved: Boolean(tier),

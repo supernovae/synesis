@@ -266,6 +266,16 @@ const EnvSchema = z.object({
   SYNESIS_YARN_MODEL_SELECTION_MODE: z
     .enum(["respect_explicit", "preference", "lock"])
     .default("respect_explicit"),
+  /**
+   * Architecture-aware mediation strength.
+   * - off: infer/trace profiles only where diagnostics explicitly request them.
+   * - observe: trace policy but do not alter context budget or prompt hints.
+   * - adapt: preserve current adaptive behavior.
+   * - strict: opt-in stronger validation/boundary posture for experiments.
+   */
+  SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: z
+    .enum(["off", "observe", "adapt", "strict"])
+    .default("adapt"),
   SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED: z
     .string()
     .optional()

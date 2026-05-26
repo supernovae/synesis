@@ -17,6 +17,7 @@ export type DecodingArchitecture =
 
 export type ArchitectureStrength = "strong" | "medium" | "weak" | "unknown";
 export type ArchitectureLevel = "high" | "medium" | "low" | "unknown";
+export type ArchitectureMediationMode = "off" | "observe" | "adapt" | "strict";
 
 export interface ModelArchitectureProfile {
   modelId: string;
@@ -58,6 +59,7 @@ export type ModelArchitectureProfileOverride =
 export interface ModelExecutionPolicy {
   profileId: string;
   policyHash: string;
+  mediationMode: ArchitectureMediationMode;
   attention: AttentionArchitecture;
   activation: ActivationArchitecture;
   decoding: DecodingArchitecture;
@@ -73,7 +75,16 @@ export interface ModelExecutionPolicy {
   preferExplicitStateHeaders: boolean;
   preferDeterministicValidation: boolean;
   strictStreamToolBoundaryValidation: boolean;
+  applyContextBudgetPolicy: boolean;
+  applySystemHint: boolean;
+  applyGovernorBias: boolean;
   reasons: string[];
+}
+
+export interface ArchitectureMediationModeInput {
+  metadata?: Record<string, unknown> | null;
+  extraBody?: Record<string, unknown> | null;
+  configMode?: string | null;
 }
 
 interface ResolveModelArchitectureProfileInput {
@@ -330,7 +341,77 @@ export function deriveModelExecutionPolicy(profile: ModelArchitectureProfile): M
   return {
     profileId: profile.modelId,
     policyHash: hashPolicy(selected),
+    mediationMode: "adapt",
+    applyContextBudgetPolicy: true,
+    applySystemHint: true,
+    applyGovernorBias: true,
     ...selected,
+  };
+}
+
+export function resolveArchitectureMediationMode(
+  input: ArchitectureMediationModeInput = {},
+): ArchitectureMediationMode {
+  const requested = firstString(
+    input.metadata?.synesis_architecture_mediation,
+    input.metadata?.architecture_mediation,
+    input.extraBody?.synesis_architecture_mediation,
+    input.extraBody?.architecture_mediation,
+    input.configMode,
+  );
+  if (!requested) return "adapt";
+  const normalized = requested.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (["off", "none", "disabled", "disable", "hands_off", "passthrough"].includes(normalized)) return "off";
+  if (["observe", "observer", "diagnostic", "diagnostics", "trace", "report"].includes(normalized)) return "observe";
+  if (["adapt", "adaptive", "auto", "default", "enabled", "on"].includes(normalized)) return "adapt";
+  if (["strict", "strong", "enforced", "assertive"].includes(normalized)) return "strict";
+  return "adapt";
+}
+
+export function applyArchitectureMediationMode(
+  policy: ModelExecutionPolicy,
+  mode: ArchitectureMediationMode,
+): ModelExecutionPolicy {
+  const applyContextBudgetPolicy = mode === "adapt" || mode === "strict";
+  const applySystemHint = mode === "adapt" || mode === "strict";
+  const applyGovernorBias = mode === "adapt" || mode === "strict";
+  const strictStreamToolBoundaryValidation =
+    policy.strictStreamToolBoundaryValidation || mode === "strict";
+  const selected = {
+    attention: policy.attention,
+    activation: policy.activation,
+    decoding: policy.decoding,
+    effectiveContextCeilingTokens: applyContextBudgetPolicy ? policy.effectiveContextCeilingTokens : undefined,
+    safeInstructionTokens: policy.safeInstructionTokens,
+    safeToolOutputTokens: policy.safeToolOutputTokens,
+    compactionMode: applyContextBudgetPolicy ? policy.compactionMode : undefined,
+    preferMemoryStitching: policy.preferMemoryStitching,
+    preferFrontLoadedInstructions: policy.preferFrontLoadedInstructions,
+    preferRecentToolStateReplay: policy.preferRecentToolStateReplay,
+    preferStructuredToolDigests: policy.preferStructuredToolDigests,
+    preferShorterTurns: policy.preferShorterTurns,
+    preferExplicitStateHeaders: policy.preferExplicitStateHeaders,
+    preferDeterministicValidation: policy.preferDeterministicValidation,
+    strictStreamToolBoundaryValidation,
+    mediationMode: mode,
+    applyContextBudgetPolicy,
+    applySystemHint,
+    applyGovernorBias,
+    reasons: policy.reasons,
+  };
+  return {
+    ...policy,
+    mediationMode: mode,
+    effectiveContextCeilingTokens: selected.effectiveContextCeilingTokens,
+    compactionMode: selected.compactionMode,
+    strictStreamToolBoundaryValidation,
+    applyContextBudgetPolicy,
+    applySystemHint,
+    applyGovernorBias,
+    reasons: mode === "adapt"
+      ? policy.reasons
+      : [...new Set([...policy.reasons, `architecture_mediation_${mode}`])],
+    policyHash: hashPolicy(selected),
   };
 }
 
@@ -342,6 +423,10 @@ export function architecturePolicyTrace(
     profile_id: policy.profileId,
     policy_hash: policy.policyHash,
     provider: profile.provider,
+    mediation_mode: policy.mediationMode,
+    apply_context_budget_policy: policy.applyContextBudgetPolicy,
+    apply_system_hint: policy.applySystemHint,
+    apply_governor_bias: policy.applyGovernorBias,
     attention: profile.attention,
     activation: profile.activation,
     decoding: profile.decoding,
@@ -367,12 +452,18 @@ export function architecturePolicyTrace(
 }
 
 export function buildArchitecturePolicySystemHint(policy: ModelExecutionPolicy): string | null {
-  if (!policy.preferExplicitStateHeaders && !policy.preferRecentToolStateReplay && !policy.preferShorterTurns) {
+  if (!policy.applySystemHint) return null;
+  if (
+    policy.mediationMode !== "strict"
+    && !policy.preferExplicitStateHeaders
+    && !policy.preferRecentToolStateReplay
+    && !policy.preferShorterTurns
+  ) {
     return null;
   }
   const lines = [
     "<SYNESIS_MODEL_EXECUTION_POLICY>",
-    `attention=${policy.attention} activation=${policy.activation} decoding=${policy.decoding}`,
+    `mode=${policy.mediationMode} attention=${policy.attention} activation=${policy.activation} decoding=${policy.decoding}`,
   ];
   if (policy.preferExplicitStateHeaders) {
     lines.push("Use explicit current-state headers and high-signal decisions; do not rely on old long-tail transcript recall.");
@@ -386,8 +477,18 @@ export function buildArchitecturePolicySystemHint(policy: ModelExecutionPolicy):
   if (policy.preferDeterministicValidation) {
     lines.push("Validate tool arguments and structured outputs deterministically before retrying.");
   }
+  if (policy.mediationMode === "strict") {
+    lines.push("Use strict tool-call and stream-boundary validation; repair malformed structure before blind retry.");
+  }
   lines.push("</SYNESIS_MODEL_EXECUTION_POLICY>");
   return lines.join("\n");
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }
 
 function applyArchitectureOverride(

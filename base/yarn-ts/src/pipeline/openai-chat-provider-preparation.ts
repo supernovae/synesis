@@ -23,8 +23,10 @@ import {
 } from "./provider-options.js";
 import {
   architecturePolicyTrace,
+  applyArchitectureMediationMode,
   buildArchitecturePolicySystemHint,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
   type ModelArchitectureProfileOverride,
 } from "../providers/model-architecture-profile.js";
@@ -91,6 +93,7 @@ type ConfigSlice = Pick<
   | "SYNESIS_YARN_CONTEXT_ADMISSION_MODE"
   | "SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS"
   | "SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS"
+  | "SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE"
   | "SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED"
   | "SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED"
   | "SYNESIS_YARN_RESPONSE_STYLE_MODE"
@@ -238,7 +241,15 @@ export function prepareOpenAIChatProviderRuntime(
     declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
     override: resolvedTierForHarness?.architectureProfile,
   });
-  const modelExecutionPolicy = deriveModelExecutionPolicy(architectureProfile);
+  const architectureMediationMode = resolveArchitectureMediationMode({
+    metadata: recordOrNull(input.request.metadata),
+    extraBody: recordOrNull(input.request.extra_body),
+    configMode: config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE,
+  });
+  const modelExecutionPolicy = applyArchitectureMediationMode(
+    deriveModelExecutionPolicy(architectureProfile),
+    architectureMediationMode,
+  );
   const upperHarness = buildYarnUpperHarnessContext({
     surface: "openai",
     modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
@@ -617,4 +628,10 @@ export function prepareOpenAIChatProviderRuntime(
     persistDecisionTelemetry: routePersistence.persistDecisionTelemetry,
     modelMessages,
   };
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
