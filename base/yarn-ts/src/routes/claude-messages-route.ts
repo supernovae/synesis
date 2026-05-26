@@ -58,6 +58,7 @@ import {
 } from "../governance/state-confidence.js";
 import { projectInstructionFilePresent } from "../governance/workspace-boundary.js";
 import { createDiffStats } from "../governance/diff-accumulator.js";
+import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 type FastPathResult = import("../evidence/fast-path.js").FastPathResult;
@@ -162,10 +163,13 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
 
   // --- Claude Messages API ---
   app.post("/v1/messages", async (req, reply) => {
+    const claudeOptLedger = new OptimizationLedger();
+    const endClaudeIngressStage = claudeOptLedger.startStage("ingress");
     let claudeAuthUser: AuthUser;
     try {
       claudeAuthUser = await authResolver.resolve(req.headers.authorization);
     } catch {
+      endClaudeIngressStage();
       return reply.code(401).send({
         type: "error",
         error: { type: "authentication_error", message: "Authentication required" }
@@ -174,15 +178,18 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     try {
       authResolver.requireCoderScope(claudeAuthUser);
     } catch {
+      endClaudeIngressStage();
       return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Insufficient scope" } });
     }
     const claudeFgaResult = await fgaCheck(`user:${claudeAuthUser.userId}`, "can_invoke", "yarn_endpoint", "messages");
     if (!claudeFgaResult.allowed) {
+      endClaudeIngressStage();
       return reply.code(403).send({ type: "error", error: { type: "permission_error", message: "Authorization denied by policy" } });
     }
 
     const claudeRateResult = await userRateLimiter.check(claudeAuthUser.userId);
     if (!claudeRateResult.allowed) {
+      endClaudeIngressStage();
       app.log.warn({ userId: claudeAuthUser.userId, count: claudeRateResult.currentCount, limit: claudeRateResult.limit }, "rate_limit_rejected_claude");
       recordSessionEvent("", claudeAuthUser.userId, claudeAuthUser.orgId, "rate_limit_reject", "user-rate-limiter",
         `${claudeRateResult.currentCount}/${claudeRateResult.limit} in window — retry after ${claudeRateResult.retryAfterSeconds}s`);
@@ -192,12 +199,15 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
 
     const anthropicVersion = req.headers["anthropic-version"];
     if (!anthropicVersion || typeof anthropicVersion !== "string") {
+      endClaudeIngressStage();
       return reply.code(400).send({
         type: "error",
         error: { type: "invalid_request_error", message: "Missing required header: anthropic-version" }
       });
     }
     const traceReqId = resolveRequestId(req.headers as Record<string, unknown>);
+    endClaudeIngressStage();
+    const endClaudeNormalizationStage = claudeOptLedger.startStage("normalization");
     const claudeRoutePreparation = await prepareClaudeMessagesRoute({
       deps,
       request: req,
@@ -205,6 +215,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       requestId: traceReqId,
       anthropicVersion,
     });
+    endClaudeNormalizationStage();
     if (!claudeRoutePreparation.ok) {
       return reply.code(claudeRoutePreparation.statusCode).send(claudeRoutePreparation.body);
     }
@@ -233,7 +244,10 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       clientToolCapabilities: claudeClientToolCapabilities,
       workspaceInspection: claudeWorkspaceInspection,
     } = claudeRoutePreparation;
+    claudeOptLedger.recordOriginal(normalizedFromClaude.messages as Array<{ content?: unknown }>);
+    claudeOptLedger.recordAfterNormalization(normalizedFromClaude.messages as Array<{ content?: unknown }>);
 
+    const endClaudePruningStage = claudeOptLedger.startStage("pruning");
     const priorClaudeChecklistHash = getChecklistSourceHash(session.record.metadata);
     const claudeRequirementChecklist = refreshRequirementChecklist(session);
     const claudeTaskIntake = refreshTaskIntake(session);
@@ -282,6 +296,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     const claudeTurnMessages = sliceMessagesSinceLastUserPrompt(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
     );
+    endClaudePruningStage();
     const claudeToolFailures = collectToolExecutionFailureObservations(
       claudeTurnMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,
     );
@@ -468,6 +483,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       body.messages as Array<{ role: string; content: unknown }>,
     );
     const claudeUserIsRealAck = isGenuineUserPromptMessage(latestClaudeUser);
+    const endClaudeContextStage = claudeOptLedger.startStage("context");
     const claudeContext = await prepareClaudeContext({
       config,
       logger: app.log,
@@ -526,6 +542,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       prepareProtocolPauseState,
       recordSessionEvent,
     });
+    endClaudeContextStage();
     const claudePrefetchResult = claudeContext.prefetchResult as FastPathResult | undefined;
     const claudePatternResult = claudeContext.patternResult as PatternPrefetchResult | undefined;
     const claudeCombinedConfidence = claudeContext.combinedConfidence;
@@ -550,6 +567,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     const claudePauseTaskContext = claudeContext.pauseTaskContext as ReturnType<typeof prepareProtocolPauseState>["pauseTaskContext"];
     const claudeChatStateBlock = claudeContext.chatStateBlock;
     const claudeFileStateBlock = claudeContext.fileStateBlock;
+    const endClaudeGovernorStage = claudeOptLedger.startStage("governor");
     const claudeGovernance = await prepareClaudeGovernance({
       config,
       session,
@@ -637,9 +655,11 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     const claudePolicyPrecheck = claudePolicy.policyPrecheck;
     const claudePolicyAction = claudePolicy.policyAction;
     if (claudePolicyAction.kind === "softFail") {
+      endClaudeGovernorStage();
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, claudePolicyAction.content, !!body.stream);
     }
     if (claudePolicyAction.kind === "reject") {
+      endClaudeGovernorStage();
       return reply.code(400).send(policyRejectClaudeBody(claudePolicyAction.decision as never));
     }
     const claudeClientToolInventory = claudePolicy.clientToolInventory;
@@ -705,6 +725,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
         maybeCheckpoint,
         recordSessionEvent,
       });
+      endClaudeGovernorStage();
       return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pause.content, !!body.stream, pause.envelope);
     }
 
@@ -759,6 +780,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
           maybeCheckpoint,
           recordSessionEvent,
         });
+        endClaudeGovernorStage();
         return sendClaudeSoftFail(reply, claudeOrchestration.selectedModel, pause.content, !!body.stream, pause.envelope);
       }
 
@@ -787,7 +809,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     } else if (!claudeExecutionGovernor.pause) {
       resetGovernorPauseRecoveryState(session, claudeHasActiveEditMissFailure, clearGovernorPauseContextMetadata);
     }
+    endClaudeGovernorStage();
 
+    const endClaudeProviderRequestStage = claudeOptLedger.startStage("provider_request");
     const claudeProviderRuntime = await prepareClaudeProviderRuntimeForRoute({
       deps,
       body,
@@ -838,10 +862,16 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       fileState: claudeFileState,
       compactionOptions: claudeCompactionOpts,
     });
+    endClaudeProviderRequestStage();
     if (!claudeProviderRuntime.ok) {
       return reply.code(claudeProviderRuntime.statusCode).send(claudeProviderRuntime.body);
     }
-    return runClaudeMessagesDispatchForRoute({
+    claudeOptLedger.recordFinal(
+      claudeProviderRuntime.providerPreparation.modelMessages as Array<{ content?: unknown }>,
+    );
+    claudeOptLedger.recordCacheDiagnostics(claudeProviderRuntime.providerPreparation.cacheShapeDiagnostics);
+    const endClaudeProviderStage = claudeOptLedger.startStage(body.stream ? "stream" : "provider");
+    const claudeDispatchResult = await runClaudeMessagesDispatchForRoute({
       deps,
       request: req,
       reply,
@@ -879,5 +909,8 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       orchestration: claudeOrchestration,
       forensicsCapabilityMatrix: claudeForensicsCapabilityMatrix,
     });
+    endClaudeProviderStage();
+    app.log.info({ reqId: traceReqId, ...claudeOptLedger.toLogRecord() }, "optimization_ledger");
+    return claudeDispatchResult;
   });
 }
