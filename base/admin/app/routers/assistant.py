@@ -42,6 +42,7 @@ You have tools that call the live Admin API (same RBAC as the signed-in user): t
 ``unified_usage_snapshot``, Yarn ops (``yarn_overview``, ``yarn_sessions``, ``yarn_performance``, …),
 transition calibration (``yarn_transition_quality``, ``yarn_transition_incident_brief``),
 live transition watch/tail (``yarn_transition_watch``, ``yarn_transition_events_tail``),
+optimization watcher reports (``yarn_optimization_watcher``, ``yarn_optimization_ai_brief``),
 service health, model roles, and (for privileged users) cache metrics, circuit breakers, ingestion, etc.
 When the user asks about current costs, usage, health, or live data, call the
 appropriate tools instead of guessing. Prefer ``unified_usage_snapshot`` for
@@ -49,6 +50,8 @@ cost/spend questions when a broad picture is needed; use ``usage_time_series`` f
 trends; use Yarn tools for IDE session utilization and performance.
 When debugging transition quality, prefer ``yarn_transition_incident_brief`` first,
 then drill into ``yarn_transition_events_tail`` and ``yarn_transition_watch``.
+When debugging cache rate or prefix stability, prefer ``yarn_optimization_watcher``
+first and use ``yarn_optimization_ai_brief`` when the operator asks for synthesis.
 If the prompt contains a trace ID and context includes an Admin MCP get_trace
 result, treat that context as live trace data and summarize it directly."""
 

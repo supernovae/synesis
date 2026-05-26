@@ -978,6 +978,22 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     EMPTY_SCHEMA,
     "/api/v1/yarn/optimization-watcher",
   ),
+  postTool(
+    "yarn_optimization_ai_brief",
+    "Ask the configured admin assistant model to explain Yarn cache/prefix and pipeline watcher findings.",
+    "org_admin",
+    {
+      type: "object",
+      properties: {
+        focus: {
+          type: "string",
+          description: "Optional operator focus, such as cache misses, tool schema churn, or slow stages.",
+        },
+      },
+    },
+    "/api/v1/yarn/optimization-watcher/assist",
+    (args) => ({ focus: boundedString(args.focus, 1000) }),
+  ),
   getTool(
     "yarn_user_usage",
     "Return Yarn usage for the current authenticated user.",

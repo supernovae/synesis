@@ -16,6 +16,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Bot,
   Clock,
   Coins,
   Hash,
@@ -27,6 +28,7 @@ import {
   useYarnOverview,
   useYarnPerformance,
   useYarnIntelligence,
+  useYarnOptimizationAssist,
   useYarnOptimizationWatcher,
   useYarnRuntimeTelemetry,
   useYarnReducerTelemetryHistory,
@@ -35,6 +37,7 @@ import {
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
@@ -108,6 +111,7 @@ export default function YarnOverview() {
   const { data: perf, isLoading: perfLoading } = useYarnPerformance(sinceHours);
   const { data: intelligence, isLoading: intelLoading } = useYarnIntelligence(sinceHours);
   const { data: optimizationWatcher } = useYarnOptimizationWatcher();
+  const optimizationAssist = useYarnOptimizationAssist();
   const { data: runtimeTelemetry } = useYarnRuntimeTelemetry();
   const { data: reducerHistory } = useYarnReducerTelemetryHistory(sinceHours);
 
@@ -129,6 +133,7 @@ export default function YarnOverview() {
   const cumulativeTaskKeepRatio = cumulativeTaskTotal > 0 ? (cumulativeTaskKept / cumulativeTaskTotal) * 100 : null;
   const transitionQuality = intelligence?.state_transition_quality;
   const optimizationFindings = optimizationWatcher?.watcher_report?.findings ?? optimizationWatcher?.findings ?? [];
+  const optimizationAiReport = optimizationAssist.data?.ai_assist;
   const optimizationStatus = optimizationWatcher?.watcher_report?.status ?? optimizationWatcher?.status;
   const optimizationStages = Object.entries(optimizationWatcher?.stage_timings ?? {})
     .sort(([, a], [, b]) => b.p95_ms - a.p95_ms)
@@ -334,6 +339,39 @@ export default function YarnOverview() {
                         <div>{optimizationWatcher.summary.source}</div>
                       </div>
                     </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => optimizationAssist.mutate({})}
+                        disabled={optimizationAssist.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+                      >
+                        <Bot className="h-3.5 w-3.5" />
+                        {optimizationAssist.isPending ? "Analyzing..." : "Analyze with AI"}
+                      </button>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        Uses the deterministic watcher report as evidence.
+                      </span>
+                    </div>
+                    {optimizationAssist.error ? (
+                      <ApiErrorBanner error={optimizationAssist.error} onDismiss={() => optimizationAssist.reset()} />
+                    ) : null}
+                    {optimizationAiReport?.response ? (
+                      <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-950/30">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                            AI watcher brief
+                          </p>
+                          <span className="text-[11px] text-indigo-600 dark:text-indigo-300">
+                            {optimizationAiReport.model} · {optimizationAiReport.tokens.toLocaleString()} tokens
+                          </span>
+                        </div>
+                        <p className="whitespace-pre-line text-sm leading-6 text-gray-800 dark:text-gray-200">
+                          {optimizationAiReport.response}
+                        </p>
+                      </div>
+                    ) : null}
 
                     <div className="grid gap-2 sm:grid-cols-3">
                       <div className="rounded-md border border-gray-200 p-2 dark:border-gray-700">

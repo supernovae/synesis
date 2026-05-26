@@ -2937,6 +2937,13 @@ export interface YarnOptimizationWatcher extends YarnOptimizationHealth {
     model_assist_ready: boolean;
     model_assist_prompt: string;
   };
+  ai_assist?: {
+    status: string;
+    response: string;
+    model: string;
+    tokens: number;
+    source: string;
+  };
 }
 
 export function useYarnOverview(sinceHours: number) {
@@ -2995,6 +3002,12 @@ export function useYarnOptimizationWatcher() {
     queryKey: ["yarn", "optimization-watcher"],
     queryFn: () => client.get("/yarn/optimization-watcher").then((r) => r.data),
     refetchInterval: 60_000,
+  });
+}
+
+export function useYarnOptimizationAssist() {
+  return useMutation<YarnOptimizationWatcher, Error, { focus?: string }>({
+    mutationFn: (data) => client.post("/yarn/optimization-watcher/assist", data).then((r) => r.data),
   });
 }
 

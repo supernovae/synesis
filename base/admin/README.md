@@ -42,18 +42,18 @@ See [docs/admin/ADMIN_ARCHIVE_STORAGE.md](../../docs/admin/ADMIN_ARCHIVE_STORAGE
 
 ## Local test bootstrap
 
-For local `pytest` runs in `base/admin`, use a dedicated venv and include both the admin module path and shared telemetry package on `PYTHONPATH`.
+For local `pytest` runs in `base/admin`, use a dedicated `uv` venv and include both the admin module path and shared telemetry package on `PYTHONPATH`.
 
 ```bash
-python3 -m venv base/admin/.venv
-base/admin/.venv/bin/pip install -r base/admin/requirements.txt pytest
+UV_CACHE_DIR=/tmp/uv-cache uv venv base/admin/.venv
+UV_CACHE_DIR=/tmp/uv-cache uv pip install --python base/admin/.venv/bin/python -r base/admin/requirements-dev.txt
 
 PYTHONPATH="/Users/bymiller/src/synesis/base/admin:/Users/bymiller/src/synesis/base/images/base-api/synesis-telemetry" \
-  /Users/bymiller/src/synesis/base/admin/.venv/bin/pytest \
+  /Users/bymiller/src/synesis/base/admin/.venv/bin/python -m pytest \
   /Users/bymiller/src/synesis/base/admin/tests/test_yarn_router.py -q
 
 PYTHONPATH="/Users/bymiller/src/synesis/base/admin:/Users/bymiller/src/synesis/base/images/base-api/synesis-telemetry" \
-  /Users/bymiller/src/synesis/base/admin/.venv/bin/pytest \
+  /Users/bymiller/src/synesis/base/admin/.venv/bin/python -m pytest \
   /Users/bymiller/src/synesis/base/admin/tests/test_yarn_router.py::test_yarn_intelligence_includes_staff_kpis -q
 ```
 

@@ -16,6 +16,7 @@ from sqlalchemy import select
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import YarnReducerTelemetrySnapshot
+from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
 from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role
 from ..services import yarn_service
 from ..services.account_usage_service import account_usage_identity_candidates
@@ -23,6 +24,7 @@ from ..services.archive_store import ArchiveConfigError
 from ..services.health_prober import probe_service
 from ..services.telemetry_scraper import get_yarn_reducer_scrape_status
 from ..services.yarn_optimization import (
+    build_yarn_optimization_ai_messages,
     build_yarn_optimization_health,
     build_yarn_optimization_watcher,
 )
@@ -59,6 +61,10 @@ class RuntimePreferencesRequest(BaseModel):
     cachePolicyBias: str = Field("auto", pattern="^(auto|cache_first|balanced|efficiency_first)$")
     allowAggressiveCompactionWithoutCacheHits: bool = True
     maxToolLoopSoftFails: int | None = Field(None, ge=1, le=20)
+
+
+class YarnOptimizationAssistRequest(BaseModel):
+    focus: str = Field("", max_length=1000)
 
 
 def _scope(user: UserInfo) -> tuple[str, str, str]:
@@ -104,6 +110,41 @@ async def _fetch_yarn_recent_diagnostics() -> dict:
         resp.raise_for_status()
         data = resp.json()
         return data if isinstance(data, dict) else {"diagnostics": [], "source": "invalid"}
+
+
+async def _run_yarn_optimization_ai_assist(watcher: dict, *, focus: str = "") -> dict:
+    messages = build_yarn_optimization_ai_messages(watcher, focus=focus)
+    headers = {"Content-Type": "application/json"}
+    if INTERNAL_SERVICE_TOKEN:
+        headers["Authorization"] = f"Bearer {INTERNAL_SERVICE_TOKEN}"
+        headers["x-synesis-service-token"] = INTERNAL_SERVICE_TOKEN
+        headers["x-synesis-service-name"] = "synesis-admin"
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(
+            f"{PLANNER_URL.rstrip('/')}/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": ASSISTANT_MODEL,
+                "messages": messages,
+                "max_tokens": 1200,
+                "temperature": 0.2,
+            },
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+    choice = (payload.get("choices") or [{}])[0]
+    message = choice.get("message") if isinstance(choice, dict) else {}
+    content = message.get("content") if isinstance(message, dict) else ""
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return {
+        "status": "ok",
+        "response": content if isinstance(content, str) else "",
+        "model": payload.get("model") or ASSISTANT_MODEL,
+        "tokens": int(usage.get("total_tokens") or 0),
+        "source": "planner",
+    }
 
 
 @router.get("/runtime-preferences")
@@ -592,6 +633,21 @@ async def yarn_optimization_watcher(
     except Exception as exc:
         logger.warning("yarn_optimization_watcher_error: %s", str(exc)[:120])
         raise HTTPException(status_code=502, detail="Could not summarize Yarn optimization diagnostics")
+
+
+@router.post("/optimization-watcher/assist")
+async def yarn_optimization_watcher_assist(
+    body: YarnOptimizationAssistRequest,
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Ask the configured admin assistant model to summarize the watcher report."""
+    try:
+        watcher = build_yarn_optimization_watcher(await _fetch_yarn_recent_diagnostics())
+        ai_assist = await _run_yarn_optimization_ai_assist(watcher, focus=body.focus)
+        return {**watcher, "ai_assist": ai_assist}
+    except Exception as exc:
+        logger.warning("yarn_optimization_watcher_assist_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not run Yarn optimization AI assist")
 
 
 # ── User-scoped usage (for account page) ─────────────────────────────────────

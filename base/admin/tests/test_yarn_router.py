@@ -557,6 +557,50 @@ def test_yarn_optimization_watcher_summarizes_recent_diagnostics(client, monkeyp
     assert data["watcher_report"]["model_assist_ready"] is True
 
 
+def test_yarn_optimization_watcher_assist_uses_model_helper(client, monkeypatch):
+    async def _mock_recent():
+        return {
+            "source": "memory",
+            "diagnostics": [
+                {
+                    "requestId": "req-1",
+                    "path": "/v1/chat/completions",
+                    "cacheShapePromptTokens": 1000,
+                    "cacheShapeCachedTokens": 250,
+                    "cacheShapeHitPct": 25,
+                    "cacheShapeOutcome": "hit",
+                    "cacheShapeStablePrefixHash": "prefix-a",
+                    "cacheShapeStablePrefixBytes": 3000,
+                    "cacheShapeToolSchemaHash": "tools-a",
+                    "cacheShapeProviderOptionsHash": "provider-a",
+                    "cacheShapeCachePolicyHash": "policy-a",
+                    "cacheShapeModelProviderResolutionHash": "model-a",
+                }
+            ],
+        }
+
+    async def _mock_ai(watcher, *, focus=""):
+        assert watcher["summary"]["sample_count"] == 1
+        assert focus == "cache misses"
+        return {
+            "status": "ok",
+            "response": "Cache shape looks stable.",
+            "model": "synesis-writer",
+            "tokens": 123,
+            "source": "planner",
+        }
+
+    monkeypatch.setattr("app.routers.yarn._fetch_yarn_recent_diagnostics", _mock_recent)
+    monkeypatch.setattr("app.routers.yarn._run_yarn_optimization_ai_assist", _mock_ai)
+
+    resp = client.post("/api/v1/yarn/optimization-watcher/assist", json={"focus": "cache misses"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"]["sample_count"] == 1
+    assert data["ai_assist"]["response"] == "Cache shape looks stable."
+    assert data["ai_assist"]["tokens"] == 123
+
+
 def test_yarn_user_usage_any_authenticated_user(client, monkeypatch):
     regular = _user(role="user", user_id="plain-user", username="plain-user")
     _auth_ctx["user"] = regular

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import UTC, datetime
 from math import ceil
@@ -334,3 +335,50 @@ def build_yarn_optimization_watcher(payload: Any) -> dict[str, Any]:
             ),
         },
     }
+
+
+def build_yarn_optimization_ai_messages(
+    watcher: dict[str, Any],
+    *,
+    focus: str = "",
+) -> list[dict[str, str]]:
+    """Build a privacy-trimmed prompt for model-assisted watcher analysis."""
+    latest = watcher.get("latest") if isinstance(watcher.get("latest"), dict) else {}
+    sanitized = {
+        "status": watcher.get("status"),
+        "summary": watcher.get("summary"),
+        "stability": watcher.get("stability"),
+        "stage_timings": watcher.get("stage_timings"),
+        "latest": {
+            "request_id": latest.get("request_id"),
+            "path": latest.get("path"),
+            "cache_shape_outcome": latest.get("cache_shape_outcome"),
+            "cache_hit_pct": latest.get("cache_hit_pct"),
+            "latency_ms": latest.get("latency_ms"),
+            "finish_reason": latest.get("finish_reason"),
+            "decision_path": latest.get("decision_path"),
+        },
+        "findings": watcher.get("findings"),
+        "next_actions": watcher.get("next_actions"),
+    }
+    focus_text = focus.strip()
+    if focus_text:
+        sanitized["operator_focus"] = focus_text
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are the Synesis optimization watcher. Analyze only the supplied "
+                "Yarn cache-shape and pipeline timing telemetry. Do not invent missing "
+                "data. Be concise, evidence-based, and practical. Prioritize likely "
+                "causes of cache misses, unstable prompt prefixes, tool schema churn, "
+                "provider option churn, and slow pipeline stages. Return Markdown with "
+                "sections: Status, Evidence, Likely Causes, Next Actions, Caveats."
+            ),
+        },
+        {
+            "role": "user",
+            "content": "Yarn optimization watcher telemetry:\n" + json.dumps(sanitized, sort_keys=True, default=str),
+        },
+    ]
