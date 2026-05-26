@@ -124,7 +124,7 @@ import { createCompletionFinalizers } from "./verification/completion-finalizati
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import { registerNonChatRoutes } from "./server/non-chat-routes.js";
-import { DeterministicPolicyEngine, type PolicyDecision } from "./policy/deterministic-policy-engine.js";
+import { DeterministicPolicyEngine } from "./policy/deterministic-policy-engine.js";
 import { handleDeterministicPolicyPrecheck } from "./policy/deterministic-policy-route.js";
 import {
   analyzeRecentCommandLoop,
@@ -166,9 +166,9 @@ import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
 import { initOtel, getTracer, withSpan, withSpanAsync } from "./telemetry/otel.js";
 import { startEventLoopMonitor, getEventLoopStats } from "./telemetry/event-loop-monitor.js";
-import { type DecisionSnapshot } from "./telemetry/decision-snapshot.js";
 import { createRequestForensicsRecorder } from "./telemetry/request-forensics-recorder.js";
 import { inferTrajectoryDiagnosticsFromMessages } from "./telemetry/trajectory-diagnostics.js";
+import { createRouteEventEmitters } from "./telemetry/route-event-emitters.js";
 import {
   applySensemakingStats,
   createEmptySensemakingStats,
@@ -718,6 +718,17 @@ const projectManifestService = new ProjectManifestService();
 const policyEngine = new DeterministicPolicyEngine({
   maxRepeatEntries: config.SYNESIS_YARN_POLICY_REPEAT_MAP_MAX,
   repeatEntryTtlMs: config.SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS,
+});
+const {
+  logAndPersistSafetyEvent,
+  emitPlanWriteAuditEvent,
+  emitDecisionEvents,
+} = createRouteEventEmitters({
+  config,
+  policyEvents: policyEngine,
+  usageWriter,
+  logger: app.log,
+  recordSessionEvent,
 });
 
 import { GovernanceClient } from "./policy/governance-client.js";
@@ -1778,7 +1789,7 @@ import type { ModelAdapter } from "./providers/model-adapter.js";
 import {
   adapterUsesToolLoopSteering,
 } from "./providers/model-adapter.js";
-import type { GovernedToolCall, PlanWriteAuditRecord } from "./path-governance/tool-call-governance.js";
+import type { GovernedToolCall } from "./path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "./path-governance/path-sandbox.js";
 import { classifyIntentScope } from "./governance/intent-scope-classifier.js";
 import {
@@ -2045,96 +2056,6 @@ function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
     && /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|left off|prior run|previous run|incomplete|remaining)\b/.test(text);
   if (resumeRecoveryIntent) return false;
   return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
-}
-
-function logAndPersistSafetyEvent(
-  decision: PolicyDecision,
-  sessionKey: string,
-  sessionTokensIn: number
-): void {
-  for (const event of policyEngine.getRecentEvents().slice(-1)) {
-    app.log.warn({
-      safetyEvent: event.kind,
-      sessionKey,
-      detail: event.detail,
-      repeatCount: event.repeatCount,
-      tokensBurned: event.tokensBurned ?? sessionTokensIn,
-      consecutiveToolCalls: event.consecutiveToolCalls
-    }, `policy_safety_event: ${event.kind}`);
-    usageWriter.enqueueSafetyEventInsert({
-      sessionKey,
-      userId: "",
-      orgId: "",
-      eventKind: event.kind,
-      detail: event.detail,
-      repeatCount: event.repeatCount,
-      tokensBurned: event.tokensBurned ?? sessionTokensIn,
-      consecutiveToolCalls: event.consecutiveToolCalls
-    });
-  }
-}
-
-function emitPlanWriteAuditEvent(
-  sessionKey: string,
-  userId: string,
-  orgId: string,
-  requestId: string,
-  audit: PlanWriteAuditRecord,
-): void {
-  const eventKind = audit.allowed ? "plan_file_write_allowed" : "plan_file_write_blocked";
-  recordSessionEvent(
-    sessionKey,
-    userId,
-    orgId,
-    eventKind,
-    "tool_call_governance",
-    audit.reason ?? "ok",
-    requestId,
-    {
-      path: audit.path,
-      allowed: audit.allowed,
-      reason: audit.reason,
-      proposedContentHash: audit.proposedContentHash,
-      shadowContentHash: audit.shadowContentHash,
-    },
-  );
-}
-
-function emitDecisionEvents(
-  sessionKey: string,
-  userId: string,
-  orgId: string,
-  requestId: string,
-  snapshot: DecisionSnapshot | undefined,
-): void {
-  if (!snapshot || !config.SYNESIS_YARN_DECISION_MATRIX_ENABLED) return;
-  recordSessionEvent(sessionKey, userId, orgId, "decision_routing", "phase-model-orchestrator",
-    `${snapshot.decisionPath} → ${snapshot.tier} (${snapshot.phase})`, requestId, {
-      decisionPath: snapshot.decisionPath,
-      tier: snapshot.tier,
-      phase: snapshot.phase,
-      escalated: snapshot.escalated,
-      recallRouting: snapshot.recallRouting,
-      recallConfidence: snapshot.recallConfidence,
-    });
-  if (snapshot.escalated) {
-    recordSessionEvent(sessionKey, userId, orgId, "escalation", "phase-model-orchestrator",
-      snapshot.escalationReason ?? "escalated", requestId, {
-        tier: snapshot.tier,
-        phase: snapshot.phase,
-        recallRouting: snapshot.recallRouting,
-        verificationRound: snapshot.verificationRound,
-        verificationStalled: snapshot.verificationStalled,
-      });
-  }
-  if (snapshot.sensemakingTriggered && config.SYNESIS_YARN_SENSEMAKING_ENABLED) {
-    recordSessionEvent(sessionKey, userId, orgId, "sensemaking_triggered", "sensemaking-engine",
-      snapshot.sensemakingReason ?? "sensemaking", requestId, {
-        phase: snapshot.phase,
-        decisionPath: snapshot.decisionPath,
-        reason: snapshot.sensemakingReason,
-      });
-  }
 }
 
 function debugProtocolLog(
