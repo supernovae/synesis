@@ -18,10 +18,41 @@ export type RouteDependencySource =
 // undifferentiated object. Builders remain flat-compatible while route modules
 // continue migrating toward typed protocol-specific inputs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type RouteDependencyGroups = Record<string, Record<string, any>>;
+type RouteDependencyGroup = Record<string, any>;
+
+export interface RouteDependencyGroups {
+  runtime: RouteDependencyGroup;
+  auth: RouteDependencyGroup;
+  protocol: RouteDependencyGroup;
+  session: RouteDependencyGroup;
+  workspace: RouteDependencyGroup;
+  reduction: RouteDependencyGroup;
+  tools: RouteDependencyGroup;
+  governance: RouteDependencyGroup;
+  planning: RouteDependencyGroup;
+  provider: RouteDependencyGroup;
+  evidence: RouteDependencyGroup;
+  telemetry: RouteDependencyGroup;
+  adapter: RouteDependencyGroup;
+}
 
 function flattenRouteDependencyGroups(groups: RouteDependencyGroups): RouteDependencySource {
-  return Object.assign({}, ...Object.values(groups)) as RouteDependencySource;
+  return Object.assign(
+    {},
+    groups.runtime,
+    groups.auth,
+    groups.protocol,
+    groups.session,
+    groups.workspace,
+    groups.reduction,
+    groups.tools,
+    groups.governance,
+    groups.planning,
+    groups.provider,
+    groups.evidence,
+    groups.telemetry,
+    groups.adapter,
+  ) as RouteDependencySource;
 }
 
 export function registerConfiguredRoutes(input: RouteDependencySource | RouteDependencyGroups): void {
