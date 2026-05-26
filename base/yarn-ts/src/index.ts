@@ -2243,9 +2243,11 @@ import {
   selectedOpenAiCompatHeaders,
   startSseHeartbeat,
 } from "./server/http-utils.js";
+import { createInternalTokenRequirement } from "./server/internal-auth.js";
 import { extractUpstreamErrorDiagnostics } from "./server/upstream-errors.js";
 
 const config = loadConfig();
+const requireInternalToken = createInternalTokenRequirement(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
 const governorService = new GovernorService({
   enabled: config.SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED,
   governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
@@ -4577,19 +4579,6 @@ function emitDecisionEvents(
         reason: snapshot.sensemakingReason,
       });
   }
-}
-
-function getBearerToken(authHeader: string | undefined): string {
-  const raw = authHeader ?? "";
-  if (!raw.toLowerCase().startsWith("bearer ")) return "";
-  return raw.slice(7).trim();
-}
-
-function requireInternalToken(req: { headers: Record<string, unknown> }): boolean {
-  const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN;
-  if (!token) return false;
-  const bearer = getBearerToken(req.headers.authorization as string | undefined);
-  return bearer === token;
 }
 
 function debugProtocolLog(
