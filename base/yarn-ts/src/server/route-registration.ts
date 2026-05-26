@@ -13,7 +13,21 @@ export type RouteDependencySource =
   OpenAIChatCompletionsRouteDependencies
   & ClaudeMessagesRouteDependencySource;
 
-export function registerConfiguredRoutes(source: RouteDependencySource): void {
+// Transitional grouping: index.ts still constructs services, but the route
+// boundary now receives domain-shaped dependency facades instead of one
+// undifferentiated object. Builders remain flat-compatible while route modules
+// continue migrating toward typed protocol-specific inputs.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type RouteDependencyGroups = Record<string, Record<string, any>>;
+
+function flattenRouteDependencyGroups(groups: RouteDependencyGroups): RouteDependencySource {
+  return Object.assign({}, ...Object.values(groups)) as RouteDependencySource;
+}
+
+export function registerConfiguredRoutes(input: RouteDependencySource | RouteDependencyGroups): void {
+  const source = "app" in input
+    ? input as RouteDependencySource
+    : flattenRouteDependencyGroups(input as RouteDependencyGroups);
   registerPlatformRoutes(buildPlatformRouteDependencies(source));
   registerOpenAIChatCompletionsRoute(buildOpenAIChatCompletionsRouteDependencies(source));
   registerClaudeMessagesRoute(buildClaudeMessagesRouteDependencies(source));
