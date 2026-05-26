@@ -47,10 +47,7 @@ import { UsageWriter } from "./state/usage-writer.js";
 import { createSessionEventRecorder } from "./state/session-event-recorder.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
-import {
-  type RequirementChecklist,
-} from "./validation/requirement-coverage.js";
-import { formatPlanProgressBlock, serializePlanGraph, deserializePlanGraph, type PlanGraph } from "./planning/plan-graph.js";
+import { formatPlanProgressBlock, serializePlanGraph, deserializePlanGraph } from "./planning/plan-graph.js";
 import { deserializeShadow, serializeShadow } from "./planning/plan-content-shadow.js";
 import {
   mergeSynesisClarificationFromRequestMetadata,
@@ -126,12 +123,8 @@ import {
 } from "./planning/planning-state-helpers.js";
 import {
   assessVerificationFromMessages as assessVerificationSignals,
-  evaluateDeterministicPreFinalize,
-  type CriticAssessment,
-  type VerificationAssessment,
 } from "./verification/staff-completion.js";
-import { applyCompletionGate } from "./validation/completion-gate.js";
-import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
+import { createCompletionFinalizers } from "./verification/completion-finalization.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
 import { registerNonChatRoutes } from "./server/non-chat-routes.js";
@@ -286,9 +279,6 @@ import {
   createEmptyLedger,
   serializeTaskLedger,
   deserializeTaskLedger,
-  evaluateTaskCompletionGate,
-  incrementReconciliationAttempts,
-  scrubTaskLedgerOutput,
   type EvidenceSignal,
 } from "./task-ledger/index.js";
 
@@ -646,6 +636,13 @@ const {
   config,
   recordSessionEvent,
 });
+const {
+  finalizeCompletionText,
+  finalizePostStreamText,
+} = createCompletionFinalizers({
+  config,
+  recordSessionEvent,
+});
 const usagePersistenceEnabled =
   config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(String(config.SYNESIS_YARN_ADMIN_DB_URL ?? "").trim());
 if (!usagePersistenceEnabled) {
@@ -888,10 +885,6 @@ function isMatrixCapabilityEnabled(
   if (governanceDisabled) return true;
   if (mode !== "enforced") return true;
   return resolvedCapabilities[key] === true;
-}
-
-function isQwenModelName(modelName: string | undefined): boolean {
-  return /qwen/i.test((modelName ?? "").toLowerCase());
 }
 
 async function enrichWithFrameAndManifest(
@@ -2097,321 +2090,6 @@ function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
     && /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|left off|prior run|previous run|incomplete|remaining)\b/.test(text);
   if (resumeRecoveryIntent) return false;
   return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
-}
-
-function parseJsonIfPossible(raw: string): unknown | null {
-  const trimmed = raw.trim();
-  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-}
-
-type CompletionFinalizeResult = {
-  finalText: string;
-  applied: boolean;
-  missingMust: number;
-  missingShould: number;
-  blockedByVerification: boolean;
-  criticBlocked: boolean;
-};
-
-type PostStreamFinalizeResult = {
-  finalText: string;
-  missingMust: number;
-  missingShould: number;
-  blockedByVerification: boolean;
-};
-
-async function finalizeCompletionText(
-  input: {
-    requestId: string;
-    sessionKey: string;
-    userId: string;
-    orgId: string;
-    assistantText: string;
-    checklist: RequirementChecklist | null;
-    traceRootPrompt: string;
-    latestUserPrompt: string;
-    verification: VerificationAssessment;
-    recentToolNames: string[];
-    nonActionableEventDetail: string;
-    planGraph?: PlanGraph | null;
-    session?: SessionState | null;
-  },
-): Promise<CompletionFinalizeResult> {
-  if (input.session?.taskLedger) {
-    const taskGate = evaluateTaskCompletionGate(input.session.taskLedger, input.session.taskCapabilities);
-    if (!taskGate.allow && taskGate.nudge) {
-      input.session.taskLedger = incrementReconciliationAttempts(input.session.taskLedger);
-      recordSessionEvent(
-        input.sessionKey,
-        input.userId,
-        input.orgId,
-        "task_ledger_reconciliation_nudge",
-        "task-ledger",
-        `open_tasks=${input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length} attempt=${input.session.taskLedger.reconciliationAttempts}`,
-        input.requestId,
-      );
-    }
-  }
-
-  const gate = applyCompletionGate({
-    config,
-    checklist: input.checklist,
-    originalText: input.assistantText,
-    traceRootPrompt: input.traceRootPrompt,
-    latestUserPrompt: input.latestUserPrompt,
-    verification: input.verification,
-    planGraph: input.planGraph,
-  });
-
-  let finalText = gate.finalText;
-  if (gate.applied) {
-    recordSessionEvent(
-      input.sessionKey,
-      input.userId,
-      input.orgId,
-      gate.blockedByVerification ? "completion_blocked_quality_gate" : "completion_gap",
-      "completion-gate",
-      gate.blockedByVerification
-        ? `Blocking verification failures (${gate.blockingVerificationFailures})`
-        : `Missing must-have requirements (${gate.missingMust})`,
-      input.requestId,
-    );
-  } else if (input.checklist) {
-    recordSessionEvent(
-      input.sessionKey,
-      input.userId,
-      input.orgId,
-      "completion_pass",
-      "completion-gate",
-      "No missing must-have requirements detected",
-      input.requestId,
-    );
-  }
-
-  let criticBlocked = false;
-  if (!gate.applied && config.SYNESIS_YARN_PREFINALIZE_CRITIC_ENABLED) {
-    const critic = await runPreFinalizeCritic({
-      requestId: input.requestId,
-      assistantText: finalText,
-      verification: input.verification,
-      recentToolNames: input.recentToolNames,
-    });
-    if (critic.blocked) {
-      criticBlocked = true;
-      finalText = [
-        "Completion paused by pre-finalization critic.",
-        "",
-        "Findings:",
-        ...critic.findings.map((f) => `- ${f}`),
-        "",
-        "Next actions:",
-        ...(critic.suggestedNextActions.length > 0
-          ? critic.suggestedNextActions.map((s) => `- ${s}`)
-          : ["- Address verification/quality gaps and rerun checks."]),
-      ].join("\n");
-      recordSessionEvent(
-        input.sessionKey,
-        input.userId,
-        input.orgId,
-        "pre_finalize_critic_block",
-        "completion-gate",
-        `critic_source=${critic.source}`,
-        input.requestId,
-      );
-    }
-  }
-
-  const nonSilent = enforceNonSilentFinalizeText(finalText);
-  if (nonSilent.applied) {
-    finalText = nonSilent.text;
-    recordSessionEvent(
-      input.sessionKey,
-      input.userId,
-      input.orgId,
-      "completion_non_actionable_fallback",
-      "completion-gate",
-      input.nonActionableEventDetail,
-      input.requestId,
-    );
-  }
-
-  const scrubbed = scrubTaskLedgerOutput(finalText);
-  if (scrubbed.scrubbed) {
-    finalText = scrubbed.text;
-    recordSessionEvent(
-      input.sessionKey,
-      input.userId,
-      input.orgId,
-      "task_ledger_output_scrubbed",
-      "task-ledger",
-      "Removed internal task-ledger governance from assistant output",
-      input.requestId,
-    );
-  }
-
-  return {
-    finalText,
-    applied: gate.applied,
-    missingMust: gate.missingMust,
-    missingShould: gate.missingShould,
-    blockedByVerification: gate.blockedByVerification,
-    criticBlocked,
-  };
-}
-
-function finalizePostStreamText(
-  input: {
-    requestId: string;
-    sessionKey: string;
-    userId: string;
-    orgId: string;
-    assistantText: string;
-    applyGate: boolean;
-    checklist: RequirementChecklist | null;
-    traceRootPrompt: string;
-    latestUserPrompt: string;
-    verification: VerificationAssessment;
-    toolStopReason: boolean;
-    nonActionableEventDetail: string;
-    planGraph?: PlanGraph | null;
-  },
-): PostStreamFinalizeResult {
-  let finalText = input.assistantText;
-  let missingMust = 0;
-  let missingShould = 0;
-  let blockedByVerification = false;
-  if (input.applyGate && !input.toolStopReason) {
-    const gate = applyCompletionGate({
-      config,
-      checklist: input.checklist,
-      originalText: finalText,
-      traceRootPrompt: input.traceRootPrompt,
-      latestUserPrompt: input.latestUserPrompt,
-      verification: input.verification,
-      planGraph: input.planGraph,
-    });
-    finalText = gate.finalText;
-    missingMust = gate.missingMust;
-    missingShould = gate.missingShould;
-    blockedByVerification = gate.blockedByVerification;
-  }
-  finalText = applyMarkdownGuardrail(
-    finalText,
-    config.SYNESIS_YARN_RESPONSE_STYLE_MODE,
-  );
-  if (!input.toolStopReason) {
-    const nonSilent = enforceNonSilentFinalizeText(finalText);
-    if (nonSilent.applied) {
-      finalText = nonSilent.text;
-      recordSessionEvent(
-        input.sessionKey,
-        input.userId,
-        input.orgId,
-        "completion_non_actionable_fallback",
-        "completion-gate",
-        input.nonActionableEventDetail,
-        input.requestId,
-      );
-    }
-  }
-  return {
-    finalText,
-    missingMust,
-    missingShould,
-    blockedByVerification,
-  };
-}
-
-async function runPreFinalizeCritic(
-  input: {
-    requestId: string;
-    assistantText: string;
-    verification: VerificationAssessment;
-    recentToolNames: string[];
-  },
-): Promise<CriticAssessment> {
-  const deterministic = evaluateDeterministicPreFinalize(input.verification, input.recentToolNames);
-  if (!deterministic.blocked) return deterministic;
-  const findings = deterministic.findings;
-  const next = deterministic.suggestedNextActions;
-  if (!config.SYNESIS_YARN_PREFINALIZE_LLM_CRITIC_ENABLED) {
-    return {
-      blocked: true,
-      findings,
-      suggestedNextActions: [
-        ...next,
-        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
-      ],
-      source: "deterministic",
-    };
-  }
-  try {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 3500);
-    const prompt = [
-      "You are a strict pre-finalization critic for coding tasks.",
-      "Evaluate if the task is genuinely complete. Fail if there are unverified assumptions, token bloat (e.g. repeating unchanged code), or unresolved verification failures.",
-      "Return JSON only: {\"verdict\":\"pass|fail\",\"reason\":\"...\"}",
-      `Assistant text: ${input.assistantText.slice(0, 1200)}`,
-      `Verification failures: ${JSON.stringify(input.verification.failures).slice(0, 1600)}`,
-      `Recent tool names: ${input.recentToolNames.join(",")}`,
-    ].join("\n");
-    const resp = await fetch(`${config.SYNESIS_YARN_CRITIC_URL}/chat/completions`, {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: {
-        "content-type": "application/json",
-        ...(config.SYNESIS_INTERNAL_SERVICE_TOKEN ? { authorization: `Bearer ${config.SYNESIS_INTERNAL_SERVICE_TOKEN}` } : {}),
-      },
-      body: JSON.stringify({
-        model: config.SYNESIS_YARN_CRITIC_MODEL,
-        temperature: 0,
-        messages: [{ role: "user", content: prompt }],
-        ...(isQwenModelName(config.SYNESIS_YARN_CRITIC_MODEL)
-          ? { response_format: { type: "json_object" } }
-          : {}),
-      }),
-    });
-    clearTimeout(timeout);
-    if (!resp.ok) {
-      return { blocked: true, findings, suggestedNextActions: next, source: "deterministic" };
-    }
-    const body = await resp.json() as Record<string, unknown>;
-    const text = String((((body.choices as Array<Record<string, unknown>> | undefined)?.[0] ?? {}).message as Record<string, unknown> | undefined)?.content ?? "");
-    const parsed = parseJsonIfPossible(text) as { verdict?: string; reason?: string } | null;
-    if (parsed?.verdict?.toLowerCase() === "pass") {
-      return {
-        blocked: false,
-        findings: [`LLM critic override: ${parsed.reason ?? "passed"}`],
-        suggestedNextActions: [],
-        source: "llm_fallback",
-      };
-    }
-    return {
-      blocked: true,
-      findings: [parsed?.reason ?? findings.join(" ")],
-      suggestedNextActions: [
-        ...next,
-        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
-      ],
-      source: "llm_fallback",
-    };
-  } catch {
-    return {
-      blocked: true,
-      findings,
-      suggestedNextActions: [
-        ...next,
-        "Self-Review: Review the changes you just made against the original user request. Did you miss any edge cases? Did you break any existing imports?",
-      ],
-      source: "deterministic",
-    };
-  }
 }
 
 function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
