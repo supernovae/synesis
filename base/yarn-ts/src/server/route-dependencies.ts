@@ -10,8 +10,13 @@ import type { OpenAIChatCompletionRequest } from "../schemas.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { SessionState } from "../state/session-state.js";
 
-type AnyFn = (...args: any[]) => any;
-type AnyRecord = Record<string, any>;
+// Transitional route dependency bags still bridge index.ts-owned services into
+// route/pipeline modules. Keep this explicit until those services move behind
+// typed facades instead of pretending the source bag is precise.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TransitionalRouteFn = (...args: any[]) => any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TransitionalRouteDependencyBag = Record<string, any>;
 
 export interface RateLimiterLike {
   check(userId: string): Promise<{
@@ -20,22 +25,21 @@ export interface RateLimiterLike {
     limit?: number;
     retryAfterSeconds?: number;
   }>;
-  [key: string]: any;
 }
 
-export interface OpenAIChatCompletionsRouteDependencies extends AnyRecord {
+export interface OpenAIChatCompletionsRouteDependencies extends TransitionalRouteDependencyBag {
   app: FastifyInstance;
   config: AppConfig;
   authResolver: AuthResolver;
-  fgaCheck: AnyFn;
+  fgaCheck: TransitionalRouteFn;
   userRateLimiter: RateLimiterLike;
   openAiChatPipeline: OpenAIChatPipeline;
   resolveRequestId(headers: Record<string, unknown>): string;
-  recordSessionEvent: AnyFn;
-  applyClarificationRoundResponseHeader: AnyFn;
-  policyRejectOpenAIBody: AnyFn;
-  sendOpenAISoftFail: AnyFn;
-  sendOpenAIWorkspaceHandshake: AnyFn;
+  recordSessionEvent: TransitionalRouteFn;
+  applyClarificationRoundResponseHeader: TransitionalRouteFn;
+  policyRejectOpenAIBody: TransitionalRouteFn;
+  sendOpenAISoftFail: TransitionalRouteFn;
+  sendOpenAIWorkspaceHandshake: TransitionalRouteFn;
   getSessionKey(identity: SessionIdentity): Promise<string>;
   getSessionState(sessionKey: string, identity: SessionIdentity): Promise<SessionState>;
   casSessionSave(state: SessionState): Promise<unknown>;
@@ -52,30 +56,30 @@ export interface OpenAIChatCompletionsRouteDependencies extends AnyRecord {
       toolCallsSanitized: boolean;
       messageCountDelta: number;
     };
-    [key: string]: any;
+    [key: string]: unknown;
   } | {
     ok: false;
     error: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
-export interface ClaudeRuntimeDependencies extends AnyRecord {
+export interface ClaudeRuntimeDependencies extends TransitionalRouteDependencyBag {
   app: FastifyInstance;
   config: AppConfig;
 }
 
-export interface ClaudeAuthDependencies extends AnyRecord {
+export interface ClaudeAuthDependencies extends TransitionalRouteDependencyBag {
   authResolver: AuthResolver;
-  fgaCheck: AnyFn;
+  fgaCheck: TransitionalRouteFn;
   userRateLimiter: RateLimiterLike;
 }
 
-export interface ClaudeProtocolDependencies extends AnyRecord {
+export interface ClaudeProtocolDependencies extends TransitionalRouteDependencyBag {
   resolveRequestId(headers: Record<string, unknown>): string;
 }
 
-export interface ClaudeSessionDependencies extends AnyRecord {
+export interface ClaudeSessionDependencies extends TransitionalRouteDependencyBag {
   applyAuthKeyAttribution(
     session: SessionState,
     authUser: Pick<AuthUser, "authMethod" | "authKeyId" | "authKeyName" | "authKeyPrefix">,
@@ -85,25 +89,25 @@ export interface ClaudeSessionDependencies extends AnyRecord {
   loadUserRuntimePreferences(userId: string): Promise<unknown>;
   casSessionSave(state: SessionState): Promise<unknown>;
   sessions: Map<string, SessionState>;
-  recordSessionEvent: AnyFn;
+  recordSessionEvent: TransitionalRouteFn;
 }
 
 export interface ClaudeProviderResolveOk {
   ok: true;
-  resolved: AnyRecord;
+  resolved: TransitionalRouteDependencyBag;
   messages: Array<{ role: string; content?: unknown }>;
-  providerOptions?: AnyRecord;
-  [key: string]: any;
+  providerOptions?: TransitionalRouteDependencyBag;
+  [key: string]: unknown;
 }
 
 export interface ClaudeProviderResolveError {
   ok: false;
   statusCode: number;
   body: Record<string, unknown>;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-export interface ClaudeProviderDependencies extends AnyRecord {
+export interface ClaudeProviderDependencies extends TransitionalRouteDependencyBag {
   runOpenAIRequest: OpenAIChatCompletionsRouteDependencies["runOpenAIRequest"];
 }
 
@@ -112,21 +116,21 @@ export interface ClaudeMessagesRouteDependencies {
   auth: ClaudeAuthDependencies;
   protocol: ClaudeProtocolDependencies;
   session: ClaudeSessionDependencies;
-  workspace: AnyRecord;
-  reduction: AnyRecord;
-  tools: AnyRecord;
-  governance: AnyRecord;
-  planning: AnyRecord;
+  workspace: TransitionalRouteDependencyBag;
+  reduction: TransitionalRouteDependencyBag;
+  tools: TransitionalRouteDependencyBag;
+  governance: TransitionalRouteDependencyBag;
+  planning: TransitionalRouteDependencyBag;
   provider: ClaudeProviderDependencies;
-  evidence: AnyRecord;
-  telemetry: AnyRecord;
-  adapter: AnyRecord;
+  evidence: TransitionalRouteDependencyBag;
+  telemetry: TransitionalRouteDependencyBag;
+  adapter: TransitionalRouteDependencyBag;
 }
 
 export type RouteRequest = FastifyRequest;
 export type RouteReply = FastifyReply;
 
-export function buildPlatformRouteDependencies(source: AnyRecord): PlatformRouteDependencies {
+export function buildPlatformRouteDependencies(source: TransitionalRouteDependencyBag): PlatformRouteDependencies {
   return {
     app: source.app,
     config: source.config,
@@ -194,11 +198,11 @@ export function buildOpenAIChatCompletionsRouteDependencies(
   return source;
 }
 
-export interface ClaudeMessagesRouteDependencySource extends AnyRecord {
+export interface ClaudeMessagesRouteDependencySource extends TransitionalRouteDependencyBag {
   app: FastifyInstance;
   config: AppConfig;
   authResolver: AuthResolver;
-  fgaCheck: AnyFn;
+  fgaCheck: TransitionalRouteFn;
   userRateLimiter: RateLimiterLike;
   getSessionKey(identity: SessionIdentity): Promise<string>;
   getSessionState(sessionKey: string, identity: SessionIdentity): Promise<SessionState>;
