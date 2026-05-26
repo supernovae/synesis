@@ -39,6 +39,7 @@ export interface ClaudeGovernancePreparationInput {
   sessionKey: string;
   identity: { userId: string; orgId: string };
   requestId: string;
+  modelAdapterFamily?: string | null;
   taskCue: unknown;
   scopedMessages: unknown[];
   planGraph?: { activeStage?: unknown } | null;
@@ -142,6 +143,7 @@ export async function prepareClaudeGovernance(
             artifactShadows: input.artifactShadows,
             chatState: input.chatState,
             fileState: input.fileState,
+            modelAdapterFamily: input.modelAdapterFamily,
             orchestratorWorkflowPhase: input.workingPhase,
             taskLedgerOpenCount: input.session.taskLedger
               ? input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length

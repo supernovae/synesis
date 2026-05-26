@@ -574,6 +574,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       sessionKey: claudeSessionKey,
       identity: claudeIdentity,
       requestId: traceReqId,
+      modelAdapterFamily: claudeAdapterProfile.family,
       taskCue: claudeTaskCue,
       scopedMessages: claudeScopedMessages,
       planGraph: claudePlanGraph,

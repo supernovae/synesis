@@ -386,11 +386,16 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
         out.blockedUnsafeShell = true;
         return out;
       }
-      const pathDrift = opts.blockBashPathDrift ? detectBashPathDrift(command) : null;
+      const pathDrift = opts.blockBashPathDrift
+        ? detectBashPathDrift(command)
+          ?? detectDuplicatedCwdBashPath(command, opts.projectRoot, opts.shellCwd)
+        : null;
       const dangerous = detectDangerousBash(command);
       if (pathDrift || dangerous) {
         const detail = pathDrift?.reason ?? dangerous?.reason ?? "unsafe shell command";
-        const message = `Synesis Yarn blocked unsafe shell command: ${detail}. Use safe structured tools from project root.`;
+        const message = pathDrift?.recovery
+          ? `Synesis Yarn blocked unsafe shell command: ${detail}. ${pathDrift.recovery}`
+          : `Synesis Yarn blocked unsafe shell command: ${detail}. Use safe structured tools from project root.`;
         if (opts.clientKind === "claude-code") {
           out.toolName = "Synesis_Error_UnsafeShell";
           out.input = {
@@ -1063,7 +1068,7 @@ function normalizeTokenPath(v: string): string {
   return v.trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/g, "");
 }
 
-function detectBashPathDrift(command: string): { reason: string } | null {
+function detectBashPathDrift(command: string): { reason: string; recovery?: string } | null {
   const c = command.trim();
   const m = /mkdir(?:\s+-p)?\s+([^\s;&|]+)\s*(?:&&|;)\s*cd\s+([^\s;&|]+)/i.exec(c);
   if (!m) return null;
@@ -1074,6 +1079,51 @@ function detectBashPathDrift(command: string): { reason: string } | null {
     return { reason: "mkdir && cd path drift detected (duplicate segment)" };
   }
   return null;
+}
+
+function detectDuplicatedCwdBashPath(
+  command: string,
+  projectRoot?: string | null,
+  shellCwd?: string | null,
+): { reason: string; recovery?: string } | null {
+  const root = (projectRoot || shellCwd || "").trim();
+  if (!root) return null;
+  const rootParts = path.resolve(root).split(path.sep).filter(Boolean);
+  if (rootParts.length < 2) return null;
+
+  const candidates = [
+    ...extractBashFilePaths(command),
+    ...extractAbsolutePathTokens(command),
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeTokenPath(candidate).replace(/\\/g, "/").replace(/\*+$/g, "");
+    if (!normalized || !path.isAbsolute(normalized)) continue;
+    const candidateParts = path.resolve(normalized).split(path.sep).filter(Boolean);
+    if (!startsWithParts(candidateParts, rootParts)) continue;
+    const afterRoot = candidateParts.slice(rootParts.length);
+    const maxSuffix = Math.min(rootParts.length, afterRoot.length);
+    for (let n = maxSuffix; n >= 2; n -= 1) {
+      const suffix = rootParts.slice(rootParts.length - n);
+      if (!startsWithParts(afterRoot, suffix)) continue;
+      const duplicated = `/${[...rootParts, ...suffix].join("/")}`;
+      return {
+        reason: `duplicated working-directory path detected (${duplicated})`,
+        recovery:
+          "Use the canonical project directory from SESSION_EXECUTION_CONTEXT; do not copy, remove, or recreate duplicate trees. Run one targeted verification from the canonical directory.",
+      };
+    }
+  }
+  return null;
+}
+
+function extractAbsolutePathTokens(command: string): string[] {
+  const out: string[] = [];
+  const re = /(?:^|[\s"'=])((?:\/[A-Za-z0-9._@:+-]+)+\/?)(?=$|[\s"';&|*])/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(command)) !== null) {
+    out.push(m[1]);
+  }
+  return out;
 }
 
 function globPatternDirectory(pattern: string): string | null {

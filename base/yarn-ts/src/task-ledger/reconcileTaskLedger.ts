@@ -12,6 +12,7 @@ const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(["completed", "obsole
  */
 const AUTO_PROMOTE_CONFIDENCE = 0.85;
 const AUTO_PROMOTE_MIN_EVIDENCE = 2;
+const REGRESSION_SUPPRESSED_EVIDENCE = "task_ledger_regression_suppressed: terminal status preserved";
 
 /**
  * Match tasks by id, then by normalized title prefix (first 40 chars, lowered).
@@ -49,10 +50,18 @@ export function reconcileFromToolCall(
     const existing = findExistingTask(tasks, incoming);
     if (existing) {
       const idx = tasks.indexOf(existing);
+      const preserveTerminalStatus =
+        TERMINAL_STATUSES.has(existing.status)
+        && !TERMINAL_STATUSES.has(incoming.status);
+      const mergedEvidence = [...new Set([
+        ...existing.evidence,
+        ...incoming.evidence,
+        ...(preserveTerminalStatus ? [REGRESSION_SUPPRESSED_EVIDENCE] : []),
+      ])];
       tasks[idx] = {
         ...existing,
-        status: incoming.status,
-        evidence: [...new Set([...existing.evidence, ...incoming.evidence])],
+        status: preserveTerminalStatus ? existing.status : incoming.status,
+        evidence: mergedEvidence,
         lastUpdatedTurn: turn,
         confidence: Math.max(existing.confidence, incoming.confidence),
         source: incoming.source !== "unknown" ? incoming.source : existing.source,

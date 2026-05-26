@@ -408,6 +408,35 @@ describe("task-ledger", () => {
       expect(result.tasks[0].lastUpdatedTurn).toBe(5);
     });
 
+    it("does not regress terminal tool tasks when a model replays an all-pending todo list", () => {
+      const completedTasks = [
+        makeTask({ id: "todo_1", title: "Create project structure", status: "completed", confidence: 1.0 }),
+        makeTask({ id: "todo_2", title: "Implement SQLite storage layer", status: "completed", confidence: 1.0 }),
+        makeTask({ id: "todo_3", title: "Run tests", status: "completed", confidence: 1.0 }),
+      ];
+      const ledger = makeLedger({ tasks: completedTasks });
+      const replayedPending = completedTasks.map((task) => ({
+        ...task,
+        status: "pending" as const,
+        evidence: [],
+      }));
+
+      const result = reconcileFromToolCall(ledger, replayedPending, 12);
+
+      expect(result.tasks.map((task) => task.status)).toEqual(["completed", "completed", "completed"]);
+      expect(result.tasks[1].evidence).toContain("task_ledger_regression_suppressed: terminal status preserved");
+      expect(result.tasks[1].lastUpdatedTurn).toBe(12);
+    });
+
+    it("allows terminal tool tasks to move to another terminal status", () => {
+      const ledger = makeLedger({
+        tasks: [makeTask({ id: "a", title: "Task A", status: "completed" })],
+      });
+      const incoming = [makeTask({ id: "a", title: "Task A", status: "obsolete" })];
+      const result = reconcileFromToolCall(ledger, incoming, 6);
+      expect(result.tasks[0].status).toBe("obsolete");
+    });
+
     it("text reconciliation does not overwrite terminal status", () => {
       const ledger = makeLedger({
         tasks: [makeTask({ id: "a", status: "completed", confidence: 1.0 })],

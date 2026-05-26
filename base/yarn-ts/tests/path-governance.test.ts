@@ -173,6 +173,25 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("path drift");
   });
 
+  it("blocks bash commands that reference a duplicated cwd/project-root path", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: {
+        command: "cp -r /home/byron/src/test/src/test/taskpulse/* /home/byron/src/test/taskpulse/",
+      },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.blockedUnsafeShell).toBe(true);
+    expect(out.blockedBashDrift).toBe(true);
+    expect(String(out.input.command)).toContain("duplicated working-directory path detected");
+    expect(String(out.input.command)).toContain("canonical project directory");
+  });
+
   it("allows first compound git inspection as grace for orientation", () => {
     const out = governToolCall({
       toolName: "Bash",

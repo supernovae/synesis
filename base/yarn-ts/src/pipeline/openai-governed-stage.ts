@@ -326,6 +326,7 @@ export async function prepareOpenAIGovernedStage(
     requestId: input.requestId,
     headers: input.req.headers as Record<string, unknown>,
     pipelineMode: input.pipelineMode as never,
+    modelAdapterFamily: input.adapterProfile.family,
     taskCue: input.taskCue,
     scopedMessages: context.scopedMessages,
     planGraph: turn.planGraph,

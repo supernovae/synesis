@@ -1397,11 +1397,17 @@ function isGitAddWithoutCommit(events: CommandEvent[]): boolean {
   return sawGitAdd && !sawGitCommit;
 }
 
-function isDependencyInstallReplay(events: CommandEvent[]): boolean {
+function isHighRetrySensitivityAdapter(family?: string | null): boolean {
+  const normalized = normalizeString(family).toLowerCase();
+  return normalized === "minimax";
+}
+
+function isDependencyInstallReplay(events: CommandEvent[], highRetrySensitivity = false): boolean {
   const depCmds = new Map<string, number>();
   for (const e of events) {
     const cmd = normalizeString(e.command).toLowerCase();
     if (!isDependencyInstallCommand(cmd)) continue;
+    if (highRetrySensitivity && isDependencyPathMismatch(e)) return true;
     const key = cmd.slice(0, 60);
     depCmds.set(key, (depCmds.get(key) ?? 0) + 1);
   }
@@ -1420,6 +1426,32 @@ function isDependencyInstallCommand(command: string): boolean {
     || /\bpip\s+install\b/.test(cmd)
     || /\buv\s+pip\s+install\b/.test(cmd)
     || /\bcargo\s+build\b/.test(cmd);
+}
+
+function isDependencyPathMismatch(event: CommandEvent): boolean {
+  const cmd = normalizeString(event.command).toLowerCase();
+  const sig = normalizeString(event.resultSignature).toLowerCase();
+  if (!cmd || !sig) return false;
+  const requirementsInstall = /\bpip\s+install\b/.test(cmd) && /requirements\.txt/.test(cmd);
+  return requirementsInstall
+    && /could not open requirements file|no such file or directory/.test(sig);
+}
+
+function hasDuplicatedWorkingDirectoryPath(events: CommandEvent[]): boolean {
+  const joined = events.map((e) => `${e.command} ${e.resultSignature}`).join(" ").toLowerCase();
+  return /\/src\/test\/src\/test\//.test(joined)
+    || /\/([^/\s]+)\/([^/\s]+)\/\1\/\2\//.test(joined);
+}
+
+function buildDependencyInstallReplaySuggestion(events: CommandEvent[], highRetrySensitivity: boolean): string {
+  const pathMismatch = events.some(isDependencyPathMismatch);
+  if (pathMismatch || hasDuplicatedWorkingDirectoryPath(events)) {
+    const prefix = highRetrySensitivity
+      ? "This model family is high retry-sensitivity, so stop the install/path replay now."
+      : "Stop the install/path replay now.";
+    return `${prefix} Use the canonical project directory from the current working directory; do not copy, remove, or recreate duplicate trees. Run one targeted verification from that directory, for example \`cd taskpulse && python -m pytest -q\` when the project is TaskPulse.`;
+  }
+  return "You are repeating the same dependency install command without code changes. If the install succeeded, move on to the next code edit. If it failed, investigate the specific error rather than re-running.";
 }
 
 function hasSuccessfulDependencyInstallSignature(sig: string): boolean {
@@ -1567,6 +1599,12 @@ export interface ExecutionGovernorOptions {
   /** Optional derived FileState adapter for guard computation fallback. */
   fileState?: FileState;
   /**
+   * Adapter/model-family hint for architecture-aware recovery thresholds.
+   * High-retry families such as MiniMax should get structured recovery sooner
+   * instead of repeated soft nudges.
+   */
+  modelAdapterFamily?: string | null;
+  /**
    * Client / working-frame workflow phase. When `implementation`, session phase is not forced to `explore`
    * from investigation-only user wording, so governor workflow telemetry matches "coding" expectations.
    */
@@ -1591,6 +1629,7 @@ export function evaluateExecutionGovernor(
   const activePlanStage = opts.activePlanStage ?? null;
   const editContextMissActive = opts.editContextMissActive === true;
   const taskLedgerOpenCount = opts.taskLedgerOpenCount;
+  const highRetrySensitivity = isHighRetrySensitivityAdapter(opts.modelAdapterFamily);
   const thresholds = thresholdsForProfile(profile);
   const stateObjectiveCue = normalizeString(
     opts.chatState?.pendingUserDirective
@@ -2105,7 +2144,7 @@ export function evaluateExecutionGovernor(
 
   if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
-  if (isDependencyInstallReplay(events)) pushRule("dependency_install_replay");
+  if (isDependencyInstallReplay(events, highRetrySensitivity)) pushRule("dependency_install_replay");
   const hasCompileLikeVerificationFailure = events.some((e) =>
     isVerificationCommand(e.toolName, e.command) && isCompileLikeFailureSignature(e.resultSignature),
   );
@@ -2368,8 +2407,7 @@ export function evaluateExecutionGovernor(
     return {
       pause: true,
       reason: "dependency_install_replay",
-      suggestedNextStep:
-        "You are repeating the same dependency install command without code changes. If the install succeeded, move on to the next code edit. If it failed, investigate the specific error rather than re-running.",
+      suggestedNextStep: buildDependencyInstallReplaySuggestion(events, highRetrySensitivity),
       matchedRules,
       telemetry: {
         phase: sessionPhase,

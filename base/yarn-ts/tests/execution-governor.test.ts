@@ -652,6 +652,24 @@ describe("execution governor", () => {
     expect(out.matchedRules).toContain("dependency_install_replay");
   });
 
+  it("escalates MiniMax dependency path mismatch before install replay loops", () => {
+    const messages = [
+      { role: "user", content: "build the TaskPulse app and run tests" },
+      assistantCall("1", "bash", { command: "cd /home/byron/src/test/taskpulse && pip install -q -r requirements.txt" }),
+      toolResult("1", "ERROR: Could not open requirements file: [Errno 2] No such file or directory: 'requirements.txt'"),
+      assistantCall("2", "bash", { command: "find /home/byron/src/test -name requirements.txt | head -20" }),
+      toolResult("2", "/home/byron/src/test/src/test/taskpulse/requirements.txt"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, { modelAdapterFamily: "minimax" });
+
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("dependency_install_replay");
+    expect(out.suggestedNextStep).toContain("high retry-sensitivity");
+    expect(out.suggestedNextStep).toContain("canonical project directory");
+    expect(out.suggestedNextStep).toContain("python -m pytest -q");
+  });
+
   it("pauses repeated successful narrow verification and asks for completion report", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1 && echo Build OK" }),
