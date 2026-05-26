@@ -262,11 +262,11 @@ import {
 import {
   applyWorkspaceBoundary,
   buildFreshImplicitSessionNotice,
-  clearWorkspaceScopedMetadata,
   hasPersistedWorkspaceState,
   mergeSessionPathHints,
   setSessionWorkspaceContext,
 } from "./state/workspace-session-boundary.js";
+import { createWorkspaceSessionStateHelpers } from "./state/workspace-session-state-helpers.js";
 import type { CompactionMode } from "./governance/context-budget-manager.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
@@ -863,6 +863,19 @@ const phaseOrchestrator = new PhaseModelOrchestrator(config.SYNESIS_YARN_CLAUDE_
 const sensemakingStats: SensemakingStats = createEmptySensemakingStats();
 const clientAdapterPacks = new ClientAdapterPacks();
 const stablePrefixService = new StablePrefixService();
+const {
+  resetWorkspaceScopedSessionState,
+  workspaceStatePresence,
+} = createWorkspaceSessionStateHelpers({
+  contentDedupBySession,
+  fileSnapshotBySession,
+  structuralIndexBySession,
+  memoryGovernorBySession,
+  blockedDiscoveryBySession,
+  stablePrefixService,
+  clearSessionMemory,
+  getSessionMemoryCount,
+});
 const attentionPositioning = new AttentionPositioningService();
 const sessionContinuity = new SessionContinuityService();
 
@@ -2090,58 +2103,6 @@ function shouldRestrictDiscoveryForPlanWork(userPrompt: unknown): boolean {
     && /\b(crash|crashed|stuck|stalled|unknown|not sure|unsure|left off|prior run|previous run|incomplete|remaining)\b/.test(text);
   if (resumeRecoveryIntent) return false;
   return /\b(continue|resume|update|mark|check off|complete|remaining|next|phase|load)\b/.test(text);
-}
-
-function resetWorkspaceScopedSessionState(sessionKey: string, state: SessionState): void {
-  clearWorkspaceScopedMetadata(state.record.metadata);
-  contentDedupBySession.delete(sessionKey);
-  fileSnapshotBySession.delete(sessionKey);
-  structuralIndexBySession.delete(sessionKey);
-  memoryGovernorBySession.delete(sessionKey);
-  clearSessionMemory(sessionKey);
-  blockedDiscoveryBySession.delete(sessionKey);
-  stablePrefixService.evictSession(sessionKey);
-  state.history = [];
-  state.lastVolatileContent = undefined;
-  state.lastVolatileHash = undefined;
-  state.pruningWatermark = 0;
-  state.consecutiveToolCalls = 0;
-  state.stagnantToolCycles = 0;
-  state.lastToolSignalHash = "";
-  state.awaitingToolLoopUserAck = false;
-  state.toolLoopAckAnchorUserHash = "";
-  state.toolLoopNoUserAckCount = 0;
-  state.blockBroadVerificationUntilEdit = false;
-  state.blockFailingVerificationUntilEdit = false;
-  state.consecutiveRecoveryFires = 0;
-  state.consecutiveEditContextMisses = 0;
-  state.editReplayHardStopGraceUsed = false;
-  state.editMissForceReadPending = false;
-  state.artifactEditTurns.clear();
-  state.seenFailureSignatures.clear();
-  state.previousFailureSignature = null;
-  state.lastEvidenceDelta = null;
-  state.lastIncomingMessageCount = 0;
-  state.governorPrePauseAttemptsByRule.clear();
-  state.implementationSoftStallNudgeStrikes = 0;
-  state.regroundCooldownRemaining = 0;
-  state.lastGovernorNoPauseAt = 0;
-  state.lastGovernorCachedResult = null;
-  state.skipToolIdStabilization = false;
-  state.gitInspectionBlockCount = 0;
-  state.scopeEnvelope = "unconstrained";
-  state.diffStats = createDiffStats();
-  state.taskLedger = null;
-  state.taskCapabilities = null;
-}
-
-function workspaceStatePresence(sessionKey: string) {
-  return {
-    hasFileSnapshot: fileSnapshotBySession.has(sessionKey),
-    hasContentDedup: contentDedupBySession.has(sessionKey),
-    hasStructuralIndex: structuralIndexBySession.has(sessionKey),
-    sessionMemoryCount: getSessionMemoryCount(sessionKey),
-  };
 }
 
 function logAndPersistSafetyEvent(
