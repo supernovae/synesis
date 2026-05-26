@@ -1,19 +1,58 @@
-import { buildEvidenceTraceSummary } from "../evidence/fast-path.js";
-import { isClaudeWebSearchToolName, toClaudeServerWebSearchEvent } from "../protocol/claude-messages-helpers.js";
-import type { ClaudeMessagesRequest } from "../schemas.js";
-import type { SessionPathHints } from "../state/workspace-session-boundary.js";
-import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
+import {
+  buildEvidenceTraceSummary,
+  type FastPathResult,
+  type PatternPrefetchResult,
+} from "../evidence/fast-path.js";
+import type { SessionPhase } from "../governance/execution-governor.js";
+import type { PhaseExecutionPolicyDecision } from "../governance/phase-execution-policy.js";
 import type { ToolArgHardeningStats } from "../governance/tool-call-observability.js";
+import type { OrchestratorDecision } from "../orchestration/phase-model-orchestrator.js";
+import type {
+  GovernToolCallOptions,
+  GovernedToolCall,
+  PlanWriteAuditRecord,
+} from "../path-governance/tool-call-governance.js";
+import type { PathSandboxPolicy } from "../path-governance/path-sandbox.js";
+import type { PlanContentShadow } from "../planning/plan-content-shadow.js";
+import { isClaudeWebSearchToolName, toClaudeServerWebSearchEvent } from "../protocol/claude-messages-helpers.js";
+import type { ModelAdapter } from "../providers/model-adapter.js";
+import type { ClaudeMessagesRequest } from "../schemas.js";
+import type { DecisionTelemetryPayload } from "../state/decision-telemetry-persister.js";
+import type { SessionPathHints } from "../state/workspace-session-boundary.js";
+import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
+import type { SnapshotInputs } from "../telemetry/decision-snapshot.js";
+import type { RequestForensicsBuildResult, RequestForensicsRecord } from "../telemetry/request-forensics.js";
+import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-ledger.js";
+import type { YarnUpperHarnessContext } from "../upper-harness/bridge.js";
+import type {
+  ClaudeNonStreamRequestDiagnostic,
+  ClaudeNonStreamTelemetryReductions,
+} from "./claude-nonstream-telemetry.js";
 import {
   createClaudeNonStreamRoutePipelineInput,
   runClaudeNonStreamPipeline,
 } from "./claude-nonstream-pipeline.js";
 import { buildClaudeNonStreamMessageResponse } from "./claude-nonstream-response.js";
+import type {
+  ClaudeNonStreamProviderMessage,
+  ClaudeNonStreamProviderResultLike,
+} from "./claude-nonstream-provider-executor.js";
+import type {
+  ClaudeNonStreamDiscoveryGuardrailResult,
+  ClaudeNonStreamDiscoveryRecovery,
+} from "./claude-nonstream-discovery.js";
+import type { ClaudeNonStreamExternalToolCall } from "./claude-nonstream-tool-calls.js";
 import { createClaudeNonStreamRouteScope } from "./claude-nonstream-route-scope.js";
 import { createRouteToolCallSideEffects } from "./route-tool-call-side-effects.js";
 import type { StrictGovernanceRewriteStats } from "./route-tool-call-side-effects.js";
-import type { OpenAIStreamLifecycleSpan } from "./openai-stream-lifecycle.js";
-import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
+import type {
+  OpenAIStreamFinalizerTextResult,
+  StreamTokenUsage,
+} from "./openai-stream-finalizer.js";
+import type {
+  OpenAIStreamLifecycleSpan,
+  OpenAIStreamUpstreamErrorDiagnostics,
+} from "./openai-stream-lifecycle.js";
 
 interface ClaudeNonStreamSession {
   record: {
@@ -43,8 +82,8 @@ export interface ClaudeNonStreamRouteInput {
   requestId: string;
   resolvedModelId: string;
   model: unknown;
-  adapter: unknown;
-  messages: Array<{ role: string; content?: unknown }>;
+  adapter: ModelAdapter;
+  messages: ClaudeNonStreamProviderMessage[];
   recentMessages: Array<{ role: string; content: unknown }>;
   normalizedMessages: Array<{ role: string }>;
   samplingOptions?: Record<string, unknown>;
@@ -52,8 +91,8 @@ export interface ClaudeNonStreamRouteInput {
   sdkTools?: unknown;
   toolChoice?: unknown;
   providerOptions?: unknown;
-  phasePolicy: unknown;
-  governorPhase: unknown;
+  phasePolicy: PhaseExecutionPolicyDecision;
+  governorPhase: SessionPhase;
   nativeWebSearchRequested: boolean;
   effectiveTools: unknown[];
   forensicsPhasePolicy?: RequestForensicsRecord["phasePolicy"];
@@ -61,7 +100,7 @@ export interface ClaudeNonStreamRouteInput {
   pathContext: SessionPathHints;
   clientKind: string;
   strictGovernance: boolean;
-  upperHarness?: unknown;
+  upperHarness?: YarnUpperHarnessContext;
   recentCalls: Array<{ toolName: string }>;
   enforcePathRoot: boolean;
   blockBashPathDrift: boolean;
@@ -69,21 +108,21 @@ export interface ClaudeNonStreamRouteInput {
   planModeRequested: boolean;
   restrictDiscoveryForPlanWork?: boolean;
   taskCue: unknown;
-  artifactShadows?: unknown;
+  artifactShadows?: GovernToolCallOptions["artifactShadows"];
   requirementChecklist?: { must: unknown[]; should: unknown[] } | null;
   verificationAssessment: unknown;
   planGraph: unknown;
   responseStyleMode: string;
-  orchestration: unknown;
+  orchestration: OrchestratorDecision;
   policyMatchedRules: string[];
   evidencePrefetched?: boolean;
   evidencePrefetchHit?: boolean;
   evidenceConfidence?: number;
-  prefetchResult?: { matched?: boolean; confidence?: number; authoritative?: boolean; latencyMs: number; quality?: unknown };
-  patternResult?: { quality?: unknown };
+  prefetchResult?: FastPathResult;
+  patternResult?: PatternPrefetchResult;
   sensemakingTriggered?: boolean;
   sensemakingReason?: string;
-  governorDecision?: unknown;
+  governorDecision?: SnapshotInputs["governorDecision"];
   governorChatStateSummary?: Record<string, unknown>;
   governorFileStateSummary?: Record<string, unknown>;
   trajectoryDiagnostics?: Record<string, unknown>;
@@ -97,9 +136,9 @@ export interface ClaudeNonStreamRouteInput {
     estimatedTokens: number;
     estimatedChars: number;
   };
-  cacheShapeDiagnostics?: unknown;
-  toolResultReduction: unknown;
-  validationNormalization: unknown;
+  cacheShapeDiagnostics?: OptimizationCacheDiagnostics;
+  toolResultReduction: ClaudeNonStreamTelemetryReductions["toolResultReduction"];
+  validationNormalization: ClaudeNonStreamTelemetryReductions["validationNormalization"];
   toolResultCount: number;
   artifactToolInjected: boolean;
   knowledgeToolInjected: boolean;
@@ -114,9 +153,9 @@ export interface ClaudeNonStreamRouteInput {
   getTracer(): {
     startSpan(name: string, attributes?: Record<string, string | number | boolean>): OpenAIStreamLifecycleSpan;
   };
-  extractUpstreamErrorDiagnostics(error: unknown): unknown;
+  extractUpstreamErrorDiagnostics(error: unknown): OpenAIStreamUpstreamErrorDiagnostics;
   clampMaxOutputTokens(tokens: number): number;
-  generateText(options: Record<string, unknown>): Promise<{ text?: string; reasoning?: unknown; usage?: unknown; toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }> }>;
+  generateText(options: Record<string, unknown>): Promise<ClaudeNonStreamProviderResultLike>;
   readUsage(usage: unknown): StreamTokenUsage;
   captureRequestForensics(
     sessionKey: string,
@@ -130,7 +169,7 @@ export interface ClaudeNonStreamRouteInput {
     providerOptions: unknown,
     phasePolicy?: RequestForensicsRecord["phasePolicy"],
     capabilityMatrix?: RequestForensicsRecord["capabilityMatrix"],
-  ): unknown;
+  ): RequestForensicsBuildResult | null;
   finalizeRequestForensics(
     session: ClaudeNonStreamSession,
     requestId: string,
@@ -147,8 +186,8 @@ export interface ClaudeNonStreamRouteInput {
     requestId?: string,
     metadataJson?: Record<string, unknown>,
   ): void;
-  persistDecisionTelemetry(input: unknown): void;
-  updateDiffAccumulator(session: ClaudeNonStreamSession, governed: unknown): void;
+  persistDecisionTelemetry(input: DecisionTelemetryPayload): void;
+  updateDiffAccumulator(session: ClaudeNonStreamSession, governed: GovernedToolCall): void;
   maybeUpdateTaskLedgerFromToolCall(
     session: ClaudeNonStreamSession,
     toolName: string,
@@ -160,14 +199,14 @@ export interface ClaudeNonStreamRouteInput {
     userId: string,
     orgId: string,
     requestId: string,
-    audit: unknown,
+    audit: PlanWriteAuditRecord,
   ): void;
   maybeLogEnvelopeUnwrapSample(
     logger: ClaudeNonStreamLogger,
     requestId: string,
     toolName: string,
     clientKind: string,
-    governed: unknown,
+    governed: GovernedToolCall,
     toolCallId?: string,
   ): void;
   recordUpperHarnessDecision(
@@ -176,25 +215,42 @@ export interface ClaudeNonStreamRouteInput {
     orgId: string,
     requestId: string,
     component: string,
-    decision: unknown,
+    decision: Parameters<ReturnType<typeof createRouteToolCallSideEffects>["recordUpperHarnessDecision"]>[0],
   ): void;
   isWriteCapableToolName(name: string): boolean;
   shouldRestrictDiscoveryForPlanWork(taskCue: unknown): boolean;
-  deserializePlanShadow(data: unknown): unknown;
-  buildPathSandboxPolicy(root: string): unknown;
+  deserializePlanShadow(data: unknown): PlanContentShadow | null;
+  buildPathSandboxPolicy(root: string): PathSandboxPolicy;
   getTopLevelDirs(projectRoot: string | null | undefined): Promise<string[]>;
-  applyDiscoveryGuardrail(calls: Array<{ toolName: string; input: Record<string, unknown> }>, topLevelDirs: string[]): unknown;
+  applyDiscoveryGuardrail(
+    calls: ClaudeNonStreamExternalToolCall[],
+    topLevelDirs: string[],
+  ): ClaudeNonStreamDiscoveryGuardrailResult<ClaudeNonStreamExternalToolCall>;
   buildBlockedDiscoveryRecovery(
     resolvedModelId: string,
-    blockedDetails: unknown[],
+    blockedDetails: BlockedDiscoveryDetail[],
     projectRoot?: string | null,
-  ): Promise<unknown>;
+  ): Promise<ClaudeNonStreamDiscoveryRecovery>;
   recordBlockedDiscovery(sessionKey: string, count: number): number;
   getBlockedDiscoveryCount(sessionKey: string): number;
   getMetadataString(metadata: Record<string, unknown>, key: string): string;
   extractRecentToolNames(messages: Array<{ role: string; content: unknown }>): string[];
   applyMarkdownGuardrail(text: string, mode: string): string;
-  finalizeCompletionText(input: unknown): Promise<unknown>;
+  finalizeCompletionText(input: {
+    requestId: string;
+    sessionKey: string;
+    userId: string;
+    orgId: string;
+    assistantText: string;
+    checklist: { must: unknown[]; should: unknown[] } | null;
+    traceRootPrompt: string;
+    latestUserPrompt: string;
+    verification: unknown;
+    recentToolNames: string[];
+    nonActionableEventDetail: string;
+    planGraph?: unknown;
+    session?: { history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }> } | null;
+  }): Promise<OpenAIStreamFinalizerTextResult>;
   inferVerificationSteps(toolNames: string[]): string[];
   countMessageRoles(messages: Array<{ role: string; content: unknown }>): {
     systemMessageCount: number;
@@ -202,7 +258,7 @@ export interface ClaudeNonStreamRouteInput {
     toolMessageCount: number;
     totalInputChars: number;
   };
-  pushDiagnostic(diagnostic: Record<string, unknown>): void;
+  pushDiagnostic(diagnostic: ClaudeNonStreamRequestDiagnostic): void;
   resolveServerWebSearch(input: Record<string, unknown>, context: {
     requestId: string;
     sessionKey: string;
@@ -226,7 +282,7 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
     orgId: input.orgId,
     requestId: input.requestId,
     recordSessionEvent: input.recordSessionEvent,
-    persistDecisionTelemetry: input.persistDecisionTelemetry as never,
+    persistDecisionTelemetry: input.persistDecisionTelemetry,
   });
   const sideEffects = createRouteToolCallSideEffects({
     session: input.session,
@@ -238,11 +294,11 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
     upperHarnessComponent: "upper-harness:claude",
     logger: input.logger,
     strictGovernanceStats: input.strictGovernanceStats,
-    updateDiffAccumulator: input.updateDiffAccumulator as never,
+    updateDiffAccumulator: input.updateDiffAccumulator,
     maybeUpdateTaskLedgerFromToolCall: input.maybeUpdateTaskLedgerFromToolCall,
-    emitPlanWriteAuditEvent: input.emitPlanWriteAuditEvent as never,
-    maybeLogEnvelopeUnwrapSample: input.maybeLogEnvelopeUnwrapSample as never,
-    recordUpperHarnessDecision: input.recordUpperHarnessDecision as never,
+    emitPlanWriteAuditEvent: input.emitPlanWriteAuditEvent,
+    maybeLogEnvelopeUnwrapSample: input.maybeLogEnvelopeUnwrapSample,
+    recordUpperHarnessDecision: input.recordUpperHarnessDecision,
   });
   const result = await runClaudeNonStreamPipeline(createClaudeNonStreamRoutePipelineInput({
     scope,
@@ -253,7 +309,7 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
       model: input.resolvedModelId,
       sessionKey: input.sessionKey,
     }),
-    extractUpstreamErrorDiagnostics: input.extractUpstreamErrorDiagnostics as never,
+    extractUpstreamErrorDiagnostics: input.extractUpstreamErrorDiagnostics,
     providerRouteInput: {
       initialMessages: input.messages,
       model: input.model,
@@ -265,8 +321,8 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
       tools: input.sdkTools,
       initialToolChoice: input.toolChoice,
       providerOptions: input.providerOptions,
-      phasePolicy: input.phasePolicy as never,
-      governorPhase: input.governorPhase as never,
+      phasePolicy: input.phasePolicy,
+      governorPhase: input.governorPhase,
       nativeWebSearchRequested: input.nativeWebSearchRequested,
       clampMaxOutputTokens: input.clampMaxOutputTokens,
       generateText: input.generateText,
@@ -313,10 +369,10 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
       resolvedModelId: input.resolvedModelId,
       clientRequestedModel: input.body.model,
       toolCallInput: {
-        adapter: input.adapter as never,
+        adapter: input.adapter,
         clientKind: input.clientKind,
         strictGovernance: input.strictGovernance,
-        upperHarness: input.upperHarness as never,
+        upperHarness: input.upperHarness,
         recentToolNames: input.recentCalls.map((call) => call.toolName),
         pathContext: input.pathContext,
         enforcePathRoot: input.enforcePathRoot,
@@ -327,20 +383,20 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
         restrictDiscoveryForPlanWork: input.restrictDiscoveryForPlanWork,
         taskCue: input.taskCue,
         normalizedMessageCount: input.normalizedMessages.length,
-        artifactShadows: input.artifactShadows as never,
+        artifactShadows: input.artifactShadows,
         stats: input.toolArgHardeningStats,
         logger: input.logger,
         isWriteCapableToolName: input.isWriteCapableToolName,
         shouldRestrictDiscoveryForPlanWork: input.shouldRestrictDiscoveryForPlanWork,
-        deserializePlanShadow: input.deserializePlanShadow as never,
-        buildPathSandboxPolicy: input.buildPathSandboxPolicy as never,
+        deserializePlanShadow: input.deserializePlanShadow,
+        buildPathSandboxPolicy: input.buildPathSandboxPolicy,
         ...sideEffects,
       },
       discoveryInput: {
         projectRoot: input.pathContext.projectRoot ?? input.pathContext.shellCwd,
         getTopLevelDirs: input.getTopLevelDirs,
-        applyDiscoveryGuardrail: input.applyDiscoveryGuardrail as never,
-        buildBlockedDiscoveryRecovery: input.buildBlockedDiscoveryRecovery as never,
+        applyDiscoveryGuardrail: input.applyDiscoveryGuardrail,
+        buildBlockedDiscoveryRecovery: input.buildBlockedDiscoveryRecovery,
         recordBlockedDiscovery: input.recordBlockedDiscovery,
         getBlockedDiscoveryCount: input.getBlockedDiscoveryCount,
         recordSessionEvent: input.recordSessionEvent,
@@ -355,27 +411,27 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
         planGraph: input.planGraph,
         responseStyleMode: input.responseStyleMode,
         applyMarkdownGuardrail: input.applyMarkdownGuardrail,
-        finalizeCompletionText: input.finalizeCompletionText as never,
+        finalizeCompletionText: input.finalizeCompletionText,
         recordSessionEvent: input.recordSessionEvent,
       },
       telemetryInput: {
         startedAtMs: started,
         reductions: {
-          toolResultReduction: input.toolResultReduction as never,
-          validationNormalization: input.validationNormalization as never,
+          toolResultReduction: input.toolResultReduction,
+          validationNormalization: input.validationNormalization,
         },
         reducedToolResults: input.toolResultCount,
-        orchestration: input.orchestration as never,
+        orchestration: input.orchestration,
         policyMatchedRules: input.policyMatchedRules,
         evidencePrefetched: input.evidencePrefetched,
         evidencePrefetchHit: input.evidencePrefetchHit,
         evidenceConfidence: input.evidenceConfidence,
         evidenceAuthoritative: input.prefetchResult?.authoritative,
         evidencePrefetchLatencyMs: input.prefetchResult ? Math.round(input.prefetchResult.latencyMs) : undefined,
-        evidenceQuality: buildEvidenceTraceSummary(input.prefetchResult as never, input.patternResult as never),
+        evidenceQuality: buildEvidenceTraceSummary(input.prefetchResult, input.patternResult),
         sensemakingTriggered: input.sensemakingTriggered,
         sensemakingReason: input.sensemakingReason,
-        governorDecision: input.governorDecision as never,
+        governorDecision: input.governorDecision,
         governorChatStateSummary: input.governorChatStateSummary,
         governorFileStateSummary: input.governorFileStateSummary,
         normalizedMessages: input.recentMessages,
@@ -391,9 +447,9 @@ export async function runClaudeNonStreamRoute(input: ClaudeNonStreamRouteInput):
         requirementChecklistMust: input.requirementChecklist?.must.length || undefined,
         requirementChecklistShould: input.requirementChecklist?.should.length || undefined,
         contextAdmission: input.contextAdmission,
-        cacheShapeDiagnostics: input.cacheShapeDiagnostics as never,
+        cacheShapeDiagnostics: input.cacheShapeDiagnostics,
         countMessageRoles: input.countMessageRoles,
-        pushDiagnostic: input.pushDiagnostic as never,
+        pushDiagnostic: input.pushDiagnostic,
       },
     },
   }));
