@@ -2227,6 +2227,12 @@ import {
   buildOpenAIChatCompletionsRouteDependencies,
   buildPlatformRouteDependencies,
 } from "./server/route-dependencies.js";
+import {
+  createGracefulShutdown,
+  registerShutdownSignals,
+  startSessionTtlEviction,
+  startTierPolling,
+} from "./server/lifecycle.js";
 
 const config = loadConfig();
 const governorService = new GovernorService({
@@ -4723,54 +4729,39 @@ function debugProtocolLog(
   logger.info({ reqId, path, ...extra }, "debug_protocol");
 }
 
-// --- Session TTL eviction ---
-const SESSION_TTL_MS = config.SYNESIS_YARN_SESSION_TTL_MS;
-const sessionEvictionTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [key, state] of sessions) {
-    if (now - state.record.lastActiveAt > SESSION_TTL_MS) {
-      void casSessionSave(state);
-      sessions.delete(key);
-      contentDedupBySession.delete(key);
-      fileSnapshotBySession.delete(key);
-      structuralIndexBySession.delete(key);
-      memoryGovernorBySession.delete(key);
-      clearSessionMemory(key);
-      blockedDiscoveryBySession.delete(key);
-      stablePrefixService.evictSession(key);
-    }
-  }
-}, 60_000);
-
-// --- Graceful shutdown ---
-let shuttingDown = false;
-
-async function snapshotSessionsToRedis(): Promise<void> {
-  const saves: Promise<unknown>[] = [];
-  for (const [key, state] of sessions) {
-    state.record.lastActiveAt = Date.now();
-    saves.push(sessionStore.save(state.record));
-    saves.push(sessionStore.saveSessionState(key, buildSessionStateSnapshot(state)));
-  }
-  await Promise.allSettled(saves);
-}
-
-async function shutdown(): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(sessionEvictionTimer);
-  clearInterval(tierPollTimer);
-  streamAdmission.close();
-  userRateLimiter.close();
-  policyEngine.close();
-  governanceClient?.close();
-  artifactStore.close();
-  await snapshotSessionsToRedis();
-  await app.close();
-  await Promise.all([sessionStore.close(), usageWriter.close(), authResolver.close(), distributedCounters.close(), diagnosticRegistry.close(), enrichmentPool.close(), memoryStoreRedis?.quit()]);
-}
-process.on("SIGTERM", () => void shutdown());
-process.on("SIGINT", () => void shutdown());
+const sessionEvictionTimer = startSessionTtlEviction({
+  ttlMs: config.SYNESIS_YARN_SESSION_TTL_MS,
+  sessions,
+  saveSession: casSessionSave,
+  contentDedupBySession,
+  fileSnapshotBySession,
+  structuralIndexBySession,
+  memoryGovernorBySession,
+  clearSessionMemory,
+  blockedDiscoveryBySession,
+  stablePrefixService,
+});
+let tierPollTimer: ReturnType<typeof setInterval> | null = null;
+const shutdown = createGracefulShutdown({
+  app,
+  sessions,
+  sessionStore,
+  buildSessionStateSnapshot,
+  sessionEvictionTimer,
+  getTierPollTimer: () => tierPollTimer,
+  streamAdmission,
+  userRateLimiter,
+  policyEngine,
+  governanceClient,
+  artifactStore,
+  usageWriter,
+  authResolver,
+  distributedCounters,
+  diagnosticRegistry,
+  enrichmentPool,
+  memoryStoreRedis,
+});
+registerShutdownSignals(shutdown);
 
 await registerNonChatRoutes({
   app,
@@ -5040,9 +5031,9 @@ registerOpenAIChatCompletionsRoute(openAIChatCompletionsRouteDependencies);
 const claudeMessagesRouteDependencies = buildClaudeMessagesRouteDependencies(routeDependencySource);
 registerClaudeMessagesRoute(claudeMessagesRouteDependencies);
 
-await refreshTierRegistry();
-const tierPollTimer = setInterval(() => {
-  void refreshTierRegistry();
-}, config.SYNESIS_YARN_TIER_POLL_INTERVAL * 1000);
+tierPollTimer = await startTierPolling({
+  refreshTierRegistry,
+  intervalSeconds: config.SYNESIS_YARN_TIER_POLL_INTERVAL,
+});
 
 await app.listen({ port: config.PORT, host: config.HOST });
