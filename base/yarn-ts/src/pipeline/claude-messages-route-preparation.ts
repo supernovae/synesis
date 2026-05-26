@@ -472,7 +472,7 @@ export async function prepareClaudeMessagesRoute(
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
     session.implementationSoftStallNudgeStrikes = 0;
-    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err) => {
+    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err: unknown) => {
       console.warn("[session] counter reset failed:", (err as Error).message ?? err);
     });
   }

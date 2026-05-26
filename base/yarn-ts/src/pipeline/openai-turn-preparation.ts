@@ -254,9 +254,9 @@ export async function prepareOpenAITurn(input: PrepareOpenAITurnInput) {
       },
     );
   }
-  const editMissFailureCount = toolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+  const editMissFailureCount = toolFailures.filter((failure: { reason: string }) => failure.reason === "edit_context_miss").length;
   const anyWriteToolEditFailure = toolFailures.some(
-    (f) => f.reason === "edit_error"
+    (f: { reason: string }) => f.reason === "edit_error"
       || f.reason === "edit_context_miss"
       || f.reason === "write_tool_error"
       || f.reason === "patch_apply_failed",

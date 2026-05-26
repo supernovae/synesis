@@ -109,10 +109,10 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     messages: normalizedMessages,
     session,
     requestId,
-    extractMetadataFromMessages: (messages) => extractMetadataFromMessages(messages as never),
+    extractMetadataFromMessages: (messages: unknown[]) => extractMetadataFromMessages(messages as never),
     buildAdapterBlock: input.buildAdapterBlock,
     setWorkspaceContext: setSessionWorkspaceContext,
-    logInfo: (record, message) => app.log.info(record, message),
+    logInfo: (record: Record<string, unknown>, message?: string) => app.log.info(record, message),
     logSessionKey: sessionKey,
   });
   const pathContext = metadataPrebackfill.pathContext;

@@ -1,0 +1,44 @@
+import type { SessionRecord } from "./session-store.js";
+import type { ExecutionGovernorDecision, SessionPhase } from "../governance/execution-governor.js";
+import type { TurnEvidenceDelta } from "../governance/evidence-delta.js";
+import type { DiffStats } from "../governance/diff-accumulator.js";
+import type { ScopeEnvelope } from "../governance/intent-scope-classifier.js";
+import type { ClientTaskCapabilities, TaskLedger } from "../task-ledger/index.js";
+
+export interface SessionState {
+  history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+  toolCallsSinceCheckpoint: number;
+  consecutiveToolCalls: number;
+  stagnantToolCycles: number;
+  lastToolSignalHash: string;
+  awaitingToolLoopUserAck: boolean;
+  toolLoopAckAnchorUserHash: string;
+  toolLoopNoUserAckCount: number;
+  blockBroadVerificationUntilEdit: boolean;
+  blockFailingVerificationUntilEdit: boolean;
+  record: SessionRecord;
+  lastVolatileContent?: string;
+  lastVolatileHash?: string;
+  pruningWatermark: number;
+  consecutiveRecoveryFires: number;
+  consecutiveEditContextMisses: number;
+  editReplayHardStopGraceUsed: boolean;
+  editMissForceReadPending: boolean;
+  lastGovernorPhase?: SessionPhase;
+  artifactEditTurns: Map<string, number>;
+  seenFailureSignatures: Set<string>;
+  previousFailureSignature: string | null;
+  lastEvidenceDelta: TurnEvidenceDelta | null;
+  lastIncomingMessageCount: number;
+  governorPrePauseAttemptsByRule: Map<string, number>;
+  implementationSoftStallNudgeStrikes: 0 | 1;
+  regroundCooldownRemaining: number;
+  lastGovernorNoPauseAt: number;
+  lastGovernorCachedResult: ExecutionGovernorDecision | null;
+  skipToolIdStabilization: boolean;
+  gitInspectionBlockCount: number;
+  scopeEnvelope: ScopeEnvelope;
+  diffStats: DiffStats;
+  taskLedger: TaskLedger | null;
+  taskCapabilities: ClientTaskCapabilities | null;
+}

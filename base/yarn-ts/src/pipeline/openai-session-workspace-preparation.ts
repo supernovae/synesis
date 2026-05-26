@@ -157,8 +157,11 @@ export async function prepareOpenAISessionWorkspace(
     debugEnabled: config.SYNESIS_YARN_DEBUG_PROTOCOL,
     debugConversationSource: "conversation_resolved",
     debugFallbackSource: "conversation_fallback",
-    debugLog: (record) => app.log.debug(record, "session_resolution"),
-    afterSessionLoaded: ({ sessionKey: loadedSessionKey, session: loadedSession }) => {
+    debugLog: (record: Record<string, unknown>) => app.log.debug(record, "session_resolution"),
+    afterSessionLoaded: ({ sessionKey: loadedSessionKey, session: loadedSession }: {
+      sessionKey: string;
+      session: SessionState;
+    }) => {
       if (shouldResetImplicitSessionForFreshTranscript({
         clientKind,
         conversationId,
@@ -257,7 +260,7 @@ export async function prepareOpenAISessionWorkspace(
     session.blockFailingVerificationUntilEdit = false;
     session.governorPrePauseAttemptsByRule.clear();
     session.implementationSoftStallNudgeStrikes = 0;
-    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err) => {
+    void distributedCounters.setConsecutiveToolCalls(sessionKey, 0).catch((err: unknown) => {
       console.warn("[session] counter reset failed:", (err as Error).message ?? err);
     });
   }
@@ -268,7 +271,7 @@ export async function prepareOpenAISessionWorkspace(
     identity,
     requestId,
     pathHints: pathContext,
-    readDir: async (root) => readdir(root, { withFileTypes: true }),
+    readDir: async (root: string) => readdir(root, { withFileTypes: true }),
     hasPersistedState: hasPersistedWorkspaceState(session, workspaceStatePresence(sessionKey)),
     resetWorkspaceState: resetWorkspaceScopedSessionState,
     recordSessionEvent,

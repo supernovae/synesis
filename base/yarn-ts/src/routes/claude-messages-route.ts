@@ -372,9 +372,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
         },
       );
     }
-    const claudeEditMissFailureCount = claudeToolFailures.filter((failure) => failure.reason === "edit_context_miss").length;
+    const claudeEditMissFailureCount = claudeToolFailures.filter((failure: { reason: string }) => failure.reason === "edit_context_miss").length;
     const claudeAnyWriteToolEditFailure = claudeToolFailures.some(
-      (f) => f.reason === "edit_error"
+      (f: { reason: string }) => f.reason === "edit_error"
         || f.reason === "edit_context_miss"
         || f.reason === "write_tool_error"
         || f.reason === "patch_apply_failed",

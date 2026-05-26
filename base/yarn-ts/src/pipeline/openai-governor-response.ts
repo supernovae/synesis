@@ -110,7 +110,7 @@ export function handleOpenAIGovernorResponse(
       selectedModel,
       originalModel,
       finishReason: "stop",
-      buildPause: (consecutiveRecoveryFires) => {
+      buildPause: (consecutiveRecoveryFires: number) => {
         const content = buildExecutionGovernorHardStopUserMessage({
           consecutiveRecoveryFires,
           matchedRules: executionGovernor.matchedRules,
@@ -142,7 +142,11 @@ export function handleOpenAIGovernorResponse(
           },
         };
       },
-      persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }) => persistGovernorPauseContextMetadata({
+      persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }: {
+        session: SessionState;
+        pauseEnvelope: unknown;
+        pauseContent: string;
+      }) => persistGovernorPauseContextMetadata({
         session: pauseSession,
         surface: "openai",
         requestId,
@@ -167,7 +171,7 @@ export function handleOpenAIGovernorResponse(
         selectedModel,
         originalModel,
         finishReason: "stop",
-        buildPause: (consecutiveRecoveryFires) => {
+        buildPause: (consecutiveRecoveryFires: number) => {
           const content = buildSensemakingPauseMessage(sensemakingDecision as never);
           const envelope = buildExecutionGovernorPauseEnvelope({
             matchedRules: sensemakingDecision.matchedRules,
@@ -195,7 +199,11 @@ export function handleOpenAIGovernorResponse(
             },
           };
         },
-        persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }) => persistGovernorPauseContextMetadata({
+        persistPauseContext: ({ session: pauseSession, pauseEnvelope, pauseContent }: {
+          session: SessionState;
+          pauseEnvelope: unknown;
+          pauseContent: string;
+        }) => persistGovernorPauseContextMetadata({
           session: pauseSession,
           surface: "openai",
           requestId,

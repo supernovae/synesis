@@ -33,6 +33,7 @@ import {
   type CompactionSensitivity,
 } from "./context/compaction-sensitivity.js";
 import { SessionStore, type SessionRecord, type SessionStateSnapshot } from "./state/session-store.js";
+import type { SessionState } from "./state/session-state.js";
 import {
   resolveSessionKey,
   shouldResetImplicitSessionForFreshTranscript,
@@ -224,7 +225,6 @@ import {
   governorPhaseToWorkflowPhase,
   extractCommandEvents,
   extractEditedFileHints,
-  type ExecutionGovernorDecision,
   type GovernorPauseEnvelope,
   type SessionPhase,
   isPlanRecoveryDiscoveryIntent,
@@ -261,7 +261,6 @@ import {
 import { buildArtifactShadows, summarizeArtifactContext } from "./governance/artifact-shadow.js";
 import { toolDefinitionName, type GuardrailToolCall } from "./tools/tool-call-availability.js";
 import { summarizeEvidenceDelta } from "./governance/evidence-delta.js";
-import type { TurnEvidenceDelta } from "./governance/evidence-delta.js";
 import {
   deriveChatState,
   type ChatPhase,
@@ -295,8 +294,6 @@ import type { CompactionMode } from "./governance/context-budget-manager.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
-  type TaskLedger,
-  type ClientTaskCapabilities,
   detectClientTaskCapabilities,
   isTaskToolCall,
   normalizeTaskToolCall,
@@ -313,63 +310,6 @@ import {
 } from "./task-ledger/index.js";
 
 import { evaluateCliProjectAcceptance } from "./acceptance/cli-project-harness.js";
-
-type SessionState = {
-  history: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
-  toolCallsSinceCheckpoint: number;
-  consecutiveToolCalls: number;
-  stagnantToolCycles: number;
-  lastToolSignalHash: string;
-  awaitingToolLoopUserAck: boolean;
-  toolLoopAckAnchorUserHash: string;
-  toolLoopNoUserAckCount: number;
-  blockBroadVerificationUntilEdit: boolean;
-  blockFailingVerificationUntilEdit: boolean;
-  record: SessionRecord;
-  lastVolatileContent?: string;
-  lastVolatileHash?: string;
-  pruningWatermark: number;
-  consecutiveRecoveryFires: number;
-  consecutiveEditContextMisses: number;
-  editReplayHardStopGraceUsed: boolean;
-  editMissForceReadPending: boolean;
-  lastGovernorPhase?: import("./governance/execution-governor.js").SessionPhase;
-  /** Per-file edit-turn tracking for artifact shadow staleness. */
-  artifactEditTurns: Map<string, number>;
-  /** All distinct failure signatures observed in this session. */
-  seenFailureSignatures: Set<string>;
-  /** The failure signature from the previous governor evaluation. */
-  previousFailureSignature: string | null;
-  /** Latest computed evidence delta for training signal export. */
-  lastEvidenceDelta: TurnEvidenceDelta | null;
-  /** Track incoming message count to detect external (client-side) compaction. */
-  lastIncomingMessageCount: number;
-  /** One-shot pre-pause recovery attempts keyed by phase+rule. */
-  governorPrePauseAttemptsByRule: Map<string, number>;
-  /**
-   * 0: next implementation-only soft stall (explore/no_progress) may receive a nudge without pause;
-   * 1: next identical stall is a full soft-fail pause, then reset to 0.
-   */
-  implementationSoftStallNudgeStrikes: 0 | 1;
-  /** Turns remaining in the post-reground cooldown (skip reground for N turns after satisfaction). */
-  regroundCooldownRemaining: number;
-  /** Timestamp (ms) of the last governor evaluation that returned pause=false. */
-  lastGovernorNoPauseAt: number;
-  /** Cached governor result from the last evaluation that returned pause=false. */
-  lastGovernorCachedResult: ExecutionGovernorDecision | null;
-  /** Skip tool ID stabilization on next request after a MissingToolResults error. */
-  skipToolIdStabilization: boolean;
-  /** Count of compound git inspection blocks in this session. */
-  gitInspectionBlockCount: number;
-  /** Proportionality: classified scope envelope from the latest user message. */
-  scopeEnvelope: import("./governance/intent-scope-classifier.js").ScopeEnvelope;
-  /** Proportionality: cumulative diff stats for the current user turn. */
-  diffStats: import("./governance/diff-accumulator.js").DiffStats;
-  /** Normalized task ledger for cross-client task reconciliation. */
-  taskLedger: TaskLedger | null;
-  /** Detected client task/todo capabilities (set once per session). */
-  taskCapabilities: ClientTaskCapabilities | null;
-};
 
 type DiscoveryRecoverySnapshot = {
   text: string;

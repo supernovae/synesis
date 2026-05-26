@@ -156,22 +156,23 @@ export async function prepareOpenAIContext(input: PrepareOpenAIContextInput) {
   if (config.SYNESIS_YARN_EVIDENCE_PREFETCH_ENABLED && latestUserText) {
     const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
     if (prefetchText.length > 0) {
-      prefetchResult = await runEvidencePrefetch(
+      const evidencePrefetchResult = await runEvidencePrefetch(
         prefetchText,
         knowledgeSearch,
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         config.SYNESIS_YARN_EVIDENCE_CONFIDENCE_MIN,
         { retryEnabled: config.SYNESIS_YARN_EVIDENCE_PREFETCH_RETRY_ENABLED },
         knowledgeResolveContext(authUser, req),
-      );
-      if (prefetchResult.matched) {
+      ) as import("../evidence/fast-path.js").FastPathResult;
+      prefetchResult = evidencePrefetchResult;
+      if (evidencePrefetchResult.matched) {
         app.log.info({
-          pattern: prefetchResult.pattern,
-          hasEvidence: Boolean(prefetchResult.evidence),
-          timedOut: prefetchResult.timedOut,
-          latencyMs: Math.round(prefetchResult.latencyMs),
-          confidence: prefetchResult.confidence,
-          authoritative: prefetchResult.authoritative,
+          pattern: evidencePrefetchResult.pattern,
+          hasEvidence: Boolean(evidencePrefetchResult.evidence),
+          timedOut: evidencePrefetchResult.timedOut,
+          latencyMs: Math.round(evidencePrefetchResult.latencyMs),
+          confidence: evidencePrefetchResult.confidence,
+          authoritative: evidencePrefetchResult.authoritative,
         }, "evidence_prefetch_result");
       }
     }
@@ -181,20 +182,21 @@ export async function prepareOpenAIContext(input: PrepareOpenAIContextInput) {
   if (config.SYNESIS_YARN_PATTERN_RECALL_ENABLED && latestUserText && !prefetchResult?.matched) {
     const prefetchText = typeof latestUserText.content === "string" ? latestUserText.content : "";
     if (prefetchText.length > 0) {
-      patternResult = await runPatternPrefetch(
+      const recallPatternResult = await runPatternPrefetch(
         prefetchText,
         knowledgeSearch,
         config.SYNESIS_YARN_EVIDENCE_PREFETCH_TIMEOUT_MS,
         workingPhase,
         knowledgeResolveContext(authUser, req),
-      );
-      if (patternResult.matched) {
+      ) as import("../evidence/fast-path.js").PatternPrefetchResult;
+      patternResult = recallPatternResult;
+      if (recallPatternResult.matched) {
         app.log.info({
-          intent: patternResult.intent,
-          hasEvidence: Boolean(patternResult.evidence),
-          timedOut: patternResult.timedOut,
-          latencyMs: Math.round(patternResult.latencyMs),
-          confidence: patternResult.confidence,
+          intent: recallPatternResult.intent,
+          hasEvidence: Boolean(recallPatternResult.evidence),
+          timedOut: recallPatternResult.timedOut,
+          latencyMs: Math.round(recallPatternResult.latencyMs),
+          confidence: recallPatternResult.confidence,
         }, "pattern_prefetch_result");
       }
     }
@@ -274,7 +276,7 @@ export async function prepareOpenAIContext(input: PrepareOpenAIContextInput) {
     session,
     normalizedMessages,
     {
-      normalizeSignal: (content) => normalizedToolOutputSignal(content),
+      normalizeSignal: (content: unknown) => normalizedToolOutputSignal(content),
       looksLikeFailure: looksLikeFailureSignal,
     },
   );
