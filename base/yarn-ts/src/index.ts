@@ -143,14 +143,9 @@ import {
   evaluateDeterministicPreFinalize,
 } from "./verification/staff-completion.js";
 import { enforceNonSilentFinalizeText } from "./verification/non-silent-finalize.js";
-import { registerMcpRoutes, getToolRegistry } from "./mcp/index.js";
-import { registerEvalRoutes } from "./eval/routes.js";
-import { enableObserver as enableEvalObserver } from "./eval/session-observer.js";
 import { DedupeLayer } from "./dedupe/DedupeLayer.js";
 import { ToolPrefixCache } from "./tool-prefix-cache/ToolPrefixCache.js";
-import {
-  registerToolCollapseRoutes,
-} from "./tool-collapse/index.js";
+import { registerNonChatRoutes } from "./server/non-chat-routes.js";
 import { applyDiscoveryGuardrails, type DiscoveryGuardrailRedirect } from "./tool-collapse/discovery-guardrails.js";
 import {
   buildBlockedDiscoveryGuidance,
@@ -4777,32 +4772,14 @@ async function shutdown(): Promise<void> {
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
 
-// --- Native MCP tools (replaces Python MCP proxy) ---
-getToolRegistry().setTimeoutMs(config.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS);
-await registerMcpRoutes(app, {
-  authResolver,
-  enabled: config.SYNESIS_YARN_MCP_TOOLS_ENABLED,
-  openClawProfileEnabled: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED,
-  openClawMcpAllowlistEnabled: config.SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED,
-  openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
-  synesisMcpDeps: {
-    plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
-    internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
-  },
-});
-await registerToolCollapseRoutes(app, {
-  authResolver,
+await registerNonChatRoutes({
+  app,
   config,
+  authResolver,
   dedupeLayer: yarnDedupeLayer,
   toolPrefixCache: yarnToolPrefixCache,
+  requireInternalToken,
 });
-
-// --- Eval Gym routes ---
-registerEvalRoutes(app, config, { requireInternalToken });
-if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
-  enableEvalObserver();
-  console.log("[eval-observer] Session observer enabled via env");
-}
 
 const routeDependencySource = {
   applyAuthKeyAttribution,
