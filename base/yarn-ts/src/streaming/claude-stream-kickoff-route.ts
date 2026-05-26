@@ -15,16 +15,17 @@ import type { OptimizationCacheDiagnostics } from "../telemetry/optimization-led
 import { buildDecisionSnapshot } from "../telemetry/decision-snapshot.js";
 import type { RequestDiagnostic } from "../telemetry/request-diagnostics.js";
 import type { RequestForensicsBuildResult, RequestForensicsRecord } from "../telemetry/request-forensics.js";
-import type { VerificationLoopState } from "../verification/types.js";
 import {
   runClaudeStreamKickoffPipeline,
 } from "./claude-stream-kickoff-pipeline.js";
 import type {
   ClaudeNonStreamProviderMessage,
   ClaudeNonStreamProviderResultLike,
+  ClaudeNonStreamProviderServerWebSearchContext,
   ClaudeNonStreamProviderToolCall,
 } from "./claude-nonstream-provider-executor.js";
 import type { StreamTokenUsage } from "./openai-stream-finalizer.js";
+import type { StreamTelemetryReductions } from "./stream-telemetry-route-base.js";
 
 interface KickoffSession {
   record: {
@@ -32,15 +33,6 @@ interface KickoffSession {
     conversationId?: string | null;
   };
   history: Array<{ role: string; content: unknown }>;
-}
-
-interface ReductionTracker {
-  getPerRequestDelta(): number;
-}
-
-interface ToolResultReductionTracker extends ReductionTracker {
-  getVerificationTracker(): { getState(): VerificationLoopState };
-  getLastRecallDecision(): Parameters<typeof buildDecisionSnapshot>[0]["recallDecision"];
 }
 
 interface RouteLoggerDeps {
@@ -57,7 +49,7 @@ interface ServerWebSearchDeps {
   webSearchResolveContext(
     authUser: AuthUser,
     request: FastifyRequest,
-    context: Record<string, unknown>,
+    context: ClaudeNonStreamProviderServerWebSearchContext,
   ): unknown;
 }
 
@@ -80,7 +72,6 @@ export interface ClaudeStreamKickoffRouteInput {
   orchestration: OrchestratorDecision;
   samplingOptions?: Record<string, unknown>;
   stopSequences?: unknown;
-  tools?: unknown;
   sdkTools?: unknown;
   toolChoice?: unknown;
   providerOptions?: unknown;
@@ -107,8 +98,8 @@ export interface ClaudeStreamKickoffRouteInput {
   trajectoryDiagnostics?: Record<string, unknown>;
   artifactToolInjected: boolean;
   knowledgeToolInjected: boolean;
-  toolResultReduction: ToolResultReductionTracker;
-  validationNormalization: ReductionTracker;
+  toolResultReduction: StreamTelemetryReductions["toolResultReduction"];
+  validationNormalization: StreamTelemetryReductions["validationNormalization"];
   clampMaxOutputTokens(tokens: number): number;
   generateText(options: Record<string, unknown>): Promise<ClaudeNonStreamProviderResultLike>;
   readUsage(usage: unknown): StreamTokenUsage;
