@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
 import type { AuthUser } from "../auth.js";
-import type { ClaudeMessagesRouteDependencies } from "../index.js";
+import type { ClaudeMessagesRouteDependencies } from "../server/route-dependencies.js";
 import type { ClaudeMessagesRequest } from "../schemas.js";
 import { ClaudeMessagesRequestSchema } from "../schemas.js";
 import { normalizeToolDescriptions } from "../compat/tool-description-normalizer.js";

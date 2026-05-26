@@ -1,4 +1,4 @@
-import type { ClaudeMessagesRouteDependencies } from "../index.js";
+import type { ClaudeMessagesRouteDependencies } from "../server/route-dependencies.js";
 import { parseOrchestratorPhaseHeader } from "../validation/orchestrator-phase.js";
 import { prepareClaudeProviderRuntimeForRoute } from "../pipeline/claude-provider-runtime-preparation.js";
 import { runClaudeMessagesDispatchForRoute } from "../pipeline/claude-messages-dispatch.js";

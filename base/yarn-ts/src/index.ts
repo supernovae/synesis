@@ -4920,7 +4920,7 @@ if (config.SYNESIS_YARN_EVAL_OBSERVER_ENABLED) {
 }
 
 // --- OpenAI chat completions ---
-const openAIChatCompletionsRouteDependencies = {
+export const openAIChatCompletionsRouteDependencies = {
   applyAuthKeyAttribution,
   applyEditContextMissReadGate,
   applyMarkdownGuardrail,
@@ -5141,11 +5141,10 @@ const openAIChatCompletionsRouteDependencies = {
   yarnDedupeLayer,
   yarnToolPrefixCache,
 };
-export type OpenAIChatCompletionsRouteDependencies = typeof openAIChatCompletionsRouteDependencies;
 registerOpenAIChatCompletionsRoute(openAIChatCompletionsRouteDependencies);
 
 // --- Claude Messages API ---
-const claudeMessagesRouteDependencies = {
+export const claudeMessagesRouteDependencies = {
   runtime: {
     app,
     config,
@@ -5344,7 +5343,6 @@ const claudeMessagesRouteDependencies = {
     clientAdapterPacks,
   },
 };
-export type ClaudeMessagesRouteDependencies = typeof claudeMessagesRouteDependencies;
 registerClaudeMessagesRoute(claudeMessagesRouteDependencies);
 
 await refreshTierRegistry();

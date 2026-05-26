@@ -1,5 +1,5 @@
 import type { SessionIdentity } from "../session/session-key.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { reconstructMissingToolCalls } from "../tool-mapping.js";
 import { sortToolSchemas } from "../compat/sorted-tools.js";
 

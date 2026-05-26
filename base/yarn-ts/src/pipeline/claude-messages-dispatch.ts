@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { AuthUser } from "../auth.js";
-import type { ClaudeMessagesRouteDependencies } from "../index.js";
+import type { ClaudeMessagesRouteDependencies } from "../server/route-dependencies.js";
 import type { ClaudeMessagesRequest } from "../schemas.js";
 import type { RequestDiagnostic } from "../telemetry/request-diagnostics.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";

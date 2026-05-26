@@ -1,4 +1,4 @@
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
 

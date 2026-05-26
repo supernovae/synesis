@@ -9,7 +9,7 @@ import { normalizeToolDescriptions, type ToolDescriptionTruncation } from "../co
 import { type SessionIdentity } from "../session/session-key.js";
 import { buildProtocolSessionIdentity } from "../session/protocol-session.js";
 import { resolvePipelineMode, shouldRunGovernorForMode, type PipelineModeResolution } from "./modes.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import {
   runPreparedOpenAIChatProviderExecution,

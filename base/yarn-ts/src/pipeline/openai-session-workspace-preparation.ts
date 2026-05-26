@@ -3,7 +3,7 @@ import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { stabilizeOpenAITranscript } from "./openai-route-transcript-stabilization.js";
 
 type Deps = Pick<

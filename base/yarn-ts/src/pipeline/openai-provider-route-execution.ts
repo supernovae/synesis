@@ -1,6 +1,6 @@
 import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 
 type Deps = Pick<

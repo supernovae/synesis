@@ -1,4 +1,4 @@
-import type { ClaudeMessagesRouteDependencies } from "../index.js";
+import type { ClaudeMessagesRouteDependencies } from "../server/route-dependencies.js";
 import type { ClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
 import type { SessionPhase } from "../governance/execution-governor.js";
 import type { SessionIdentity } from "../session/session-key.js";

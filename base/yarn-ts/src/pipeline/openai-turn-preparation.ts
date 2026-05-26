@@ -1,6 +1,6 @@
 import type { SessionIdentity } from "../session/session-key.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { GovernorInputMessage } from "../governance/execution-governor.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
 

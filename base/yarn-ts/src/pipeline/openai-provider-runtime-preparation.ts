@@ -1,5 +1,5 @@
 import type { SessionIdentity } from "../session/session-key.js";
-import type { OpenAIChatCompletionsRouteDependencies } from "../index.js";
+import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { finalizeOpenAIProviderRequestForRoute } from "./openai-route-provider-finalization.js";
 import { prepareOpenAIChatProviderRuntime } from "./openai-chat-provider-preparation.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
