@@ -2946,6 +2946,52 @@ export interface YarnOptimizationWatcher extends YarnOptimizationHealth {
   };
 }
 
+export interface YarnModelArchitectureTrace {
+  profile_id?: string;
+  policy_hash?: string;
+  provider?: string;
+  attention?: string;
+  activation?: string;
+  decoding?: string;
+  declared_context_tokens?: number;
+  effective_context_ceiling_tokens?: number;
+  safe_instruction_tokens?: number;
+  safe_tool_output_tokens?: number;
+  long_tail_retention?: string;
+  tool_calling_reliability?: string;
+  long_context_reliability?: string;
+  output_throughput_bias?: string;
+  retry_sensitivity?: string;
+  compaction_sensitivity?: string;
+  compaction_mode?: string;
+  prefer_memory_stitching?: boolean;
+  prefer_recent_tool_state_replay?: boolean;
+  prefer_structured_tool_digests?: boolean;
+  prefer_explicit_state_headers?: boolean;
+  prefer_deterministic_validation?: boolean;
+  strict_stream_tool_boundary_validation?: boolean;
+  reasons?: string[];
+}
+
+export interface YarnModelArchitectureDiagnostic {
+  model_id: string;
+  resolved: boolean;
+  tier_id?: string;
+  backend_model: string;
+  provider?: string;
+  adapter_family: string;
+  declared_context_tokens?: number;
+  override_applied: boolean;
+  architecture: YarnModelArchitectureTrace;
+  profile_notes?: string[];
+}
+
+export interface YarnModelArchitectureDiagnostics {
+  schema_version: string;
+  count: number;
+  models: YarnModelArchitectureDiagnostic[];
+}
+
 export function useYarnOverview(sinceHours: number) {
   return useQuery<YarnOverview>({
     queryKey: ["yarn", "overview", sinceHours],
@@ -3008,6 +3054,14 @@ export function useYarnOptimizationWatcher() {
 export function useYarnOptimizationAssist() {
   return useMutation<YarnOptimizationWatcher, Error, { focus?: string }>({
     mutationFn: (data) => client.post("/yarn/optimization-watcher/assist", data).then((r) => r.data),
+  });
+}
+
+export function useYarnModelArchitectureDiagnostics() {
+  return useQuery<YarnModelArchitectureDiagnostics>({
+    queryKey: ["yarn", "model-architecture"],
+    queryFn: () => client.get("/yarn/model-architecture").then((r) => r.data),
+    refetchInterval: 60_000,
   });
 }
 

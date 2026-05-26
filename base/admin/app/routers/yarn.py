@@ -112,6 +112,21 @@ async def _fetch_yarn_recent_diagnostics() -> dict:
         return data if isinstance(data, dict) else {"diagnostics": [], "source": "invalid"}
 
 
+async def _fetch_yarn_model_architecture_diagnostics() -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{_YARN_URL.rstrip('/')}/v1/diagnostics/model-architecture",
+            headers=_optional_internal_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return (
+            data
+            if isinstance(data, dict)
+            else {"schema_version": "model_architecture_diagnostics_v1", "models": [], "count": 0}
+        )
+
+
 async def _run_yarn_optimization_ai_assist(watcher: dict, *, focus: str = "") -> dict:
     messages = build_yarn_optimization_ai_messages(watcher, focus=focus)
     headers = {"Content-Type": "application/json"}
@@ -609,6 +624,18 @@ async def yarn_diagnostics_recent(
     except Exception as exc:
         logger.warning("yarn_diagnostics_recent_proxy_error: %s", str(exc)[:120])
         raise HTTPException(status_code=502, detail="Could not reach Yarn diagnostics endpoint")
+
+
+@router.get("/model-architecture")
+async def yarn_model_architecture(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Proxy architecture-aware model mediation diagnostics from Yarn."""
+    try:
+        return await _fetch_yarn_model_architecture_diagnostics()
+    except Exception as exc:
+        logger.warning("yarn_model_architecture_proxy_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not reach Yarn architecture diagnostics endpoint")
 
 
 @router.get("/optimization-health")

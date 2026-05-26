@@ -92,6 +92,7 @@ const navigation: NavItem[] = [
       { label: "Reducers", path: "/yarn/reducers" },
       { label: "Events", path: "/yarn/events" },
       { label: "Performance", path: "/yarn/performance" },
+      { label: "Model Architecture", path: "/yarn/model-architecture" },
       { label: "Verification", path: "/yarn/verification" },
       { label: "Transition Calibration", path: "/yarn/transition-calibration" },
       { label: "Language Packs", path: "/yarn/language-packs" },

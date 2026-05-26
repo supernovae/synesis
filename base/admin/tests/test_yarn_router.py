@@ -557,6 +557,40 @@ def test_yarn_optimization_watcher_summarizes_recent_diagnostics(client, monkeyp
     assert data["watcher_report"]["model_assist_ready"] is True
 
 
+def test_yarn_model_architecture_proxies_internal_diagnostics(client, monkeypatch):
+    async def _mock_architecture():
+        return {
+            "schema_version": "model_architecture_diagnostics_v1",
+            "count": 1,
+            "models": [
+                {
+                    "model_id": "core",
+                    "resolved": True,
+                    "backend_model": "minimax-m2.1",
+                    "provider": "openrouter",
+                    "adapter_family": "minimax",
+                    "override_applied": False,
+                    "architecture": {
+                        "attention": "hybrid",
+                        "activation": "moe",
+                        "decoding": "speculative_friendly",
+                        "policy_hash": "abc123",
+                        "strict_stream_tool_boundary_validation": True,
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.routers.yarn._fetch_yarn_model_architecture_diagnostics", _mock_architecture)
+
+    resp = client.get("/api/v1/yarn/model-architecture")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["schema_version"] == "model_architecture_diagnostics_v1"
+    assert data["models"][0]["model_id"] == "core"
+    assert data["models"][0]["architecture"]["strict_stream_tool_boundary_validation"] is True
+
+
 def test_yarn_optimization_watcher_assist_uses_model_helper(client, monkeypatch):
     async def _mock_recent():
         return {

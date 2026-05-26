@@ -87,6 +87,7 @@ const YarnSessionDetail = lazy(() => import("./pages/yarn/YarnSessionDetail"));
 const YarnReducers = lazy(() => import("./pages/yarn/YarnReducers"));
 const YarnEvents = lazy(() => import("./pages/yarn/YarnEvents"));
 const YarnPerformance = lazy(() => import("./pages/yarn/YarnPerformance"));
+const ModelArchitecture = lazy(() => import("./pages/yarn/ModelArchitecture"));
 const YarnVerification = lazy(() => import("./pages/yarn/YarnVerification"));
 const YarnTransitionCalibration = lazy(() => import("./pages/yarn/YarnTransitionCalibration"));
 const LanguagePacks = lazy(() => import("./pages/yarn/LanguagePacks"));
@@ -250,6 +251,7 @@ export const router = createBrowserRouter([
       { path: "yarn/reducers", element: <YarnReducers /> },
       { path: "yarn/events", element: <YarnEvents /> },
       { path: "yarn/performance", element: <YarnPerformance /> },
+      { path: "yarn/model-architecture", element: <ModelArchitecture /> },
       { path: "yarn/verification", element: <YarnVerification /> },
       { path: "yarn/transition-calibration", element: <YarnTransitionCalibration /> },
       { path: "yarn/language-packs", element: <LanguagePacks /> },
