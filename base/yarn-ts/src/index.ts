@@ -11,10 +11,6 @@ import {
 } from "@synesis/telemetry";
 import { loadConfig } from "./config.js";
 import {
-  fetchTierRegistrySnapshot,
-  fetchPublicOfferingsForYarn,
-  mergeYarnPublicOfferingsIntoTiers,
-  resolveOfferingTierId,
   TIER_TO_ROLE,
   type PromptSnapshot,
   type RoleAssignmentConfig,
@@ -70,7 +66,6 @@ import { applyIngressCapToToolMessages } from "./reduction/ingress-cap.js";
 import { BlockStore } from "./store/block-store.js";
 import {
   RequestDiagnosticRegistry,
-  type RequestDiagnostic,
 } from "./telemetry/request-diagnostics.js";
 import {
   cachePolicyLogRecord,
@@ -102,7 +97,6 @@ import {
 import { classifyLatestToolProgress } from "./governance/recovery-progress.js";
 import {
   PhaseModelOrchestrator,
-  type EffortTier,
 } from "./orchestration/phase-model-orchestrator.js";
 import {
   appendPathContextToAdapterBlock,
@@ -123,9 +117,8 @@ import { SessionContinuityService } from "./context/session-continuity.js";
 import { applyMarkdownGuardrail } from "./response-style.js";
 import {
   evaluateYarnPromptIntakeSteer,
-  formatUpperHarnessDecisionSummary,
-  type UpperHarnessDecision,
 } from "./upper-harness/bridge.js";
+import { createUpperHarnessDecisionRecorder } from "./upper-harness/decision-recorder.js";
 import { detectToolProgress } from "./policy/tool-progress-detector.js";
 import { CircuitBreakerRegistry } from "./providers/circuit-breaker.js";
 import { UserRateLimiter } from "./middleware/user-rate-limit.js";
@@ -147,7 +140,11 @@ import { createRoutePersistenceScope } from "./state/route-persistence-scope.js"
 import { createSessionResourceRegistry } from "./state/session-resource-registry.js";
 import { createSessionLifecycleHelpers } from "./state/session-lifecycle.js";
 import { createProviderRequestSupport } from "./providers/provider-request-support.js";
-import { normalizeProviderUsage } from "./telemetry/usage-normalization.js";
+import { createMaxOutputTokenSafetyClamp } from "./providers/output-token-safety.js";
+import {
+  createDiagnosticPusher,
+  createProviderUsageReader,
+} from "./telemetry/route-telemetry-helpers.js";
 import {
   readPersistedChatStateSnapshot,
 } from "./state/persistence-state-channels.js";
@@ -228,6 +225,10 @@ import {
   setSessionWorkspaceContext,
 } from "./state/workspace-session-boundary.js";
 import { createWorkspaceSessionStateHelpers } from "./state/workspace-session-state-helpers.js";
+import {
+  applyAuthKeyAttribution,
+  createSessionContextInjector,
+} from "./state/route-session-helpers.js";
 import { StateTransitionGlobalCalibrator } from "./governance/state-transition-global-calibrator.js";
 import { resetRecoveryCounters } from "./path-governance/tool-call-governance.js";
 import {
@@ -287,10 +288,6 @@ const contextAdmissionStats = {
   },
 };
 
-function pushDiagnostic(d: RequestDiagnostic): void {
-  diagnosticRegistry.push(d);
-}
-
 import { initFgaClient, fgaCheck } from "./openfga-client.js";
 import {
   registerConfiguredRoutes,
@@ -302,8 +299,8 @@ import {
   startSessionTtlEviction,
   startTierPolling,
 } from "./server/lifecycle.js";
+import { createTierRegistryRefresher } from "./server/tier-registry-refresh.js";
 import {
-  debugProtocolLog as debugProtocolLogWithFlag,
   formatValidationError,
   resolveRequestId,
   safeEnd,
@@ -312,6 +309,7 @@ import {
   selectedOpenAiCompatHeaders,
   startSseHeartbeat,
 } from "./server/http-utils.js";
+import { createProtocolDebugLogger } from "./server/route-debug-log.js";
 import {
   applyClarificationRoundResponseHeader,
   extractLatestUserPromptFromMessages,
@@ -336,11 +334,7 @@ const governorService = new GovernorService({
 });
 const openAiChatPipeline = new OpenAIChatPipeline({ governorService });
 
-function clampMaxOutputTokensForSafety(n: number): number {
-  const c = config.SYNESIS_YARN_MAX_OUTPUT_TOKENS_SAFETY_CEILING;
-  if (!c || c <= 0) return n;
-  return Math.min(n, c);
-}
+const clampMaxOutputTokensForSafety = createMaxOutputTokenSafetyClamp(config);
 
 initFgaClient(config);
 const app = Fastify({
@@ -424,6 +418,7 @@ const sessions = new Map<string, SessionState>();
 const rotatedSessionByBaseKey = new Map<string, string>();
 const sessionStore = new SessionStore(config);
 const diagnosticRegistry = new RequestDiagnosticRegistry(config);
+const pushDiagnostic = createDiagnosticPusher(diagnosticRegistry);
 const memoryStoreRedis = config.SYNESIS_YARN_SESSION_REDIS_URL
   ? new IORedis(config.SYNESIS_YARN_SESSION_REDIS_URL, {
       maxRetriesPerRequest: 1,
@@ -741,95 +736,22 @@ const { enrichWithFrameAndManifest } = createRouteEnrichmentService({
   getMemoryGovernor,
 });
 
-function applyAuthKeyAttribution(
-  state: SessionState,
-  authUser: Pick<import("./auth.js").AuthUser, "authMethod" | "authKeyId" | "authKeyName" | "authKeyPrefix">,
-): void {
-  state.record.metadata.auth_method = authUser.authMethod;
-  state.record.metadata.auth_key_id = authUser.authKeyId ?? "";
-  state.record.metadata.auth_key_name = authUser.authKeyName ?? "";
-  state.record.metadata.auth_key_prefix = authUser.authKeyPrefix ?? "";
-}
+const injectSessionContext = createSessionContextInjector(config);
 
-
-function injectSessionContext(
-  messages: Array<{ role: string; content: unknown }>,
-  state: SessionState
-): Array<{ role: string; content: unknown }> {
-  // In minimal compaction mode, skip injecting server-side architectural
-  // state.  Clients that manage their own context window (Cursor, Claude
-  // Code, OpenCode) already compact; prepending a stale server summary
-  // over their compacted transcript can cause the model to lose turns.
-  if (config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE === "minimal") {
-    return messages;
-  }
-  const compacted = state.history.find(
-    (m) => m.role === "system" && m.content.includes("<ARCHITECTURAL_STATE>")
-  );
-  if (!compacted) return messages;
-  const alreadyPresent = messages.some(
-    (m) => m.role === "system" && m.content === compacted.content,
-  );
-  if (alreadyPresent) return messages;
-  return [{ role: "system", content: compacted.content }, ...messages];
-}
-
-async function refreshTierRegistry(): Promise<void> {
-  try {
-    const snapshot = await fetchTierRegistrySnapshot(config);
-    const publicOfferings = await fetchPublicOfferingsForYarn(config);
-    const mergedTiers = mergeYarnPublicOfferingsIntoTiers(snapshot.tiers, publicOfferings);
-    tierRegistry.updateTiers(mergedTiers);
-    const offeringOrchestratorEntries: Array<{ clientId: string; tier: EffortTier }> = [];
-    for (const o of publicOfferings) {
-      const tier = resolveOfferingTierId(o);
-      if (tier === "synesis-pulse" || tier === "synesis-core" || tier === "synesis-horizon") {
-        offeringOrchestratorEntries.push({ clientId: o.client_model_id.trim().toLowerCase(), tier });
-      }
-    }
-    phaseOrchestrator.setPublicOfferingTiers(offeringOrchestratorEntries);
-    roleAssignmentRegistry.clear();
-    for (const role of snapshot.roleAssignments) {
-      roleAssignmentRegistry.set(role.role, role);
-    }
-    if (snapshot.promptSnapshot) {
-      promptSnapshotRegistry = snapshot.promptSnapshot;
-    }
-    if (snapshot.tiers.length > 0) {
-      app.log.info({ tiers: snapshot.tiers.map((t) => t.id), auxiliaryRoles: snapshot.roleAssignments.length }, "tier_registry_refreshed");
-      for (const t of snapshot.tiers) {
-        if (!t.apiKey?.trim()) {
-          app.log.warn(
-            { tier: t.id, baseUrl: t.baseUrl, backendModel: t.backendModel },
-            "tier_missing_api_key_env — set the key in provider-api-keys secret (same namespace as yarn) or SYNESIS_YARN_OPENAI_COMPAT_API_KEY",
-          );
-        }
-      }
-    } else {
-      app.log.warn(
-        {},
-        "tier_registry_empty — no assigned coder-pulse / coder-core / coder-horizon / coder-compaction roles in admin, or role fetch returned none",
-      );
-    }
-    const compactionTier = tierRegistry.getTierConfig("synesis-compaction");
-    if (compactionTier) {
-      sawtooth.setCompactFn(async (system: string, userPrompt: string) => {
-        const { model } = tierRegistry.resolve("synesis-compaction", config.SYNESIS_YARN_DEFAULT_TIER);
-        const result = await generateText({
-          model: model as never,
-          system,
-          messages: [{ role: "user" as const, content: userPrompt }],
-          maxOutputTokens: 2048
-        });
-        return result.text;
-      });
-    } else {
-      sawtooth.setCompactFn(null);
-    }
-  } catch (error) {
-    app.log.warn({ error }, "tier_registry_refresh_failed");
-  }
-}
+const refreshTierRegistry = createTierRegistryRefresher({
+  config,
+  generateText,
+  logger: app.log,
+  phaseOrchestrator,
+  promptSnapshot: {
+    set: (snapshot) => {
+      promptSnapshotRegistry = snapshot;
+    },
+  },
+  roleAssignmentRegistry,
+  sawtooth,
+  tierRegistry,
+});
 
 const runValidationTierCFallback = createValidationTierCFallbackRunner({
   config,
@@ -861,41 +783,16 @@ const updateDiffAccumulator = createRouteDiffAccumulatorUpdater({
   proportionalityEnabled: config.SYNESIS_YARN_PROPORTIONALITY_ENABLED,
 });
 
-function recordUpperHarnessDecision(
-  sessionKey: string,
-  userId: string,
-  orgId: string,
-  requestId: string,
-  source: string,
-  decision: UpperHarnessDecision | undefined,
-  options?: { recordAllow?: boolean },
-): void {
-  if (!decision || (decision.action === "allow" && !options?.recordAllow)) return;
-  recordSessionEvent(
-    sessionKey,
-    userId,
-    orgId,
-    "upper_harness_decision_v1",
-    source,
-    formatUpperHarnessDecisionSummary(decision),
-    requestId,
-    decision as unknown as Record<string, unknown>,
-  );
-}
+const recordUpperHarnessDecision = createUpperHarnessDecisionRecorder({
+  recordSessionEvent,
+});
 
-const readUsage = (input: unknown) => normalizeProviderUsage(input, {
+const readUsage = createProviderUsageReader({
   debug: config.SYNESIS_YARN_DEBUG_PROTOCOL,
   logger: app.log,
 });
 
-function debugProtocolLog(
-  logger: { info(obj: Record<string, unknown>, msg: string): void },
-  reqId: string,
-  path: string,
-  extra: Record<string, unknown>
-): void {
-  debugProtocolLogWithFlag(logger, reqId, path, extra, config.SYNESIS_YARN_DEBUG_PROTOCOL);
-}
+const debugProtocolLog = createProtocolDebugLogger(config.SYNESIS_YARN_DEBUG_PROTOCOL);
 
 const sessionEvictionTimer = startSessionTtlEviction({
   ttlMs: config.SYNESIS_YARN_SESSION_TTL_MS,
