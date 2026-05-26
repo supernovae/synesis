@@ -2233,6 +2233,16 @@ import {
   startSessionTtlEviction,
   startTierPolling,
 } from "./server/lifecycle.js";
+import {
+  debugProtocolLog as debugProtocolLogWithFlag,
+  formatValidationError,
+  resolveRequestId,
+  safeEnd,
+  safeSse,
+  safeWrite,
+  selectedOpenAiCompatHeaders,
+  startSseHeartbeat,
+} from "./server/http-utils.js";
 
 const config = loadConfig();
 const governorService = new GovernorService({
@@ -4574,55 +4584,6 @@ function getBearerToken(authHeader: string | undefined): string {
   return raw.slice(7).trim();
 }
 
-function safeWrite(raw: NodeJS.WritableStream & { destroyed?: boolean }, data: string): boolean {
-  try {
-    if (raw.destroyed) return false;
-    raw.write(data);
-    return true;
-  } catch { return false; }
-}
-
-function safeSse(reply: { raw: NodeJS.WritableStream & { destroyed?: boolean } }, event: string, data: unknown): boolean {
-  return safeWrite(reply.raw, `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-function safeEnd(raw: NodeJS.WritableStream & { destroyed?: boolean }): void {
-  try { if (!raw.destroyed) raw.end(); } catch { /* already closed */ }
-}
-
-function startSseHeartbeat(args: {
-  raw: NodeJS.WritableStream & { destroyed?: boolean; on?(event: string, listener: () => void): unknown };
-  intervalMs: number;
-  longWaitEventMs: number;
-  onLongWait?: (elapsedMs: number) => void;
-}): { stop: () => void } {
-  let stopped = false;
-  const normalizedInterval = Math.max(1000, Number.isFinite(args.intervalMs) ? args.intervalMs : 15_000);
-  const normalizedLongWait = Math.max(normalizedInterval, Number.isFinite(args.longWaitEventMs) ? args.longWaitEventMs : 45_000);
-  const startedAt = Date.now();
-  const interval = setInterval(() => {
-    if (stopped) return;
-    // SSE comment frame; ignored by clients, but keeps idle proxies/connections alive.
-    safeWrite(args.raw, ": keep-alive\n\n");
-  }, normalizedInterval);
-  let longWaitTimer: NodeJS.Timeout | undefined;
-  if (args.onLongWait) {
-    longWaitTimer = setTimeout(() => {
-      if (stopped) return;
-      args.onLongWait?.(Date.now() - startedAt);
-    }, normalizedLongWait);
-  }
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    clearInterval(interval);
-    if (longWaitTimer) clearTimeout(longWaitTimer);
-  };
-  args.raw.on?.("close", stop);
-  args.raw.on?.("error", stop);
-  return { stop };
-}
-
 function sanitizeUpstreamError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/timed?\s*out/i.test(raw)) return "Upstream model request timed out";
@@ -4685,48 +4646,13 @@ function requireInternalToken(req: { headers: Record<string, unknown> }): boolea
   return bearer === token;
 }
 
-function resolveRequestId(headers: Record<string, unknown>): string {
-  const explicit = headers["x-request-id"] ?? headers["anthropic-request-id"];
-  if (typeof explicit === "string" && explicit.length > 0) return explicit;
-  return `req-${crypto.randomUUID()}`;
-}
-
-function formatValidationError(error: { issues?: Array<{ path?: PropertyKey[]; message?: string }>; message: string }): string {
-  const issue = error.issues?.[0];
-  if (issue) {
-    const path = Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.map(String).join(".") : "request";
-    const message = typeof issue.message === "string" && issue.message.trim() ? issue.message.trim() : "invalid value";
-    return `Invalid request: ${path}: ${message}`;
-  }
-  return `Invalid request: ${error.message.slice(0, 500)}`;
-}
-
-function selectedOpenAiCompatHeaders(headers: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = { "content-type": "application/json" };
-  for (const [key, value] of Object.entries(headers)) {
-    const lower = key.toLowerCase();
-    if (
-      lower === "authorization"
-      || lower === "user-agent"
-      || lower === "x-request-id"
-      || lower === "openai-organization"
-      || lower === "openai-project"
-      || lower.startsWith("x-synesis-")
-    ) {
-      out[lower] = Array.isArray(value) ? value.join(",") : String(value);
-    }
-  }
-  return out;
-}
-
 function debugProtocolLog(
   logger: { info(obj: Record<string, unknown>, msg: string): void },
   reqId: string,
   path: string,
   extra: Record<string, unknown>
 ): void {
-  if (!config.SYNESIS_YARN_DEBUG_PROTOCOL) return;
-  logger.info({ reqId, path, ...extra }, "debug_protocol");
+  debugProtocolLogWithFlag(logger, reqId, path, extra, config.SYNESIS_YARN_DEBUG_PROTOCOL);
 }
 
 const sessionEvictionTimer = startSessionTtlEviction({
