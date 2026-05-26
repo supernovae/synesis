@@ -93,6 +93,51 @@ describe("client tool argument restoration", () => {
     });
   });
 
+  it("repairs stringified TodoWrite todos arrays before returning calls to OpenCode", () => {
+    const out = restoreToolArgsToClientSchema(
+      "todowrite",
+      {
+        todos: JSON.stringify([
+          { content: "Create project structure", id: "todo_1", status: "pending", priority: "high" },
+          { content: "Implement API routes", id: "todo_2", status: "pending", priority: "high" },
+        ]),
+      },
+      [{
+        type: "function",
+        function: {
+          name: "todowrite",
+          parameters: {
+            type: "object",
+            properties: {
+              todos: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    content: { type: "string" },
+                    status: { type: "string" },
+                    priority: { type: "string" },
+                  },
+                  required: ["id", "content", "status", "priority"],
+                },
+              },
+            },
+            required: ["todos"],
+          },
+        },
+      }],
+      "opencode",
+    );
+
+    expect(out).toEqual({
+      todos: [
+        { content: "Create project structure", id: "todo_1", status: "pending", priority: "high" },
+        { content: "Implement API routes", id: "todo_2", status: "pending", priority: "high" },
+      ],
+    });
+  });
+
   it("restores file arg casing when the offered schema uses camelCase", () => {
     const out = restoreToolArgsToClientSchema(
       "str_replace",

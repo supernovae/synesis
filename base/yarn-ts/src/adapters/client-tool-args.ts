@@ -115,6 +115,17 @@ function normalizeTodoWriteArgs(
     args.todos = args.tasks;
     delete args.tasks;
   }
+  if (!Array.isArray(args.todos) && typeof args.todos === "string") {
+    const trimmed = args.todos.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (Array.isArray(parsed)) args.todos = parsed;
+      } catch {
+        // Keep the original value so strict client validation can report the precise schema error.
+      }
+    }
+  }
   if (!Array.isArray(args.todos)) return;
 
   const itemSchema = todosItemSchema(parameters);

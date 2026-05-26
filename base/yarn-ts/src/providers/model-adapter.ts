@@ -170,10 +170,22 @@ const FINGERPRINT_ARG_KEYS = [
   "glob_pattern",
 ] as const;
 
+const TASK_TOOL_NAMES = new Set([
+  "taskcreate",
+  "taskupdate",
+  "tasklist",
+  "taskget",
+  "todowrite",
+]);
+
 function truncateForFingerprint(value: string, max = 80): string {
   const compact = value.replace(/\s+/g, " ").trim();
   if (compact.length <= max) return compact;
   return `${compact.slice(0, max)}…`;
+}
+
+function isTaskTrackerToolName(toolName: string): boolean {
+  return TASK_TOOL_NAMES.has(toolName.trim().toLowerCase());
 }
 
 function isActionToolCall(call: RecentToolCall): boolean {
@@ -386,7 +398,6 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
     const GREP_FIND_TOOLS = new Set(["Grep", "grep", "Glob", "glob", "rg"]);
-    const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite", "taskcreate", "taskupdate", "tasklist", "taskget", "todowrite"]);
 
     const tail = recentToolNames.slice(-6);
     let consecutiveCount = 1;
@@ -401,7 +412,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
 
     const isReadSearch = READ_SEARCH_TOOLS.has(lastTool);
     const isGrepFind = GREP_FIND_TOOLS.has(lastTool);
-    const isTaskTool = TASK_TOOLS.has(lastTool);
+    const isTaskTool = isTaskTrackerToolName(lastTool);
     const threshold = isTaskTool ? 3 : (isReadSearch || isGrepFind) ? 4 : lastTool === "Bash" ? 6 : 4;
 
     if (consecutiveCount < threshold) return null;
@@ -876,8 +887,26 @@ export class MiniMaxAdapter implements ModelAdapter {
       "",
       "## Discovery",
       "- First pass: list_dir or Read `README.md` / `go.mod` / `package.json` at the repository root to learn layout, then narrow (same as global discovery policy).",
+      "- When a native task/todo/job tracker is available, update existing items after each completed milestone; do not wait until the end to mark many items complete at once.",
       SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
     ].join("\n");
+  }
+
+  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
+    const trackerFailure = this._detectTaskTrackerSchemaFailure(recentToolCalls, options.recentToolResultText);
+    if (trackerFailure) return trackerFailure;
+    const writeVerificationDrift = this._detectWriteVerificationDrift(
+      recentToolCalls,
+      options.recentToolResultText,
+    );
+    if (writeVerificationDrift) return writeVerificationDrift;
+    return null;
+  }
+
+  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
+    const staleTracker = this._detectStaleTaskTracker(recentToolNames);
+    if (staleTracker) return staleTracker;
+    return null;
   }
 
   enrichToolDescription(toolName: string, description: string): string {
@@ -896,9 +925,85 @@ export class MiniMaxAdapter implements ModelAdapter {
         " [MiniMax: Set target_directory or scope to a subtree; avoid searching from an unknown cwd.]",
       Glob:
         " [MiniMax: Use a scoped pattern (e.g. cmd/**/*.go), not a bare filename in the wrong directory.]",
+      TodoWrite:
+        " [MiniMax: Keep this tracker current. After completing each milestone, update existing todos before starting distant later work; do not wait until final tests to mark everything complete.]",
+      todowrite:
+        " [MiniMax: Keep this tracker current. After completing each milestone, update existing todos before starting distant later work; do not wait until final tests to mark everything complete.]",
+      TaskUpdate:
+        " [MiniMax: Use this to advance existing task status after each completed milestone. Avoid leaving the first item in progress while implementing later steps.]",
+      TaskCreate:
+        " [MiniMax: Create tasks once, then use TaskUpdate/TodoWrite to advance existing items instead of recreating or bulk-closing them at the end.]",
     };
     const hint = hints[toolName];
     return hint ? description + hint : description;
+  }
+
+  private _detectStaleTaskTracker(recentToolNames: string[]): string | null {
+    const tail = recentToolNames.slice(-12);
+    let lastTaskIndex = -1;
+    for (let i = tail.length - 1; i >= 0; i--) {
+      if (isTaskTrackerToolName(tail[i])) {
+        lastTaskIndex = i;
+        break;
+      }
+    }
+    if (lastTaskIndex < 0) return null;
+    const toolsSinceTask = tail.slice(lastTaskIndex + 1);
+    if (toolsSinceTask.length < 5) return null;
+    if (toolsSinceTask.some(isTaskTrackerToolName)) return null;
+    const recentNonTask = toolsSinceTask.slice(-5).map((name) => name.trim()).filter(Boolean);
+    return [
+      `You used a task/todo tracker, then made ${toolsSinceTask.length} tool calls without updating it (${recentNonTask.join(", ")}).`,
+      "Before more broad verification or distant work, update the existing task tracker item(s) for completed milestones, then take exactly one concrete next action.",
+      "Do not recreate the task list and do not wait until the end to mark many items complete at once.",
+    ].join(" ");
+  }
+
+  private _detectTaskTrackerSchemaFailure(
+    recentToolCalls: RecentToolCall[],
+    recentToolResultText?: string | null,
+  ): string | null {
+    const text = (recentToolResultText ?? "").toLowerCase();
+    if (!text.includes("schemaerror") && !text.includes("invalid arguments")) return null;
+    if (!text.includes("todo") && !text.includes("taskupdate") && !text.includes("taskcreate")) return null;
+    const sawRecentTaskTool = recentToolCalls.slice(-6).some((call) => isTaskTrackerToolName(call.toolName));
+    if (!sawRecentTaskTool) return null;
+    return [
+      "The failure was a task/todo tracker schema error, not evidence that previous code writes failed.",
+      "Do NOT rebuild or rewrite completed files because the tracker update failed.",
+      "Retry only the tracker update with the exact client schema, or continue from the files already written and verify one narrow target.",
+    ].join(" ");
+  }
+
+  private _detectWriteVerificationDrift(
+    recentToolCalls: RecentToolCall[],
+    recentToolResultText?: string | null,
+  ): string | null {
+    const text = (recentToolResultText ?? "").toLowerCase();
+    if (!/no such file|file not found|cannot access|find: .*no such|enoent/.test(text)) return null;
+    const tail = recentToolCalls.slice(-10);
+    let lastWriteIndex = -1;
+    for (let i = tail.length - 1; i >= 0; i--) {
+      const call = tail[i];
+      const tool = call.toolName.trim().toLowerCase();
+      if (tool === "write" || tool === "edit" || tool === "update") {
+        lastWriteIndex = i;
+        break;
+      }
+    }
+    if (lastWriteIndex < 0) return null;
+    const toolsSinceWrite = tail.slice(lastWriteIndex + 1);
+    if (toolsSinceWrite.length < 2) return null;
+    const verificationTools = toolsSinceWrite.filter((call) => {
+      const tool = call.toolName.trim().toLowerCase();
+      return tool === "bash" || tool === "read" || tool === "glob" || tool === "grep";
+    });
+    if (verificationTools.length < 2) return null;
+    return [
+      "You recently used Write/Edit, then a later verification command could not find a path.",
+      "Treat this as a path/cwd mismatch until proven otherwise; it does NOT mean the writes failed.",
+      "Do not rebuild the app. Verify the exact path used in the prior Write/Edit once, then continue from the existing files.",
+    ].join(" ");
   }
 }
 

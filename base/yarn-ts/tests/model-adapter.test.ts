@@ -446,6 +446,7 @@ describe("MiniMaxAdapter", () => {
     expect(prompt).toMatch(/prefer Read/i);
     expect(prompt).toContain("pwd");
     expect(prompt).toContain("Prefer Read once, then Write");
+    expect(prompt).toContain("update existing items after each completed milestone");
   });
 
   it("returns undefined when no tools", () => {
@@ -456,7 +457,63 @@ describe("MiniMaxAdapter", () => {
     expect(adapter.enrichToolDescription!("Bash", "Run")).toContain("MiniMax");
     expect(adapter.enrichToolDescription!("Read", "Read")).toContain("project_root");
     expect(adapter.enrichToolDescription!("Write", "Write")).toContain("PREFERRED");
+    expect(adapter.enrichToolDescription!("todowrite", "Manage todos")).toContain("Keep this tracker current");
+    expect(adapter.enrichToolDescription!("TaskUpdate", "Update task")).toContain("after each completed milestone");
     expect(adapter.enrichToolDescription!("Unknown", "x")).toBe("x");
+  });
+
+  it("nudges MiniMax to update stale task trackers during long implementation runs", () => {
+    const nudge = adapter.dampenConsecutiveSameTools!([
+      "todowrite",
+      "Write",
+      "Write",
+      "Bash",
+      "Write",
+      "Bash",
+    ]);
+
+    expect(nudge).toContain("task/todo tracker");
+    expect(nudge).toContain("update the existing task tracker");
+  });
+
+  it("does not nudge MiniMax task tracking before enough non-task progress", () => {
+    expect(adapter.dampenConsecutiveSameTools!(["todowrite", "Write", "Bash"])).toBeNull();
+    expect(adapter.dampenConsecutiveSameTools!(["Write", "Bash", "Write", "Bash", "Write"])).toBeNull();
+    expect(adapter.dampenConsecutiveSameTools!(["todowrite", "Write", "Bash", "TaskUpdate"])).toBeNull();
+  });
+
+  it("treats task tracker schema failures as tracker-only failures", () => {
+    const nudge = adapter.getEarlyPivotPrompt!(
+      [
+        { toolName: "Write", filePath: "taskpulse/app/main.py" },
+        { toolName: "todowrite", args: { todos: "[...]" } },
+      ],
+      {
+        recentToolResultText:
+          "The todowrite tool was called with invalid arguments: SchemaError(Expected array at [\"todos\"]).",
+      },
+    );
+
+    expect(nudge).toContain("task/todo tracker schema error");
+    expect(nudge).toContain("not evidence that previous code writes failed");
+    expect(nudge).toContain("Do NOT rebuild");
+  });
+
+  it("nudges MiniMax away from rebuilding after write/path verification drift", () => {
+    const nudge = adapter.getEarlyPivotPrompt!(
+      [
+        { toolName: "Write", filePath: "taskpulse/app/main.py" },
+        { toolName: "Bash", args: { command: "ls -la /home/byron/src/test/taskpulse/app/main.py" } },
+        { toolName: "Bash", args: { command: "find /home/byron/src/test/taskpulse -name '*.py'" } },
+      ],
+      {
+        recentToolResultText: "ls: cannot access '/home/byron/src/test/taskpulse/app/main.py': No such file or directory",
+      },
+    );
+
+    expect(nudge).toContain("path/cwd mismatch");
+    expect(nudge).toContain("does NOT mean the writes failed");
+    expect(nudge).toContain("Do not rebuild the app");
   });
 });
 
