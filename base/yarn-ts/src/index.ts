@@ -69,13 +69,11 @@ import {
   KnowledgeSearchService,
   KNOWLEDGE_TOOL_NAME,
   DEV_DOCS_TOOL_NAME,
-  type KnowledgeResolveContext,
 } from "./state/knowledge-search.js";
 import {
   WebSearchService,
   WEB_SEARCH_TOOL_NAME,
   WEB_SEARCH_TOOL_ALIAS,
-  type WebSearchResolveContext,
 } from "./state/web-search.js";
 import {
   runEvidencePrefetch,
@@ -2179,6 +2177,10 @@ import {
 } from "./server/http-utils.js";
 import { createInternalTokenRequirement } from "./server/internal-auth.js";
 import { extractUpstreamErrorDiagnostics } from "./server/upstream-errors.js";
+import {
+  knowledgeResolveContext,
+  webSearchResolveContext,
+} from "./server/tool-resolve-contexts.js";
 
 const config = loadConfig();
 const requireInternalToken = createInternalTokenRequirement(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
@@ -2341,50 +2343,6 @@ const webSearch = new WebSearchService({
   plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
   internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,
 });
-
-function extractBearerToken(authorizationHeader: string | undefined): string {
-  const raw = authorizationHeader ?? "";
-  if (!raw.toLowerCase().startsWith("bearer ")) return "";
-  return raw.slice(7).trim();
-}
-
-function knowledgeResolveContext(
-  authUser: import("./auth.js").AuthUser,
-  req: { headers: { authorization?: string } },
-): KnowledgeResolveContext {
-  return {
-    orgId: authUser.orgId,
-    userId: authUser.userId,
-    tenantIds: authUser.tenantIds,
-    bearerToken: extractBearerToken(req.headers.authorization),
-  };
-}
-
-function webSearchResolveContext(
-  authUser: import("./auth.js").AuthUser,
-  req: { headers: { authorization?: string } },
-  args: {
-    requestId?: string;
-    sessionKey?: string;
-    conversationId?: string;
-    traceId?: string;
-    sourceSurface?: "yarn_chat" | "yarn_mcp_http";
-    toolName?: string;
-  } = {},
-): WebSearchResolveContext {
-  return {
-    orgId: authUser.orgId,
-    userId: authUser.userId,
-    tenantIds: authUser.tenantIds,
-    bearerToken: extractBearerToken(req.headers.authorization),
-    requestId: args.requestId,
-    sessionKey: args.sessionKey,
-    conversationId: args.conversationId,
-    traceId: args.traceId,
-    sourceSurface: args.sourceSurface ?? "yarn_chat",
-    toolName: args.toolName ?? WEB_SEARCH_TOOL_NAME,
-  };
-}
 
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
