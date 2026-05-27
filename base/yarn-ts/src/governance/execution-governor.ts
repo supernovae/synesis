@@ -1112,22 +1112,36 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
  * AFTER the latest user redirect (user message or user-facing tool result).
  * Stale claims from before the user's latest intent are ignored.
  */
-function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
+function latestUserRedirectIndex(messages: GovernorInputMessage[]): number {
   const toolNameById = buildAssistantToolNameById(messages);
 
-  // Find the index of the latest user redirect
-  let latestUserIdx = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if (m.role === "user") { latestUserIdx = i; break; }
+    if (m.role === "user") return i;
     if (m.role === "tool" || m.role === "tool_result") {
       const toolName = toolNameForResultMessage(m, toolNameById);
       if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
         const content = contentToText(m.content);
-        if (content.trim()) { latestUserIdx = i; break; }
+        if (content.trim()) return i;
       }
     }
   }
+  return -1;
+}
+
+function hasConcreteActionAfterLatestUserRedirect(messages: GovernorInputMessage[]): boolean {
+  const latestUserIdx = latestUserRedirectIndex(messages);
+  const scopedMessages = messages.slice(latestUserIdx >= 0 ? latestUserIdx + 1 : 0);
+  const events = extractCommandEvents(scopedMessages);
+  return events.some((event) => {
+    const tool = normalizeString(event.toolName).toLowerCase();
+    if (!tool || USER_FACING_TOOL_RE.test(tool)) return false;
+    return Boolean(event.command);
+  });
+}
+
+function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
+  const latestUserIdx = latestUserRedirectIndex(messages);
 
   // Only check assistant messages after the latest user redirect
   const startIdx = latestUserIdx >= 0 ? latestUserIdx + 1 : 0;
@@ -2201,9 +2215,16 @@ export function evaluateExecutionGovernor(
     directiveAckReplayEdges,
   );
   const hasRecentAssistantAfterUserRedirect = recentMessagesForIntent.some((m) => m.role === "assistant");
-  if (opts.chatState?.narrationResidueSummary && hasRecentAssistantAfterUserRedirect) {
+  const hasFreshConcreteActionAfterUserRedirect = hasConcreteActionAfterLatestUserRedirect(recentMessagesForIntent);
+  if (
+    opts.chatState?.narrationResidueSummary
+    && hasRecentAssistantAfterUserRedirect
+    && !hasFreshConcreteActionAfterUserRedirect
+  ) {
     // State-derived residue indicates repeated intent narration happened even if
-    // the current transcript window has been compacted.
+    // the current transcript window has been compacted. Do not let stale residue
+    // override a fresh recovery turn that has already produced a concrete tool
+    // result, such as the first targeted test after a "please continue" redirect.
     repeatedAssistantIntroEdges = Math.max(repeatedAssistantIntroEdges, 2);
   }
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));

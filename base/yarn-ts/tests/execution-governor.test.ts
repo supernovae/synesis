@@ -99,8 +99,7 @@ describe("execution governor", () => {
   it("uses narration residue summary as a structured repeated-intent signal", () => {
     const messages = [
       { role: "user", content: "implement parser fix in src/parser.ts" },
-      assistantCall("1", "read_file", { path: "src/parser.ts" }),
-      toolResult("1", "export function parse() {}"),
+      { role: "assistant", content: "I'll continue implementing the parser fix. Let me check the current state." },
     ];
 
     const out = evaluateExecutionGovernor(messages, {
@@ -114,6 +113,28 @@ describe("execution governor", () => {
     });
 
     expect(out.matchedRules).toContain("repeated_assistant_intro");
+  });
+
+  it("does not let stale narration residue stop a fresh recovery turn with a concrete action", () => {
+    const messages = [
+      { role: "user", content: "please continue to fix the failing test and validate the code to completion." },
+      { role: "assistant", content: "I'll check the current test status to understand what needs to be fixed." },
+      assistantCall("1", "bash", { command: "cd /home/byron/src/test && python -m pytest tests/test_tasks.py -v 2>&1 | head -80" }),
+      toolResult("1", "FAILED tests/test_tasks.py::test_root_endpoint - ModuleNotFoundError: No module named 'app'"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, {
+      chatState: {
+        activeObjective: "Fix TaskPulse tests",
+        pendingUserDirective: "please continue to fix the failing test and validate the code to completion.",
+        completionStatus: "in_progress",
+        narrationResidueSummary: "Repeated assistant intro from earlier failed recovery",
+        lastVerificationOutcome: "fail",
+      },
+    });
+
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("repeated_assistant_intro");
   });
 
   it("does not pause repeated broad tests when verification is already green", () => {

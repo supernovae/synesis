@@ -1,5 +1,45 @@
 import { computeEfficiencyIndex, type PlatformRouteDependencies } from "./platform-route-support.js";
 
+function telemetryUnavailable(name: string, reason = "missing_dependency"): { available: false; name: string; reason: string } {
+  return { available: false, name, reason };
+}
+
+function telemetryValue(name: string, producer: () => unknown): unknown {
+  try {
+    const value = producer();
+    return value ?? telemetryUnavailable(name, "empty_value");
+  } catch (error) {
+    return {
+      available: false,
+      name,
+      reason: "stats_error",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function statsValue(name: string, provider: unknown): unknown {
+  return telemetryValue(name, () => {
+    if (!provider || typeof provider !== "object" || typeof (provider as { getStats?: unknown }).getStats !== "function") {
+      return telemetryUnavailable(name);
+    }
+    return (provider as { getStats(): unknown }).getStats();
+  });
+}
+
+function methodValue(name: string, target: unknown, methodName: string): unknown {
+  return telemetryValue(name, () => {
+    if (!target || typeof target !== "object" || typeof (target as Record<string, unknown>)[methodName] !== "function") {
+      return telemetryUnavailable(name);
+    }
+    return ((target as Record<string, () => unknown>)[methodName])();
+  });
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
   const {
     app,
@@ -52,24 +92,27 @@ export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
     let activeSessionCount = 0;
     let totalHistoryEntries = 0;
     let checkpointedSessions = 0;
-    for (const [, state] of sessions) {
+    for (const [, state] of sessions ?? []) {
       activeSessionCount++;
-      totalHistoryEntries += state.history.length;
-      if (state.history.some((m) => m.content.includes("<ARCHITECTURAL_STATE>"))) {
+      const history = Array.isArray(state?.history) ? state.history : [];
+      totalHistoryEntries += history.length;
+      if (history.some((m) => typeof m.content === "string" && m.content.includes("<ARCHITECTURAL_STATE>"))) {
         checkpointedSessions++;
       }
     }
+    const diagnosticRing = recordValue(telemetryValue("diagnosticRegistry.ring", () => diagnosticRegistry.getRingStats()));
+    const contextAdmission = recordValue(contextAdmissionStats);
     return {
       timestamp: Date.now(),
-      writeQueue: usageWriter.getStats(),
-      validationNormalization: validationNormalization.getStats(),
-      toolResultReduction: toolResultReduction.getStats(),
-      transcriptPruning: transcriptPruning.getStats(),
+      writeQueue: statsValue("usageWriter", usageWriter),
+      validationNormalization: statsValue("validationNormalization", validationNormalization),
+      toolResultReduction: statsValue("toolResultReduction", toolResultReduction),
+      transcriptPruning: statsValue("transcriptPruning", transcriptPruning),
       contentAddressedDedup: {
-        activeSessions: contentDedupBySession.size,
-        aggregate: Array.from(contentDedupBySession.values()).reduce(
+        activeSessions: contentDedupBySession?.size ?? 0,
+        aggregate: Array.from(contentDedupBySession?.values() ?? []).reduce(
           (acc, d) => {
-            const s = d.getStats();
+            const s = d?.getStats?.() ?? { totalReads: 0, deduplicatedReads: 0, charsSaved: 0 };
             return {
               totalReads: acc.totalReads + s.totalReads,
               deduplicatedReads: acc.deduplicatedReads + s.deduplicatedReads,
@@ -79,44 +122,44 @@ export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
           { totalReads: 0, deduplicatedReads: 0, charsSaved: 0 },
         ),
       },
-      toolArgHardening: { ...toolArgHardeningStats },
-      toolSchemaPruning: { ...toolSchemaPruningStats },
-      openClawProfile: { ...openClawProfileStats },
-      contextAdmission: { ...contextAdmissionStats, byPath: { ...(contextAdmissionStats.byPath ?? {}) } },
-      workingFrame: workingFrameService.getStats(),
-      projectManifest: projectManifestService.getStats(),
-      deterministicPolicy: policyEngine.getStats(),
-      governance: governanceClient ? governanceClient.getStats() : { enabled: false },
-      phaseOrchestrator: phaseOrchestrator.getStats(),
-      clientAdapterPacks: clientAdapterPacks.getStats(),
+      toolArgHardening: { ...recordValue(toolArgHardeningStats) },
+      toolSchemaPruning: { ...recordValue(toolSchemaPruningStats) },
+      openClawProfile: { ...recordValue(openClawProfileStats) },
+      contextAdmission: { ...contextAdmission, byPath: { ...recordValue(contextAdmission.byPath) } },
+      workingFrame: statsValue("workingFrameService", workingFrameService),
+      projectManifest: statsValue("projectManifestService", projectManifestService),
+      deterministicPolicy: statsValue("policyEngine", policyEngine),
+      governance: governanceClient ? statsValue("governanceClient", governanceClient) : { enabled: false },
+      phaseOrchestrator: statsValue("phaseOrchestrator", phaseOrchestrator),
+      clientAdapterPacks: statsValue("clientAdapterPacks", clientAdapterPacks),
       sawtoothContext: {
         activeSessionCount,
         totalHistoryEntries,
         checkpointedSessions,
         checkpointThreshold: config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS,
       },
-      stablePrefix: stablePrefixService.getStats(),
-      toolPrefixCache: yarnToolPrefixCache ? yarnToolPrefixCache.getStats() : { enabled: false },
-      artifactRetrieval: artifactRetrieval.getStats(),
-      knowledgeSearch: knowledgeSearch.getStats(),
-      evidencePrefetch: getEvidencePrefetchStats(),
-      patternPrefetch: getPatternPrefetchStats(),
-      patternFeedback: getPatternFeedbackStats(),
-      artifactStore: artifactStore.getStats(),
-      circuitBreakers: circuitBreakers.getStats(),
-      userRateLimiter: userRateLimiter.getStats(),
-      distributedCounters: distributedCounters.getStats(),
-      streamAdmission: streamAdmission.getStats(),
-      attentionPositioning: attentionPositioning.getStats(),
-      compressionEfficiencyIndex: computeEfficiencyIndex(toolResultReduction),
-      recall: toolResultReduction.getRecallStats(),
-      verification: toolResultReduction.getVerificationStats(),
-      languagePacks: languagePacksConformance(),
-      sessionContinuity: sessionContinuity.getStats(),
-      conversationMemory: usageWriter.getConversationMemoryStats(),
-      workerPool: enrichmentPool.getStats(),
+      stablePrefix: statsValue("stablePrefixService", stablePrefixService),
+      toolPrefixCache: yarnToolPrefixCache ? statsValue("yarnToolPrefixCache", yarnToolPrefixCache) : { enabled: false },
+      artifactRetrieval: statsValue("artifactRetrieval", artifactRetrieval),
+      knowledgeSearch: statsValue("knowledgeSearch", knowledgeSearch),
+      evidencePrefetch: telemetryValue("evidencePrefetch", getEvidencePrefetchStats),
+      patternPrefetch: telemetryValue("patternPrefetch", getPatternPrefetchStats),
+      patternFeedback: telemetryValue("patternFeedback", getPatternFeedbackStats),
+      artifactStore: statsValue("artifactStore", artifactStore),
+      circuitBreakers: statsValue("circuitBreakers", circuitBreakers),
+      userRateLimiter: statsValue("userRateLimiter", userRateLimiter),
+      distributedCounters: statsValue("distributedCounters", distributedCounters),
+      streamAdmission: statsValue("streamAdmission", streamAdmission),
+      attentionPositioning: statsValue("attentionPositioning", attentionPositioning),
+      compressionEfficiencyIndex: telemetryValue("compressionEfficiencyIndex", () => computeEfficiencyIndex(toolResultReduction)),
+      recall: methodValue("toolResultReduction.recall", toolResultReduction, "getRecallStats"),
+      verification: methodValue("toolResultReduction.verification", toolResultReduction, "getVerificationStats"),
+      languagePacks: telemetryValue("languagePacks", languagePacksConformance),
+      sessionContinuity: statsValue("sessionContinuity", sessionContinuity),
+      conversationMemory: methodValue("usageWriter.conversationMemory", usageWriter, "getConversationMemoryStats"),
+      workerPool: statsValue("enrichmentPool", enrichmentPool),
       sensemaking: sensemakingStats,
-      eventLoopLag: getEventLoopStats(),
+      eventLoopLag: telemetryValue("eventLoopLag", getEventLoopStats),
       promptLibrary: {
         loaded: Boolean(promptSnapshotRegistry),
         service: promptSnapshotRegistry?.service ?? "yarn",
@@ -126,13 +169,13 @@ export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
         updatedAt: promptSnapshotRegistry?.updated_at ?? null,
       },
       connectionPools: {
-        auth: authResolver.getPoolStats(),
-        usageWriter: usageWriter.getPoolStats(),
+        auth: methodValue("authResolver.pool", authResolver, "getPoolStats"),
+        usageWriter: methodValue("usageWriter.pool", usageWriter, "getPoolStats"),
       },
       uptime: process.uptime(),
       memoryUsage: process.memoryUsage(),
-      diagnosticRingMax: diagnosticRegistry.getRingStats().max,
-      diagnosticRingCurrent: diagnosticRegistry.getRingStats().current,
+      diagnosticRingMax: diagnosticRing.max ?? null,
+      diagnosticRingCurrent: diagnosticRing.current ?? null,
       featureFlags: {
         toolBlobRedis: toolBlobRedisEnabled,
         artifactRedisReplica: config.SYNESIS_YARN_ARTIFACT_REDIS_REPLICA_ENABLED,
