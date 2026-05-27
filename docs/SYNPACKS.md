@@ -211,6 +211,58 @@ run from the repository root, stores each pack in `.work/synpacks/<pack-id>`
 `UV_CACHE_DIR`, and refuses to reuse a work directory whose staged manifest
 belongs to another language or pack id.
 
+### Supported `--language` Values
+
+`synpack-helper.py` currently supports the following explicit pack parameters:
+
+| `--language` value | Default pack id | Pack config | Coverage |
+| --- | --- | --- | --- |
+| `bash` | `bash-latest` | `base/rag/pack-configs/bash.yaml` | Bash, ShellCheck rules, Google shell style guide, Bash reference docs, defensive Bash patterns, Pure Bash Bible |
+| `ecma` | `ecma-latest` | `base/rag/pack-configs/ecma.yaml` | JavaScript, TypeScript, TC39 proposals, TypeScript handbook, Node.js, Bun, Deno, MDN web platform docs |
+| `go` | `go-latest` | `base/rag/pack-configs/go.yaml` | Go language/runtime docs and source package context from `golang/go` |
+| `godot` | `godot-latest` | `base/rag/pack-configs/godot.yaml` | Godot engine docs, class reference, scene tree, shaders, proposals, and Godot docs |
+| `python` | `python-latest` | `base/rag/pack-configs/python.yaml` | CPython stdlib/docs, PEPs, packaging, uv, pixi, typeshed, Flask/Werkzeug/Jinja, PyTorch/data-science docs where configured |
+| `quarkus` | `quarkus-latest` | `base/rag/pack-configs/quarkus.yaml` | Quarkus guides, CLI, runtime source roots, extensions, and platform BOM context |
+| `rust` | `rust-latest` | `base/rag/pack-configs/rust.yaml` | Rust std/core/alloc docs, error codes, Reference, Nomicon, async book, Book, Cargo book, Rust by Example, edition guide |
+| `terraform` | `terraform-latest` | `base/rag/pack-configs/terraform.yaml` | Terraform docs, provider docs/schemas, OpenTofu docs, TFLint rulesets for AWS/Azure/GCP |
+
+Use `ecma` for JavaScript and TypeScript packs:
+
+```bash
+./scripts/synpack-helper.py prepare --language ecma
+./scripts/synpack-helper.py enrich --language ecma --request-limit 1000 \
+  --enrichment-url https://api.deepseek.com/v1 \
+  --enrichment-model deepseek-v4-pro \
+  --enrichment-token-env DEEPSEEK_TOKEN
+./scripts/synpack-helper.py finalize --language ecma \
+  --embedder-url http://localhost:8082/v1
+```
+
+The helper also accepts comma-separated values and `all`:
+
+```bash
+./scripts/synpack-helper.py status --language python,go,ecma
+./scripts/synpack-helper.py prepare --language all
+```
+
+`all` expands to:
+
+```text
+go,rust,quarkus,python,godot,terraform,ecma,bash
+```
+
+Platform pack configs also exist under `base/rag/pack-configs/platform/`:
+
+- `devops-tooling`
+- `gitops`
+- `kubernetes`
+- `observability`
+- `openshift`
+
+Those are platform pack configs, not accepted `synpack-helper.py --language`
+values today. Build them through the lower-level indexer path with
+`--pack-config` while the helper remains focused on language/domain packs.
+
 ```bash
 ./scripts/synpack-helper.py prepare --language python
 
