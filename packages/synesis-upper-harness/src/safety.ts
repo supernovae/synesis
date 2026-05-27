@@ -47,6 +47,53 @@ function commandFromInput(input: Record<string, unknown>): string {
   return typeof raw === "string" ? raw : "";
 }
 
+function splitShellWords(command: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | null = null;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === "\"" || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+function isRmRecursiveForce(command: string): boolean {
+  const words = splitShellWords(command);
+  for (let i = 0; i < words.length; i += 1) {
+    if (words[i] !== "rm") continue;
+    let hasRecursive = false;
+    let hasForce = false;
+    for (let j = i + 1; j < words.length; j += 1) {
+      const word = words[j] ?? "";
+      if (!word.startsWith("-") || word === "-") break;
+      if (word.includes("r") || word.includes("R")) hasRecursive = true;
+      if (word.includes("f")) hasForce = true;
+      if (hasRecursive && hasForce) return true;
+    }
+  }
+  return false;
+}
+
 function pathCandidatesFromInput(input: Record<string, unknown>): string[] {
   const candidates: string[] = [];
   for (const [key, value] of Object.entries(input)) {
@@ -67,7 +114,7 @@ function pathCandidatesFromInput(input: Record<string, unknown>): string[] {
 export function detectDangerousShellCommand(command: string): { rule: string; reason: string } | null {
   const lowered = command.trim().toLowerCase();
   if (!lowered) return null;
-  if (/\brm\s+-[a-z]*r[a-z]*f[a-z]*(?:\s|$)|\brm\s+-[a-z]*f[a-z]*r[a-z]*(?:\s|$)/.test(lowered)) {
+  if (isRmRecursiveForce(lowered)) {
     return { rule: "safety.shell.rm_rf", reason: "rm -rf is disallowed" };
   }
   if (/\bgit\s+clean\s+-f(?:\s|$)/.test(lowered)) {

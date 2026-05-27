@@ -363,6 +363,8 @@ export function createApp(cfg: AdminMcpConfig) {
     url: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
     config: { rateLimit: adminAuthRateLimit },
     preHandler: adminAuthPreHandler,
+    // Rate limited by both @fastify/rate-limit route config and adminAuthPreHandler.
+    // lgtm[js/missing-rate-limiting]
     // codeql[js/missing-rate-limiting]
     handler: async (req, reply) => {
       _mcpRequests++;

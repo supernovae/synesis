@@ -27,10 +27,6 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 MAX_ASSISTANT_TOOL_ROUNDS = 8
 
 TRACE_UUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
-TRACE_LABEL_RE = re.compile(
-    r"\btrace(?:[_\s-]?id)?\s*(?:[:=#]|for|is|of)?\s*([A-Za-z0-9][A-Za-z0-9._:-]{7,127})\b",
-    re.IGNORECASE,
-)
 
 ADMIN_SYSTEM_PROMPT = """You are the Synesis Admin Assistant. You help operators understand
 system behavior, analyze traces, debug issues, and tune configuration.
@@ -146,6 +142,36 @@ def _message_content_text(msg: dict[str, Any]) -> str | None:
     return str(c)
 
 
+def _is_trace_id_char(ch: str) -> bool:
+    return ch.isalnum() or ch in "._:-"
+
+
+def _extract_labeled_trace_id(raw: str) -> str | None:
+    lower = raw.lower()
+    start = lower.find("trace")
+    if start < 0:
+        return None
+    pos = start + len("trace")
+    if lower[pos : pos + 3] in {" id", "-id", "_id"}:
+        pos += 3
+    while pos < len(raw) and (raw[pos].isspace() or raw[pos] in ":=#"):
+        pos += 1
+    for word in ("for", "is", "of"):
+        end = pos + len(word)
+        if lower[pos:end] == word and (end >= len(raw) or raw[end].isspace()):
+            pos = end
+            while pos < len(raw) and raw[pos].isspace():
+                pos += 1
+            break
+    while pos < len(raw) and not raw[pos].isalnum():
+        pos += 1
+    end = pos
+    while end < len(raw) and _is_trace_id_char(raw[end]) and end - pos < 128:
+        end += 1
+    candidate = raw[pos:end].strip(".,;)'\"`[]{}<>")
+    return candidate if len(candidate) >= 8 else None
+
+
 def _extract_trace_lookup_id(text: str) -> str | None:
     """Extract an explicit trace identifier from operator prompts."""
     raw = (text or "").strip()
@@ -154,10 +180,7 @@ def _extract_trace_lookup_id(text: str) -> str | None:
     uuid_match = TRACE_UUID_RE.search(raw)
     if uuid_match:
         return uuid_match.group(0)
-    label_match = TRACE_LABEL_RE.search(raw)
-    if not label_match:
-        return None
-    return label_match.group(1).strip(".,;)'\"`[]{}<>")[:128] or None
+    return _extract_labeled_trace_id(raw)
 
 
 def _trace_lookup_context_from_admin_mcp(trace_id: str, tool_text: str) -> str:

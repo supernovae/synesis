@@ -44,7 +44,6 @@ const MICRO_RULES: PatternRule[] = [
   { id: "micro.local_scope", pattern: /\b(this|single|one)\s+(line|function|method|helper|file|component|loop|import)\b/i },
 ];
 
-const LIST_OR_MULTI_PART_RE = /(?:^|\n)\s*(?:[-*]|\d+[.)])\s+\S/;
 const NATURAL_LANGUAGE_OVERRIDE_RE = /\b(skip|no|without)\s+(?:the\s+)?plan(?:ning)?\b|\bjust\s+(?:code|do it|implement)\b/i;
 
 function normalizePrompt(prompt: string): string {
@@ -68,14 +67,69 @@ export function hashPromptSignal(prompt: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+function countWhitespaceSeparatedWords(value: string): number {
+  let count = 0;
+  let inWord = false;
+  for (const ch of value) {
+    const isWhitespace = ch === " " || ch === "\n" || ch === "\r" || ch === "\t" || ch === "\f" || ch === "\v";
+    if (isWhitespace) {
+      inWord = false;
+    } else if (!inWord) {
+      count += 1;
+      inWord = true;
+    }
+  }
+  return count;
+}
+
+function countSimpleWordOccurrences(value: string, words: Set<string>): number {
+  let count = 0;
+  for (const token of value.split(" ")) {
+    const trimmed = token.trim().replaceAll(",", "").replaceAll(".", "").replaceAll(";", "").replaceAll(":", "");
+    if (words.has(trimmed)) count += 1;
+  }
+  return count;
+}
+
+function countSentenceBreaks(value: string): number {
+  let count = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (ch === "\n") {
+      count += 1;
+      continue;
+    }
+    if ((ch === "." || ch === ";") && i + 1 < value.length) {
+      const next = value[i + 1];
+      if (next === " " || next === "\n" || next === "\r" || next === "\t") count += 1;
+    }
+  }
+  return count;
+}
+
+function hasListOrMultiPartMarker(value: string): boolean {
+  for (const rawLine of value.split("\n")) {
+    const line = rawLine.trimStart();
+    if (line.length < 3) continue;
+    const first = line[0];
+    if ((first === "-" || first === "*") && line[1] === " " && line[2]?.trim()) return true;
+    let index = 0;
+    while (index < line.length && line.charCodeAt(index) >= 48 && line.charCodeAt(index) <= 57) index += 1;
+    if (index > 0 && (line[index] === "." || line[index] === ")") && line[index + 1] === " " && line[index + 2]?.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function complexPromptReasons(rawPrompt: string, normalized: string): string[] {
   const reasons: string[] = [];
-  const words = normalized ? normalized.split(/\s+/).length : 0;
-  const conjunctions = (normalized.match(/\b(and|also|plus|including|with)\b/gi) ?? []).length;
-  const sentenceBreaks = (rawPrompt.match(/[.;]\s+|\n+/g) ?? []).length;
+  const words = normalized ? countWhitespaceSeparatedWords(normalized) : 0;
+  const conjunctions = countSimpleWordOccurrences(normalized.toLowerCase(), new Set(["and", "also", "plus", "including", "with"]));
+  const sentenceBreaks = countSentenceBreaks(rawPrompt);
   if (words >= 90 && conjunctions >= 3) reasons.push("macro.long_multi_clause_prompt");
   if (words >= 140) reasons.push("macro.long_prompt");
-  if (LIST_OR_MULTI_PART_RE.test(rawPrompt) && words >= 25) reasons.push("macro.listed_requirements");
+  if (hasListOrMultiPartMarker(rawPrompt) && words >= 25) reasons.push("macro.listed_requirements");
   if (sentenceBreaks >= 4 && conjunctions >= 2) reasons.push("macro.multi_sentence_requirements");
   return reasons;
 }

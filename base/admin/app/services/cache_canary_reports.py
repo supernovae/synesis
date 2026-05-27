@@ -359,14 +359,14 @@ def load_cache_canary_report(
             mode="missing",
             alerts=[_alert("warning", "report_missing", "Configured cache canary report path does not exist.")],
         )
-    except OSError as exc:
+    except OSError:
         return _empty_payload(
             configured=True,
             present=False,
             stale=True,
             path=configured_path,
             mode="unreadable",
-            alerts=[_alert("error", "report_stat_failed", f"Unable to stat cache canary report: {exc}")],
+            alerts=[_alert("error", "report_stat_failed", "Unable to stat cache canary report.")],
         )
 
     modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
@@ -389,7 +389,7 @@ def load_cache_canary_report(
 
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         return _empty_payload(
             configured=True,
             present=True,
@@ -397,9 +397,9 @@ def load_cache_canary_report(
             path=configured_path,
             mode="invalid_json",
             modified_at=_iso(modified_at),
-            alerts=[_alert("error", "invalid_json", f"Cache canary report is not valid JSON: {exc}")],
+            alerts=[_alert("error", "invalid_json", "Cache canary report is not valid JSON.")],
         )
-    except OSError as exc:
+    except OSError:
         return _empty_payload(
             configured=True,
             present=True,
@@ -407,7 +407,7 @@ def load_cache_canary_report(
             path=configured_path,
             mode="read_failed",
             modified_at=_iso(modified_at),
-            alerts=[_alert("error", "read_failed", f"Unable to read cache canary report: {exc}")],
+            alerts=[_alert("error", "read_failed", "Unable to read cache canary report.")],
         )
 
     if not isinstance(report, dict):

@@ -19,7 +19,10 @@ const EnvSchema = z.object({
     .transform((v) => {
       const t = (v ?? "").trim();
       if (!t) return "";
-      return t.replace(/^postgresql\+asyncpg:\/\//i, "postgresql://");
+      const asyncPgPrefix = "postgresql+asyncpg://";
+      return t.toLowerCase().startsWith(asyncPgPrefix)
+        ? `postgresql://${t.slice(asyncPgPrefix.length)}`
+        : t;
     }),
   SYNESIS_PAT_PEPPER: z.string().default(""),
   SYNESIS_OPENFGA_API_URL: z.string().default(""),

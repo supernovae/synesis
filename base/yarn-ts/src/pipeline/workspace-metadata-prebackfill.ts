@@ -140,6 +140,42 @@ function inferRootFromDuplicatedAbsolutePath(pathValue: string): string | null {
   return null;
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 1 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
+}
+
+function stripShellTokenQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  return (first === "\"" || first === "'") && first === last ? trimmed.slice(1, -1) : trimmed;
+}
+
+function firstWhitespaceIndex(value: string): number {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32) return i;
+  }
+  return -1;
+}
+
+function firstCdAbsolutePathBeforeSeparator(command: string): string | null {
+  for (const chunk of command.split(";")) {
+    for (const segment of chunk.split("&&")) {
+      const trimmed = segment.trim();
+      if (!trimmed.startsWith("cd ")) continue;
+      const rest = trimmed.slice(3).trim();
+      const whitespace = firstWhitespaceIndex(rest);
+      const token = stripShellTokenQuotes(whitespace >= 0 ? rest.slice(0, whitespace) : rest);
+      if (token.startsWith("/")) return trimTrailingSlashes(token);
+    }
+  }
+  return null;
+}
+
 function inferWorkspaceRootFromToolEvidence(messages: unknown[]): string | null {
   const evidence = extractToolEvidence(messages);
   for (let i = evidence.length - 1; i >= 0; i -= 1) {
@@ -152,8 +188,8 @@ function inferWorkspaceRootFromToolEvidence(messages: unknown[]): string | null 
       if (cwd) return cwd;
     }
     if ((tool === "bash" || tool === "shell" || tool.includes("bash")) && !/no such file|cannot access|not found/.test(lowerResult)) {
-      const cdMatch = /\bcd\s+((?:\/[^\s;&|]+)+)\s*(?:&&|;)/.exec(command);
-      if (cdMatch?.[1]) return cdMatch[1].replace(/\/+$/g, "");
+      const cdPath = firstCdAbsolutePathBeforeSeparator(command);
+      if (cdPath) return cdPath;
     }
     if (/file not found|no such file|cannot access|does not exist/.test(lowerResult)) {
       for (const candidate of absolutePathsInText(item.resultContent)) {
