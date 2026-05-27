@@ -30,6 +30,7 @@ export type RecordSessionEvent = (
   type: string,
   source: string,
   summary: string,
+  metadataJson?: Record<string, unknown>,
 ) => void;
 
 export interface StatsProvider {
@@ -45,6 +46,7 @@ export interface SessionStateForCommand {
     sessionKey: string;
     userId: string;
     orgId: string;
+    metadata: Record<string, unknown>;
   };
 }
 

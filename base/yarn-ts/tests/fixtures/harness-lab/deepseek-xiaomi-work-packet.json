@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "harness_lab_v1",
+  "name": "deepseek-xiaomi-work-packet-regression",
+  "description": "Real lower-harness checks for fragile-long-context models where Synesis durable work packets should preserve current task state without blocking forward discovery.",
+  "client": {
+    "id": "opencode-compatible",
+    "command": "opencode",
+    "args": [
+      "run",
+      "--model",
+      "{model}",
+      "--session",
+      "{sessionKey}",
+      "--prompt-file",
+      "{promptFile}"
+    ],
+    "cwd": "{workspace}",
+    "env": {
+      "SYNESIS_MEMORY": "adapt"
+    }
+  },
+  "defaults": {
+    "timeoutMs": 240000,
+    "cleanup": true
+  },
+  "cases": [
+    {
+      "id": "fresh-taskpulse-empty-workspace",
+      "sessionKey": "lab-deepseek-xiaomi-fresh-taskpulse",
+      "model": "deepseek-flash",
+      "tags": ["deepseek", "xiaomi", "empty_workspace", "taskpulse", "durable_work_packet"],
+      "prompt": "You are a senior Python engineer. Build a complete FastAPI application called TaskPulse in this empty workspace. Include task CRUD endpoints, daily and weekly summaries, a simple /ui page, tests, and README instructions. If the workspace is empty, create the project here and do not search parent directories unless a tool result proves the requested project already exists elsewhere.",
+      "expected": {
+        "allowGovernorPause": false,
+        "forbiddenSignals": ["path_confusion", "invalid_tool_arguments", "task_reset", "dependency_install_replay"]
+      }
+    },
+    {
+      "id": "duplicate-path-recovery",
+      "sessionKey": "lab-deepseek-xiaomi-duplicate-path",
+      "model": "xiaomi-large",
+      "tags": ["deepseek", "xiaomi", "path_confusion", "verification", "durable_work_packet"],
+      "workspace": {
+        "files": {
+          "taskpulse/README.md": "# TaskPulse\n\nCanonical project root.\n",
+          "taskpulse/app/main.py": "from fastapi import FastAPI\n\napp = FastAPI(title=\"TaskPulse\")\n\n@app.get(\"/\")\ndef root():\n    return {\"name\": \"TaskPulse API\"}\n",
+          "src/test/taskpulse/README.md": "# TaskPulse\n\nStale duplicated path from a previous bad run.\n"
+        }
+      },
+      "prompt": "Continue the TaskPulse implementation. First identify the canonical project root, avoid duplicating src/test prefixes, then run one targeted verification command or make one focused fix.",
+      "expected": {
+        "allowGovernorPause": false,
+        "forbiddenSignals": ["path_confusion", "task_reset", "identical_tool_repeat"]
+      }
+    },
+    {
+      "id": "todo-schema-recovery",
+      "sessionKey": "lab-deepseek-xiaomi-todo-schema",
+      "model": "deepseek-v4",
+      "tags": ["deepseek", "xiaomi", "todo_schema", "recovery", "durable_work_packet"],
+      "prompt": "The previous todo update failed because the todos array was accidentally sent as a JSON string. Continue building TaskPulse. Treat the todo schema failure as a tracker failure only, not as evidence the code failed. Do exactly one forward action next: either update the task list with a real array, edit one file, or run one targeted test.",
+      "expected": {
+        "allowGovernorPause": false,
+        "forbiddenSignals": ["invalid_tool_arguments", "task_reset", "no_completion_signal"]
+      }
+    },
+    {
+      "id": "verification-after-write",
+      "sessionKey": "lab-deepseek-xiaomi-verification",
+      "model": "xiaomi-small",
+      "tags": ["deepseek", "xiaomi", "verification", "tests", "durable_work_packet"],
+      "workspace": {
+        "files": {
+          "taskpulse/app/__init__.py": "",
+          "taskpulse/app/categorizer.py": "def categorize(title: str) -> str:\n    lowered = title.lower()\n    if \"tax\" in lowered:\n        return \"admin\"\n    return \"unknown\"\n",
+          "taskpulse/tests/test_categorizer.py": "from app.categorizer import categorize\n\n\ndef test_tax_admin():\n    assert categorize(\"tax report\") == \"admin\"\n"
+        }
+      },
+      "prompt": "Validate the small TaskPulse categorizer test. If imports fail because of project layout, make one focused test or package-path fix and run one narrow pytest command.",
+      "expected": {
+        "allowGovernorPause": false,
+        "forbiddenSignals": ["verification_churn", "dependency_install_replay", "identical_tool_repeat"]
+      }
+    }
+  ]
+}

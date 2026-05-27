@@ -7,6 +7,12 @@ import type { SecurityIngestConfig } from "@synesis/context-trust";
 import { applyWorkspaceMetadataPrebackfill } from "./workspace-metadata-prebackfill.js";
 import { buildRouteGovernanceBlocks } from "./route-governance-blocks.js";
 import { finalizePostEnrichmentMessages, type EnrichedMessage } from "./post-enrichment-finalization.js";
+import { buildDurableWorkPacketDecision } from "../memory/durable-work-packet.js";
+import {
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+} from "../providers/model-architecture-profile.js";
+import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 
 type Logger = {
   info(record: Record<string, unknown>, message?: string): void;
@@ -60,6 +66,9 @@ export interface ClaudeMessagesEnrichmentInput<TSession extends SessionLike> {
   normalizedMessages: unknown[];
   scopedMessages: unknown[];
   promptContext: PromptContext;
+  backendModel?: string;
+  bodyMetadata?: Record<string, unknown> | null;
+  runtimePreferences?: UserRuntimePreferences | null;
   clientToolCapabilities: ClientToolCapabilities;
   taskIntake?: unknown;
   planGraph?: unknown;
@@ -124,6 +133,23 @@ export async function runClaudeMessagesEnrichment<TSession extends SessionLike>(
   const pathContext = metadataPrebackfill.pathContext;
   const adapterBlock = metadataPrebackfill.adapterBlock;
   const seedDirs = await input.getCachedTopLevelDirs(pathContext.projectRoot ?? pathContext.shellCwd);
+  const workPacketPolicy = deriveModelExecutionPolicy(
+    resolveModelArchitectureProfile({
+      modelId: input.backendModel || input.promptContext.role,
+      family: input.promptContext.modelFamily,
+    }),
+  );
+  const workPacket = buildDurableWorkPacketDecision({
+    sessionKey: input.sessionKey,
+    requestCount: Number(input.session.record.metadata.request_count ?? 0),
+    messages: input.scopedMessages,
+    taskLedger: input.session.taskLedger as never,
+    projectRoot: pathContext.projectRoot,
+    shellCwd: pathContext.shellCwd,
+    modelPolicy: workPacketPolicy,
+    metadata: input.bodyMetadata ?? null,
+    configMode: input.runtimePreferences?.synesisMemoryMode ?? null,
+  });
   const governanceBlocks = buildRouteGovernanceBlocks({
     memoryTracker: input.getMemoryGovernor(input.sessionKey),
     structuralIndex: input.getStructuralIndex(input.sessionKey),
@@ -139,13 +165,48 @@ export async function runClaudeMessagesEnrichment<TSession extends SessionLike>(
     taskLedger: input.session.taskLedger as never,
     taskCapabilities: input.session.taskCapabilities as never,
   });
+  if (workPacket.packet) {
+    input.session.record.metadata.current_work_packet = {
+      hash: workPacket.packet.hash,
+      mode: workPacket.mode,
+      injected: workPacket.inject,
+      estimated_tokens: workPacket.packet.estimatedTokens,
+      source_sections: workPacket.packet.sourceSections,
+      reasons: workPacket.reasons,
+      summary: workPacket.packet.summary,
+      updated_at: Date.now(),
+    };
+    input.recordSessionEvent(
+      input.sessionKey,
+      input.identity.userId,
+      input.identity.orgId,
+      "current_work_packet_v1",
+      "durable-work-packet",
+      `${workPacket.inject ? "injected" : "observed"} hash=${workPacket.packet.hash} mode=${workPacket.mode}`,
+      input.requestId,
+      {
+        hash: workPacket.packet.hash,
+        mode: workPacket.mode,
+        injected: workPacket.inject,
+        estimated_tokens: workPacket.packet.estimatedTokens,
+        source_sections: workPacket.packet.sourceSections,
+        reasons: workPacket.reasons,
+        summary: workPacket.packet.summary,
+        block: workPacket.packet.block,
+      },
+    );
+  }
+  const frameGovernanceBlocks = [
+    ...governanceBlocks.blocks,
+    ...(workPacket.inject && workPacket.packet ? [workPacket.packet.block] : []),
+  ];
   const enriched = await input.enrichWithFrameAndManifest(
     input.scopedMessages,
     input.sessionKey,
     adapterBlock,
     input.promptContext,
     { projectRoot: pathContext.projectRoot, shellCwd: pathContext.shellCwd },
-    governanceBlocks.blocks,
+    frameGovernanceBlocks,
     seedDirs,
     input.session,
     { chatStateBlock: input.chatStateBlock, fileStateBlock: input.fileStateBlock },

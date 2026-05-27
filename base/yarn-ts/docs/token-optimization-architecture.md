@@ -286,6 +286,15 @@ These fields make it possible to compare cache and quality behavior between,
 for example, raw Qwen, MiniMax, DeepSeek-style MLA, Kimi-style MoE, Xiaomi
 MiMo SWA/MTP profiles, and unknown OpenAI-compatible models.
 
+Architecture-sensitive sessions may also emit `current_work_packet_v1` events.
+The packet captures compact current-task state, latest tool truth, path context,
+blockers, and the next best action. It is injected in the volatile/tail prompt
+area when policy requires memory stitching, so it can improve coherence for
+DeepSeek/Xiaomi/MiniMax-style profiles without changing the byte-stable prefix.
+Users can set the default with the `synesisMemoryMode` runtime preference in
+the admin Account page; per-request `metadata.synesis_memory` or
+`extra_body.synesis_memory` still has precedence.
+
 ## Governor And Forward Momentum
 
 The governor is intentionally adjacent to token optimization. It is not a token
@@ -325,6 +334,7 @@ the session continued correctly.
 | Provider cache usage | `upstreamCachedTokens`, normalized prompt/cache creation tokens when available |
 | Cache shape | stable prefix, tool schema, provider options, transcript prefix, cache policy, and model/provider resolution hashes |
 | Architecture policy | attention/activation/decoding classes, execution policy hash, effective context ceiling, policy reasons |
+| Durable work packet | packet hash, injected/observed mode, estimated tokens, source sections, policy reasons |
 
 Debug checklist for low cache rates:
 

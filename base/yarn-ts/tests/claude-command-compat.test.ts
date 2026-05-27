@@ -78,6 +78,39 @@ describe("Claude compatibility command execution", () => {
     expect(result.data?.mode).toBe("synesis_session_compaction");
   });
 
+  it("returns current work packet for memory inspection commands", () => {
+    const currentWorkPacket = {
+      hash: "packet-123",
+      phase: "verification",
+      nextBestAction: "run one targeted test",
+    };
+    const result = executeClaudeCompatCommand({
+      tierMap: {},
+      availableModels: ["synesis-core"],
+      command: "show_memory",
+      conversationId: "conv-1",
+      sessionKey: "synesis:u:claude:conv-1",
+      currentWorkPacket,
+    });
+    expect(result.supported).toBe(true);
+    expect(result.action).toBe("current_work_packet");
+    expect(result.data?.mode).toBe("synesis_current_work_packet");
+    expect(result.data?.currentWorkPacket).toEqual(currentWorkPacket);
+  });
+
+  it("returns clear action for work packet reset commands", () => {
+    const result = executeClaudeCompatCommand({
+      tierMap: {},
+      availableModels: ["synesis-core"],
+      command: "clear_memory",
+      conversationId: "conv-1",
+      sessionKey: "synesis:u:claude:conv-1",
+    });
+    expect(result.supported).toBe(true);
+    expect(result.action).toBe("current_work_packet_clear_requested");
+    expect(result.data?.mode).toBe("synesis_current_work_packet_clear");
+  });
+
   it("marks unknown commands unsupported", () => {
     const result = executeClaudeCompatCommand({
       tierMap: {},

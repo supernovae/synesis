@@ -50,6 +50,11 @@ export interface OptimizationCacheDiagnostics {
   executionPolicyHash?: string;
   effectiveContextCeilingTokens?: number;
   architecturePolicyReasons?: string[];
+  workPacketHash?: string;
+  workPacketInjected?: boolean;
+  workPacketMode?: string;
+  workPacketEstimatedTokens?: number;
+  workPacketReasons?: string[];
   cacheShapePromptTokens?: number;
   cacheShapeCachedTokens?: number;
   cacheShapeCacheCreationTokens?: number;

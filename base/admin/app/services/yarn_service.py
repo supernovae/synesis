@@ -327,6 +327,56 @@ async def get_yarn_session_detail(
     }
 
 
+async def get_yarn_current_work_packet(
+    session_key: str,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict | None:
+    async with async_session() as session:
+        session_stmt = select(YarnSession).where(YarnSession.session_key == session_key).limit(1)
+        if scope_user_id:
+            session_stmt = session_stmt.where(YarnSession.user_id == scope_user_id)
+        elif scope_org_id:
+            session_stmt = session_stmt.where(YarnSession.org_id == scope_org_id)
+        session_row = (await session.execute(session_stmt)).scalar_one_or_none()
+        if not session_row:
+            return None
+
+        event_stmt = (
+            select(YarnSessionEvent)
+            .where(
+                YarnSessionEvent.session_key == session_key,
+                YarnSessionEvent.event_kind == "current_work_packet_v1",
+            )
+            .order_by(YarnSessionEvent.created_at.desc(), YarnSessionEvent.id.desc())
+            .limit(1)
+        )
+        if scope_user_id:
+            event_stmt = event_stmt.where(YarnSessionEvent.user_id == scope_user_id)
+        elif scope_org_id:
+            event_stmt = event_stmt.where(YarnSessionEvent.org_id == scope_org_id)
+        event_row = (await session.execute(event_stmt)).scalar_one_or_none()
+
+    packet = event_row.metadata_json if event_row and isinstance(event_row.metadata_json, dict) else None
+    return {
+        "session_key": session_row.session_key,
+        "conversation_id": session_row.conversation_id,
+        "client_kind": getattr(session_row, "client_kind", "unknown"),
+        "provider": session_row.provider,
+        "model": session_row.model,
+        "packet": packet,
+        "event": None
+        if not event_row
+        else {
+            "id": event_row.id,
+            "request_id": event_row.request_id,
+            "component": event_row.component,
+            "detail": event_row.detail,
+            "created_at": event_row.created_at.isoformat() if event_row.created_at else None,
+        },
+    }
+
+
 # ── Events / errors log ──────────────────────────────────────────────────────
 
 

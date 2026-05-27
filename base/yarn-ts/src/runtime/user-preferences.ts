@@ -1,9 +1,11 @@
 export type LoopBreakMode = "standard" | "assertive" | "hands_off";
 export type CachePolicyBias = "auto" | "cache_first" | "balanced" | "efficiency_first";
+export type SynesisMemoryMode = "off" | "observe" | "adapt" | "strict";
 
 export interface UserRuntimePreferences {
   loopBreakMode: LoopBreakMode;
   cachePolicyBias: CachePolicyBias;
+  synesisMemoryMode: SynesisMemoryMode;
   allowAggressiveCompactionWithoutCacheHits: boolean;
   maxToolLoopSoftFails: number | null;
   updatedAt: number;
@@ -20,6 +22,7 @@ export interface LoopPolicyLimits {
 export const DEFAULT_USER_RUNTIME_PREFERENCES: UserRuntimePreferences = {
   loopBreakMode: "standard",
   cachePolicyBias: "auto",
+  synesisMemoryMode: "adapt",
   allowAggressiveCompactionWithoutCacheHits: true,
   maxToolLoopSoftFails: null,
   updatedAt: 0,
@@ -54,6 +57,11 @@ export function normalizeUserRuntimePreferences(value: unknown): UserRuntimePref
       raw.cachePolicyBias ?? raw.cache_policy_bias,
       ["auto", "cache_first", "balanced", "efficiency_first"] as const,
       DEFAULT_USER_RUNTIME_PREFERENCES.cachePolicyBias,
+    ),
+    synesisMemoryMode: readEnum(
+      raw.synesisMemoryMode ?? raw.synesis_memory_mode ?? raw.synesis_memory,
+      ["off", "observe", "adapt", "strict"] as const,
+      DEFAULT_USER_RUNTIME_PREFERENCES.synesisMemoryMode,
     ),
     allowAggressiveCompactionWithoutCacheHits: readBool(
       raw.allowAggressiveCompactionWithoutCacheHits ?? raw.allow_aggressive_compaction_without_cache_hits,
@@ -103,6 +111,7 @@ export function userRuntimePreferencesResponse(preferences: UserRuntimePreferenc
     options: {
       loopBreakMode: ["standard", "assertive", "hands_off"],
       cachePolicyBias: ["auto", "cache_first", "balanced", "efficiency_first"],
+      synesisMemoryMode: ["off", "observe", "adapt", "strict"],
       maxToolLoopSoftFails: { min: 1, max: 20, nullable: true },
     },
   };

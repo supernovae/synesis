@@ -193,11 +193,23 @@ export async function runOpenAIPostGovernanceProviderStage(
     chatStateBlock: governedStage.chatStateBlock,
     fileStateBlock: governedStage.fileStateBlock,
     requirementChecklist: governedStage.requirementChecklist,
+    bodyMetadata: input.bodyMetadata,
+    extraBody: (input.request as { extra_body?: Record<string, unknown> }).extra_body ?? null,
+    runtimePreferences: input.runtimePreferences as never,
   });
   if (!enrichment.ok) {
     return { result: enrichment.result, applyClarificationHeader: false };
   }
   endEnrichmentStage();
+  if (enrichment.workPacket?.packet) {
+    input.optimizationLedger.recordCacheDiagnostics({
+      workPacketHash: enrichment.workPacket.packet.hash,
+      workPacketInjected: enrichment.workPacket.inject,
+      workPacketMode: enrichment.workPacket.mode,
+      workPacketEstimatedTokens: enrichment.workPacket.packet.estimatedTokens,
+      workPacketReasons: enrichment.workPacket.reasons,
+    });
+  }
 
   const endProviderRequestStage = input.optimizationLedger.startStage("provider_request");
   const providerRuntime = await prepareOpenAIProviderRuntimeForRoute({

@@ -99,7 +99,10 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
     const sessionKey = await getSessionKey(identity);
 
     try {
-      if (body.command.trim().toLowerCase() === "compact") {
+      const normalizedCommand = body.command.trim().toLowerCase();
+      let currentWorkPacket: Record<string, unknown> | null = null;
+
+      if (normalizedCommand === "compact") {
         const state = await getSessionState(sessionKey, identity);
         const compacted = await forceCheckpoint(state);
         await casSessionSave(state);
@@ -115,6 +118,37 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
         );
       }
 
+      if (["memory", "show_memory", "current_work_packet", "work_packet"].includes(normalizedCommand)) {
+        const state = await getSessionState(sessionKey, identity);
+        const rawPacket = state.record.metadata.current_work_packet;
+        currentWorkPacket =
+          rawPacket && typeof rawPacket === "object" && !Array.isArray(rawPacket)
+            ? rawPacket as Record<string, unknown>
+            : null;
+      }
+
+      if (["clear_memory", "clear_work_packet", "reset_memory"].includes(normalizedCommand)) {
+        const state = await getSessionState(sessionKey, identity);
+        const hadPacket = Boolean(state.record.metadata.current_work_packet);
+        delete state.record.metadata.current_work_packet;
+        await casSessionSave(state);
+        recordSessionEvent(
+          state.record.sessionKey,
+          state.record.userId,
+          state.record.orgId,
+          "current_work_packet_cleared",
+          "claude-command-api",
+          hadPacket
+            ? "Synesis durable work packet cleared via /v1/claude/commands/execute"
+            : "Synesis durable work packet clear requested via /v1/claude/commands/execute (no packet present)",
+          {
+            conversationId,
+            sessionKey,
+            hadPacket,
+          },
+        );
+      }
+
       const result = executeClaudeCompatCommand({
         tierMap: config.SYNESIS_YARN_CLAUDE_TIER_MAP,
         availableModels: tierRegistry.getAvailableModels().map((m) => m.id),
@@ -122,6 +156,7 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
         model: body.model,
         conversationId,
         sessionKey,
+        currentWorkPacket,
       });
       return {
         object: "claude_command_result",

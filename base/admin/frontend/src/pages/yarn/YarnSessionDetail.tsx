@@ -63,6 +63,21 @@ type CapabilityResolutionSummary = {
   contentDedupeEnabled: boolean;
 };
 
+type CurrentWorkPacketSummary = {
+  eventId: number;
+  createdAt: string | null;
+  hash: string;
+  mode: string;
+  injected: boolean;
+  estimatedTokens: number;
+  sourceSections: string[];
+  reasons: string[];
+  objective: string;
+  currentPhase: string;
+  nextBestAction: string;
+  block: string;
+};
+
 export default function YarnSessionDetail() {
   const { sessionKey } = useParams<{ sessionKey: string }>();
   const navigate = useNavigate();
@@ -152,6 +167,30 @@ export default function YarnSessionDetail() {
         transcriptPruneEnabled: resolvedCaps?.["yarn.transcript_prune_enabled"] === true,
         jsonCompactionEnabled: resolvedCaps?.["yarn.json_compaction_enabled"] === true,
         contentDedupeEnabled: resolvedCaps?.["yarn.content_dedupe_enabled"] === true,
+      };
+    }
+    return null;
+  }, [data?.events]);
+  const latestWorkPacket = useMemo<CurrentWorkPacketSummary | null>(() => {
+    for (const ev of data?.events ?? []) {
+      if (ev.event_kind !== "current_work_packet_v1") continue;
+      if (!isRecord(ev.metadata_json)) continue;
+      const summary = isRecord(ev.metadata_json.summary) ? ev.metadata_json.summary : null;
+      return {
+        eventId: ev.id,
+        createdAt: ev.created_at,
+        hash: String(ev.metadata_json.hash ?? ""),
+        mode: String(ev.metadata_json.mode ?? "adapt"),
+        injected: ev.metadata_json.injected === true,
+        estimatedTokens: asNumber(ev.metadata_json.estimated_tokens),
+        sourceSections: Array.isArray(ev.metadata_json.source_sections)
+          ? ev.metadata_json.source_sections.map(String)
+          : [],
+        reasons: Array.isArray(ev.metadata_json.reasons) ? ev.metadata_json.reasons.map(String) : [],
+        objective: String(summary?.objective ?? "—"),
+        currentPhase: String(summary?.currentPhase ?? "unknown"),
+        nextBestAction: String(summary?.nextBestAction ?? "—"),
+        block: String(ev.metadata_json.block ?? ""),
       };
     }
     return null;
@@ -456,6 +495,98 @@ export default function YarnSessionDetail() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {latestWorkPacket && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-5 dark:border-emerald-800 dark:bg-emerald-950/20">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    Current work packet
+                  </h2>
+                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                    Durable tail-state replay for architecture-aware sessions.
+                  </p>
+                </div>
+                <span className={clsx(
+                  "rounded-full border px-2.5 py-1 text-xs font-medium",
+                  latestWorkPacket.injected
+                    ? "border-emerald-300 bg-white text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
+                    : "border-gray-300 bg-white text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200",
+                )}>
+                  {latestWorkPacket.injected ? "Injected" : "Observed"} · {latestWorkPacket.mode}
+                </span>
+              </div>
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-md border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-800 dark:bg-emerald-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Phase
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {latestWorkPacket.currentPhase}
+                  </dd>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-800 dark:bg-emerald-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Hash
+                  </dt>
+                  <dd className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                    {latestWorkPacket.hash || "—"}
+                  </dd>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-800 dark:bg-emerald-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Token estimate
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {fmtTokens(latestWorkPacket.estimatedTokens)}
+                  </dd>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-800 dark:bg-emerald-900/30">
+                  <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Last update
+                  </dt>
+                  <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                    {latestWorkPacket.createdAt ? new Date(latestWorkPacket.createdAt).toLocaleString() : "—"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div>
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Objective
+                  </h3>
+                  <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800 dark:border-emerald-800 dark:bg-gray-950 dark:text-gray-200">
+                    {latestWorkPacket.objective}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Next best action
+                  </h3>
+                  <p className="mt-1 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-800 dark:border-emerald-800 dark:bg-gray-950 dark:text-gray-200">
+                    {latestWorkPacket.nextBestAction}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {latestWorkPacket.sourceSections.map((section) => (
+                  <span key={section} className="rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">
+                    {section}
+                  </span>
+                ))}
+                {latestWorkPacket.reasons.map((reason) => (
+                  <span key={reason} className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+              {latestWorkPacket.block && (
+                <pre className="mt-4 max-h-80 overflow-auto rounded-md border border-emerald-200 bg-white p-3 text-[11px] leading-5 text-gray-700 dark:border-emerald-800 dark:bg-gray-950 dark:text-gray-200">
+                  {latestWorkPacket.block}
+                </pre>
+              )}
             </div>
           )}
 

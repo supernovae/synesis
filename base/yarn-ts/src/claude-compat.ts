@@ -89,6 +89,7 @@ export interface ClaudeCommandContext {
   model?: string;
   conversationId?: string;
   sessionKey?: string;
+  currentWorkPacket?: Record<string, unknown> | null;
 }
 
 export function executeClaudeCompatCommand(ctx: ClaudeCommandContext): ClaudeCommandExecution {
@@ -147,6 +148,43 @@ export function executeClaudeCompatCommand(ctx: ClaudeCommandContext): ClaudeCom
       ],
       data: {
         mode: "synesis_session_compaction",
+        conversationId: ctx.conversationId ?? "",
+        sessionKey: ctx.sessionKey ?? "",
+      },
+    };
+  }
+
+  if (["memory", "show_memory", "current_work_packet", "work_packet"].includes(normalized)) {
+    return {
+      command: normalized,
+      supported: true,
+      clientLocal: false,
+      action: "current_work_packet",
+      notes: [
+        "Returns the latest Synesis durable work packet for this session.",
+        "This is model-facing upper-harness state; it does not mutate model internals or local files.",
+      ],
+      data: {
+        mode: "synesis_current_work_packet",
+        conversationId: ctx.conversationId ?? "",
+        sessionKey: ctx.sessionKey ?? "",
+        currentWorkPacket: ctx.currentWorkPacket ?? null,
+      },
+    };
+  }
+
+  if (["clear_memory", "clear_work_packet", "reset_memory"].includes(normalized)) {
+    return {
+      command: normalized,
+      supported: true,
+      clientLocal: false,
+      action: "current_work_packet_clear_requested",
+      notes: [
+        "Clears the persisted Synesis durable work packet for this session.",
+        "Future requests can rebuild a new packet from fresh session events and tool truth.",
+      ],
+      data: {
+        mode: "synesis_current_work_packet_clear",
         conversationId: ctx.conversationId ?? "",
         sessionKey: ctx.sessionKey ?? "",
       },

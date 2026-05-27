@@ -225,6 +225,23 @@ Use `--dry-run` to verify placeholder expansion without launching the lower harn
 
 Harness Lab intentionally launches commands with `shell: false`. If a client truly needs shell behavior, make that explicit in the spec by using `bash` or `zsh` as the command and a narrow argument list. Do not use Harness Lab specs for destructive cleanup of user workspaces; let the runner create and clean its own temporary workspaces.
 
+The repository includes a first durable-work-packet lab spec for models with
+weak long-tail retention or path/task-state drift:
+
+```bash
+npm run harness:lab --prefix base/yarn-ts -- \
+  --spec tests/fixtures/harness-lab/deepseek-xiaomi-work-packet.json \
+  --dry-run
+```
+
+Run it without `--dry-run` after exporting the lower-harness OpenAI-compatible
+environment variables that your client expects, such as `OPENAI_BASE_URL` and
+`OPENAI_API_KEY`. The spec currently targets DeepSeek/Xiaomi-style fragile
+long-context scenarios: fresh empty workspace creation, duplicated path
+recovery, todo-schema recovery, and verification after writes. It is meant to
+catch regressions where the governor treats forward discovery as churn or where
+the model resets task state after a recoverable tool/prompt failure.
+
 ## Model-Assisted Analysis Loop
 
 The recommended workflow is:

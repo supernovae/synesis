@@ -854,6 +854,7 @@ export interface CacheCanaryReportObservability {
 export interface UserRuntimePreferences {
   loopBreakMode: "standard" | "assertive" | "hands_off";
   cachePolicyBias: "auto" | "cache_first" | "balanced" | "efficiency_first";
+  synesisMemoryMode: "off" | "observe" | "adapt" | "strict";
   allowAggressiveCompactionWithoutCacheHits: boolean;
   maxToolLoopSoftFails: number | null;
   updatedAt: number;
@@ -864,6 +865,7 @@ export interface UserRuntimePreferencesResponse {
   options: {
     loopBreakMode: string[];
     cachePolicyBias: string[];
+    synesisMemoryMode: string[];
     maxToolLoopSoftFails: { min: number; max: number; nullable: boolean };
   };
 }

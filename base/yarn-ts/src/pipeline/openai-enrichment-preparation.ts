@@ -1,6 +1,12 @@
 import type { SessionIdentity } from "../session/session-key.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
+import { buildDurableWorkPacketDecision, type DurableWorkPacketDecision } from "../memory/durable-work-packet.js";
+import {
+  deriveModelExecutionPolicy,
+  resolveModelArchitectureProfile,
+} from "../providers/model-architecture-profile.js";
+import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 
 type Deps = Pick<
   OpenAIChatCompletionsRouteDependencies,
@@ -52,6 +58,9 @@ interface PrepareOpenAIEnrichmentInput {
   chatStateBlock: string | null;
   fileStateBlock: string | null;
   requirementChecklist: ReturnType<OpenAIChatCompletionsRouteDependencies["refreshRequirementChecklist"]>;
+  bodyMetadata?: Record<string, unknown> | null;
+  extraBody?: Record<string, unknown> | null;
+  runtimePreferences?: UserRuntimePreferences | null;
 }
 
 export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInput) {
@@ -75,6 +84,9 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     chatStateBlock,
     fileStateBlock,
     requirementChecklist,
+    bodyMetadata,
+    extraBody,
+    runtimePreferences,
   } = input;
   const {
     app,
@@ -118,6 +130,24 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
   const pathContext = metadataPrebackfill.pathContext;
   const adapterBlock = metadataPrebackfill.adapterBlock;
   const seedDirs = await getCachedTopLevelDirs(pathContext.projectRoot ?? pathContext.shellCwd);
+  const workPacketPolicy = deriveModelExecutionPolicy(
+    resolveModelArchitectureProfile({
+      modelId: backendModel || orchestration.selectedModel,
+      family: promptContext.modelFamily,
+    }),
+  );
+  const workPacket = buildDurableWorkPacketDecision({
+    sessionKey,
+    requestCount: session.record.requestCount,
+    messages: scopedMessages,
+    taskLedger: session.taskLedger,
+    projectRoot: pathContext.projectRoot,
+    shellCwd: pathContext.shellCwd,
+    modelPolicy: workPacketPolicy,
+    metadata: bodyMetadata ?? null,
+    extraBody: extraBody ?? null,
+    configMode: runtimePreferences?.synesisMemoryMode ?? null,
+  });
   const governanceBlocks = buildRouteGovernanceBlocks({
     memoryTracker: getMemoryGovernor(sessionKey),
     structuralIndex: getStructuralIndex(sessionKey),
@@ -134,13 +164,48 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     taskLedger: session.taskLedger,
     taskCapabilities: session.taskCapabilities,
   });
+  if (workPacket.packet) {
+    session.record.metadata.current_work_packet = {
+      hash: workPacket.packet.hash,
+      mode: workPacket.mode,
+      injected: workPacket.inject,
+      estimated_tokens: workPacket.packet.estimatedTokens,
+      source_sections: workPacket.packet.sourceSections,
+      reasons: workPacket.reasons,
+      summary: workPacket.packet.summary,
+      updated_at: Date.now(),
+    };
+    recordSessionEvent(
+      sessionKey,
+      identity.userId,
+      identity.orgId,
+      "current_work_packet_v1",
+      "durable-work-packet",
+      `${workPacket.inject ? "injected" : "observed"} hash=${workPacket.packet.hash} mode=${workPacket.mode}`,
+      requestId,
+      {
+        hash: workPacket.packet.hash,
+        mode: workPacket.mode,
+        injected: workPacket.inject,
+        estimated_tokens: workPacket.packet.estimatedTokens,
+        source_sections: workPacket.packet.sourceSections,
+        reasons: workPacket.reasons,
+        summary: workPacket.packet.summary,
+        block: workPacket.packet.block,
+      },
+    );
+  }
+  const frameGovernanceBlocks = [
+    ...governanceBlocks.blocks,
+    ...(workPacket.inject && workPacket.packet ? [workPacket.packet.block] : []),
+  ];
   const enriched = await enrichWithFrameAndManifest(
     scopedMessages as never,
     sessionKey,
     adapterBlock,
     promptContext,
     { projectRoot: pathContext.projectRoot, shellCwd: pathContext.shellCwd },
-    governanceBlocks.blocks,
+    frameGovernanceBlocks,
     seedDirs,
     session,
     { chatStateBlock, fileStateBlock },
@@ -194,6 +259,7 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     enrichedMessages: finalizedEnrichment.messages,
     promptContext,
     governanceBlocks,
+    workPacket,
     seedDirs,
   };
 }

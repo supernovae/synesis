@@ -59,6 +59,7 @@ class YarnSessionBulkDeleteRequest(BaseModel):
 class RuntimePreferencesRequest(BaseModel):
     loopBreakMode: str = Field("standard", pattern="^(standard|assertive|hands_off)$")
     cachePolicyBias: str = Field("auto", pattern="^(auto|cache_first|balanced|efficiency_first)$")
+    synesisMemoryMode: str = Field("adapt", pattern="^(off|observe|adapt|strict)$")
     allowAggressiveCompactionWithoutCacheHits: bool = True
     maxToolLoopSoftFails: int | None = Field(None, ge=1, le=20)
 
@@ -254,6 +255,22 @@ async def yarn_sessions(
         active_since_hours=active_since_hours,
         include_provider_actual=_include_provider_actual(user),
     )
+
+
+@router.get("/sessions/current-work-packet")
+async def yarn_current_work_packet(
+    session_key: str = Query(..., min_length=1),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    packet = await yarn_service.get_yarn_current_work_packet(
+        session_key,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+    )
+    if not packet:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return packet
 
 
 @router.get("/sessions/{session_key:path}")

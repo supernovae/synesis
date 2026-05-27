@@ -62,6 +62,59 @@ This keeps raw OpenAI-compatible usage and conservative client rollouts possible
 while letting developer tools opt into a stronger upper harness when the model
 architecture benefits from it.
 
+## Durable Work Packets
+
+For models with weak long-tail retention, sliding-window behavior, MLA-style
+attention compression, or high retry sensitivity, Yarn can derive a compact
+`SYNESIS_CURRENT_WORK_PACKET` from existing session signals. The packet is not
+hidden model memory and does not override filesystem/tool truth. It is a
+deterministic tail-state replay containing the current objective, path context,
+task ledger, recent files, latest tool truth, blockers, do-not-repeat guidance,
+and one next best action.
+
+Clients can control this mediation with request metadata or `extra_body`:
+
+```json
+{
+  "metadata": {
+    "synesis_memory": "off | observe | adapt | strict"
+  }
+}
+```
+
+- `off`: do not build or inject the current work packet for the request;
+- `observe`: build and trace the packet, but do not inject it;
+- `adapt`: inject only when the selected architecture policy benefits from
+  recent state replay;
+- `strict`: always inject the packet when it has useful state.
+
+Users can set the same default in **Account -> Coder runtime controls ->
+Synesis memory**. The persisted preference is `synesisMemoryMode`; request
+metadata remains the highest-precedence override for a single run.
+
+Yarn emits a `current_work_packet_v1` session event with the packet hash, token
+estimate, source sections, policy reasons, and injected/observed mode. Admin
+session detail renders the latest packet so operators can see exactly what the
+upper harness believed and why it replayed that state.
+
+Claude-compatible clients can expose the same state through the command
+compatibility endpoint:
+
+```http
+POST /v1/claude/commands/execute
+{
+  "command": "show_memory",
+  "conversation_id": "..."
+}
+```
+
+Accepted inspection aliases are `memory`, `show_memory`,
+`current_work_packet`, and `work_packet`. Accepted clear aliases are
+`clear_memory`, `clear_work_packet`, and `reset_memory`. Clearing removes the
+persisted packet summary from the Yarn session; later requests may rebuild a
+new packet from current tool truth and session events. Admin MCP exposes the
+same read-only view as `yarn_current_work_packet`.
+
 ## Admin Overrides
 
 Admins can override inferred profiles through model registry route params. The

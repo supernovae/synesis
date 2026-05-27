@@ -854,10 +854,49 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
 
       const resolvedKey =
         (ctx.role === "platform_admin" || ctx.role === "admin")
-          ? await resolveSessionKeyFromRecentSessions(ctx, exactCandidates)
+          ? await resolveSessionKeyFromRecentSessions(ctx, candidates)
           : null;
       if (resolvedKey) {
         return apiRequest(ctx, "GET", `/api/v1/yarn/sessions/${encodeURIComponent(resolvedKey)}`);
+      }
+      if (lastNotFound) {
+        throw new AdminMcpToolError("session_not_found", 404, { attempted: exactCandidates.length });
+      }
+      throw new AdminMcpToolError("session_not_found", 404);
+    },
+  },
+  {
+    name: "yarn_current_work_packet",
+    description: "Latest Synesis durable work packet for a Yarn session, including injection mode and packet text.",
+    min_role: "org_admin",
+    inputSchema: {
+      type: "object",
+      properties: { session_key: { type: "string", description: "Yarn session key or copied session tail" } },
+      required: ["session_key"],
+    },
+    invoke: async (ctx, args) => {
+      const candidates = buildSessionKeyCandidates(args.session_key);
+      if (candidates.length === 0) throw new Error("session_key required");
+
+      let lastNotFound: Error | null = null;
+      const exactCandidates = ctx.role === "platform_admin" || ctx.role === "admin"
+        ? candidates.filter((candidate) => candidate.length >= 16)
+        : candidates.slice(0, 1);
+      for (const key of exactCandidates) {
+        try {
+          return await apiRequest(ctx, "GET", "/api/v1/yarn/sessions/current-work-packet", { session_key: key });
+        } catch (error) {
+          if (!isHttpNotFoundError(error)) throw error;
+          lastNotFound = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+
+      const resolvedKey =
+        (ctx.role === "platform_admin" || ctx.role === "admin")
+          ? await resolveSessionKeyFromRecentSessions(ctx, exactCandidates)
+          : null;
+      if (resolvedKey) {
+        return apiRequest(ctx, "GET", "/api/v1/yarn/sessions/current-work-packet", { session_key: resolvedKey });
       }
       if (lastNotFound) {
         throw new AdminMcpToolError("session_not_found", 404, { attempted: exactCandidates.length });

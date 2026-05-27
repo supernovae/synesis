@@ -42,6 +42,7 @@ function yarnUrl(): string {
 const DEFAULT_RUNTIME_DRAFT: UserRuntimePreferences = {
   loopBreakMode: "standard",
   cachePolicyBias: "auto",
+  synesisMemoryMode: "adapt",
   allowAggressiveCompactionWithoutCacheHits: true,
   maxToolLoopSoftFails: null,
   updatedAt: 0,
@@ -321,6 +322,22 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
                 <option value="balanced">Balanced</option>
                 <option value="efficiency_first">Efficiency first</option>
               </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Synesis memory</span>
+              <select
+                value={runtimeDraft.synesisMemoryMode}
+                onChange={(event) => updateRuntimeDraft("synesisMemoryMode", event.target.value as UserRuntimePreferences["synesisMemoryMode"])}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              >
+                <option value="off">Off</option>
+                <option value="observe">Observe</option>
+                <option value="adapt">Adapt</option>
+                <option value="strict">Strict</option>
+              </select>
+              <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                Controls durable work packet replay for models that benefit from recent task state near the prompt tail.
+              </span>
             </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Loop soft-fail limit</span>
