@@ -1,7 +1,7 @@
 import type { SessionIdentity } from "../session/session-key.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
-import { buildDurableWorkPacketDecision, type DurableWorkPacketDecision } from "../memory/durable-work-packet.js";
+import { buildDurableWorkPacketDecision } from "../memory/durable-work-packet.js";
 import {
   deriveModelExecutionPolicy,
   resolveModelArchitectureProfile,
