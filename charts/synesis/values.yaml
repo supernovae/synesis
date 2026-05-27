@@ -1352,7 +1352,7 @@ workloads:
       #   repository: neo4j
       #   tag: "5-community"
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
-      tag: v1.1.0
+      tag: v1.1.2
     ports:
       - name: bolt
         containerPort: 7687

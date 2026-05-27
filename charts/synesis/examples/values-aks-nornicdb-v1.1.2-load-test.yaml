@@ -1,15 +1,15 @@
-# Temporary load-test override for NornicDB PR 177.
+# Load-test override for NornicDB v1.1.2.
 #
 # Purpose:
-# - run the PR build that adds search index master switches
+# - run the public release that includes the former PR 177 search index master switches
 # - place NornicDB on a dedicated 32Gi-class Karpenter node
 # - keep ANN/HNSW and BM25 indexes cold during bulk ingestion
 # - keep the recurring content-pack loader paused while running controlled tests
 workloads:
   nornicdb:
     image:
-      repository: ttl.sh/synesis-nornicdb-pr177-searchforce-d07f92b
-      tag: 24h
+      repository: docker.io/timothyswt/nornicdb-amd64-cpu
+      tag: v1.1.2
       pullPolicy: Always
     args:
       - --search-bm25-enabled=false
