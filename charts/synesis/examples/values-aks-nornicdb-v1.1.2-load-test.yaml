@@ -4,7 +4,7 @@
 # - run the public release that includes the former PR 177 search index master switches
 # - place NornicDB on a dedicated 32Gi-class Karpenter node
 # - keep ANN/HNSW and BM25 indexes cold during bulk ingestion
-# - keep the recurring content-pack loader paused while running controlled tests
+# - use the standard Synesis indexer image for content-pack reload validation
 workloads:
   nornicdb:
     image:
@@ -46,12 +46,12 @@ workloads:
 jobs:
   indexer:
     image:
-      repository: ttl.sh/synesis-indexer-deletebatch2-d07f92b
-      tag: 24h
+      repository: ghcr.io/supernovae/synesis/indexer
+      tag: latest
       pullPolicy: Always
     contentPacks:
-      suspend: true
-      activeDeadlineSeconds: 7200
+      suspend: false
+      activeDeadlineSeconds: 86400
       resources:
         requests:
           cpu: "1"
@@ -83,6 +83,6 @@ jobs:
         - name: SYNESIS_NORNIC_BULK_SUSPEND_VECTOR_INDEX
           value: "true"
         - name: SYNESIS_NORNIC_FAST_NODE_CREATE
-          value: "false"
+          value: "true"
         - name: SYNESIS_CONTENT_PACK_MAX_JOBS
           value: "1"

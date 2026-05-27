@@ -616,7 +616,7 @@ def test_retouch_pack_embeddings_caps_batch_size_for_large_vectors(monkeypatch: 
     assert result["touched"] == 75
 
 
-def _write_minimal_v2_pack(path: Path) -> None:
+def _write_minimal_v2_pack(path: Path, *, duplicate_chunk_row: bool = False) -> None:
     vector = [0.0] * EMBEDDING_DIM
     chunk = {
         "id": "chunk-1",
@@ -664,7 +664,10 @@ def _write_minimal_v2_pack(path: Path) -> None:
                 }
             ),
         )
-        zf.writestr("nodes/chunks.jsonl", json.dumps(chunk) + "\n")
+        chunk_rows = [json.dumps(chunk)]
+        if duplicate_chunk_row:
+            chunk_rows.append(json.dumps(chunk))
+        zf.writestr("nodes/chunks.jsonl", "\n".join(chunk_rows) + "\n")
         zf.writestr("nodes/documents.jsonl", json.dumps(document) + "\n")
         zf.writestr("nodes/pack_cards.jsonl", json.dumps(pack_card) + "\n")
         zf.writestr(
@@ -692,7 +695,7 @@ def _write_minimal_v2_pack(path: Path) -> None:
             "quality/report.json",
             json.dumps(
                 {
-                    "node_count": 3,
+                    "node_count": 4 if duplicate_chunk_row else 3,
                     "chunk_count": 1,
                     "edge_count": 2,
                     "pack_card_count": 1,
@@ -766,6 +769,56 @@ def test_bulk_load_synpack_imports_v2_typed_graph(tmp_path: Path, monkeypatch: p
     chunk = next(node for node in written_nodes if node["kind"] == "Chunk")
     assert chunk["embedding"] == [0.0] * EMBEDDING_DIM
     assert chunk["domain"] == "go"
+
+
+def test_bulk_load_synpack_verifies_deduplicated_node_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pack = tmp_path / "v2-bulk-duplicate.synpack"
+    _write_minimal_v2_pack(pack, duplicate_chunk_row=True)
+    written_nodes: list[dict] = []
+    written_edges: list[dict] = []
+
+    class FakeWriter:
+        def __init__(self, uri: str = ""):
+            self.uri = uri
+            self.client = self
+
+        def close(self) -> None:
+            return None
+
+        def delete_pack(self, pack_id: str) -> int:
+            assert pack_id == "go-latest"
+            return 0
+
+        def bulk_upsert_nodes(
+            self, rows: list[dict], *, create_only: bool = False, batch_size: int | None = None
+        ) -> int:
+            assert create_only is True
+            assert batch_size is not None
+            written_nodes.extend(rows)
+            return len(rows)
+
+        def upsert_edges(self, edges: list[dict]) -> int:
+            written_edges.extend(edges)
+            return len(edges)
+
+        def pack_counts(self, pack_id: str) -> dict:
+            assert pack_id == "go-latest"
+            return {
+                "node_count": len(written_nodes),
+                "chunk_count": sum(1 for node in written_nodes if node.get("kind") == "Chunk"),
+                "embedding_count": sum(1 for node in written_nodes if node.get("embedding")),
+                "edge_count": len(written_edges),
+                "node_counts_by_kind": {"Chunk": 1, "Document": 1, "PackCard": 1},
+            }
+
+    monkeypatch.setattr(nornic_bulk_importer, "NornicGraphWriter", FakeWriter)
+    monkeypatch.setattr(nornic_bulk_importer, "ensure_synesis_catalog", lambda client: client)
+
+    result = nornic_bulk_importer.bulk_load_synpack(pack, replace=True)
+
+    assert result["nodes"] == 3
+    assert result["quality"]["node_count"] == 4
+    assert len(written_nodes) == 3
 
 
 def test_content_pack_runner_uses_bulk_backend_for_v2_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

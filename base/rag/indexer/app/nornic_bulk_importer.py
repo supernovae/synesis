@@ -297,8 +297,19 @@ def _safe_extract_synpack(zf: zipfile.ZipFile, destination: Path) -> None:
         zf.extract(member, destination)
 
 
-def _verify_counts(pack_id: str, expected: dict[str, Any], actual: dict[str, Any]) -> None:
+def _verify_counts(
+    pack_id: str,
+    expected: dict[str, Any],
+    actual: dict[str, Any],
+    *,
+    imported_node_count: int | None = None,
+) -> None:
     expected_nodes = int(expected.get("node_count") or 0)
+    if imported_node_count is not None and imported_node_count < expected_nodes:
+        # SynPack quality reports count raw source rows. The importer de-duplicates
+        # node ids before writing, so validate against the actual deduplicated
+        # write target when a pack contains duplicate rows.
+        expected_nodes = imported_node_count
     expected_chunks = int(expected.get("chunk_count") or 0)
     expected_edges = int(expected.get("edge_count") or 0)
     if expected_nodes and int(actual.get("node_count") or 0) < expected_nodes:
@@ -399,7 +410,7 @@ def bulk_load_synpack(
 
         logger.info("synpack_bulk_verify_start", extra={"pack_id": pack_id})
         actual_counts = writer.pack_counts(pack_id)
-        _verify_counts(pack_id, quality_report, actual_counts)
+        _verify_counts(pack_id, quality_report, actual_counts, imported_node_count=nodes)
         logger.info("synpack_bulk_verify_complete", extra={"pack_id": pack_id, "verification": actual_counts})
 
         if vector_index_suspended:
