@@ -429,6 +429,21 @@ def get_defaults_for_model(
         notes_parts.append("OpenAI models support function/tool calling")
     elif provider_key == "xai":
         supports_tools = True
+    elif provider_key == "deepseek":
+        supports_tools = True
+        notes_parts.append("DeepSeek V4 supports OpenAI-compatible tool calls and thinking/non-thinking modes")
+    elif provider_key == "xiaomi":
+        supports_tools = True
+        notes_parts.append("Xiaomi MiMo supports OpenAI-compatible tool calls, structured output, and streaming")
+
+    model_lower = (model_id or "").strip().lower()
+    if provider_key == "xiaomi":
+        if "flash" in model_lower:
+            max_tok = min(max_tok, 8192)
+        elif "v2.5" in model_lower or "v2-pro" in model_lower:
+            max_tok = max(max_tok, 16384)
+    elif provider_key == "deepseek" and "v4" in model_lower:
+        max_tok = max(max_tok, 16384)
 
     return ProviderDefaults(
         max_tokens=max_tok,

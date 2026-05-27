@@ -59,6 +59,74 @@ RESERVED_CLIENT_MODEL_IDS = frozenset(
 
 CLIENT_ID_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9._/-]{0,127})$")
 
+DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
+    {
+        "client_model_id": "deepseek-v4-flash",
+        "label": "DeepSeek V4 Flash",
+        "effort_tier": "pulse",
+        "connection_mode": "standalone",
+        "standalone_provider": "deepseek",
+        "standalone_endpoint": "https://api.deepseek.com",
+        "standalone_api_key_env": "DEEPSEEK_API_KEY",
+        "backend_model_override": "deepseek-v4-flash",
+        "generation_params": {"max_tokens": 8192, "temperature": 0.3, "top_p": 0.95},
+        "expose_planner": True,
+        "expose_yarn": True,
+    },
+    {
+        "client_model_id": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "effort_tier": "horizon",
+        "connection_mode": "standalone",
+        "standalone_provider": "deepseek",
+        "standalone_endpoint": "https://api.deepseek.com",
+        "standalone_api_key_env": "DEEPSEEK_API_KEY",
+        "backend_model_override": "deepseek-v4-pro",
+        "generation_params": {"max_tokens": 32768, "temperature": 0.3, "top_p": 0.95},
+        "expose_planner": True,
+        "expose_yarn": True,
+    },
+    {
+        "client_model_id": "mimo-v2.5-pro",
+        "label": "Xiaomi MiMo V2.5 Pro",
+        "effort_tier": "horizon",
+        "connection_mode": "standalone",
+        "standalone_provider": "xiaomi",
+        "standalone_endpoint": "https://api.xiaomimimo.com/v1",
+        "standalone_api_key_env": "MIMO_API_KEY",
+        "backend_model_override": "mimo-v2.5-pro",
+        "generation_params": {"max_tokens": 32768, "temperature": 1.0, "top_p": 0.95},
+        "expose_planner": True,
+        "expose_yarn": True,
+    },
+    {
+        "client_model_id": "mimo-v2.5",
+        "label": "Xiaomi MiMo V2.5",
+        "effort_tier": "core",
+        "connection_mode": "standalone",
+        "standalone_provider": "xiaomi",
+        "standalone_endpoint": "https://api.xiaomimimo.com/v1",
+        "standalone_api_key_env": "MIMO_API_KEY",
+        "backend_model_override": "mimo-v2.5",
+        "generation_params": {"max_tokens": 16384, "temperature": 1.0, "top_p": 0.95},
+        "expose_planner": True,
+        "expose_yarn": True,
+    },
+    {
+        "client_model_id": "mimo-v2-flash",
+        "label": "Xiaomi MiMo V2 Flash",
+        "effort_tier": "pulse",
+        "connection_mode": "standalone",
+        "standalone_provider": "xiaomi",
+        "standalone_endpoint": "https://api.xiaomimimo.com/v1",
+        "standalone_api_key_env": "MIMO_API_KEY",
+        "backend_model_override": "mimo-v2-flash",
+        "generation_params": {"max_tokens": 8192, "temperature": 0.3, "top_p": 0.95},
+        "expose_planner": True,
+        "expose_yarn": True,
+    },
+)
+
 
 def normalize_client_model_id(raw: str) -> str:
     return (raw or "").strip().lower()

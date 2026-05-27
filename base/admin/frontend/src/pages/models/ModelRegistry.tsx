@@ -207,6 +207,7 @@ const ADAPTER_FAMILIES = [
   { value: "deepseek", label: "DeepSeek" },
   { value: "kimi", label: "Kimi / Moonshot (KimiAdapter — K2.x)" },
   { value: "minimax", label: "MiniMax" },
+  { value: "xiaomi", label: "Xiaomi MiMo" },
   { value: "generic", label: "Generic OpenAI" },
 ] as const;
 
@@ -1273,7 +1274,7 @@ function NewPublicOfferingModal({
                 className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 font-mono text-xs dark:border-gray-600 dark:bg-gray-800"
                 value={draft.client_model_id}
                 onChange={(e) => setDraft({ ...draft, client_model_id: e.target.value })}
-                placeholder="e.g. xiaomi-2.5, qwen3.6-pro"
+                placeholder="e.g. mimo-v2.5-pro, deepseek-v4-flash"
               />
             </label>
             <label className="block text-xs text-gray-600 dark:text-gray-400">

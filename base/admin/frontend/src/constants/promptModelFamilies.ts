@@ -13,6 +13,7 @@ export const PROMPT_MODEL_FAMILY_OPTIONS: Array<{ value: string; label: string }
   { value: "deepseek", label: "deepseek — DeepSeek" },
   { value: "kimi", label: "kimi — Kimi / Moonshot / K2.5–K2.6 (Yarn KimiAdapter)" },
   { value: "minimax", label: "minimax — MiniMax / abab" },
+  { value: "xiaomi", label: "xiaomi — Xiaomi MiMo / MiMo-V2.5 / MiMo-V2-Flash" },
 ] as const;
 
 export const PROMPT_MODEL_FAMILY_VALUE_SET = new Set(PROMPT_MODEL_FAMILY_OPTIONS.map((o) => o.value));

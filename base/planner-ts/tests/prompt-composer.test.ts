@@ -44,4 +44,22 @@ describe("planner prompt composer", () => {
     expect(out.profileIds).toEqual([10, 11, 12, 13, 14]);
     expect(out.profileHashes).toEqual(["h10", "h11", "h12", "h13", "h14"]);
   });
+
+  it("applies Xiaomi model_family overlay for MiMo models", () => {
+    const snapshot = {
+      service: "planner",
+      profiles: [
+        { id: 20, name: "xiaomi", service: "planner", content: "xiaomi-overlay", content_hash: "h20" },
+      ],
+      assignments: [
+        { id: 10, service: "planner", target_type: "model_family", target_value: "xiaomi", profile_id: 20 },
+      ],
+      updated_at: null,
+    };
+
+    const out = composePlannerPrompt("base", { model: "mimo-v2.5-pro" }, snapshot);
+
+    expect(out.content).toContain("xiaomi-overlay");
+    expect(out.profileIds).toEqual([20]);
+  });
 });

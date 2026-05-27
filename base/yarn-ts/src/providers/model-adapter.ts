@@ -679,7 +679,7 @@ export class GenericOpenAIAdapter implements ModelAdapter {
  * Model families that use {@link Qwen3CoderAdapter}-style loop steering in Yarn
  * (`getEarlyPivotPrompt`, `dampenConsecutiveSameTools`, write-tool prioritization).
  */
-export const TOOL_LOOP_STEERING_FAMILIES = new Set<string>(["qwen3-coder", "kimi"]);
+export const TOOL_LOOP_STEERING_FAMILIES = new Set<string>(["qwen3-coder", "kimi", "xiaomi"]);
 
 export function adapterUsesToolLoopSteering(family: string): boolean {
   return TOOL_LOOP_STEERING_FAMILIES.has(family);
@@ -1025,6 +1025,77 @@ export class MiniMaxAdapter implements ModelAdapter {
       ].join(" ");
     }
     return null;
+  }
+}
+
+export class XiaomiMiMoAdapter implements ModelAdapter {
+  readonly family = "xiaomi";
+  readonly supportsThinking = true;
+  private readonly recoveryDelegate = new MiniMaxAdapter();
+
+  toolSystemPrompt(toolCount: number): string | undefined {
+    if (toolCount === 0) return undefined;
+    return [
+      "# Tool discipline (Xiaomi MiMo — agentic coding)",
+      "MiMo is strongest when path state, task state, and tool boundaries stay explicit.",
+      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`; file tools resolve relative to that context.",
+      "",
+      "## Paths",
+      "- Use file paths relative to `shell_cwd` when provided, otherwise `project_root`.",
+      "- Never prepend workspace/cwd segments already present in the environment (e.g. with cwd `/home/byron/src/test`, use `taskpulse/app/main.py`, not `src/test/taskpulse/app/main.py`).",
+      "- If a path fails, run one narrow location check (`pwd`, `ls`, or Glob), then update the path; do not retry variants blindly.",
+      "",
+      "## Tool and task state",
+      "- Validate exact tool argument names before calling.",
+      "- Update native task/todo state after each completed milestone.",
+      "- Treat latest tool output as authoritative over older plan text.",
+      "- After verification output, either fix one implicated file or summarize the exact blocker.",
+      "",
+      "## Model variants",
+      "- MiMo-V2.5-Pro: suitable for longer agent work, but keep a current-state ledger near the latest turn.",
+      "- MiMo-V2.5 and MiMo-V2-Flash: prefer shorter turns, structured tool digests, and deterministic validation.",
+      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
+    ].join("\n");
+  }
+
+  enrichToolDescription(toolName: string, description: string): string {
+    const hints: Record<string, string> = {
+      Read:
+        " [Xiaomi MiMo: Use paths relative to shell_cwd/project_root. Do not prepend cwd/workspace folder names. Read once, then act on the result.]",
+      Write:
+        " [Xiaomi MiMo: Include full content. Path is shell_cwd/project-root relative; avoid duplicate cwd prefixes.]",
+      Edit:
+        " [Xiaomi MiMo: Use exact old_string from the latest Read and a shell_cwd/project-root relative file_path.]",
+      Bash:
+        " [Xiaomi MiMo: Shell cwd may differ from file-tool root. Use pwd once if unsure; do not retry the same failing command.]",
+      TodoWrite:
+        " [Xiaomi MiMo: Keep todos current after each completed milestone; todos must be arrays/objects matching the schema, not JSON strings.]",
+      Glob:
+        " [Xiaomi MiMo: Scope patterns from the current root; avoid cwd-prefixed duplicate paths.]",
+    };
+    return `${description}${hints[toolName] ?? ""}`;
+  }
+
+  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
+    return this.recoveryDelegate.getEarlyPivotPrompt(recentToolCalls, options);
+  }
+
+  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
+    return this.recoveryDelegate.dampenConsecutiveSameTools(recentToolNames);
+  }
+
+  normalizeToolCallArgs(args: string): string {
+    const trimmed = args.trim();
+    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "{}";
+    return trimmed;
+  }
+
+  remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
+    return remapCommonToolArgAliases(toolName, input);
+  }
+
+  defaultSamplingParams(): { temperature?: number; top_p?: number } {
+    return { temperature: 1.0, top_p: 0.95 };
   }
 }
 
@@ -1379,7 +1450,7 @@ function hasNativeQwenToolParser(baseUrl?: string): boolean {
 }
 
 export const KNOWN_ADAPTER_FAMILIES = [
-  "qwen3-coder", "qwen3-coder-next", "claude", "deepseek", "kimi", "minimax", "generic",
+  "qwen3-coder", "qwen3-coder-next", "claude", "deepseek", "kimi", "minimax", "xiaomi", "generic",
 ] as const;
 export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
 
@@ -1399,6 +1470,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot|k2[.-]?5|k2[.-]?6/i.test(m)) return new KimiAdapter();
   if (/minimax|abab/i.test(m)) return new MiniMaxAdapter();
+  if (/xiaomi|mimo/i.test(m)) return new XiaomiMiMoAdapter();
   return new GenericOpenAIAdapter("generic");
 }
 
@@ -1411,6 +1483,7 @@ function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter 
     case "deepseek": return new DeepSeekAdapter();
     case "kimi": return new KimiAdapter();
     case "minimax": return new MiniMaxAdapter();
+    case "xiaomi": return new XiaomiMiMoAdapter();
     case "generic": return new GenericOpenAIAdapter("generic");
   }
 }

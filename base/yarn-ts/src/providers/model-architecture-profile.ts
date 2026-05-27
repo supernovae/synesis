@@ -149,7 +149,7 @@ export function resolveModelArchitectureProfile(
     profile = {
       ...profile,
       attention: "mla",
-      activation: /moe|v3|r1/i.test(model) ? "moe" : "unknown",
+      activation: /moe|v[34]|r1/i.test(model) ? "moe" : "unknown",
       decoding: /mtp/.test(model) ? "mtp" : "standard",
       effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.70),
       safeInstructionTokens: 10_000,
@@ -172,6 +172,39 @@ export function resolveModelArchitectureProfile(
         preferDeterministicValidation: true,
       },
       notes: ["MLA-style mediation treats declared context as larger than reliable working memory."],
+    };
+  } else if (/xiaomi|mimo/.test(model) || family === "xiaomi") {
+    const isFlash = /flash/.test(model);
+    profile = {
+      ...profile,
+      attention: isFlash ? "sliding_window" : "hybrid",
+      activation: "moe",
+      decoding: isFlash ? "mtp" : "speculative_friendly",
+      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isFlash ? 0.58 : 0.72),
+      safeInstructionTokens: isFlash ? 8_000 : 12_000,
+      safeToolOutputTokens: isFlash ? 14_000 : 22_000,
+      traits: {
+        longTailRetention: isFlash ? "weak" : "medium",
+        toolCallingReliability: "medium",
+        longContextReliability: isFlash ? "weak" : "medium",
+        outputThroughputBias: isFlash ? "high" : "medium",
+        retrySensitivity: "high",
+        compactionSensitivity: "high",
+      },
+      recommendations: {
+        preferMemoryStitching: true,
+        preferFrontLoadedInstructions: true,
+        preferRecentToolStateReplay: true,
+        preferStructuredToolDigests: true,
+        preferShorterTurns: true,
+        preferExplicitStateHeaders: true,
+        preferDeterministicValidation: true,
+      },
+      notes: [
+        isFlash
+          ? "MiMo Flash profile treats SWA/MTP behavior as short-turn and boundary-validation sensitive."
+          : "MiMo V2.5 profile uses explicit state replay for long agent sessions and MoE determinism.",
+      ],
     };
   } else if (/qwen/.test(model) || family === "qwen3-coder") {
     profile = {

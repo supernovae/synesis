@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ModelPublicOffering
 from .public_model_offerings_rules import (
+    DEFAULT_PUBLIC_OFFERINGS,
     normalize_generation_params,
     normalize_offering_connection,
     validate_client_model_id,
@@ -20,6 +21,7 @@ __all__ = [
     "get_offering_by_id",
     "list_offerings",
     "list_offerings_for_service",
+    "seed_default_public_offerings",
     "update_offering",
 ]
 
@@ -197,3 +199,22 @@ async def delete_offering(session: AsyncSession, offering_id: int) -> bool:
         return False
     await session.delete(row)
     return True
+
+
+async def seed_default_public_offerings(session: AsyncSession) -> int:
+    """Create built-in public offerings for direct provider models.
+
+    The seed is non-destructive: existing client_model_id rows are left as-is so
+    operator edits in the Admin UI remain the source of truth.
+    """
+    result = await session.execute(select(ModelPublicOffering.client_model_id))
+    existing = {str(row[0]).strip().lower() for row in result.all()}
+    created = 0
+    for seed in DEFAULT_PUBLIC_OFFERINGS:
+        client_model_id = validate_client_model_id(str(seed["client_model_id"]))
+        if client_model_id in existing:
+            continue
+        await create_offering(session, **seed)
+        existing.add(client_model_id)
+        created += 1
+    return created

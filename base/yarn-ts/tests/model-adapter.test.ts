@@ -5,6 +5,7 @@ import {
   GenericOpenAIAdapter,
   DeepSeekAdapter,
   MiniMaxAdapter,
+  XiaomiMiMoAdapter,
   KimiAdapter,
   adapterUsesToolLoopSteering,
   KNOWN_ADAPTER_FAMILIES,
@@ -48,6 +49,12 @@ describe("resolveAdapter", () => {
     const adapter = resolveAdapter("abab6.5s-chat");
     expect(adapter).toBeInstanceOf(MiniMaxAdapter);
     expect(adapter.family).toBe("minimax");
+  });
+
+  it("resolves Xiaomi MiMo model names to XiaomiMiMoAdapter", () => {
+    const adapter = resolveAdapter("mimo-v2.5-pro");
+    expect(adapter).toBeInstanceOf(XiaomiMiMoAdapter);
+    expect(adapter.family).toBe("xiaomi");
   });
 
   it("falls back to GenericOpenAIAdapter for unknown models", () => {
@@ -160,6 +167,12 @@ describe("resolveAdapter with adapterHint", () => {
     expect(adapter.family).toBe("minimax");
   });
 
+  it("overrides auto-detect when hint is xiaomi", () => {
+    const adapter = resolveAdapter("my-model", undefined, "xiaomi");
+    expect(adapter).toBeInstanceOf(XiaomiMiMoAdapter);
+    expect(adapter.family).toBe("xiaomi");
+  });
+
   it("overrides auto-detect when hint is generic", () => {
     const adapter = resolveAdapter("qwen3-coder-next", undefined, "generic");
     expect(adapter).toBeInstanceOf(GenericOpenAIAdapter);
@@ -207,8 +220,9 @@ describe("resolveAdapter with adapterHint", () => {
     expect(KNOWN_ADAPTER_FAMILIES).toContain("deepseek");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("kimi");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("minimax");
+    expect(KNOWN_ADAPTER_FAMILIES).toContain("xiaomi");
     expect(KNOWN_ADAPTER_FAMILIES).toContain("generic");
-    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(7);
+    expect(KNOWN_ADAPTER_FAMILIES).toHaveLength(8);
   });
 });
 
@@ -431,6 +445,28 @@ describe("KimiAdapter", () => {
     const names = ["WebFetch", "WebFetch", "WebFetch"];
     const msg = adapter.dampenConsecutiveSameTools!(names);
     expect(msg).toMatch(/WebFetch|webfetch/i);
+  });
+});
+
+describe("XiaomiMiMoAdapter", () => {
+  const adapter = new XiaomiMiMoAdapter();
+
+  it("has xiaomi family and loop-steering membership", () => {
+    expect(adapter.family).toBe("xiaomi");
+    expect(adapterUsesToolLoopSteering("xiaomi")).toBe(true);
+    expect(adapter.supportsThinking).toBe(true);
+  });
+
+  it("toolSystemPrompt covers MiMo path and task-state discipline", () => {
+    const prompt = adapter.toolSystemPrompt!(5);
+    expect(prompt).toContain("Xiaomi MiMo");
+    expect(prompt).toContain("shell_cwd");
+    expect(prompt).toContain("Update native task/todo state");
+  });
+
+  it("enrichToolDescription adds Xiaomi-specific hints", () => {
+    expect(adapter.enrichToolDescription!("Read", "Read file")).toContain("Xiaomi MiMo");
+    expect(adapter.enrichToolDescription!("TodoWrite", "Update todos")).toContain("arrays/objects");
   });
 });
 

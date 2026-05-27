@@ -14,5 +14,6 @@ export function inferModelFamily(backendModel: string): string {
   if (/deepseek/.test(m)) return "deepseek";
   if (/kimi|moonshot|k2[.-]?5|k2[.-]?6/.test(m)) return "kimi";
   if (/minimax|abab/.test(m)) return "minimax";
+  if (/xiaomi|mimo/.test(m)) return "xiaomi";
   return "generic";
 }

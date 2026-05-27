@@ -27,6 +27,11 @@ describe("inferModelFamily (yarn prompt context)", () => {
     expect(inferModelFamily("deepseek-ai/DeepSeek-V3-0324")).toBe("deepseek");
   });
 
+  it("maps Xiaomi MiMo backend ids to slug xiaomi", () => {
+    expect(inferModelFamily("mimo-v2.5-pro")).toBe("xiaomi");
+    expect(inferModelFamily("xiaomi/mimo-v2-flash")).toBe("xiaomi");
+  });
+
   it("falls back to generic for unknown families", () => {
     expect(inferModelFamily("")).toBe("generic");
     expect(inferModelFamily("gpt-4.1")).toBe("generic");

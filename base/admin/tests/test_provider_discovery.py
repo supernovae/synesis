@@ -74,6 +74,22 @@ class TestGetDefaultsForModel:
         d = get_defaults_for_model("anthropic", "claude-sonnet-4-20250514")
         assert d.supports_tools is True
 
+    def test_deepseek_v4_defaults_support_tools_and_large_outputs(self):
+        from app.services.provider_discovery import get_defaults_for_model
+
+        d = get_defaults_for_model("deepseek", "deepseek-v4-flash", context_window=1_000_000)
+        assert d.supports_tools is True
+        assert d.max_tokens == 16384
+        assert "DeepSeek V4" in d.notes
+
+    def test_xiaomi_mimo_defaults_support_tools(self):
+        from app.services.provider_discovery import get_defaults_for_model
+
+        d = get_defaults_for_model("xiaomi", "mimo-v2.5-pro", context_window=1_000_000)
+        assert d.supports_tools is True
+        assert d.max_tokens == 16384
+        assert "Xiaomi MiMo" in d.notes
+
     def test_unknown_provider_returns_safe_defaults(self):
         from app.services.provider_discovery import get_defaults_for_model
 
@@ -156,3 +172,49 @@ class TestProviderCatalog:
 
         catalog = get_catalog()
         assert catalog["providers"]["custom"]["supports_discovery"] is False
+
+    def test_deepseek_and_xiaomi_catalog_defaults(self):
+        from app.services.provider_catalog import default_endpoint_for_provider, get_catalog
+
+        catalog = get_catalog()
+        assert catalog["providers"]["deepseek"]["api_key_env"] == "DEEPSEEK_API_KEY"
+        assert default_endpoint_for_provider("deepseek") == "https://api.deepseek.com"
+        assert catalog["providers"]["xiaomi"]["api_key_env"] == "MIMO_API_KEY"
+        assert default_endpoint_for_provider("xiaomi") == "https://api.xiaomimimo.com/v1"
+
+
+class TestBundledPricing:
+    def test_deepseek_and_xiaomi_pricing_lookup(self):
+        from app.services.pricing_lookup import lookup_bundled_pricing
+
+        assert lookup_bundled_pricing("deepseek", "deepseek-v4-flash") == (0.14, 0.28, 0.0028, None)
+        assert lookup_bundled_pricing("xiaomi", "mimo-v2.5") == (0.42, 2.10, 0.08, None)
+
+
+class TestDefaultPublicOfferings:
+    def test_deepseek_and_xiaomi_default_public_offerings_validate(self):
+        from app.services.public_model_offerings_rules import (
+            DEFAULT_PUBLIC_OFFERINGS,
+            normalize_generation_params,
+            normalize_offering_connection,
+        )
+
+        by_id = {o["client_model_id"]: o for o in DEFAULT_PUBLIC_OFFERINGS}
+        assert {"deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5-pro", "mimo-v2.5", "mimo-v2-flash"}.issubset(by_id)
+        for offering in by_id.values():
+            effort, route, mode, provider, endpoint, api_key_env = normalize_offering_connection(
+                effort_tier=offering["effort_tier"],
+                route_via_role=None,
+                connection_mode=offering["connection_mode"],
+                standalone_provider=offering["standalone_provider"],
+                standalone_endpoint=offering["standalone_endpoint"],
+                standalone_api_key_env=offering["standalone_api_key_env"],
+                expose_yarn=offering["expose_yarn"],
+            )
+            assert effort in {"pulse", "core", "horizon"}
+            assert route is None
+            assert mode == "standalone"
+            assert provider in {"deepseek", "xiaomi"}
+            assert endpoint
+            assert api_key_env
+            assert normalize_generation_params(offering["generation_params"])

@@ -12,11 +12,15 @@ ALLOWED_SERVICES = ("yarn", "planner")
 ALLOWED_TARGET_TYPES = ("default", "tier", "role", "model_family", "node")
 
 # Must match inferModelFamily() in yarn-ts and planner-ts (lowercase slugs for Prompt Library).
-ALLOWED_MODEL_FAMILY_VALUES = frozenset({"generic", "qwen3-coder", "deepseek", "kimi", "minimax"})
+ALLOWED_MODEL_FAMILY_VALUES = frozenset({"generic", "qwen3-coder", "deepseek", "kimi", "minimax", "xiaomi"})
 
 YARN_BASE_PROFILE_NAME = "yarn-default-base"
 YARN_QWEN_PROFILE_NAME = "yarn-qwen3-coder-ops"
+YARN_DEEPSEEK_PROFILE_NAME = "yarn-deepseek-agentic-coder"
+YARN_XIAOMI_PROFILE_NAME = "yarn-xiaomi-mimo-agentic-coder"
 PLANNER_BASE_PROFILE_NAME = "planner-default-base"
+PLANNER_DEEPSEEK_PROFILE_NAME = "planner-deepseek-reasoning"
+PLANNER_XIAOMI_PROFILE_NAME = "planner-xiaomi-mimo-reasoning"
 
 YARN_BASE_PROMPT = """You are Synesis, an engineering assistant operating in an interactive development environment.
 Prioritize correctness over speed, inspect before changing code, and ground every decision in observed repository/tool evidence.
@@ -51,6 +55,38 @@ Tool Usage Guidelines:
 - Use parallel tool calls for independent tasks.
 - Prioritize search tools (e.g., grep/glob) over reading full files during exploration."""
 
+YARN_DEEPSEEK_PROMPT = """You are Synesis running on a DeepSeek-class agentic coding model.
+DeepSeek is strongest when the current task state is explicit, evidence is recent, and tool use is validated.
+
+Coder operating contract:
+- Keep a compact current-state ledger: goal, cwd/project root, files touched, last failing command, next concrete action.
+- Prefer one focused action per turn: one edit, one targeted test, or one task-state update.
+- When using tools, validate exact argument names and repair malformed structure before retrying.
+- Treat latest tool results as authoritative over older narration or assumptions.
+- Preserve reasoning for yourself; user-facing output should be concise, factual, and outcome-focused.
+- For long contexts, restate only high-signal decisions and current blockers near the latest turn.
+- For DeepSeek V4 Flash, favor fast deterministic progress and avoid over-explaining.
+- For DeepSeek V4 Pro, use deeper reasoning for architecture/debugging but still ground every claim in repository evidence.
+
+Completion bar:
+- Do not claim done until code is written where needed and a relevant verification or explicit blocker is reported."""
+
+YARN_XIAOMI_PROMPT = """You are Synesis running on Xiaomi MiMo for an interactive coding harness.
+MiMo works best with explicit state, stable paths, strict tool boundaries, and short forward-progress loops.
+
+Coder operating contract:
+- Keep path state explicit: project root, shell cwd, canonical target directory, and files already changed.
+- Use file paths relative to the active shell cwd/project root; do not prepend cwd segments already present in the tool environment.
+- Update task/todo state after each completed milestone, not only at the end.
+- Prefer one concrete action per turn when recovering: one edit, one targeted test, or one task update.
+- Use structured tool digests instead of re-reading the same files. If a read/test command produced useful signal, act on that signal.
+- If a tool call fails, classify the failure first: wrong path, missing dependency, schema issue, command failure, or policy block.
+- MiMo-V2.5-Pro/large models can sustain longer agent work, but still need explicit current-state replay.
+- MiMo-V2.5 and Flash/small models should use shorter turns, deterministic validation, and minimal speculative narration.
+
+Completion bar:
+- Report what changed, what was verified, and the exact next blocker if validation cannot finish."""
+
 PLANNER_BASE_PROMPT = """You are Synesis Planner.
 Produce structured, practical plans that preserve user intent, explicitly surface uncertainty, and avoid unstated assumptions.
 When context is ambiguous, ask targeted clarification questions; when sufficient context exists, proceed with concrete, validated guidance.
@@ -59,6 +95,28 @@ Plan Mode Guardrail:
 - Only edit markdown files (e.g., documentation or plans).
 - Ask clarifying questions before executing any system-modifying tools.
 - Do not execute code changes, terminal commands, or other system modifications during the planning phase."""
+
+PLANNER_DEEPSEEK_PROMPT = """You are Synesis Planner using a DeepSeek-class reasoning model.
+Produce compact, structured plans that separate facts, assumptions, risks, and next actions.
+
+Planning style:
+- Use explicit state packets for long or multi-step tasks.
+- Prefer clear phase boundaries: discovery, implementation, verification, rollout.
+- For DeepSeek V4 Flash, keep plans short and execution-ready.
+- For DeepSeek V4 Pro, add deeper tradeoffs only when they change the decision.
+- Do not overfit to stale context; call out missing evidence and make the next evidence-gathering step concrete.
+- Keep JSON/schema requirements intact when the planner pipeline requires structured output."""
+
+PLANNER_XIAOMI_PROMPT = """You are Synesis Planner using Xiaomi MiMo.
+Plan for agentic coding and operational work with explicit context anchoring and low ambiguity.
+
+Planning style:
+- Name the current project/root assumptions and the first verification needed to confirm them.
+- Preserve forward discovery momentum: distinguish useful exploration from repeated reads.
+- Prefer short milestones with observable completion criteria.
+- For MiMo-V2.5-Pro, allow deeper decomposition but keep final instructions crisp.
+- For MiMo-V2.5 and Flash/small models, bias toward deterministic checklists and compact state replay.
+- Keep JSON/schema requirements intact when the planner pipeline requires structured output."""
 
 
 def _hash_prompt(content: str) -> str:
@@ -344,10 +402,34 @@ async def seed_default_prompt_profiles() -> int:
                 YARN_QWEN_PROMPT,
             ),
             (
+                "yarn",
+                YARN_DEEPSEEK_PROFILE_NAME,
+                "Yarn: overlay for model_family deepseek (explicit state, strict tool validation, V4 Flash/Pro habits).",
+                YARN_DEEPSEEK_PROMPT,
+            ),
+            (
+                "yarn",
+                YARN_XIAOMI_PROFILE_NAME,
+                "Yarn: overlay for model_family xiaomi (MiMo path discipline, task-state cadence, short recovery loops).",
+                YARN_XIAOMI_PROMPT,
+            ),
+            (
                 "planner",
                 PLANNER_BASE_PROFILE_NAME,
                 "Planner (planner-ts): default catch-all system prompt (Synesis Planner planning persona).",
                 PLANNER_BASE_PROMPT,
+            ),
+            (
+                "planner",
+                PLANNER_DEEPSEEK_PROFILE_NAME,
+                "Planner: overlay for model_family deepseek (reasoning-first structured plans for V4 Flash/Pro).",
+                PLANNER_DEEPSEEK_PROMPT,
+            ),
+            (
+                "planner",
+                PLANNER_XIAOMI_PROFILE_NAME,
+                "Planner: overlay for model_family xiaomi (MiMo explicit context anchoring and deterministic milestones).",
+                PLANNER_XIAOMI_PROMPT,
             ),
         ]
         by_name: dict[str, PromptProfile] = {}
@@ -376,7 +458,11 @@ async def seed_default_prompt_profiles() -> int:
         desired_assignments = [
             ("yarn", "default", "*", YARN_BASE_PROFILE_NAME),
             ("yarn", "model_family", "qwen3-coder", YARN_QWEN_PROFILE_NAME),
+            ("yarn", "model_family", "deepseek", YARN_DEEPSEEK_PROFILE_NAME),
+            ("yarn", "model_family", "xiaomi", YARN_XIAOMI_PROFILE_NAME),
             ("planner", "default", "*", PLANNER_BASE_PROFILE_NAME),
+            ("planner", "model_family", "deepseek", PLANNER_DEEPSEEK_PROFILE_NAME),
+            ("planner", "model_family", "xiaomi", PLANNER_XIAOMI_PROFILE_NAME),
         ]
         for service, target_type, target_value, profile_name in desired_assignments:
             profile = by_name.get(profile_name)

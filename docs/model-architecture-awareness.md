@@ -107,6 +107,9 @@ and governor-bias application, so admins can distinguish “observed profile” 
 - DeepSeek-style MLA model: Yarn treats declared context as larger than reliable
   working memory, prefers memory stitching, and keeps high-signal decisions in
   explicit state headers.
+- Xiaomi MiMo model: Yarn treats MiMo-V2.5 Pro as a long-agent MoE profile with
+  explicit current-state replay, and treats MiMo Flash as SWA/MTP-sensitive so
+  short turns, path discipline, and stream/tool boundary checks stay prominent.
 - MoE coder: Yarn favors deterministic validation and clearer phase/task labels
   to reduce ambiguous instruction blends.
 - Throughput-optimized model: Yarn encourages shorter turns, structured tool

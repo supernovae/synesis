@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+PricingRates = tuple[float, float] | tuple[float, float, float | None, float | None]
+
 # ---------------------------------------------------------------------------
 # Bundled pricing snapshot ($/million tokens).
 # Kept deliberately compact — only models users are likely to assign.
-# Updated 2026-03 from provider pricing pages.
+# Updated 2026-05 from provider pricing pages.
 # ---------------------------------------------------------------------------
 
-_BUNDLED_PRICES: dict[str, tuple[float, float]] = {
+_BUNDLED_PRICES: dict[str, PricingRates] = {
     # OpenRouter (aggregator — prices vary; these are representative)
     "openrouter/x-ai/grok-4-fast": (3.0, 15.0),
     "openrouter/x-ai/grok-3-mini": (0.30, 0.50),
@@ -29,6 +31,8 @@ _BUNDLED_PRICES: dict[str, tuple[float, float]] = {
     "openrouter/deepseek/deepseek-r1": (0.55, 2.19),
     "openrouter/deepseek/deepseek-r1-distill-qwen-32b": (0.10, 0.30),
     "openrouter/deepseek/deepseek-chat-v3-0324": (0.27, 1.10),
+    "openrouter/deepseek/deepseek-v4-flash": (0.14, 0.28, 0.0028, None),
+    "openrouter/deepseek/deepseek-v4-pro": (0.435, 0.87, 0.003625, None),
     "openrouter/google/gemini-2.5-pro-preview": (1.25, 10.0),
     "openrouter/anthropic/claude-sonnet-4": (3.0, 15.0),
     # xAI (Grok) — direct API
@@ -48,6 +52,18 @@ _BUNDLED_PRICES: dict[str, tuple[float, float]] = {
     "deepinfra/meta-llama/Llama-4-Maverick-17B-128E-Instruct": (0.20, 0.60),
     "deepinfra/Qwen/Qwen3-235B-A22B": (0.20, 0.60),
     "deepinfra/deepseek-ai/DeepSeek-R1": (0.55, 2.19),
+    "deepinfra/deepseek-ai/DeepSeek-V3.2": (0.27, 1.10, 0.07, None),
+    # DeepSeek direct API, 2026-05 bundled snapshot.
+    "openai/deepseek-v4-flash": (0.14, 0.28, 0.0028, None),
+    "openai/deepseek-v4-pro": (0.435, 0.87, 0.003625, None),
+    "openai/deepseek-chat": (0.27, 1.10, 0.07, None),
+    "openai/deepseek-reasoner": (0.55, 2.19, 0.14, None),
+    # Xiaomi MiMo direct API, overseas pay-as-you-go USD rates, 2026-05 bundled snapshot.
+    "openai/mimo-v2.5-pro": (1.05, 3.15, 0.21, None),
+    "openai/mimo-v2.5": (0.42, 2.10, 0.08, None),
+    "openai/mimo-v2-pro": (1.05, 3.15, 0.21, None),
+    "openai/mimo-v2-omni": (0.42, 2.10, 0.08, None),
+    "openai/mimo-v2-flash": (0.10, 0.30, 0.01, None),
     # Together AI
     "together_ai/meta-llama/Llama-3-70b": (0.54, 0.54),
     "together_ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": (0.54, 0.54),
@@ -79,7 +95,7 @@ _BUNDLED_PRICES: dict[str, tuple[float, float]] = {
 }
 
 # Build a secondary index by bare model name for fallback matching.
-_BARE_NAME_INDEX: dict[str, tuple[float, float]] = {}
+_BARE_NAME_INDEX: dict[str, PricingRates] = {}
 for _key, _val in _BUNDLED_PRICES.items():
     _bare = _key.split("/", 1)[1] if "/" in _key else _key
     if _bare not in _BARE_NAME_INDEX:
@@ -96,7 +112,7 @@ def _provider_prefixed_key(provider: str, model: str) -> str:
     return model
 
 
-def lookup_bundled_pricing(provider: str, model: str) -> tuple[float, float] | None:
+def lookup_bundled_pricing(provider: str, model: str) -> PricingRates | None:
     """Look up pricing from the bundled snapshot.
 
     Returns (input_per_million, output_per_million) or None.
@@ -125,7 +141,7 @@ async def resolve_pricing(
     provider: str,
     model: str,
     served_name: str = "",
-) -> tuple[tuple[float, float], str] | None:
+) -> tuple[PricingRates, str] | None:
     """Resolve pricing for a provider + model combination.
 
     Returns ((input_per_million, output_per_million), source) or None.

@@ -79,6 +79,34 @@ describe("model architecture profile", () => {
     expect(policy.reasons).toContain("stream_boundary_sensitive_decoding");
   });
 
+  it("maps Xiaomi MiMo Flash to SWA/MTP-sensitive mediation", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "mimo-v2-flash",
+      family: "xiaomi",
+      declaredContextTokens: 256_000,
+    });
+    const policy = deriveModelExecutionPolicy(profile);
+
+    expect(profile.attention).toBe("sliding_window");
+    expect(profile.activation).toBe("moe");
+    expect(profile.decoding).toBe("mtp");
+    expect(policy.compactionMode).toBe("aggressive");
+    expect(policy.strictStreamToolBoundaryValidation).toBe(true);
+  });
+
+  it("maps Xiaomi MiMo V2.5 Pro to long-agent explicit state mediation", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "mimo-v2.5-pro",
+      declaredContextTokens: 1_000_000,
+    });
+    const policy = deriveModelExecutionPolicy(profile);
+
+    expect(profile.attention).toBe("hybrid");
+    expect(profile.activation).toBe("moe");
+    expect(policy.effectiveContextCeilingTokens).toBeLessThan(1_000_000);
+    expect(policy.preferExplicitStateHeaders).toBe(true);
+  });
+
   it("resolves architecture mediation mode from request metadata before config", () => {
     expect(resolveArchitectureMediationMode({
       metadata: { synesis_architecture_mediation: "observe" },

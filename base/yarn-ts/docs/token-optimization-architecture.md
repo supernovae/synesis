@@ -283,8 +283,8 @@ Architecture policy is recorded on optimization cache diagnostics:
 - `architecturePolicyReasons`
 
 These fields make it possible to compare cache and quality behavior between,
-for example, raw Qwen, MiniMax, DeepSeek-style MLA, Kimi-style MoE, and unknown
-OpenAI-compatible models.
+for example, raw Qwen, MiniMax, DeepSeek-style MLA, Kimi-style MoE, Xiaomi
+MiMo SWA/MTP profiles, and unknown OpenAI-compatible models.
 
 ## Governor And Forward Momentum
 
@@ -444,7 +444,7 @@ work should be measured, not guessed:
    compat, optimized, and governed modes against the same scenario corpus.
 3. **Architecture-policy experiments.** Compare model architecture profiles with
    mediation `observe` vs `adapt` for MiniMax, Qwen, DeepSeek-style MLA, Kimi,
-   and unknown OpenAI-compatible models.
+   Xiaomi MiMo, and unknown OpenAI-compatible models.
 4. **Tool schema stability gate.** Add a CI or nightly check that hashes canonical
    tool schemas across representative clients and flags unexpected churn.
 5. **Prefix diff inspector.** Build an admin view that shows the first changed
