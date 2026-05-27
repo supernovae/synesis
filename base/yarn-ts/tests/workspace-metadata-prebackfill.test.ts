@@ -1,35 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyWorkspaceMetadataPrebackfill } from "../src/pipeline/workspace-metadata-prebackfill.js";
 import type { ClientMetadata } from "../src/providers/prefix-optimizer/index.js";
-
-const emptyMetadata: ClientMetadata = {
-  workspacePath: null,
-  projectRoot: null,
-  shellCwd: null,
-  osVersion: null,
-  platform: null,
-  shell: null,
-  gitIsRepo: null,
-  gitRepoPath: null,
-  currentDate: null,
-  openFiles: [],
-  recentFiles: [],
-};
-
-function session() {
-  return { record: { metadata: {} as Record<string, unknown> } };
-}
+import type { SessionPathHints } from "../src/state/workspace-session-boundary.js";
 
 describe("workspace metadata prebackfill", () => {
   it("does nothing when path context already has project root and cwd", () => {
-    const extractMetadataFromMessages = vi.fn(() => emptyMetadata);
+    const extractMetadataFromMessages = vi.fn(() => emptyMetadata());
 
     const result = applyWorkspaceMetadataPrebackfill({
       pathContext: { projectRoot: "/repo", shellCwd: "/repo" },
       adapterBlock: "adapter",
       messages: [],
-      session: session(),
-      requestId: "req-1",
+      session: makeSession(),
+      requestId: "req-0",
       extractMetadataFromMessages,
       buildAdapterBlock: vi.fn(() => "new-adapter"),
       setWorkspaceContext: vi.fn(),
@@ -45,7 +28,7 @@ describe("workspace metadata prebackfill", () => {
   });
 
   it("fills missing path metadata and records workspace context", () => {
-    const state = session();
+    const session = makeSession();
     const setWorkspaceContext = vi.fn();
     const logInfo = vi.fn();
 
@@ -53,10 +36,10 @@ describe("workspace metadata prebackfill", () => {
       pathContext: { projectRoot: null, shellCwd: "/repo", shell: undefined },
       adapterBlock: "old-adapter",
       messages: [{ role: "system", content: "metadata" }],
-      session: state,
+      session,
       requestId: "req-1",
       extractMetadataFromMessages: () => ({
-        ...emptyMetadata,
+        ...emptyMetadata(),
         projectRoot: "/repo",
         shellCwd: "/repo",
         shell: "/bin/zsh",
@@ -78,7 +61,7 @@ describe("workspace metadata prebackfill", () => {
       osVersion: "arm64",
     });
     expect(result.adapterBlock).toBe("adapter:/repo:/repo:/bin/zsh");
-    expect(setWorkspaceContext).toHaveBeenCalledWith(state, "ready", "req-1", {
+    expect(setWorkspaceContext).toHaveBeenCalledWith(session, "ready", "req-1", {
       reason: "Extracted from client system message (pre-enrich)",
       projectRoot: "/repo",
       cwd: "/repo",
@@ -91,6 +74,7 @@ describe("workspace metadata prebackfill", () => {
         sessionKey: "sess",
         projectRoot: "/repo",
         shellCwd: "/repo",
+        inferredRoot: null,
         shell: "/bin/zsh",
         platform: "Darwin",
       },
@@ -98,16 +82,16 @@ describe("workspace metadata prebackfill", () => {
     );
   });
 
-  it("does not backfill when metadata has no path anchors", () => {
+  it("does not backfill when metadata has no path anchors or inferred root", () => {
     const setWorkspaceContext = vi.fn();
 
     const result = applyWorkspaceMetadataPrebackfill({
       pathContext: { projectRoot: null, shellCwd: null },
       adapterBlock: undefined,
       messages: [],
-      session: session(),
-      requestId: "req-1",
-      extractMetadataFromMessages: () => emptyMetadata,
+      session: makeSession(),
+      requestId: "req-empty",
+      extractMetadataFromMessages: () => emptyMetadata(),
       buildAdapterBlock: vi.fn(() => "adapter"),
       setWorkspaceContext,
     });
@@ -117,4 +101,128 @@ describe("workspace metadata prebackfill", () => {
     expect(result.adapterBlock).toBeUndefined();
     expect(setWorkspaceContext).not.toHaveBeenCalled();
   });
+
+  it("infers project root and shell cwd from a prior pwd tool result", () => {
+    const session = makeSession();
+    const result = applyWorkspaceMetadataPrebackfill({
+      pathContext: emptyPathContext(),
+      adapterBlock: undefined,
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{
+            id: "pwd-1",
+            function: { name: "Bash", arguments: JSON.stringify({ command: "pwd" }) },
+          }],
+        },
+        { role: "tool", tool_call_id: "pwd-1", content: "/home/byron/src/test\n" },
+      ],
+      session,
+      requestId: "req-1",
+      extractMetadataFromMessages: () => emptyMetadata(),
+      buildAdapterBlock: (pathContext) => `project_root=${pathContext.projectRoot}\nshell_cwd=${pathContext.shellCwd}`,
+      setWorkspaceContext: (state, status, requestId, details) => {
+        state.record.metadata.status = status;
+        state.record.metadata.requestId = requestId;
+        state.record.metadata.projectRoot = details.projectRoot;
+        state.record.metadata.cwd = details.cwd;
+        state.record.metadata.reason = details.reason;
+      },
+    });
+
+    expect(result.applied).toBe(true);
+    expect(result.pathContext.projectRoot).toBe("/home/byron/src/test");
+    expect(result.pathContext.shellCwd).toBe("/home/byron/src/test");
+    expect(session.record.metadata.reason).toContain("Inferred from prior tool execution evidence");
+  });
+
+  it("infers the canonical root from duplicated path-not-found output", () => {
+    const session = makeSession();
+    const result = applyWorkspaceMetadataPrebackfill({
+      pathContext: emptyPathContext(),
+      adapterBlock: undefined,
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{
+            id: "read-1",
+            function: { name: "Read", arguments: JSON.stringify({ file_path: "src/test/taskpulse/app/main.py" }) },
+          }],
+        },
+        {
+          role: "tool",
+          tool_call_id: "read-1",
+          content: "File not found: /home/byron/src/test/src/test/taskpulse/app/main.py",
+        },
+      ],
+      session,
+      requestId: "req-2",
+      extractMetadataFromMessages: () => emptyMetadata(),
+      buildAdapterBlock: (pathContext) => `project_root=${pathContext.projectRoot}`,
+      setWorkspaceContext: vi.fn(),
+    });
+
+    expect(result.applied).toBe(true);
+    expect(result.pathContext.projectRoot).toBe("/home/byron/src/test");
+    expect(result.pathContext.shellCwd).toBe("/home/byron/src/test");
+  });
+
+  it("preserves explicit client path context over inferred shell evidence", () => {
+    const session = makeSession();
+    const result = applyWorkspaceMetadataPrebackfill({
+      pathContext: {
+        ...emptyPathContext(),
+        projectRoot: "/workspace/project",
+        shellCwd: "/workspace/project/app",
+      },
+      adapterBlock: "existing",
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{
+            id: "pwd-1",
+            function: { name: "Bash", arguments: JSON.stringify({ command: "pwd" }) },
+          }],
+        },
+        { role: "tool", tool_call_id: "pwd-1", content: "/wrong/root\n" },
+      ],
+      session,
+      requestId: "req-3",
+      extractMetadataFromMessages: () => emptyMetadata(),
+      buildAdapterBlock: () => "rebuilt",
+      setWorkspaceContext: vi.fn(),
+    });
+
+    expect(result.applied).toBe(false);
+    expect(result.pathContext.projectRoot).toBe("/workspace/project");
+    expect(result.pathContext.shellCwd).toBe("/workspace/project/app");
+    expect(result.adapterBlock).toBe("existing");
+  });
 });
+
+function emptyPathContext(): SessionPathHints {
+  return {
+    projectRoot: null,
+    shellCwd: null,
+  };
+}
+
+function makeSession() {
+  return { record: { metadata: {} as Record<string, unknown> } };
+}
+
+function emptyMetadata(): ClientMetadata {
+  return {
+    workspacePath: null,
+    projectRoot: null,
+    shellCwd: null,
+    osVersion: null,
+    platform: null,
+    shell: null,
+    gitIsRepo: null,
+    gitRepoPath: null,
+    currentDate: null,
+    openFiles: [],
+    recentFiles: [],
+  };
+}
