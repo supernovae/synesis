@@ -1,0 +1,11 @@
+{
+  "id": "simple-python-bugfix-001",
+  "name": "Fix failing Python unit test",
+  "prompt": "Fix the bug causing the Python test failure. Keep the change minimal and do not edit tests.",
+  "fixture": "../fixtures/simple-python-bugfix",
+  "validate": ["python -m pytest -q"],
+  "expected_changed": ["example_pkg/math_utils.py"],
+  "forbidden_changed": ["tests/test_math_utils.py"],
+  "timeout_seconds": 300,
+  "tags": ["python", "pytest", "bugfix", "minimal-diff"]
+}

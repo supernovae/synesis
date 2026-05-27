@@ -144,7 +144,7 @@ npm run eval:lab --prefix base/yarn-ts -- \
   --allow-failures
 ```
 
-Use Harness Lab for real lower-harness subprocess behavior. Use Eval Client Lab for cheaper, faster API-level sweeps over the deterministic eval-gym scenario corpus.
+Use Harness Lab for real lower-harness subprocess behavior. Use Harness Tester for validated coding-task loops with setup, workspace diff, deterministic validators, and failure attribution. Use Eval Client Lab for cheaper, faster API-level sweeps over the deterministic eval-gym scenario corpus.
 
 ## Promotion Rule
 
@@ -253,3 +253,19 @@ The recommended workflow is:
 5. Humans promote only reviewed fixtures into the deterministic suite.
 
 This gives us a repeatable way to use model credits for breadth without letting a model directly tune production governor behavior from vibes. The durable contract remains the replay fixture, eval scenario, or regression budget.
+
+## Harness Tester Lane
+
+Harness Tester builds on Harness Lab for end-to-end coding-loop validation. It adds task fixtures, setup and validation commands, expected/forbidden file changes, git diff capture, OpenCode adapter wiring, API trace correlation, and JSON reports with behavioral failure labels.
+
+Start with:
+
+```bash
+npm run harness:tester --prefix base/yarn-ts -- run \
+  --task tests/fixtures/harness-tester/tasks/simple-python-bugfix.json \
+  --harness opencode \
+  --model qwen3-coder \
+  --api-base-url http://localhost:8000/v1
+```
+
+See `docs/harness-tester.md` for task schema, artifacts, language fixtures, and adapter extension guidance.

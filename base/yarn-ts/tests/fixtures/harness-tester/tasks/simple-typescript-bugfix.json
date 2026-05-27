@@ -1,0 +1,12 @@
+{
+  "id": "simple-typescript-bugfix-001",
+  "name": "Fix failing TypeScript unit test",
+  "prompt": "Fix the bug causing the TypeScript test to fail. Keep the change minimal and do not edit tests.",
+  "fixture": "../fixtures/simple-typescript-bugfix",
+  "setup": ["npm install --ignore-scripts"],
+  "validate": ["npm test"],
+  "expected_changed": ["src/math.ts"],
+  "forbidden_changed": ["tests/math.test.ts"],
+  "timeout_seconds": 300,
+  "tags": ["typescript", "javascript", "npm", "bugfix", "minimal-diff"]
+}

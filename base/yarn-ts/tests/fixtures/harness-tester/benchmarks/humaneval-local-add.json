@@ -1,0 +1,15 @@
+{
+  "benchmark": "humaneval",
+  "id": "humaneval-local-add-001",
+  "name": "HumanEval-style add function",
+  "fixture": "../fixtures/simple-python-bugfix",
+  "prompt": "Implement add(a, b) so it returns the sum of two integers. Do not edit tests.",
+  "validate": ["python -m pytest -q"],
+  "expected_changed": ["example_pkg/math_utils.py"],
+  "forbidden_changed": ["tests/test_math_utils.py"],
+  "humaneval": {
+    "entry_point": "add",
+    "tests": "assert add(2, 3) == 5"
+  },
+  "tags": ["humaneval", "python", "code-generation"]
+}

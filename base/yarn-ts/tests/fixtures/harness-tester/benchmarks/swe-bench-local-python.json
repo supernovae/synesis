@@ -1,0 +1,15 @@
+{
+  "benchmark": "swe-bench",
+  "id": "swe-local-python-add-001",
+  "name": "SWE-style local Python bugfix",
+  "fixture": "../fixtures/simple-python-bugfix",
+  "timeout_seconds": 300,
+  "swe_bench": {
+    "repo": "local/simple-python-bugfix",
+    "issue": "The add helper subtracts instead of adding, causing the pytest suite to fail.",
+    "test_command": "python -m pytest -q",
+    "patch_files": ["example_pkg/math_utils.py"]
+  },
+  "forbidden_changed": ["tests/test_math_utils.py"],
+  "tags": ["swe-bench", "python", "local-smoke"]
+}

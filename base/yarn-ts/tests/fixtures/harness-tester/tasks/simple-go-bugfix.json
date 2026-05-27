@@ -1,0 +1,11 @@
+{
+  "id": "simple-go-bugfix-001",
+  "name": "Fix failing Go unit test",
+  "prompt": "Fix the bug causing go test to fail. Keep the change minimal and do not edit tests.",
+  "fixture": "../fixtures/simple-go-bugfix",
+  "validate": ["go test ./..."],
+  "expected_changed": ["math.go"],
+  "forbidden_changed": ["math_test.go"],
+  "timeout_seconds": 300,
+  "tags": ["go", "go-test", "bugfix", "minimal-diff"]
+}

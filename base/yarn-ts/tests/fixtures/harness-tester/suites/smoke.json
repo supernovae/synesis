@@ -1,0 +1,7 @@
+{
+  "id": "harness-tester-smoke",
+  "name": "Harness Tester Smoke Suite",
+  "tasks": [
+    "../tasks/simple-python-bugfix.json"
+  ]
+}

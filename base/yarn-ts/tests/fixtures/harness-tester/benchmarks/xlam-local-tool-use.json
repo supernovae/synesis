@@ -1,0 +1,24 @@
+{
+  "benchmark": "xlam",
+  "id": "xlam-local-tool-use-001",
+  "name": "xLAM-style local tool-use bugfix",
+  "prompt": "Use the developer harness tools to inspect the failing Python test, edit the implementation only, and run validation.",
+  "fixture": "../fixtures/simple-python-bugfix",
+  "validate": ["python -m pytest -q"],
+  "expected_changed": ["example_pkg/math_utils.py"],
+  "forbidden_changed": ["tests/test_math_utils.py"],
+  "xlam": {
+    "expected_tool_names": ["Edit", "Bash"],
+    "tool_schemas": [
+      {
+        "name": "Edit",
+        "description": "Modify one file by path."
+      },
+      {
+        "name": "Bash",
+        "description": "Run one validation command."
+      }
+    ]
+  },
+  "tags": ["xlam", "tool-use", "python"]
+}

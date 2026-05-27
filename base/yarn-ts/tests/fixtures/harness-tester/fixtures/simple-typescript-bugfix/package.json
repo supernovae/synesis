@@ -1,0 +1,13 @@
+{
+  "name": "simple-typescript-bugfix",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx tests/math.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

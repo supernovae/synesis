@@ -1,0 +1,9 @@
+{
+  "id": "harness-tester-language-core",
+  "name": "Harness Tester Core Language Suite",
+  "tasks": [
+    "../tasks/simple-python-bugfix.json",
+    "../tasks/simple-go-bugfix.json",
+    "../tasks/simple-typescript-bugfix.json"
+  ]
+}
