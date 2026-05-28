@@ -13,4 +13,4 @@ requests>=2.34.2
 # Pin urllib3 to address CVE-2026-44431, CVE-2026-44432
 urllib3>=2.7.0
 boto3>=1.43.12
-uvicorn>=0.47.0
+uvicorn>=0.48.0
