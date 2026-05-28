@@ -101,11 +101,15 @@ describe("durable work packet", () => {
         },
       ],
       taskLedger: ledger,
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
       modelPolicy: policyFor("mimo-v2-flash", "xiaomi"),
     });
 
     expect(decision.packet?.block).toContain("Task/todo tracker schema failed");
     expect(decision.packet?.block).toContain("Do not rebuild completed files");
     expect(decision.packet?.block).toContain("duplicated path prefix");
+    expect(decision.packet?.block).toContain("canonical workspace root is /home/byron/src/test");
+    expect(decision.packet?.block).toContain("use taskpulse/app/main.py relative to that root");
   });
 });

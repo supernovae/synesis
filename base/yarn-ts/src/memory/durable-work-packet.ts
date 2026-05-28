@@ -91,10 +91,11 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacke
   const objective = trimLine(latestUser || input.taskLedger?.tasks.find((task) => task.status !== "completed")?.title || "Continue current developer task.", MAX_TEXT);
   const phase = inferPhase(latestUser, latestTool);
   const blockers = inferBlockers(latestTool);
+  const pathCorrection = inferPathCorrection(latestTool, input.projectRoot, input.shellCwd);
   const doNotRepeat = inferDoNotRepeat(latestTool);
   const files = inferRecentFiles(messageTexts).slice(0, 8);
   const tasks = (input.taskLedger?.tasks ?? []).slice(0, 10);
-  const nextBestAction = inferNextBestAction(blockers, phase);
+  const nextBestAction = inferNextBestAction(blockers, phase, pathCorrection);
 
   const sections: string[] = [
     `<SYNESIS_CURRENT_WORK_PACKET mode="${input.modelPolicy.mediationMode}" policy_hash="${input.modelPolicy.policyHash}">`,
@@ -129,6 +130,12 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacke
     sections.push("known_blockers:");
     sourceSections.push("known_blockers");
     for (const blocker of blockers) sections.push(`  - ${blocker}`);
+  }
+
+  if (pathCorrection) {
+    sections.push("path_correction:");
+    sections.push(`  - ${pathCorrection}`);
+    sourceSections.push("path_correction");
   }
 
   if (doNotRepeat.length > 0) {
@@ -212,6 +219,9 @@ function inferBlockers(latestTool: string): string[] {
   if (/rm -rf is disallowed|unsafe_shell/.test(text)) {
     blockers.push("Unsafe shell cleanup was blocked; use non-destructive structured inspection or explicit user-approved cleanup.");
   }
+  if (/blocked_system_path.*\/dev\/null|\/dev\/null.*blocked_system_path/.test(text)) {
+    blockers.push("A shell stderr-suppression redirect to /dev/null was blocked; rerun the same narrow command without that redirect rather than changing project files.");
+  }
   if (/failed|traceback|assertionerror|error:/i.test(latestTool) && /\bpytest|test|tsc|npm|ruff|go test\b/i.test(latestTool)) {
     blockers.push("Verification failed; fix one implicated traceback/assertion/file before rerunning broad checks.");
   }
@@ -224,19 +234,60 @@ function inferDoNotRepeat(latestTool: string): string[] {
   if (duplicated) {
     items.push(`Do not retry duplicated path prefix ${duplicated}; strip the repeated working-root segment first.`);
   }
+  if (/no such file|file not found|cannot access|enoent/i.test(latestTool)) {
+    items.push("Do not recreate the full project because one path lookup or install path failed; verify the canonical tree and add only missing files.");
+  }
   if (/schemaerror|invalid arguments/i.test(latestTool)) {
     items.push("Do not rebuild completed files because a tracker/tool-call schema failed.");
   }
   return items.slice(0, 4);
 }
 
-function inferNextBestAction(blockers: string[], phase: WorkPacketPhase): string {
+function inferNextBestAction(blockers: string[], phase: WorkPacketPhase, pathCorrection: string | null): string {
   const joined = blockers.join(" ").toLowerCase();
   if (joined.includes("tracker schema")) return "Retry only the tracker update with the exact schema, or continue from existing files with one narrow verification.";
-  if (joined.includes("path")) return "Run one narrow cwd/path check, then use the corrected relative path once.";
+  if (pathCorrection || joined.includes("path")) return "Run pwd plus one scoped listing from the canonical root, strip duplicated cwd/project-root segments, then create or edit only the missing file.";
   if (joined.includes("verification failed")) return "Pick the first failing traceback/assertion, edit the implicated file once, then run one targeted verification.";
   if (phase === "verification") return "Run the narrowest relevant verification and act on the first concrete failure.";
   return "Continue with one concrete edit, tool call, or task update based on the latest tool truth.";
+}
+
+function inferPathCorrection(latestTool: string, projectRoot?: string | null, shellCwd?: string | null): string | null {
+  const paths = latestTool.match(/\/[A-Za-z0-9._/-]+/g) ?? [];
+  const anchors = [shellCwd, projectRoot]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().replace(/\/+$/g, ""));
+  for (const observed of paths) {
+    const cleaned = observed.replace(/\/+$/g, "");
+    for (const anchor of anchors) {
+      const corrected = stripRepeatedAnchorSuffix(cleaned, anchor);
+      if (corrected && corrected !== cleaned) {
+        const relative = corrected.startsWith(`${anchor}/`) ? corrected.slice(anchor.length + 1) : corrected;
+        return `Observed duplicated workspace path ${cleaned}; canonical workspace root is ${anchor}; use ${relative || "."} relative to that root and do not rebuild existing files.`;
+      }
+    }
+  }
+  const duplicated = duplicatedAdjacentPathSuffix(latestTool);
+  if (duplicated) {
+    return `Observed repeated path segment ${duplicated}; strip the duplicated working-root segment before retrying and verify the canonical path once.`;
+  }
+  return null;
+}
+
+function stripRepeatedAnchorSuffix(observedPath: string, anchor: string): string | null {
+  if (!observedPath.startsWith(`${anchor}/`)) return null;
+  const anchorParts = anchor.split("/").filter(Boolean);
+  const afterAnchor = observedPath.slice(anchor.length + 1);
+  const relParts = afterAnchor.split("/").filter(Boolean);
+  const maxSuffix = Math.min(4, anchorParts.length, relParts.length);
+  for (let len = maxSuffix; len >= 1; len--) {
+    const suffix = anchorParts.slice(anchorParts.length - len);
+    const head = relParts.slice(0, len);
+    if (suffix.every((part, index) => part === head[index])) {
+      return `${anchor}/${relParts.slice(len).join("/")}`.replace(/\/+$/g, "");
+    }
+  }
+  return null;
 }
 
 function inferRecentFiles(texts: string[]): string[] {
