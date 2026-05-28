@@ -696,7 +696,7 @@ def _write_minimal_v2_pack(path: Path, *, duplicate_chunk_row: bool = False) -> 
             json.dumps(
                 {
                     "node_count": 4 if duplicate_chunk_row else 3,
-                    "chunk_count": 1,
+                    "chunk_count": 2 if duplicate_chunk_row else 1,
                     "edge_count": 2,
                     "pack_card_count": 1,
                     "dangling_edge_count": 0,
@@ -818,6 +818,7 @@ def test_bulk_load_synpack_verifies_deduplicated_node_count(tmp_path: Path, monk
 
     assert result["nodes"] == 3
     assert result["quality"]["node_count"] == 4
+    assert result["quality"]["chunk_count"] == 2
     assert len(written_nodes) == 3
 
 
