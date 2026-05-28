@@ -5,6 +5,7 @@
 #   https://github.com/orneryd/NornicDB/releases/tag/v1.1.2
 # - use the Docker Hub image namespace documented by upstream v1.1.2:
 #   https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md
+# - run the public release that includes the former PR 177 search index master switches
 # - place NornicDB on a dedicated 32Gi-class Karpenter node
 # - keep ANN/HNSW and BM25 indexes cold during bulk ingestion
 # - use the standard Synesis indexer image for content-pack reload validation
