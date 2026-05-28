@@ -24,36 +24,15 @@ _FILTER_FIELD_DEFAULTS = {
     "scan_status": "unscanned",
 }
 
-_CONTENT_TEXT_CYPHER = (
-    "CASE "
-    "WHEN n.text IS NOT NULL AND trim(toString(n.text)) <> '' THEN trim(toString(n.text)) "
-    "WHEN n.content IS NOT NULL AND trim(toString(n.content)) <> '' THEN trim(toString(n.content)) "
-    "WHEN n.chunk_summary IS NOT NULL AND trim(toString(n.chunk_summary)) <> '' "
-    "THEN trim(toString(n.chunk_summary)) "
-    "WHEN n.summary IS NOT NULL AND trim(toString(n.summary)) <> '' THEN trim(toString(n.summary)) "
-    "ELSE '' END"
-)
+_CONTENT_TEXT_CYPHER = "coalesce(n.text, n.content, n.chunk_summary, n.summary, '')"
 _CONTENT_NODE_CASE_CYPHER = f"CASE WHEN {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END"
 _STRICT_CHUNK_CASE_CYPHER = (
     f"CASE WHEN coalesce(n.kind, 'Chunk') = 'Chunk' AND {_CONTENT_TEXT_CYPHER} <> '' THEN 1 ELSE 0 END"
 )
-_DOCUMENT_KEY_CYPHER = (
-    "CASE "
-    "WHEN n.doc_id IS NOT NULL AND trim(toString(n.doc_id)) <> '' THEN trim(toString(n.doc_id)) "
-    "WHEN n.document_id IS NOT NULL AND trim(toString(n.document_id)) <> '' THEN trim(toString(n.document_id)) "
-    "WHEN n.document_name IS NOT NULL AND trim(toString(n.document_name)) <> '' THEN trim(toString(n.document_name)) "
-    "WHEN n.source_url IS NOT NULL AND trim(toString(n.source_url)) <> '' THEN trim(toString(n.source_url)) "
-    "WHEN n.url IS NOT NULL AND trim(toString(n.url)) <> '' THEN trim(toString(n.url)) "
-    "ELSE '' END"
-)
-_SOURCE_KEY_CYPHER = (
-    "CASE "
-    "WHEN n.source_url IS NOT NULL AND trim(toString(n.source_url)) <> '' THEN trim(toString(n.source_url)) "
-    "WHEN n.url IS NOT NULL AND trim(toString(n.url)) <> '' THEN trim(toString(n.url)) "
-    "WHEN n.document_name IS NOT NULL AND trim(toString(n.document_name)) <> '' THEN trim(toString(n.document_name)) "
-    "WHEN n.doc_id IS NOT NULL AND trim(toString(n.doc_id)) <> '' THEN trim(toString(n.doc_id)) "
-    "ELSE '' END"
-)
+_DOCUMENT_KEY_CYPHER = "coalesce(n.doc_id, n.document_id, n.document_name, n.source_url, n.url, '')"
+_SOURCE_KEY_CYPHER = "coalesce(n.source_url, n.url, n.document_name, n.doc_id, n.document_id, '')"
+_CONTENT_NODE_KINDS = frozenset({"Chunk", "Concept", "Pattern", "Constraint", "Example", "ContextCard", "PackCard"})
+_CONTENT_NODE_KIND_LIST_CYPHER = "['Chunk','Concept','Pattern','Constraint','Example','ContextCard','PackCard']"
 
 
 def expected_graph_schema_version() -> int:
@@ -563,25 +542,26 @@ def collection_stats(collection: str) -> dict[str, Any]:
     try:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
-            stats = session.run(
-                f"""
-                MATCH (n:ContentNode)
-                RETURN count(n) AS total_nodes,
-                       sum({_CONTENT_NODE_CASE_CYPHER}) AS content_node_count,
-                       sum({_STRICT_CHUNK_CASE_CYPHER}) AS strict_chunk_count,
-                       count(n.embedding) AS embedding_count,
-                       count(DISTINCT CASE
-                           WHEN coalesce(n.pack, n.pack_id, '') <> '' THEN coalesce(n.pack, n.pack_id, '')
-                           ELSE null
-                       END) AS pack_count
+            kind_rows = session.run(
                 """
-            ).single()
+                MATCH (n:ContentNode)
+                RETURN coalesce(n.kind, '') AS kind, count(n) AS count
+                """
+            )
+            counts_by_kind: dict[str, int] = {}
+            for row in kind_rows:
+                kind = str(row.get("kind") or "")
+                counts_by_kind[kind] = counts_by_kind.get(kind, 0) + int(row.get("count") or 0)
             edge_count = session.run("MATCH (:ContentNode)-[r]->(:ContentNode) RETURN count(r) AS c").single()["c"]
-            node_count = int(stats["total_nodes"] or 0) if stats else 0
-            content_node_count = int(stats["content_node_count"] or 0) if stats else 0
-            strict_chunk_count = int(stats["strict_chunk_count"] or 0) if stats else 0
-            embedding_count = int(stats["embedding_count"] or 0) if stats else 0
-            pack_count = int(stats["pack_count"] or 0) if stats else 0
+            embedding_row = session.run("MATCH (n:ContentNode) RETURN count(n.embedding) AS count").single()
+            pack_row = session.run(
+                "MATCH (n:ContentNode) WHERE n.pack IS NOT NULL RETURN count(DISTINCT n.pack) AS count"
+            ).single()
+            node_count = sum(counts_by_kind.values())
+            content_node_count = sum(counts_by_kind.get(kind, 0) for kind in _CONTENT_NODE_KINDS)
+            strict_chunk_count = counts_by_kind.get("Chunk", 0)
+            embedding_count = int(embedding_row["count"] or 0) if embedding_row else 0
+            pack_count = int(pack_row["count"] or 0) if pack_row else 0
         return {
             "row_count": content_node_count,
             "chunk_count": content_node_count,
@@ -599,48 +579,59 @@ def collection_stats(collection: str) -> dict[str, Any]:
 
 def collection_corpus_summary(collection: str) -> dict[str, Any]:
     del collection
-    stats = collection_stats(CATALOG_COLLECTION)
-    domains: set[str] = set()
-    documents: set[str] = set()
-    sources: set[str] = set()
+    stats: dict[str, Any] = {
+        "row_count": 0,
+        "chunk_count": 0,
+        "strict_chunk_count": 0,
+        "node_count": 0,
+        "malformed_node_count": 0,
+        "embedding_count": 0,
+        "edge_count": 0,
+        "pack_count": 0,
+    }
+    total_documents = 0
+    total_sources = 0
+    domains_covered = 0
     try:
         driver = get_nornic_driver()
         with driver.session(database=NORNIC_DATABASE) as session:
-            rows = session.run(
-                f"""
+            kind_rows = session.run(
+                """
                 MATCH (n:ContentNode)
-                RETURN n.domain AS domain,
-                       coalesce(n.doc_id, n.document_id, '') AS doc_id,
-                       coalesce(n.document_name, n.name, '') AS document_name,
-                       coalesce(n.source_url, n.url, '') AS source_url,
-                       coalesce(n.pack, n.pack_id, '') AS pack,
-                       sum({_CONTENT_NODE_CASE_CYPHER}) AS chunks
+                RETURN coalesce(n.kind, '') AS kind, count(n) AS count
                 """
             )
-            for row in rows:
-                if int(row["chunks"] or 0) <= 0:
-                    continue
-                domain = str(row.get("domain") or "").strip()
-                doc_id = str(
-                    row.get("doc_id") or row.get("document_name") or row.get("source_url") or row.get("pack") or ""
-                ).strip()
-                source = str(
-                    row.get("document_name") or row.get("source_url") or row.get("doc_id") or row.get("pack") or ""
-                ).strip()
-                if domain:
-                    domains.add(domain)
-                if doc_id:
-                    documents.add(doc_id)
-                if source:
-                    sources.add(source)
+            counts_by_kind: dict[str, int] = {}
+            for row in kind_rows:
+                kind = str(row.get("kind") or "")
+                counts_by_kind[kind] = counts_by_kind.get(kind, 0) + int(row.get("count") or 0)
+            node_count = sum(counts_by_kind.values())
+            content_node_count = sum(counts_by_kind.get(kind, 0) for kind in _CONTENT_NODE_KINDS)
+            total_documents = counts_by_kind.get("Document", 0)
+            total_sources = total_documents
+            domain_row = session.run(
+                "MATCH (n:ContentNode) WHERE n.domain IS NOT NULL RETURN count(DISTINCT n.domain) AS count"
+            ).single()
+            domains_covered = int(domain_row["count"] or 0) if domain_row else 0
+            stats.update(
+                {
+                    "row_count": content_node_count,
+                    "chunk_count": content_node_count,
+                    "strict_chunk_count": counts_by_kind.get("Chunk", 0),
+                    "node_count": node_count,
+                    "malformed_node_count": max(0, node_count - content_node_count),
+                    "embedding_count": counts_by_kind.get("Chunk", 0),
+                    "pack_count": 1 if node_count else 0,
+                }
+            )
     except Exception as exc:
         logger.warning("nornic_corpus_summary_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:120])
     return {
         **stats,
         "total_chunks": int(stats.get("chunk_count", stats.get("row_count", 0)) or 0),
-        "total_documents": len(documents),
-        "total_sources": len(sources),
-        "domains_covered": len(domains),
+        "total_documents": total_documents,
+        "total_sources": total_sources,
+        "domains_covered": domains_covered,
     }
 
 
@@ -960,12 +951,10 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
             rows = session.run(
                 f"""
                 MATCH (n:ContentNode)
-                RETURN n.domain AS domain,
-                       coalesce(n.source_url, n.url, '') AS source_url,
-                       coalesce(n.document_name, n.name, '') AS document_name,
-                       coalesce(n.doc_id, n.document_id, '') AS doc_id,
-                       coalesce(n.pack, n.pack_id, '') AS pack,
-                       sum({_CONTENT_NODE_CASE_CYPHER}) AS chunks
+                WHERE n.kind IN {_CONTENT_NODE_KIND_LIST_CYPHER}
+                RETURN coalesce(n.domain, 'generalist') AS domain,
+                       coalesce(n.pack, n.pack_id, n.document_name, n.source_url, n.id, 'unknown') AS source,
+                       count(n) AS chunks
                 """
             )
             for row in rows:
@@ -973,13 +962,7 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
                 if chunks <= 0:
                     continue
                 domain = str(row.get("domain") or "generalist")
-                source = str(
-                    row.get("document_name")
-                    or row.get("source_url")
-                    or row.get("doc_id")
-                    or row.get("pack")
-                    or "unknown"
-                )
+                source = str(row.get("source") or "unknown")
                 entry = hierarchy.setdefault(domain, {"domain": domain, "total_chunks": 0, "sources": {}})
                 entry["total_chunks"] += chunks
                 sources = entry["sources"]

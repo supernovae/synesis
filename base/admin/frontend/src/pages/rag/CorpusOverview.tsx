@@ -74,7 +74,14 @@ export default function CorpusOverview() {
   const { data: schemaData } = useCorpusSchema();
   const [tab, setTab] = useState<"overview" | "schema">("overview");
   const malformedGraphNodes = corpus?.malformed_graph_nodes ?? 0;
-  const degradedWarnings = [...(corpus?.warnings ?? []), ...(schemaData?.warnings ?? [])];
+  const degradedWarnings = Array.from(
+    new Map(
+      [...(corpus?.warnings ?? []), ...(schemaData?.warnings ?? [])].map((warning) => [
+        `${warning.component}:${warning.operation}:${warning.message}`,
+        warning,
+      ]),
+    ).values(),
+  );
 
   const healthData = quality
     ? [

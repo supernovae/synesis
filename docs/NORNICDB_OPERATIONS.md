@@ -82,6 +82,40 @@ oc rollout status deployment/synesis-nornicdb -n synesis-rag
 oc get svc synesis-nornicdb -n synesis-rag
 ```
 
+## Fresh Reset for Pack Reload Testing
+
+NornicDB v1.1.2 includes the former search-index master-switch work and does
+not require an on-disk format migration for existing v1.1.x data. For content
+pack bug verification, a fresh PVC reset is still often faster and cleaner than
+deleting graph content through Cypher.
+
+Use the v1.1.2 load-test override when you want the public release image plus
+cold BM25/vector indexes during bulk ingestion:
+
+```bash
+helm upgrade synesis charts/synesis \
+  --namespace default \
+  --reuse-values \
+  -f charts/synesis/examples/values-aks-nornicdb-v1.1.2-load-test.yaml
+```
+
+To reset the graph store before reloading a pack, scale NornicDB down, delete
+only its data PVC, then scale it back up:
+
+```bash
+kubectl -n synesis-rag scale deployment/synesis-nornicdb --replicas=0
+kubectl -n synesis-rag delete pvc synesis-nornicdb-data
+kubectl -n synesis-rag scale deployment/synesis-nornicdb --replicas=1
+kubectl -n synesis-rag rollout status deployment/synesis-nornicdb
+```
+
+For the raw Kustomize deployment, the PVC name is `nornicdb-data` instead of
+`synesis-nornicdb-data`:
+
+```bash
+kubectl -n synesis-rag delete pvc nornicdb-data
+```
+
 ## Data Model
 
 The content graph stores `ContentNode` nodes and semantic edges such as

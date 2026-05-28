@@ -441,7 +441,7 @@ class NornicGraphWriter:
         if not edges:
             return 0
         grouped: dict[str, list[dict[str, Any]]] = {}
-        seen: set[tuple[str, str, str, str]] = set()
+        seen: set[tuple[str, str, str]] = set()
         total = 0
         for edge in edges:
             edge_type = str(edge.get("type", "")).upper()
@@ -453,7 +453,10 @@ class NornicGraphWriter:
             if not source_id or not target_id:
                 continue
             props = {k: v for k, v in edge.items() if k not in {"type", "source_id", "target_id", "from", "to"}}
-            key = (edge_type, source_id, target_id, repr(sorted(props.items())))
+            # Cypher MERGE below identifies relationships by source/type/target.
+            # Count and write the same identity so verification reflects the
+            # graph shape NornicDB actually stores instead of raw edge rows.
+            key = (edge_type, source_id, target_id)
             if key in seen:
                 continue
             seen.add(key)

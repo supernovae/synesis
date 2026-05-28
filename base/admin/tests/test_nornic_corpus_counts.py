@@ -30,6 +30,13 @@ class _FakeSession:
     def run(self, query: str, *args, **kwargs):
         del args, kwargs
         self.queries.append(query)
+        if "coalesce(n.kind, '') AS kind" in query:
+            return _FakeResult(
+                rows=[
+                    {"kind": "Concept", "count": 2},
+                    {"kind": "Document", "count": 1},
+                ]
+            )
         if "content_node_count" in query:
             return _FakeResult(
                 single={
@@ -42,6 +49,12 @@ class _FakeSession:
             )
         if "RETURN count(r) AS c" in query:
             return _FakeResult(single={"c": 4})
+        if "count(n.embedding) AS count" in query:
+            return _FakeResult(single={"count": 1})
+        if "count(DISTINCT n.pack) AS count" in query:
+            return _FakeResult(single={"count": 1})
+        if "count(DISTINCT n.domain) AS count" in query:
+            return _FakeResult(single={"count": 1})
         if "embedding_count" in query and "source_count" in query:
             return _FakeResult(
                 rows=[
@@ -79,6 +92,7 @@ class _FakeSession:
                 rows=[
                     {
                         "domain": "python",
+                        "source": "Python pack",
                         "doc_id": "",
                         "document_name": "Python pack",
                         "source_url": "",
@@ -143,7 +157,7 @@ def test_collection_stats_counts_content_bearing_nodes(monkeypatch):
     assert stats["node_count"] == 3
     assert stats["malformed_node_count"] == 1
     assert stats["edge_count"] == 4
-    assert any("n.content" in query for query in session.queries)
+    assert any("coalesce(n.kind, '') AS kind" in query for query in session.queries)
 
 
 def test_collection_corpus_summary_uses_fallback_document_keys(monkeypatch):
