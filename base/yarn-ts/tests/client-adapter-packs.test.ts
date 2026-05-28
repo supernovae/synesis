@@ -83,6 +83,14 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("human-readable paths");
   });
 
+  it("appends PATH_HYGIENE for opencode when no session context", () => {
+    const out = appendPathContextToAdapterBlock("base", {}, null, "opencode");
+    expect(out).toContain("<PATH_HYGIENE>");
+    expect(out).toContain("from /home/byron/src/test use taskpulse/README.md");
+    expect(out).toContain("/home/byron/src/test/src/test/");
+    expect(out).toContain("Do not regenerate the project");
+  });
+
   it("shell_cwd without project_root includes duplicate-segment warning", () => {
     const block = toSessionExecutionContextSystemBlock({
       projectRoot: null,

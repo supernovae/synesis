@@ -343,6 +343,10 @@ function pathHygieneFallbackBlock(): string {
     "<PATH_HYGIENE>",
     "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
     "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
+    "If pwd is already the workspace root, file-tool paths are relative to that cwd. For example, from /home/byron/src/test use taskpulse/README.md, not src/test/taskpulse/README.md.",
+    "If a path error shows a duplicated cwd/project-root segment such as /home/byron/src/test/src/test/..., strip the repeated segment before retrying. Do not regenerate the project because one path lookup failed.",
+    "After a path miss, run one narrow location check (pwd plus ls/find for the intended project folder), then create or edit only the missing file at the corrected path.",
+    "A failed install/test because requirements.txt or a source file is missing at one path is evidence about that path only; it is not evidence that previous successful writes are invalid.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
     "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
     "Do not infer package/module ownership from surrounding platform names. For new repositories, ask for module/import path (or use a neutral placeholder like `example.com/<name>` until provided).",
@@ -354,7 +358,12 @@ function pathHygieneFallbackBlock(): string {
 
 function shouldAppendPathHygieneFallback(coderClientHint: string | null | undefined): boolean {
   const c = (coderClientHint ?? "").trim().toLowerCase();
-  return c === "claude-code" || c.includes("claude-code");
+  return c === "claude-code"
+    || c.includes("claude-code")
+    || c === "opencode"
+    || c.includes("opencode")
+    || c === "synesis-acp"
+    || c.includes("synesis-acp");
 }
 
 /**

@@ -89,8 +89,18 @@ not require an on-disk format migration for existing v1.1.x data. For content
 pack bug verification, a fresh PVC reset is still often faster and cleaner than
 deleting graph content through Cypher.
 
-Use the v1.1.2 load-test override when you want the public release image plus
-cold BM25/vector indexes during bulk ingestion:
+Use the v1.1.2 load-test override when you want the upstream release tag plus
+cold BM25/vector indexes during bulk ingestion. As of v1.1.2, the upstream
+NornicDB Docker guide lists Docker Hub images under `timothyswt/*`; Synesis pins
+`docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.2` and annotates the workload with
+the GitHub release URL at `https://github.com/orneryd/NornicDB/releases/tag/v1.1.2`.
+If upstream later publishes a GHCR or `nornicdb/*` org image, override the
+repository in Helm values while keeping the release annotation pointed at the
+same upstream tag.
+
+Note: upstream v1.1.2 currently carries `pkg/buildinfo/VERSION` as `1.1.1` and
+the macOS release assets are named `NornicDB-1.1.1-*`, so logs may report
+`version=1.1.1` even when the container tag and GitHub release are v1.1.2.
 
 ```bash
 helm upgrade synesis charts/synesis \

@@ -16,6 +16,9 @@ metadata:
   labels:
     app.kubernetes.io/name: synesis-nornicdb
     app.kubernetes.io/component: graph-rag
+  annotations:
+    synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.2"
+    synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md"
 spec:
   replicas: 1
   selector:
@@ -29,6 +32,9 @@ spec:
     spec:
       containers:
         - name: nornicdb
+          # Upstream v1.1.2 Docker docs list this Docker Hub namespace as the
+          # public AMD64 CPU production image. Override when upstream publishes
+          # a GHCR/org image.
           image: docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.2
           imagePullPolicy: IfNotPresent
           ports:

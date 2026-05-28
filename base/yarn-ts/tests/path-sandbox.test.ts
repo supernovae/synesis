@@ -122,6 +122,18 @@ describe("path-sandbox", () => {
       const result = evaluatePathAccess("/proc/self/environ", "read", policy());
       expect(result.allowed).toBe(false);
     });
+
+    it("allows /dev/null as a narrow shell redirection sink", () => {
+      const result = evaluatePathAccess("/dev/null", "write", policy());
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe("null_device");
+    });
+
+    it("still blocks other /dev paths", () => {
+      const result = evaluatePathAccess("/dev/random", "read", policy());
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("blocked_system_path");
+    });
   });
 
   describe("/tmp access with project-scoped nudge", () => {
@@ -263,6 +275,10 @@ describe("extractBashFilePaths", () => {
 
   it("extracts redirect target", () => {
     expect(extractBashFilePaths("echo hi > /tmp/evil.sh")).toContain("/tmp/evil.sh");
+  });
+
+  it("extracts /dev/null redirect target", () => {
+    expect(extractBashFilePaths("find . -type f 2>/dev/null | sort")).toContain("/dev/null");
   });
 
   it("extracts cp source and destination", () => {

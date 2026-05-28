@@ -215,6 +215,12 @@ export function evaluatePathAccess(
     : path.resolve(projectRoot, expanded);
   const normalized = resolved.replace(/\\/g, "/");
 
+  // POSIX null sink is safe for shell redirection such as `2>/dev/null`.
+  // Keep this narrow: other /dev paths remain blocked by the system deny list.
+  if (normalized === "/dev/null") {
+    return { allowed: true, reason: "null_device", resolvedPath: normalized };
+  }
+
   // 1. Always allow project root
   if (isUnderDirectory(normalized, projectRoot)) {
     return { allowed: true, reason: "project_root", resolvedPath: normalized };

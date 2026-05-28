@@ -343,6 +343,22 @@ describe("governToolCall", () => {
     expect(out.blockedPathSandbox).toBeUndefined();
   });
 
+  it("allows common /dev/null stderr suppression in opencode Bash discovery", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: 'find . -type f -name "*.py" 2>/dev/null | sort' },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+      pathSandboxPolicy: buildDefaultPolicy("/home/byron/src/test"),
+    });
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedPathSandbox).toBeUndefined();
+    expect(out.blockedUnsafeShell).toBe(false);
+  });
+
   it("blocks Grep target directories outside the project root", () => {
     const out = governToolCall({
       toolName: "grep",

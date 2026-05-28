@@ -1345,9 +1345,16 @@ workloads:
     component: graph-store
     amd64Only: true
     strategy: Recreate
+    annotations:
+      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.2"
+      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md"
     image:
-      # For ARM64 (Azure Cobalt), override with a multi-arch Neo4j image:
-      #   repository: docker.io/timothyswt/nornicdb-arm64-cpu
+      # Upstream v1.1.2 Docker docs list the timothyswt Docker Hub images as
+      # the public production images. If upstream publishes a GHCR/org image,
+      # override this repository at deploy time and keep the release annotation
+      # above pointed at the GitHub tag under orneryd/NornicDB.
+      # For ARM64 (Azure Cobalt), override with the upstream ARM64 image:
+      #   repository: docker.io/timothyswt/nornicdb-arm64-metal-bge
       # or the official Neo4j community image:
       #   repository: neo4j
       #   tag: "5-community"
