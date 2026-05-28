@@ -180,6 +180,22 @@ def test_nornic_edge_writes_are_batched_by_type(monkeypatch):
     assert len(calls[1][1]) == 1
 
 
+def test_nornic_edge_writes_count_relationship_identity(monkeypatch):
+    writer = NornicGraphWriter.__new__(NornicGraphWriter)
+    calls: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(writer, "_write_edge_group", lambda edge_type, rows: calls.append((edge_type, rows)))
+
+    count = writer.upsert_edges(
+        [
+            {"type": "RELATED_TO", "source_id": "a", "target_id": "b", "source": "enrichment"},
+            {"type": "RELATED_TO", "source_id": "a", "target_id": "b", "source": "metadata"},
+        ]
+    )
+
+    assert count == 1
+    assert calls == [("RELATED_TO", [{"source_id": "a", "target_id": "b", "props": {"source": "enrichment"}}])]
+
+
 def test_nornic_node_writes_use_scalar_parameters():
     calls: list[tuple[str, dict]] = []
 

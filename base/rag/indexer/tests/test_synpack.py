@@ -616,7 +616,9 @@ def test_retouch_pack_embeddings_caps_batch_size_for_large_vectors(monkeypatch: 
     assert result["touched"] == 75
 
 
-def _write_minimal_v2_pack(path: Path, *, duplicate_chunk_row: bool = False) -> None:
+def _write_minimal_v2_pack(
+    path: Path, *, duplicate_chunk_row: bool = False, duplicate_edge_identity: bool = False
+) -> None:
     vector = [0.0] * EMBEDDING_DIM
     chunk = {
         "id": "chunk-1",
@@ -670,10 +672,12 @@ def _write_minimal_v2_pack(path: Path, *, duplicate_chunk_row: bool = False) -> 
         zf.writestr("nodes/chunks.jsonl", "\n".join(chunk_rows) + "\n")
         zf.writestr("nodes/documents.jsonl", json.dumps(document) + "\n")
         zf.writestr("nodes/pack_cards.jsonl", json.dumps(pack_card) + "\n")
-        zf.writestr(
-            "edges/contains.jsonl",
-            json.dumps({"type": "CONTAINS", "source_id": "doc-1", "target_id": "chunk-1"}) + "\n",
-        )
+        contains_edges = [json.dumps({"type": "CONTAINS", "source_id": "doc-1", "target_id": "chunk-1"})]
+        if duplicate_edge_identity:
+            contains_edges.append(
+                json.dumps({"type": "CONTAINS", "source_id": "doc-1", "target_id": "chunk-1", "source": "metadata"})
+            )
+        zf.writestr("edges/contains.jsonl", "\n".join(contains_edges) + "\n")
         zf.writestr(
             "edges/has_pack_card.jsonl",
             json.dumps({"type": "HAS_PACK_CARD", "source_id": "chunk-1", "target_id": pack_card["id"]}) + "\n",
@@ -697,7 +701,7 @@ def _write_minimal_v2_pack(path: Path, *, duplicate_chunk_row: bool = False) -> 
                 {
                     "node_count": 4 if duplicate_chunk_row else 3,
                     "chunk_count": 2 if duplicate_chunk_row else 1,
-                    "edge_count": 2,
+                    "edge_count": 3 if duplicate_edge_identity else 2,
                     "pack_card_count": 1,
                     "dangling_edge_count": 0,
                 }
@@ -773,7 +777,7 @@ def test_bulk_load_synpack_imports_v2_typed_graph(tmp_path: Path, monkeypatch: p
 
 def test_bulk_load_synpack_verifies_deduplicated_node_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     pack = tmp_path / "v2-bulk-duplicate.synpack"
-    _write_minimal_v2_pack(pack, duplicate_chunk_row=True)
+    _write_minimal_v2_pack(pack, duplicate_chunk_row=True, duplicate_edge_identity=True)
     written_nodes: list[dict] = []
     written_edges: list[dict] = []
 
@@ -798,8 +802,14 @@ def test_bulk_load_synpack_verifies_deduplicated_node_count(tmp_path: Path, monk
             return len(rows)
 
         def upsert_edges(self, edges: list[dict]) -> int:
-            written_edges.extend(edges)
-            return len(edges)
+            seen: set[tuple[str, str, str]] = set()
+            for edge in edges:
+                key = (str(edge["type"]), str(edge["source_id"]), str(edge["target_id"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                written_edges.append(edge)
+            return len(written_edges)
 
         def pack_counts(self, pack_id: str) -> dict:
             assert pack_id == "go-latest"
@@ -817,8 +827,10 @@ def test_bulk_load_synpack_verifies_deduplicated_node_count(tmp_path: Path, monk
     result = nornic_bulk_importer.bulk_load_synpack(pack, replace=True)
 
     assert result["nodes"] == 3
+    assert result["edges"] == 2
     assert result["quality"]["node_count"] == 4
     assert result["quality"]["chunk_count"] == 2
+    assert result["quality"]["edge_count"] == 3
     assert len(written_nodes) == 3
 
 
