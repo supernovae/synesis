@@ -195,6 +195,7 @@ export async function runOpenAIPostGovernanceProviderStage(
     requirementChecklist: governedStage.requirementChecklist,
     bodyMetadata: input.bodyMetadata,
     extraBody: (input.request as { extra_body?: Record<string, unknown> }).extra_body ?? null,
+    headers: input.requestHeaders,
     runtimePreferences: input.runtimePreferences as never,
   });
   if (!enrichment.ok) {
@@ -259,6 +260,7 @@ export async function runOpenAIPostGovernanceProviderStage(
       webSearch: deps.webSearch,
     },
     request: input.request,
+    headers: input.requestHeaders,
     normalizedOpenAI: input.normalizedOpenAI,
     enrichedMessages: enrichment.enrichedMessages,
     toolResultCount: input.toolResultCount,

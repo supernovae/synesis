@@ -63,6 +63,7 @@ type PathContext = ReturnType<OpenAIChatCompletionsRouteDependencies["mergeSessi
 interface PrepareOpenAIProviderRuntimeInput {
   deps: Deps;
   request: RequestLike;
+  headers?: Record<string, unknown> | null;
   normalizedOpenAI: NormalizedOpenAI;
   enrichedMessages: Array<{ role: string; content: unknown; [key: string]: unknown }>;
   toolResultCount: number;
@@ -263,6 +264,7 @@ export async function prepareOpenAIProviderRuntimeForRoute(
     config,
     logger: app.log,
     request,
+    headers: input.headers ?? null,
     normalizedRequest,
     normalizedOpenAI: input.normalizedOpenAI,
     resolved,

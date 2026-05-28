@@ -1,6 +1,6 @@
 export type LoopBreakMode = "standard" | "assertive" | "hands_off";
 export type CachePolicyBias = "auto" | "cache_first" | "balanced" | "efficiency_first";
-export type SynesisMemoryMode = "off" | "observe" | "adapt" | "strict";
+export type SynesisMemoryMode = "off" | "observe" | "safe" | "adaptive" | "aggressive";
 
 export interface UserRuntimePreferences {
   loopBreakMode: LoopBreakMode;
@@ -22,7 +22,7 @@ export interface LoopPolicyLimits {
 export const DEFAULT_USER_RUNTIME_PREFERENCES: UserRuntimePreferences = {
   loopBreakMode: "standard",
   cachePolicyBias: "auto",
-  synesisMemoryMode: "adapt",
+  synesisMemoryMode: "adaptive",
   allowAggressiveCompactionWithoutCacheHits: true,
   maxToolLoopSoftFails: null,
   updatedAt: 0,
@@ -30,6 +30,17 @@ export const DEFAULT_USER_RUNTIME_PREFERENCES: UserRuntimePreferences = {
 
 function readEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === "string" && (allowed as readonly string[]).includes(value) ? value as T : fallback;
+}
+
+function normalizeSynesisMemoryMode(value: unknown): SynesisMemoryMode {
+  if (typeof value !== "string") return DEFAULT_USER_RUNTIME_PREFERENCES.synesisMemoryMode;
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (normalized === "adapt") return "adaptive";
+  if (normalized === "strict" || normalized === "always") return "aggressive";
+  if (["off", "observe", "safe", "adaptive", "aggressive"].includes(normalized)) {
+    return normalized as SynesisMemoryMode;
+  }
+  return DEFAULT_USER_RUNTIME_PREFERENCES.synesisMemoryMode;
 }
 
 function readBool(value: unknown, fallback: boolean): boolean {
@@ -58,10 +69,8 @@ export function normalizeUserRuntimePreferences(value: unknown): UserRuntimePref
       ["auto", "cache_first", "balanced", "efficiency_first"] as const,
       DEFAULT_USER_RUNTIME_PREFERENCES.cachePolicyBias,
     ),
-    synesisMemoryMode: readEnum(
-      raw.synesisMemoryMode ?? raw.synesis_memory_mode ?? raw.synesis_memory,
-      ["off", "observe", "adapt", "strict"] as const,
-      DEFAULT_USER_RUNTIME_PREFERENCES.synesisMemoryMode,
+    synesisMemoryMode: normalizeSynesisMemoryMode(
+      raw.synesisMemoryMode ?? raw.synesis_memory_mode ?? raw.synesis_memory ?? raw.contextMediation ?? raw.context_mediation,
     ),
     allowAggressiveCompactionWithoutCacheHits: readBool(
       raw.allowAggressiveCompactionWithoutCacheHits ?? raw.allow_aggressive_compaction_without_cache_hits,
@@ -111,7 +120,7 @@ export function userRuntimePreferencesResponse(preferences: UserRuntimePreferenc
     options: {
       loopBreakMode: ["standard", "assertive", "hands_off"],
       cachePolicyBias: ["auto", "cache_first", "balanced", "efficiency_first"],
-      synesisMemoryMode: ["off", "observe", "adapt", "strict"],
+      synesisMemoryMode: ["off", "observe", "safe", "adaptive", "aggressive"],
       maxToolLoopSoftFails: { min: 1, max: 20, nullable: true },
     },
   };

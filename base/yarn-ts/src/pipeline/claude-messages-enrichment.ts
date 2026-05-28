@@ -9,9 +9,12 @@ import { buildRouteGovernanceBlocks } from "./route-governance-blocks.js";
 import { finalizePostEnrichmentMessages, type EnrichedMessage } from "./post-enrichment-finalization.js";
 import { buildDurableWorkPacketDecision } from "../memory/durable-work-packet.js";
 import {
+  applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
 } from "../providers/model-architecture-profile.js";
+import { filterContextBlocksForMediation } from "../memory/context-mediation.js";
 import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 
 type Logger = {
@@ -68,6 +71,7 @@ export interface ClaudeMessagesEnrichmentInput<TSession extends SessionLike> {
   promptContext: PromptContext;
   backendModel?: string;
   bodyMetadata?: Record<string, unknown> | null;
+  headers?: Record<string, unknown> | null;
   runtimePreferences?: UserRuntimePreferences | null;
   clientToolCapabilities: ClientToolCapabilities;
   taskIntake?: unknown;
@@ -133,11 +137,19 @@ export async function runClaudeMessagesEnrichment<TSession extends SessionLike>(
   const pathContext = metadataPrebackfill.pathContext;
   const adapterBlock = metadataPrebackfill.adapterBlock;
   const seedDirs = await input.getCachedTopLevelDirs(pathContext.projectRoot ?? pathContext.shellCwd);
-  const workPacketPolicy = deriveModelExecutionPolicy(
-    resolveModelArchitectureProfile({
-      modelId: input.backendModel || input.promptContext.role,
-      family: input.promptContext.modelFamily,
-    }),
+  const architectureMediationMode = resolveArchitectureMediationMode({
+    headers: input.headers ?? null,
+    metadata: input.bodyMetadata ?? null,
+    configMode: input.runtimePreferences?.synesisMemoryMode ?? null,
+  });
+  const workPacketPolicy = applyArchitectureMediationMode(
+    deriveModelExecutionPolicy(
+      resolveModelArchitectureProfile({
+        modelId: input.backendModel || input.promptContext.role,
+        family: input.promptContext.modelFamily,
+      }),
+    ),
+    architectureMediationMode,
   );
   const workPacket = buildDurableWorkPacketDecision({
     sessionKey: input.sessionKey,
@@ -173,6 +185,11 @@ export async function runClaudeMessagesEnrichment<TSession extends SessionLike>(
       estimated_tokens: workPacket.packet.estimatedTokens,
       source_sections: workPacket.packet.sourceSections,
       reasons: workPacket.reasons,
+      active_state_header_hash: workPacket.packet.activeStateHeaderHash,
+      critical_fact_pin_count: workPacket.packet.criticalFactPinCount,
+      evidence_manifest_count: workPacket.packet.evidenceManifestCount,
+      hygiene_score: workPacket.packet.hygieneScore,
+      verification_warnings: workPacket.packet.verificationWarnings,
       summary: workPacket.packet.summary,
       updated_at: Date.now(),
     };
@@ -191,13 +208,19 @@ export async function runClaudeMessagesEnrichment<TSession extends SessionLike>(
         estimated_tokens: workPacket.packet.estimatedTokens,
         source_sections: workPacket.packet.sourceSections,
         reasons: workPacket.reasons,
+        active_state_header_hash: workPacket.packet.activeStateHeaderHash,
+        critical_fact_pin_count: workPacket.packet.criticalFactPinCount,
+        evidence_manifest_count: workPacket.packet.evidenceManifestCount,
+        hygiene_score: workPacket.packet.hygieneScore,
+        verification_warnings: workPacket.packet.verificationWarnings,
         summary: workPacket.packet.summary,
         block: workPacket.packet.block,
       },
     );
   }
+  const hygieneFilteredGovernance = filterContextBlocksForMediation(governanceBlocks.blocks, workPacketPolicy);
   const frameGovernanceBlocks = [
-    ...governanceBlocks.blocks,
+    ...hygieneFilteredGovernance.blocks,
     ...(workPacket.inject && workPacket.packet ? [workPacket.packet.block] : []),
   ];
   const enriched = await input.enrichWithFrameAndManifest(

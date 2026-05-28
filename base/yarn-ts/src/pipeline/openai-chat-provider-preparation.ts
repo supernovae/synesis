@@ -25,8 +25,10 @@ import {
   architecturePolicyTrace,
   applyArchitectureMediationMode,
   buildArchitecturePolicySystemHint,
+  defaultConservativeArchitectureProfile,
   deriveModelExecutionPolicy,
   resolveArchitectureMediationMode,
+  resolveArchitectureProfileSource,
   resolveModelArchitectureProfile,
   type ModelArchitectureProfileOverride,
 } from "../providers/model-architecture-profile.js";
@@ -69,6 +71,7 @@ type TierRegistryLike = {
     samplingDefaults?: unknown;
     contextCeilingTokens?: number | null;
     architectureProfile?: ModelArchitectureProfileOverride | null;
+    defaultContextMediationMode?: string | null;
   } | undefined;
 };
 
@@ -106,6 +109,7 @@ export interface OpenAIChatProviderPreparationInput {
   config: ConfigSlice;
   logger: Logger;
   request: Record<string, unknown>;
+  headers?: Record<string, unknown> | null;
   normalizedRequest: {
     stream?: boolean;
     tools?: unknown[];
@@ -234,17 +238,29 @@ export function prepareOpenAIChatProviderRuntime(
   const providerForHarness = resolvedTierForHarness
     ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
     : undefined;
-  const architectureProfile = resolveModelArchitectureProfile({
-    modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
-    provider: providerForHarness,
-    family: adapter.family,
-    declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
-    override: resolvedTierForHarness?.architectureProfile,
-  });
-  const architectureMediationMode = resolveArchitectureMediationMode({
+  const architectureProfileSource = resolveArchitectureProfileSource({
+    headers: input.headers ?? null,
     metadata: recordOrNull(input.request.metadata),
     extraBody: recordOrNull(input.request.extra_body),
-    configMode: config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE,
+  });
+  const architectureProfile = architectureProfileSource === "raw"
+    ? defaultConservativeArchitectureProfile(
+        resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+        providerForHarness,
+        resolvedTierForHarness?.contextCeilingTokens,
+      )
+    : resolveModelArchitectureProfile({
+        modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
+        provider: providerForHarness,
+        family: adapter.family,
+        declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
+        override: architectureProfileSource === "model-registry" ? resolvedTierForHarness?.architectureProfile : null,
+      });
+  const architectureMediationMode = resolveArchitectureMediationMode({
+    headers: input.headers ?? null,
+    metadata: recordOrNull(input.request.metadata),
+    extraBody: recordOrNull(input.request.extra_body),
+    configMode: firstString(resolvedTierForHarness?.defaultContextMediationMode, config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE),
   });
   const modelExecutionPolicy = applyArchitectureMediationMode(
     deriveModelExecutionPolicy(architectureProfile),
@@ -525,12 +541,13 @@ export function prepareOpenAIChatProviderRuntime(
     executionPolicyHash: modelExecutionPolicy.policyHash,
     effectiveContextCeilingTokens: modelExecutionPolicy.effectiveContextCeilingTokens,
     architecturePolicyReasons: modelExecutionPolicy.reasons,
+    architectureProfileSource,
   });
   routePersistence.recordSessionEvent(
     "model_architecture_profile_selected",
     "model-architecture",
     `attention=${architectureProfile.attention} activation=${architectureProfile.activation} decoding=${architectureProfile.decoding}`,
-    architecturePolicyTrace(architectureProfile, modelExecutionPolicy),
+    { ...architecturePolicyTrace(architectureProfile, modelExecutionPolicy), architecture_profile_source: architectureProfileSource },
   );
 
   const telemetryRouteBase = createOpenAIChatRouteTelemetryBase({
@@ -634,4 +651,11 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }

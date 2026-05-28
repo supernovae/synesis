@@ -32,6 +32,7 @@ type ProviderPreparationSuccess = Extract<ClaudeMessagesProviderPreparationResul
 interface PrepareClaudeProviderRuntimeForRouteInput {
   deps: ProviderRuntimeDeps;
   body: ClaudeMessagesRequest;
+  headers?: Record<string, unknown> | null;
   processedTools: unknown[] | undefined;
   normalizedMessages: unknown[];
   scopedMessages: unknown[];
@@ -185,6 +186,7 @@ export async function prepareClaudeProviderRuntimeForRoute(
     promptContext,
     backendModel,
     bodyMetadata: input.body.metadata ?? null,
+    headers: input.headers ?? null,
     runtimePreferences: input.runtimePreferences as never,
     clientToolCapabilities: input.clientToolCapabilities as never,
     taskIntake: input.taskIntake,
@@ -337,6 +339,7 @@ export async function prepareClaudeProviderRuntimeForRoute(
     config,
     logger: app.log,
     body: input.body,
+    headers: input.headers ?? null,
     processedTools: input.processedTools ?? [],
     normalizedMessages: input.normalizedMessages as Array<{ role: string; content: unknown }>,
     resolved: resolveResult.resolved,

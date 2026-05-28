@@ -816,6 +816,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     const claudeProviderRuntime = await prepareClaudeProviderRuntimeForRoute({
       deps,
       body,
+      headers: req.headers as Record<string, unknown>,
       processedTools,
       normalizedMessages: normalizedFromClaude.messages as never,
       scopedMessages: claudeScopedMessages as never,

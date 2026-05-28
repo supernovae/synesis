@@ -255,12 +255,15 @@ variance, or brittle tool-call boundaries.
 
 - `ModelArchitectureProfile`
 - `ModelExecutionPolicy`
-- attention architecture: `full_attention`, `sliding_window`, `mla`, `hybrid`, `unknown`
+- attention architecture: `full_attention`, `sliding_window`,
+  `global_local_hybrid`, `mla`, `compressed_sparse_attention`,
+  `heavily_compressed_attention`, `hybrid_compressed_attention`, `unknown`
 - activation architecture: `dense`, `moe`, `unknown`
 - decoding architecture: `standard`, `mtp`, `speculative_friendly`, `unknown`
-- recommendations such as memory stitching, front-loaded instructions, recent
-  tool state replay, structured tool digests, shorter turns, explicit state
-  headers, and deterministic validation.
+- attention compression profile, storage-vs-working-set context interpretation,
+  expanded reliability traits, and recommendations for active state headers,
+  critical fact pins, evidence manifests, context hygiene, recall/citation
+  verification, and bounded repair passes.
 
 This is an adaptive harness policy, not model magic. Yarn cannot change the
 model's internals. It can change:
@@ -288,12 +291,16 @@ MiMo SWA/MTP profiles, and unknown OpenAI-compatible models.
 
 Architecture-sensitive sessions may also emit `current_work_packet_v1` events.
 The packet captures compact current-task state, latest tool truth, path context,
-blockers, and the next best action. It is injected in the volatile/tail prompt
-area when policy requires memory stitching, so it can improve coherence for
-DeepSeek/Xiaomi/MiniMax-style profiles without changing the byte-stable prefix.
+critical fact pins, evidence manifest counts, hygiene score, blockers, and the
+next best action. It is injected in the volatile/tail prompt area when policy
+requires active state reinforcement, so it can improve coherence for compressed
+or fragile long-context profiles without changing the byte-stable prefix.
 Users can set the default with the `synesisMemoryMode` runtime preference in
-the admin Account page; per-request `metadata.synesis_memory` or
-`extra_body.synesis_memory` still has precedence.
+the admin Account page. Canonical values are `off`, `observe`, `safe`,
+`adaptive`, and `aggressive`; per-request
+`metadata.synesis.contextMediation` or the `x-synesis-context-mediation` header
+has precedence. Legacy direct keys such as `metadata.synesis_memory` remain
+accepted as migration aliases.
 
 ## Governor And Forward Momentum
 
@@ -453,7 +460,7 @@ work should be measured, not guessed:
 2. **Provider A/B runs.** Use Eval Client Lab and cache canaries to compare raw,
    compat, optimized, and governed modes against the same scenario corpus.
 3. **Architecture-policy experiments.** Compare model architecture profiles with
-   mediation `observe` vs `adapt` for MiniMax, Qwen, DeepSeek-style MLA, Kimi,
+   mediation `observe`, `safe`, `adaptive`, and `aggressive` for MiniMax, Qwen, DeepSeek-style MLA, Kimi,
    Xiaomi MiMo, and unknown OpenAI-compatible models.
 4. **Tool schema stability gate.** Add a CI or nightly check that hashes canonical
    tool schemas across representative clients and flags unexpected churn.

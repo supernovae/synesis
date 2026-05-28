@@ -50,10 +50,11 @@ describe("durable work packet", () => {
   it("resolves request-controlled memory modes", () => {
     expect(resolveWorkPacketMode({ metadata: { synesis_memory: "observe" } })).toBe("observe");
     expect(resolveWorkPacketMode({ extraBody: { synesis_work_packet: "off" } })).toBe("off");
-    expect(resolveWorkPacketMode({ configMode: "strict" })).toBe("strict");
+    expect(resolveWorkPacketMode({ configMode: "strict" })).toBe("aggressive");
     expect(resolveWorkPacketMode({ metadata: { synesis_memory: "off" }, configMode: "strict" })).toBe("off");
-    expect(resolveWorkPacketMode({ metadata: { synesis_memory_mediation: "always" } })).toBe("strict");
-    expect(resolveWorkPacketMode({})).toBe("adapt");
+    expect(resolveWorkPacketMode({ metadata: { synesis_memory_mediation: "always" } })).toBe("aggressive");
+    expect(resolveWorkPacketMode({ metadata: { synesis: { contextMediation: "safe" } } })).toBe("safe");
+    expect(resolveWorkPacketMode({})).toBe("adaptive");
   });
 
   it("injects tail-state for DeepSeek-style architecture policy", () => {
@@ -71,9 +72,11 @@ describe("durable work packet", () => {
 
     expect(decision.inject).toBe(true);
     expect(decision.packet?.block).toContain("<SYNESIS_CURRENT_WORK_PACKET");
+    expect(decision.packet?.block).toContain("<SYNESIS_ACTIVE_STATE");
     expect(decision.packet?.block).toContain("latest_tool_truth");
     expect(decision.packet?.block).toContain("Run pytest validation");
     expect(decision.reasons).toContain("prefer_recent_tool_state_replay");
+    expect(decision.packet?.criticalFactPinCount).toBeGreaterThan(0);
   });
 
   it("observes but does not inject when requested", () => {
@@ -88,6 +91,7 @@ describe("durable work packet", () => {
     expect(decision.mode).toBe("observe");
     expect(decision.inject).toBe(false);
     expect(decision.packet?.hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(decision.contextArtifacts.evidenceManifest.length).toBeGreaterThan(0);
   });
 
   it("keeps path and tracker failures as do-not-repeat guidance", () => {

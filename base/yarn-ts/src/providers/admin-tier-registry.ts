@@ -89,6 +89,8 @@ export interface TierConfig {
   contextCeilingTokens?: number | null;
   /** Optional operator override for Yarn architecture-aware mediation. */
   architectureProfile?: ModelArchitectureProfileOverride | null;
+  /** Optional per-tier default for context mediation when request/user config is absent. */
+  defaultContextMediationMode?: string | null;
 }
 
 export interface RoleAssignmentConfig {
@@ -264,6 +266,40 @@ function parseArchitectureProfileOverride(lp: Record<string, unknown>): ModelArc
   if (effectiveWorkingContextTokens) out.effectiveWorkingContextTokens = effectiveWorkingContextTokens;
   if (safeInstructionTokens) out.safeInstructionTokens = safeInstructionTokens;
   if (safeToolOutputTokens) out.safeToolOutputTokens = safeToolOutputTokens;
+  const compressionLocalPath = stringValue(lp.architecture_compression_local_path);
+  const compressionLongRangePath = stringValue(lp.architecture_compression_long_range_path);
+  const compressionInterpretation = stringValue(lp.architecture_context_interpretation);
+  const compressionRiskKeys = [
+    "long_range_retrieval",
+    "exact_needle_recall",
+    "stale_context_interference",
+    "citation_drift",
+  ] as const;
+  const compressionRiskMap: Record<typeof compressionRiskKeys[number], "longRangeRetrieval" | "exactNeedleRecall" | "staleContextInterference" | "citationDrift"> = {
+    long_range_retrieval: "longRangeRetrieval",
+    exact_needle_recall: "exactNeedleRecall",
+    stale_context_interference: "staleContextInterference",
+    citation_drift: "citationDrift",
+  };
+  if (compressionLocalPath || compressionLongRangePath || compressionInterpretation) {
+    out.attentionCompression = {
+      ...(out.attentionCompression ?? {}),
+      ...(compressionLocalPath ? { localPath: compressionLocalPath } : {}),
+      ...(compressionLongRangePath ? { longRangePath: compressionLongRangePath } : {}),
+      ...(compressionInterpretation ? { declaredContextInterpretation: compressionInterpretation } : {}),
+    } as NonNullable<ModelArchitectureProfileOverride["attentionCompression"]>;
+  }
+  for (const key of compressionRiskKeys) {
+    const value = stringValue(lp[`architecture_risk_${key}`]);
+    if (!value) continue;
+    out.attentionCompression = {
+      ...(out.attentionCompression ?? {}),
+      risk: {
+        ...((out.attentionCompression as { risk?: Record<string, unknown> } | undefined)?.risk ?? {}),
+        [compressionRiskMap[key]]: value,
+      },
+    } as NonNullable<ModelArchitectureProfileOverride["attentionCompression"]>;
+  }
 
   const traitKeys = [
     "long_tail_retention",
@@ -272,6 +308,13 @@ function parseArchitectureProfileOverride(lp: Record<string, unknown>): ModelArc
     "output_throughput_bias",
     "retry_sensitivity",
     "compaction_sensitivity",
+    "long_range_retrieval_reliability",
+    "exact_needle_recall_reliability",
+    "local_coherence",
+    "duplicate_context_sensitivity",
+    "stale_context_sensitivity",
+    "structured_output_reliability",
+    "speculative_boundary_risk",
   ] as const;
   const traitMap: Record<typeof traitKeys[number], keyof NonNullable<ModelArchitectureProfileOverride["traits"]>> = {
     long_tail_retention: "longTailRetention",
@@ -280,11 +323,55 @@ function parseArchitectureProfileOverride(lp: Record<string, unknown>): ModelArc
     output_throughput_bias: "outputThroughputBias",
     retry_sensitivity: "retrySensitivity",
     compaction_sensitivity: "compactionSensitivity",
+    long_range_retrieval_reliability: "longRangeRetrievalReliability",
+    exact_needle_recall_reliability: "exactNeedleRecallReliability",
+    local_coherence: "localCoherence",
+    duplicate_context_sensitivity: "duplicateContextSensitivity",
+    stale_context_sensitivity: "staleContextSensitivity",
+    structured_output_reliability: "structuredOutputReliability",
+    speculative_boundary_risk: "speculativeBoundaryRisk",
   };
   for (const key of traitKeys) {
     const value = stringValue(lp[`architecture_${key}`]);
     if (!value) continue;
     out.traits = { ...(out.traits ?? {}), [traitMap[key]]: value } as NonNullable<ModelArchitectureProfileOverride["traits"]>;
+  }
+
+  const recommendationKeys = [
+    "dense_attention_facade",
+    "semantic_state_graph",
+    "active_state_header",
+    "critical_fact_pins",
+    "evidence_manifest",
+    "context_dedupe",
+    "staleness_filtering",
+    "contradiction_scanning",
+    "long_range_recall_verification",
+    "citation_verification",
+    "multipass_retrieval",
+    "strict_tool_boundary_validation",
+  ] as const;
+  const recommendationMap: Record<typeof recommendationKeys[number], keyof NonNullable<ModelArchitectureProfileOverride["recommendations"]>> = {
+    dense_attention_facade: "denseAttentionFacade",
+    semantic_state_graph: "semanticStateGraph",
+    active_state_header: "activeStateHeader",
+    critical_fact_pins: "criticalFactPins",
+    evidence_manifest: "evidenceManifest",
+    context_dedupe: "contextDedupe",
+    staleness_filtering: "stalenessFiltering",
+    contradiction_scanning: "contradictionScanning",
+    long_range_recall_verification: "longRangeRecallVerification",
+    citation_verification: "citationVerification",
+    multipass_retrieval: "multipassRetrieval",
+    strict_tool_boundary_validation: "strictToolBoundaryValidation",
+  };
+  for (const key of recommendationKeys) {
+    const value = asBoolean(lp[`architecture_${key}`]);
+    if (value === undefined) continue;
+    out.recommendations = {
+      ...(out.recommendations ?? {}),
+      [recommendationMap[key]]: value,
+    } as NonNullable<ModelArchitectureProfileOverride["recommendations"]>;
   }
 
   return Object.keys(out).length > 0 ? out : null;
@@ -399,6 +486,7 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       samplingDefaults,
       contextCeilingTokens: row.context_window ?? null,
       architectureProfile,
+      defaultContextMediationMode: stringValue(lp.default_context_mediation_mode) ?? null,
     });
   }
   return { tiers: out, roleAssignments, promptSnapshot };

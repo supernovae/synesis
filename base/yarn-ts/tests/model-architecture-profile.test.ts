@@ -3,6 +3,7 @@ import {
   applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
   resolveArchitectureMediationMode,
+  resolveArchitectureProfileSource,
   resolveModelArchitectureProfile,
   buildArchitecturePolicySystemHint,
 } from "../src/providers/model-architecture-profile.js";
@@ -101,10 +102,13 @@ describe("model architecture profile", () => {
     });
     const policy = deriveModelExecutionPolicy(profile);
 
-    expect(profile.attention).toBe("hybrid");
+    expect(profile.attention).toBe("hybrid_compressed_attention");
     expect(profile.activation).toBe("moe");
     expect(policy.effectiveContextCeilingTokens).toBeLessThan(1_000_000);
     expect(policy.preferExplicitStateHeaders).toBe(true);
+    expect(policy.contextBudget.interpretation).toBe("storage_with_working_set");
+    expect(policy.stateReinforcement.criticalFactPins).toBe(true);
+    expect(policy.retrieval.evidenceManifest).toBe(true);
   });
 
   it("resolves architecture mediation mode from request metadata before config", () => {
@@ -115,8 +119,23 @@ describe("model architecture profile", () => {
     expect(resolveArchitectureMediationMode({
       extraBody: { architecture_mediation: "hands-off" },
     })).toBe("off");
-    expect(resolveArchitectureMediationMode({ configMode: "assertive" })).toBe("strict");
-    expect(resolveArchitectureMediationMode({ configMode: "unexpected" })).toBe("adapt");
+    expect(resolveArchitectureMediationMode({ configMode: "assertive" })).toBe("aggressive");
+    expect(resolveArchitectureMediationMode({ configMode: "unexpected" })).toBe("adaptive");
+    expect(resolveArchitectureMediationMode({
+      headers: { "x-synesis-context-mediation": "safe" },
+      metadata: { synesis: { contextMediation: "adaptive" } },
+    })).toBe("safe");
+  });
+
+  it("resolves architecture profile source from header or nested metadata", () => {
+    expect(resolveArchitectureProfileSource({
+      headers: { "x-synesis-architecture-profile": "raw" },
+      metadata: { synesis: { architectureProfile: "model-registry" } },
+    })).toBe("raw");
+    expect(resolveArchitectureProfileSource({
+      metadata: { synesis: { architectureProfile: "auto" } },
+    })).toBe("auto");
+    expect(resolveArchitectureProfileSource({})).toBe("model-registry");
   });
 
   it("observe mode traces policy without applying budget or prompt mediation", () => {
@@ -132,19 +151,20 @@ describe("model architecture profile", () => {
     expect(policy.applySystemHint).toBe(false);
     expect(policy.effectiveContextCeilingTokens).toBeUndefined();
     expect(policy.compactionMode).toBeUndefined();
-    expect(policy.reasons).toContain("architecture_mediation_observe");
+    expect(policy.reasons).toContain("context_mediation_observe");
     expect(buildArchitecturePolicySystemHint(policy)).toBeNull();
   });
 
-  it("strict mode opts into stronger boundary validation", () => {
+  it("aggressive mode opts into stronger boundary validation", () => {
     const profile = resolveModelArchitectureProfile({ modelId: "gpt-4.1", provider: "openai" });
-    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "strict");
+    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "aggressive");
 
-    expect(policy.mediationMode).toBe("strict");
+    expect(policy.mediationMode).toBe("aggressive");
     expect(policy.applyContextBudgetPolicy).toBe(true);
     expect(policy.applySystemHint).toBe(true);
     expect(policy.applyGovernorBias).toBe(true);
     expect(policy.strictStreamToolBoundaryValidation).toBe(true);
-    expect(buildArchitecturePolicySystemHint(policy)).toContain("mode=strict");
+    expect(policy.multipass.retrieveAnswerVerifyRepair).toBe(true);
+    expect(buildArchitecturePolicySystemHint(policy)).toContain("mode=aggressive");
   });
 });

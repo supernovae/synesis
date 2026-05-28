@@ -16,7 +16,7 @@
     ],
     "cwd": "{workspace}",
     "env": {
-      "SYNESIS_MEMORY": "adapt"
+      "SYNESIS_CONTEXT_MEDIATION": "adaptive"
     }
   },
   "defaults": {

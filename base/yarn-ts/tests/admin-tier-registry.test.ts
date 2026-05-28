@@ -219,6 +219,12 @@ describe("fetchTierConfigs", () => {
               architecture_attention: "full_attention",
               effective_working_context_tokens: 120000,
               architecture_compaction_sensitivity: "low",
+              architecture_compression_local_path: "dense",
+              architecture_compression_long_range_path: "dense",
+              architecture_context_interpretation: "dense_working_memory",
+              architecture_exact_needle_recall_reliability: "strong",
+              architecture_evidence_manifest: false,
+              default_context_mediation_mode: "safe",
               architecture_profile: {
                 recommendations: { preferShorterTurns: false },
               },
@@ -234,9 +240,15 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].architectureProfile).toMatchObject({
       attention: "full_attention",
       effectiveWorkingContextTokens: 120000,
+      attentionCompression: {
+        localPath: "dense",
+        longRangePath: "dense",
+        declaredContextInterpretation: "dense_working_memory",
+      },
       traits: { compactionSensitivity: "low" },
-      recommendations: { preferShorterTurns: false },
+      recommendations: { preferShorterTurns: false, evidenceManifest: false },
     });
+    expect(tiers[0].defaultContextMediationMode).toBe("safe");
   });
 });
 

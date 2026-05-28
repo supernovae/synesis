@@ -8,7 +8,7 @@ import type { PlatformRouteDependencies } from "../src/routes/platform-route-sup
 describe("model architecture diagnostics route", () => {
   it("reports resolved architecture policy for configured model tiers", () => {
     const diagnostics = buildModelArchitectureDiagnostics({
-      config: { SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: "adapt" } as never,
+      config: { SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: "adaptive" } as never,
       tierRegistry: {
         getAvailableModels: () => [{ id: "core" }],
         getTierConfig: () => ({
@@ -41,6 +41,7 @@ describe("model architecture diagnostics route", () => {
         safe_tool_output_tokens: 12_000,
         retry_sensitivity: "high",
         strict_stream_tool_boundary_validation: true,
+        declared_context_interpretation: "storage_with_working_set",
       },
     });
   });

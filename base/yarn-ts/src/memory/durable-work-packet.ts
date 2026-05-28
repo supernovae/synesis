@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
-import type { ModelExecutionPolicy } from "../providers/model-architecture-profile.js";
+import {
+  resolveArchitectureMediationMode,
+  type ArchitectureMediationMode,
+  type ModelExecutionPolicy,
+} from "../providers/model-architecture-profile.js";
+import {
+  buildContextMediationArtifacts,
+  type ContextMediationArtifacts,
+} from "./context-mediation.js";
 import type { TaskLedger } from "../task-ledger/types.js";
 
-export type WorkPacketMode = "off" | "observe" | "adapt" | "strict";
+export type WorkPacketMode = ArchitectureMediationMode;
 
 export interface DurableWorkPacketInput {
   sessionKey: string;
@@ -12,6 +20,7 @@ export interface DurableWorkPacketInput {
   projectRoot?: string | null;
   shellCwd?: string | null;
   modelPolicy: ModelExecutionPolicy;
+  headers?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
   extraBody?: Record<string, unknown> | null;
   configMode?: string | null;
@@ -22,6 +31,7 @@ export interface DurableWorkPacketDecision {
   inject: boolean;
   reasons: string[];
   packet: DurableWorkPacket | null;
+  contextArtifacts: ContextMediationArtifacts;
 }
 
 export interface DurableWorkPacket {
@@ -31,6 +41,11 @@ export interface DurableWorkPacket {
   sectionCount: number;
   sourceSections: string[];
   changedSinceLastHash?: boolean;
+  activeStateHeaderHash?: string | null;
+  criticalFactPinCount: number;
+  evidenceManifestCount: number;
+  hygieneScore: number;
+  verificationWarnings: string[];
   summary: {
     objective?: string;
     currentPhase: WorkPacketPhase;
@@ -45,6 +60,10 @@ const MAX_PACKET_CHARS = 3_800;
 
 export function resolveWorkPacketMode(input: Pick<DurableWorkPacketInput, "metadata" | "extraBody" | "configMode">): WorkPacketMode {
   const requested = firstString(
+    nestedSynesisString(input.metadata, "contextMediation"),
+    nestedSynesisString(input.extraBody, "contextMediation"),
+    input.metadata?.synesis_context_mediation,
+    input.extraBody?.synesis_context_mediation,
     input.metadata?.synesis_memory,
     input.metadata?.synesis_work_packet,
     input.metadata?.synesis_memory_mediation,
@@ -53,38 +72,62 @@ export function resolveWorkPacketMode(input: Pick<DurableWorkPacketInput, "metad
     input.extraBody?.synesis_memory_mediation,
     input.configMode,
   );
-  if (!requested) return "adapt";
+  if (!requested) return "adaptive";
   const normalized = requested.trim().toLowerCase().replace(/[-\s]+/g, "_");
   if (["off", "none", "disabled", "disable", "passthrough", "hands_off"].includes(normalized)) return "off";
   if (["observe", "observer", "diagnostic", "diagnostics", "trace", "report"].includes(normalized)) return "observe";
-  if (["strict", "strong", "enforced", "force", "always"].includes(normalized)) return "strict";
-  return "adapt";
+  if (["safe", "guarded", "conservative"].includes(normalized)) return "safe";
+  if (["strict", "strong", "enforced", "force", "always", "aggressive"].includes(normalized)) return "aggressive";
+  return "adaptive";
 }
 
 export function buildDurableWorkPacketDecision(input: DurableWorkPacketInput): DurableWorkPacketDecision {
-  const mode = resolveWorkPacketMode(input);
+  const mode = resolveArchitectureMediationMode({
+    headers: input.headers,
+    metadata: input.metadata,
+    extraBody: input.extraBody,
+    configMode: input.configMode ?? input.modelPolicy.mediationMode,
+  });
+  const contextArtifacts = buildContextMediationArtifacts({
+    messages: input.messages,
+    policy: input.modelPolicy,
+    projectRoot: input.projectRoot,
+    shellCwd: input.shellCwd,
+    objective: latestRoleText(input.messages, "user"),
+  });
   const reasons = workPacketPolicyReasons(input.modelPolicy);
-  const shouldInject = mode === "strict" || (mode === "adapt" && reasons.length > 0);
-  if (mode === "off" || mode === "observe" || !shouldInject) {
-    const packet = buildDurableWorkPacket(input);
+  const shouldInject = mode === "aggressive" || (mode === "adaptive" && reasons.length > 0);
+  if (mode === "off") {
     return {
       mode,
       inject: false,
-      reasons: mode === "off" || mode === "observe" ? [`synesis_memory_${mode}`] : ["policy_did_not_require_tail_replay"],
+      reasons: ["context_mediation_off"],
+      packet: null,
+      contextArtifacts,
+    };
+  }
+  if (mode === "observe" || mode === "safe" || !shouldInject) {
+    const packet = buildDurableWorkPacket(input, contextArtifacts);
+    return {
+      mode,
+      inject: false,
+      reasons: mode === "observe" || mode === "safe" ? [`context_mediation_${mode}`] : ["policy_did_not_require_tail_replay"],
       packet,
+      contextArtifacts,
     };
   }
 
-  const packet = buildDurableWorkPacket(input);
+  const packet = buildDurableWorkPacket(input, contextArtifacts);
   return {
     mode,
     inject: packet.sectionCount > 0,
     reasons: packet.sectionCount > 0 ? reasons : ["packet_empty"],
     packet,
+    contextArtifacts,
   };
 }
 
-function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacket {
+function buildDurableWorkPacket(input: DurableWorkPacketInput, contextArtifacts: ContextMediationArtifacts): DurableWorkPacket {
   const messageTexts = input.messages.map(messageToText).filter(Boolean);
   const latestUser = latestRoleText(input.messages, "user") ?? "";
   const latestTool = latestToolText(input.messages) ?? "";
@@ -98,7 +141,7 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacke
   const nextBestAction = inferNextBestAction(blockers, phase, pathCorrection);
 
   const sections: string[] = [
-    `<SYNESIS_CURRENT_WORK_PACKET mode="${input.modelPolicy.mediationMode}" policy_hash="${input.modelPolicy.policyHash}">`,
+    `<SYNESIS_CURRENT_WORK_PACKET mode="${input.modelPolicy.mediationMode}" policy_hash="${input.modelPolicy.policyHash}" active_state_hash="${contextArtifacts.activeStateHeaderHash ?? ""}">`,
     `objective: ${objective || "unknown"}`,
     `project_root: ${input.projectRoot || "unknown"}`,
     `shell_cwd: ${input.shellCwd || "unknown"}`,
@@ -126,6 +169,22 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacke
     sourceSections.push("latest_tool_truth");
   }
 
+  if (contextArtifacts.criticalFactPins.length > 0) {
+    sections.push("critical_fact_pins:");
+    sourceSections.push("critical_fact_pins");
+    for (const pin of contextArtifacts.criticalFactPins.slice(0, 8)) {
+      sections.push(`  - ${pin.id} ${pin.source}: ${trimLine(pin.text, 220)}`);
+    }
+  }
+
+  if (contextArtifacts.evidenceManifest.length > 0) {
+    sections.push("evidence_manifest:");
+    sourceSections.push("evidence_manifest");
+    for (const entry of contextArtifacts.evidenceManifest.slice(0, 8)) {
+      sections.push(`  - ${entry.blockId} ${entry.kind} digest=${entry.digest}: ${trimLine(entry.summary, 180)}`);
+    }
+  }
+
   if (blockers.length > 0) {
     sections.push("known_blockers:");
     sourceSections.push("known_blockers");
@@ -149,13 +208,20 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput): DurableWorkPacke
   sourceSections.push("next_best_action");
   sections.push("</SYNESIS_CURRENT_WORK_PACKET>");
 
-  const block = trimBlock(sections.join("\n"), MAX_PACKET_CHARS);
+  const activeStateHeader = contextArtifacts.activeStateHeader ? `${contextArtifacts.activeStateHeader}\n` : "";
+
+  const block = trimBlock(`${activeStateHeader}${sections.join("\n")}`, MAX_PACKET_CHARS);
   return {
     block,
     hash: createHash("sha256").update(block).digest("hex").slice(0, 16),
     estimatedTokens: Math.ceil(block.length / 4),
     sectionCount: sourceSections.length,
     sourceSections,
+    activeStateHeaderHash: contextArtifacts.activeStateHeaderHash,
+    criticalFactPinCount: contextArtifacts.criticalFactPins.length,
+    evidenceManifestCount: contextArtifacts.evidenceManifest.length,
+    hygieneScore: contextArtifacts.hygieneReport.hygieneScore,
+    verificationWarnings: contextArtifacts.verificationWarnings,
     summary: { objective, currentPhase: phase, nextBestAction },
   };
 }
@@ -166,7 +232,15 @@ function workPacketPolicyReasons(policy: ModelExecutionPolicy): string[] {
   if (policy.preferExplicitStateHeaders) reasons.push("prefer_explicit_state_headers");
   if (policy.preferMemoryStitching) reasons.push("prefer_memory_stitching");
   if (policy.attention === "sliding_window") reasons.push("sliding_window_attention");
-  if (policy.attention === "mla") reasons.push("attention_compression");
+  if (
+    policy.attention === "mla"
+    || policy.attention === "compressed_sparse_attention"
+    || policy.attention === "heavily_compressed_attention"
+    || policy.attention === "hybrid_compressed_attention"
+  ) reasons.push("attention_compression");
+  if (policy.contextBudget.interpretation === "storage_with_working_set") reasons.push("storage_context_working_set");
+  if (policy.stateReinforcement.criticalFactPins) reasons.push("critical_fact_pins");
+  if (policy.retrieval.evidenceManifest) reasons.push("evidence_manifest");
   if (policy.compactionMode === "aggressive") reasons.push("aggressive_compaction_profile");
   return [...new Set(reasons)];
 }
@@ -344,6 +418,13 @@ function firstString(...values: unknown[]): string | undefined {
     if (typeof value === "string" && value.trim()) return value;
   }
   return undefined;
+}
+
+function nestedSynesisString(container: Record<string, unknown> | null | undefined, key: string): string | undefined {
+  const synesis = container?.synesis;
+  if (!synesis || typeof synesis !== "object" || Array.isArray(synesis)) return undefined;
+  const value = (synesis as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function duplicatedAdjacentPathSuffix(text: string): string | null {

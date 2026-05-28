@@ -125,8 +125,8 @@ describe("runRouteContextAdmission", () => {
       modelExecutionPolicy: {
         profileId: "minimax-m2.1",
         policyHash: "policy123",
-        mediationMode: "adapt",
-        attention: "hybrid",
+        mediationMode: "adaptive",
+        attention: "heavily_compressed_attention",
         activation: "moe",
         decoding: "speculative_friendly",
         effectiveContextCeilingTokens: 65_000,

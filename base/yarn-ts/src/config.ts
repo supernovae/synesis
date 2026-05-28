@@ -273,12 +273,19 @@ const EnvSchema = z.object({
    * Architecture-aware mediation strength.
    * - off: infer/trace profiles only where diagnostics explicitly request them.
    * - observe: trace policy but do not alter context budget or prompt hints.
-   * - adapt: preserve current adaptive behavior.
-   * - strict: opt-in stronger validation/boundary posture for experiments.
+   * - safe: filter obvious context hazards and enforce strict structure boundaries.
+   * - adaptive: active state, fact pins, evidence manifest, and one bounded repair pass.
+   * - aggressive: retrieve-answer-verify-repair once for long-context tasks.
    */
   SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE: z
-    .enum(["off", "observe", "adapt", "strict"])
-    .default("adapt"),
+    .preprocess((value) => {
+      if (typeof value !== "string") return value;
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "adapt") return "adaptive";
+      if (normalized === "strict") return "aggressive";
+      return normalized;
+    }, z.enum(["off", "observe", "safe", "adaptive", "aggressive"]))
+    .default("adaptive"),
   SYNESIS_YARN_CLI_ACCEPTANCE_HARNESS_ENABLED: z
     .string()
     .optional()

@@ -16,6 +16,8 @@ OpenAI-compatible API can differ sharply:
 - full-attention models may tolerate larger working transcripts;
 - sliding-window models can lose long-tail state even when the declared context
   window is large;
+- global/local hybrid and compressed sparse attention models may expose large
+  context as addressable storage rather than dense working memory;
 - MLA / attention-compressed models may need explicit state packets rather than
   raw transcript volume;
 - MoE models benefit from deterministic phase labels and stricter validation;
@@ -35,9 +37,13 @@ Yarn’s `ModelArchitectureProfile` and derived `ModelExecutionPolicy` make thos
 tradeoffs explicit. The first pass applies policy to:
 
 - effective context ceilings used by context admission;
+- storage-vs-working-set context interpretation for compressed long-context
+  models;
 - compaction aggressiveness for weak long-tail or SWA-like profiles;
-- explicit current-state/task-state instructions near the model message stream;
-- deterministic validation and structured tool-output preferences;
+- active state headers, critical fact pins, and evidence manifests near the
+  model working set;
+- deterministic validation, structured tool-output preferences, citation
+  checks, and missing-reference checks;
 - trace and cache diagnostics explaining which architecture policy was selected.
 
 Unknown models degrade to conservative defaults: explicit state headers,
@@ -47,16 +53,35 @@ reduced effective working context when no better signal exists.
 ## Mediation Modes
 
 Architecture policy is deterministic and can be dialed per deployment or per
-request. The deployment default is `adapt`, which preserves normal Yarn
-developer-harness behavior. Requests can override it with
-`metadata.synesis_architecture_mediation` or
-`extra_body.synesis_architecture_mediation`:
+request. The deployment default is `adaptive`, which preserves normal Yarn
+developer-harness behavior while enabling bounded state reinforcement for
+models that benefit from it. Requests can override it with the
+`x-synesis-context-mediation` header or nested OpenAI metadata:
+
+```json
+{
+  "metadata": {
+    "synesis": {
+      "contextMediation": "off | observe | safe | adaptive | aggressive",
+      "architectureProfile": "raw | auto | model-registry"
+    }
+  }
+}
+```
 
 - `off`: do not apply architecture budget or prompt mediation for the request;
 - `observe`: resolve and trace the profile/policy, but do not alter budget
   ceilings, compaction, or prompt hints;
-- `adapt`: apply the normal architecture-aware context and prompt mediation;
-- `strict`: opt in to stronger stream/tool boundary validation for experiments.
+- `safe`: filter obvious duplicate/stale low-value context and enforce strict
+  tool/schema boundaries without extra model passes;
+- `adaptive`: apply architecture-aware active state, fact pins, evidence
+  manifests, and at most one repair pass for critical fact/reference violations;
+- `aggressive`: run one retrieve-answer-verify-repair pass for long-context
+  tasks and return the repaired result with trace metadata.
+
+Legacy direct metadata keys such as `synesis_architecture_mediation`,
+`architecture_mediation`, and `synesis_memory` remain accepted as migration
+aliases. Synesis emits and documents only `metadata.synesis.contextMediation`.
 
 This keeps raw OpenAI-compatible usage and conservative client rollouts possible
 while letting developer tools opt into a stronger upper harness when the model
@@ -65,32 +90,31 @@ architecture benefits from it.
 ## Durable Work Packets
 
 For models with weak long-tail retention, sliding-window behavior, MLA-style
-attention compression, or high retry sensitivity, Yarn can derive a compact
-`SYNESIS_CURRENT_WORK_PACKET` from existing session signals. The packet is not
-hidden model memory and does not override filesystem/tool truth. It is a
-deterministic tail-state replay containing the current objective, path context,
-task ledger, recent files, latest tool truth, blockers, do-not-repeat guidance,
-and one next best action.
+attention compression, hybrid compressed attention, or high retry sensitivity,
+Yarn can derive compact active-state artifacts from existing session signals.
+The artifacts are not hidden model memory and do not override filesystem/tool
+truth. They can include:
 
-Clients can control this mediation with request metadata or `extra_body`:
+- `SYNESIS_ACTIVE_STATE`: current objective, critical fact pins, evidence block
+  IDs, hygiene score, and context-budget interpretation;
+- `SYNESIS_CURRENT_WORK_PACKET`: deterministic tail-state replay containing the
+  current objective, path context, task ledger, recent files, latest tool truth,
+  blockers, do-not-repeat guidance, and one next best action;
+- hygiene reports counting duplicate, stale, contradictory, low-relevance,
+  critical fact, and manifest blocks;
+- verification warnings for missing block IDs, stale references, critical fact
+  recall gaps, and quote/citation risk.
 
-```json
-{
-  "metadata": {
-    "synesis_memory": "off | observe | adapt | strict"
-  }
-}
-```
-
-- `off`: do not build or inject the current work packet for the request;
-- `observe`: build and trace the packet, but do not inject it;
-- `adapt`: inject only when the selected architecture policy benefits from
-  recent state replay;
-- `strict`: always inject the packet when it has useful state.
+`off` performs raw pass-through. `observe` builds and traces artifacts without
+injecting them. `safe` may filter obvious duplicate/stale low-value context.
+`adaptive` injects active state when the selected architecture policy benefits
+from it. `aggressive` uses the same bounded artifacts with one verify/repair
+opportunity.
 
 Users can set the same default in **Account -> Coder runtime controls ->
-Synesis memory**. The persisted preference is `synesisMemoryMode`; request
-metadata remains the highest-precedence override for a single run.
+Synesis memory**. The persisted preference is `synesisMemoryMode` with values
+`off`, `observe`, `safe`, `adaptive`, or `aggressive`; request metadata remains
+the highest-precedence override for a single run.
 
 Yarn emits a `current_work_packet_v1` session event with the packet hash, token
 estimate, source sections, policy reasons, and injected/observed mode. Admin
@@ -122,13 +146,20 @@ first pass supports either an `architecture_profile` object or direct fields:
 
 ```json
 {
-  "architecture_attention": "mla",
+  "architecture_attention": "hybrid_compressed_attention",
   "architecture_activation": "moe",
   "architecture_decoding": "speculative_friendly",
+  "architecture_compression_local_path": "global_local",
+  "architecture_compression_long_range_path": "retrieval_compressed",
+  "architecture_context_interpretation": "storage_with_working_set",
   "effective_working_context_tokens": 90000,
   "safe_instruction_tokens": 10000,
   "safe_tool_output_tokens": 16000,
-  "architecture_compaction_sensitivity": "high"
+  "architecture_compaction_sensitivity": "high",
+  "architecture_exact_needle_recall_reliability": "weak",
+  "architecture_critical_fact_pins": true,
+  "architecture_evidence_manifest": true,
+  "default_context_mediation_mode": "adaptive"
 }
 ```
 
@@ -151,15 +182,16 @@ It reports each configured model alias, resolved backend model, endpoint
 provider, adapter family, whether an admin override applied, and the compact
 architecture policy trace used by request handling.
 
-The trace includes `mediation_mode` plus booleans for context-budget, prompt-hint,
-and governor-bias application, so admins can distinguish “observed profile” from
-“profile actively changed request handling.”
+The trace includes `mediation_mode`, attention compression, context budget
+interpretation, hygiene decisions, active-state recommendations, validation
+settings, and multipass limits, so admins can distinguish “observed profile”
+from “profile actively changed request handling.”
 
 ## Examples
 
-- DeepSeek-style MLA model: Yarn treats declared context as larger than reliable
-  working memory, prefers memory stitching, and keeps high-signal decisions in
-  explicit state headers.
+- DeepSeek-style MLA model: Yarn applies harness policy defaults that treat
+  declared context as larger than reliable working memory, prefer memory
+  stitching, and keep high-signal decisions in explicit state headers.
 - Xiaomi MiMo model: Yarn treats MiMo-V2.5 Pro as a long-agent MoE profile with
   explicit current-state replay, and treats MiMo Flash as SWA/MTP-sensitive so
   short turns, path discipline, and stream/tool boundary checks stay prominent.
@@ -171,4 +203,6 @@ and governor-bias application, so admins can distinguish “observed profile” 
 
 This is the product boundary: Synesis is not a dumb proxy and not a magic
 long-context repair system. It is architecture-aware model mediation that
-normalizes developer experience across different model runtimes.
+normalizes developer experience across different model runtimes. Built-in
+example profiles are harness policy defaults, not authoritative claims about a
+provider's model internals; admin registry overrides remain authoritative.

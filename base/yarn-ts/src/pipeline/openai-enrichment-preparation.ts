@@ -3,9 +3,12 @@ import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { buildDurableWorkPacketDecision } from "../memory/durable-work-packet.js";
 import {
+  applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
+  resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
 } from "../providers/model-architecture-profile.js";
+import { filterContextBlocksForMediation } from "../memory/context-mediation.js";
 import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 
 type Deps = Pick<
@@ -60,6 +63,7 @@ interface PrepareOpenAIEnrichmentInput {
   requirementChecklist: ReturnType<OpenAIChatCompletionsRouteDependencies["refreshRequirementChecklist"]>;
   bodyMetadata?: Record<string, unknown> | null;
   extraBody?: Record<string, unknown> | null;
+  headers?: Record<string, unknown> | null;
   runtimePreferences?: UserRuntimePreferences | null;
 }
 
@@ -85,8 +89,9 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     fileStateBlock,
     requirementChecklist,
     bodyMetadata,
-    extraBody,
-    runtimePreferences,
+  extraBody,
+  headers,
+  runtimePreferences,
   } = input;
   const {
     app,
@@ -130,11 +135,20 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
   const pathContext = metadataPrebackfill.pathContext;
   const adapterBlock = metadataPrebackfill.adapterBlock;
   const seedDirs = await getCachedTopLevelDirs(pathContext.projectRoot ?? pathContext.shellCwd);
-  const workPacketPolicy = deriveModelExecutionPolicy(
-    resolveModelArchitectureProfile({
-      modelId: backendModel || orchestration.selectedModel,
-      family: promptContext.modelFamily,
-    }),
+  const architectureMediationMode = resolveArchitectureMediationMode({
+    headers: headers ?? null,
+    metadata: bodyMetadata ?? null,
+    extraBody: extraBody ?? null,
+    configMode: runtimePreferences?.synesisMemoryMode ?? null,
+  });
+  const workPacketPolicy = applyArchitectureMediationMode(
+    deriveModelExecutionPolicy(
+      resolveModelArchitectureProfile({
+        modelId: backendModel || orchestration.selectedModel,
+        family: promptContext.modelFamily,
+      }),
+    ),
+    architectureMediationMode,
   );
   const workPacket = buildDurableWorkPacketDecision({
     sessionKey,
@@ -144,6 +158,7 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
     projectRoot: pathContext.projectRoot,
     shellCwd: pathContext.shellCwd,
     modelPolicy: workPacketPolicy,
+    headers: headers ?? null,
     metadata: bodyMetadata ?? null,
     extraBody: extraBody ?? null,
     configMode: runtimePreferences?.synesisMemoryMode ?? null,
@@ -172,6 +187,11 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
       estimated_tokens: workPacket.packet.estimatedTokens,
       source_sections: workPacket.packet.sourceSections,
       reasons: workPacket.reasons,
+      active_state_header_hash: workPacket.packet.activeStateHeaderHash,
+      critical_fact_pin_count: workPacket.packet.criticalFactPinCount,
+      evidence_manifest_count: workPacket.packet.evidenceManifestCount,
+      hygiene_score: workPacket.packet.hygieneScore,
+      verification_warnings: workPacket.packet.verificationWarnings,
       summary: workPacket.packet.summary,
       updated_at: Date.now(),
     };
@@ -190,13 +210,19 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
         estimated_tokens: workPacket.packet.estimatedTokens,
         source_sections: workPacket.packet.sourceSections,
         reasons: workPacket.reasons,
+        active_state_header_hash: workPacket.packet.activeStateHeaderHash,
+        critical_fact_pin_count: workPacket.packet.criticalFactPinCount,
+        evidence_manifest_count: workPacket.packet.evidenceManifestCount,
+        hygiene_score: workPacket.packet.hygieneScore,
+        verification_warnings: workPacket.packet.verificationWarnings,
         summary: workPacket.packet.summary,
         block: workPacket.packet.block,
       },
     );
   }
+  const hygieneFilteredGovernance = filterContextBlocksForMediation(governanceBlocks.blocks, workPacketPolicy);
   const frameGovernanceBlocks = [
-    ...governanceBlocks.blocks,
+    ...hygieneFilteredGovernance.blocks,
     ...(workPacket.inject && workPacket.packet ? [workPacket.packet.block] : []),
   ];
   const enriched = await enrichWithFrameAndManifest(
