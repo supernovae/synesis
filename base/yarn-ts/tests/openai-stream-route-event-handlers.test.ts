@@ -172,6 +172,20 @@ describe("createOpenAIStreamRouteEventHandlers", () => {
     expect(shouldRestrictDiscoveryForPlanWork).not.toHaveBeenCalled();
   });
 
+  it("uses persisted workspace metadata when stream path context is missing", () => {
+    const { input } = inputHarness({
+      pathContext: {},
+    });
+    input.session.record.metadata.workspace_context_cwd = "/home/byron/src/test";
+    input.session.record.metadata.workspace_context_project_root = "/home/byron/src/test";
+
+    const options = buildOpenAIStreamRouteGovernanceOptions(input);
+
+    expect(options.projectRoot).toBe("/home/byron/src/test");
+    expect(options.shellCwd).toBe("/home/byron/src/test");
+    expect(options.pathSandboxPolicy).toMatchObject({ projectRoot: "/home/byron/src/test" });
+  });
+
   it("delegates text buffering through the low-level event handlers", () => {
     const { input, writes, streamState } = inputHarness();
     const handlers = createOpenAIStreamRouteEventHandlers(input);

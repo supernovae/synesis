@@ -58,4 +58,54 @@ describe("createOpenAIChatRouteToolHandlingBase", () => {
     expect(base.deserializePlanShadow({})).toBeNull();
     expect(base.buildPathSandboxPolicy("/repo")).toEqual({ root: "/repo" });
   });
+
+  it("rehydrates missing path context from persisted workspace metadata", () => {
+    const session = {
+      gitInspectionBlockCount: 0,
+      blockBroadVerificationUntilEdit: false,
+      blockFailingVerificationUntilEdit: false,
+      artifactEditTurns: new Map<string, number>(),
+      record: {
+        requestCount: 1,
+        metadata: {
+          workspace_context_cwd: "/home/byron/src/test",
+          workspace_context_project_root: "/home/byron/src/test",
+          workspace_context_shell: "/bin/bash",
+          workspace_context_os: "Linux",
+          workspace_context_arch: "x86_64",
+        },
+      },
+    };
+
+    const base = createOpenAIChatRouteToolHandlingBase({
+      adapter: { family: "test" } as never,
+      clientKind: "opencode",
+      effectiveTools: [],
+      strictGovernance: false,
+      recentToolNames: [],
+      taskCue: undefined,
+      planModeRequested: false,
+      pathContext: {},
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      pathSandboxEnabled: true,
+      artifactShadows: new Map(),
+      normalizedMessageCount: 1,
+      session,
+      stats: {} as never,
+      logger: { warn: vi.fn(), info: vi.fn() },
+      isWriteCapableToolName: vi.fn(() => false),
+      shouldRestrictDiscoveryForPlanWork: vi.fn(() => false),
+      deserializePlanShadow: vi.fn(() => null),
+      buildPathSandboxPolicy: vi.fn(() => ({ root: "/home/byron/src/test" }) as never),
+    });
+
+    expect(base.pathContext).toMatchObject({
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      shell: "/bin/bash",
+      platform: "Linux",
+      osVersion: "x86_64",
+    });
+  });
 });

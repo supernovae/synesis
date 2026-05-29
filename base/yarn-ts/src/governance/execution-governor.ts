@@ -3,6 +3,7 @@ import { suggestScopedVerificationCommand } from "../verification/test-scope-sel
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
 import type { ChatState } from "./chat-state.js";
 import type { FileState } from "./file-state.js";
+import { extractShellWriteTargets } from "./shell-write-command.js";
 
 export interface GovernorInputMessage {
   role: string;
@@ -651,7 +652,8 @@ function isEditCommand(command: string): boolean {
   if (normalized === "edit" || normalized === "write" || normalized === "filewrite" || normalized === "applypatch" || normalized === "update") {
     return true;
   }
-  return EDIT_COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  return EDIT_COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    || extractShellWriteTargets(normalized).length > 0;
 }
 
 function isTaskLifecycleCommand(command: string): boolean {
@@ -994,6 +996,12 @@ export function extractEditedFileHints(events: CommandEvent[]): string[] {
   const hints = new Set<string>();
   for (const e of events) {
     const c = normalizeString(e.command);
+    const shellTargets = extractShellWriteTargets(c);
+    for (const target of shellTargets) {
+      hints.add(target);
+      if (hints.size >= 20) break;
+    }
+    if (hints.size >= 20) break;
     if (isEditCommand(c)) {
       const file = extractCommandTarget(c);
       if (file) {

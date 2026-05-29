@@ -19,6 +19,7 @@ import {
   listOfferedToolNames,
   type GuardrailToolCall,
 } from "../tools/tool-call-availability.js";
+import { mergePathContextWithSessionMetadata } from "../session/session-path-context.js";
 
 export interface OpenAINonStreamToolCall {
   toolCallId: string;
@@ -34,7 +35,7 @@ export interface OpenAINonStreamToolCallSession {
   record: {
     metadata: {
       plan_content_shadow?: unknown;
-    };
+    } & Record<string, unknown>;
   };
 }
 
@@ -116,7 +117,8 @@ export function prepareOpenAINonStreamExternalToolCalls<TSession extends OpenAIN
   const offeredToolSet = buildOfferedToolNameSet(input.effectiveTools);
   const offeredToolNames = listOfferedToolNames(input.effectiveTools);
   const fallbackBashToolName = findOfferedToolNameByCanonical(input.effectiveTools, "Bash");
-  const effectiveRoot = input.pathContext.projectRoot ?? input.pathContext.shellCwd;
+  const pathContext = mergePathContextWithSessionMetadata(input.pathContext, input.session);
+  const effectiveRoot = pathContext.projectRoot ?? pathContext.shellCwd;
 
   return input.toolCalls
     .filter((tc) => tc.toolName !== input.artifactToolName)
@@ -133,8 +135,8 @@ export function prepareOpenAINonStreamExternalToolCalls<TSession extends OpenAIN
           recentToolNames: input.recentToolNames,
         },
         governanceOptions: {
-          projectRoot: input.pathContext.projectRoot,
-          shellCwd: input.pathContext.shellCwd,
+          projectRoot: pathContext.projectRoot,
+          shellCwd: pathContext.shellCwd,
           enforcePathRoot: input.enforcePathRoot,
           blockBashPathDrift: input.blockBashPathDrift,
           strictBashBlock: input.strictGovernance,

@@ -2546,6 +2546,24 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("no_progress_loop");
   });
 
+  it("counts Bash heredoc file writes as edit evidence", () => {
+    const messages = [
+      { role: "user", content: "build the app" },
+      assistantCall("1", "bash", { command: "cat > requirements.txt << 'EOF'\nfastapi\nEOF" }),
+      toolResult("1", "(no output)"),
+      assistantCall("2", "bash", { command: "cat > taskpulse/__init__.py << 'EOF'\n\"\"\"TaskPulse.\"\"\"\nEOF" }),
+      toolResult("2", "(no output)"),
+      assistantCall("3", "bash", { command: "cat > taskpulse/app/__init__.py << 'EOF'\n\"\"\"Application package.\"\"\"\nEOF" }),
+      toolResult("3", "(no output)"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+
+    expect(out.telemetry.noEditEvidence).toBe(false);
+    expect(out.telemetry.phase).toBe("edit");
+    expect(out.matchedRules).not.toContain("no_progress_loop");
+  });
+
   it("fires consecutive_edit_failures when edits fail on alternating files", () => {
     const messages = [
       { role: "user", content: "add keychain integration to both files" },

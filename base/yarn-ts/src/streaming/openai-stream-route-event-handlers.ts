@@ -5,6 +5,7 @@ import type { PlanContentShadow } from "../planning/plan-content-shadow.js";
 import type { YarnUpperHarnessContext } from "../upper-harness/bridge.js";
 import type { AdapterToolHardeningResult } from "../governance/tool-call-governor-service.js";
 import type { ToolArgHardeningStats } from "../governance/tool-call-observability.js";
+import { mergePathContextWithSessionMetadata } from "../session/session-path-context.js";
 import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
 import {
   buildOfferedToolNameSet,
@@ -31,7 +32,7 @@ export interface OpenAIStreamRouteEventSession {
     requestCount: number;
     metadata: {
       plan_content_shadow?: unknown;
-    };
+    } & Record<string, unknown>;
   };
 }
 
@@ -87,7 +88,8 @@ export interface OpenAIStreamRouteEventHandlerInput {
 export function createOpenAIStreamRouteEventHandlers(
   input: OpenAIStreamRouteEventHandlerInput,
 ): OpenAIStreamEventHandlers {
-  const effectiveRoot = input.pathContext.projectRoot ?? input.pathContext.shellCwd;
+  const pathContext = mergePathContextWithSessionMetadata(input.pathContext, input.session);
+  const effectiveRoot = pathContext.projectRoot ?? pathContext.shellCwd;
   return createOpenAIStreamEventHandlers({
     streamState: input.streamState,
     writer: input.writer,
@@ -99,7 +101,7 @@ export function createOpenAIStreamRouteEventHandlers(
     strictGovernance: input.strictGovernance,
     upperHarness: input.upperHarness,
     recentToolNames: input.recentToolNames,
-    governanceOptions: () => buildOpenAIStreamRouteGovernanceOptions(input),
+    governanceOptions: () => buildOpenAIStreamRouteGovernanceOptions({ ...input, pathContext }),
     availability: {
       offeredToolSet: buildOfferedToolNameSet(input.effectiveTools),
       offeredToolNames: listOfferedToolNames(input.effectiveTools),
@@ -141,10 +143,11 @@ export function createOpenAIStreamRouteEventHandlers(
 export function buildOpenAIStreamRouteGovernanceOptions(
   input: OpenAIStreamRouteEventHandlerInput,
 ): Omit<GovernToolCallOptions, "toolName" | "input"> {
-  const effectiveRoot = input.pathContext.projectRoot ?? input.pathContext.shellCwd;
+  const pathContext = mergePathContextWithSessionMetadata(input.pathContext, input.session);
+  const effectiveRoot = pathContext.projectRoot ?? pathContext.shellCwd;
   return {
-    projectRoot: input.pathContext.projectRoot,
-    shellCwd: input.pathContext.shellCwd,
+    projectRoot: pathContext.projectRoot,
+    shellCwd: pathContext.shellCwd,
     enforcePathRoot: input.enforcePathRoot,
     blockBashPathDrift: input.blockBashPathDrift,
     strictBashBlock: input.strictGovernance,

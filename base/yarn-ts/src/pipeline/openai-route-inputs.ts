@@ -4,6 +4,7 @@ import type { PathSandboxPolicy } from "../path-governance/path-sandbox.js";
 import type { GovernToolCallOptions } from "../path-governance/tool-call-governance.js";
 import type { PlanContentShadow } from "../planning/plan-content-shadow.js";
 import type { ModelAdapter } from "../providers/model-adapter.js";
+import { mergePathContextWithSessionMetadata } from "../session/session-path-context.js";
 import type { OpenAIStreamFinalizerTextResult } from "../streaming/openai-stream-finalizer.js";
 import type { StreamTelemetryRouteBaseInput } from "../streaming/stream-telemetry-route-base.js";
 import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
@@ -140,6 +141,7 @@ export type OpenAIChatRouteToolHandlingBase<TSession> = OpenAIChatRouteToolHandl
 export function createOpenAIChatRouteToolHandlingBase<TSession>(
   input: OpenAIChatRouteToolHandlingBaseInput<TSession>,
 ): OpenAIChatRouteToolHandlingBase<TSession> {
+  const pathContext = mergePathContextWithSessionMetadata(input.pathContext, input.session);
   return {
     adapter: input.adapter,
     clientKind: input.clientKind,
@@ -150,7 +152,7 @@ export function createOpenAIChatRouteToolHandlingBase<TSession>(
     taskCue: input.taskCue,
     planModeRequested: input.planModeRequested,
     sensemakingRestrictDiscovery: input.sensemakingRestrictDiscovery,
-    pathContext: input.pathContext,
+    pathContext,
     enforcePathRoot: input.enforcePathRoot,
     blockBashPathDrift: input.blockBashPathDrift,
     pathSandboxEnabled: input.pathSandboxEnabled,

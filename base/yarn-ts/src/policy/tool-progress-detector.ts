@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isShellWriteCommand } from "../governance/shell-write-command.js";
 
 export type ToolProgressState = "stagnant" | "progress" | "unknown";
 
@@ -145,10 +146,11 @@ export function detectToolProgress(
   const latestToolCallId = typeof latest.tool_call_id === "string" ? latest.tool_call_id : "";
   const latestToolCommand = resolveToolCommandFromCallId(messages, latestToolCallId);
   const isWriteProgressTool = WRITE_PROGRESS_TOOL_NAMES.has(latestToolName);
+  const isShellWriteProgressTool = latestToolName === "bash" && isShellWriteCommand(latestToolCommand);
 
   // Treat successful write/edit outputs as progress even if output text repeats.
-  if (isWriteProgressTool && signal && !failureSignal) {
-    const hash = crypto.createHash("sha256").update(signal).digest("hex");
+  if ((isWriteProgressTool || isShellWriteProgressTool) && !failureSignal && (signal || latestToolCommand)) {
+    const hash = crypto.createHash("sha256").update(isShellWriteProgressTool ? latestToolCommand : signal).digest("hex");
     session.lastToolSignalHash = hash;
     session.stagnantToolCycles = 0;
     return { state: "progress", signalHash: hash };

@@ -69,6 +69,31 @@ describe("tool-progress-detector", () => {
     expect(session.stagnantToolCycles).toBe(0);
   });
 
+  it("treats Bash heredoc file writes as progress even with repeated empty output", () => {
+    const session = sessionState();
+    const first: ToolProgressMessage[] = [
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b1", function: { name: "Bash", arguments: "{\"command\":\"cat > requirements.txt << 'EOF'\\nfastapi\\nEOF\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b1", content: "(no output)" },
+    ];
+    const second: ToolProgressMessage[] = [
+      ...first,
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "b2", function: { name: "Bash", arguments: "{\"command\":\"cat > taskpulse/__init__.py << 'EOF'\\n\\\"\\\"\\\"TaskPulse.\\\"\\\"\\\"\\nEOF\"}" } }],
+      },
+      { role: "tool", name: "Bash", tool_call_id: "b2", content: "(no output)" },
+    ];
+    detectToolProgress(session, first);
+    const out = detectToolProgress(session, second);
+    expect(out.state).toBe("progress");
+    expect(session.stagnantToolCycles).toBe(0);
+  });
+
   it("does not force progress for write alias when output indicates failure", () => {
     const session = sessionState();
     const first: ToolProgressMessage[] = [
