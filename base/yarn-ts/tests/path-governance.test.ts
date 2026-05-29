@@ -71,6 +71,23 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
+  it("recovers exact cwd-suffix Read paths with bounded root discovery", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "src/test" },
+      projectRoot: "/home/byron/src/test",
+      shellCwd: "/home/byron/src/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.toolName).toBe("Bash");
+    expect(out.normalizedPath).toBe(true);
+    expect(String(out.input.command)).toContain("duplicated_cwd_relative_path");
+    expect(String(out.input.command)).toContain("find . -maxdepth 2");
+  });
+
   it("passes through out-of-root paths to the client (client enforces permissions)", () => {
     const traversal = governToolCall({
       toolName: "Write",

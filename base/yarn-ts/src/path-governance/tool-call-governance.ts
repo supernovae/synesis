@@ -260,6 +260,19 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = cwdPrefixRepair.input;
     out.normalizedPath = true;
   }
+  const exactCwdDuplicateRecovery = maybeRecoverExactDuplicatedCwdRead(
+    logicalName,
+    out.input,
+    opts.shellCwd,
+    opts.projectRoot,
+    opts.clientKind,
+  );
+  if (exactCwdDuplicateRecovery) {
+    out.toolName = exactCwdDuplicateRecovery.toolName;
+    out.input = exactCwdDuplicateRecovery.input;
+    out.normalizedPath = true;
+    return out;
+  }
 
   if (opts.enforcePathRoot && anchorRoot) {
     const requestedFilePath = typeof out.input.file_path === "string" ? out.input.file_path.trim() : "";
@@ -1032,6 +1045,61 @@ function repairShellCwdPrefixedFilePath(
   }
 
   return { input, repaired: false };
+}
+
+function maybeRecoverExactDuplicatedCwdRead(
+  logicalName: string,
+  input: Record<string, unknown>,
+  shellCwd?: string | null,
+  projectRoot?: string | null,
+  clientKind?: string,
+): { toolName: string; input: Record<string, unknown> } | null {
+  if (logicalName !== "Read") return null;
+  const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
+  const cwd = shellCwd?.trim() || projectRoot?.trim();
+  if (!raw || !cwd || path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
+    return null;
+  }
+
+  const normalized = raw.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/{2,}/g, "/");
+  const rawParts = normalized.split("/").filter(Boolean);
+  if (rawParts.length < 2) return null;
+
+  const cwdParts = path.resolve(cwd).split(path.sep).filter(Boolean);
+  const max = Math.min(cwdParts.length, rawParts.length);
+  for (let n = max; n >= 2; n -= 1) {
+    const suffix = cwdParts.slice(cwdParts.length - n);
+    if (rawParts.length !== suffix.length || !startsWithParts(rawParts, suffix)) continue;
+    const message = [
+      `The requested Read path "${normalized}" duplicates the current workspace suffix.`,
+      `Current workspace root is "${cwd}".`,
+      "Use paths relative to the current workspace; for root discovery, inspect the current directory instead.",
+    ].join(" ");
+    if (clientKind === "claude-code") {
+      return {
+        toolName: "Synesis_Error_PathSandbox",
+        input: {
+          synesis_error: true,
+          reason: "duplicated_cwd_relative_path",
+          blocked_path: normalized,
+          message,
+          retryable: true,
+        },
+      };
+    }
+    return {
+      toolName: "Bash",
+      input: {
+        command: [
+          "printf '%s\\n' 'SYNESIS_PATH_CONTEXT_V1 reason=duplicated_cwd_relative_path'",
+          `printf 'cwd=%s\\nrequested=%s\\n' "$(pwd 2>/dev/null || true)" ${shellEscape(normalized)}`,
+          "find . -maxdepth 2 -mindepth 1 -print 2>/dev/null | sed 's#^\\./##' | sort | head -80",
+        ].join("; "),
+        description: "Recover from duplicated cwd-relative Read path with a bounded directory listing",
+      },
+    };
+  }
+  return null;
 }
 
 function startsWithParts(parts: string[], prefix: string[]): boolean {
