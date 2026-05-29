@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "../auth.js";
-import type { SessionIdentity } from "../session/session-key.js";
+import {
+  detectFreshImplicitSessionStart,
+  type SessionIdentity,
+} from "../session/session-key.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
@@ -150,9 +153,25 @@ export async function prepareOpenAISessionWorkspace(
     yarnDedupeLayer,
   } = deps;
 
-  let freshImplicitSessionNotice: string | null = null;
+  const freshImplicitStart = detectFreshImplicitSessionStart({
+    clientKind,
+    conversationId,
+    messages: request.messages as Array<{ role?: unknown; content?: unknown; tool_calls?: unknown }>,
+  });
+  let freshImplicitSessionNotice: string | null = freshImplicitStart.fresh
+    ? buildFreshImplicitSessionNotice(clientKind, request.messages.length)
+    : null;
+  const sessionIdentity: SessionIdentity = freshImplicitStart.fresh
+    ? {
+        ...identity,
+        forceFreshImplicitSession: true,
+        freshImplicitSessionReason: freshImplicitStart.reason,
+        freshImplicitMessageCount: request.messages.length,
+        sessionRequestId: requestId,
+      }
+    : identity;
   const bootstrap = await runProtocolSessionBootstrap({
-    identity,
+    identity: sessionIdentity,
     authUser,
     getSessionKey,
     getSessionState,

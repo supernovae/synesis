@@ -110,12 +110,38 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
       loadActiveSessionKey: (baseKey) => sessionStore.loadActiveSessionKey(baseKey),
       saveActiveSessionKey: (baseKey, sessionKey) => sessionStore.saveActiveSessionKey(baseKey, sessionKey),
     });
-    if (decision.reason === "new_implicit_conversation") {
+    if (decision.reason === "new_implicit_conversation" || decision.reason === "fresh_implicit_rotation") {
       clearImplicitSessionResources(decision.baseKey);
       logger.info(
-        { baseKey: decision.baseKey, sessionKey: decision.sessionKey, clientKind: identity.clientKind },
+        {
+          baseKey: decision.baseKey,
+          sessionKey: decision.sessionKey,
+          previousSessionKey: decision.previousSessionKey ?? null,
+          clientKind: identity.clientKind,
+          reason: decision.reason,
+          freshImplicitReason: identity.freshImplicitSessionReason,
+        },
         "session_implicit_conversation_rotation"
       );
+      if (decision.reason === "fresh_implicit_rotation") {
+        recordSessionEvent(
+          decision.sessionKey,
+          identity.userId,
+          identity.orgId,
+          "implicit_session_fresh_transcript_rotated",
+          "session-boundary",
+          `client=${identity.clientKind} reason=${identity.freshImplicitSessionReason || "fresh_transcript"}`,
+          identity.sessionRequestId,
+          {
+            base_key: decision.baseKey,
+            previous_session_key: decision.previousSessionKey ?? null,
+            client_kind: identity.clientKind,
+            message_count: identity.freshImplicitMessageCount ?? null,
+            explicit_conversation_id: false,
+            fresh_reason: identity.freshImplicitSessionReason || "fresh_transcript",
+          },
+        );
+      }
     }
     return decision.sessionKey;
   }

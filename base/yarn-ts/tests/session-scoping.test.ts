@@ -106,6 +106,61 @@ describe("Canonical session key", () => {
     expect(decision.reason).toBe("active_alias");
   });
 
+  it("rotates an active implicit alias when the incoming coder transcript is fresh", async () => {
+    const { resolveSessionKey } = await import("../src/session/session-key.js");
+    const activeByBaseKey = new Map([["synesis:alice:opencode:_", "synesis:alice:opencode:_:r1000"]]);
+    const saved: Array<[string, string]> = [];
+
+    const decision = await resolveSessionKey({
+      identity: {
+        userId: "alice",
+        orgId: "",
+        clientKind: "opencode",
+        conversationId: "",
+        forceFreshImplicitSession: true,
+        freshImplicitSessionReason: "fresh_transcript",
+      },
+      nowMs: 4000,
+      inactivityRotationMs: 30 * 60 * 1000,
+      activeByBaseKey,
+      loadRecord: vi.fn().mockResolvedValue({ sessionKey: "synesis:alice:opencode:_:r1000", lastActiveAt: 3500 }),
+      loadActiveSessionKey: vi.fn().mockResolvedValue(null),
+      saveActiveSessionKey: vi.fn((baseKey: string, sessionKey: string) => {
+        saved.push([baseKey, sessionKey]);
+        return Promise.resolve();
+      }),
+    });
+
+    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r4000");
+    expect(decision.previousSessionKey).toBe("synesis:alice:opencode:_:r1000");
+    expect(decision.reason).toBe("fresh_implicit_rotation");
+    expect(activeByBaseKey.get("synesis:alice:opencode:_")).toBe(decision.sessionKey);
+    expect(saved).toEqual([["synesis:alice:opencode:_", decision.sessionKey]]);
+  });
+
+  it("does not rotate explicit conversations even when fresh implicit is requested", async () => {
+    const { resolveSessionKey } = await import("../src/session/session-key.js");
+    const decision = await resolveSessionKey({
+      identity: {
+        userId: "alice",
+        orgId: "",
+        clientKind: "opencode",
+        conversationId: "oc-session-1",
+        forceFreshImplicitSession: true,
+      },
+      nowMs: 5000,
+      inactivityRotationMs: 30 * 60 * 1000,
+      activeByBaseKey: new Map(),
+      loadRecord: vi.fn().mockResolvedValue(null),
+      loadActiveSessionKey: vi.fn().mockResolvedValue(null),
+      saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(decision.sessionKey).toBe("synesis:alice:opencode:oc-session-1");
+    expect(decision.reason).toBe("explicit_conversation");
+    expect(decision.rotated).toBe(false);
+  });
+
   it("does not reuse the bare legacy key for implicit conversations", async () => {
     const { resolveSessionKey } = await import("../src/session/session-key.js");
     const decision = await resolveSessionKey({
@@ -129,6 +184,33 @@ describe("Canonical session key", () => {
 
     expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r3000");
     expect(decision.reason).toBe("new_implicit_conversation");
+  });
+
+  it("detects fresh implicit starts for coder clients and ignores empty assistant placeholders", async () => {
+    const { detectFreshImplicitSessionStart } = await import("../src/session/session-key.js");
+
+    expect(detectFreshImplicitSessionStart({
+      clientKind: "codex-cli",
+      conversationId: "",
+      messages: [
+        { role: "system", content: "Working directory: /repo" },
+        { role: "assistant", content: "" },
+        { role: "user", content: "Build this project" },
+      ],
+    })).toEqual({ fresh: true, reason: "fresh_transcript" });
+  });
+
+  it("does not detect fresh implicit starts for non-coder clients", async () => {
+    const { detectFreshImplicitSessionStart } = await import("../src/session/session-key.js");
+
+    expect(detectFreshImplicitSessionStart({
+      clientKind: "openwebui",
+      conversationId: "",
+      messages: [
+        { role: "system", content: "You are helpful" },
+        { role: "user", content: "Hello" },
+      ],
+    })).toEqual({ fresh: false, reason: "non_coder_client" });
   });
 
   it("resets OpenCode implicit sessions when a fresh transcript arrives over persisted state", async () => {

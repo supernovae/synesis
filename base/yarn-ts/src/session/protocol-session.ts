@@ -8,6 +8,10 @@ export interface BuildProtocolSessionIdentityInput {
   clientKind: string;
   userId?: string;
   displayName?: string;
+  forceFreshImplicitSession?: boolean;
+  freshImplicitSessionReason?: string;
+  freshImplicitMessageCount?: number;
+  sessionRequestId?: string;
 }
 
 export interface SessionTaskCapabilityState {
@@ -53,6 +57,10 @@ export function buildProtocolSessionIdentity(input: BuildProtocolSessionIdentity
     conversationId: input.conversationId,
     clientKind: input.clientKind,
     displayName: input.displayName ?? input.authUser.displayName,
+    forceFreshImplicitSession: input.forceFreshImplicitSession,
+    freshImplicitSessionReason: input.freshImplicitSessionReason,
+    freshImplicitMessageCount: input.freshImplicitMessageCount,
+    sessionRequestId: input.sessionRequestId,
   };
 }
 

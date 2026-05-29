@@ -18,6 +18,7 @@ import {
   buildProtocolSessionIdentity,
   runProtocolSessionBootstrap,
 } from "../session/protocol-session.js";
+import { detectFreshImplicitSessionStart } from "../session/session-key.js";
 import { applyWorkspaceBoundary, hasPersistedWorkspaceState } from "../state/workspace-session-boundary.js";
 import {
   appendPathContextToAdapterBlock,
@@ -383,10 +384,19 @@ export async function prepareClaudeMessagesRoute(
     .reverse()
     .find((m) => m.role === "user");
   const manifest = projectManifestService.build(normalizedFromClaude.messages as never);
+  const freshImplicitStart = detectFreshImplicitSessionStart({
+    clientKind,
+    conversationId,
+    messages: body.messages as Array<{ role?: unknown; content?: unknown; tool_calls?: unknown }>,
+  });
   const identity = buildProtocolSessionIdentity({
     authUser: input.authUser,
     conversationId,
     clientKind,
+    forceFreshImplicitSession: freshImplicitStart.fresh,
+    freshImplicitSessionReason: freshImplicitStart.fresh ? freshImplicitStart.reason : undefined,
+    freshImplicitMessageCount: freshImplicitStart.fresh ? body.messages.length : undefined,
+    sessionRequestId: input.requestId,
   });
   const bootstrap = await runProtocolSessionBootstrap({
     identity,
