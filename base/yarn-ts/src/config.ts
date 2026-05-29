@@ -477,7 +477,12 @@ const EnvSchema = z.object({
   /** Model id resolved through the tier registry for planner todo packets. */
   SYNESIS_YARN_PLANNER_TODO_MODEL: z.string().default("coder-horizon"),
   /** Bound the planner model call so it cannot stall the developer flow. */
-  SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS: z.coerce.number().default(4500),
+  SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS: z.coerce.number().default(12000),
+  /** When horizon planning fails or times out, inject a deterministic local packet instead of dropping planning guidance. */
+  SYNESIS_YARN_PLANNER_TODO_FALLBACK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_PLANNER_TODO_MAX_OUTPUT_TOKENS: z.coerce.number().default(1400),
   SYNESIS_YARN_PLANNER_TODO_MAX_PROMPT_CHARS: z.coerce.number().default(6000),
 

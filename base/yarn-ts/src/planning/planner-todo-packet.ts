@@ -47,6 +47,13 @@ export interface PlannerTodoPacketGenerateResult {
   parseError?: string;
 }
 
+export interface PlannerTodoPacketFallbackInput {
+  prompt: string;
+  sourceHash: string;
+  reason: string;
+  maxPromptChars?: number;
+}
+
 function normalizePrompt(prompt: string, maxChars: number): string {
   const compact = prompt.replace(/\s+/g, " ").trim();
   if (maxChars <= 0 || compact.length <= maxChars) return compact;
@@ -55,6 +62,64 @@ function normalizePrompt(prompt: string, maxChars: number): string {
 
 function stripSlashPlan(prompt: string): string {
   return prompt.replace(/^\s*\/plan(?:\s+|$)/i, "").trim();
+}
+
+function hasAnyTerm(text: string, terms: RegExp[]): boolean {
+  return terms.some((term) => term.test(text));
+}
+
+function objectiveFromPrompt(prompt: string): string {
+  const normalized = normalizePrompt(stripSlashPlan(prompt), 1200);
+  if (!normalized) return "Complete the requested coding task";
+  const firstSentence = normalized.split(/(?<=[.!?])\s+/)[0]?.trim() || normalized;
+  return firstSentence.slice(0, 300);
+}
+
+export function buildFallbackPlannerTodoPacket(input: PlannerTodoPacketFallbackInput): PlannerTodoPacket {
+  const prompt = normalizePrompt(stripSlashPlan(input.prompt), input.maxPromptChars ?? 6000);
+  const lower = prompt.toLowerCase();
+  const todos: PlannerTodoPacket["todos"] = [];
+  const addTodo = (content: string, priority: "high" | "medium" | "low" = "medium") => {
+    if (todos.some((todo) => todo.content === content)) return;
+    if (todos.length >= 7) return;
+    todos.push({
+      id: `todo_${todos.length + 1}`,
+      content,
+      status: "pending",
+      priority,
+    });
+  };
+
+  addTodo("Confirm workspace state and avoid assuming files before they exist", "high");
+  if (hasAnyTerm(lower, [/\bproject structure\b/, /\bscaffold\b/, /\blayout\b/, /\bfull project\b/])) {
+    addTodo("Create or update the requested project structure and dependency files", "high");
+  }
+  if (hasAnyTerm(lower, [/\bapi\b/, /\bendpoint\b/, /\bfastapi\b/, /\brest\b/, /\broute\b/])) {
+    addTodo("Implement API routes and request or response schemas from the requirements", "high");
+  }
+  if (hasAnyTerm(lower, [/\bstorage\b/, /\bsqlite\b/, /\bdatabase\b/, /\bpersistence\b/, /\bdb\b/])) {
+    addTodo("Implement persistence behind the requested storage abstraction", "high");
+  }
+  if (hasAnyTerm(lower, [/\bscheduler\b/, /\bbackground\b/, /\bcron\b/, /\bevery minute\b/, /\bjob\b/])) {
+    addTodo("Implement scheduled or background processing with bounded lifecycle behavior", "medium");
+  }
+  if (hasAnyTerm(lower, [/\bui\b/, /\bhtml\b/, /\bjavascript\b/, /\bfrontend\b/, /\bweb\b/])) {
+    addTodo("Build the requested user interface and connect it to the application behavior", "medium");
+  }
+  addTodo("Add focused tests for core behavior and externally visible contracts", "medium");
+  addTodo("Run the relevant verification commands and repair blocking failures", "high");
+
+  return {
+    schema_version: PLANNER_TODO_PACKET_SCHEMA_VERSION,
+    objective: objectiveFromPrompt(prompt),
+    ambiguity: "low",
+    questions: [],
+    todos: todos.slice(0, 7),
+    success_criteria: [
+      "Requested behavior is implemented in the workspace",
+      "Relevant tests or verification commands pass, or remaining blockers are explicit",
+    ],
+  };
 }
 
 export function shouldGeneratePlannerTodoPacket(options: {

@@ -11,6 +11,7 @@ import {
 } from "../validation/requirement-coverage.js";
 import {
   buildPlannerTodoPacketPrompt,
+  buildFallbackPlannerTodoPacket,
   deserializePlannerTodoPacket,
   formatPlannerTodoPacketBlock,
   parsePlannerTodoPacket,
@@ -122,6 +123,16 @@ function buildTaskIntakeSnapshot(intake: TaskIntake): Record<string, unknown> {
   };
 }
 
+function classifyPlannerTodoFailure(err: unknown): "timeout" | "abort" | "provider_error" {
+  if (!err || typeof err !== "object") return "provider_error";
+  const row = err as { name?: unknown; message?: unknown };
+  const name = typeof row.name === "string" ? row.name.toLowerCase() : "";
+  const message = typeof row.message === "string" ? row.message.toLowerCase() : "";
+  if (name.includes("timeout") || message.includes("timeout") || message.includes("timed out")) return "timeout";
+  if (name.includes("abort") || message.includes("aborted")) return "abort";
+  return "provider_error";
+}
+
 export function parsePlanGraph(meta: Record<string, unknown>): PlanGraph | null {
   const raw = meta.plan_graph;
   if (!raw || typeof raw !== "object") return null;
@@ -221,14 +232,96 @@ export function createPlanningStateHelpers(input: PlanningStateHelpersInput): Pl
     });
     if (!shouldGenerate) return null;
 
+    const plannerModelId = (input.config.SYNESIS_YARN_PLANNER_TODO_MODEL || "coder-horizon").trim() || "coder-horizon";
+    let resolvedModelIdForTrace = plannerModelId;
+    const plannerTimeoutMs = Math.max(500, input.config.SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS);
+    const startedAt = Date.now();
+
+    const persistPlannerPacket = (
+      packet: NonNullable<ReturnType<typeof deserializePlannerTodoPacket>>,
+      modelId: string,
+      origin: "upreach" | "deterministic_fallback",
+      failureKind?: string,
+    ): void => {
+      options.session.record.metadata.planner_todo_packet = serializePlannerTodoPacket(packet);
+      options.session.record.metadata.planner_todo_packet_source_hash = sourceHash;
+      options.session.record.metadata.planner_todo_packet_model = modelId;
+      options.session.record.metadata.planner_todo_packet_updated_at = Date.now();
+      options.session.record.metadata.planner_todo_packet_ambiguity = packet.ambiguity;
+      options.session.record.metadata.planner_todo_packet_todos = packet.todos.length;
+      options.session.record.metadata.planner_todo_packet_questions = packet.questions.length;
+      options.session.record.metadata.planner_todo_packet_carrier = options.clientToolCapabilities.hasTodoTool
+        ? "native_todo_tool"
+        : "prompt_block";
+      options.session.record.metadata.planner_todo_packet_origin = origin;
+      options.session.record.metadata.planner_todo_packet_timeout_ms = plannerTimeoutMs;
+      if (failureKind) {
+        options.session.record.metadata.planner_todo_packet_failure_kind = failureKind;
+      } else {
+        delete options.session.record.metadata.planner_todo_packet_failure_kind;
+      }
+
+      if (!options.session.taskLedger || options.session.taskLedger.tasks.length === 0) {
+        options.session.taskLedger = createEmptyLedger(
+          options.session.record.sessionKey,
+          Boolean(options.session.taskCapabilities?.hasExplicitTodoTool ?? options.clientToolCapabilities.hasTodoTool),
+          Boolean(options.session.taskCapabilities?.hasExplicitPlanMode ?? options.clientToolCapabilities.planModeRequested),
+        );
+        options.session.taskLedger = reconcileFromText(
+          options.session.taskLedger,
+          plannerTodoPacketToHarnessTasks(packet, options.session.record.requestCount),
+          options.session.record.requestCount,
+        );
+      }
+    };
+
+    const buildFallbackBlock = (failureKind: string, detail: string): string | null => {
+      if (!input.config.SYNESIS_YARN_PLANNER_TODO_FALLBACK_ENABLED) return null;
+      const fallbackPacket = buildFallbackPlannerTodoPacket({
+        prompt: options.latestUserPrompt,
+        sourceHash,
+        reason: failureKind,
+        maxPromptChars: Math.max(1000, input.config.SYNESIS_YARN_PLANNER_TODO_MAX_PROMPT_CHARS),
+      });
+      const fallbackModelId = `${resolvedModelIdForTrace}:fallback`;
+      persistPlannerPacket(fallbackPacket, fallbackModelId, "deterministic_fallback", failureKind);
+      input.recordSessionEvent(
+        options.sessionKey,
+        options.identity.userId,
+        options.identity.orgId,
+        "planner_todo_packet_fallback_generated",
+        "planner-todo",
+        `surface=${options.surface} model=${resolvedModelIdForTrace} failure=${failureKind} todos=${fallbackPacket.todos.length}`,
+        options.requestId,
+        {
+          surface: options.surface,
+          source_hash: sourceHash,
+          model_id: resolvedModelIdForTrace,
+          fallback_model_id: fallbackModelId,
+          failure_kind: failureKind,
+          failure_detail: detail.slice(0, 500),
+          timeout_ms: plannerTimeoutMs,
+          elapsed_ms: Date.now() - startedAt,
+          todo_count: fallbackPacket.todos.length,
+          carrier: options.clientToolCapabilities.hasTodoTool ? "native_todo_tool" : "prompt_block",
+        },
+      );
+      return formatPlannerTodoPacketBlock({
+        packet: fallbackPacket,
+        sourceHash,
+        modelId: fallbackModelId,
+        capabilities: options.clientToolCapabilities,
+      });
+    };
+
     try {
       input.tierRegistry.setCurrentRequestContext({
         sessionKey: options.sessionKey,
         requestId: options.requestId,
         clientKind: options.identity.clientKind,
       });
-      const plannerModelId = (input.config.SYNESIS_YARN_PLANNER_TODO_MODEL || "coder-horizon").trim() || "coder-horizon";
       const resolved = input.tierRegistry.resolve(plannerModelId, "synesis-horizon");
+      resolvedModelIdForTrace = resolved.resolvedModelId;
       const plannerPrompt = buildPlannerTodoPacketPrompt({
         prompt: options.latestUserPrompt,
         sourceHash,
@@ -247,7 +340,7 @@ export function createPlanningStateHelpers(input: PlanningStateHelpersInput): Pl
           },
           { role: "user", content: plannerPrompt },
         ] as never,
-        abortSignal: AbortSignal.timeout(Math.max(500, input.config.SYNESIS_YARN_PLANNER_TODO_TIMEOUT_MS)),
+        abortSignal: AbortSignal.timeout(plannerTimeoutMs),
       });
       const parsed = parsePlannerTodoPacket(result.text);
       if (!parsed.packet) {
@@ -264,34 +357,14 @@ export function createPlanningStateHelpers(input: PlanningStateHelpersInput): Pl
             source_hash: sourceHash,
             model_id: resolved.resolvedModelId,
             parse_error: parsed.parseError ?? "unknown",
+            timeout_ms: plannerTimeoutMs,
+            elapsed_ms: Date.now() - startedAt,
           },
         );
-        return null;
+        return buildFallbackBlock("parse_error", parsed.parseError ?? "unknown");
       }
 
-      options.session.record.metadata.planner_todo_packet = serializePlannerTodoPacket(parsed.packet);
-      options.session.record.metadata.planner_todo_packet_source_hash = sourceHash;
-      options.session.record.metadata.planner_todo_packet_model = resolved.resolvedModelId;
-      options.session.record.metadata.planner_todo_packet_updated_at = Date.now();
-      options.session.record.metadata.planner_todo_packet_ambiguity = parsed.packet.ambiguity;
-      options.session.record.metadata.planner_todo_packet_todos = parsed.packet.todos.length;
-      options.session.record.metadata.planner_todo_packet_questions = parsed.packet.questions.length;
-      options.session.record.metadata.planner_todo_packet_carrier = options.clientToolCapabilities.hasTodoTool
-        ? "native_todo_tool"
-        : "prompt_block";
-
-      if (!options.session.taskLedger || options.session.taskLedger.tasks.length === 0) {
-        options.session.taskLedger = createEmptyLedger(
-          options.session.record.sessionKey,
-          Boolean(options.session.taskCapabilities?.hasExplicitTodoTool ?? options.clientToolCapabilities.hasTodoTool),
-          Boolean(options.session.taskCapabilities?.hasExplicitPlanMode ?? options.clientToolCapabilities.planModeRequested),
-        );
-        options.session.taskLedger = reconcileFromText(
-          options.session.taskLedger,
-          plannerTodoPacketToHarnessTasks(parsed.packet, options.session.record.requestCount),
-          options.session.record.requestCount,
-        );
-      }
+      persistPlannerPacket(parsed.packet, resolved.resolvedModelId, "upreach");
 
       input.recordSessionEvent(
         options.sessionKey,
@@ -311,6 +384,8 @@ export function createPlanningStateHelpers(input: PlanningStateHelpersInput): Pl
           todo_tool: options.clientToolCapabilities.todoToolName,
           question_tool: options.clientToolCapabilities.questionToolName,
           carrier: options.clientToolCapabilities.hasTodoTool ? "native_todo_tool" : "prompt_block",
+          timeout_ms: plannerTimeoutMs,
+          elapsed_ms: Date.now() - startedAt,
         },
       );
 
@@ -322,23 +397,36 @@ export function createPlanningStateHelpers(input: PlanningStateHelpersInput): Pl
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      input.logger.warn({ err, sessionKey: options.sessionKey, surface: options.surface }, "planner_todo_packet_failed");
+      const failureKind = classifyPlannerTodoFailure(err);
+      input.logger.warn({
+        err,
+        sessionKey: options.sessionKey,
+        surface: options.surface,
+        modelId: resolvedModelIdForTrace,
+        failureKind,
+        timeoutMs: plannerTimeoutMs,
+        elapsedMs: Date.now() - startedAt,
+      }, "planner_todo_packet_failed");
       input.recordSessionEvent(
         options.sessionKey,
         options.identity.userId,
         options.identity.orgId,
         "planner_todo_packet_failed",
         "planner-todo",
-        `surface=${options.surface} ${detail.slice(0, 240)}`,
+        `surface=${options.surface} model=${resolvedModelIdForTrace} failure=${failureKind} ${detail.slice(0, 200)}`,
         options.requestId,
         {
           surface: options.surface,
           source_hash: sourceHash,
-          model_id: input.config.SYNESIS_YARN_PLANNER_TODO_MODEL,
+          configured_model_id: plannerModelId,
+          model_id: resolvedModelIdForTrace,
+          failure_kind: failureKind,
+          timeout_ms: plannerTimeoutMs,
+          elapsed_ms: Date.now() - startedAt,
           error: detail.slice(0, 500),
         },
       );
-      return null;
+      return buildFallbackBlock(failureKind, detail);
     }
   }
 

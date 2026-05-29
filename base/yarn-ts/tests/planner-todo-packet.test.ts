@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { detectClientToolCapabilities } from "../src/adapters/client-tool-capabilities.js";
 import {
   buildPlannerTodoPacketPrompt,
+  buildFallbackPlannerTodoPacket,
   formatPlannerTodoPacketBlock,
   parsePlannerTodoPacket,
   plannerTodoPacketToHarnessTasks,
@@ -126,6 +127,22 @@ describe("planner todo packet", () => {
     expect(parsed.packet?.todos[0]?.id).toBe("todo_1");
     expect(parsed.packet?.todos[0]?.priority).toBe("medium");
     expect(parsed.packet?.todos[1]?.id).toBe("todo_1_2");
+  });
+
+  it("builds a deterministic fallback packet when horizon planning is unavailable", () => {
+    const fallback = buildFallbackPlannerTodoPacket({
+      prompt: "Build a FastAPI app with SQLite storage, a web UI, a background scheduler, tests, and README docs.",
+      sourceHash: "abc123",
+      reason: "timeout",
+    });
+
+    expect(fallback.objective).toContain("Build a FastAPI app");
+    expect(fallback.ambiguity).toBe("low");
+    expect(fallback.todos.map((todo) => todo.content)).toContain("Confirm workspace state and avoid assuming files before they exist");
+    expect(fallback.todos.map((todo) => todo.content)).toContain("Implement API routes and request or response schemas from the requirements");
+    expect(fallback.todos.map((todo) => todo.content)).toContain("Implement persistence behind the requested storage abstraction");
+    expect(fallback.todos.map((todo) => todo.content)).toContain("Run the relevant verification commands and repair blocking failures");
+    expect(fallback.todos.length).toBeLessThanOrEqual(7);
   });
 
   it("formats a guidance block that prefers question then todowrite when ambiguity blocks progress", () => {
