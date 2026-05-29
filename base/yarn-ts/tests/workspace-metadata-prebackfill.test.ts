@@ -1,9 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyWorkspaceMetadataPrebackfill } from "../src/pipeline/workspace-metadata-prebackfill.js";
+import {
+  applyWorkspaceMetadataPrebackfill,
+  mergePathContextWithClientMetadata,
+} from "../src/pipeline/workspace-metadata-prebackfill.js";
 import type { ClientMetadata } from "../src/providers/prefix-optimizer/index.js";
 import type { SessionPathHints } from "../src/state/workspace-session-boundary.js";
 
 describe("workspace metadata prebackfill", () => {
+  it("merges OpenCode-style message metadata into early path context without clobbering headers", () => {
+    const merged = mergePathContextWithClientMetadata(
+      { projectRoot: null, shellCwd: "/from-header", shell: undefined },
+      {
+        ...emptyMetadata(),
+        projectRoot: "/from-system-root",
+        shellCwd: "/from-system-cwd",
+        shell: "zsh",
+        platform: "darwin",
+      },
+    );
+
+    expect(merged).toMatchObject({
+      projectRoot: "/from-system-root",
+      shellCwd: "/from-header",
+      shell: "zsh",
+      platform: "darwin",
+    });
+  });
+
   it("does nothing when path context already has project root and cwd", () => {
     const extractMetadataFromMessages = vi.fn(() => emptyMetadata());
 

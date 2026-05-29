@@ -89,6 +89,7 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
         routeExecution.model,
         routeExecution.stream,
         routeExecution.toolCallId,
+        routeExecution.toolName,
       );
     }
     if (routeExecution.kind === "softFail") {

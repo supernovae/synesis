@@ -19,6 +19,7 @@ import {
   type PathSandboxPolicy,
   type PathOperation,
 } from "./path-sandbox.js";
+import { isCoderClientKind } from "../session/session-key.js";
 
 export interface GovernToolCallOptions {
   toolName: string;
@@ -176,6 +177,21 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = aliasRemap.input;
   }
 
+  const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
+  const unanchoredAbsoluteBlock = maybeBlockUnanchoredAbsoluteFileTool(
+    logicalName,
+    out.input,
+    opts.clientKind,
+    anchorRoot,
+  );
+  if (unanchoredAbsoluteBlock) {
+    out.toolName = unanchoredAbsoluteBlock.toolName;
+    out.input = unanchoredAbsoluteBlock.input;
+    out.blockedPathSandbox = true;
+    out.pathSandboxNudge = unanchoredAbsoluteBlock.nudge;
+    return out;
+  }
+
   // Path sandbox: block file operations outside allowed boundaries
   if (opts.pathSandboxPolicy) {
     const sandboxBlock = maybeBlockPathSandbox(logicalName, out.input, opts.pathSandboxPolicy, opts.clientKind);
@@ -245,7 +261,6 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.normalizedPath = true;
   }
 
-  const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
   if (opts.enforcePathRoot && anchorRoot) {
     const requestedFilePath = typeof out.input.file_path === "string" ? out.input.file_path.trim() : "";
     const rootClamp = constrainFileToolPathToProjectRoot(anchorRoot, logicalName, out.input);
@@ -1282,6 +1297,60 @@ function maybeBlockPathSandbox(
   }
 
   return null;
+}
+
+function maybeBlockUnanchoredAbsoluteFileTool(
+  logicalName: string,
+  input: Record<string, unknown>,
+  clientKind: string | undefined,
+  anchorRoot: string | null,
+): { toolName: string; input: Record<string, unknown>; nudge: string } | null {
+  if (anchorRoot || !isCoderClientKind(clientKind ?? "")) return null;
+  if (!["Read", "Write", "Edit", "Update"].includes(logicalName)) return null;
+  const rawPath = typeof input.file_path === "string" ? input.file_path.trim() : "";
+  if (!rawPath) return null;
+  const absoluteLike =
+    path.isAbsolute(rawPath)
+    || /^[A-Za-z]:[\\/]/.test(rawPath)
+    || /^~(?:[\\/]|$)/.test(rawPath)
+    || /^(?:Users|home|root)\//.test(rawPath);
+  if (!absoluteLike) return null;
+
+  const message = [
+    `Synesis Yarn blocked absolute file path "${rawPath}" because no project_root or shell_cwd is known for this coder session.`,
+    "Allow the workspace context handshake or run one narrow pwd/listing step, then retry with a path relative to the current workspace.",
+  ].join(" ");
+  if (clientKind === "claude-code") {
+    return {
+      toolName: "Synesis_Error_PathSandbox",
+      input: {
+        synesis_error: true,
+        reason: "missing_workspace_context_absolute_path",
+        blocked_path: rawPath,
+        operation: logicalName === "Read" ? "read" : "write",
+        message,
+        retryable: true,
+      },
+      nudge: message,
+    };
+  }
+  return {
+    toolName: "Bash",
+    input: {
+      command: buildStructuredErrorBashCommand({
+        synesis_error: true,
+        schema_version: 1,
+        category: "path_context",
+        reason: "missing_workspace_context_absolute_path",
+        blocked_path: rawPath,
+        original_tool: logicalName,
+        message,
+        retryable: true,
+      }),
+      description: "Blocked absolute file path until workspace context is known",
+    },
+    nudge: message,
+  };
 }
 
 function shellEscape(s: string): string {

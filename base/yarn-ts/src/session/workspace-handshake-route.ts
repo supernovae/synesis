@@ -1,7 +1,7 @@
 import {
   extractClaudeToolResult,
   extractOpenAIToolResult,
-  hasBashTool,
+  findBashToolName,
   makeWorkspaceHandshakeToolCallId,
   parseWorkspaceContextOutput,
 } from "./workspace-context-handshake.js";
@@ -17,7 +17,7 @@ import {
 
 export type WorkspaceHandshakeAction =
   | { kind: "continue" }
-  | { kind: "send"; toolCallId: string };
+  | { kind: "send"; toolCallId: string; toolName: string };
 
 export type WorkspaceHandshakeProtocol = "openai" | "claude";
 
@@ -46,12 +46,21 @@ export function shouldStartWorkspaceHandshake<TState extends WorkspaceBoundarySe
   return false;
 }
 
+export function shouldStartMissingPathWorkspaceHandshake<TState extends WorkspaceBoundarySessionState>(
+  state: TState,
+  pathCtx: SessionPathHints,
+): boolean {
+  if (pathCtx.projectRoot || pathCtx.shellCwd) return false;
+  const status = getHandshakeStatus(state.record.metadata);
+  if (status === "pending" || status === "ready" || status === "unavailable") return false;
+  return getHandshakeAttempts(state.record.metadata) < 1;
+}
+
 export async function processWorkspaceHandshakeRoute<TState extends WorkspaceBoundarySessionState>(
   input: WorkspaceHandshakeRouteInput<TState>,
 ): Promise<WorkspaceHandshakeAction> {
   const pendingToolId = String(input.session.record.metadata.workspace_context_tool_call_id ?? "");
-  const status = getHandshakeStatus(input.session.record.metadata);
-  if (status === "pending" && pendingToolId) {
+  if (getHandshakeStatus(input.session.record.metadata) === "pending" && pendingToolId) {
     processPendingWorkspaceHandshake({ ...input, pendingToolId });
   }
 
@@ -60,7 +69,8 @@ export async function processWorkspaceHandshakeRoute<TState extends WorkspaceBou
     return { kind: "continue" };
   }
 
-  if (!hasBashTool(input.tools)) {
+  const bashToolName = findBashToolName(input.tools);
+  if (!bashToolName) {
     setSessionWorkspaceContext(input.session, "unavailable", input.requestId, {
       reason: "Bash tool not available for workspace handshake",
     });
@@ -92,7 +102,7 @@ export async function processWorkspaceHandshakeRoute<TState extends WorkspaceBou
     input.requestId,
   );
   await input.saveSession(input.session);
-  return { kind: "send", toolCallId };
+  return { kind: "send", toolCallId, toolName: bashToolName };
 }
 
 function processPendingWorkspaceHandshake<TState extends WorkspaceBoundarySessionState>(

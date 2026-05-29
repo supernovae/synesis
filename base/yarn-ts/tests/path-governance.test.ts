@@ -105,6 +105,34 @@ describe("governToolCall", () => {
     expect(out.input.file_path).toBe("/tmp/outside.go");
   });
 
+  it("blocks absolute file paths for coder clients until workspace context is known", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "/Users/liangjianming/Documents/code/personal/taskpulse/taskpulse/app/services/categorizer.py" },
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.blockedPathSandbox).toBe(true);
+    expect(out.toolName).toBe("Bash");
+    expect(String(out.input.command)).toContain("missing_workspace_context_absolute_path");
+    expect(String(out.input.command)).toContain("workspace context handshake");
+  });
+
+  it("blocks Windows absolute file paths for coder clients until workspace context is known", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "C:\\Users\\dev\\project\\app.py" },
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.blockedPathSandbox).toBe(true);
+    expect(String(out.input.command)).toContain("C:\\\\Users\\\\dev");
+  });
+
   it("blocks dangerous rm -rf shell command", () => {
     const out = governToolCall({
       toolName: "Bash",

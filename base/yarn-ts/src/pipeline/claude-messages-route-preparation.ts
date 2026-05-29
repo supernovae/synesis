@@ -20,10 +20,13 @@ import {
 } from "../session/protocol-session.js";
 import { detectFreshImplicitSessionStart } from "../session/session-key.js";
 import { applyWorkspaceBoundary, hasPersistedWorkspaceState } from "../state/workspace-session-boundary.js";
+import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
 import {
   appendPathContextToAdapterBlock,
   parseSessionExecutionContext,
 } from "../adapters/client-adapter-packs.js";
+import { extractMetadataFromMessages } from "../providers/prefix-optimizer/index.js";
+import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
 import { detectClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
 import {
   deriveModelExecutionPolicy,
@@ -369,17 +372,23 @@ export async function prepareClaudeMessagesRoute(
   if (isOpenClawProfile(adapterProfile)) {
     openClawProfileStats.requestsObserved += 1;
   }
-  const pathContext = parseSessionExecutionContext(
+  const headerPathContext = parseSessionExecutionContext(
     input.request.headers as Record<string, string | string[] | undefined>,
     body.metadata ?? null,
   );
-  const adapterBlock = appendPathContextToAdapterBlock(
-    clientAdapterPacks.toSystemBlock(adapterProfile),
-    input.request.headers as Record<string, string | string[] | undefined>,
-    body.metadata ?? null,
-    clientKind,
-    { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
-  );
+  const messageMetadata = extractMetadataFromMessages(normalizedFromClaude.messages as never);
+  const pathContext = mergePathContextWithClientMetadata(headerPathContext, messageMetadata);
+  const baseAdapterBlock = clientAdapterPacks.toSystemBlock(adapterProfile);
+  const sessionContextBlock = toSessionExecutionContextSystemBlock(pathContext);
+  const adapterBlock = sessionContextBlock
+    ? `${baseAdapterBlock}\n\n${sessionContextBlock}`
+    : appendPathContextToAdapterBlock(
+        baseAdapterBlock,
+        input.request.headers as Record<string, string | string[] | undefined>,
+        body.metadata ?? null,
+        clientKind,
+        { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
+      );
   const latestUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
     .find((m) => m.role === "user");

@@ -49,6 +49,26 @@ function metaString(meta: Record<string, unknown> | null | undefined, key: strin
   return typeof v === "string" ? v.trim() : undefined;
 }
 
+function nestedSynesis(meta: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  const nested = meta?.synesis;
+  return nested && typeof nested === "object" && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : null;
+}
+
+function nestedSynesisString(
+  meta: Record<string, unknown> | null | undefined,
+  keys: string[],
+): string | undefined {
+  const nested = nestedSynesis(meta);
+  if (!nested) return undefined;
+  for (const key of keys) {
+    const v = nested[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 function metaBool(meta: Record<string, unknown> | null | undefined, key: string): boolean | undefined {
   if (!meta) return undefined;
   const raw = meta[key];
@@ -129,19 +149,23 @@ export function parseSessionExecutionContext(
   metadata?: Record<string, unknown> | null,
   options?: ParseSessionExecutionContextOptions,
 ): ParsedSessionExecutionContext {
-  const fromMetaRoot = metaString(metadata, "synesis_project_root");
+  const fromMetaRoot = metaString(metadata, "synesis_project_root")
+    ?? nestedSynesisString(metadata, ["projectRoot", "project_root"]);
   const fromHeaderProject = headerOne(headers, "x-synesis-project-root");
   const fromHeaderLegacy = headerOne(headers, "x-synesis-workspace-root");
   const projectRoot = (fromMetaRoot || fromHeaderProject || fromHeaderLegacy || "").trim() || null;
 
-  const fromMetaCwd = metaString(metadata, "synesis_shell_cwd");
+  const fromMetaCwd = metaString(metadata, "synesis_shell_cwd")
+    ?? nestedSynesisString(metadata, ["shellCwd", "shell_cwd", "cwd"]);
   const fromHeaderCwd = headerOne(headers, "x-synesis-shell-cwd");
   const shellCwd = (fromMetaCwd || fromHeaderCwd || "").trim() || null;
 
   let platform: string | undefined;
   let osVersion: string | undefined;
   let shell: string | undefined;
-  const rt = metadata?.synesis_runtime;
+  const nested = nestedSynesis(metadata);
+  const rt = metadata?.synesis_runtime
+    ?? (nested?.runtime && typeof nested.runtime === "object" ? nested.runtime : undefined);
   if (rt && typeof rt === "object" && rt !== null) {
     const o = rt as Record<string, unknown>;
     if (typeof o.platform === "string" && o.platform.trim()) platform = o.platform.trim();

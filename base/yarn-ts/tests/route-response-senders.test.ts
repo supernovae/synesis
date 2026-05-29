@@ -103,15 +103,15 @@ describe("route response senders", () => {
     const openai = fakeReply();
     const claude = fakeReply();
 
-    sendOpenAIWorkspaceHandshake(openai.reply as never, "req-1", "model-a", false, "tool-1");
-    sendClaudeWorkspaceHandshake(claude.reply as never, "claude-model", true, "tool-2");
+    sendOpenAIWorkspaceHandshake(openai.reply as never, "req-1", "model-a", false, "tool-1", "bash");
+    sendClaudeWorkspaceHandshake(claude.reply as never, "claude-model", true, "tool-2", "bash");
 
     expect(openai.reply.sent).toMatchObject({
       object: "chat.completion",
-      choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "Bash" } }] }, finish_reason: "tool_calls" }],
+      choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "bash" } }] }, finish_reason: "tool_calls" }],
     });
     expect(claude.chunks.join("")).toContain("content_block_start");
-    expect(claude.chunks.join("")).toContain('"name":"Bash"');
+    expect(claude.chunks.join("")).toContain('"name":"bash"');
     expect(claude.chunks.join("")).toContain("message_stop");
   });
 });

@@ -135,7 +135,7 @@ interface PrepareOpenAIGovernedStageInput {
 }
 
 export type OpenAIGovernedStageResult =
-  | { kind: "workspaceHandshake"; toolCallId: string }
+  | { kind: "workspaceHandshake"; toolCallId: string; toolName: string }
   | { kind: "softFail"; selectedModel: string; content: string; envelope?: unknown }
   | { kind: "reject"; decision: unknown }
   | {
@@ -251,7 +251,11 @@ export async function prepareOpenAIGovernedStage(
     headers: input.req.headers as Record<string, unknown>,
   });
   if (turn.workspaceHandshakeAction.kind === "send") {
-    return { kind: "workspaceHandshake", toolCallId: turn.workspaceHandshakeAction.toolCallId };
+    return {
+      kind: "workspaceHandshake",
+      toolCallId: turn.workspaceHandshakeAction.toolCallId,
+      toolName: turn.workspaceHandshakeAction.toolName,
+    };
   }
 
   const context = await prepareOpenAIContext({

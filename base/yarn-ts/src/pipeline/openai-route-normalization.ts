@@ -2,6 +2,8 @@ import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
+import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
 import { prepareOpenAIRouteRequestSetup } from "./openai-route-request-setup.js";
 import { prepareOpenAIRouteTranscript } from "./openai-route-transcript-prep.js";
 
@@ -15,6 +17,7 @@ type Deps = Pick<
   | "config"
   | "debugProtocolLog"
   | "enrichmentPool"
+  | "extractMetadataFromMessages"
   | "extractLatestUserPromptFromMessages"
   | "governanceClient"
   | "inferTrajectoryDiagnosticsFromMessages"
@@ -69,6 +72,7 @@ export async function prepareOpenAIRouteNormalization(input: PrepareOpenAIRouteN
     config,
     debugProtocolLog,
     enrichmentPool,
+    extractMetadataFromMessages,
     extractLatestUserPromptFromMessages,
     governanceClient,
     inferTrajectoryDiagnosticsFromMessages,
@@ -140,14 +144,20 @@ export async function prepareOpenAIRouteNormalization(input: PrepareOpenAIRouteN
   if (isOpenClawProfile(adapterProfile)) {
     openClawProfileStats.requestsObserved += 1;
   }
-  const pathContext = parseSessionExecutionContext(headers, bodyMetadata);
-  const adapterBlock = appendPathContextToAdapterBlock(
-    clientAdapterPacks.toSystemBlock(adapterProfile),
-    headers,
-    bodyMetadata,
-    identity.clientKind,
-    { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
-  );
+  const baseAdapterBlock = clientAdapterPacks.toSystemBlock(adapterProfile);
+  const headerPathContext = parseSessionExecutionContext(headers, bodyMetadata);
+  const messageMetadata = extractMetadataFromMessages(transcriptPrep.normalizedOpenAI.messages as never);
+  const pathContext = mergePathContextWithClientMetadata(headerPathContext, messageMetadata);
+  const sessionContextBlock = toSessionExecutionContextSystemBlock(pathContext);
+  const adapterBlock = sessionContextBlock
+    ? `${baseAdapterBlock}\n\n${sessionContextBlock}`
+    : appendPathContextToAdapterBlock(
+        baseAdapterBlock,
+        headers,
+        bodyMetadata,
+        identity.clientKind,
+        { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
+      );
   const latestUserText = [...(transcriptPrep.normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
     .find((m) => m.role === "user");

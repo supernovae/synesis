@@ -18,6 +18,21 @@ export interface WorkspacePrebackfillResult {
   metadata: ClientMetadata | null;
 }
 
+export function mergePathContextWithClientMetadata(
+  pathContext: SessionPathHints,
+  metadata: ClientMetadata | null | undefined,
+): SessionPathHints {
+  if (!metadata) return pathContext;
+  return {
+    ...pathContext,
+    projectRoot: pathContext.projectRoot ?? metadata.projectRoot ?? null,
+    shellCwd: pathContext.shellCwd ?? metadata.shellCwd ?? null,
+    shell: pathContext.shell ?? metadata.shell ?? undefined,
+    platform: pathContext.platform ?? metadata.platform ?? undefined,
+    osVersion: pathContext.osVersion ?? metadata.osVersion ?? undefined,
+  };
+}
+
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map(textFromContent).filter(Boolean).join("\n");
@@ -238,14 +253,10 @@ export function applyWorkspaceMetadataPrebackfill<TSession extends WorkspacePreb
     };
   }
 
-  const pathContext: SessionPathHints = {
-    ...input.pathContext,
-    projectRoot: input.pathContext.projectRoot ?? metadata.projectRoot ?? inferredRoot,
-    shellCwd: input.pathContext.shellCwd ?? metadata.shellCwd ?? inferredRoot,
-    shell: input.pathContext.shell ?? metadata.shell ?? undefined,
-    platform: input.pathContext.platform ?? metadata.platform ?? undefined,
-    osVersion: input.pathContext.osVersion ?? metadata.osVersion ?? undefined,
-  };
+  const metadataWithInferredRoot: ClientMetadata = inferredRoot && !metadata.projectRoot && !metadata.shellCwd
+    ? { ...metadata, projectRoot: inferredRoot, shellCwd: inferredRoot }
+    : metadata;
+  const pathContext = mergePathContextWithClientMetadata(input.pathContext, metadataWithInferredRoot);
   const adapterBlock = input.buildAdapterBlock(pathContext);
 
   input.setWorkspaceContext(input.session, "ready", input.requestId, {

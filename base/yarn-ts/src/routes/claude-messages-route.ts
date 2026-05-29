@@ -11,6 +11,8 @@ import {
   mergeSessionPathHints,
 } from "../state/workspace-session-boundary.js";
 import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
+import { isCoderClientKind } from "../session/session-key.js";
+import { shouldStartMissingPathWorkspaceHandshake } from "../session/workspace-handshake-route.js";
 import { prepareClaudeContext } from "../pipeline/claude-context-preparation.js";
 import { prepareClaudeGovernance } from "../pipeline/claude-governance-preparation.js";
 import { runClaudePolicyPrecheck } from "../pipeline/claude-policy-precheck.js";
@@ -447,9 +449,17 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       tools: body.tools as unknown[] | undefined,
       saveSession: casSessionSave,
       recordSessionEvent,
+      shouldStart: (state: { record: { metadata: Record<string, unknown> } }, ctx: SessionPathHints) =>
+        isCoderClientKind(claudeClientKind) && shouldStartMissingPathWorkspaceHandshake(state, ctx),
     });
     if (claudeWorkspaceHandshakeAction.kind === "send") {
-      return sendClaudeWorkspaceHandshake(reply, body.model, !!body.stream, claudeWorkspaceHandshakeAction.toolCallId);
+      return sendClaudeWorkspaceHandshake(
+        reply,
+        body.model,
+        !!body.stream,
+        claudeWorkspaceHandshakeAction.toolCallId,
+        claudeWorkspaceHandshakeAction.toolName,
+      );
     }
     const effectiveClaudePathCtx = mergeSessionPathHints(claudePathCtx, session);
     const buildEffectiveClaudeAdapterBlock = (pathCtx: SessionPathHints): string | undefined => {

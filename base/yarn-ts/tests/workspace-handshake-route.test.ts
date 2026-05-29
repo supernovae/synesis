@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   processWorkspaceHandshakeRoute,
+  shouldStartMissingPathWorkspaceHandshake,
   shouldStartWorkspaceHandshake,
 } from "../src/session/workspace-handshake-route.js";
 
@@ -29,6 +30,13 @@ function baseInput(overrides: Partial<Parameters<typeof processWorkspaceHandshak
 describe("workspace handshake route helper", () => {
   it("keeps synthetic handshake start disabled by default", () => {
     expect(shouldStartWorkspaceHandshake(session(), { projectRoot: "/repo", shellCwd: "/repo" })).toBe(false);
+  });
+
+  it("allows coder routes to request a one-shot handshake when path anchors are missing", () => {
+    expect(shouldStartMissingPathWorkspaceHandshake(session(), { projectRoot: null, shellCwd: null })).toBe(true);
+    expect(shouldStartMissingPathWorkspaceHandshake(session(), { projectRoot: "/repo", shellCwd: "/repo" })).toBe(false);
+    expect(shouldStartMissingPathWorkspaceHandshake(session({ workspace_context_attempts: 1 }), { projectRoot: null, shellCwd: null })).toBe(false);
+    expect(shouldStartMissingPathWorkspaceHandshake(session({ workspace_context_status: "unavailable" }), { projectRoot: null, shellCwd: null })).toBe(false);
   });
 
   it("marks pending OpenAI workspace handshake ready from tool result", async () => {
@@ -104,6 +112,7 @@ describe("workspace handshake route helper", () => {
 
     expect(action.kind).toBe("send");
     expect(action.kind === "send" ? action.toolCallId : "").toMatch(/^synesis_workspace_ctx_/);
+    expect(action.kind === "send" ? action.toolName : "").toBe("Bash");
     expect(state.record.metadata.workspace_context_status).toBe("pending");
     expect(state.record.metadata.workspace_context_attempts).toBe(3);
     expect(saveSession).toHaveBeenCalledWith(state);
@@ -116,5 +125,15 @@ describe("workspace handshake route helper", () => {
       "Initializing workspace context",
       "req-1",
     );
+  });
+
+  it("preserves lowercase bash tool names in synthetic handshake responses", async () => {
+    const action = await processWorkspaceHandshakeRoute(baseInput({
+      pathContext: { projectRoot: null, shellCwd: null },
+      tools: [{ type: "function", function: { name: "bash" } }],
+      shouldStart: shouldStartMissingPathWorkspaceHandshake,
+    }));
+
+    expect(action).toMatchObject({ kind: "send", toolName: "bash" });
   });
 });

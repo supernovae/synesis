@@ -1,8 +1,12 @@
 import type { SessionIdentity } from "../session/session-key.js";
+import { isCoderClientKind } from "../session/session-key.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { GovernorInputMessage } from "../governance/execution-governor.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
+import { extractMetadataFromMessages } from "../providers/prefix-optimizer/index.js";
+import { shouldStartMissingPathWorkspaceHandshake } from "../session/workspace-handshake-route.js";
+import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
 
 type Deps = Pick<
   OpenAIChatCompletionsRouteDependencies,
@@ -319,19 +323,23 @@ export async function prepareOpenAITurn(input: PrepareOpenAITurnInput) {
     );
   }
 
+  const messageMetadata = extractMetadataFromMessages(normalizedMessages as never);
+  const pathContextWithMessageMetadata = mergePathContextWithClientMetadata(pathContext, messageMetadata);
   const workspaceHandshakeAction = await processWorkspaceHandshakeRoute({
     protocol: "openai",
     session,
     sessionKey,
     identity,
     requestId,
-    pathContext,
+    pathContext: pathContextWithMessageMetadata,
     messages: request.messages,
     tools: request.tools,
     saveSession: casSessionSave,
     recordSessionEvent,
+    shouldStart: (state: SessionState, ctx: SessionPathHints) =>
+      isCoderClientKind(identity.clientKind) && shouldStartMissingPathWorkspaceHandshake(state, ctx),
   });
-  const effectivePathContext = mergeSessionPathHints(pathContext, session);
+  const effectivePathContext = mergeSessionPathHints(pathContextWithMessageMetadata, session);
   const buildEffectiveAdapterBlock = (nextPathContext: SessionPathHints): string | undefined => {
     const ctxBlock = toSessionExecutionContextSystemBlock(nextPathContext);
     if (!ctxBlock) return adapterBlock;

@@ -72,7 +72,7 @@ function isFreshClientTranscript(messages: Array<{ role?: unknown; content?: unk
   return hasUser;
 }
 
-function isCoderClientKind(clientKind: string): boolean {
+export function isCoderClientKind(clientKind: string): boolean {
   const c = clientKind.trim().toLowerCase();
   if (!c) return false;
   return [

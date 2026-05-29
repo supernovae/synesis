@@ -4,6 +4,7 @@ import {
   contextFromSessionMetadata,
   extractClaudeToolResult,
   extractOpenAIToolResult,
+  findBashToolName,
   hasBashTool,
   lastToolUseIdFromClaudeMessages,
   parseWorkspaceContextOutput,
@@ -84,6 +85,8 @@ describe("workspace-context-handshake", () => {
 
   it("detects Bash tool in OpenAI and Anthropic schemas", () => {
     expect(hasBashTool([{ name: "Bash" }])).toBe(true);
+    expect(hasBashTool([{ type: "function", function: { name: "bash" } }])).toBe(true);
+    expect(findBashToolName([{ type: "function", function: { name: "bash" } }])).toBe("bash");
     expect(hasBashTool([{ type: "function", function: { name: "Bash" } }])).toBe(true);
     expect(hasBashTool([{ name: "Read" }])).toBe(false);
   });

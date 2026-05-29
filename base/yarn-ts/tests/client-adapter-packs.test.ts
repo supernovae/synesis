@@ -161,6 +161,18 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(ctx.projectRoot).toBe("/meta");
   });
 
+  it("accepts nested metadata.synesis path hints", () => {
+    const ctx = parseSessionExecutionContext(
+      {},
+      { synesis: { projectRoot: "/nested/root", shellCwd: "/nested/root/app", runtime: { platform: "darwin", shell: "zsh" } } },
+    );
+
+    expect(ctx.projectRoot).toBe("/nested/root");
+    expect(ctx.shellCwd).toBe("/nested/root/app");
+    expect(ctx.platform).toBe("darwin");
+    expect(ctx.shell).toBe("zsh");
+  });
+
   it("parses structured git metadata fields", () => {
     const ctx = parseSessionExecutionContext(
       {},

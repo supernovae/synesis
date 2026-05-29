@@ -71,6 +71,7 @@ export function sendOpenAIWorkspaceHandshake(
   model: string,
   stream: boolean,
   toolCallId: string,
+  toolName = "Bash",
 ): FastifyReply {
   const input = {
     command: buildWorkspaceHandshakeBashCommand(),
@@ -90,7 +91,7 @@ export function sendOpenAIWorkspaceHandshake(
           tool_calls: [{
             id: toolCallId,
             type: "function",
-            function: { name: "Bash", arguments: JSON.stringify(input) },
+            function: { name: toolName, arguments: JSON.stringify(input) },
           }],
         },
         finish_reason: "tool_calls",
@@ -105,7 +106,7 @@ export function sendOpenAIWorkspaceHandshake(
     object: "chat.completion.chunk",
     created: ts,
     model,
-    choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: toolCallId, type: "function", function: { name: "Bash", arguments: JSON.stringify(input) } }] }, finish_reason: null }],
+    choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: toolCallId, type: "function", function: { name: toolName, arguments: JSON.stringify(input) } }] }, finish_reason: null }],
   })}\n\n`);
   safeWrite(reply.raw as WritableRaw, `data: ${JSON.stringify({
     id: requestId,
@@ -124,6 +125,7 @@ export function sendClaudeWorkspaceHandshake(
   model: string,
   stream: boolean,
   toolCallId: string,
+  toolName = "Bash",
 ): FastifyReply {
   const input = {
     command: buildWorkspaceHandshakeBashCommand(),
@@ -135,7 +137,7 @@ export function sendClaudeWorkspaceHandshake(
       type: "message",
       role: "assistant",
       model,
-      content: [{ type: "tool_use", id: toolCallId, name: "Bash", input }],
+      content: [{ type: "tool_use", id: toolCallId, name: toolName, input }],
       stop_reason: "tool_use",
       usage: { input_tokens: 0, output_tokens: 0 },
     });
@@ -150,7 +152,7 @@ export function sendClaudeWorkspaceHandshake(
   safeSse(reply as { raw: WritableRaw }, "content_block_start", {
     type: "content_block_start",
     index: 0,
-    content_block: { type: "tool_use", id: toolCallId, name: "Bash" },
+    content_block: { type: "tool_use", id: toolCallId, name: toolName },
   });
   safeSse(reply as { raw: WritableRaw }, "content_block_delta", {
     type: "content_block_delta",

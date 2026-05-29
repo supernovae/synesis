@@ -69,6 +69,7 @@ export type OpenAIAuthenticatedRouteResult =
       model: string;
       stream: boolean;
       toolCallId: string;
+      toolName: string;
     }
   | {
       kind: "softFail";
@@ -559,6 +560,7 @@ export class OpenAIChatPipeline {
         config,
         debugProtocolLog,
         enrichmentPool,
+        extractMetadataFromMessages,
         extractLatestUserPromptFromMessages,
         governanceClient,
         inferTrajectoryDiagnosticsFromMessages,
@@ -770,6 +772,7 @@ export class OpenAIChatPipeline {
         model: request.model,
         stream: !!request.stream,
         toolCallId: governedStage.toolCallId,
+        toolName: governedStage.toolName,
       };
     }
     if (governedStage.kind === "softFail") {

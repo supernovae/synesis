@@ -35,15 +35,23 @@ export function buildWorkspaceHandshakeBashCommand(): string {
   ].join("; ");
 }
 
-export function hasBashTool(tools: unknown[] | undefined): boolean {
-  if (!Array.isArray(tools)) return false;
-  return tools.some((t) => {
-    if (!t || typeof t !== "object") return false;
+export function findBashToolName(tools: unknown[] | undefined): string | null {
+  if (!Array.isArray(tools)) return null;
+  for (const t of tools) {
+    if (!t || typeof t !== "object") continue;
     const row = t as Record<string, unknown>;
-    const name = row.name;
-    const fnName = (row.function as Record<string, unknown> | undefined)?.name;
-    return name === "Bash" || fnName === "Bash";
-  });
+    const rawName = typeof row.name === "string" ? row.name.trim() : "";
+    if (rawName.toLowerCase() === "bash") return rawName;
+    const fnRawName = typeof (row.function as Record<string, unknown> | undefined)?.name === "string"
+      ? String((row.function as Record<string, unknown>).name).trim()
+      : "";
+    if (fnRawName.toLowerCase() === "bash") return fnRawName;
+  }
+  return null;
+}
+
+export function hasBashTool(tools: unknown[] | undefined): boolean {
+  return findBashToolName(tools) !== null;
 }
 
 export function parseWorkspaceContextOutput(raw: string): WorkspaceContextInfo | null {
