@@ -41,13 +41,19 @@ describe("client tool capabilities", () => {
 
   it("builds OpenCode tool guidance with todowrite and question", () => {
     const caps = detectClientToolCapabilities(
-      [{ name: "todowrite" }, { name: "question" }, { name: "apply_patch" }],
+      [{ name: "bash" }, { name: "read" }, { name: "edit" }, { name: "write" }, { name: "todowrite" }, { name: "question" }, { name: "apply_patch" }],
       "opencode",
       "build a feature",
     );
     const block = buildClientToolCapabilityBlock(caps);
 
+    expect(block).toContain("tools=bash,read,edit,write,todowrite,question,apply_patch");
     expect(block).toContain("opencode_builtin_tools=");
+    expect(block).toContain("exact_tool_names_required=true");
+    expect(block).toContain("OpenCode native tool calls must use only exact names from tools=");
+    expect(block).toContain("write_file->write");
+    expect(block).toContain("read_file->read");
+    expect(block).toContain("str_replace->edit");
     expect(block).toContain("task_tool=todowrite");
     expect(block).toContain("question_tool=question");
     expect(block).toContain("patch_tool=apply_patch");
@@ -114,7 +120,7 @@ describe("client tool capabilities", () => {
 
   it("enriches OpenCode tool descriptions", () => {
     const caps = detectClientToolCapabilities(
-      [{ name: "todowrite" }, { name: "question" }],
+      [{ name: "read" }, { name: "edit" }, { name: "write" }, { name: "todowrite" }, { name: "question" }],
       "opencode",
       "build a feature",
     );
@@ -125,6 +131,12 @@ describe("client tool capabilities", () => {
       .toContain("as each component finishes");
     expect(enrichToolDescriptionForClient("question", "Ask the user", caps))
       .toContain("real ambiguity");
+    expect(enrichToolDescriptionForClient("write", "Write a file", caps))
+      .toContain("do not call write_file/file_write/create_file");
+    expect(enrichToolDescriptionForClient("edit", "Edit a file", caps))
+      .toContain("do not call str_replace/replace_in_file");
+    expect(enrichToolDescriptionForClient("read", "Read a file", caps))
+      .toContain("do not call read_file");
   });
 
   it("enriches Claude Code tool descriptions", () => {

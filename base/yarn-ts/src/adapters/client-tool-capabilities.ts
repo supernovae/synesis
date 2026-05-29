@@ -104,6 +104,21 @@ export const CLAUDE_CODE_BUILTIN_TOOLS = [
   "Write",
 ] as const;
 
+const OPENCODE_UNAVAILABLE_TOOL_ALIASES: Array<[alias: string, target: string]> = [
+  ["write_file", "write"],
+  ["file_write", "write"],
+  ["create_file", "write"],
+  ["read_file", "read"],
+  ["str_replace", "edit"],
+  ["replace_in_file", "edit"],
+  ["ask_question", "question"],
+  ["ask_user_question", "question"],
+  ["ask_followup_question", "question"],
+  ["todo_write", "todowrite"],
+  ["web_fetch", "webfetch"],
+  ["web_search", "websearch"],
+];
+
 function normalizeToolName(name: string): string {
   return name
     .trim()
@@ -145,6 +160,20 @@ function preferredTaskToolName(tools: Array<{ raw: string; normalized: string }>
 
 function hasAny(names: ReadonlySet<string>, candidates: string[]): boolean {
   return candidates.some((candidate) => names.has(candidate));
+}
+
+function opencodeAliasGuidance(toolNames: string[]): string | null {
+  const offeredByNormalizedName = new Map<string, string>();
+  for (const raw of toolNames) {
+    offeredByNormalizedName.set(normalizeToolName(raw), raw);
+  }
+  const aliases = OPENCODE_UNAVAILABLE_TOOL_ALIASES
+    .map(([alias, target]) => {
+      const offered = offeredByNormalizedName.get(normalizeToolName(target));
+      return offered ? `${alias}->${offered}` : null;
+    })
+    .filter((entry): entry is string => Boolean(entry));
+  return aliases.length > 0 ? aliases.join(",") : null;
 }
 
 export function isPlanModePrompt(prompt: string | undefined): boolean {
@@ -217,8 +246,17 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
   const lines = [
     `<synesis_client_tool_capabilities client="${capabilities.clientKind}" opencode="${capabilities.isOpenCode}" claude_code="${capabilities.isClaudeCode}">`,
   ];
+  if (capabilities.toolNames.length > 0) {
+    lines.push(`tools=${capabilities.toolNames.join(",")}`);
+  }
   if (capabilities.isOpenCode) {
     lines.push(`opencode_builtin_tools=${OPENCODE_BUILTIN_TOOLS.join(",")}`);
+    lines.push("exact_tool_names_required=true");
+    lines.push("- OpenCode native tool calls must use only exact names from tools=. Do not call aliases from other agent APIs.");
+    const aliasGuidance = opencodeAliasGuidance(capabilities.toolNames);
+    if (aliasGuidance) {
+      lines.push(`unavailable_tool_aliases=${aliasGuidance}`);
+    }
   }
   if (capabilities.isClaudeCode) {
     lines.push(`claude_code_builtin_tools=${CLAUDE_CODE_BUILTIN_TOOLS.join(",")}`);
@@ -346,10 +384,22 @@ export function enrichToolDescriptionForClient(
     return appendHint(description, " [Synesis: Best for targeted existing-file changes after reading context. Keep patches scoped and avoid parallel patch calls for the same file.]");
   }
   if (normalized === "write" || normalized === "write_file") {
-    return appendHint(description, " [Synesis: Use for new files or intentional full replacement. For existing files, read first and prefer edit/apply_patch when possible.]");
+    const exactName = capabilities.isOpenCode && normalized === "write"
+      ? " Exact OpenCode tool name is write; do not call write_file/file_write/create_file."
+      : "";
+    return appendHint(description, ` [Synesis: Use for new files or intentional full replacement. For existing files, read first and prefer edit/apply_patch when possible.${exactName}]`);
   }
   if (normalized === "edit" || normalized === "str_replace") {
-    return appendHint(description, " [Synesis: Use after reading the file. Prefer one focused edit per file and wait for the result before another edit to that file.]");
+    const exactName = capabilities.isOpenCode && normalized === "edit"
+      ? " Exact OpenCode tool name is edit; do not call str_replace/replace_in_file."
+      : "";
+    return appendHint(description, ` [Synesis: Use after reading the file. Prefer one focused edit per file and wait for the result before another edit to that file.${exactName}]`);
+  }
+  if (normalized === "read") {
+    const exactName = capabilities.isOpenCode
+      ? " Exact OpenCode tool name is read; do not call read_file."
+      : "";
+    return appendHint(description, ` [Synesis: Read files before editing existing paths.${exactName}]`);
   }
   if (normalized === "websearch" || normalized === "web_search") {
     return appendHint(description, " [Synesis: Use for discovery/current information; use webfetch when you already have the URL.]");

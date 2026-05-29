@@ -38,6 +38,20 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("family=default");
     expect(block).toContain("prefer Update/Edit-style targeted diffs");
     expect(block).toContain("do not delete or weaken failing tests");
+    expect(block).not.toContain("use write_file for new/generated files");
+  });
+
+  it("uses exact OpenCode native tool names", () => {
+    const packs = new ClientAdapterPacks();
+    const p = packs.resolve("opencode");
+    const block = packs.toSystemBlock(p);
+
+    expect(block).toContain("Use exact OpenCode tool names only");
+    expect(block).toContain("For new/generated full files, use write");
+    expect(block).toContain("use the currently offered full-file write tool");
+    expect(block).toContain("write_file");
+    expect(block).not.toContain("use write_file for new/generated files");
+    expect(block).not.toContain("Prefer str_replace for existing files");
   });
 
   it("resolves openclaw variants to openclaw family features", () => {
