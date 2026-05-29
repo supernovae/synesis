@@ -71,6 +71,7 @@ type Deps = Pick<
   | "markerBackendForRequest"
   | "maybeLogEnvelopeUnwrapSample"
   | "maybeUpdateTaskLedgerFromToolCall"
+  | "mergeSessionPathHints"
   | "openAiChatPipeline"
   | "openClawProfileStats"
   | "prefixOptimizer"
@@ -244,6 +245,7 @@ export async function runOpenAIPostGovernanceProviderStage(
       knowledgeSearch: deps.knowledgeSearch,
       loadProviderCachePolicyWindow: deps.loadProviderCachePolicyWindow,
       markerBackendForRequest: deps.markerBackendForRequest,
+      mergeSessionPathHints: deps.mergeSessionPathHints,
       prefixOptimizer: deps.prefixOptimizer,
       pushDiagnostic: deps.pushDiagnostic,
       recordSessionEvent: deps.recordSessionEvent,

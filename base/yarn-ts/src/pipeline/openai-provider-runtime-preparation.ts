@@ -35,6 +35,7 @@ type Deps = Pick<
   | "knowledgeSearch"
   | "loadProviderCachePolicyWindow"
   | "markerBackendForRequest"
+  | "mergeSessionPathHints"
   | "prefixOptimizer"
   | "pushDiagnostic"
   | "recordSessionEvent"
@@ -177,6 +178,7 @@ export async function prepareOpenAIProviderRuntimeForRoute(
     knowledgeSearch,
     loadProviderCachePolicyWindow,
     markerBackendForRequest,
+    mergeSessionPathHints,
     prefixOptimizer,
     pushDiagnostic,
     recordSessionEvent,
@@ -193,6 +195,7 @@ export async function prepareOpenAIProviderRuntimeForRoute(
     webSearch,
   } = deps;
   const ctx = input.normalizedRequestContext;
+  const inputPathContext = mergeSessionPathHints(input.pathContext, session) as PathContext;
 
   const providerFinalization = await finalizeOpenAIProviderRequestForRoute({
     request: request as never,
@@ -203,7 +206,7 @@ export async function prepareOpenAIProviderRuntimeForRoute(
     sessionKey,
     requestId,
     identity,
-    pathContext: input.pathContext,
+    pathContext: inputPathContext,
     governanceDisabled: config.SYNESIS_YARN_GOVERNANCE_DISABLED,
     volatileSystemBlocks: [
       input.prefetchResult ? formatEvidenceBlock(input.prefetchResult as never) ?? "" : "",
@@ -247,7 +250,7 @@ export async function prepareOpenAIProviderRuntimeForRoute(
     shouldSampleBySeed,
     persistDecisionTelemetry: sessionPersistenceRunner.persistAndEmitDecisionTelemetry,
   });
-  const pathContext = providerFinalization.pathContext as PathContext;
+  const pathContext = mergeSessionPathHints(providerFinalization.pathContext as PathContext, session) as PathContext;
   if (!providerFinalization.ok) {
     return {
       ok: false,

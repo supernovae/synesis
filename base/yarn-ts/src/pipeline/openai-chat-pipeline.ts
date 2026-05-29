@@ -852,6 +852,7 @@ export class OpenAIChatPipeline {
         markerBackendForRequest,
         maybeLogEnvelopeUnwrapSample,
         maybeUpdateTaskLedgerFromToolCall,
+        mergeSessionPathHints,
         openAiChatPipeline,
         openClawProfileStats,
         prefixOptimizer: deps.prefixOptimizer,
