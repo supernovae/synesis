@@ -199,6 +199,7 @@ interface EditState {
   reasoning_effort: string;
   fallbacks: string;
   adapter_hint: string;
+  model_capability_preset: string;
 }
 
 const ADAPTER_FAMILIES = [
@@ -209,6 +210,21 @@ const ADAPTER_FAMILIES = [
   { value: "minimax", label: "MiniMax" },
   { value: "xiaomi", label: "Xiaomi MiMo" },
   { value: "generic", label: "Generic OpenAI" },
+] as const;
+
+const MODEL_CAPABILITY_PRESETS = [
+  { value: "", label: "Auto-detect" },
+  { value: "generic_openai_compatible", label: "Generic OpenAI-compatible" },
+  { value: "deepseek_v4", label: "DeepSeek V4" },
+  { value: "deepseek_v3", label: "DeepSeek V3 / R1" },
+  { value: "qwen_3", label: "Qwen 3" },
+  { value: "qwen_3_coder", label: "Qwen 3 Coder" },
+  { value: "kimi_k2", label: "Kimi K2" },
+  { value: "glm_4_5", label: "GLM 4.5" },
+  { value: "minimax_m1", label: "MiniMax M1" },
+  { value: "minimax_m2", label: "MiniMax M2" },
+  { value: "xiaomi_mimo_2_5", label: "Xiaomi MiMo 2.5" },
+  { value: "xiaomi_mimo_2", label: "Xiaomi MiMo 2.0 / Flash" },
 ] as const;
 
 const QWEN_CODING_PRESET: Pick<
@@ -242,6 +258,7 @@ function emptyEdit(role: string): EditState {
     reasoning_effort: "",
     fallbacks: "",
     adapter_hint: "",
+    model_capability_preset: "",
   };
 }
 
@@ -271,6 +288,7 @@ function editFromDeployment(d: ModelDeployment): EditState {
     reasoning_effort: typeof reasoningEffortRaw === "string" ? reasoningEffortRaw : "",
     fallbacks: (d.fallbacks ?? []).join(", "),
     adapter_hint: d.adapter_hint ?? "",
+    model_capability_preset: typeof lp.model_capability_preset === "string" ? lp.model_capability_preset : "",
   };
 }
 
@@ -338,6 +356,7 @@ function generationParamsFromDraft(draft: NewOfferingDraft): Record<string, unkn
   if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
   if (draft.enable_thinking !== "inherit") out.enable_thinking = draft.enable_thinking === "enabled";
   if (draft.reasoning_effort.trim()) out.reasoning_effort = draft.reasoning_effort.trim();
+  if (draft.model_capability_preset.trim()) out.model_capability_preset = draft.model_capability_preset.trim();
   return Object.keys(out).length ? out : null;
 }
 
@@ -366,6 +385,7 @@ function draftFromOffering(o: PublicModelOffering): NewOfferingDraft {
     repetition_penalty: gp.repetition_penalty != null ? String(gp.repetition_penalty) : "",
     enable_thinking: typeof gp.enable_thinking === "boolean" ? (gp.enable_thinking ? "enabled" : "disabled") : "inherit",
     reasoning_effort: typeof gp.reasoning_effort === "string" ? gp.reasoning_effort : "",
+    model_capability_preset: typeof gp.model_capability_preset === "string" ? gp.model_capability_preset : "",
     expose_planner: o.expose_planner,
     expose_yarn: o.expose_yarn,
     is_active: o.is_active,
@@ -421,6 +441,7 @@ interface NewOfferingDraft {
   repetition_penalty: string;
   enable_thinking: "inherit" | "enabled" | "disabled";
   reasoning_effort: string;
+  model_capability_preset: string;
   expose_planner: boolean;
   expose_yarn: boolean;
   is_active: boolean;
@@ -738,6 +759,7 @@ export default function ModelRegistry() {
     repetition_penalty: "",
     enable_thinking: "inherit",
     reasoning_effort: "",
+    model_capability_preset: "",
     expose_planner: true,
     expose_yarn: true,
     is_active: true,
@@ -823,6 +845,7 @@ export default function ModelRegistry() {
             : undefined,
         enable_thinking: parsedEnableThinking,
         reasoning_effort: parsedReasoningEffort,
+        model_capability_preset: editing.model_capability_preset || undefined,
         fallbacks: fbList.length ? fbList : undefined,
         adapter_hint: editing.adapter_hint || null,
       },
@@ -850,6 +873,7 @@ export default function ModelRegistry() {
       repetition_penalty: "",
       enable_thinking: "inherit",
       reasoning_effort: "",
+      model_capability_preset: "",
       expose_planner: true,
       expose_yarn: true,
       is_active: true,
@@ -1296,6 +1320,22 @@ function NewPublicOfferingModal({
               onChange={(e) => setDraft({ ...draft, backend_model_override: e.target.value })}
               placeholder="If empty, uses deployment model (role clone) or model name (standalone)"
             />
+          </label>
+
+          <label className="block text-xs text-gray-600 dark:text-gray-400">
+            Model capability preset
+            <select
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+              value={draft.model_capability_preset}
+              onChange={(e) => setDraft({ ...draft, model_capability_preset: e.target.value })}
+            >
+              {MODEL_CAPABILITY_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>{preset.label}</option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+              Travels with this model across providers; endpoint settings stay limited to transport routing.
+            </span>
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2145,6 +2185,22 @@ function EditModal({
           />
 
           {/* Adapter / Shim override */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Model Capability Preset</label>
+            <select
+              value={editing.model_capability_preset}
+              onChange={(e) => setEditing({ ...editing, model_capability_preset: e.target.value })}
+              className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              {MODEL_CAPABILITY_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>{preset.label}</option>
+              ))}
+            </select>
+            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+              Applies model-class architecture, cache, telemetry, and adapter defaults independent of the endpoint host.
+            </p>
+          </div>
+
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Adapter Hint</label>
             <select

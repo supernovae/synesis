@@ -24,12 +24,21 @@
  */
 
 import { resolveEndpointCapabilityId } from "../providers/endpoint-capabilities/resolve.js";
+import {
+  normalizeModelCapabilityPreset,
+  type ModelCapabilityPresetId,
+} from "../providers/model-architecture-profile.js";
 
 export type CacheStrategy = "anthropic_explicit" | "openrouter_auto" | "deepseek_auto" | "implicit_prefix" | "none";
 
-export function detectCacheStrategy(baseUrl: string, backendModel: string): CacheStrategy {
+export function detectCacheStrategy(
+  baseUrl: string,
+  backendModel: string,
+  modelCapabilityPreset?: ModelCapabilityPresetId | string | null,
+): CacheStrategy {
   const url = baseUrl.toLowerCase();
   const model = backendModel.toLowerCase();
+  const preset = normalizeModelCapabilityPreset(modelCapabilityPreset);
 
   if (resolveEndpointCapabilityId(baseUrl) === "fireworks") {
     return "implicit_prefix";
@@ -43,6 +52,23 @@ export function detectCacheStrategy(baseUrl: string, backendModel: string): Cach
       || model.includes("gpt-")) {
       return "openrouter_auto";
     }
+  }
+
+  if (preset === "deepseek_v3" || preset === "deepseek_v4") {
+    return "deepseek_auto";
+  }
+
+  if (
+    preset === "qwen_3"
+    || preset === "qwen_3_coder"
+    || preset === "kimi_k2"
+    || preset === "glm_4_5"
+    || preset === "minimax_m1"
+    || preset === "minimax_m2"
+    || preset === "xiaomi_mimo_2"
+    || preset === "xiaomi_mimo_2_5"
+  ) {
+    return "implicit_prefix";
   }
 
   if (url.includes("anthropic") || model.includes("claude")) {

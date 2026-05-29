@@ -193,6 +193,7 @@ def build_route_params(
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    model_capability_preset: str | None = None,
     route_prefix_override: str = "",
 ) -> dict:
     """Construct the direct-provider route params dict for a deployment.
@@ -221,6 +222,8 @@ def build_route_params(
         params["enable_thinking"] = enable_thinking
     if reasoning_effort:
         params["reasoning_effort"] = reasoning_effort
+    if model_capability_preset:
+        params["model_capability_preset"] = model_capability_preset
     key_env = api_key_env or info.api_key_env
     if key_env:
         params["api_key"] = f"os.environ/{key_env}"

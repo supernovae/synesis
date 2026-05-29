@@ -334,6 +334,48 @@ def _coerce_reasoning_effort(raw: Any) -> str | None:
     return None
 
 
+VALID_MODEL_CAPABILITY_PRESETS = {
+    "generic_openai_compatible",
+    "deepseek_v3",
+    "deepseek_v4",
+    "qwen_3",
+    "qwen_3_coder",
+    "kimi_k2",
+    "glm_4_5",
+    "minimax_m1",
+    "minimax_m2",
+    "xiaomi_mimo_2",
+    "xiaomi_mimo_2_5",
+}
+
+
+MODEL_CAPABILITY_ALIASES = {
+    "generic": "generic_openai_compatible",
+    "deepseek": "deepseek_v4",
+    "qwen": "qwen_3",
+    "qwen3": "qwen_3",
+    "qwen3_coder": "qwen_3_coder",
+    "kimi": "kimi_k2",
+    "glm": "glm_4_5",
+    "minimax": "minimax_m2",
+    "xiaomi": "xiaomi_mimo_2_5",
+    "mimo": "xiaomi_mimo_2_5",
+}
+
+
+def _coerce_model_capability_preset(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip().lower().replace("-", "_").replace(".", "_").replace("/", "_")
+    while "__" in s:
+        s = s.replace("__", "_")
+    if not s:
+        return None
+    if s in VALID_MODEL_CAPABILITY_PRESETS:
+        return s
+    return MODEL_CAPABILITY_ALIASES.get(s)
+
+
 def resolve_deployment_routing_for_parts(
     *,
     provider: str,
@@ -351,6 +393,7 @@ def resolve_deployment_routing_for_parts(
     repetition_penalty: float | None = None,
     enable_thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    model_capability_preset: str | None = None,
 ) -> ResolvedDeploymentRouting:
     """Merge catalog + governance + assignment fields into route params."""
     p = (provider or "").strip()
@@ -372,6 +415,9 @@ def resolve_deployment_routing_for_parts(
     )
     eff_reasoning_effort = _coerce_reasoning_effort(
         reasoning_effort if reasoning_effort is not None else lp_stored.get("reasoning_effort")
+    )
+    eff_model_capability_preset = _coerce_model_capability_preset(
+        model_capability_preset if model_capability_preset is not None else lp_stored.get("model_capability_preset")
     )
     resolved_endpoint = _resolve_role_endpoint(
         provider=p,
@@ -396,6 +442,7 @@ def resolve_deployment_routing_for_parts(
         repetition_penalty=eff_repetition_penalty,
         enable_thinking=eff_enable_thinking,
         reasoning_effort=eff_reasoning_effort,
+        model_capability_preset=eff_model_capability_preset,
         route_prefix_override=prefix_ov,
     )
     return ResolvedDeploymentRouting(lp, effective_api_key_env, resolved_endpoint)
@@ -692,6 +739,7 @@ async def assign_role(
     fallbacks: list[str] | None = None,
     adapter_hint: str | None = None,
     context_window: int | None = None,
+    model_capability_preset: str | None = None,
     description: str = "",
     notes: str = "",
 ) -> dict:
@@ -707,6 +755,8 @@ async def assign_role(
     """
     if role not in KNOWN_ROLES:
         raise ValueError(f"Unknown role: {role}")
+    if model_capability_preset and _coerce_model_capability_preset(model_capability_preset) is None:
+        raise ValueError("model_capability_preset must be a supported preset")
 
     served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
@@ -727,6 +777,7 @@ async def assign_role(
         repetition_penalty=repetition_penalty,
         enable_thinking=enable_thinking,
         reasoning_effort=reasoning_effort,
+        model_capability_preset=model_capability_preset,
     )
     lp = routing.route_params
     effective_api_key_env = routing.effective_api_key_env

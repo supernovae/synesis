@@ -4,8 +4,10 @@ import {
   buildArchitecturePolicySystemHint,
   buildContextMediationArtifacts,
   deriveModelExecutionPolicy,
+  normalizeModelCapabilityPreset,
   resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
+  telemetryProviderForModelCapabilityPreset,
 } from "../src/index.js";
 
 describe("architecture mediation", () => {
@@ -48,6 +50,31 @@ describe("architecture mediation", () => {
     expect(profile.attention).toBe("full_attention");
     expect(policy.stateReinforcement.activeStateHeader).toBe(false);
     expect(buildArchitecturePolicySystemHint(policy)).toBeNull();
+  });
+
+  it("uses controlled model capability presets independent of endpoint/model string", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "provider-opaque-v4-pro",
+      provider: "generic",
+      modelCapabilityPreset: "deepseek_v4",
+      declaredContextTokens: 128_000,
+    });
+    const policy = deriveModelExecutionPolicy(profile);
+
+    expect(profile.attention).toBe("mla");
+    expect(policy.contextBudget.interpretation).toBe("storage_with_working_set");
+    expect(policy.reasons).toContain("attention_compression");
+    expect(telemetryProviderForModelCapabilityPreset("deepseek-v4")).toBe("deepseek");
+    expect(normalizeModelCapabilityPreset("mimo-v2.5")).toBe("xiaomi_mimo_2_5");
+  });
+
+  it("lets explicit generic preset suppress model-name inference", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "deepseek-compatible-finetune",
+      modelCapabilityPreset: "generic_openai_compatible",
+    });
+
+    expect(profile.attention).toBe("unknown");
   });
 
   it("accepts legacy aliases but resolves to canonical modes", () => {

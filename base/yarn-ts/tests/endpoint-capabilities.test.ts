@@ -33,6 +33,11 @@ describe("detectCacheStrategy + Fireworks", () => {
       "implicit_prefix",
     );
   });
+
+  it("uses model capability presets when model names are provider-opaque", () => {
+    expect(detectCacheStrategy("https://crof.example/v1", "v4-pro", "deepseek_v4")).toBe("deepseek_auto");
+    expect(detectCacheStrategy("https://mixed.example/v1", "served-123", "kimi_k2")).toBe("implicit_prefix");
+  });
 });
 
 describe("composeEndpointTransportFetch", () => {

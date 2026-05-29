@@ -17,6 +17,7 @@ export interface OpenAIStreamComponentsInput {
   tierConfig?: {
     baseUrl?: string;
     backendModel?: string;
+    modelCapabilityPreset?: string | null;
   };
   write(raw: NodeJS.WritableStream & { destroyed?: boolean }, data: string): boolean;
   computePrefixFingerprint(messages: Array<{ role: string; content: unknown }>): string | undefined;
@@ -35,6 +36,7 @@ export interface OpenAIStreamComponents {
   tierConfig?: {
     baseUrl?: string;
     backendModel?: string;
+    modelCapabilityPreset?: string | null;
   };
   localLikeBaseUrl: boolean;
   cacheStrategy: string;
@@ -63,6 +65,7 @@ export function createOpenAIStreamComponents(
     cacheStrategy: detectCacheStrategy(
       input.tierConfig?.baseUrl ?? "",
       input.tierConfig?.backendModel ?? input.resolvedModelId,
+      input.tierConfig?.modelCapabilityPreset,
     ),
     prefixFingerprint: input.computePrefixFingerprint(input.messages),
     writer,

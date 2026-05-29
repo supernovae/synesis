@@ -447,6 +447,7 @@ async def assign_model_to_role(
             fallbacks=data.get("fallbacks"),
             adapter_hint=data.get("adapter_hint"),
             context_window=data.get("context_window"),
+            model_capability_preset=data.get("model_capability_preset"),
             description=data.get("description", ""),
             notes=data.get("notes", ""),
         )

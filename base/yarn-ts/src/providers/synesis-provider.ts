@@ -1,6 +1,7 @@
 import { customProvider } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { normalizeOpenAICompatTierModelId, type TierConfig } from "./admin-tier-registry.js";
+import { adapterHintForModelCapabilityPreset } from "./model-architecture-profile.js";
 import { type ModelAdapter, resolveAdapter } from "./model-adapter.js";
 import { createUsageTelemetryFetch } from "./usage-telemetry-fetch.js";
 import type { CacheDebugTraceMode } from "../telemetry/cache-debug-trace.js";
@@ -125,8 +126,9 @@ export class SynesisProviderRegistry {
     }
     const capabilityId = resolveEndpointCapabilityId(selected.baseUrl);
     const transportAdapter = getEndpointTransportAdapter(capabilityId, { dashscope: this.dashscopeOptions });
+    const telemetryProviderTag = selected.providerTelemetryTag || transportAdapter.telemetryProviderTag;
     const telemetryFetch = createUsageTelemetryFetch(globalThis.fetch, {
-      provider: transportAdapter.telemetryProviderTag,
+      provider: telemetryProviderTag,
       tier: selected.id,
       model: selected.backendModel,
       cacheDebugTraceMode: this.cacheDebugTraceMode,
@@ -154,7 +156,11 @@ export class SynesisProviderRegistry {
         [selected.id]: upstream.chat(selected.backendModel)
       }
     });
-    const adapter = resolveAdapter(selected.backendModel, selected.baseUrl, selected.adapterHint);
+    const adapter = resolveAdapter(
+      selected.backendModel,
+      selected.baseUrl,
+      selected.adapterHint ?? adapterHintForModelCapabilityPreset(selected.modelCapabilityPreset),
+    );
     return {
       model: provider.languageModel(selected.id),
       resolvedModelId: selected.id,

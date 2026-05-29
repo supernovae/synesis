@@ -6,7 +6,12 @@ import {
   type PricingSource,
 } from "@synesis/telemetry";
 import type { AppConfig } from "../config.js";
-import type { ModelArchitectureProfileOverride } from "./model-architecture-profile.js";
+import {
+  normalizeModelCapabilityPreset,
+  telemetryProviderForModelCapabilityPreset,
+  type ModelArchitectureProfileOverride,
+  type ModelCapabilityPresetId,
+} from "./model-architecture-profile.js";
 
 const SAFE_ENV_VAR_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 function isSafeEnvVarName(name: string): boolean {
@@ -89,6 +94,10 @@ export interface TierConfig {
   contextCeilingTokens?: number | null;
   /** Optional operator override for Yarn architecture-aware mediation. */
   architectureProfile?: ModelArchitectureProfileOverride | null;
+  /** Controlled model-class/version preset. Travels with the model, independent of endpoint host. */
+  modelCapabilityPreset?: ModelCapabilityPresetId | null;
+  /** Provider tag for cache/usage telemetry when the model preset implies vendor-compatible usage fields. */
+  providerTelemetryTag?: string | null;
   /** Optional per-tier default for context mediation when request/user config is absent. */
   defaultContextMediationMode?: string | null;
 }
@@ -101,6 +110,8 @@ export interface RoleAssignmentConfig {
   apiKey: string;
   provider: string;
   adapterHint?: string | null;
+  modelCapabilityPreset?: ModelCapabilityPresetId | null;
+  providerTelemetryTag?: string | null;
   samplingDefaults?: ModelSamplingDefaults;
 }
 
@@ -377,6 +388,15 @@ function parseArchitectureProfileOverride(lp: Record<string, unknown>): ModelArc
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function parseModelCapabilityPreset(lp: Record<string, unknown>): ModelCapabilityPresetId | null {
+  return normalizeModelCapabilityPreset(
+    lp.model_capability_preset
+      ?? lp.model_capability
+      ?? lp.capability_preset
+      ?? lp.architecture_preset,
+  ) ?? null;
+}
+
 export function resolveTierRates(
   registryRates: PricingRates | undefined,
   registrySource: PricingSource | undefined,
@@ -438,6 +458,8 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
     const lp = (row.route_params ?? {}) as Record<string, unknown>;
     const samplingDefaults = parseSamplingDefaults(lp);
     const architectureProfile = parseArchitectureProfileOverride(lp);
+    const modelCapabilityPreset = parseModelCapabilityPreset(lp);
+    const providerTelemetryTag = telemetryProviderForModelCapabilityPreset(modelCapabilityPreset) ?? null;
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv && isSafeEnvVarName(keyEnv) ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
@@ -449,6 +471,8 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       apiKey,
       provider,
       adapterHint: row.adapter_hint ?? null,
+      modelCapabilityPreset,
+      providerTelemetryTag,
       samplingDefaults,
     });
     const tierId = ROLE_TO_TIER[row.role];
@@ -486,6 +510,8 @@ export async function fetchTierRegistrySnapshot(config: AppConfig): Promise<Tier
       samplingDefaults,
       contextCeilingTokens: row.context_window ?? null,
       architectureProfile,
+      modelCapabilityPreset,
+      providerTelemetryTag,
       defaultContextMediationMode: stringValue(lp.default_context_mediation_mode) ?? null,
     });
   }
@@ -584,6 +610,7 @@ export function mergeYarnPublicOfferingsIntoTiers(
       const endpoint = (o.standalone_endpoint ?? "").trim() || PROVIDER_BASE_URLS[provider] || base.baseUrl;
       const keyEnv = (o.standalone_api_key_env ?? "").trim();
       const apiKey = (keyEnv && isSafeEnvVarName(keyEnv) ? process.env[keyEnv] : undefined) || base.apiKey;
+      const modelCapabilityPreset = parseModelCapabilityPreset(o.generation_params ?? {});
       extra.push({
         ...base,
         id: cid,
@@ -591,15 +618,24 @@ export function mergeYarnPublicOfferingsIntoTiers(
         baseUrl: endpoint,
         apiKey,
         samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
+        modelCapabilityPreset: modelCapabilityPreset ?? base.modelCapabilityPreset,
+        providerTelemetryTag: modelCapabilityPreset
+          ? telemetryProviderForModelCapabilityPreset(modelCapabilityPreset) ?? null
+          : base.providerTelemetryTag,
         architectureProfile: parseArchitectureProfileOverride(o.generation_params ?? {}) ?? base.architectureProfile,
       });
       continue;
     }
+    const modelCapabilityPreset = parseModelCapabilityPreset(o.generation_params ?? {});
     extra.push({
       ...base,
       id: cid,
       backendModel: override || base.backendModel,
       samplingDefaults: parseSamplingDefaults(o.generation_params ?? {}) ?? base.samplingDefaults,
+      modelCapabilityPreset: modelCapabilityPreset ?? base.modelCapabilityPreset,
+      providerTelemetryTag: modelCapabilityPreset
+        ? telemetryProviderForModelCapabilityPreset(modelCapabilityPreset) ?? null
+        : base.providerTelemetryTag,
       architectureProfile: parseArchitectureProfileOverride(o.generation_params ?? {}) ?? base.architectureProfile,
     });
   }

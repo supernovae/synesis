@@ -71,6 +71,7 @@ type TierRegistryLike = {
     samplingDefaults?: unknown;
     contextCeilingTokens?: number | null;
     architectureProfile?: ModelArchitectureProfileOverride | null;
+    modelCapabilityPreset?: string | null;
     defaultContextMediationMode?: string | null;
   } | undefined;
 };
@@ -253,6 +254,7 @@ export function prepareOpenAIChatProviderRuntime(
         modelId: resolvedTierForHarness?.backendModel ?? resolved.resolvedModelId,
         provider: providerForHarness,
         family: adapter.family,
+        modelCapabilityPreset: resolvedTierForHarness?.modelCapabilityPreset,
         declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
         override: architectureProfileSource === "model-registry" ? resolvedTierForHarness?.architectureProfile : null,
       });
@@ -527,6 +529,7 @@ export function prepareOpenAIChatProviderRuntime(
       resolvedModelId: resolved.resolvedModelId,
       adapterFamily: adapter.family,
       backendModel: resolvedTierForHarness?.backendModel ?? resolvedTierConfig?.backendModel,
+      modelCapabilityPreset: resolvedTierForHarness?.modelCapabilityPreset ?? resolvedTierConfig?.modelCapabilityPreset,
       baseUrl: resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl,
       provider: (resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl)
         ? input.resolveEndpointCapabilityId((resolvedTierForHarness?.baseUrl ?? resolvedTierConfig?.baseUrl) as string)

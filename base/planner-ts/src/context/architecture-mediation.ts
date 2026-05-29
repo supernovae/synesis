@@ -45,6 +45,7 @@ export interface ResolvePlannerArchitectureMediationInput {
   writerModel?: string | null;
   provider?: string | null;
   family?: string | null;
+  modelCapabilityPreset?: string | null;
   declaredContextTokens?: number | null;
   messages: ChatMessage[];
   taskDescription?: string | null;
@@ -133,6 +134,7 @@ export function resolvePlannerArchitectureMediation(
         modelId,
         provider: input.provider,
         family: input.family,
+        modelCapabilityPreset: input.modelCapabilityPreset,
         declaredContextTokens: input.declaredContextTokens,
       });
   const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), mode);

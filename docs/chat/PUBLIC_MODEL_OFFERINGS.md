@@ -47,10 +47,18 @@ by the offering or role route. This means a stable public offering name can map
 to a DeepSeek, Qwen, Kimi/Moonshot, MiniMax, or full-attention backend while the
 Planner prompt harness adapts context handling for that backend.
 
+Set **Model capability preset** on an offering when the public model id is
+opaque or provider-neutral, for example a Crof-hosted `v4-pro` endpoint that
+should use the `deepseek_v4` harness preset. Presets are controlled values, not
+freeform labels, and are evaluated per registered model/offering so a single
+endpoint can expose different classes safely.
+
 Operators can tune behavior at three levels:
 
 - request controls: `x-synesis-context-mediation` or
   `metadata.synesis.contextMediation`;
+- model/offering controls: `model_capability_preset` for controlled
+  class/version defaults;
 - Prompt Library `model_family` overlays for broad family behavior;
 - Prompt Library `chat_profile` overlays for Open WebUI scenarios such as
   `roleplay_creative_continuity`, `tutoring_study`, and `rag_grounded_answer`.

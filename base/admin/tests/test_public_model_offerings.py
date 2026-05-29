@@ -103,6 +103,7 @@ def test_normalize_generation_params() -> None:
             "top_k": 20,
             "enable_thinking": False,
             "reasoning_effort": "low",
+            "model_capability_preset": "deepseek-v4",
             "ignored": "value",
         }
     ) == {
@@ -111,9 +112,15 @@ def test_normalize_generation_params() -> None:
         "top_k": 20,
         "enable_thinking": False,
         "reasoning_effort": "low",
+        "model_capability_preset": "deepseek_v4",
     }
 
 
 def test_normalize_generation_params_rejects_invalid_boolean() -> None:
     with pytest.raises(ValueError, match="enable_thinking"):
         normalize_generation_params({"enable_thinking": "false"})
+
+
+def test_normalize_generation_params_rejects_invalid_model_capability_preset() -> None:
+    with pytest.raises(ValueError, match="model_capability_preset"):
+        normalize_generation_params({"model_capability_preset": "custom_freeform"})

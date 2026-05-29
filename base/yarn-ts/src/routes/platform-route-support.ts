@@ -105,6 +105,7 @@ export interface TierRegistryLike {
     backendModel: string;
     baseUrl: string;
     adapterHint?: string | null;
+    modelCapabilityPreset?: string | null;
     contextCeilingTokens?: number | null;
     architectureProfile?: ModelArchitectureProfileOverride | null;
   } | undefined;

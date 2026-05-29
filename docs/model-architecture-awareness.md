@@ -141,11 +141,41 @@ same read-only view as `yarn_current_work_packet`.
 
 ## Admin Overrides
 
-Admins can override inferred profiles through model registry route params. The
-first pass supports either an `architecture_profile` object or direct fields:
+Admins can select a controlled **model capability preset** on a model registry
+role or public offering. The preset travels with the registered model
+class/version rather than the endpoint host, so one OpenAI-compatible provider
+can safely serve DeepSeek, Qwen, Kimi, GLM, MiniMax, and Xiaomi routes without
+forcing all of them through one provider-level behavior.
+
+Supported preset ids are intentionally finite:
+
+```text
+generic_openai_compatible
+deepseek_v3
+deepseek_v4
+qwen_3
+qwen_3_coder
+kimi_k2
+glm_4_5
+minimax_m1
+minimax_m2
+xiaomi_mimo_2
+xiaomi_mimo_2_5
+```
+
+Use `generic_openai_compatible` when an opaque model id should suppress
+name-based architecture inference. Leave the preset unset to use conservative
+automatic inference from model id/provider. These presets are harness policy
+defaults for mediation, adapter hints, and cache diagnostics; they are not
+freeform claims about the provider or serving stack.
+
+Admins can also override inferred profiles through model registry route params.
+The first pass supports either an `architecture_profile` object or direct
+fields:
 
 ```json
 {
+  "model_capability_preset": "deepseek_v4",
   "architecture_attention": "hybrid_compressed_attention",
   "architecture_activation": "moe",
   "architecture_decoding": "speculative_friendly",

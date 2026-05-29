@@ -497,6 +497,7 @@ export function useAssignRole() {
       repetition_penalty?: number | undefined;
       enable_thinking?: boolean | undefined;
       reasoning_effort?: string | undefined;
+      model_capability_preset?: string | undefined;
       fallbacks?: string[] | undefined;
       adapter_hint?: string | null;
       description?: string | undefined;

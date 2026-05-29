@@ -21,7 +21,24 @@ GENERATION_PARAM_KEYS = {
     "repetition_penalty",
     "enable_thinking",
     "reasoning_effort",
+    "model_capability_preset",
 }
+
+VALID_MODEL_CAPABILITY_PRESETS = frozenset(
+    {
+        "generic_openai_compatible",
+        "deepseek_v3",
+        "deepseek_v4",
+        "qwen_3",
+        "qwen_3_coder",
+        "kimi_k2",
+        "glm_4_5",
+        "minimax_m1",
+        "minimax_m2",
+        "xiaomi_mimo_2",
+        "xiaomi_mimo_2_5",
+    }
+)
 
 RESERVED_CLIENT_MODEL_IDS = frozenset(
     {
@@ -69,7 +86,12 @@ DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
         "standalone_endpoint": "https://api.deepseek.com",
         "standalone_api_key_env": "DEEPSEEK_API_KEY",
         "backend_model_override": "deepseek-v4-flash",
-        "generation_params": {"max_tokens": 8192, "temperature": 0.3, "top_p": 0.95},
+        "generation_params": {
+            "max_tokens": 8192,
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "model_capability_preset": "deepseek_v4",
+        },
         "expose_planner": True,
         "expose_yarn": True,
     },
@@ -82,7 +104,12 @@ DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
         "standalone_endpoint": "https://api.deepseek.com",
         "standalone_api_key_env": "DEEPSEEK_API_KEY",
         "backend_model_override": "deepseek-v4-pro",
-        "generation_params": {"max_tokens": 32768, "temperature": 0.3, "top_p": 0.95},
+        "generation_params": {
+            "max_tokens": 32768,
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "model_capability_preset": "deepseek_v4",
+        },
         "expose_planner": True,
         "expose_yarn": True,
     },
@@ -95,7 +122,12 @@ DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
         "standalone_endpoint": "https://api.xiaomimimo.com/v1",
         "standalone_api_key_env": "MIMO_API_KEY",
         "backend_model_override": "mimo-v2.5-pro",
-        "generation_params": {"max_tokens": 32768, "temperature": 1.0, "top_p": 0.95},
+        "generation_params": {
+            "max_tokens": 32768,
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "model_capability_preset": "xiaomi_mimo_2_5",
+        },
         "expose_planner": True,
         "expose_yarn": True,
     },
@@ -108,7 +140,12 @@ DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
         "standalone_endpoint": "https://api.xiaomimimo.com/v1",
         "standalone_api_key_env": "MIMO_API_KEY",
         "backend_model_override": "mimo-v2.5",
-        "generation_params": {"max_tokens": 16384, "temperature": 1.0, "top_p": 0.95},
+        "generation_params": {
+            "max_tokens": 16384,
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "model_capability_preset": "xiaomi_mimo_2_5",
+        },
         "expose_planner": True,
         "expose_yarn": True,
     },
@@ -121,7 +158,12 @@ DEFAULT_PUBLIC_OFFERINGS: tuple[dict[str, Any], ...] = (
         "standalone_endpoint": "https://api.xiaomimimo.com/v1",
         "standalone_api_key_env": "MIMO_API_KEY",
         "backend_model_override": "mimo-v2-flash",
-        "generation_params": {"max_tokens": 8192, "temperature": 0.3, "top_p": 0.95},
+        "generation_params": {
+            "max_tokens": 8192,
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "model_capability_preset": "xiaomi_mimo_2",
+        },
         "expose_planner": True,
         "expose_yarn": True,
     },
@@ -187,6 +229,14 @@ def normalize_generation_params(value: Any) -> dict[str, Any] | None:
             effort = str(raw).strip()
             if effort:
                 out[key] = effort
+            continue
+        if key == "model_capability_preset":
+            preset = str(raw).strip().lower().replace("-", "_").replace(".", "_").replace("/", "_")
+            while "__" in preset:
+                preset = preset.replace("__", "_")
+            if preset not in VALID_MODEL_CAPABILITY_PRESETS:
+                raise ValueError("generation_params.model_capability_preset must be a supported preset")
+            out[key] = preset
             continue
         try:
             num = float(raw)

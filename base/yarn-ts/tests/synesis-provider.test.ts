@@ -36,4 +36,11 @@ describe("SynesisProviderRegistry", () => {
     const { resolvedModelId } = reg.resolve("openai/core", "synesis-core");
     expect(resolvedModelId).toBe("synesis-core");
   });
+
+  it("uses model capability preset as adapter hint for opaque served models", () => {
+    const reg = new SynesisProviderRegistry();
+    reg.updateTiers([{ ...sampleCoreTier, backendModel: "served-v4-pro", modelCapabilityPreset: "deepseek_v4" }]);
+    const { adapter } = reg.resolve("core", "synesis-core");
+    expect(adapter.family).toBe("deepseek");
+  });
 });

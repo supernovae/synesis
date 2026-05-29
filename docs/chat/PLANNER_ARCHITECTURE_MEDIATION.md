@@ -142,15 +142,23 @@ request, not just the client-facing `model` string. Public model offerings may
 therefore expose stable names such as `Synesis Core` or `deepseek-v4-chat` while
 mediation follows the resolved backend writer model and route provider.
 
+When the backend model id is opaque, set the offering or role's controlled
+`model_capability_preset`. This keeps class/version behavior attached to the
+registered model instead of the provider endpoint. For example, one
+OpenAI-compatible endpoint may serve `deepseek_v4`, `qwen_3_coder`, and
+`kimi_k2` offerings without forcing the same mediation, adapter, or cache
+diagnostic assumptions onto every route.
+
 Recommended configuration path:
 
 1. Create or update the public offering in **Admin -> Models & costs -> Model
    Registry**.
 2. Set the backend model override or role route so Planner resolves the actual
    writer model.
-3. Use Prompt Library `model_family` overlays for broad family behavior.
-4. Use Prompt Library `chat_profile` overlays for scenario behavior.
-5. Use request metadata/header overrides for one-off testing.
+3. Set `model_capability_preset` when model id/provider inference is ambiguous.
+4. Use Prompt Library `model_family` overlays for broad family behavior.
+5. Use Prompt Library `chat_profile` overlays for scenario behavior.
+6. Use request metadata/header overrides for one-off testing.
 
 For this Planner release, architecture-profile admin overrides are shared with
 the Yarn upper-harness policy library at the code level. Public API behavior is

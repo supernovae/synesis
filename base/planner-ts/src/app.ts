@@ -898,6 +898,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       writerModel: resolvedWriterModel,
       provider: tierSettings.resolved_writer_route?.provider,
       family: plannerMatrixFamily,
+      modelCapabilityPreset: tierSettings.model_capability_preset,
       messages: optimizedMessages,
       taskDescription: mergedTaskText,
     });

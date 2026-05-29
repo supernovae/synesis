@@ -46,12 +46,15 @@ describe("mergeYarnPublicOfferingsIntoTiers", () => {
           standalone_endpoint: "https://openrouter.ai/api/v1",
           standalone_api_key_env: "OPENROUTER_API_KEY",
           backend_model_override: null,
+          generation_params: { model_capability_preset: "xiaomi_mimo_2_5" },
         },
       ]);
       const standalone = merged.find((t) => t.id === "xiaomi-2.5");
       expect(standalone?.backendModel).toBe("xiaomi-2.5");
       expect(standalone?.baseUrl).toBe("https://openrouter.ai/api/v1");
       expect(standalone?.apiKey).toBe("standalone-k");
+      expect(standalone?.modelCapabilityPreset).toBe("xiaomi_mimo_2_5");
+      expect(standalone?.providerTelemetryTag).toBeNull();
     } finally {
       process.env.OPENROUTER_API_KEY = prev;
     }

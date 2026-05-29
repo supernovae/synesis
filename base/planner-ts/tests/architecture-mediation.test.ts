@@ -41,6 +41,20 @@ describe("planner architecture mediation", () => {
     expect(mediation.artifacts.criticalFactPins.length).toBeGreaterThan(0);
   });
 
+  it("accepts model capability presets for opaque writer model ids", () => {
+    const mediation = resolvePlannerArchitectureMediation({
+      requestedModel: "Crof DeepSeek",
+      writerModel: "provider-opaque-v4-pro",
+      provider: "generic",
+      modelCapabilityPreset: "deepseek_v4",
+      messages: [{ role: "user", content: "Continue the long task." }],
+      taskDescription: "Continue the long task.",
+    });
+
+    expect(mediation.profile.attention).toBe("mla");
+    expect(mediation.policy.contextBudget.interpretation).toBe("storage_with_working_set");
+  });
+
   it("safe mode removes duplicate low-value context through the shared hygiene filter", () => {
     const mediation = resolvePlannerArchitectureMediation({
       requestedModel: "Synesis",

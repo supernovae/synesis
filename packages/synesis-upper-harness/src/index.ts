@@ -19,6 +19,14 @@ export {
   evaluateUpperHarness,
 } from "./engine.js";
 export {
+  MODEL_CAPABILITY_PRESET_IDS,
+  adapterHintForModelCapabilityPreset,
+  inferModelCapabilityPreset,
+  normalizeModelCapabilityPreset,
+  telemetryProviderForModelCapabilityPreset,
+  type ModelCapabilityPresetId,
+} from "./model-capability-preset.js";
+export {
   PROMPT_INTAKE_DECISION_SCHEMA_VERSION,
   buildPromptIntakeSystemBlock,
   evaluatePromptIntake,

@@ -4,6 +4,7 @@ import {
   deriveModelExecutionPolicy,
   resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
+  adapterHintForModelCapabilityPreset,
 } from "../providers/model-architecture-profile.js";
 import { resolveAdapter } from "../providers/model-adapter.js";
 import { resolveEndpointCapabilityId } from "../providers/endpoint-capabilities/resolve.js";
@@ -23,6 +24,7 @@ export interface ModelArchitectureDiagnostic {
   backend_model: string;
   provider?: string;
   adapter_family: string;
+  model_capability_preset?: string | null;
   declared_context_tokens?: number;
   override_applied: boolean;
   architecture: Record<string, unknown>;
@@ -37,11 +39,16 @@ export function buildModelArchitectureDiagnostics(
     const tier = deps.tierRegistry.getTierConfig?.(modelId);
     const backendModel = tier?.backendModel ?? modelId;
     const provider = tier?.baseUrl ? resolveEndpointCapabilityId(tier.baseUrl) : undefined;
-    const adapter = resolveAdapter(backendModel, tier?.baseUrl ?? "", tier?.adapterHint);
+    const adapter = resolveAdapter(
+      backendModel,
+      tier?.baseUrl ?? "",
+      tier?.adapterHint ?? adapterHintForModelCapabilityPreset(tier?.modelCapabilityPreset),
+    );
     const profile = resolveModelArchitectureProfile({
       modelId: backendModel,
       provider,
       family: adapter.family,
+      modelCapabilityPreset: tier?.modelCapabilityPreset,
       declaredContextTokens: tier?.contextCeilingTokens,
       override: tier?.architectureProfile ?? null,
     });
@@ -56,6 +63,7 @@ export function buildModelArchitectureDiagnostics(
       resolved: Boolean(tier),
       backend_model: backendModel,
       adapter_family: adapter.family,
+      model_capability_preset: tier?.modelCapabilityPreset ?? null,
       override_applied: Boolean(tier?.architectureProfile),
       architecture: architecturePolicyTrace(profile, policy),
       ...(tier ? { tier_id: tier.id } : {}),

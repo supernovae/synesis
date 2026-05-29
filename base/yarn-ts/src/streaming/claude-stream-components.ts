@@ -13,6 +13,7 @@ export interface ClaudeStreamComponentsInput {
   tierConfig?: {
     baseUrl?: string;
     backendModel?: string;
+    modelCapabilityPreset?: string | null;
   };
   resolvedModelId: string;
   computePrefixFingerprint(messages: Array<{ role: string; content: unknown }>): string | undefined;
@@ -29,6 +30,7 @@ export interface ClaudeStreamRouteComponentsInput {
   tierConfig?: {
     baseUrl?: string;
     backendModel?: string;
+    modelCapabilityPreset?: string | null;
   };
   resolvedModelId: string;
   sessionKey: string;
@@ -90,6 +92,7 @@ export function createClaudeStreamComponents(
   const cacheStrategy = detectCacheStrategy(
     input.tierConfig?.baseUrl ?? "",
     input.tierConfig?.backendModel ?? input.resolvedModelId,
+    input.tierConfig?.modelCapabilityPreset,
   );
   const modelMessages = maybeAnnotateCacheBreakpoints(input.modelMessages, cacheStrategy);
 

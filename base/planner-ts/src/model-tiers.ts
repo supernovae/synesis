@@ -25,6 +25,8 @@ export interface TierSettings {
   resolved_writer_route?: LlmRoute;
   /** Optional Admin-defined generation overrides for public offering writer calls. */
   writer_generation_params?: GenerationParams;
+  /** Controlled model-class/version preset used for architecture mediation. */
+  model_capability_preset?: string;
 }
 
 const TIER_ALIAS: Record<string, ModelTier> = {
@@ -148,6 +150,13 @@ function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParam
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function modelCapabilityPresetFromOffering(o: PublicPlannerOffering): string | undefined {
+  const raw = o.generation_params;
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = (raw as Record<string, unknown>).model_capability_preset;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export function resolveTierSettings(requestModel: string | null | undefined): TierSettings {
   const requestedModel = (requestModel ?? "").trim();
   const reqLow = requestedModel.toLowerCase();
@@ -162,6 +171,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       : ((o.backend_model_override ?? "").trim() || getRoleBackendModel(writerRole));
     const writerRoute = mode === "standalone" ? getLlmRoute(o.client_model_id) : getLlmRoute(writerRole);
     const writerGenerationParams = generationParamsFromOffering(o);
+    const modelCapabilityPreset = modelCapabilityPresetFromOffering(o);
     if (tier === "pulse") {
       return {
         requestedModel,
@@ -174,6 +184,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
+        model_capability_preset: modelCapabilityPreset,
       };
     }
     if (tier === "horizon") {
@@ -188,6 +199,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
+        model_capability_preset: modelCapabilityPreset,
       };
     }
     if (tier === "core") {
@@ -202,6 +214,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
         resolved_writer_model: registryModel,
         resolved_writer_route: writerRoute,
         writer_generation_params: writerGenerationParams,
+        model_capability_preset: modelCapabilityPreset,
       };
     }
     return {
@@ -215,6 +228,7 @@ export function resolveTierSettings(requestModel: string | null | undefined): Ti
       resolved_writer_model: registryModel,
       resolved_writer_route: writerRoute,
       writer_generation_params: writerGenerationParams,
+      model_capability_preset: modelCapabilityPreset,
     };
   }
 

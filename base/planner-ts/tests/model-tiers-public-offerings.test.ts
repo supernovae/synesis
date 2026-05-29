@@ -41,6 +41,7 @@ describe("resolveTierSettings with public offerings", () => {
         standalone_endpoint: "https://openrouter.ai/api/v1",
         standalone_api_key_env: "OPENROUTER_API_KEY",
         backend_model_override: null,
+        generation_params: { model_capability_preset: "xiaomi_mimo_2_5" },
       },
     ]);
     vi.spyOn(catalog, "getRoleBackendModel").mockReturnValue("should-not-be-used");
@@ -48,5 +49,6 @@ describe("resolveTierSettings with public offerings", () => {
     expect(t.tier).toBe("core");
     expect(t.registry_writer_role).toBe("writer-core");
     expect(t.resolved_writer_model).toBe("xiaomi-2.5");
+    expect(t.model_capability_preset).toBe("xiaomi_mimo_2_5");
   });
 });

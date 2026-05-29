@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 
+import {
+  inferModelCapabilityPreset,
+  normalizeModelCapabilityPreset,
+  type ModelCapabilityPresetId,
+} from "./model-capability-preset.js";
+
 export type AttentionArchitecture =
   | "full_attention"
   | "sliding_window"
@@ -177,6 +183,7 @@ export interface ResolveModelArchitectureProfileInput {
   modelId: string;
   provider?: string | null;
   family?: string | null;
+  modelCapabilityPreset?: ModelCapabilityPresetId | string | null;
   declaredContextTokens?: number | null;
   override?: ModelArchitectureProfileOverride | null;
 }
@@ -285,15 +292,23 @@ export function resolveModelArchitectureProfile(
   const family = input.family?.trim().toLowerCase() || "";
   const model = modelId.toLowerCase();
   const declared = finitePositive(input.declaredContextTokens);
+  const explicitPreset = normalizeModelCapabilityPreset(input.modelCapabilityPreset);
+  const preset = explicitPreset ?? inferModelCapabilityPreset(modelId, family);
+  const allowNameInference = explicitPreset !== "generic_openai_compatible";
   let profile = defaultConservativeArchitectureProfile(modelId, provider, declared);
 
-  if (/deepseek/.test(model) || family === "deepseek") {
+  if (
+    preset === "deepseek_v3"
+    || preset === "deepseek_v4"
+    || (allowNameInference && (/deepseek/.test(model) || family === "deepseek"))
+  ) {
+    const isV4 = preset === "deepseek_v4" || (/v4/.test(model) && preset !== "deepseek_v3");
     profile = {
       ...profile,
       attention: "mla",
       activation: /moe|v[34]|r1/i.test(model) ? "moe" : "unknown",
       decoding: /mtp/.test(model) ? "mtp" : "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.70),
+      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isV4 ? 0.68 : 0.70),
       safeInstructionTokens: 10_000,
       safeToolOutputTokens: 18_000,
       attentionCompression: {
@@ -325,16 +340,25 @@ export function resolveModelArchitectureProfile(
         preferExplicitStateHeaders: true,
         preferDeterministicValidation: true,
       },
-      notes: ["MLA-style mediation treats declared context as larger than reliable working memory."],
+      notes: [
+        isV4
+          ? "DeepSeek V4 harness preset: apply MLA-style mediation and treat declared context as storage-backed working set."
+          : "DeepSeek V3/R1 harness preset: MLA-style mediation treats declared context as larger than reliable working memory.",
+      ],
     };
-  } else if (/xiaomi|mimo/.test(model) || family === "xiaomi") {
-    const isFlash = /flash/.test(model);
+  } else if (
+    preset === "xiaomi_mimo_2"
+    || preset === "xiaomi_mimo_2_5"
+    || (allowNameInference && (/xiaomi|mimo/.test(model) || family === "xiaomi"))
+  ) {
+    const isFlash = /flash/.test(model) || preset === "xiaomi_mimo_2";
+    const isV25 = preset === "xiaomi_mimo_2_5" || /2[._-]?5/.test(model);
     profile = {
       ...profile,
       attention: isFlash ? "sliding_window" : "hybrid_compressed_attention",
       activation: "moe",
       decoding: isFlash ? "mtp" : "speculative_friendly",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isFlash ? 0.58 : 0.72),
+      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isFlash ? 0.58 : isV25 ? 0.72 : 0.65),
       safeInstructionTokens: isFlash ? 8_000 : 12_000,
       safeToolOutputTokens: isFlash ? 14_000 : 22_000,
       attentionCompression: isFlash
@@ -372,11 +396,15 @@ export function resolveModelArchitectureProfile(
       },
       notes: [
         isFlash
-          ? "MiMo Flash profile treats SWA/MTP behavior as short-turn and boundary-validation sensitive."
-          : "MiMo V2.5 profile uses explicit state replay for long agent sessions and MoE determinism.",
+          ? "MiMo V2 harness preset treats SWA/MTP behavior as short-turn and boundary-validation sensitive."
+          : "MiMo V2.5 harness preset uses explicit state replay for long agent sessions and MoE determinism.",
       ],
     };
-  } else if (/qwen/.test(model) || family === "qwen3-coder") {
+  } else if (
+    preset === "qwen_3"
+    || preset === "qwen_3_coder"
+    || (allowNameInference && (/qwen/.test(model) || family === "qwen3-coder"))
+  ) {
     profile = {
       ...profile,
       attention: "global_local_hybrid",
@@ -409,9 +437,46 @@ export function resolveModelArchitectureProfile(
         preferShorterTurns: true,
         preferDeterministicValidation: true,
       },
-      notes: ["Qwen profile keeps existing adapter steering and adds architecture-level validation bias."],
+      notes: [
+        preset === "qwen_3_coder"
+          ? "Qwen3 Coder harness preset keeps existing adapter steering and adds architecture-level validation bias."
+          : "Qwen3 harness preset uses moderate active-state replay without endpoint-specific transport assumptions.",
+      ],
     };
-  } else if (/kimi|moonshot|k2[.-]?[56]/.test(model) || family === "kimi") {
+  } else if (
+    preset === "glm_4_5"
+    || (allowNameInference && (/glm[-_. ]?4[-_. ]?5|glm[-_. ]?45/.test(model) || family === "glm"))
+  ) {
+    profile = {
+      ...profile,
+      attention: "hybrid_compressed_attention",
+      activation: "moe",
+      decoding: "standard",
+      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.74),
+      safeToolOutputTokens: 20_000,
+      attentionCompression: HYBRID_COMPRESSED_COMPRESSION,
+      traits: {
+        ...UNKNOWN_TRAITS,
+        longTailRetention: "medium",
+        toolCallingReliability: "medium",
+        longContextReliability: "medium",
+        outputThroughputBias: "medium",
+        retrySensitivity: "medium",
+        compactionSensitivity: "high",
+        longRangeRetrievalReliability: "medium",
+        exactNeedleRecallReliability: "medium",
+        localCoherence: "medium",
+        duplicateContextSensitivity: "medium",
+        staleContextSensitivity: "high",
+        structuredOutputReliability: "medium",
+      },
+      recommendations: { ...UNKNOWN_RECOMMENDATIONS },
+      notes: ["GLM 4.5 harness preset uses active-state replay and citation/reference verification for long contexts."],
+    };
+  } else if (
+    preset === "kimi_k2"
+    || (allowNameInference && (/kimi|moonshot|k2[.-]?[56]/.test(model) || family === "kimi"))
+  ) {
     profile = {
       ...profile,
       attention: "hybrid_compressed_attention",
@@ -438,7 +503,11 @@ export function resolveModelArchitectureProfile(
       recommendations: { ...UNKNOWN_RECOMMENDATIONS },
       notes: ["Long-context profile uses explicit state replay instead of assuming long-tail recall."],
     };
-  } else if (/minimax|abab/.test(model) || family === "minimax") {
+  } else if (
+    preset === "minimax_m1"
+    || preset === "minimax_m2"
+    || (allowNameInference && (/minimax|abab/.test(model) || family === "minimax"))
+  ) {
     profile = {
       ...profile,
       attention: "heavily_compressed_attention",
@@ -479,7 +548,7 @@ export function resolveModelArchitectureProfile(
       },
       notes: ["Throughput-biased profile favors short turns, explicit task state, and strict validation."],
     };
-  } else if (/llama|mixtral|mistral/.test(model)) {
+  } else if (allowNameInference && /llama|mixtral|mistral/.test(model)) {
     profile = {
       ...profile,
       attention: /sliding|swa|mistral/.test(model) ? "sliding_window" : "full_attention",
@@ -514,7 +583,7 @@ export function resolveModelArchitectureProfile(
       recommendations: { ...UNKNOWN_RECOMMENDATIONS },
       notes: ["Open-weight profile is cautious unless an admin override declares stronger behavior."],
     };
-  } else if (/gpt|openai|o[134]/.test(model) || provider === "openai") {
+  } else if (allowNameInference && (/gpt|openai|o[134]/.test(model) || provider === "openai")) {
     profile = {
       ...profile,
       attention: "full_attention",

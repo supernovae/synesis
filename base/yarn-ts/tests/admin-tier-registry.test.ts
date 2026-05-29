@@ -250,6 +250,32 @@ describe("fetchTierConfigs", () => {
     });
     expect(tiers[0].defaultContextMediationMode).toBe("safe");
   });
+
+  it("parses controlled model capability presets from route params", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "custom",
+            model: "provider-opaque-v4-pro",
+            endpoint: "https://crof.example/v1",
+            route_params: {
+              model_capability_preset: "deepseek_v4",
+            },
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+
+    expect(tiers[0].modelCapabilityPreset).toBe("deepseek_v4");
+    expect(tiers[0].providerTelemetryTag).toBe("deepseek");
+    expect(tiers[0].baseUrl).toBe("https://crof.example/v1");
+  });
 });
 
 describe("normalizeOpenAICompatTierModelId", () => {
