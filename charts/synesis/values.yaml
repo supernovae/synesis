@@ -1346,10 +1346,10 @@ workloads:
     amd64Only: true
     strategy: Recreate
     annotations:
-      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.2"
-      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md"
+      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.3"
+      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.3/docs/operations/docker.md"
     image:
-      # Upstream v1.1.2 Docker docs list the timothyswt Docker Hub images as
+      # Upstream v1.1.3 Docker docs list the timothyswt Docker Hub images as
       # the public production images. If upstream publishes a GHCR/org image,
       # override this repository at deploy time and keep the release annotation
       # above pointed at the GitHub tag under orneryd/NornicDB.
@@ -1359,7 +1359,7 @@ workloads:
       #   repository: neo4j
       #   tag: "5-community"
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
-      tag: v1.1.2
+      tag: v1.1.3
     ports:
       - name: bolt
         containerPort: 7687

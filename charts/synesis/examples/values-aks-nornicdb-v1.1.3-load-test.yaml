@@ -1,10 +1,10 @@
-# Load-test override for NornicDB v1.1.2.
+# Load-test override for NornicDB v1.1.3.
 #
 # Purpose:
-# - run the upstream v1.1.2 release documented at:
-#   https://github.com/orneryd/NornicDB/releases/tag/v1.1.2
-# - use the Docker Hub image namespace documented by upstream v1.1.2:
-#   https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md
+# - run the upstream v1.1.3 release documented at:
+#   https://github.com/orneryd/NornicDB/releases/tag/v1.1.3
+# - use the Docker Hub image namespace documented by upstream v1.1.3:
+#   https://github.com/orneryd/NornicDB/blob/v1.1.3/docs/operations/docker.md
 # - run the public release that includes the former PR 177 search index master switches
 # - place NornicDB on a dedicated 32Gi-class Karpenter node
 # - keep ANN/HNSW and BM25 indexes cold during bulk ingestion
@@ -12,11 +12,11 @@
 workloads:
   nornicdb:
     annotations:
-      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.2"
-      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.2/docs/operations/docker.md"
+      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.3"
+      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.3/docs/operations/docker.md"
     image:
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
-      tag: v1.1.2
+      tag: v1.1.3
       pullPolicy: Always
     args:
       - --search-bm25-enabled=false

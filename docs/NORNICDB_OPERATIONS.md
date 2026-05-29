@@ -84,29 +84,25 @@ oc get svc synesis-nornicdb -n synesis-rag
 
 ## Fresh Reset for Pack Reload Testing
 
-NornicDB v1.1.2 includes the former search-index master-switch work and does
-not require an on-disk format migration for existing v1.1.x data. For content
-pack bug verification, a fresh PVC reset is still often faster and cleaner than
-deleting graph content through Cypher.
+NornicDB v1.1.3 includes the former search-index master-switch work plus
+storage/Bolt correctness fixes, and upstream notes no on-disk format change for
+existing v1.1.x data. For content pack bug verification, a fresh PVC reset is
+still often faster and cleaner than deleting graph content through Cypher.
 
-Use the v1.1.2 load-test override when you want the upstream release tag plus
-cold BM25/vector indexes during bulk ingestion. As of v1.1.2, the upstream
+Use the v1.1.3 load-test override when you want the upstream release tag plus
+cold BM25/vector indexes during bulk ingestion. As of v1.1.3, the upstream
 NornicDB Docker guide lists Docker Hub images under `timothyswt/*`; Synesis pins
-`docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.2` and annotates the workload with
-the GitHub release URL at `https://github.com/orneryd/NornicDB/releases/tag/v1.1.2`.
+`docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.3` and annotates the workload with
+the GitHub release URL at `https://github.com/orneryd/NornicDB/releases/tag/v1.1.3`.
 If upstream later publishes a GHCR or `nornicdb/*` org image, override the
 repository in Helm values while keeping the release annotation pointed at the
 same upstream tag.
-
-Note: upstream v1.1.2 currently carries `pkg/buildinfo/VERSION` as `1.1.1` and
-the macOS release assets are named `NornicDB-1.1.1-*`, so logs may report
-`version=1.1.1` even when the container tag and GitHub release are v1.1.2.
 
 ```bash
 helm upgrade synesis charts/synesis \
   --namespace default \
   --reuse-values \
-  -f charts/synesis/examples/values-aks-nornicdb-v1.1.2-load-test.yaml
+  -f charts/synesis/examples/values-aks-nornicdb-v1.1.3-load-test.yaml
 ```
 
 To reset the graph store before reloading a pack, scale NornicDB down, delete
