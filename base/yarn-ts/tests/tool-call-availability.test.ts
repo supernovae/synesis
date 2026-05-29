@@ -43,6 +43,40 @@ describe("tool call availability helpers", () => {
     expect(String(result.call.input.command)).toContain("requested unavailable tool");
   });
 
+  it("maps canonically equivalent aliases to the exact offered tool name", () => {
+    const opencodeTools = [
+      { type: "function", function: { name: "bash" } },
+      { type: "function", function: { name: "write" } },
+    ];
+    const result = rewriteUnavailableToolCall(
+      { toolCallId: "tc1", toolName: "write_file", input: { file_path: "a.txt", content: "x" } },
+      buildOfferedToolNameSet(opencodeTools),
+      listOfferedToolNames(opencodeTools),
+      "bash",
+    );
+
+    expect(result.rewritten).toBe(true);
+    expect(result.requestedTool).toBe("write_file");
+    expect(result.call.toolName).toBe("write");
+    expect(result.call.input).toEqual({ file_path: "a.txt", content: "x" });
+  });
+
+  it("maps case variants to the exact offered tool name", () => {
+    const opencodeTools = [
+      { type: "function", function: { name: "bash" } },
+      { type: "function", function: { name: "write" } },
+    ];
+    const result = rewriteUnavailableToolCall(
+      { toolCallId: "tc1", toolName: "Write", input: { file_path: "a.txt", content: "x" } },
+      buildOfferedToolNameSet(opencodeTools),
+      listOfferedToolNames(opencodeTools),
+      "bash",
+    );
+
+    expect(result.rewritten).toBe(true);
+    expect(result.call.toolName).toBe("write");
+  });
+
   it("restores guarded call inputs to client schema", () => {
     const restored = restoreGuardrailCallForClient(
       { toolCallId: "tc1", toolName: "write_file", input: { path: "a.txt", content: "x" } },

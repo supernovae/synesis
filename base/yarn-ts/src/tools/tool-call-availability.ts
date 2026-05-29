@@ -65,6 +65,25 @@ export function rewriteUnavailableToolCall(
   if (!requestedTool) return { call, rewritten: false };
   const requestedLower = requestedTool.toLowerCase();
   const requestedCanonical = canonicalValidationToolName(requestedTool).toLowerCase();
+  const exactOfferedName = offeredToolNames.find((name) => name.toLowerCase() === requestedLower);
+  if (exactOfferedName) {
+    if (exactOfferedName === requestedTool) return { call, rewritten: false };
+    return {
+      call: { ...call, toolName: exactOfferedName },
+      rewritten: true,
+      requestedTool,
+    };
+  }
+  const canonicalOfferedName = offeredToolNames.find((name) =>
+    canonicalValidationToolName(name).toLowerCase() === requestedCanonical
+  );
+  if (canonicalOfferedName) {
+    return {
+      call: { ...call, toolName: canonicalOfferedName },
+      rewritten: true,
+      requestedTool,
+    };
+  }
   if (offeredToolSet.has(requestedLower) || offeredToolSet.has(requestedCanonical)) {
     return { call, rewritten: false };
   }
