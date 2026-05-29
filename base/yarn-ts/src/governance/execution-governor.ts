@@ -1201,7 +1201,10 @@ function latestUserRedirectIndex(messages: GovernorInputMessage[]): number {
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i];
-    if (m.role === "user") return i;
+    if (m.role === "user") {
+      if (isToolResultOnlyUserMessage(m)) continue;
+      return i;
+    }
     if (m.role === "tool" || m.role === "tool_result") {
       const toolName = toolNameForResultMessage(m, toolNameById);
       if (toolName && USER_FACING_TOOL_RE.test(toolName)) {
@@ -1211,6 +1214,13 @@ function latestUserRedirectIndex(messages: GovernorInputMessage[]): number {
     }
   }
   return -1;
+}
+
+function isToolResultOnlyUserMessage(message: GovernorInputMessage): boolean {
+  if (!Array.isArray(message.content) || message.content.length === 0) return false;
+  return (message.content as Array<{ type?: string }>).every(
+    (block) => block && typeof block === "object" && block.type === "tool_result",
+  );
 }
 
 function hasConcreteActionAfterLatestUserRedirect(messages: GovernorInputMessage[]): boolean {
@@ -1405,6 +1415,41 @@ function hasOpenTaskStatusUpdate(events: CommandEvent[]): boolean {
     }
   }
   return false;
+}
+
+function isTargetedInspectionEvent(event: CommandEvent): boolean {
+  const tool = normalizeString(event.toolName).toLowerCase();
+  const command = normalizeString(event.command).toLowerCase();
+  return command.startsWith("read:")
+    || command.startsWith("search:")
+    || command.startsWith("glob:")
+    || command.startsWith("list:")
+    || tool.includes("read")
+    || tool.includes("grep")
+    || tool.includes("search")
+    || tool.includes("glob")
+    || tool.includes("inspect_repo");
+}
+
+function hasRepairIntentText(text: string): boolean {
+  const normalized = normalizeString(text).toLowerCase();
+  if (!normalized) return false;
+  return /\b(i\s+)?(?:need|needs|must|should|have to)\s+(?:fix|repair|correct|update|adjust|implement|complete)\b/.test(normalized)
+    || /\b(?:let me|i'?ll|i will)\s+(?:fix|repair|correct|update|adjust|implement|complete|check)\b/.test(normalized)
+    || /\b(?:issue|bug|placeholder|missing|incomplete|not\s+properly|not\s+configured|not\s+implemented)\b/.test(normalized);
+}
+
+function hasActiveRepairInspectionAfterCompletionClaim(
+  turnMessages: GovernorInputMessage[],
+  postClaimEvents: CommandEvent[],
+): boolean {
+  if (postClaimEvents.length === 0 || postClaimEvents.length > 6) return false;
+  if (!postClaimEvents.some((event) => isTargetedInspectionEvent(event) || isEditCommand(event.command))) return false;
+  const assistantText = turnMessages
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content))
+    .join("\n");
+  return hasRepairIntentText(assistantText);
 }
 
 function isDeclarationOnlyEditResultSignature(sig: string): boolean {
@@ -2290,6 +2335,7 @@ export function evaluateExecutionGovernor(
   // after the last assistant message that contains a completion claim.
   let verificationAfterCompletionClaim = 0;
   let hasActiveRepairEvidenceAfterCompletionClaim = false;
+  let postCompletionClaimEvents: CommandEvent[] = [];
   const hasAnyClaim = hasCompletionClaim;
   if (hasAnyClaim) {
     let lastClaimIdx = -1;
@@ -2303,6 +2349,7 @@ export function evaluateExecutionGovernor(
     }
     if (lastClaimIdx >= 0) {
       const postClaimEvents = extractCommandEvents(turnMessages.slice(lastClaimIdx));
+      postCompletionClaimEvents = postClaimEvents;
       for (const e of postClaimEvents) {
         const c = e.command;
         if (isEditCommand(c) && hasEditFailureSignature(e.resultSignature)) {
@@ -2315,6 +2362,12 @@ export function evaluateExecutionGovernor(
         verificationAfterCompletionClaim += 1;
       }
     }
+  }
+  if (
+    !hasActiveRepairEvidenceAfterCompletionClaim
+    && hasActiveRepairInspectionAfterCompletionClaim(turnMessages, postCompletionClaimEvents)
+  ) {
+    hasActiveRepairEvidenceAfterCompletionClaim = true;
   }
   // Verbal/verification intent streaks look only at a recent window to avoid
   // reporting inflated counts ("115 times") in long-running sessions where the

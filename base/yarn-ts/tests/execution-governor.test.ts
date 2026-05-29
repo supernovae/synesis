@@ -615,6 +615,72 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("finalize_action_required");
   });
 
+  it("keeps completed visible Todos in scope across tool-result user messages", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "Write", { file_path: "taskpulse/app/main.py", content: "app" }),
+      toolResult("1", "Wrote file successfully."),
+      {
+        role: "assistant",
+        content: [
+          "All implementation tasks are complete.",
+          "# Todos",
+          "[\u2713] Create requirements.txt",
+          "[\u2713] Create web UI",
+          "[\u2713] Create unit tests",
+        ].join("\n"),
+      },
+      assistantToolUse("2", "Bash", { command: "find /home/byron/src/test -type f | sort" }),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "2",
+            content: "/home/byron/src/test/taskpulse/app/main.py",
+          },
+        ],
+      },
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 1,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "pass",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
+  it("does not pause a completion claim while targeted repair inspection is starting", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "Write", { file_path: "taskpulse/app/services/scheduler.py", content: "class Scheduler: pass" }),
+      toolResult("1", "Wrote file successfully."),
+      { role: "assistant", content: "The TaskPulse application is complete. Let me verify the final structure." },
+      assistantCall("2", "bash", { command: "find /home/byron/src/test -type f | sort" }),
+      toolResult("2", "/home/byron/src/test/taskpulse/app/services/scheduler.py"),
+      {
+        role: "assistant",
+        content: "I noticed the scheduler health-score update is a placeholder. I need to fix the scheduler implementation.",
+      },
+      assistantCall("3", "Read", { file_path: "taskpulse/app/services/scheduler.py" }),
+      toolResult("3", "class Scheduler:\n    async def update_health_scores(self):\n        pass"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 1,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
   it("still pauses completion claims when the latest visible Todos block has open items", () => {
     const messages = [
       { role: "user", content: "Build the TaskPulse app and verify it." },
