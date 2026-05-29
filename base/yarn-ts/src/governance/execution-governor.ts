@@ -1539,7 +1539,7 @@ function buildDependencyInstallReplaySuggestion(events: CommandEvent[], highRetr
     const prefix = highRetrySensitivity
       ? "This model family is high retry-sensitivity, so stop the install/path replay now."
       : "Stop the install/path replay now.";
-    return `${prefix} Use the canonical project directory from the current working directory; do not copy, remove, or recreate duplicate trees. Run one targeted verification from that directory, for example \`cd taskpulse && python -m pytest -q\` when the project is TaskPulse.`;
+    return `${prefix} Use the canonical project directory from the current working directory; do not copy, remove, or recreate duplicate trees. Run one targeted verification from that directory using the project-relative path you have actually observed.`;
   }
   return "You are repeating the same dependency install command without code changes. If the install succeeded, move on to the next code edit. If it failed, investigate the specific error rather than re-running.";
 }

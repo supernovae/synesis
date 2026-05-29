@@ -1042,7 +1042,7 @@ export class XiaomiMiMoAdapter implements ModelAdapter {
       "",
       "## Paths",
       "- Use file paths relative to `shell_cwd` when provided, otherwise `project_root`.",
-      "- Never prepend workspace/cwd segments already present in the environment (e.g. with cwd `/home/byron/src/test`, use `taskpulse/app/main.py`, not `src/test/taskpulse/app/main.py`).",
+      "- Never prepend workspace/cwd segments already present in the environment; use the project-relative path observed under the current tool root.",
       "- If a path fails, run one narrow location check (`pwd`, `ls`, or Glob), then update the path; do not retry variants blindly.",
       "",
       "## Tool and task state",

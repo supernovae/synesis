@@ -288,6 +288,9 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     lines.push(
       "Do not request access to parent/sibling directories such as ../, ~/src, or the parent of project_root just to discover files. If a file is missing, inspect the current workspace root with pwd/ls and then create or edit only inside shell_cwd/project_root.",
     );
+    lines.push(
+      "In a fresh or empty workspace, do not read guessed application files before they exist. Confirm the root with a narrow listing, then create the requested scaffold from that root.",
+    );
     const pr = ctx.projectRoot?.trim();
     const cw = ctx.shellCwd?.trim();
     if (pr && cw && pr !== cw) {
@@ -342,9 +345,11 @@ function pathHygieneFallbackBlock(): string {
   return [
     "<PATH_HYGIENE>",
     "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
+    "This block contains generic path hygiene rules, not facts about the user's files. Do not treat placeholder names or paths here as files that exist.",
     "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
-    "If pwd is already the workspace root, file-tool paths are relative to that cwd. For example, from /home/byron/src/test use taskpulse/README.md, not src/test/taskpulse/README.md.",
-    "If a path error shows a duplicated cwd/project-root segment such as /home/byron/src/test/src/test/..., strip the repeated segment before retrying. Do not regenerate the project because one path lookup failed.",
+    "If pwd is already the workspace root, file-tool paths are relative to that cwd. Use the project-relative path observed in the workspace; do not prepend parent directory segments copied from pwd.",
+    "If a path error shows a duplicated cwd/project-root segment, strip the repeated segment before retrying. Do not regenerate the project because one path lookup failed.",
+    "In a fresh or empty workspace, do not read guessed source, test, or package files before they exist. Confirm the root with `pwd`/`ls`, then create the requested scaffold from that root.",
     "After a path miss, run one narrow location check (pwd plus ls/find for the intended project folder), then create or edit only the missing file at the corrected path.",
     "A failed install/test because requirements.txt or a source file is missing at one path is evidence about that path only; it is not evidence that previous successful writes are invalid.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",

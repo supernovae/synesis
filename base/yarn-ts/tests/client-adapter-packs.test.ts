@@ -86,9 +86,11 @@ describe("appendPathContextToAdapterBlock", () => {
   it("appends PATH_HYGIENE for opencode when no session context", () => {
     const out = appendPathContextToAdapterBlock("base", {}, null, "opencode");
     expect(out).toContain("<PATH_HYGIENE>");
-    expect(out).toContain("from /home/byron/src/test use taskpulse/README.md");
-    expect(out).toContain("/home/byron/src/test/src/test/");
+    expect(out).toContain("generic path hygiene rules, not facts about the user's files");
+    expect(out).toContain("do not read guessed source, test, or package files before they exist");
     expect(out).toContain("Do not regenerate the project");
+    expect(out).not.toContain("/home/byron/src/test");
+    expect(out).not.toContain("taskpulse/README.md");
   });
 
   it("shell_cwd without project_root includes duplicate-segment warning", () => {
@@ -101,6 +103,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(block).toContain("human-readable paths");
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
     expect(block).toContain("paths relative to shell_cwd/current working directory");
+    expect(block).toContain("do not read guessed application files before they exist");
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
