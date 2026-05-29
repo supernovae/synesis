@@ -259,6 +259,101 @@ describe("Canonical session key", () => {
   });
 });
 
+describe("Fresh implicit session bootstrap", () => {
+  async function makeLifecycle(overrides: { forceFreshImplicitSession?: boolean } = {}) {
+    const { createSessionLifecycleHelpers } = await import("../src/state/session-lifecycle.js");
+    const { SessionContinuityService } = await import("../src/context/session-continuity.js");
+
+    const continuity = {
+      currentTask: "Build the complete TaskPulse app",
+      keyFindings: ["Prior run looked for categorizer.py"],
+      decisions: [],
+      recentFiles: ["categorizer.py", "src/test/taskpulse/app/main.py"],
+      updatedAt: Date.now(),
+    };
+    const loadContinuity = vi.fn().mockResolvedValue(continuity);
+    const loadLatestContinuity = vi.fn().mockResolvedValue(continuity);
+    const recordSessionEvent = vi.fn();
+
+    const helpers = createSessionLifecycleHelpers({
+      config: {
+        SYNESIS_YARN_SESSION_CONTINUITY_ENABLED: true,
+        SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED: true,
+        SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED: true,
+        SYNESIS_YARN_RECALL_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
+        SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: 30 * 60 * 1000,
+      } as never,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      sessions: new Map(),
+      rotatedSessionByBaseKey: new Map(),
+      sessionStore: {
+        load: vi.fn().mockResolvedValue(null),
+        loadSessionState: vi.fn().mockResolvedValue(null),
+        loadContinuity,
+        loadActiveSessionKey: vi.fn().mockResolvedValue(null),
+        saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      sessionContinuity: new SessionContinuityService(),
+      usageWriter: { loadLatestContinuity } as never,
+      tierRegistry: { getTierConfig: vi.fn() },
+      sawtooth: {} as never,
+      metrics: {
+        compactionTotal: { inc: vi.fn() },
+        sessionCheckpointTotal: { inc: vi.fn() },
+        compactionCharsSaved: { inc: vi.fn() },
+      },
+      createDiffStats: () => ({}) as never,
+      resetRecoveryCounters: vi.fn(),
+      clearImplicitSessionResources: vi.fn(),
+      getFileSnapshotRegistry: () => ({ markCompaction: vi.fn() }),
+      getContentDedup: () => ({ reset: vi.fn() }),
+      recordSessionEvent,
+    });
+
+    const state = await helpers.getSessionState("synesis:alice:opencode:_:r1", {
+      userId: "alice",
+      orgId: "",
+      clientKind: "opencode",
+      conversationId: "",
+      forceFreshImplicitSession: overrides.forceFreshImplicitSession,
+      freshImplicitSessionReason: "fresh_transcript",
+      sessionRequestId: "req-1",
+    });
+
+    return { state, loadContinuity, loadLatestContinuity, recordSessionEvent };
+  }
+
+  it("suppresses carry-forward continuity for fresh implicit coder starts", async () => {
+    const { state, loadContinuity, loadLatestContinuity, recordSessionEvent } = await makeLifecycle({
+      forceFreshImplicitSession: true,
+    });
+
+    expect(state.history).toEqual([]);
+    expect(loadContinuity).not.toHaveBeenCalled();
+    expect(loadLatestContinuity).not.toHaveBeenCalled();
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "synesis:alice:opencode:_:r1",
+      "alice",
+      "",
+      "session_carry_forward_suppressed",
+      "getSessionState",
+      expect.stringContaining("suppressed prior continuity bootstrap"),
+      "req-1",
+      expect.objectContaining({ fresh_reason: "fresh_transcript" }),
+    );
+  });
+
+  it("keeps configured carry-forward bootstrap for non-fresh implicit sessions", async () => {
+    const { state, loadContinuity, loadLatestContinuity } = await makeLifecycle();
+
+    expect(loadContinuity).toHaveBeenCalledWith("alice");
+    expect(loadLatestContinuity).toHaveBeenCalledWith("alice", 7 * 24 * 60 * 60 * 1000);
+    expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_CONTINUITY>");
+    expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_RECALL");
+    expect(state.history.map((m) => m.content).join("\n")).toContain("categorizer.py");
+  });
+});
+
 describe("Session isolation — two clients, same user", () => {
   afterEach(() => {
     vi.restoreAllMocks();

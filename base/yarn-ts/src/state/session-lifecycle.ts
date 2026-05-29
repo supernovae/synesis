@@ -195,7 +195,27 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
 
     const hasExplicitConversation = typeof identity.conversationId === "string" && identity.conversationId.trim().length > 0;
     const allowCarryForwardBootstrap =
-      !hasExplicitConversation && config.SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED;
+      !hasExplicitConversation
+      && !identity.forceFreshImplicitSession
+      && config.SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED;
+
+    if (!loaded && identity.forceFreshImplicitSession && config.SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED) {
+      recordSessionEvent(
+        key,
+        identity.userId,
+        identity.orgId,
+        "session_carry_forward_suppressed",
+        "getSessionState",
+        `fresh implicit ${identity.clientKind} start suppressed prior continuity bootstrap`,
+        identity.sessionRequestId,
+        {
+          client_kind: identity.clientKind,
+          fresh_reason: identity.freshImplicitSessionReason || "fresh_transcript",
+          continuity_enabled: config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED,
+          cross_conversation_recall_enabled: config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED,
+        },
+      );
+    }
 
     if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED && allowCarryForwardBootstrap) {
       const prevContinuity = await sessionStore.loadContinuity(identity.userId);
