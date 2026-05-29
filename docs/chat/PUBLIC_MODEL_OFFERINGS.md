@@ -38,7 +38,25 @@ Reserved names like `pulse`, `core`, `horizon`, `auto`, internal role ids, and o
 ## Traces
 
 - **Yarn**: trace `model` prefers client-requested id; `trace_context` includes `client_requested_model`, `resolved_backend_model`, and `registry_tier_id`.
-- **Planner**: traces prefer `requested_model`; `trace_context` can include `registry_writer_role`, `resolved_backend_model`, and `client_requested_model`.
+- **Planner**: traces prefer `requested_model`; `trace_context` can include `registry_writer_role`, `resolved_backend_model`, `client_requested_model`, and `architecture_mediation` with the selected mediation mode, architecture profile, chat profile, hygiene score, active-state hash, fact-pin count, evidence-manifest count, and verification warnings.
+
+## Planner architecture mediation
+
+Planner resolves architecture-aware mediation against the writer model selected
+by the offering or role route. This means a stable public offering name can map
+to a DeepSeek, Qwen, Kimi/Moonshot, MiniMax, or full-attention backend while the
+Planner prompt harness adapts context handling for that backend.
+
+Operators can tune behavior at three levels:
+
+- request controls: `x-synesis-context-mediation` or
+  `metadata.synesis.contextMediation`;
+- Prompt Library `model_family` overlays for broad family behavior;
+- Prompt Library `chat_profile` overlays for Open WebUI scenarios such as
+  `roleplay_creative_continuity`, `tutoring_study`, and `rag_grounded_answer`.
+
+See [Planner Architecture Mediation](PLANNER_ARCHITECTURE_MEDIATION.md) for
+the mode contract and model-family defaults.
 
 ## Requirements
 

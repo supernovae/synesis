@@ -91,6 +91,12 @@ This service is the TypeScript planner runtime.
   - `src/context/session-manager.ts` provides per-conversation history, checkpoint summaries, and TTL pruning
   - incoming requests can be enriched with compact `<SESSION_STATE>` blocks for long chats
   - health telemetry now includes session counters (active, checkpointed, history entries)
+- Architecture-aware context mediation:
+  - shared profile/policy code comes from `@synesis/upper-harness`
+  - request controls support `x-synesis-context-mediation` and `metadata.synesis.contextMediation`
+  - normal graph/writer requests can inject `SYNESIS_PLANNER_ACTIVE_STATE` with fact pins, evidence manifest IDs, chat profile, hygiene score, and planner commitments
+  - built-in chat profiles cover general assistant, tutoring/study, long-form advisory, roleplay/creative continuity, and RAG-grounded answers
+  - docs: [`docs/chat/PLANNER_ARCHITECTURE_MEDIATION.md`](../../docs/chat/PLANNER_ARCHITECTURE_MEDIATION.md)
 - Capability lock assertions to prevent regression during migration.
 
 ## Migration invariants

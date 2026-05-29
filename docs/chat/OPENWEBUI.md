@@ -59,6 +59,38 @@ helm upgrade synesis ./charts/synesis -f my-synesis-values.yaml
 oc rollout restart deployment/open-webui -n synesis-webui
 ```
 
+## Model Architecture Mediation
+
+Open WebUI should continue to call **planner-ts**, not model endpoints directly.
+Planner now applies architecture-aware mediation for normal graph/writer chat
+requests so long sessions behave more consistently across DeepSeek, Qwen,
+Kimi/Moonshot, MiniMax, and full-attention models.
+
+Planner can build a compact active-state packet for long chats containing user
+preferences, roleplay canon, tutoring state, prior commitments, evidence IDs,
+and context hygiene signals. This packet is injected only in active mediation
+modes and only on the normal Planner graph/writer path; native OpenAI tool-call
+passthrough remains behavior-compatible.
+
+Per-request controls are available through headers or nested OpenAI metadata:
+
+```json
+{
+  "metadata": {
+    "synesis": {
+      "contextMediation": "adaptive",
+      "architectureProfile": "auto"
+    }
+  }
+}
+```
+
+Use `observe` when validating a new route, `adaptive` as the normal default,
+`safe` for conservative compatibility, `aggressive` for long-context sessions
+that justify bounded verification/repair, and `off` to inspect raw provider
+behavior. See [Planner Architecture Mediation](PLANNER_ARCHITECTURE_MEDIATION.md)
+for the full behavior contract, diagnostics, and eval matrix.
+
 ## Code Formatting
 
 Open WebUI renders code blocks with syntax highlighting out of the box. When Synesis returns code in fenced markdown blocks, the UI displays them with language-specific syntax highlighting, copy-to-clipboard, and line numbers.
