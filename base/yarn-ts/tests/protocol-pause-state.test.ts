@@ -94,4 +94,32 @@ describe("protocol pause state preparation", () => {
     expect(result.chatStateBlock).toContain("<SYNESIS_CHAT_STATE");
     expect(result.fileStateBlock).toBeNull();
   });
+
+  it("uses the most recently updated in-progress task for pause context", () => {
+    const metadata: Record<string, unknown> = {};
+    const ledger = taskLedger();
+    ledger.tasks.push({
+      id: "task-2",
+      title: "Create services/scheduler.py for background health score updates",
+      status: "in_progress",
+      source: "opencode_todowrite",
+      evidence: [],
+      lastUpdatedTurn: 7,
+      createdTurn: 2,
+      confidence: 1,
+    });
+
+    const result = prepareProtocolPauseState({
+      metadata,
+      chatState: chatState(),
+      fileState: fileState(),
+      taskLedger: ledger,
+    });
+
+    expect(result.pauseTaskContext).toMatchObject({
+      current_task: "Create services/scheduler.py for background health score updates",
+      current_task_status: "in_progress",
+      open_task_count: 2,
+    });
+  });
 });

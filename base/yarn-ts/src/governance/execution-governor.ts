@@ -1133,6 +1133,18 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
   return matchesCompletionClaimPattern(assistantText);
 }
 
+function hasOverallCompletionClaimInAssistantText(messages: GovernorInputMessage[]): boolean {
+  const assistantText = messages
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content).toLowerCase())
+    .join("\n");
+  if (!assistantText.trim()) return false;
+  return /\b(all|everything|entire|full|whole)\s+(?:work|task|project|app|application|codebase|implementation|requirements?)\s+(?:is\s+)?(?:complete|done|finished|implemented)\b/.test(assistantText)
+    || /\b(?:project|app|application|codebase|implementation|requirements?)\s+(?:is\s+)?(?:complete|done|finished)\b/.test(assistantText)
+    || /\b(?:all|every)\s+(?:tests?|checks?|todos?|tasks?)\s+(?:pass(?:ed)?|complete|done|finished)\b/.test(assistantText)
+    || /\bready\s+(?:for|to)\s+(?:finalize|handoff|ship|submit|deliver)\b/.test(assistantText);
+}
+
 function hasCompletedVisibleTodoBlock(messages: GovernorInputMessage[]): boolean {
   const latestUserIdx = latestUserRedirectIndex(messages);
   const assistantText = messages
@@ -1361,6 +1373,26 @@ function hasTaskDoneStatusUpdate(events: CommandEvent[]): boolean {
         if (!todo || typeof todo !== "object") continue;
         const status = normalizeString((todo as Record<string, unknown>).status).toLowerCase();
         if (status === "done" || status === "completed") return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasOpenTaskStatusUpdate(events: CommandEvent[]): boolean {
+  for (const e of events) {
+    const tool = normalizeString(e.toolName).toLowerCase();
+    const args = e.argsObject ?? {};
+    if (tool.includes("taskupdate")) {
+      const status = normalizeString(args.status).toLowerCase();
+      if (status === "pending" || status === "in_progress" || status === "in progress" || status === "unknown") return true;
+    }
+    if (tool.includes("todowrite")) {
+      const todos = Array.isArray(args.todos) ? args.todos : [];
+      for (const todo of todos) {
+        if (!todo || typeof todo !== "object") continue;
+        const status = normalizeString((todo as Record<string, unknown>).status).toLowerCase();
+        if (status === "pending" || status === "in_progress" || status === "in progress" || status === "unknown") return true;
       }
     }
   }
@@ -2224,13 +2256,23 @@ export function evaluateExecutionGovernor(
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
   const hasTaskDoneUpdateInScope = hasTaskDoneStatusUpdate(taskStatusScopeEvents);
-  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
-  const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
+  const hasOpenTaskUpdateInScope = hasOpenTaskStatusUpdate(taskStatusScopeEvents);
+  const hasTaskProgressionUpdateInScope = hasTaskDoneUpdateInScope && hasOpenTaskUpdateInScope;
+  const hasOverallCompletionClaim = hasOverallCompletionClaimInAssistantText(turnMessages);
+  const subtaskCompletionProgression =
+    hasTaskProgressionUpdateInScope
+    && !hasOverallCompletionClaim
+    && !visibleTodosComplete;
+  const taskCompletionClaimNeedsClosure =
+    hasCompletionClaim
+    && !subtaskCompletionProgression;
+  const claimButNoUpdate = hasTaskLifecycleTraffic && taskCompletionClaimNeedsClosure && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
+  const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && taskCompletionClaimNeedsClosure && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
-  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized && !visibleTodosComplete)) {
+  if (claimButNoUpdate || taskMentionedButNoUpdate || (taskCompletionClaimNeedsClosure && planNotFinalized && !visibleTodosComplete)) {
     completionClaimNeedsTaskUpdate = true;
   }
-  if (!completionClaimNeedsTaskUpdate && hasCompletionClaim && (taskLedgerOpenCount ?? 0) > 0 && !visibleTodosComplete) {
+  if (!completionClaimNeedsTaskUpdate && taskCompletionClaimNeedsClosure && (taskLedgerOpenCount ?? 0) > 0 && !visibleTodosComplete) {
     completionClaimNeedsTaskUpdate = true;
   }
 

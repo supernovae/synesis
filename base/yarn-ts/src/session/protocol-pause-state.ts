@@ -58,7 +58,12 @@ export function buildGovernorPauseTaskContext(ledger: TaskLedger | null): Govern
   const openTasks = ledger.tasks.filter((task) =>
     task.status === "pending" || task.status === "in_progress" || task.status === "unknown"
   );
-  const currentTask = openTasks.find((task) => task.status === "in_progress") ?? openTasks[0];
+  const currentTask = [...openTasks]
+    .sort((a, b) => {
+      if (a.status === "in_progress" && b.status !== "in_progress") return -1;
+      if (b.status === "in_progress" && a.status !== "in_progress") return 1;
+      return b.lastUpdatedTurn - a.lastUpdatedTurn;
+    })[0];
   if (!currentTask) return undefined;
   const title = currentTask.title.trim();
   const titleLower = title.toLowerCase();

@@ -644,6 +644,73 @@ describe("execution governor", () => {
     expect(out.reason).toBe("completion_claim_requires_task_update");
   });
 
+  it("does not pause subtask completion claims when TodoWrite advances to the next open task", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "todowrite", {
+        todos: [
+          { id: "structure", content: "Create project structure and requirements.txt", status: "completed" },
+          { id: "storage", content: "Create db/sqlite.py and services/storage.py abstraction layer", status: "in_progress" },
+          { id: "scheduler", content: "Create services/scheduler.py for background health score updates", status: "pending" },
+        ],
+      }),
+      toolResult("1", "todos updated"),
+      assistantCall("2", "write", { file_path: "taskpulse/app/db/sqlite.py", content: "sqlite" }),
+      toolResult("2", "Wrote file successfully."),
+      {
+        role: "assistant",
+        content: "The storage layer is complete. Moving on to the scheduler next.",
+      },
+      assistantCall("3", "todowrite", {
+        todos: [
+          { id: "structure", content: "Create project structure and requirements.txt", status: "completed" },
+          { id: "storage", content: "Create db/sqlite.py and services/storage.py abstraction layer", status: "completed" },
+          { id: "scheduler", content: "Create services/scheduler.py for background health score updates", status: "in_progress" },
+        ],
+      }),
+      toolResult("3", "todos updated"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 1,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
+  it("still pauses whole-project completion claims when TodoWrite has open tasks", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "write", { file_path: "taskpulse/app/db/sqlite.py", content: "sqlite" }),
+      toolResult("1", "Wrote file successfully."),
+      {
+        role: "assistant",
+        content: "The TaskPulse application is complete and ready for handoff.",
+      },
+      assistantCall("2", "todowrite", {
+        todos: [
+          { id: "storage", content: "Create db/sqlite.py and services/storage.py abstraction layer", status: "completed" },
+          { id: "scheduler", content: "Create services/scheduler.py for background health score updates", status: "in_progress" },
+        ],
+      }),
+      toolResult("2", "todos updated"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 1,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("completion_claim_requires_task_update");
+  });
+
   it("does not treat file paths in error output as edit evidence", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),
