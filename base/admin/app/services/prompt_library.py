@@ -9,10 +9,19 @@ from ..db.engine import async_session
 from ..db.models import PromptAssignment, PromptProfile
 
 ALLOWED_SERVICES = ("yarn", "planner")
-ALLOWED_TARGET_TYPES = ("default", "tier", "role", "model_family", "node")
+ALLOWED_TARGET_TYPES = ("default", "tier", "role", "model_family", "chat_profile", "node")
 
 # Must match inferModelFamily() in yarn-ts and planner-ts (lowercase slugs for Prompt Library).
 ALLOWED_MODEL_FAMILY_VALUES = frozenset({"generic", "qwen3-coder", "deepseek", "kimi", "minimax", "xiaomi"})
+ALLOWED_CHAT_PROFILE_VALUES = frozenset(
+    {
+        "general_assistant",
+        "tutoring_study",
+        "long_form_advisory",
+        "roleplay_creative_continuity",
+        "rag_grounded_answer",
+    }
+)
 
 YARN_BASE_PROFILE_NAME = "yarn-default-base"
 YARN_QWEN_PROFILE_NAME = "yarn-qwen3-coder-ops"
@@ -149,6 +158,12 @@ def _normalize_assignment_target_value(target_type: str, target_value: str) -> s
             raise ValueError(
                 f"model_family target_value must be one of: {allowed} (use lowercase slugs, e.g. kimi not 'Kimi'); got {target_value!r}"
             )
+        return v_lower
+    if t == "chat_profile":
+        v_lower = v.lower().replace("-", "_").replace(" ", "_")
+        if v_lower not in ALLOWED_CHAT_PROFILE_VALUES:
+            allowed = ", ".join(sorted(ALLOWED_CHAT_PROFILE_VALUES))
+            raise ValueError(f"chat_profile target_value must be one of: {allowed}; got {target_value!r}")
         return v_lower
     return v
 

@@ -1,5 +1,9 @@
 import type { CritiqueItem, DecisionEntry, EvidencePacket } from "../contracts/schemas.js";
 import type { ContextSelectionMetadata } from "../context/context-selector.js";
+import type {
+  PlannerArchitectureMediation,
+  PlannerChatProfile,
+} from "../context/architecture-mediation.js";
 import type { LlmRoute } from "../public-model-catalog.js";
 import type { PromptSnapshot } from "../prompt-registry.js";
 import type { CohesionLockData } from "../retrieval/types.js";
@@ -127,6 +131,10 @@ export interface GraphState {
   requested_response_format?: Record<string, unknown>;
   stream_include_usage?: boolean;
   context_selection?: ContextSelectionMetadata;
+  architecture_mediation?: PlannerArchitectureMediation;
+  planner_chat_profile?: PlannerChatProfile;
+  planner_active_state_header?: string | null;
+  planner_architecture_trace?: Record<string, unknown>;
 
   cynefin_domain?: CynefinDomain;
   domain_profile?: {

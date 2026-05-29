@@ -393,6 +393,10 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   const decompositionBlock = decompositionRules
     ? `\n\nDOMAIN DECOMPOSITION RULES (${activeVertical}):\n${decompositionRules}`
     : "";
+  const architectureStateBlock = [
+    state.architecture_mediation?.systemHint,
+    state.planner_active_state_header,
+  ].filter(Boolean).join("\n\n");
 
   let result: { content: string; usage: LlmUsage };
   try {
@@ -414,11 +418,13 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       "- Do NOT assume specific vendors/providers/technologies the user did not mention — list these as open questions.",
       "- ONLY list things genuinely ambiguous in the prompt, not technology choices you are inserting.",
       `- Target format: ${requestedFormat}.${schemaHint}`,
+      architectureStateBlock,
       taxonomyAppend,
       decompositionBlock,
     ].filter(Boolean).join("\n");
     const composed = composePlannerPrompt(plannerSystemPrompt, {
       tier: state.model_tier,
+      chatProfile: state.planner_chat_profile,
       role: "planner",
       node: "planner",
       model: plannerModel,

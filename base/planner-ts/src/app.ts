@@ -31,6 +31,10 @@ import { loadConfig } from "./config.js";
 import { SessionManager } from "./context/session-manager.js";
 import { selectConversationContext } from "./context/context-selector.js";
 import { createSessionStore } from "./context/session-store.js";
+import {
+  applyPlannerContextHygiene,
+  resolvePlannerArchitectureMediation,
+} from "./context/architecture-mediation.js";
 import { invokeGraph, streamGraph } from "./graph.js";
 import {
   chatCompletionOpenAICompat,
@@ -741,6 +745,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   async function toState(
     requestBody: ParsedChatRequest,
+    requestHeaders: Record<string, unknown>,
     auth: Awaited<ReturnType<typeof resolveAuthContext>>,
     authzTraceId: string,
     policyDecision: PolicyDecision,
@@ -788,15 +793,10 @@ export function buildApp(config: AppConfig): FastifyInstance {
     optimizationCounters.reducedCount += optimized.stats.reducedCount;
     optimizationCounters.reducedCharsTotal += optimized.stats.reducedCharsTotal;
     optimizationCounters.rawCharsTotal += optimized.stats.rawCharsTotal;
-    app.log.info(
-      {
-        authzTraceId,
-        sessionKey,
-        conversationId: requestBody.conversation_id ?? undefined,
-        contextSelection: selectedContext.metadata,
-      },
-      "planner_context_selection_v1",
-    );
+    const optimizedMessages = optimized.messages.map((m) => ({
+      role: m.role,
+      content: m.content ?? "",
+    }));
     const plannerCapabilityHash = crypto
       .createHash("sha256")
       .update(
@@ -882,9 +882,46 @@ export function buildApp(config: AppConfig): FastifyInstance {
       ].join("\n");
     }
     const domainProfile = buildDomainProfile(mergedTaskText);
+    const resolvedWriterModel =
+      tierSettings.resolved_writer_model?.trim()
+      || process.env.SYNESIS_PLANNER_TS_WRITER_MODEL
+      || "synesis-writer";
+    const combinedExtraBody = {
+      ...(tierSettings.writer_generation_params?.extra_body ?? {}),
+      ...(requestGeneration.extra_body ?? {}),
+    };
+    const architectureMediation = resolvePlannerArchitectureMediation({
+      headers: requestHeaders,
+      metadata: requestBody.metadata,
+      extraBody: Object.keys(combinedExtraBody).length > 0 ? combinedExtraBody : requestBody.extra_body,
+      requestedModel: tierSettings.requestedModel || requestBody.model,
+      writerModel: resolvedWriterModel,
+      provider: tierSettings.resolved_writer_route?.provider,
+      family: plannerMatrixFamily,
+      messages: optimizedMessages,
+      taskDescription: mergedTaskText,
+    });
+    const hygiene = applyPlannerContextHygiene(optimizedMessages, architectureMediation.policy);
+    const mediatedMessages = hygiene.messages;
+    app.log.info(
+      {
+        authzTraceId,
+        sessionKey,
+        conversationId: requestBody.conversation_id ?? undefined,
+        contextSelection: selectedContext.metadata,
+        contextMediation: {
+          mode: architectureMediation.policy.mediationMode,
+          profile: architectureMediation.profile.modelId,
+          chatProfile: architectureMediation.chatProfile,
+          hygieneScore: architectureMediation.artifacts.hygieneReport.hygieneScore,
+          removedMessages: hygiene.removedCount,
+        },
+      },
+      "planner_context_selection_v1",
+    );
 
     const baseState: GraphState = {
-      messages: optimized.messages.map((m) => ({ role: m.role, content: m.content ?? "" })),
+      messages: mediatedMessages.map((m) => ({ role: m.role, content: m.content ?? "" })),
       user_id: auth.userEmail || auth.userId,
       org_id: auth.orgId,
       tenant_ids: auth.tenantIds,
@@ -939,6 +976,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
       requested_response_format: requestBody.response_format,
       stream_include_usage: requestBody.stream_options?.include_usage,
       context_selection: selectedContext.metadata,
+      architecture_mediation: architectureMediation,
+      planner_chat_profile: architectureMediation.chatProfile,
+      planner_active_state_header: architectureMediation.activeStateHeader,
+      planner_architecture_trace: {
+        ...architectureMediation.trace,
+        hygiene_removed_messages: hygiene.removedCount,
+      },
       domain_profile: domainProfile,
       injection_detected: injectionDetected,
       injection_scan_result: injectionScanResult,
@@ -1936,6 +1980,9 @@ export function buildApp(config: AppConfig): FastifyInstance {
       ctx.resolved_backend_model = state.resolved_writer_model;
       ctx.client_requested_model = state.requested_model;
     }
+    if (state.planner_architecture_trace) {
+      ctx.architecture_mediation = state.planner_architecture_trace;
+    }
     return ctx;
   }
 
@@ -2241,6 +2288,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
       const initialState = await toState(
         effectiveBody,
+        request.headers as Record<string, unknown>,
         auth,
         authzTraceId,
         policyDecision,

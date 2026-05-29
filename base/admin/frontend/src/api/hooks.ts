@@ -313,7 +313,7 @@ export function useUpsertPromptAssignment() {
   return useMutation({
     mutationFn: (data: {
       service: "yarn" | "planner";
-      target_type: "default" | "tier" | "role" | "model_family" | "node";
+      target_type: "default" | "tier" | "role" | "model_family" | "chat_profile" | "node";
       target_value: string;
       profile_id: number;
       enabled?: boolean;

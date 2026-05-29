@@ -27,6 +27,7 @@ import {
 import { getWorkerPersonaBlock } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 import { composePlannerPrompt } from "../prompt-composer.js";
+import { plannerChatProfilePrompt } from "../context/architecture-mediation.js";
 import { enforceMermaidHygiene } from "../security/mermaid-guard.js";
 import { isMetadataTagsOnlyJson } from "./writer-metadata-guard.js";
 
@@ -235,6 +236,15 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
       "Do not include markdown fences, prose outside JSON, or trailing commentary.",
     );
   }
+  if (state.architecture_mediation?.systemHint) {
+    systemParts.push(state.architecture_mediation.systemHint);
+  }
+  if (state.planner_chat_profile) {
+    systemParts.push(plannerChatProfilePrompt(state.planner_chat_profile));
+  }
+  if (state.planner_active_state_header) {
+    systemParts.push(state.planner_active_state_header);
+  }
   if (assumptionBlock) systemParts.push(assumptionBlock);
 
   // --- Dynamic taxonomy suffix (prefix-cache: static above, dynamic below) ---
@@ -293,6 +303,7 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     || "synesis-writer";
   const composedWriterSystem = composePlannerPrompt(systemParts.join(" "), {
     tier: state.model_tier,
+    chatProfile: state.planner_chat_profile,
     role: "writer",
     node: "writer",
     model: writerModel,

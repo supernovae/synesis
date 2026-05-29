@@ -12,7 +12,7 @@ function inferModelFamily(model: string): string {
 
 export function composePlannerPrompt(
   basePrompt: string,
-  ctx: { tier?: string; role?: string; node?: string; model?: string },
+  ctx: { tier?: string; role?: string; node?: string; model?: string; chatProfile?: string },
   snapshot?: PromptSnapshot | null,
 ): { content: string; profileIds: number[]; profileHashes: string[] } {
   if (!snapshot || !Array.isArray(snapshot.profiles) || !Array.isArray(snapshot.assignments)) {
@@ -24,6 +24,7 @@ export function composePlannerPrompt(
     ["default", "*"],
     ["tier", ctx.tier],
     ["model_family", modelFamily],
+    ["chat_profile", ctx.chatProfile],
     ["role", ctx.role],
     ["node", ctx.node],
   ];

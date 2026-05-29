@@ -12,9 +12,17 @@ import {
 } from "../../api/hooks";
 
 type Service = "yarn" | "planner";
-type TargetType = "default" | "tier" | "role" | "model_family" | "node";
+type TargetType = "default" | "tier" | "role" | "model_family" | "chat_profile" | "node";
 
-const TARGET_TYPE_OPTIONS: TargetType[] = ["default", "tier", "role", "model_family", "node"];
+const TARGET_TYPE_OPTIONS: TargetType[] = ["default", "tier", "role", "model_family", "chat_profile", "node"];
+const CHAT_PROFILE_OPTIONS = [
+  { value: "general_assistant", label: "general assistant" },
+  { value: "tutoring_study", label: "tutoring/study" },
+  { value: "long_form_advisory", label: "long-form advisory" },
+  { value: "roleplay_creative_continuity", label: "roleplay/creative continuity" },
+  { value: "rag_grounded_answer", label: "RAG-grounded answer" },
+] as const;
+const CHAT_PROFILE_VALUE_SET: Set<string> = new Set(CHAT_PROFILE_OPTIONS.map((o) => o.value));
 
 function serviceHeadingLabel(s: Service): string {
   return s === "yarn" ? "Coder (yarn-ts)" : "Chat (planner-ts)";
@@ -110,6 +118,8 @@ export default function PromptLibrary() {
     const targetValue =
       assignTargetType === "model_family"
         ? (PROMPT_MODEL_FAMILY_VALUE_SET.has(assignTargetValue) ? assignTargetValue : "generic")
+        : assignTargetType === "chat_profile"
+          ? (CHAT_PROFILE_VALUE_SET.has(assignTargetValue) ? assignTargetValue : "general_assistant")
         : (assignTargetValue || "").trim() || (assignTargetType === "default" ? "*" : "");
     if (!targetValue) return;
     upsertAssignment.mutate({
@@ -241,7 +251,9 @@ export default function PromptLibrary() {
                   setAssignTargetValue("*");
                 } else if (next === "model_family") {
                   setAssignTargetValue("generic");
-                } else if (prev === "model_family") {
+                } else if (next === "chat_profile") {
+                  setAssignTargetValue("general_assistant");
+                } else if (prev === "model_family" || prev === "chat_profile") {
                   if (next === "tier") setAssignTargetValue("synesis-core");
                   else if (next === "role") setAssignTargetValue("coder-core");
                   else if (next === "node") setAssignTargetValue("");
@@ -261,6 +273,19 @@ export default function PromptLibrary() {
                 title="Must match yarn-ts / planner-ts inferModelFamily() slugs"
               >
                 {PROMPT_MODEL_FAMILY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : assignTargetType === "chat_profile" ? (
+              <select
+                value={CHAT_PROFILE_VALUE_SET.has(assignTargetValue) ? assignTargetValue : "general_assistant"}
+                onChange={(e) => setAssignTargetValue(e.target.value)}
+                className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                title="Planner chat profile overlay target"
+              >
+                {CHAT_PROFILE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

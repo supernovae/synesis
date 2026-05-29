@@ -1056,7 +1056,7 @@ class PromptProfile(Base):
 
 
 class PromptAssignment(Base):
-    """Profile assignment by service + selector (default/tier/role/model_family/node)."""
+    """Profile assignment by service + selector (default/tier/role/model_family/chat_profile/node)."""
 
     __tablename__ = "prompt_assignments"
 

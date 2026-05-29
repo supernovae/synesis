@@ -27,6 +27,7 @@ import { SpanCollector } from "./tracing/span-collector.js";
 import { loadConfig } from "./config.js";
 import { budgetSpanMetadata } from "./budgets.js";
 import { maybePublishKnowledgeGap } from "./knowledge-backlog.js";
+import { refreshPlannerArchitectureMediation } from "./context/architecture-mediation.js";
 
 let _retrievalClient: RetrievalClient | undefined;
 
@@ -111,6 +112,45 @@ function scrubInternalScaffolding(output: string): string {
     }
   }
   return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function renderEvidenceMediationBlock(state: GraphState): string {
+  const packets = state.evidence_packets ?? [];
+  if (packets.length === 0) return "";
+  const lines: string[] = [];
+  for (const packet of packets.slice(0, 4)) {
+    lines.push(`Query: ${packet.query}`);
+    if (packet.summary) lines.push(`Summary: ${packet.summary}`);
+    for (const source of packet.sources.slice(0, 6)) {
+      lines.push(`Source: ${source.uri}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function refreshArchitectureStateForWriter(state: GraphState): GraphState {
+  const refreshed = refreshPlannerArchitectureMediation(state.architecture_mediation, {
+    messages: state.messages ?? [],
+    taskDescription: state.task_description,
+    evidenceBlock: renderEvidenceMediationBlock(state),
+    plannerSignals: {
+      assumptions: state.assumptions,
+      openQuestions: Array.isArray((state.execution_plan ?? {}).open_questions)
+        ? ((state.execution_plan as Record<string, unknown>).open_questions as string[])
+        : undefined,
+      commitments: (state.decision_ledger ?? []).slice(-3).map((entry) => `${entry.category}: ${entry.chosen}`),
+    },
+  });
+  if (!refreshed) return state;
+  return {
+    ...state,
+    architecture_mediation: refreshed,
+    planner_active_state_header: refreshed.activeStateHeader,
+    planner_architecture_trace: {
+      ...refreshed.trace,
+      hygiene_removed_messages: state.planner_architecture_trace?.hygiene_removed_messages,
+    },
+  };
 }
 
 function isJsonOutputRequested(state: GraphState): boolean {
@@ -404,7 +444,8 @@ export async function routerNode(state: GraphState): Promise<GraphState> {
 async function writerNodeCore(state: GraphState): Promise<GraphState> {
   const collector = ensureCollector(state);
   collector.startSpan("writer");
-  const result = await composeWriterDraft(state);
+  const writerState = refreshArchitectureStateForWriter(state);
+  const result = await composeWriterDraft(writerState);
   const fingerprint = fingerprintDraft(result.content);
   const model = state.response_model ?? state.requested_model ?? "unknown";
   const llmCall = usageToLlmCall("writer", model, result.usage, 0);
@@ -422,7 +463,7 @@ async function writerNodeCore(state: GraphState): Promise<GraphState> {
     },
   });
   return ensureForwarded({
-    ...state,
+    ...writerState,
     generated_code: result.content,
     draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
     llm_usage: mergeUsage(state.llm_usage, result.usage),
@@ -436,7 +477,8 @@ async function writerNodeStreamingCore(
 ): Promise<GraphState> {
   const collector = ensureCollector(state);
   collector.startSpan("writer");
-  const result = await composeWriterDraftStream(state, onDelta);
+  const writerState = refreshArchitectureStateForWriter(state);
+  const result = await composeWriterDraftStream(writerState, onDelta);
   const fingerprint = fingerprintDraft(result.content);
   const model = state.response_model ?? state.requested_model ?? "unknown";
   const llmCall = usageToLlmCall("writer", model, result.usage, 0);
@@ -454,7 +496,7 @@ async function writerNodeStreamingCore(
     },
   });
   return ensureForwarded({
-    ...state,
+    ...writerState,
     generated_code: result.content,
     draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
     llm_usage: mergeUsage(state.llm_usage, result.usage),

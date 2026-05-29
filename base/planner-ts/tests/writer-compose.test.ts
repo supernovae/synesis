@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeWriterDraft } from "../src/nodes/writer-compose.js";
+import { buildWriterMessages, composeWriterDraft } from "../src/nodes/writer-compose.js";
 
 describe("composeWriterDraft", () => {
   it("deterministic fallback does not leak internal plan/evidence headers", async () => {
@@ -36,5 +36,19 @@ describe("composeWriterDraft", () => {
     expect(result.content).not.toContain("## Plan");
     expect(result.content).not.toContain("## Evidence");
     expect(result.usage.prompt_tokens).toBe(0);
+  });
+
+  it("injects planner active state into writer system messages", () => {
+    const messages = buildWriterMessages({
+      task_description: "Continue the scene",
+      planner_chat_profile: "roleplay_creative_continuity",
+      planner_active_state_header: "<SYNESIS_PLANNER_ACTIVE_STATE>canon: Aurora</SYNESIS_PLANNER_ACTIVE_STATE>",
+      evidence_packets: [],
+    });
+
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.content).toContain("roleplay/creative continuity");
+    expect(messages[0]?.content).toContain("SYNESIS_PLANNER_ACTIVE_STATE");
+    expect(messages[0]?.content).toContain("Aurora");
   });
 });
