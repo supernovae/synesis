@@ -8,6 +8,8 @@ import {
   claudeMessagesToOpenAI,
   ensureSystemMessagesAtBeginning,
   coalesceLeadingSystemMessages,
+  normalizeSystemMessagesForCachePreservingDispatch,
+  SYNESIS_TRUSTED_CONTEXT_LABEL,
   sanitizeToolCalls,
   openAIMessagesToModelMessages,
   ensureModelMessageContentFormat,
@@ -349,6 +351,50 @@ describe("coalesceLeadingSystemMessages", () => {
   });
 });
 
+describe("normalizeSystemMessagesForCachePreservingDispatch", () => {
+  it("keeps only leading system messages in the stable prefix", () => {
+    const messages = [
+      { role: "system", content: "stable-core" },
+      { role: "developer", content: "stable-developer" },
+      { role: "user", content: "first user turn" },
+      { role: "assistant", content: "assistant response" },
+      { role: "system", content: "<SYNESIS_ACTIVE_STATE>live</SYNESIS_ACTIVE_STATE>" },
+    ];
+
+    const result = normalizeSystemMessagesForCachePreservingDispatch(messages as never);
+
+    expect(result.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(result[0].content).toBe("stable-core\n\nstable-developer");
+    expect(String(result[3].content)).toContain(SYNESIS_TRUSTED_CONTEXT_LABEL);
+    expect(String(result[3].content)).toContain("<SYNESIS_ACTIVE_STATE>live</SYNESIS_ACTIVE_STATE>");
+  });
+
+  it("preserves assistant/tool adjacency when late system context is interleaved", () => {
+    const messages = [
+      { role: "system", content: "stable-core" },
+      {
+        role: "assistant",
+        content: "checking",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "Read", arguments: "{}" } },
+        ],
+      },
+      { role: "system", content: "<SYNESIS_CURRENT_WORK_PACKET>tail</SYNESIS_CURRENT_WORK_PACKET>" },
+      { role: "tool", tool_call_id: "call_1", content: "tool result" },
+      { role: "user", content: "continue" },
+    ];
+
+    const result = normalizeSystemMessagesForCachePreservingDispatch(messages as never);
+
+    const assistantIdx = result.findIndex((m) => m.role === "assistant");
+    expect(result[assistantIdx + 1]?.role).toBe("tool");
+    expect(result[assistantIdx + 1]?.tool_call_id).toBe("call_1");
+    expect(result[assistantIdx + 2]?.role).toBe("user");
+    expect(String(result[assistantIdx + 2]?.content)).toContain(SYNESIS_TRUSTED_CONTEXT_LABEL);
+    expect(result[assistantIdx + 3]?.content).toBe("continue");
+  });
+});
+
 describe("sanitizeToolCalls", () => {
   it("passes through well-formed messages unchanged", () => {
     const msgs = [
@@ -615,4 +661,3 @@ describe("ensureModelMessageContentFormat", () => {
     expect(result[5].content).toEqual(msgs[5].content);
   });
 });
-

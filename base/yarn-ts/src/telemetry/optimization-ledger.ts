@@ -33,6 +33,9 @@ export interface OptimizationCacheDiagnostics {
   messageCount?: number;
   stablePrefixHash?: string;
   stablePrefixBytes?: number;
+  leadingStablePrefixHash?: string;
+  leadingStablePrefixBytes?: number;
+  lateSystemMessageCount?: number;
   toolCount?: number;
   toolSchemaHash?: string;
   toolSchemaBytes?: number;
@@ -40,6 +43,8 @@ export interface OptimizationCacheDiagnostics {
   providerOptionsBytes?: number;
   normalizedTranscriptPrefixHash?: string;
   normalizedTranscriptPrefixBytes?: number;
+  appendOnlyTranscriptPrefixHash?: string;
+  appendOnlyTranscriptPrefixBytes?: number;
   cachePolicyHash?: string;
   cachePolicyBytes?: number;
   modelProviderResolutionHash?: string;

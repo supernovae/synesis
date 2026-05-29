@@ -24,6 +24,7 @@ import {
   openAIMessagesToModelMessages,
   ensureSystemMessagesAtBeginning,
   coalesceLeadingSystemMessages,
+  normalizeSystemMessagesForCachePreservingDispatch,
   sanitizeToolCalls,
 } from "../tool-mapping.js";
 
@@ -179,14 +180,15 @@ export function createProviderRequestSupport(input: ProviderRequestSupportInput)
   function runOpenAIRequest(request: OpenAIChatCompletionRequest): ResolveResult {
     try {
       const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER, dashScopeCacheOpts);
-      const systemOrdered = ensureSystemMessagesAtBeginning(request.messages as never);
-      const systemCoalesced = coalesceLeadingSystemMessages(systemOrdered as never);
-      const sanitized = sanitizeToolCalls(systemCoalesced as never);
+      const systemNormalized = config.SYNESIS_YARN_CACHE_PRESERVING_SYSTEM_CONTEXT_ENABLED
+        ? normalizeSystemMessagesForCachePreservingDispatch(request.messages as never)
+        : coalesceLeadingSystemMessages(ensureSystemMessagesAtBeginning(request.messages as never) as never);
+      const sanitized = sanitizeToolCalls(systemNormalized as never);
       let toolCallsSanitized = false;
       try {
-        toolCallsSanitized = JSON.stringify(systemCoalesced) !== JSON.stringify(sanitized);
+        toolCallsSanitized = JSON.stringify(systemNormalized) !== JSON.stringify(sanitized);
       } catch {
-        toolCallsSanitized = systemCoalesced.length !== sanitized.length;
+        toolCallsSanitized = systemNormalized.length !== sanitized.length;
       }
       const messages = openAIMessagesToModelMessages(sanitized);
       return {
@@ -194,7 +196,7 @@ export function createProviderRequestSupport(input: ProviderRequestSupportInput)
         resolved,
         messages,
         transforms: {
-          systemMessagesReordered: systemOrdered !== (request.messages as never),
+          systemMessagesReordered: systemNormalized !== (request.messages as never),
           toolCallsSanitized,
           messageCountDelta: sanitized.length - ((request.messages as unknown[])?.length ?? 0),
         },

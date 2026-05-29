@@ -1,6 +1,15 @@
 import { jsonSchema } from "ai";
 import type { ToolSet, Tool, ModelMessage } from "ai";
 import { sortObjectKeys, stableJsonStringify } from "./compat/sorted-tools.js";
+import {
+  SYNESIS_TRUSTED_CONTEXT_CONTRACT,
+  SYNESIS_TRUSTED_CONTEXT_LABEL,
+} from "./context/trusted-context-contract.js";
+
+export {
+  SYNESIS_TRUSTED_CONTEXT_CONTRACT,
+  SYNESIS_TRUSTED_CONTEXT_LABEL,
+};
 
 interface OpenAIChatMessage {
   role: string;
@@ -71,6 +80,26 @@ function extractAssistantText(content: unknown): string {
   return "";
 }
 
+function isSystemLikeMessage(message: OpenAIChatMessage): boolean {
+  return message.role === "system" || message.role === "developer";
+}
+
+function trustedContextMessage(message: OpenAIChatMessage): OpenAIChatMessage {
+  const text = normalizeContentToText(message.content).trim();
+  const sourceRole = message.role === "developer" ? "developer" : "system";
+  const content = text
+    ? `${SYNESIS_TRUSTED_CONTEXT_LABEL}\nsource_role: ${sourceRole}\n${text}`
+    : `${SYNESIS_TRUSTED_CONTEXT_LABEL}\nsource_role: ${sourceRole}`;
+  return { role: "user", content };
+}
+
+function assistantToolCallIds(message: OpenAIChatMessage): string[] {
+  if (message.role !== "assistant" || !Array.isArray(message.tool_calls)) return [];
+  return message.tool_calls
+    .map((toolCall) => toolCall?.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
 /**
  * Ensure all system messages are grouped at the beginning of the transcript.
  *
@@ -127,6 +156,99 @@ export function coalesceLeadingSystemMessages(messages: OpenAIChatMessage[]): Op
     .join("\n\n");
   out.push({ role: "system", content: merged });
   for (let i = idx; i < messages.length; i++) out.push(messages[i]!);
+  return out;
+}
+
+/**
+ * Normalize OpenAI-compatible messages for cache-preserving dispatch.
+ *
+ * Prefix optimizers intentionally keep volatile runtime context near the tail
+ * so implicit provider KV caches can reuse the stable leading prompt. Some
+ * OpenAI-compatible providers reject mid-transcript system/developer messages;
+ * moving those messages to the front fixes conformance but destroys prefix
+ * cache reuse. This helper coalesces only leading system/developer messages and
+ * converts later system/developer messages into trusted user-role context.
+ *
+ * The conversion preserves assistant/tool adjacency by deferring trusted notes
+ * that appear between an assistant tool call and its corresponding tool result.
+ */
+export function normalizeSystemMessagesForCachePreservingDispatch(
+  messages: OpenAIChatMessage[],
+): OpenAIChatMessage[] {
+  if (messages.length < 2) {
+    return messages.length === 1 && messages[0]?.role === "developer"
+      ? [{ ...messages[0], role: "system" }]
+      : messages;
+  }
+
+  const leadingSystem: OpenAIChatMessage[] = [];
+  let firstNonSystemIdx = 0;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i]!;
+    if (!isSystemLikeMessage(message)) break;
+    leadingSystem.push(message);
+    firstNonSystemIdx = i + 1;
+  }
+
+  let needsWork = leadingSystem.length > 1 || leadingSystem.some((message) => message.role === "developer");
+  if (!needsWork) {
+    for (let i = firstNonSystemIdx; i < messages.length; i += 1) {
+      if (isSystemLikeMessage(messages[i]!)) {
+        needsWork = true;
+        break;
+      }
+    }
+  }
+  if (!needsWork) return messages;
+
+  const out: OpenAIChatMessage[] = [];
+  if (leadingSystem.length > 0) {
+    const merged = leadingSystem
+      .map((message) => normalizeContentToText(message.content))
+      .filter((text) => text.trim().length > 0)
+      .join("\n\n");
+    out.push({ ...leadingSystem[0]!, role: "system", content: merged });
+  }
+
+  const pendingToolCallIds = new Set<string>();
+  const deferredTrustedContext: OpenAIChatMessage[] = [];
+  const flushDeferredTrustedContext = () => {
+    while (deferredTrustedContext.length > 0) {
+      out.push(deferredTrustedContext.shift()!);
+    }
+  };
+
+  for (let i = firstNonSystemIdx; i < messages.length; i += 1) {
+    const message = messages[i]!;
+    if (isSystemLikeMessage(message)) {
+      const trusted = trustedContextMessage(message);
+      if (pendingToolCallIds.size > 0) {
+        deferredTrustedContext.push(trusted);
+      } else {
+        out.push(trusted);
+      }
+      continue;
+    }
+
+    if (message.role !== "tool" && pendingToolCallIds.size > 0) {
+      pendingToolCallIds.clear();
+      flushDeferredTrustedContext();
+    }
+
+    out.push(message);
+
+    if (message.role === "assistant") {
+      for (const id of assistantToolCallIds(message)) pendingToolCallIds.add(id);
+      continue;
+    }
+
+    if (message.role === "tool") {
+      if (message.tool_call_id) pendingToolCallIds.delete(message.tool_call_id);
+      if (pendingToolCallIds.size === 0) flushDeferredTrustedContext();
+    }
+  }
+
+  flushDeferredTrustedContext();
   return out;
 }
 

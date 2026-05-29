@@ -8,9 +8,11 @@ import {
   claudeToolsToSDK,
   ensureSystemMessagesAtBeginning,
   mapToolChoice,
+  normalizeSystemMessagesForCachePreservingDispatch,
   openAIMessagesToModelMessages,
   openAIToolsToSDK,
   sanitizeToolCalls,
+  SYNESIS_TRUSTED_CONTEXT_LABEL,
 } from "../src/tool-mapping.js";
 import { ClientAdapterPacks } from "../src/adapters/client-adapter-packs.js";
 
@@ -220,6 +222,40 @@ describe("client payload conformance fixtures", () => {
     // Still convertible to SDK model messages used by request dispatch.
     const modelMessages = openAIMessagesToModelMessages(sanitized as never);
     expect(modelMessages.length).toBeGreaterThan(0);
+  });
+
+  it("normalizes optimized transcripts for cache-preserving dispatch", () => {
+    const optimizedLikeMessages = [
+      { role: "system", content: "stable-core" },
+      { role: "user", content: "Create the project." },
+      {
+        role: "assistant",
+        content: "running tool",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "Read", arguments: "{\"file_path\":\"src/index.ts\"}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "file contents" },
+      { role: "system", content: "<WORKING_FRAME>goal=implement feature x</WORKING_FRAME>" },
+      { role: "system", content: "<SESSION_EXECUTION_CONTEXT>cwd=/repo</SESSION_EXECUTION_CONTEXT>" },
+    ];
+
+    const normalized = sanitizeToolCalls(
+      normalizeSystemMessagesForCachePreservingDispatch(optimizedLikeMessages as never) as never,
+    );
+
+    assertStrictSystemFirst(normalized);
+    expect(normalized[0]?.content).toBe("stable-core");
+    const trustedContext = normalized.filter((message) => message.role === "user")
+      .map((message) => String(message.content))
+      .filter((content) => content.includes(SYNESIS_TRUSTED_CONTEXT_LABEL));
+    expect(trustedContext).toHaveLength(2);
+    expect(trustedContext.join("\n")).toContain("<WORKING_FRAME>goal=implement feature x</WORKING_FRAME>");
+    expect(trustedContext.join("\n")).toContain("<SESSION_EXECUTION_CONTEXT>cwd=/repo</SESSION_EXECUTION_CONTEXT>");
   });
 
   it("preserves user-authored steering when policy guidance is appended", () => {

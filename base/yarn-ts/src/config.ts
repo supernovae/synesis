@@ -258,6 +258,10 @@ const EnvSchema = z.object({
   SYNESIS_YARN_CACHE_POLICY_RETRY_RISK_STAGNANT_CYCLES: z.coerce.number().default(2),
   SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_HOURS: z.coerce.number().default(24),
   SYNESIS_YARN_CACHE_POLICY_PROVIDER_WINDOW_MIN_REQUESTS: z.coerce.number().default(8),
+  SYNESIS_YARN_CACHE_PRESERVING_SYSTEM_CONTEXT_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_YARN_CACHE_DEBUG_TRACE: z
     .enum(["off", "hashed"])
     .default("off"),

@@ -20,6 +20,7 @@ export function resolveEndpointCapabilityId(baseUrl: string): EndpointCapability
   ) return "dashscope";
   if (host === "openrouter.ai" || host.endsWith(".openrouter.ai")) return "openrouter";
   if ((host === "kimi.com" || host.endsWith(".kimi.com")) && path.includes("/coding")) return "kimi_coding";
+  if (host === "deepseek.com" || host.endsWith(".deepseek.com")) return "deepseek";
   if (
     host.includes("vllm")
     || host === "localhost"

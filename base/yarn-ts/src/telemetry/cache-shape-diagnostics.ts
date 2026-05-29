@@ -84,6 +84,20 @@ function normalizedTranscriptPrefixMessages(messages: CacheShapeMessage[]): Cach
   return messages.slice(0, lastUserIndex);
 }
 
+function countLateSystemMessages(messages: CacheShapeMessage[]): number {
+  let sawNonSystem = false;
+  let late = 0;
+  for (const message of messages) {
+    const role = String(message.role ?? "");
+    if (role === "system" || role === "developer") {
+      if (sawNonSystem) late += 1;
+    } else {
+      sawNonSystem = true;
+    }
+  }
+  return late;
+}
+
 function nonNegativeInt(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
@@ -96,17 +110,26 @@ export function buildCacheShapeDiagnostics(
   const stablePrefix = stablePrefixMessages(input.messages);
   const transcriptPrefix = input.normalizedTranscriptPrefixMessages
     ?? normalizedTranscriptPrefixMessages(input.messages);
+  const stablePrefixHash = hashStable(stablePrefix);
+  const stablePrefixBytes = byteLengthStable(stablePrefix);
+  const transcriptPrefixHash = transcriptPrefix.length > 0 ? hashStable(transcriptPrefix) : "0:empty";
+  const transcriptPrefixBytes = transcriptPrefix.length > 0 ? byteLengthStable(transcriptPrefix) : 0;
   return {
     messageCount: input.messages.length,
-    stablePrefixHash: hashStable(stablePrefix),
-    stablePrefixBytes: byteLengthStable(stablePrefix),
+    stablePrefixHash,
+    stablePrefixBytes,
+    leadingStablePrefixHash: stablePrefixHash,
+    leadingStablePrefixBytes: stablePrefixBytes,
+    lateSystemMessageCount: countLateSystemMessages(input.messages),
     toolCount: tools.length,
     toolSchemaHash: tools.length > 0 ? hashStable(tools) : "0:empty",
     toolSchemaBytes: tools.length > 0 ? byteLengthStable(tools) : 0,
     providerOptionsHash: input.providerOptions ? hashStable(input.providerOptions) : "0:empty",
     providerOptionsBytes: input.providerOptions ? byteLengthStable(input.providerOptions) : 0,
-    normalizedTranscriptPrefixHash: transcriptPrefix.length > 0 ? hashStable(transcriptPrefix) : "0:empty",
-    normalizedTranscriptPrefixBytes: transcriptPrefix.length > 0 ? byteLengthStable(transcriptPrefix) : 0,
+    normalizedTranscriptPrefixHash: transcriptPrefixHash,
+    normalizedTranscriptPrefixBytes: transcriptPrefixBytes,
+    appendOnlyTranscriptPrefixHash: transcriptPrefixHash,
+    appendOnlyTranscriptPrefixBytes: transcriptPrefixBytes,
     cachePolicyHash: input.cachePolicy ? hashStable(input.cachePolicy) : "0:empty",
     cachePolicyBytes: input.cachePolicy ? byteLengthStable(input.cachePolicy) : 0,
     modelProviderResolutionHash: input.modelProviderResolution ? hashStable(input.modelProviderResolution) : "0:empty",
@@ -142,6 +165,15 @@ export function cacheShapeDiagnosticFields(
   if (diagnostics.messageCount !== undefined) fields.cacheShapeMessageCount = diagnostics.messageCount;
   if (diagnostics.stablePrefixHash !== undefined) fields.cacheShapeStablePrefixHash = diagnostics.stablePrefixHash;
   if (diagnostics.stablePrefixBytes !== undefined) fields.cacheShapeStablePrefixBytes = diagnostics.stablePrefixBytes;
+  if (diagnostics.leadingStablePrefixHash !== undefined) {
+    fields.cacheShapeLeadingStablePrefixHash = diagnostics.leadingStablePrefixHash;
+  }
+  if (diagnostics.leadingStablePrefixBytes !== undefined) {
+    fields.cacheShapeLeadingStablePrefixBytes = diagnostics.leadingStablePrefixBytes;
+  }
+  if (diagnostics.lateSystemMessageCount !== undefined) {
+    fields.cacheShapeLateSystemMessageCount = diagnostics.lateSystemMessageCount;
+  }
   if (diagnostics.toolCount !== undefined) fields.cacheShapeToolCount = diagnostics.toolCount;
   if (diagnostics.toolSchemaHash !== undefined) fields.cacheShapeToolSchemaHash = diagnostics.toolSchemaHash;
   if (diagnostics.toolSchemaBytes !== undefined) fields.cacheShapeToolSchemaBytes = diagnostics.toolSchemaBytes;
@@ -152,6 +184,12 @@ export function cacheShapeDiagnosticFields(
   }
   if (diagnostics.normalizedTranscriptPrefixBytes !== undefined) {
     fields.cacheShapeNormalizedTranscriptPrefixBytes = diagnostics.normalizedTranscriptPrefixBytes;
+  }
+  if (diagnostics.appendOnlyTranscriptPrefixHash !== undefined) {
+    fields.cacheShapeAppendOnlyTranscriptPrefixHash = diagnostics.appendOnlyTranscriptPrefixHash;
+  }
+  if (diagnostics.appendOnlyTranscriptPrefixBytes !== undefined) {
+    fields.cacheShapeAppendOnlyTranscriptPrefixBytes = diagnostics.appendOnlyTranscriptPrefixBytes;
   }
   if (diagnostics.cachePolicyHash !== undefined) fields.cacheShapeCachePolicyHash = diagnostics.cachePolicyHash;
   if (diagnostics.cachePolicyBytes !== undefined) fields.cacheShapeCachePolicyBytes = diagnostics.cachePolicyBytes;

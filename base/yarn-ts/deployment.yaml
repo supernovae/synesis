@@ -181,6 +181,8 @@ spec:
             - name: SYNESIS_YARN_TOOL_PREFIX_CACHE_MAX_ENTRY_BYTES
               value: "262144"
             # ── KV-cache optimization pipeline ──
+            - name: SYNESIS_YARN_CACHE_PRESERVING_SYSTEM_CONTEXT_ENABLED
+              value: "true"
             - name: SYNESIS_YARN_RESPONSE_DEDUPE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED

@@ -10,6 +10,7 @@ const kimiCoding = createKimiCodingEndpointAdapter();
 const generic = createGenericEndpointAdapter("generic", "generic");
 const openrouter = createGenericEndpointAdapter("openrouter", "openrouter");
 const vllm = createGenericEndpointAdapter("vllm", "vllm");
+const deepseek = createGenericEndpointAdapter("deepseek", "deepseek");
 const dashscopeDefault = createDashScopeEndpointAdapter({ mode: "off", canaryPct: 0, maxMarkers: 3 });
 
 const byId: Record<EndpointCapabilityId, EndpointTransportAdapter> = {
@@ -19,6 +20,7 @@ const byId: Record<EndpointCapabilityId, EndpointTransportAdapter> = {
   fireworks,
   kimi_coding: kimiCoding,
   dashscope: dashscopeDefault,
+  deepseek,
 };
 
 export function getEndpointTransportAdapter(

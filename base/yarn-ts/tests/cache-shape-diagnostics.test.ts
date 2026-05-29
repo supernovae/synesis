@@ -37,9 +37,12 @@ describe("buildCacheShapeDiagnostics", () => {
       toolCount: 1,
     });
     expect(diagnostics.stablePrefixBytes).toBeGreaterThan(0);
+    expect(diagnostics.leadingStablePrefixBytes).toBe(diagnostics.stablePrefixBytes);
+    expect(diagnostics.lateSystemMessageCount).toBe(0);
     expect(diagnostics.toolSchemaBytes).toBeGreaterThan(0);
     expect(diagnostics.providerOptionsBytes).toBeGreaterThan(0);
     expect(diagnostics.stablePrefixHash).toMatch(/^[a-f0-9]{16}$/);
+    expect(diagnostics.leadingStablePrefixHash).toBe(diagnostics.stablePrefixHash);
     expect(diagnostics.toolSchemaHash).toMatch(/^[a-f0-9]{16}$/);
     expect(diagnostics.providerOptionsHash).toMatch(/^[a-f0-9]{16}$/);
     expect(JSON.stringify(diagnostics)).not.toContain("volatile user text");
@@ -67,6 +70,8 @@ describe("buildCacheShapeDiagnostics", () => {
     expect(buildCacheShapeDiagnostics({ messages: [] })).toMatchObject({
       messageCount: 0,
       stablePrefixBytes: 2,
+      leadingStablePrefixBytes: 2,
+      lateSystemMessageCount: 0,
       toolCount: 0,
       toolSchemaHash: "0:empty",
       toolSchemaBytes: 0,
@@ -75,25 +80,54 @@ describe("buildCacheShapeDiagnostics", () => {
     });
   });
 
+  it("separates leading stable prefix from append-only transcript shape", () => {
+    const diagnostics = buildCacheShapeDiagnostics({
+      messages: [
+        { role: "system", content: "stable-core" },
+        { role: "user", content: "initial task" },
+        { role: "assistant", content: "working" },
+        { role: "system", content: "volatile active state" },
+        { role: "user", content: "latest instruction" },
+      ],
+    });
+
+    expect(diagnostics.lateSystemMessageCount).toBe(1);
+    expect(diagnostics.leadingStablePrefixHash).toBe(diagnostics.stablePrefixHash);
+    expect(diagnostics.leadingStablePrefixBytes).toBe(diagnostics.stablePrefixBytes);
+    expect(diagnostics.appendOnlyTranscriptPrefixHash).toBe(diagnostics.normalizedTranscriptPrefixHash);
+    expect(diagnostics.appendOnlyTranscriptPrefixBytes).toBe(diagnostics.normalizedTranscriptPrefixBytes);
+    expect(diagnostics.appendOnlyTranscriptPrefixBytes).toBeGreaterThan(diagnostics.leadingStablePrefixBytes ?? 0);
+  });
+
   it("maps diagnostics to prefixed request diagnostic fields", () => {
     expect(cacheShapeDiagnosticFields({
       messageCount: 2,
       stablePrefixHash: "prefix",
       stablePrefixBytes: 50,
+      leadingStablePrefixHash: "leading-prefix",
+      leadingStablePrefixBytes: 40,
+      lateSystemMessageCount: 1,
       toolCount: 1,
       toolSchemaHash: "tool",
       toolSchemaBytes: 75,
       providerOptionsHash: "provider",
       providerOptionsBytes: 25,
+      appendOnlyTranscriptPrefixHash: "transcript",
+      appendOnlyTranscriptPrefixBytes: 90,
     })).toEqual({
       cacheShapeMessageCount: 2,
       cacheShapeStablePrefixHash: "prefix",
       cacheShapeStablePrefixBytes: 50,
+      cacheShapeLeadingStablePrefixHash: "leading-prefix",
+      cacheShapeLeadingStablePrefixBytes: 40,
+      cacheShapeLateSystemMessageCount: 1,
       cacheShapeToolCount: 1,
       cacheShapeToolSchemaHash: "tool",
       cacheShapeToolSchemaBytes: 75,
       cacheShapeProviderOptionsHash: "provider",
       cacheShapeProviderOptionsBytes: 25,
+      cacheShapeAppendOnlyTranscriptPrefixHash: "transcript",
+      cacheShapeAppendOnlyTranscriptPrefixBytes: 90,
     });
   });
 

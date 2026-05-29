@@ -21,6 +21,10 @@ describe("resolveEndpointCapabilityId", () => {
   it("classifies Kimi Code (coding) API", () => {
     expect(resolveEndpointCapabilityId("https://api.kimi.com/coding/v1")).toBe("kimi_coding");
   });
+  it("classifies DeepSeek API", () => {
+    expect(resolveEndpointCapabilityId("https://api.deepseek.com/v1")).toBe("deepseek");
+    expect(getEndpointTransportAdapter("deepseek").telemetryProviderTag).toBe("deepseek");
+  });
 });
 
 describe("detectCacheStrategy + Fireworks", () => {

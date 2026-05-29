@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import { SYNESIS_TRUSTED_CONTEXT_CONTRACT } from "./trusted-context-contract.js";
+
 export interface PrefixPartition {
   stablePrefix: string;
   volatileSuffix: string;
@@ -16,7 +18,10 @@ export interface StablePrefixStats {
 }
 
 const BASE_INSTRUCTIONS =
-  "You are an AI coding assistant provided by Synesis.";
+  [
+    "You are an AI coding assistant provided by Synesis.",
+    SYNESIS_TRUSTED_CONTEXT_CONTRACT,
+  ].join("\n");
 
 interface PromptProfileLike {
   id: number;

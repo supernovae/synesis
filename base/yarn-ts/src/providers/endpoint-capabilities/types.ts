@@ -3,7 +3,14 @@
  * resolved per tier (baseUrl), not applied globally across Yarn.
  */
 
-export type EndpointCapabilityId = "generic" | "openrouter" | "vllm" | "fireworks" | "kimi_coding" | "dashscope";
+export type EndpointCapabilityId =
+  | "generic"
+  | "openrouter"
+  | "vllm"
+  | "fireworks"
+  | "kimi_coding"
+  | "dashscope"
+  | "deepseek";
 
 export interface EndpointTransportAdapter {
   readonly id: EndpointCapabilityId;
