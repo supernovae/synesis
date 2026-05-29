@@ -335,7 +335,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "Shell `cd` usage does not change client-native file-tool root semantics; keep file paths relative to the session working directory.",
       "",
       "## Directories (avoid getting lost):",
-      "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times (e.g. `aws-cost-calculator/aws-cost-calculator/...`).",
+      "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times.",
       "If the workspace is empty or you are already at the project root, create files there (`main.go`, `go.mod`) instead of nesting duplicate path segments.",
       workflowDiscipline,
     ].join("\n");

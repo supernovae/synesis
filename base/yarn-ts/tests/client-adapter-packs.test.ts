@@ -78,9 +78,9 @@ describe("appendPathContextToAdapterBlock", () => {
     const out = appendPathContextToAdapterBlock("base", {}, null, "claude-code");
     expect(out).toContain("base");
     expect(out).toContain("<PATH_HYGIENE>");
-    expect(out).toContain("aws-cost-calculator/aws-cost-calculator");
     expect(out).toContain("Do not infer package/module ownership from surrounding platform names");
     expect(out).toContain("human-readable paths");
+    expect(out).not.toContain("aws-cost-calculator");
   });
 
   it("appends PATH_HYGIENE for opencode when no session context", () => {
@@ -96,14 +96,41 @@ describe("appendPathContextToAdapterBlock", () => {
   it("shell_cwd without project_root includes duplicate-segment warning", () => {
     const block = toSessionExecutionContextSystemBlock({
       projectRoot: null,
-      shellCwd: "/Users/me/aws-cost-calculator",
+      shellCwd: "/Users/me/project",
     });
     expect(block).toContain("shell_cwd=");
-    expect(block).toContain("aws-cost-calculator/aws-cost-calculator");
+    expect(block).toContain("repeats the last path segment of shell_cwd");
     expect(block).toContain("human-readable paths");
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
     expect(block).toContain("paths relative to shell_cwd/current working directory");
     expect(block).toContain("do not read guessed application files before they exist");
+    expect(block).not.toContain("aws-cost-calculator");
+  });
+
+  it("keeps generic runtime path prompts free of harness fixture anchors", () => {
+    const outputs = [
+      appendPathContextToAdapterBlock("base", {}, null, "opencode"),
+      appendPathContextToAdapterBlock("base", {}, null, "claude-code"),
+      toSessionExecutionContextSystemBlock({
+        projectRoot: "/workspace",
+        shellCwd: "/workspace",
+      }),
+      toSessionExecutionContextSystemBlock({
+        projectRoot: null,
+        shellCwd: "/workspace",
+      }),
+    ];
+    const combined = outputs.join("\n");
+    for (const forbidden of [
+      "/home/byron/src/test",
+      "src/test/src/test",
+      "TaskPulse",
+      "taskpulse",
+      "categorizer.py",
+      "aws-cost-calculator",
+    ]) {
+      expect(combined).not.toContain(forbidden);
+    }
   });
 
   it("appends SESSION_EXECUTION_CONTEXT when workspace root header set", () => {
@@ -111,7 +138,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("base");
     expect(out).toContain("<SESSION_EXECUTION_CONTEXT>");
     expect(out).toContain("project_root=/Users/me/calc");
-    expect(out).toContain("Language package identity (for example Go `module` path) must come from explicit user input");
+    expect(out).toContain("Language package identity must come from explicit user input");
     expect(out).toContain("human-readable paths");
     expect(out).toContain("<FILE_PATH_RESOLUTION>");
   });

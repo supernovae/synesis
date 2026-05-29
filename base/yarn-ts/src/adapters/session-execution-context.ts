@@ -243,19 +243,19 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
   if (ctx.projectRoot) {
     lines.push(`project_root=${ctx.projectRoot}`);
     lines.push(
-      "Treat project_root as the repository/workspace anchor. Create new work under it; do not nest multiple directories with the same name (e.g. avoid proj/proj/proj).",
+      "Treat project_root as the repository/workspace anchor. Create new work under it; do not nest multiple directories with the same name.",
     );
     lines.push(
-      "If the workspace is empty, add files at the root (e.g. go.mod, main.go) instead of mkdir && cd into repeated path segments.",
+      "If the workspace is empty, add the requested project files at the root instead of mkdir && cd into repeated path segments.",
     );
     lines.push(
       "For client-native Read/Write/Edit/Update tools, use paths relative to shell_cwd/current working directory when it is set; otherwise use project_root. Do not prepend project_root or shell_cwd segments to relative file paths.",
     );
     lines.push(
-      "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
+      "When running build or test commands, remember that they run from the current shell directory. If the project is in a subdirectory, run the command from that subdirectory or use the toolchain's working-directory option.",
     );
     lines.push(
-      "Language package identity (for example Go `module` path) must come from explicit user input or repository metadata in the target project, not from platform/workspace names, hostnames, or headers such as `project_root` / `shell_cwd`.",
+      "Language package identity must come from explicit user input or repository metadata in the target project, not from platform/workspace names, hostnames, or headers such as `project_root` / `shell_cwd`.",
     );
   }
   if (ctx.shellCwd) {
@@ -265,13 +265,13 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     );
     if (!ctx.projectRoot) {
       lines.push(
-        "Without project_root: do not mkdir && cd into a subfolder that repeats the last path segment of shell_cwd (e.g. avoid aws-cost-calculator/aws-cost-calculator). Add go.mod, main.go, etc. at shell_cwd when it is already the project root.",
+        "Without project_root: do not mkdir && cd into a subfolder that repeats the last path segment of shell_cwd. Add the requested project files at shell_cwd when it is already the project root.",
       );
     }
   }
   if (ctx.projectRoot || ctx.shellCwd) {
     lines.push(
-      "When summarizing verification for the user (bullets, final messages), use human-readable paths: repo-relative directories, scoped package globs (e.g. ./cmd/foo/..., ./internal/...), or state the working directory using project_root or shell_cwd when given. Avoid bare `go test ./...` or `go build ./...` lines without anchoring where the command ran.",
+      "When summarizing verification for the user (bullets, final messages), use human-readable paths: repo-relative directories, scoped package globs, or state the working directory using project_root or shell_cwd when given. Avoid bare build/test command lines without anchoring where the command ran.",
     );
   }
   if (ctx.projectRoot || ctx.shellCwd) {
@@ -346,16 +346,16 @@ function pathHygieneFallbackBlock(): string {
     "<PATH_HYGIENE>",
     "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
     "This block contains generic path hygiene rules, not facts about the user's files. Do not treat placeholder names or paths here as files that exist.",
-    "Do not mkdir && cd into a nested folder whose name repeats the current directory (e.g. aws-cost-calculator/aws-cost-calculator). If you are already inside the project folder, create the Go module and sources there.",
+    "Do not mkdir && cd into a nested folder whose name repeats the current directory. If you are already inside the project folder, create the requested files there.",
     "If pwd is already the workspace root, file-tool paths are relative to that cwd. Use the project-relative path observed in the workspace; do not prepend parent directory segments copied from pwd.",
     "If a path error shows a duplicated cwd/project-root segment, strip the repeated segment before retrying. Do not regenerate the project because one path lookup failed.",
     "In a fresh or empty workspace, do not read guessed source, test, or package files before they exist. Confirm the root with `pwd`/`ls`, then create the requested scaffold from that root.",
     "After a path miss, run one narrow location check (pwd plus ls/find for the intended project folder), then create or edit only the missing file at the corrected path.",
     "A failed install/test because requirements.txt or a source file is missing at one path is evidence about that path only; it is not evidence that previous successful writes are invalid.",
     "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
-    "When running commands like `go build ./...` or `go test ./...`, remember that they run from the workspace root. If your module is in a subdirectory, use `go build -C <subdir> ./...` or `cd <subdir> && go build ./...`.",
+    "When running build or test commands, remember that they run from the current shell directory. If the project is in a subdirectory, run the command from that subdirectory or use the toolchain's working-directory option.",
     "Do not infer package/module ownership from surrounding platform names. For new repositories, ask for module/import path (or use a neutral placeholder like `example.com/<name>` until provided).",
-    "When summarizing verification for the user, use human-readable paths (repo-relative dirs, scoped globs like ./cmd/foo/..., or state pwd after inferring it) instead of bare `go test ./...` / `go build ./...` without context.",
+    "When summarizing verification for the user, use human-readable paths (repo-relative dirs, scoped globs, or state pwd after inferring it) instead of bare build/test commands without context.",
     "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
     "</PATH_HYGIENE>",
   ].join("\n");
@@ -373,7 +373,7 @@ function shouldAppendPathHygieneFallback(coderClientHint: string | null | undefi
 
 /**
  * Append client adapter block with optional SESSION_EXECUTION_CONTEXT (unified; replaces legacy WORKSPACE_ROOT-only block).
- * @param coderClientHint optional `x-synesis-client` value; when it names claude-code and no session block was built, appends PATH_HYGIENE fallback.
+ * @param coderClientHint optional `x-synesis-client` value; when it names a coding harness and no session block was built, appends PATH_HYGIENE fallback.
  */
 export function appendPathContextToAdapterBlock(
   adapterBlock: string,

@@ -229,6 +229,27 @@ describe("resolveAdapter with adapterHint", () => {
 describe("Qwen3CoderAdapter", () => {
   const adapter = new Qwen3CoderAdapter();
 
+  it("keeps model-specific tool prompts free of harness fixture anchors", () => {
+    const prompts = [
+      new Qwen3CoderAdapter(false).toolSystemPrompt!(10),
+      new Qwen3CoderAdapter(true).toolSystemPrompt!(10),
+      new KimiAdapter().toolSystemPrompt!(10),
+      new MiniMaxAdapter().toolSystemPrompt!(10),
+      new XiaomiMiMoAdapter().toolSystemPrompt!(10),
+    ].filter(Boolean).join("\n");
+
+    for (const forbidden of [
+      "/home/byron/src/test",
+      "src/test/src/test",
+      "TaskPulse",
+      "taskpulse",
+      "categorizer.py",
+      "aws-cost-calculator",
+    ]) {
+      expect(prompts).not.toContain(forbidden);
+    }
+  });
+
   it("has correct family and capability flags", () => {
     expect(adapter.family).toBe("qwen3-coder");
     expect(adapter.supportsThinking).toBe(false);

@@ -2848,7 +2848,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verification_intent_without_action",
       suggestedNextStep:
-        `You have declared test/verification intent ${verificationIntentStreak} times without running any actual test command. Stop narrating. Your NEXT response must be a tool call: either (A) run exactly ONE targeted test command now (for example: \`go test ./cmd/synesis -run TestRunCompletion -v\`) or (B) make one concrete code edit now. After that single action, use the result to either fix once more or report completion.`,
+        `You have declared test/verification intent ${verificationIntentStreak} times without running any actual test command. Stop narrating. Your NEXT response must be a tool call: either (A) run exactly ONE targeted test command for the changed component or (B) make one concrete code edit now. After that single action, use the result to either fix once more or report completion.`,
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -3137,8 +3137,8 @@ export function evaluateExecutionGovernor(
         ? "verification_green_repeat_block"
         : "verification_already_green",
       suggestedNextStep: shouldPause
-        ? "Verification is already green. Stop broad go test/go build checks now. Make exactly one concrete code edit for the next requested feature, then run one narrow verification command."
-        : "Verification is already passing. Stop re-running broad go vet/go test checks and continue implementing the next requested feature.",
+        ? "Verification is already green. Stop broad test/build checks now. Make exactly one concrete code edit for the next requested feature, then run one narrow verification command."
+        : "Verification is already passing. Stop re-running broad verification checks and continue implementing the next requested feature.",
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -3408,7 +3408,7 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
 const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
   verification_intent_without_action: {
     what: "The assistant said it would run tests or check results several times, but there was no matching test or build command in the recent tool history.",
-    nudge: "Run exactly one narrow command (for example one `go test` for the package you changed), or make a single code edit first—then continue from the real output.",
+    nudge: "Run exactly one narrow test/build command for the changed component, or make a single code edit first—then continue from the real output.",
   },
   verbal_intent_without_action: {
     what: "The assistant kept opening with 'I'll' / 'let me' style phrases without an edit, task update, verification command, or other progress signal in recent history.",
@@ -3813,8 +3813,8 @@ export function buildExecutionGovernorPauseEnvelope(params: {
       concreteNudge,
       "",
       hasCurrentTask
-        ? "Or reply with an action id and arguments, e.g. verify_current_task command=\"python -m pytest -q\""
-        : "Or reply with an action id and arguments, e.g. run_targeted_test command=\"go test ./cmd/synesis -run TestRunCompletion -v\"",
+        ? "Or reply with an action id and arguments, e.g. verify_current_task command=\"<targeted verification command>\""
+        : "Or reply with an action id and arguments, e.g. run_targeted_test command=\"<targeted test command>\"",
     ].join("\n"),
   };
 }

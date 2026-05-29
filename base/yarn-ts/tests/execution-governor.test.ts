@@ -147,7 +147,7 @@ describe("execution governor", () => {
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(false);
     expect(out.matchedRules).toContain("verification_already_green");
-    expect(out.suggestedNextStep).toContain("Stop re-running broad go vet/go test checks");
+    expect(out.suggestedNextStep).toContain("Stop re-running broad verification checks");
   });
 
   it("treats zero-failure summaries as green verification", () => {
@@ -688,7 +688,7 @@ describe("execution governor", () => {
     expect(out.reason).toBe("dependency_install_replay");
     expect(out.suggestedNextStep).toContain("high retry-sensitivity");
     expect(out.suggestedNextStep).toContain("canonical project directory");
-    expect(out.suggestedNextStep).toContain("python -m pytest -q");
+    expect(out.suggestedNextStep).toContain("project-relative path you have actually observed");
   });
 
   it("pauses repeated successful narrow verification and asks for completion report", () => {
@@ -1742,7 +1742,7 @@ describe("execution governor", () => {
     expect(envelope.next_actions.map((a) => a.id)).toContain("apply_one_edit");
     expect(envelope.default_recommended_action).toBe("apply_one_edit");
     expect(envelope.user_facing_explanation).toContain("said it would run tests");
-    expect(envelope.concrete_nudge).toMatch(/one narrow command|one `go test`/i);
+    expect(envelope.concrete_nudge).toContain("one narrow test/build command");
     expect(envelope.evidence_delta).toBe("stalled");
     expect(envelope.active_guards).toContain("false_green_suspected");
     expect(envelope.artifact_context?.stale_files).toContain("src/handler.go");
