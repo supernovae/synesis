@@ -582,6 +582,68 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
 
+  it("does not pause completion claims when the latest visible Todos block is all checked", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "Write", { file_path: "taskpulse/app/main.py", content: "app" }),
+      toolResult("1", "Wrote file successfully."),
+      assistantCall("2", "bash", { command: "python -m pytest taskpulse/tests -v" }),
+      toolResult("2", "31 passed in 0.42s"),
+      {
+        role: "assistant",
+        content: [
+          "All 31 tests passed. The TaskPulse application is complete.",
+          "# Todos",
+          "[\u2713] Create requirements.txt",
+          "[\u2713] Implement FastAPI REST endpoints",
+          "[\u2713] Run tests and verify implementation",
+        ].join("\n"),
+      },
+      assistantCall("3", "bash", { command: "cd taskpulse && find . -type f | sort" }),
+      toolResult("3", "./app/main.py\n./requirements.txt"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 3,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "pass",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.matchedRules).not.toContain("finalize_action_required");
+  });
+
+  it("still pauses completion claims when the latest visible Todos block has open items", () => {
+    const messages = [
+      { role: "user", content: "Build the TaskPulse app and verify it." },
+      assistantCall("1", "Write", { file_path: "taskpulse/app/main.py", content: "app" }),
+      toolResult("1", "Wrote file successfully."),
+      assistantCall("2", "bash", { command: "python -m pytest taskpulse/tests -v" }),
+      toolResult("2", "31 passed in 0.42s"),
+      {
+        role: "assistant",
+        content: [
+          "All 31 tests passed. The TaskPulse application is complete.",
+          "# Todos",
+          "[\u2713] Create requirements.txt",
+          "[ ] Run tests and verify implementation",
+        ].join("\n"),
+      },
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      activePlanStage: "implement",
+      taskLedgerOpenCount: 1,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "pass",
+      },
+    });
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("completion_claim_requires_task_update");
+  });
+
   it("does not treat file paths in error output as edit evidence", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1" }),

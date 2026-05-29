@@ -1118,6 +1118,7 @@ function hasIdempotentEditSignature(sig: string): boolean {
 function matchesCompletionClaimPattern(text: string): boolean {
   return /\bi('| a)?ve?\s+(completed|finished|done|implemented)\b/.test(text)
     || /\b(task|feature|clipboard|implementation|integration)\s+(is\s+)?(complete|done)\b/.test(text)
+    || /\b(project|application|app|codebase)\s+(is\s+)?(complete|done|finished)\b/.test(text)
     || /\balready\s+(done|implemented|complete|integrated|finished)\b/.test(text)
     || /\b(is|was)\s+already\s+(done|implemented|complete|integrated)\b/.test(text)
     || /\bfrom\s+the\s+previous\s+session\b/.test(text);
@@ -1130,6 +1131,44 @@ function hasCompletionClaimInAssistantText(messages: GovernorInputMessage[]): bo
     .join("\n");
   if (!assistantText.trim()) return false;
   return matchesCompletionClaimPattern(assistantText);
+}
+
+function hasCompletedVisibleTodoBlock(messages: GovernorInputMessage[]): boolean {
+  const latestUserIdx = latestUserRedirectIndex(messages);
+  const assistantText = messages
+    .slice(latestUserIdx >= 0 ? latestUserIdx + 1 : 0)
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content))
+    .join("\n");
+  if (!assistantText.includes("# Todos")) return false;
+
+  const blocks: string[] = [];
+  let currentBlock: string[] | null = null;
+  for (const line of assistantText.split("\n")) {
+    if (/^#\s*Todos\b/i.test(line)) {
+      if (currentBlock) blocks.push(currentBlock.join("\n"));
+      currentBlock = [];
+      continue;
+    }
+    if (currentBlock && /^#\s+\S/.test(line)) {
+      blocks.push(currentBlock.join("\n"));
+      currentBlock = null;
+      continue;
+    }
+    if (currentBlock) currentBlock.push(line);
+  }
+  if (currentBlock) blocks.push(currentBlock.join("\n"));
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const todoLines = blocks[i]
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^\[[^\]]+\]\s+\S/.test(line));
+    if (todoLines.length === 0) continue;
+    const allDone = todoLines.every((line) => /^\[(?:x|\u2713|done|completed)\]\s+/i.test(line));
+    const hasOpenMarker = todoLines.some((line) => /^\[(?:\s*|\u2022|-|~|pending|todo|in[_ -]?progress)\]\s+/i.test(line));
+    return allDone && !hasOpenMarker;
+  }
+  return false;
 }
 
 /**
@@ -2179,18 +2218,19 @@ export function evaluateExecutionGovernor(
   // Scope task-completion enforcement to recent traffic to avoid stale historical
   // task operations forcing completion-claim pauses in unrelated later turns.
   const taskStatusScopeEvents = events.slice(Math.max(0, events.length - 24));
+  const visibleTodosComplete = hasCompletedVisibleTodoBlock(turnMessages);
   const hasTaskLifecycleTraffic = taskStatusScopeEvents.some((e) => {
     const tool = normalizeString(e.toolName).toLowerCase();
     return tool.includes("taskcreate") || tool.includes("taskupdate") || tool.includes("todowrite");
   });
   const hasTaskDoneUpdateInScope = hasTaskDoneStatusUpdate(taskStatusScopeEvents);
-  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneUpdateInScope;
-  const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneUpdateInScope;
+  const claimButNoUpdate = hasTaskLifecycleTraffic && hasCompletionClaim && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
+  const taskMentionedButNoUpdate = hasPlanInContext && hasTaskMentionInTurnText(turnMessages) && hasCompletionClaim && !hasTaskDoneUpdateInScope && !visibleTodosComplete;
   const planNotFinalized = activePlanStage !== null && activePlanStage !== "finalize" && activePlanStage !== "done";
-  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized)) {
+  if (claimButNoUpdate || taskMentionedButNoUpdate || (hasCompletionClaim && planNotFinalized && !visibleTodosComplete)) {
     completionClaimNeedsTaskUpdate = true;
   }
-  if (!completionClaimNeedsTaskUpdate && hasCompletionClaim && (taskLedgerOpenCount ?? 0) > 0) {
+  if (!completionClaimNeedsTaskUpdate && hasCompletionClaim && (taskLedgerOpenCount ?? 0) > 0 && !visibleTodosComplete) {
     completionClaimNeedsTaskUpdate = true;
   }
 
@@ -2254,7 +2294,7 @@ export function evaluateExecutionGovernor(
     repeatedAssistantIntroEdges = Math.max(repeatedAssistantIntroEdges, 2);
   }
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
-  const hasFinalizeAction = hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
+  const hasFinalizeAction = visibleTodosComplete || hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
 
   // Read-only investigation intent: based on the LATEST user message only,
   // so a follow-up "implement both" overrides an earlier "scan the repo" prompt.
