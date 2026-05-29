@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { suggestScopedVerificationCommand } from "../verification/test-scope-selector.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
 import type { ChatState } from "./chat-state.js";
@@ -860,6 +861,30 @@ function parseArgsToObject(args: unknown): Record<string, unknown> | null {
     return null;
   }
   return null;
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  const row = value as Record<string, unknown>;
+  return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(",")}}`;
+}
+
+function argsFingerprint(args: Record<string, unknown> | null | undefined): string {
+  if (!args) return "";
+  return createHash("sha256").update(stableSerialize(args)).digest("hex").slice(0, 16);
+}
+
+function identicalToolRepeatKey(event: CommandEvent): string {
+  const command = normalizeString(event.command);
+  if (!command) return "";
+  const lower = command.toLowerCase();
+  if (isEditCommand(lower)) {
+    const fp = argsFingerprint(event.argsObject);
+    return fp ? `${command}#args:${fp}` : command;
+  }
+  return command;
 }
 
 function normalizeResultSignature(content: unknown): string {
@@ -1932,11 +1957,12 @@ export function evaluateExecutionGovernor(
   if (events.length >= 3) {
     const lastEvent = events[events.length - 1];
     const lastCmd = lastEvent.command;
+    const lastRepeatKey = identicalToolRepeatKey(lastEvent);
     const lastIsVerification = isVerificationCommand(lastEvent.toolName, lastCmd)
       || isBroadDiscoveryCommand(lastEvent.toolName, lastCmd);
-    if (!lastIsVerification) {
+    if (!lastIsVerification && lastRepeatKey) {
       for (let i = events.length - 2; i >= 0; i -= 1) {
-        if (events[i].command === lastCmd) {
+        if (identicalToolRepeatKey(events[i]) === lastRepeatKey) {
           identicalToolRepeatCount += 1;
         } else {
           break;

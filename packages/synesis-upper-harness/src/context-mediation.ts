@@ -276,7 +276,7 @@ function buildContextHygieneReport(
 }
 
 function classifyPinSource(text: string, kind: EvidenceManifest["kind"]): CriticalFactPinSource | null {
-  if (kind === "tool_result") return "tool_result";
+  if (kind === "tool_result") return isActionableToolTruth(text) ? "tool_result" : null;
   if (kind === "file_reference") return "file_reference";
   if (/\b(security|sandbox|permission|approval|secret|token|policy)\b/i.test(text)) return "security_policy";
   if (/\b(todo|task|plan|commitment|next_best_action)\b/i.test(text)) return "task_commitment";
@@ -286,6 +286,15 @@ function classifyPinSource(text: string, kind: EvidenceManifest["kind"]): Critic
   if (/\b(schema|json_schema|response_format|tool_choice|strict)\b/i.test(text)) return "schema_obligation";
   if (kind === "policy" || kind === "governance") return "developer_instruction";
   return null;
+}
+
+function isActionableToolTruth(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (/\bfile not found\b|\bno such file\b|\bcannot access\b|\bdirectory not found\b|\bdoes not exist\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(assertionerror|traceback|failed|failure|error|passed|success|wrote|created|updated|deleted|exit\s+code|status\s+code|test|pytest|vitest|go test)\b/.test(normalized);
 }
 
 function splitFactCandidates(text: string): string[] {

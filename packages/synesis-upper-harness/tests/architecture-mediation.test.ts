@@ -77,6 +77,27 @@ describe("architecture mediation", () => {
     expect(profile.attention).toBe("unknown");
   });
 
+  it("does not promote path-miss tool noise into critical fact pins", () => {
+    const profile = resolveModelArchitectureProfile({
+      modelId: "deepseek-v4-pro",
+      modelCapabilityPreset: "deepseek_v4",
+    });
+    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "adaptive");
+    const artifacts = buildContextMediationArtifacts({
+      policy,
+      messages: [
+        { role: "user", content: "Build the TaskPulse project. All endpoints must validate Pydantic models." },
+        { role: "tool", content: "File not found: /home/byron/src/test/src/test/taskpulse/app/main.py" },
+        { role: "tool", content: "AssertionError: Status code 204 must not have a response body" },
+      ],
+    });
+
+    const pinText = artifacts.criticalFactPins.map((pin) => pin.text).join("\n");
+    expect(pinText).toContain("All endpoints must validate Pydantic models.");
+    expect(pinText).toContain("Status code 204 must not have a response body");
+    expect(pinText).not.toContain("File not found");
+  });
+
   it("accepts legacy aliases but resolves to canonical modes", () => {
     expect(resolveArchitectureMediationMode({ configMode: "adapt" })).toBe("adaptive");
     expect(resolveArchitectureMediationMode({ configMode: "strict" })).toBe("aggressive");

@@ -57,6 +57,7 @@ describe("workspace session boundary helpers", () => {
     const state = session({
       chat_state_snapshot: { phase: "implementation" },
       plan_file_path: "PLAN.md",
+      current_work_packet: { hash: "stale" },
       governor_pause_pending: true,
       unrelated: true,
     });
@@ -66,6 +67,7 @@ describe("workspace session boundary helpers", () => {
 
     expect(state.record.metadata.chat_state_snapshot).toBeUndefined();
     expect(state.record.metadata.plan_file_path).toBeUndefined();
+    expect(state.record.metadata.current_work_packet).toBeUndefined();
     expect(state.record.metadata.governor_pause_pending).toBeUndefined();
     expect(state.record.metadata.unrelated).toBe(true);
     expect(hasPersistedWorkspaceState(state, { hasFileSnapshot: true })).toBe(true);

@@ -3368,6 +3368,39 @@ describe("phase-aware rule gating", () => {
     expect(out.reason).toBe("identical_tool_repeat");
   });
 
+  it("does NOT fire identical_tool_repeat for distinct edits to the same file", () => {
+    const messages = [
+      { role: "user", content: "fix the FastAPI request annotations" },
+      assistantCall("e1", "Edit", { file_path: "taskpulse/app/api/tasks.py", old_string: "async def create_task(payload):", new_string: "async def create_task(payload, request):" }),
+      toolResult("e1", "Updated file successfully."),
+      assistantCall("e2", "Edit", { file_path: "taskpulse/app/api/tasks.py", old_string: "async def list_tasks():", new_string: "async def list_tasks(request):" }),
+      toolResult("e2", "Updated file successfully."),
+      assistantCall("e3", "Edit", { file_path: "taskpulse/app/api/tasks.py", old_string: "async def get_task(task_id):", new_string: "async def get_task(task_id, request):" }),
+      toolResult("e3", "Updated file successfully."),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.pause).toBe(false);
+  });
+
+  it("still fires identical_tool_repeat for the exact same edit payload repeated", () => {
+    const edit = { file_path: "taskpulse/app/api/tasks.py", old_string: "async def list_tasks():", new_string: "async def list_tasks(request):" };
+    const messages = [
+      { role: "user", content: "fix the FastAPI request annotations" },
+      assistantCall("e1", "Edit", edit),
+      toolResult("e1", "Updated file successfully."),
+      assistantCall("e2", "Edit", edit),
+      toolResult("e2", "Updated file successfully."),
+      assistantCall("e3", "Edit", edit),
+      toolResult("e3", "Updated file successfully."),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.matchedRules).toContain("identical_tool_repeat");
+    expect(out.pause).toBe(true);
+  });
+
   it("does NOT fire identical_tool_repeat for only 2 identical calls", () => {
     const messages = [
       { role: "user", content: "preview the site" },

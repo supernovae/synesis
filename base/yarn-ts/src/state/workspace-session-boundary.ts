@@ -175,6 +175,7 @@ export function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): voi
     "planner_todo_packet_todos",
     "planner_todo_packet_questions",
     "planner_todo_packet_carrier",
+    "current_work_packet",
     GOVERNOR_PAUSE_CONTEXT_METADATA_KEY,
     GOVERNOR_PAUSE_PENDING_METADATA_KEY,
   ]) {
