@@ -144,7 +144,7 @@ export class McpAuthResolver {
       return this.userFromOidcPrincipal(await this.oidcVerifier.verify(token));
     } catch (err) {
       if (err instanceof OidcAuthError) {
-        throw new Error(`invalid_oidc_token:${err.code}`);
+        throw new Error(`invalid_oidc_token:${err.code}`, { cause: err });
       }
       throw err;
     }

@@ -91,7 +91,7 @@ function cleanList(values: string[] | undefined, fallback: string[] = []): strin
 function decodeJsonSegment<T>(segment: string): T {
   try {
     return JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as T;
-  } catch (err) {
+  } catch (_err) {
     throw new OidcAuthError("malformed_token", "OIDC token contains malformed JSON") as never;
   }
 }
@@ -222,7 +222,7 @@ export class OidcTokenVerifier {
     let response: Response;
     try {
       response = await this.fetchImpl(jwksUrl, { signal: AbortSignal.timeout(5_000) });
-    } catch (err) {
+    } catch (_err) {
       throw new OidcAuthError("jwks_fetch_failed", "Could not fetch OIDC JWKS") as never;
     }
     if (!response.ok) {

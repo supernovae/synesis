@@ -60,7 +60,7 @@ export class AuthResolver {
         return this.authUserFromOidcPrincipal(await this.oidcVerifier.verify(token));
       } catch (err) {
         if (err instanceof OidcAuthError) {
-          throw new Error(`Invalid OIDC token: ${err.code}`);
+          throw new Error(`Invalid OIDC token: ${err.code}`, { cause: err });
         }
         throw err;
       }
