@@ -99,6 +99,7 @@ async function resolvePatAndAuth(
       tenantIds: [],
       role: "service",
       tokenScopes: ["coder"],
+      authMethod: "internal",
     };
     return {
       patUser,
@@ -107,17 +108,19 @@ async function resolvePatAndAuth(
     };
   }
 
-  if (!bearer.startsWith("syn-")) {
+  let user: PatUser | null;
+  if (bearer.startsWith("syn-")) {
+    if (!config.SYNESIS_ADMIN_DB_URL?.trim()) {
+      throw new Error("admin_db_not_configured");
+    }
+    user = await authResolver.resolvePat(bearer);
+    if (!user) {
+      throw new Error("invalid_pat");
+    }
+  } else if (authResolver.oidcEnabled()) {
+    user = await authResolver.resolveOidc(bearer);
+  } else {
     throw new Error("pat_required");
-  }
-
-  if (!config.SYNESIS_ADMIN_DB_URL?.trim()) {
-    throw new Error("admin_db_not_configured");
-  }
-
-  const user = await authResolver.resolvePat(bearer);
-  if (!user) {
-    throw new Error("invalid_pat");
   }
 
   authResolver.requireCoderScope(user);
@@ -211,6 +214,7 @@ const mcpRouteOptions = {
         msg === "internal_token_not_allowed" ||
         msg === "pat_required" ||
         msg === "invalid_pat" ||
+        msg.startsWith("invalid_oidc_token") ||
         msg === "admin_db_not_configured"
       ) {
         mcpAuthFailures++;
@@ -231,6 +235,12 @@ const mcpRouteOptions = {
         return reply.code(401).send({
           error: "unauthorized",
           message: "Synesis PAT required (Bearer syn-...)",
+        });
+      }
+      if (msg.startsWith("invalid_oidc_token")) {
+        return reply.code(401).send({
+          error: "unauthorized",
+          message: "Invalid OIDC bearer token",
         });
       }
       if (msg === "admin_db_not_configured") {

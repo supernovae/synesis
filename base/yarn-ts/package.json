@@ -62,6 +62,7 @@
     "@synesis/context-trust": "*",
     "@synesis/manifest": "*",
     "@synesis/mcp-tools": "*",
+    "@synesis/oidc-auth": "*",
     "@synesis/telemetry": "*",
     "@synesis/upper-harness": "*",
     "ai": "^6.0.191",

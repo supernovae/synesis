@@ -345,6 +345,13 @@ keycloak:
       - https://admin.apps.example.com/*
     adminWebOrigins:
       - https://admin.apps.example.com
+    harnessRedirectUris:
+      - http://127.0.0.1/*
+      - http://localhost/*
+    harnessWebOrigins:
+      - http://127.0.0.1
+      - http://localhost
+    harnessDeviceAuthorizationEnabled: true
   deferredBootstrap:
     # When operators.customResources.create=auto and Helm cannot see the
     # Keycloak CRDs during the first render, this hook waits for OLM and applies
@@ -872,6 +879,14 @@ workloads:
             key: token
       - name: SYNESIS_YARN_KEYCLOAK_ISSUER_URL
         value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
+      - name: SYNESIS_OIDC_ISSUER_URL
+        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
+      - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
+        value: "{{ .Values.keycloak.internalIssuerUrl }}"
+      - name: SYNESIS_OIDC_ALLOWED_CLIENT_IDS
+        value: synesis-harness
+      - name: SYNESIS_OIDC_REQUIRED_ROLES
+        value: synesis-user,synesis-org-admin,synesis-admin
       - name: SYNESIS_YARN_REDUCERS_ENABLED
         value: "true"
       - name: SYNESIS_YARN_REDUCER_DISABLED_FAMILIES
@@ -1156,6 +1171,14 @@ workloads:
             name: synesis-admin-db-url
             key: trace-url
             optional: true
+      - name: SYNESIS_OIDC_ISSUER_URL
+        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
+      - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
+        value: "{{ .Values.keycloak.internalIssuerUrl }}"
+      - name: SYNESIS_OIDC_ALLOWED_CLIENT_IDS
+        value: synesis-harness
+      - name: SYNESIS_OIDC_REQUIRED_ROLES
+        value: synesis-user,synesis-org-admin,synesis-admin
     resources:
       requests:
         cpu: 100m

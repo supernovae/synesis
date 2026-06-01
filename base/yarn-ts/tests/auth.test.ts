@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { AuthResolver } from "../src/auth.js";
 import type { AppConfig } from "../src/config.js";
@@ -40,6 +41,53 @@ function unsignedJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${header}.${body}.`;
+}
+
+const nowSeconds = 1_800_000_000;
+
+function keyPair() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey;
+  jwk.kid = "test-key";
+  jwk.alg = "RS256";
+  jwk.use = "sig";
+  return { privateKey, jwk };
+}
+
+function signedJwt(privateKey: crypto.KeyObject, payload: Record<string, unknown>): string {
+  const encodedHeader = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "test-key" })).toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(`${encodedHeader}.${encodedPayload}`);
+  signer.end();
+  return `${encodedHeader}.${encodedPayload}.${signer.sign(privateKey).toString("base64url")}`;
+}
+
+function validOidcPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    iss: "https://auth.example.com/realms/synesis",
+    sub: "user-123",
+    exp: nowSeconds + 600,
+    azp: "synesis-harness",
+    preferred_username: "pi-user",
+    email: "pi-user@example.com",
+    scope: "openid profile email",
+    realm_access: { roles: ["synesis-user"] },
+    organization: {
+      "org-1": { name: "Org One", roles: ["admin"] },
+    },
+    ...overrides,
+  };
+}
+
+function stubOidcJwks(jwk: JsonWebKey) {
+  vi.stubGlobal("fetch", vi.fn(async (url) => {
+    expect(String(url)).toBe("http://keycloak.internal/realms/synesis/protocol/openid-connect/certs");
+    return new Response(JSON.stringify({ keys: [jwk] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }));
 }
 
 describe("AuthResolver", () => {
@@ -116,6 +164,37 @@ describe("AuthResolver", () => {
       expect(user.orgId).toBe("org1");
       expect(user.authMethod).toBe("pat");
       expect(user.tokenScopes).toEqual(["coder", "model:write"]);
+    });
+
+    it("resolves a valid harness OIDC bearer token", async () => {
+      const { privateKey, jwk } = keyPair();
+      stubOidcJwks(jwk);
+      resolver = new AuthResolver(makeConfig({
+        SYNESIS_YARN_ADMIN_DB_URL: "",
+        SYNESIS_OIDC_ISSUER_URL: "https://auth.example.com/realms/synesis",
+        SYNESIS_OIDC_INTERNAL_ISSUER_URL: "http://keycloak.internal/realms/synesis",
+        SYNESIS_OIDC_ALLOWED_CLIENT_IDS: "synesis-harness",
+        SYNESIS_OIDC_REQUIRED_ROLES: "synesis-user",
+      }));
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
+
+      const user = await resolver.resolve(`Bearer ${signedJwt(privateKey, validOidcPayload())}`);
+
+      expect(user.userId).toBe("user-123");
+      expect(user.orgId).toBe("org-1");
+      expect(user.role).toBe("org_admin");
+      expect(user.authMethod).toBe("oidc");
+      expect(user.tokenScopes).toEqual(["coder:oidc", "openid", "profile", "email"]);
+      nowSpy.mockRestore();
+    });
+
+    it("fails closed for malformed OIDC bearer tokens when OIDC is configured", async () => {
+      resolver = new AuthResolver(makeConfig({
+        SYNESIS_YARN_ADMIN_DB_URL: "",
+        SYNESIS_OIDC_ISSUER_URL: "https://auth.example.com/realms/synesis",
+      }));
+      const token = unsignedJwt({ sub: "test-user-subject" });
+      await expect(resolver.resolve(`Bearer ${token}`)).rejects.toThrow("Invalid OIDC token");
     });
   });
 

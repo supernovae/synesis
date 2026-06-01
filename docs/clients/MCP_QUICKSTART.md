@@ -25,7 +25,7 @@ Set `SYNESIS_TOOLS=all` to enable additional tools: `synesis_classify`,
 ## Prerequisites
 
 1. A running Synesis deployment with the planner backend accessible.
-2. A **Personal Access Token (PAT)** with the `mcp:invoke` scope.
+2. Either a **Personal Access Token (PAT)** with the `mcp:invoke` scope, or a Synesis OIDC access token issued to client `synesis-harness`.
 
 ### Creating a PAT
 
@@ -116,6 +116,22 @@ await server.connect(new StdioServerTransport());
 For managed deployments where a centralized MCP endpoint is preferred,
 point your IDE at the hosted service URL.
 
+Hosted MCP accepts both PATs and OIDC bearer JWTs when the deployment has `SYNESIS_OIDC_ISSUER_URL` configured.
+
+For OIDC-capable harnesses such as Pi:
+
+- Discovery URL: `https://<keycloak-host>/realms/synesis/.well-known/openid-configuration`
+- Client ID: `synesis-harness`
+- Client secret: none
+- Flow: Authorization Code + PKCE (`S256`) or Device Authorization Grant
+- Required role in the token: `synesis-user`, `synesis-org-admin`, or `synesis-admin`
+
+Use the resulting access token as the HTTP bearer token:
+
+```http
+Authorization: Bearer <oidc-access-token>
+```
+
 ### Cursor
 
 ```json
@@ -154,7 +170,7 @@ point your IDE at the hosted service URL.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SYNESIS_URL` | Yes | Base URL of your Synesis planner backend. |
-| `SYNESIS_PAT` | Yes | Personal access token with `mcp:invoke` scope. |
+| `SYNESIS_PAT` | Yes for local stdio | Personal access token with `mcp:invoke` scope. |
 | `SYNESIS_TOOLS` | No | Set to `all` to enable all tools including niche/advanced. |
 
 ---
@@ -172,7 +188,9 @@ backend is not reachable from the MCP server. Verify `SYNESIS_URL` is correct
 and that the planner health endpoint (`/health`) responds.
 
 **"Insufficient scope for MCP access"** (hosted only) — The PAT does not have
-the `mcp:invoke` or `coder` scope. Regenerate it with the correct scope.
+the `mcp:invoke` or `coder` scope, or the OIDC token is missing an accepted Synesis role. Regenerate the PAT with the correct scope or assign `synesis-user` in Keycloak realm `synesis`.
+
+**"Invalid OIDC bearer token"** (hosted only) — The token signature, issuer, client, expiry, or required role failed validation. Confirm the harness is using realm `synesis`, client `synesis-harness`, and the exact issuer configured on hosted MCP.
 
 **Rate limit errors (429)** — The hosted MCP enforces per-route rate limits.
 Wait for the `Retry-After` header duration before retrying.

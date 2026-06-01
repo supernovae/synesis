@@ -14,6 +14,14 @@ Follow this order after Helm has applied Keycloak and the `synesis` realm. The c
 
 The **KeycloakRealmImport** resource (e.g. `synesis-realm-import` in namespace `synesis-auth`) imports realm **`synesis`**. In the Keycloak Admin Console you should see that realm in the realm dropdown. It is **not** the same as the **`master`** realm Keycloak uses for its own administration.
 
+Realm discovery for browser clients, Pi-style harnesses, and other OIDC-capable tools is:
+
+```text
+https://<keycloak-host>/realms/synesis/.well-known/openid-configuration
+```
+
+The discovery document must advertise `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, and `jwks_uri`. When device login is enabled for the harness client, it should also advertise `device_authorization_endpoint`.
+
 ### 2. Sign in as Keycloak’s bootstrap (master) administrator
 
 Use your platform’s documented Keycloak admin credentials (often a Kubernetes **Secret** created by the Keycloak operator on first boot, or a one-time password from install logs). That account lives in the **`master`** realm and is for **operating Keycloak** (users, clients, realms). It is **not** used directly by the Synesis Admin SPA OIDC flow, which targets realm **`synesis`**.
@@ -46,6 +54,7 @@ Synesis uses **Keycloak realm roles**, not arbitrary “groups,” for browser S
 | **Open WebUI** (chat) | **`synesis-user`** or **`synesis-admin`** | Deployment sets `OAUTH_ALLOWED_ROLES` to these values. If Keycloak login works but Open WebUI still rejects the user, open **Users → _user_ → Role mapping** in realm **`synesis`** and assign **`synesis-user`**. |
 | **Open WebUI** (in-app admin features) | **`synesis-admin`** | Matches `OAUTH_ADMIN_ROLES` on the WebUI deployment. |
 | **Synesis Admin** (dashboard / API) | **`synesis-admin`** for full platform admin; lesser roles as mapped in the admin API | Same realm role name as WebUI admin; see step 3 above. |
+| **Agent harness OIDC** (Pi, local CLIs, hosted MCP/Yarn bearer auth) | **`synesis-user`**, **`synesis-org-admin`**, or **`synesis-admin`** | Tokens must be issued by realm **`synesis`** for client **`synesis-harness`**. Synesis validates the token signature through Keycloak JWKS before accepting it. |
 
 **Manually created** users in Keycloak may not receive **`synesis-user`** automatically. Assign it explicitly if they cannot complete Open WebUI OAuth.
 
@@ -85,6 +94,30 @@ Example:
 export SYNESIS_ADMIN_TOKEN='syn-...'
 ./scripts/load-bootstrap.sh -a "https://your-admin-host"
 ```
+
+### Harness OIDC client (`synesis-harness`)
+
+The realm import also creates public client **`synesis-harness`** for non-browser agent harnesses such as Pi, local CLIs, and hosted MCP/Yarn bearer-token auth.
+
+Use these client settings when configuring a harness:
+
+- **Issuer / discovery**: `https://<keycloak-host>/realms/synesis/.well-known/openid-configuration`
+- **Client ID**: `synesis-harness`
+- **Client secret**: none; this is a public client.
+- **Flows**: Authorization Code + PKCE (`S256`) and Device Authorization Grant.
+- **Redirect URIs**: loopback redirects such as `http://127.0.0.1/*` and `http://localhost/*` are allowed by default.
+- **Required token role**: at least one of `synesis-user`, `synesis-org-admin`, or `synesis-admin`.
+
+Yarn and hosted MCP accept these JWTs only when their OIDC issuer env is configured. PATs remain supported and unchanged.
+
+```yaml
+SYNESIS_OIDC_ISSUER_URL: https://<keycloak-host>/realms/synesis
+SYNESIS_OIDC_INTERNAL_ISSUER_URL: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis
+SYNESIS_OIDC_ALLOWED_CLIENT_IDS: synesis-harness
+SYNESIS_OIDC_REQUIRED_ROLES: synesis-user,synesis-org-admin,synesis-admin
+```
+
+The public issuer must match the JWT `iss` claim exactly. The optional internal issuer is used only for server-side JWKS retrieval inside the cluster.
 
 ### 8. Hardening (recommended)
 

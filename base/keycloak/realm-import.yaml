@@ -199,6 +199,29 @@ spec:
         attributes:
           pkce.code.challenge.method: S256
           post.logout.redirect.uris: "https://admin.kybern.dev/* https://synesis-admin.apps.openshiftdemo.dev/*"
+      - clientId: synesis-harness
+        name: "Synesis Harness Login (PKCE + Device)"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        oauth2DeviceAuthorizationGrantEnabled: true
+        directAccessGrantsEnabled: false
+        implicitFlowEnabled: false
+        redirectUris:
+          - "http://127.0.0.1/*"
+          - "http://localhost/*"
+        webOrigins:
+          - "http://127.0.0.1"
+          - "http://localhost"
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+          - synesis-organization
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: "http://127.0.0.1/* http://localhost/*"
       - clientId: synesis-api
         name: "Synesis API (service-to-service)"
         enabled: true

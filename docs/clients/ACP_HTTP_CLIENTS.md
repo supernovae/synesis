@@ -2,13 +2,20 @@
 
 These clients integrate with Synesis **coder** using **HTTPS** and an **API key** (Anthropic-compatible `POST /v1/messages` or OpenAI-compatible `POST /v1/chat/completions`). You do **not** need **`synesis-yarn-acp`** unless you explicitly want an ACP stdio bridge for another tool.
 
-Typical HTTPS-first tools include **Claude Code**, **Cursor**, **VS Code** extensions (Continue, Cline, Copilot-compatible setups), and **Roo Code**. Setup follows the same base URL and PAT pattern as [Claude Code on coder](CLAUDECODE.md); use each product’s UI to set **API base URL** / **override endpoint** and **API key**.
+Typical HTTPS-first tools include **Claude Code**, **Cursor**, **VS Code** extensions (Continue, Cline, Copilot-compatible setups), **Roo Code**, and OIDC-capable harnesses such as **Pi**. Setup follows the same base URL and auth pattern as [Claude Code on coder](CLAUDECODE.md); use each product’s UI to set **API base URL** / **override endpoint** and **API key** or OIDC bearer token.
 
 ## Environment pattern
 
 - **Base URL**: `https://<your-coder-host>` (no `/v1`).
-- **Auth**: Synesis PAT with **`coder`** scope (`x-api-key` or provider-specific token field).
+- **Auth**: Synesis PAT with **`coder`** scope (`x-api-key` or provider-specific token field), or a Keycloak access token issued to public client **`synesis-harness`** when Yarn has OIDC enabled.
 - **Model**: Tier names such as `synesis-pulse`, `synesis-core`, `synesis-horizon` where supported.
+
+OIDC harness settings:
+
+- **Discovery URL**: `https://<keycloak-host>/realms/synesis/.well-known/openid-configuration`
+- **Client ID**: `synesis-harness`
+- **Flow**: Authorization Code + PKCE (`S256`) or Device Authorization Grant
+- **Required role**: `synesis-user`, `synesis-org-admin`, or `synesis-admin`
 
 **Reasoning / thinking:** OpenAI-style clients that support it should set **`enable_thinking`** (and rely on Admin tier defaults where configured). On **`POST /v1/chat/completions`**, streaming responses can include **`delta.reasoning_content`** alongside **`delta.content`**; non-stream responses can include **`message.reasoning_content`**. The Anthropic route **`POST /v1/messages`** uses native **`thinking` / `thinking_delta`** SSE blocks instead (see [CLAUDECODE.md](CLAUDECODE.md)). For the ACP stdio bridge (non-stream OpenAI only), see [ACP_SYNESIS.md](ACP_SYNESIS.md).
 

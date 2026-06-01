@@ -16,6 +16,11 @@ const EnvSchema = z.object({
   /** PAT validation (same DB as Yarn admin) */
   SYNESIS_ADMIN_DB_URL: z.string().optional(),
   SYNESIS_PAT_PEPPER: z.string().default(""),
+  SYNESIS_OIDC_ISSUER_URL: z.string().default(""),
+  SYNESIS_OIDC_INTERNAL_ISSUER_URL: z.string().default(""),
+  SYNESIS_OIDC_ALLOWED_CLIENT_IDS: z.string().default("synesis-harness"),
+  SYNESIS_OIDC_REQUIRED_ROLES: z.string().default("synesis-user,synesis-org-admin,synesis-admin"),
+  SYNESIS_OIDC_JWKS_CACHE_TTL_MS: z.coerce.number().default(300_000),
   SYNESIS_REQUIRE_PAT_PEPPER: z
     .enum(["true", "false"])
     .default("false")

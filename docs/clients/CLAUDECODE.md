@@ -12,7 +12,7 @@ This guide explains how to connect Claude Code to the Synesis **coder frontend**
 
 - Synesis coder frontend (`yarn-ts`) deployed and reachable, for example:
   `https://coder.synesis.example.com`
-- A Synesis PAT with `coder` scope from Admin > Security > PATs
+- A Synesis PAT with `coder` scope from Admin > Security > PATs, or an OIDC access token for client `synesis-harness` when Yarn OIDC is enabled.
 
 ## Quick start
 
@@ -20,7 +20,7 @@ This guide explains how to connect Claude Code to the Synesis **coder frontend**
 # Base URL should point to your Yarn TS host (no /v1 suffix)
 export ANTHROPIC_BASE_URL="https://coder.synesis.example.com"
 
-# Synesis PAT with coder scope
+# Synesis PAT with coder scope, or an OIDC access token from client synesis-harness
 export ANTHROPIC_AUTH_TOKEN="your-synesis-pat"
 
 # Optional, but useful for model picker clarity

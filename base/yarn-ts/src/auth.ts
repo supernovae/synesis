@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { Pool } from "pg";
+import {
+  createOidcVerifierFromEnv,
+  OidcAuthError,
+  type OidcTokenVerifier,
+  type OidcVerifiedPrincipal,
+} from "@synesis/oidc-auth";
 import type { AppConfig } from "./config.js";
 
 export interface AuthUser {
@@ -7,7 +13,7 @@ export interface AuthUser {
   orgId: string;
   tenantIds: string[];
   role: string;
-  authMethod: "pat" | "bearer";
+  authMethod: "pat" | "bearer" | "oidc";
   tokenScopes: string[];
   displayName?: string;
   authKeyId?: string;
@@ -18,6 +24,7 @@ export interface AuthUser {
 export class AuthResolver {
   private readonly pool: Pool | null;
   private readonly pepper: string;
+  private readonly oidcVerifier: OidcTokenVerifier | null;
 
   constructor(config: AppConfig) {
     this.pool = config.SYNESIS_YARN_ADMIN_DB_URL
@@ -26,9 +33,16 @@ export class AuthResolver {
           max: config.SYNESIS_YARN_AUTH_POOL_MAX,
           idleTimeoutMillis: config.SYNESIS_YARN_DB_POOL_IDLE_MS,
           connectionTimeoutMillis: config.SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS,
-        })
+      })
       : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
+    this.oidcVerifier = createOidcVerifierFromEnv({
+      issuerUrl: config.SYNESIS_OIDC_ISSUER_URL,
+      internalIssuerUrl: config.SYNESIS_OIDC_INTERNAL_ISSUER_URL,
+      allowedClientIds: config.SYNESIS_OIDC_ALLOWED_CLIENT_IDS,
+      requiredRoles: config.SYNESIS_OIDC_REQUIRED_ROLES,
+      jwksCacheTtlMs: config.SYNESIS_OIDC_JWKS_CACHE_TTL_MS,
+    });
     if (this.pool && !this.pepper) {
       console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
     }
@@ -40,6 +54,16 @@ export class AuthResolver {
       const user = await this.resolvePat(token);
       if (user) return user;
       throw new Error("Invalid token");
+    }
+    if (this.oidcVerifier) {
+      try {
+        return this.authUserFromOidcPrincipal(await this.oidcVerifier.verify(token));
+      } catch (err) {
+        if (err instanceof OidcAuthError) {
+          throw new Error(`Invalid OIDC token: ${err.code}`);
+        }
+        throw err;
+      }
     }
     const bearerIdentity = this.resolveBearerIdentity(token);
     return {
@@ -136,6 +160,27 @@ export class AuthResolver {
       if (typeof value === "string" && value.trim()) return value.trim();
     }
     return null;
+  }
+
+  private authUserFromOidcPrincipal(principal: OidcVerifiedPrincipal): AuthUser {
+    let role = "user";
+    if (principal.realmRoles.includes("synesis-admin")) {
+      role = "platform_admin";
+    } else if (principal.realmRoles.includes("synesis-org-admin") || principal.orgRoles.includes("admin")) {
+      role = "org_admin";
+    }
+    return {
+      userId: principal.userId,
+      orgId: principal.orgId,
+      tenantIds: [],
+      role,
+      authMethod: "oidc",
+      tokenScopes: ["coder:oidc", ...principal.scopes],
+      displayName: principal.displayName,
+      authKeyId: principal.userId,
+      authKeyName: `OIDC ${principal.clientId}`,
+      authKeyPrefix: "oidc",
+    };
   }
 
   private async resolvePat(token: string): Promise<AuthUser | null> {

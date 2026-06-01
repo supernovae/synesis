@@ -25,6 +25,11 @@ const EnvSchema = z.object({
         : t;
     }),
   SYNESIS_PAT_PEPPER: z.string().default(""),
+  SYNESIS_OIDC_ISSUER_URL: z.string().default(""),
+  SYNESIS_OIDC_INTERNAL_ISSUER_URL: z.string().default(""),
+  SYNESIS_OIDC_ALLOWED_CLIENT_IDS: z.string().default("synesis-harness"),
+  SYNESIS_OIDC_REQUIRED_ROLES: z.string().default("synesis-user,synesis-org-admin,synesis-admin"),
+  SYNESIS_OIDC_JWKS_CACHE_TTL_MS: z.coerce.number().default(300_000),
   SYNESIS_OPENFGA_API_URL: z.string().default(""),
   SYNESIS_OPENFGA_STORE_ID: z.string().default(""),
   SYNESIS_OPENFGA_MODEL_ID: z.string().default(""),

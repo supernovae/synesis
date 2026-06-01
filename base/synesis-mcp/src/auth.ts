@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { Pool } from "pg";
+import {
+  createOidcVerifierFromEnv,
+  OidcAuthError,
+  type OidcTokenVerifier,
+  type OidcVerifiedPrincipal,
+} from "@synesis/oidc-auth";
 import type { McpTsConfig } from "./config.js";
 import type { SynesisMcpAuth } from "@synesis/mcp-tools";
 
@@ -10,11 +16,13 @@ export interface PatUser {
   role: string;
   tokenScopes: string[];
   displayName?: string;
+  authMethod?: "pat" | "oidc" | "internal";
 }
 
 export class McpAuthResolver {
   private readonly pool: Pool | null;
   private readonly pepper: string;
+  private readonly oidcVerifier: OidcTokenVerifier | null;
 
   constructor(config: McpTsConfig) {
     this.pool = config.SYNESIS_ADMIN_DB_URL
@@ -23,9 +31,16 @@ export class McpAuthResolver {
           max: config.SYNESIS_DB_POOL_MAX,
           idleTimeoutMillis: config.SYNESIS_DB_POOL_IDLE_MS,
           connectionTimeoutMillis: config.SYNESIS_DB_POOL_CONN_TIMEOUT_MS,
-        })
+      })
       : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
+    this.oidcVerifier = createOidcVerifierFromEnv({
+      issuerUrl: config.SYNESIS_OIDC_ISSUER_URL,
+      internalIssuerUrl: config.SYNESIS_OIDC_INTERNAL_ISSUER_URL,
+      allowedClientIds: config.SYNESIS_OIDC_ALLOWED_CLIENT_IDS,
+      requiredRoles: config.SYNESIS_OIDC_REQUIRED_ROLES,
+      jwksCacheTtlMs: config.SYNESIS_OIDC_JWKS_CACHE_TTL_MS,
+    });
     if (this.pool && !this.pepper) {
       console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
     }
@@ -111,9 +126,28 @@ export class McpAuthResolver {
       tenantIds,
       role: row.role ?? "user",
       tokenScopes: row.scopes ?? [],
+      authMethod: "pat",
     };
     if (row.username) patUser.displayName = row.username;
     return patUser;
+  }
+
+  oidcEnabled(): boolean {
+    return Boolean(this.oidcVerifier);
+  }
+
+  async resolveOidc(token: string): Promise<PatUser> {
+    if (!this.oidcVerifier) {
+      throw new Error("oidc_not_configured");
+    }
+    try {
+      return this.userFromOidcPrincipal(await this.oidcVerifier.verify(token));
+    } catch (err) {
+      if (err instanceof OidcAuthError) {
+        throw new Error(`invalid_oidc_token:${err.code}`);
+      }
+      throw err;
+    }
   }
 
   toSynesisMcpAuth(user: PatUser, bearerToken: string): SynesisMcpAuth {
@@ -123,6 +157,25 @@ export class McpAuthResolver {
       orgId: user.orgId,
       tenantIds: user.tenantIds,
     };
+  }
+
+  private userFromOidcPrincipal(principal: OidcVerifiedPrincipal): PatUser {
+    let role = "user";
+    if (principal.realmRoles.includes("synesis-admin")) {
+      role = "platform_admin";
+    } else if (principal.realmRoles.includes("synesis-org-admin") || principal.orgRoles.includes("admin")) {
+      role = "org_admin";
+    }
+    const user: PatUser = {
+      userId: principal.userId,
+      orgId: principal.orgId,
+      tenantIds: [],
+      role,
+      tokenScopes: ["mcp:invoke", "coder:oidc", ...principal.scopes],
+      authMethod: "oidc",
+    };
+    if (principal.displayName) user.displayName = principal.displayName;
+    return user;
   }
 
   private hashPat(token: string): string {

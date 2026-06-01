@@ -554,6 +554,13 @@ oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}{"\n"}'
 oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}{"\n"}'
 ```
 
+OIDC edge requirements:
+
+- Keep `https://auth.<domain>/realms/synesis/.well-known/openid-configuration`, `/protocol/openid-connect/auth`, `/protocol/openid-connect/token`, `/protocol/openid-connect/userinfo`, `/protocol/openid-connect/certs`, and `/protocol/openid-connect/auth/device` reachable without a Cloudflare Access browser challenge. Browser SSO, PKCE, device flow, and JWKS validation need machine-readable responses.
+- Protect `admin.<domain>` and `auth-admin.<domain>` with Cloudflare Access and MFA where possible. Do not put an Access challenge in front of public OIDC discovery or token endpoints used by clients.
+- Rate-limit the Keycloak token and device authorization endpoints at the edge, but allow normal OAuth redirects and polling intervals.
+- Yarn and hosted MCP verify OIDC bearer tokens with Keycloak JWKS. They do not need Cloudflare Access service tokens for those bearer checks; they need network reachability to the issuer's JWKS endpoint or the configured in-cluster issuer URL.
+
 Canonical OIDC validation for kybern auth pivot:
 
 ```bash
@@ -564,6 +571,10 @@ curl -sS https://admin.kybern.dev/api/v1/auth/oidc-config | jq -r '.issuer'
 # Keycloak discovery issuer must also be kybern.
 curl -sS https://auth.kybern.dev/realms/synesis/.well-known/openid-configuration | jq -r '.issuer'
 # Expected: https://auth.kybern.dev/realms/synesis
+
+# Harness/Pi discovery must include core OIDC endpoints.
+curl -sS https://auth.kybern.dev/realms/synesis/.well-known/openid-configuration \
+  | jq -r '.authorization_endpoint, .token_endpoint, .userinfo_endpoint, .jwks_uri, .device_authorization_endpoint'
 
 # Optional: verify token iss claim from a login token.
 TOKEN="<paste-jwt-here>"

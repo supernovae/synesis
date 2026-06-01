@@ -39,7 +39,7 @@ Use these terms in user docs and product-facing setup instructions.
 
 ## Auth model
 
-- **Coder frontend**: PAT with `coder` scope (or configured enterprise auth flow).
+- **Coder frontend**: PAT with `coder` scope, or OIDC bearer tokens issued by realm `synesis` to client `synesis-harness` when Yarn is configured with `SYNESIS_OIDC_ISSUER_URL`.
 - **Chat frontend**: planner auth policy (Bearer mode or deployment policy defaults).
 
 ## Naming guidance for docs/UI

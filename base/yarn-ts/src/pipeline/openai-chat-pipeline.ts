@@ -177,7 +177,7 @@ function resolveOpenAiConversationId(
 
 function resolveOpenAiIdentityUserId(
   requestUser: unknown,
-  authUser: { userId: string; authMethod: "pat" | "bearer" },
+  authUser: Pick<AuthUser, "userId" | "authMethod">,
 ): string {
   // Always use the authenticated identity for session keying so turns
   // from the same token converge to a single session even when

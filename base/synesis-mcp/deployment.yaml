@@ -60,6 +60,14 @@ spec:
                   name: synesis-admin-db-url
                   key: trace-url
                   optional: true
+            - name: SYNESIS_OIDC_ISSUER_URL
+              value: "https://auth.kybern.dev/realms/synesis"
+            - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
+              value: "http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis"
+            - name: SYNESIS_OIDC_ALLOWED_CLIENT_IDS
+              value: "synesis-harness"
+            - name: SYNESIS_OIDC_REQUIRED_ROLES
+              value: "synesis-user,synesis-org-admin,synesis-admin"
           resources:
             requests:
               cpu: 100m
