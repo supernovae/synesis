@@ -29,6 +29,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`../development/HARNESS_TRUST_HARDENING.md`](../development/HARNESS_TRUST_HARDENING.md)
 - [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md)
 - [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md)
+- [`PI_HARNESS.md`](./PI_HARNESS.md) — Pi harness setup with OIDC against the coder frontend
 - [`qwen-stability-feedback-loop.md`](./qwen-stability-feedback-loop.md)
 - [`GIT_FIRST_POLICY_MODES.md`](./GIT_FIRST_POLICY_MODES.md)
 - [`implementation-phases.md`](./implementation-phases.md)

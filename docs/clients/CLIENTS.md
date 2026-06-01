@@ -55,6 +55,7 @@ Use these terms in user docs and product-facing setup instructions.
 
 - [Session execution context (workspace root, shell cwd, optional metadata)](SESSION_EXECUTION_CONTEXT.md)
 - [Claude Code on coder frontend](CLAUDECODE.md)
+- [Pi harness with Synesis Coder](../coder/PI_HARNESS.md)
 - [Agent Client Protocol (ACP) with Synesis](ACP_SYNESIS.md) — stdio bridge for **Zed**, **JetBrains**, **OpenCode**, **Neovim** (see linked pages)
 - [HTTPS-first clients (no ACP)](ACP_HTTP_CLIENTS.md) — Cursor, VS Code agents, Roo, etc.
 - [Structured clarification metadata](SYNESIS_CLARIFICATION.md)
