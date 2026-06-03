@@ -341,6 +341,7 @@ export async function prepareOpenAIGovernedStage(
     chatState: context.chatState,
     fileState: context.fileState,
     workingPhase: turn.workingPhase,
+    clientPlanModeRequested: input.clientToolCapabilities.planModeRequested,
     editMissFailureCount: turn.editMissFailureCount,
     governorCooldownMs: input.governorCooldownMs,
     stateConfidence: context.stateConfidence,

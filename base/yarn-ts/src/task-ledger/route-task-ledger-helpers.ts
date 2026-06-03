@@ -5,7 +5,7 @@ import {
   reconcileFromEvidence,
   reconcileFromToolCall,
 } from "./reconcileTaskLedger.js";
-import type { EvidenceSignal, HarnessTask, TaskLedger, TaskSource, TaskStatus } from "./types.js";
+import type { EvidenceSignal, HarnessTask, TaskSource, TaskStatus } from "./types.js";
 
 type TaskLedgerCountView = {
   tasks: Array<{

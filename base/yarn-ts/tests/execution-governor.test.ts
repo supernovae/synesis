@@ -3649,6 +3649,42 @@ describe("phase-aware rule gating", () => {
     expect(out.reason).toBe("identical_tool_repeat");
   });
 
+  it("does not hard-pause initial repeated workspace inspection during explicit Claude plan mode", () => {
+    const messages = [
+      { role: "user", content: "/plan\nBuild the Rust workspace and produce a plan first." },
+      assistantCall("c1", "list_dir", { path: "." }),
+      toolResult("c1", "empty workspace"),
+      assistantCall("c2", "list_dir", { path: "." }),
+      toolResult("c2", "empty workspace"),
+      assistantCall("c3", "list_dir", { path: "." }),
+      toolResult("c3", "empty workspace"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, { clientPlanModeRequested: true });
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.pause).toBe(false);
+  });
+
+  it("still hard-pauses runaway exact repeats during explicit Claude plan mode", () => {
+    const messages = [
+      { role: "user", content: "/plan\nBuild the Rust workspace and produce a plan first." },
+      assistantCall("c1", "list_dir", { path: "." }),
+      toolResult("c1", "empty workspace"),
+      assistantCall("c2", "list_dir", { path: "." }),
+      toolResult("c2", "empty workspace"),
+      assistantCall("c3", "list_dir", { path: "." }),
+      toolResult("c3", "empty workspace"),
+      assistantCall("c4", "list_dir", { path: "." }),
+      toolResult("c4", "empty workspace"),
+      assistantCall("c5", "list_dir", { path: "." }),
+      toolResult("c5", "empty workspace"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages, { clientPlanModeRequested: true });
+    expect(out.matchedRules).toContain("broad_discovery_repeat");
+    expect(out.pause).toBe(true);
+  });
+
   it("does NOT fire identical_tool_repeat for distinct edits to the same file", () => {
     const messages = [
       { role: "user", content: "fix the FastAPI request annotations" },

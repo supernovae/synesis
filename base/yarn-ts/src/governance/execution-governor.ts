@@ -454,8 +454,14 @@ function isTaskLifecycleCommand(command: string): boolean {
     || normalized.startsWith("todowrite:");
 }
 
+function isPlanModeLifecycleCommand(command: string): boolean {
+  const normalized = normalizeString(command).toLowerCase();
+  return normalized === "planmode:enter"
+    || normalized === "planmode:exit";
+}
+
 function isSuccessfulTaskLifecycleBoundary(event: CommandEvent): boolean {
-  if (!isTaskLifecycleCommand(event.command)) return false;
+  if (!isTaskLifecycleCommand(event.command) && !isPlanModeLifecycleCommand(event.command)) return false;
   const sig = event.resultSignature;
   return !(sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match")));
 }
@@ -616,6 +622,12 @@ function parseArgsToCommand(toolName: string, args: unknown): string {
   if (tool === "taskupdate" || tool === "task_update" || tool.includes("taskupdate")) {
     const title = normalizeString(row.title || row.name || row.content || row.task || row.id);
     return title ? `taskupdate:${title}` : "taskupdate";
+  }
+  if (tool === "enterplanmode" || tool === "enter_plan_mode" || tool.includes("enterplanmode")) {
+    return "planmode:enter";
+  }
+  if (tool === "exitplanmode" || tool === "exit_plan_mode" || tool.includes("exitplanmode")) {
+    return "planmode:exit";
   }
   if (tool === "todowrite" || tool.includes("todowrite")) {
     return todoWriteCommandSignature(row);
@@ -1648,6 +1660,13 @@ export interface ExecutionGovernorOptions {
    * active implementation unless the model claims the whole task is complete.
    */
   taskLedgerExplicitOpenCount?: number;
+  /**
+   * True when the client has explicitly entered a plan-only mode (for example
+   * Claude Code `/plan`). Plan mode should allow a small amount of workspace
+   * inspection and plan-file/task setup without being treated like stalled
+   * implementation.
+   */
+  clientPlanModeRequested?: boolean;
 }
 
 export function evaluateExecutionGovernor(
@@ -1662,6 +1681,7 @@ export function evaluateExecutionGovernor(
   const editContextMissActive = opts.editContextMissActive === true;
   const taskLedgerOpenCount = opts.taskLedgerOpenCount;
   const taskLedgerExplicitOpenCount = opts.taskLedgerExplicitOpenCount ?? taskLedgerOpenCount;
+  const clientPlanModeRequested = opts.clientPlanModeRequested === true;
   const highRetrySensitivity = isHighRetrySensitivityAdapter(opts.modelAdapterFamily);
   const thresholds = thresholdsForProfile(profile);
   const stateObjectiveCue = normalizeString(
@@ -2209,6 +2229,12 @@ export function evaluateExecutionGovernor(
     isPlanRecoveryDiscoveryIntent(latestUserText)
     && changedFiles.length === 0
     && events.length <= 30;
+  const planModeSetupGraceActive =
+    clientPlanModeRequested
+    && changedFiles.length === 0
+    && events.length <= 20
+    && !hasPlanEdit
+    && !events.some((e) => e.command === "planmode:exit");
 
   if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
@@ -2361,7 +2387,8 @@ export function evaluateExecutionGovernor(
   ) {
     pushRule("no_progress_loop");
   }
-  if (identicalToolRepeatCount >= 2) {
+  const identicalToolRepeatThreshold = planModeSetupGraceActive ? 4 : 2;
+  if (identicalToolRepeatCount >= identicalToolRepeatThreshold) {
     pushRule("identical_tool_repeat");
   }
   const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;

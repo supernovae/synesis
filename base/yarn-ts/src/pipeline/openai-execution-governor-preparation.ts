@@ -54,6 +54,7 @@ export interface OpenAIExecutionGovernorPreparationInput {
   chatState: unknown;
   fileState: unknown;
   workingPhase?: string;
+  clientPlanModeRequested?: boolean;
   editMissFailureCount: number;
   governorCooldownMs: number;
   stateConfidence: {
@@ -145,6 +146,7 @@ export async function prepareOpenAIExecutionGovernor(
             orchestratorWorkflowPhase: input.workingPhase,
             taskLedgerOpenCount: countOpenTasks(input.session.taskLedger),
             taskLedgerExplicitOpenCount: countExplicitOpenTasks(input.session.taskLedger),
+            clientPlanModeRequested: input.clientPlanModeRequested === true,
           },
         };
         const governorDecision = input.stepGovernor

@@ -597,6 +597,7 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
       chatState: claudeChatState,
       fileState: claudeFileState,
       workingPhase: claudeWorkingPhase,
+      clientPlanModeRequested: claudeClientToolCapabilities.planModeRequested,
       editMissFailureCount: claudeEditMissFailureCount,
       stateConfidence: claudeStateConfidence,
       needsStateReground: claudeNeedsStateReground,

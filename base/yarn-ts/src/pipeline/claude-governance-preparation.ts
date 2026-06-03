@@ -51,6 +51,7 @@ export interface ClaudeGovernancePreparationInput {
   chatState: unknown;
   fileState: unknown;
   workingPhase?: string;
+  clientPlanModeRequested?: boolean;
   editMissFailureCount: number;
   stateConfidence: {
     chatConfidence: number;
@@ -148,6 +149,7 @@ export async function prepareClaudeGovernance(
             orchestratorWorkflowPhase: input.workingPhase,
             taskLedgerOpenCount: countOpenTasks(input.session.taskLedger),
             taskLedgerExplicitOpenCount: countExplicitOpenTasks(input.session.taskLedger),
+            clientPlanModeRequested: input.clientPlanModeRequested === true,
           },
         );
         if (!decision.pause) {
