@@ -369,6 +369,8 @@ export function annotatePlanFileReads(
 }
 
 const PLAN_MODE_ERROR_RE = /not in plan mode|only for exiting plan mode/i;
+const EXIT_PLAN_MODE_ALREADY_APPROVED_RE =
+  /only for exiting plan mode|already approved|continue with implementation|you can now start coding/i;
 
 export function injectPlanModeRecoveryHint(
   messages: Array<{ role: string; content: unknown }>,
@@ -381,14 +383,25 @@ export function injectPlanModeRecoveryHint(
   });
   if (!hasPlanModeError) return false;
 
-  const hint = [
-    "<SYNESIS_EXECUTION_RECOVERY source=\"plan_mode_error\">",
-    "The client's plan tool rejected your update because you are not in plan mode.",
-    "To update a plan file from implementation mode, use the Write tool or Bash (e.g., cat > path) to write the file directly.",
-    "Do NOT attempt to use the plan tool again — it only works in plan mode.",
-    "If the plan is complete, write the updated content to the plan file using Write, then continue with your task.",
-    "</SYNESIS_EXECUTION_RECOVERY>",
-  ].join("\n");
+  const tailText = tail
+    .map((m) => typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""))
+    .join("\n");
+  const hint = EXIT_PLAN_MODE_ALREADY_APPROVED_RE.test(tailText)
+    ? [
+        "<SYNESIS_EXECUTION_RECOVERY source=\"plan_mode_exit_already_approved\">",
+        "The client rejected ExitPlanMode because plan mode has already ended or the plan was already approved.",
+        "Do NOT call ExitPlanMode again. Do NOT update or rewrite the plan file again.",
+        "Continue with implementation now: create/update the first project file from the approved plan, then update native task/plan status after real progress.",
+        "</SYNESIS_EXECUTION_RECOVERY>",
+      ].join("\n")
+    : [
+        "<SYNESIS_EXECUTION_RECOVERY source=\"plan_mode_error\">",
+        "The client's plan update tool rejected your update because you are not in plan mode.",
+        "Only if the plan file itself still needs updating, use the Write tool or Bash (e.g., cat > path) to write that plan file directly.",
+        "Do NOT attempt to use the plan tool again — it only works in plan mode.",
+        "If the plan is already complete or approved, stop editing the plan and continue with the implementation task.",
+        "</SYNESIS_EXECUTION_RECOVERY>",
+      ].join("\n");
 
   injectGovernorRecoveryMessage(messages, hint);
   return true;

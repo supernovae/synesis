@@ -155,6 +155,55 @@ describe("standard harness flows", () => {
     expect(decision.matchedRules).not.toContain("no_progress_loop");
   });
 
+  it("allows implementation after an already-approved ExitPlanMode error", () => {
+    const approvedExitSpec: HarnessFlowSpec = {
+      id: "claude-plan-approved-exit-error-then-implement",
+      description: "After Claude reports the plan was approved, a stale ExitPlanMode error should not force more plan updates.",
+      profile: "claude-code",
+      flowType: "plan-then-build",
+      forbiddenRules: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      steps: [
+        {
+          id: "approved-exit-error-and-first-edit",
+          messages: [
+            userText("/plan Build a complete Rust workspace application."),
+            assistantCall("a1", "Write", {
+              file_path: ".claude/plans/plan-design-rust-file-sequential-bee.md",
+              content: "Plan: Rust Task Manager application scaffold",
+            }),
+            toolResult("a1", "Updated plan"),
+            assistantText("Claude has written up a plan and is ready to execute. Would you like to proceed?"),
+            toolResult("a2", "User has approved your plan. You can now start coding."),
+            assistantCall("a3", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+            toolResult("a3", "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation."),
+            assistantCall("a4", "Write", {
+              file_path: "Cargo.toml",
+              content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",
+            }),
+            toolResult("a4", "Wrote Cargo.toml"),
+          ],
+          governorOptions: {
+            clientPlanModeRequested: false,
+            orchestratorWorkflowPhase: "implementation",
+            activePlanStage: "implement",
+            taskLedgerOpenCount: 1,
+            taskLedgerExplicitOpenCount: 1,
+            chatState: { completionStatus: "blocked", lastVerificationOutcome: "fail" },
+          },
+          expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+        },
+      ],
+    };
+
+    const result = evaluateHarnessFlow(approvedExitSpec);
+    expect(result.passed, result.signals.join(", ")).toBe(true);
+    const decision = result.stepResults[0]!.decision;
+    expect(decision.pause).toBe(false);
+    expect(decision.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(decision.matchedRules).not.toContain("identical_tool_repeat");
+    expect(decision.matchedRules).not.toContain("no_progress_loop");
+  });
+
   it("allows one repeated missing Claude instructions check across startup and plan mode", () => {
     const missingInstructionsSpec: HarnessFlowSpec = {
       id: "claude-missing-instructions-startup-to-plan",
