@@ -1048,16 +1048,18 @@ function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
 }
 
 function hasPlanApprovalReadyClaim(messages: GovernorInputMessage[]): boolean {
-  const latestUserIdx = latestUserRedirectIndex(messages);
-  const assistantText = messages
-    .slice(latestUserIdx >= 0 ? latestUserIdx + 1 : 0)
+  const text = messages
     .filter((m) => m.role === "assistant")
     .map((m) => contentToText(m.content).toLowerCase())
     .join("\n");
-  if (!assistantText.trim()) return false;
-  return /\bplan\s+(?:is\s+)?(?:ready|complete|done|prepared|created)\b/.test(assistantText)
-    || /\bready\s+for\s+(?:your\s+)?(?:review|approval)\b/.test(assistantText)
-    || /\bready\s+to\s+code\??\b/.test(assistantText);
+  if (!text.trim()) return false;
+  return /\bplan\s+(?:is\s+)?(?:ready|complete|done|prepared|created)\b/.test(text)
+    || /\bready\s+for\s+(?:your\s+)?(?:review|approval)\b/.test(text)
+    || /\bready\s+to\s+code\??\b/.test(text);
+}
+
+function isClaudePlanPathText(pathText: string): boolean {
+  return pathText.includes("/.claude/plans/") || pathText.includes("\\.claude\\plans\\");
 }
 
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
@@ -1708,6 +1710,7 @@ export function evaluateExecutionGovernor(
   const lastUserPromptIdx = findLastUserRedirectIndex(messages);
   const turnMessages = lastUserPromptIdx >= 0 ? messages.slice(lastUserPromptIdx + 1) : messages;
   const events = extractCommandEvents(turnMessages);
+  const recentAllEvents = extractCommandEvents(messages).slice(-30);
   const changedFiles = extractEditedFileHints(events);
   const userText = stateObjectiveCue || extractUserText(messages);
   const latestUserText = stateObjectiveCue || extractLatestUserText(messages);
@@ -2231,6 +2234,7 @@ export function evaluateExecutionGovernor(
   }
   const hasCommitFinalizeAction = events.some((e) => /\bgit\s+(commit|push)\b/.test(normalizeString(e.command).toLowerCase()));
   const hasFinalizeAction = visibleTodosComplete || hasTaskDoneStatusUpdate(events) || hasCommitFinalizeAction;
+  const changedNonPlanFiles = changedFiles.filter((file) => !isClaudePlanPathText(file));
 
   // Read-only investigation intent: based on the LATEST user message only,
   // so a follow-up "implement both" overrides an earlier "scan the repo" prompt.
@@ -2244,15 +2248,19 @@ export function evaluateExecutionGovernor(
     && events.length <= 30;
   const planModeSetupGraceActive =
     clientPlanModeRequested
-    && changedFiles.length === 0
+    && changedNonPlanFiles.length === 0
     && events.length <= 20
     && !hasPlanEdit
     && !events.some((e) => e.command === "planmode:exit");
   const planApprovalExitActive =
     clientPlanModeRequested
-    && changedFiles.length === 0
-    && events.some((e) => e.command === "planmode:exit")
-    && hasPlanApprovalReadyClaim(turnMessages);
+    && changedNonPlanFiles.length === 0
+    && recentAllEvents.some((e) => e.command === "planmode:exit")
+    && hasPlanApprovalReadyClaim(messages);
+  const planApprovalTaskSetupActive =
+    planApprovalExitActive
+    && events.length <= 30
+    && events.some((e) => isTaskLifecycleCommand(e.command));
 
   if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
@@ -2276,7 +2284,7 @@ export function evaluateExecutionGovernor(
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");
   if (consecutiveEditFailures >= 3) pushRule("consecutive_edit_failures");
   if (repeatedEditFailureReplay >= 1) pushRule("edit_failure_replay");
-  if (repeatedTaskCreateReplay >= 1) pushRule("task_creation_replay");
+  if (repeatedTaskCreateReplay >= 1 && !planApprovalTaskSetupActive) pushRule("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
   if (!isInvestigationOnly && repeatedAskUserPrompts >= 1 && effectiveNoEditEvidence) pushRule("repeat_user_prompt_loop");
   // Only fire completion-claim enforcement when the model has done non-exploration work
@@ -2407,7 +2415,8 @@ export function evaluateExecutionGovernor(
     pushRule("no_progress_loop");
   }
   const identicalToolRepeatThreshold = planModeSetupGraceActive ? 4 : 2;
-  if (identicalToolRepeatCount >= identicalToolRepeatThreshold) {
+  const identicalRepeatIsTaskLifecycle = lastEvent ? isTaskLifecycleCommand(lastEvent.command) : false;
+  if (identicalToolRepeatCount >= identicalToolRepeatThreshold && !(planApprovalTaskSetupActive && identicalRepeatIsTaskLifecycle)) {
     pushRule("identical_tool_repeat");
   }
   const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;

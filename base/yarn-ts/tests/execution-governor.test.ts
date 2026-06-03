@@ -595,6 +595,38 @@ describe("execution governor", () => {
     expect(out.pause).toBe(false);
   });
 
+  it("does not pause native task setup immediately after Claude plan approval", () => {
+    const messages = [
+      { role: "user", content: "/plan\nCreate a complete Rust application plan." },
+      assistantCall("w1", "Write", {
+        file_path: "/Users/bymiller/.claude/plans/you-are-a-rust-refactored-stonebraker.md",
+        content: "---\nname: Rust Task Manager Plan\n---\n# Plan\n\nImplement the Rust task manager workspace.\n",
+      }),
+      toolResult("w1", "Updated plan"),
+      { role: "assistant", content: "The plan is ready for your review." },
+      assistantCall("x1", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+      toolResult("x1", "User has approved your plan. You can now start coding."),
+      assistantCall("t1", "TaskCreate", { title: "Create workspace and crate scaffolds" }),
+      toolResult("t1", "task created"),
+      assistantCall("t2", "TaskCreate", { title: "Create workspace and crate scaffolds" }),
+      toolResult("t2", "task created"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, {
+      clientPlanModeRequested: true,
+      taskLedgerOpenCount: 6,
+      taskLedgerExplicitOpenCount: 6,
+      chatState: {
+        completionStatus: "ready_to_finalize",
+      },
+    });
+
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.matchedRules).not.toContain("task_creation_replay");
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.pause).toBe(false);
+  });
+
   it("does not pause completion claims when TodoWrite marks tasks done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
