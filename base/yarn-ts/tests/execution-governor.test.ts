@@ -681,6 +681,57 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
 
+  it("does not pause active scaffolding progress for harness-inferred planner tasks", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "Generate a complete Rust CLI plus library workspace with Cargo manifests, config, tests, and README.",
+      },
+      {
+        role: "assistant",
+        content: "I've already created the workspace manifests. Continuing with the core and CLI implementation files.",
+      },
+      assistantCall("1", "Write", { file_path: "Cargo.toml", content: "[workspace]\nmembers = [\"core\", \"cli\"]\n" }),
+      toolResult("1", "Wrote 24 lines to Cargo.toml"),
+      assistantCall("2", "Write", { file_path: "core/Cargo.toml", content: "[package]\nname = \"file-indexer-core\"\n" }),
+      toolResult("2", "Wrote 21 lines to core/Cargo.toml"),
+      assistantCall("3", "Write", { file_path: "cli/src/lib.rs", content: "pub mod commands;\npub mod config;\n" }),
+      toolResult("3", "Wrote 11 lines to cli/src/lib.rs"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      taskLedgerOpenCount: 5,
+      taskLedgerExplicitOpenCount: 0,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+    expect(out.pause).toBe(false);
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+  });
+
+  it("still pauses whole-project completion claims with open harness-inferred planner tasks", () => {
+    const messages = [
+      { role: "user", content: "Generate a complete Rust CLI plus library workspace." },
+      assistantCall("1", "Write", { file_path: "Cargo.toml", content: "[workspace]\n" }),
+      toolResult("1", "Wrote file successfully."),
+      {
+        role: "assistant",
+        content: "The Rust application is complete and ready for handoff.",
+      },
+    ];
+    const out = evaluateExecutionGovernor(messages as never, {
+      taskLedgerOpenCount: 3,
+      taskLedgerExplicitOpenCount: 0,
+      chatState: {
+        completionStatus: "complete_claimed",
+        lastVerificationOutcome: "unknown",
+      },
+    });
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("completion_claim_requires_task_update");
+  });
+
   it("still pauses completion claims when the latest visible Todos block has open items", () => {
     const messages = [
       { role: "user", content: "Build the TaskPulse app and verify it." },

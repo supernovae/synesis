@@ -251,11 +251,18 @@ export function formatPlannerTodoPacketBlock(options: {
   }
   if (capabilities.todoToolName) {
     lines.push(`todo_tool=${capabilities.todoToolName}`);
-    if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
+    if (capabilities.isClaudeCode && capabilities.taskToolNames.length > 0) {
+      lines.push(`claude_code_task_tools=${capabilities.taskToolNames.join(",")}`);
+      lines.push("- Claude Code native task tracker is available. For macro or multi-file tasks, create 3-7 concrete tasks with TaskCreate when missing, then use TaskUpdate to advance statuses as each milestone completes.");
+      lines.push("- Do not substitute a free-form checklist when TaskCreate/TaskUpdate are available; the native task tracker is the source of truth.");
+    } else if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
       lines.push('required_todowrite_shape={"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}');
       lines.push("- OpenCode todowrite requires id, content, status, and priority on every todo item, including updates.");
     }
-    lines.push(`next_action=${packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_todowrite" : "call_todowrite"}`);
+    const nextAction = capabilities.isClaudeCode && capabilities.taskToolNames.length > 0
+      ? (packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_claude_task_tool" : "call_claude_task_tool")
+      : (packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_todowrite" : "call_todowrite");
+    lines.push(`next_action=${nextAction}`);
   } else {
     lines.push("todo_tool=unavailable");
     if (packet.questions.length > 0) {

@@ -114,7 +114,10 @@ describe("client tool capabilities", () => {
     expect(block).toContain("claude_code_builtin_tools=");
     expect(block).toContain("claude_code_task_tools=TaskCreate,TaskUpdate");
     expect(block).toContain("claude_code_plan_mode_tools=EnterPlanMode,ExitPlanMode");
+    expect(block).toContain("use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist");
+    expect(block).toContain("Create 3-7 concrete tasks before the first implementation edit");
     expect(block).toContain("prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite");
+    expect(block).toContain("call the native task tool before implementation");
     expect(block).toContain("Agent is for bounded subagent research");
   });
 

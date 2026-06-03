@@ -5,7 +5,35 @@ import {
   reconcileFromEvidence,
   reconcileFromToolCall,
 } from "./reconcileTaskLedger.js";
-import type { EvidenceSignal } from "./types.js";
+import type { EvidenceSignal, HarnessTask, TaskLedger, TaskSource, TaskStatus } from "./types.js";
+
+type TaskLedgerCountView = {
+  tasks: Array<{
+    status: TaskStatus | string;
+    source?: TaskSource | string;
+  }>;
+};
+
+function isOpenTask(task: Pick<HarnessTask, "status"> | { status: string }): boolean {
+  return task.status === "pending" || task.status === "in_progress" || task.status === "unknown";
+}
+
+function isExplicitClientTask(task: Pick<HarnessTask, "source"> | { source?: string }): boolean {
+  return task.source === "claude_todowrite"
+    || task.source === "opencode_todowrite"
+    || task.source === "cline_plan"
+    || task.source === "cursor_plan";
+}
+
+export function countOpenTasks(ledger: TaskLedgerCountView | null | undefined): number | undefined {
+  if (!ledger) return undefined;
+  return ledger.tasks.filter(isOpenTask).length;
+}
+
+export function countExplicitOpenTasks(ledger: TaskLedgerCountView | null | undefined): number | undefined {
+  if (!ledger) return undefined;
+  return ledger.tasks.filter((task) => isOpenTask(task) && isExplicitClientTask(task)).length;
+}
 
 /**
  * Update the task ledger when a tool call is detected as a todo/task tool.

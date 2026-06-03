@@ -3,6 +3,7 @@ import type { ExecutionGovernorDecision, GovernorInputMessage } from "../governa
 import { disabledExecutionGovernorDecision } from "../governance/governor-service.js";
 import { deriveGovernorLoopObservability } from "../governance/governor-observability.js";
 import type { SensemakingDecision } from "../governance/sensemaking-governor.js";
+import { countExplicitOpenTasks, countOpenTasks } from "../task-ledger/route-task-ledger-helpers.js";
 
 type SessionLike = {
   lastGovernorCachedResult: ExecutionGovernorDecision | null;
@@ -13,7 +14,7 @@ type SessionLike = {
   consecutiveEditContextMisses: number;
   editMissForceReadPending?: boolean;
   lastEvidenceDelta: unknown;
-  taskLedger?: { tasks: Array<{ status: string }> } | null;
+  taskLedger?: { tasks: Array<{ status: string; source?: string }> } | null;
   diffStats: {
     filesModified: number;
     filesDeleted: number;
@@ -145,9 +146,8 @@ export async function prepareClaudeGovernance(
             fileState: input.fileState,
             modelAdapterFamily: input.modelAdapterFamily,
             orchestratorWorkflowPhase: input.workingPhase,
-            taskLedgerOpenCount: input.session.taskLedger
-              ? input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-              : undefined,
+            taskLedgerOpenCount: countOpenTasks(input.session.taskLedger),
+            taskLedgerExplicitOpenCount: countExplicitOpenTasks(input.session.taskLedger),
           },
         );
         if (!decision.pause) {

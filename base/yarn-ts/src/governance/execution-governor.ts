@@ -1641,6 +1641,13 @@ export interface ExecutionGovernorOptions {
    * explicit taskcreate/todowrite events in the transcript.
    */
   taskLedgerOpenCount?: number;
+  /**
+   * Number of open tasks that came from a client-native task source
+   * (Claude/OpenCode todo tools, plan files), not harness-inferred fallback
+   * planning. Inferred tasks are useful context, but should not hard-pause
+   * active implementation unless the model claims the whole task is complete.
+   */
+  taskLedgerExplicitOpenCount?: number;
 }
 
 export function evaluateExecutionGovernor(
@@ -1654,6 +1661,7 @@ export function evaluateExecutionGovernor(
   const activePlanStage = opts.activePlanStage ?? null;
   const editContextMissActive = opts.editContextMissActive === true;
   const taskLedgerOpenCount = opts.taskLedgerOpenCount;
+  const taskLedgerExplicitOpenCount = opts.taskLedgerExplicitOpenCount ?? taskLedgerOpenCount;
   const highRetrySensitivity = isHighRetrySensitivityAdapter(opts.modelAdapterFamily);
   const thresholds = thresholdsForProfile(profile);
   const stateObjectiveCue = normalizeString(
@@ -2111,7 +2119,13 @@ export function evaluateExecutionGovernor(
   if (claimButNoUpdate || taskMentionedButNoUpdate || (taskCompletionClaimNeedsClosure && planNotFinalized && !visibleTodosComplete)) {
     completionClaimNeedsTaskUpdate = true;
   }
-  if (!completionClaimNeedsTaskUpdate && taskCompletionClaimNeedsClosure && (taskLedgerOpenCount ?? 0) > 0 && !visibleTodosComplete) {
+  if (
+    !completionClaimNeedsTaskUpdate
+    && taskCompletionClaimNeedsClosure
+    && (taskLedgerOpenCount ?? 0) > 0
+    && ((taskLedgerExplicitOpenCount ?? 0) > 0 || hasOverallCompletionClaim)
+    && !visibleTodosComplete
+  ) {
     completionClaimNeedsTaskUpdate = true;
   }
 

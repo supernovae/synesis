@@ -189,6 +189,26 @@ describe("planner todo packet", () => {
     expect(block).toContain("use this packet as the working plan");
   });
 
+  it("uses Claude Code native task tools instead of todowrite actions", () => {
+    const claudeCaps = detectClientToolCapabilities(
+      [{ name: "TaskCreate" }, { name: "TaskUpdate" }, { name: "TaskList" }, { name: "AskUserQuestion" }],
+      "claude-code",
+      "build a complete Rust workspace",
+    );
+    const block = formatPlannerTodoPacketBlock({
+      packet: packet(),
+      sourceHash: "abc123",
+      modelId: "synesis-horizon",
+      capabilities: claudeCaps,
+    });
+
+    expect(block).toContain("todo_tool=TaskUpdate");
+    expect(block).toContain("claude_code_task_tools=TaskCreate,TaskUpdate,TaskList");
+    expect(block).toContain("Do not substitute a free-form checklist");
+    expect(block).toContain("next_action=call_claude_task_tool");
+    expect(block).not.toContain("next_action=call_todowrite");
+  });
+
   it("maps planner todos into harness-inferred task ledger entries", () => {
     const tasks = plannerTodoPacketToHarnessTasks(packet(), 4);
 

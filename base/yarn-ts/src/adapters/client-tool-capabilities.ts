@@ -266,6 +266,7 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     if (capabilities.hasPlanModeTool) {
       lines.push(`claude_code_plan_mode_tools=${[capabilities.enterPlanModeToolName, capabilities.exitPlanModeToolName].filter(Boolean).join(",")}`);
     }
+    lines.push("- Claude Code task list: for macro tasks, multi-file implementation, or explicit planning, use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist. Create 3-7 concrete tasks before the first implementation edit when no equivalent task list exists, then update statuses after each milestone.");
     lines.push("- Claude Code task list: prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite when those tools are offered. Preserve existing tasks with TaskList/TaskGet, create only missing tasks, and update statuses instead of recreating duplicates.");
     lines.push("- Claude Code plan mode: EnterPlanMode is for planning without edits; ExitPlanMode presents the final plan for approval and may require permission. Do not start implementation until plan mode has exited or the user explicitly asked to execute.");
     lines.push("- Claude Code Bash/PowerShell: each command is a process; cd may persist only inside allowed project roots, environment exports do not persist, long-running work should use run_in_background or Monitor, and truncated output should be read from the saved output file.");
@@ -276,6 +277,7 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
   if (capabilities.hasTodoTool && capabilities.todoToolName && capabilities.isClaudeCode) {
     lines.push(`task_tool=${capabilities.todoToolName}`);
     lines.push(`claude_code_primary_task_mutator=${capabilities.todoToolName}`);
+    lines.push("- For large Claude Code tasks, call the native task tool before implementation instead of tracking progress only in prose.");
   } else if (capabilities.hasTodoTool && capabilities.todoToolName) {
     lines.push(`task_tool=${capabilities.todoToolName}`);
     lines.push("- For macro tasks, explicit plan mode, or multi-step work, prefer the task tool for a 3-7 item plan before editing. Preserve existing completed todos and update statuses instead of duplicating tasks.");

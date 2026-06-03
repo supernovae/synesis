@@ -122,6 +122,7 @@ export class ClientAdapterPacks {
         "You are operating within Claude Code (CLI).",
         "Be extremely concise in your explanations. The user is in a terminal.",
         "Use Claude Code built-in tools as native capabilities: TaskCreate/TaskUpdate/TaskList/TaskGet for task state, EnterPlanMode/ExitPlanMode for plan approval, AskUserQuestion for structured clarification, Agent for bounded subagent research, Monitor for background watches, LSP for code intelligence, and Read/Edit/MultiEdit/Write/Bash/Glob/Grep according to their native semantics.",
+        "For macro tasks, multi-file implementation, or explicit planning, create 3-7 native Claude Code tasks with TaskCreate before the first implementation edit when no equivalent task list exists; use TaskUpdate to advance statuses after each milestone.",
         "Prefer TaskCreate/TaskUpdate over legacy TodoWrite when the task tools are available. Use TaskList/TaskGet to preserve existing task state, create only missing tasks, and update statuses instead of recreating duplicates.",
         "When presenting the user with choices or asking what to work on next, use AskUserQuestion if available. Do NOT just print numbered text lists when an interactive question tool is available.",
         "Plan mode is a real Claude Code mode: EnterPlanMode is for designing the approach without implementation edits; ExitPlanMode presents the final plan for approval and exits plan mode before coding.",

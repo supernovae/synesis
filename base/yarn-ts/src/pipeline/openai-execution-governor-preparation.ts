@@ -4,6 +4,7 @@ import {
   disabledExecutionGovernorDecision,
 } from "../governance/governor-service.js";
 import { deriveGovernorLoopObservability } from "../governance/governor-observability.js";
+import { countExplicitOpenTasks, countOpenTasks } from "../task-ledger/route-task-ledger-helpers.js";
 import type { PipelineMode, PipelineStepGovernor } from "./types.js";
 
 type ConfigSlice = Pick<
@@ -22,7 +23,7 @@ type SessionLike = {
   consecutiveEditContextMisses: number;
   editMissForceReadPending?: boolean;
   lastEvidenceDelta: unknown;
-  taskLedger?: { tasks: Array<{ status: string }> } | null;
+  taskLedger?: { tasks: Array<{ status: string; source?: string }> } | null;
 };
 
 type SpanLike = {
@@ -142,9 +143,8 @@ export async function prepareOpenAIExecutionGovernor(
             fileState: input.fileState,
             modelAdapterFamily: input.modelAdapterFamily,
             orchestratorWorkflowPhase: input.workingPhase,
-            taskLedgerOpenCount: input.session.taskLedger
-              ? input.session.taskLedger.tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "unknown").length
-              : undefined,
+            taskLedgerOpenCount: countOpenTasks(input.session.taskLedger),
+            taskLedgerExplicitOpenCount: countExplicitOpenTasks(input.session.taskLedger),
           },
         };
         const governorDecision = input.stepGovernor
