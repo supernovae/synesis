@@ -121,6 +121,16 @@ describe("AuthResolver", () => {
       await expect(resolver.resolve("Bearer some-api-key-123")).rejects.toThrow("Opaque bearer authentication is disabled");
     });
 
+    it("rejects double Bearer PAT configuration with an actionable message", async () => {
+      resolver = new AuthResolver(makeConfig());
+      await expect(resolver.resolve("Bearer Bearer syn-valid-token")).rejects.toThrow("raw syn- token");
+    });
+
+    it("rejects quoted PAT configuration with an actionable message", async () => {
+      resolver = new AuthResolver(makeConfig());
+      await expect(resolver.resolve('Bearer "syn-valid-token"')).rejects.toThrow("token value is quoted");
+    });
+
     it("returns stable hashed user id for opaque non-PAT bearer tokens when compatibility is enabled", async () => {
       resolver = new AuthResolver(makeConfig({ SYNESIS_YARN_ALLOW_OPAQUE_BEARER: true }));
       const user = await resolver.resolve("Bearer some-api-key-123");

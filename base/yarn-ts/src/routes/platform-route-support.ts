@@ -43,6 +43,8 @@ function classifyAuthorizationHeader(authorization: string | undefined): string 
   if (!raw.toLowerCase().startsWith("bearer ")) return "non_bearer";
   const token = raw.slice(7).trim();
   if (!token) return "empty_bearer";
+  if (/^bearer\s+syn-/i.test(token)) return "double_bearer_syn_pat";
+  if (/^["']syn-/i.test(token)) return "quoted_syn_pat";
   if (token.startsWith("syn-")) return "syn_pat";
   if (token.split(".").length === 3) return "jwt";
   return "opaque";

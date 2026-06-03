@@ -53,6 +53,12 @@ export class AuthResolver {
 
   async resolve(authorizationHeader: string | undefined): Promise<AuthUser> {
     const token = this.extractBearerToken(authorizationHeader);
+    if (/^bearer\s+syn-/i.test(token)) {
+      throw new Error("Malformed Authorization header: configure API key as the raw syn- token, not 'Bearer syn-...'");
+    }
+    if (/^["']syn-/i.test(token)) {
+      throw new Error("Malformed Authorization header: token value is quoted; configure API key as the raw syn- token");
+    }
     if (token.startsWith("syn-")) {
       const user = await this.resolvePat(token);
       if (user) return user;

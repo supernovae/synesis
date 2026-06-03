@@ -38,6 +38,7 @@ Services enforce per-user rate limits. If you receive HTTP 429, wait for the `Re
 ## Troubleshooting
 
 - **401 Unauthorized**: check that your PAT is valid and not expired.
+- **401 with OpenAI-compatible clients such as OpenCode**: set the API key value to the raw `syn-...` PAT only. Do not include `Bearer `, quotes, or shell-escaped wrappers in the API key field; the client constructs `Authorization: Bearer <api-key>` itself.
 - **403 Forbidden**: your token may lack the required scope, or FGA authorization is denied.
 - **429 Too Many Requests**: you've hit a rate limit; back off and retry.
 - **502 Bad Gateway**: the backend service may be restarting; retry after a few seconds.
