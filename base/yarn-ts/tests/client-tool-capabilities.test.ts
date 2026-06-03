@@ -61,11 +61,30 @@ describe("client tool capabilities", () => {
     ])).toBe(true);
   });
 
+  it("recognizes AskUserQuestion proceed answers after a Claude plan preview", () => {
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "/plan build a Rust app" },
+      { role: "assistant", content: "The File Indexer plan was already approved. Would you like me to proceed with implementation, or would you prefer a different approach?" },
+      { role: "tool", name: "AskUserQuestion", content: "Proceed with implementation" },
+    ])).toBe(true);
+
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "/plan build a Rust app" },
+      { role: "assistant", content: "The plan is ready for approval." },
+      { role: "tool_result", name: "AskUserQuestion", content: "· The File Indexer plan was already approved. Would you like me to proceed with implementation, or would you prefer a different approach? → Proceed with implementation" },
+    ])).toBe(true);
+  });
+
   it("does not treat generic continue text as plan approval without plan-ready context", () => {
     expect(isPlanImplementationApprovalTurn([
       { role: "user", content: "Fix the bug" },
       { role: "assistant", content: "I found the failing test." },
       { role: "user", content: "continue" },
+    ])).toBe(false);
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "Fix the bug" },
+      { role: "assistant", content: "I found the failing test." },
+      { role: "tool", name: "AskUserQuestion", content: "Proceed with implementation" },
     ])).toBe(false);
   });
 

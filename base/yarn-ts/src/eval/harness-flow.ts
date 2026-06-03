@@ -324,7 +324,162 @@ export function criticalHarnessTransitionSpecs(): HarnessFlowSpec[] {
       ],
       clientPlanModeRequestedAfterApproval: false,
     }),
+    claudePlanApprovalTransitionFlow({
+      id: "claude-plan-question-answer-then-task-setup",
+      description: "Claude Code should treat a Proceed-with-implementation AskUserQuestion answer as leaving plan mode.",
+      approvalMessages: [
+        assistantText("The File Indexer plan was already approved. Would you like me to proceed with implementation, or would you prefer a different approach?"),
+        { role: "tool", name: "AskUserQuestion", content: "Proceed with implementation" },
+      ],
+      clientPlanModeRequestedAfterApproval: false,
+    }),
+    questionAnswerPlanApprovalTransitionFlow({
+      id: "opencode-plan-question-answer-then-todowrite",
+      description: "OpenCode should treat a question-tool proceed answer as leaving plan mode without Claude tool leakage.",
+      profile: "opencode",
+      approvalMessages: [
+        assistantText("The plan is ready for approval. Would you like me to proceed with implementation?"),
+        { role: "tool_result", name: "question", content: "Proceed with implementation" },
+      ],
+      setupMessages: [
+        assistantCall("opencode-plan-question-answer-then-todowrite-todos", "TodoWrite", {
+          todos: [
+            { content: "Create workspace Cargo.toml", status: "in_progress" },
+            { content: "Create core crate scaffold", status: "pending" },
+          ],
+        }),
+        toolResult("opencode-plan-question-answer-then-todowrite-todos", "Todos updated"),
+      ],
+      expectedTools: ["TodoWrite", "Write"],
+    }),
+    questionAnswerPlanApprovalTransitionFlow({
+      id: "pi-plan-user-answer-then-first-edit",
+      description: "Pi should treat a plain-text proceed answer as leaving plan mode without Claude/OpenCode native tool leakage.",
+      profile: "pi",
+      approvalMessages: [
+        assistantText("Ready to code?\n\nHere is the implementation plan."),
+        userText("Proceed with implementation"),
+      ],
+      setupMessages: [
+        assistantText("The plan is approved. I'll start with the workspace manifest and track progress in prose."),
+      ],
+      expectedTools: ["Write"],
+    }),
+    questionAnswerPlanApprovalTransitionFlow({
+      id: "generic-plan-user-answer-then-first-edit",
+      description: "Generic OpenAI-compatible harnesses should treat implement-the-plan text as leaving plan mode.",
+      profile: "generic-openai",
+      approvalMessages: [
+        assistantText("The plan is ready for review."),
+        userText("implement the plan"),
+      ],
+      setupMessages: [
+        assistantText("The plan is approved. I'll start implementation with the first project file."),
+      ],
+      expectedTools: ["Write"],
+    }),
   ];
+}
+
+function questionAnswerPlanApprovalTransitionFlow(opts: {
+  id: string;
+  description: string;
+  profile: HarnessProfileId;
+  approvalMessages: GovernorInputMessage[];
+  setupMessages: GovernorInputMessage[];
+  expectedTools: readonly string[];
+}): HarnessFlowSpec {
+  const baseOptions = {
+    orchestratorWorkflowPhase: "implementation" as const,
+    activePlanStage: "implement" as const,
+    taskLedgerOpenCount: 2,
+    taskLedgerExplicitOpenCount: opts.profile === "opencode" ? 2 : 0,
+    chatState: { completionStatus: "blocked" as const, lastVerificationOutcome: "fail" as const },
+  };
+
+  return {
+    id: opts.id,
+    description: opts.description,
+    profile: opts.profile,
+    flowType: "plan-then-build",
+    expectedTools: opts.expectedTools,
+    forbiddenRules: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+    steps: [
+      {
+        id: "plan-file-written",
+        messages: [
+          userText("/plan Build a complete Rust workspace application."),
+          assistantText("Plan: Rust workspace application\n\n- Create workspace manifest\n- Create core and cli crates\n"),
+          assistantText("The plan is ready for approval. Would you like me to proceed with implementation?"),
+        ],
+        governorOptions: {
+          clientPlanModeRequested: true,
+          orchestratorWorkflowPhase: "planning",
+          activePlanStage: "plan",
+          taskLedgerOpenCount: 0,
+          taskLedgerExplicitOpenCount: 0,
+          chatState: { completionStatus: "blocked" },
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "plan-approved",
+        messages: opts.approvalMessages,
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: false,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "native-task-setup",
+        messages: [
+          assistantText("The plan is approved. I'll prepare the implementation steps and start with the workspace manifest."),
+          ...opts.setupMessages,
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: false,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "first-implementation-edit",
+        messages: [
+          assistantCall(`${opts.id}-write-cargo`, "Write", {
+            file_path: "Cargo.toml",
+            content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",
+          }),
+          toolResult(`${opts.id}-write-cargo`, "Wrote Cargo.toml"),
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: false,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "post-first-edit-continues-implementation",
+        messages: [
+          {
+            role: "system",
+            content: "Plan mode is active. You MUST NOT make any edits except to the plan file.",
+          },
+          assistantText("The first project file is created, so I will continue implementation with the next manifest."),
+          assistantCall(`${opts.id}-write-core-cargo`, "Write", {
+            file_path: "core/Cargo.toml",
+            content: "// FILE: core/Cargo.toml\n[package]\nname = \"file-indexer-core\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+          }),
+          toolResult(`${opts.id}-write-core-cargo`, "Wrote core/Cargo.toml"),
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: false,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+    ],
+  };
 }
 
 function claudePlanApprovalTransitionFlow(opts: {
