@@ -188,6 +188,9 @@ describe("client tool capabilities", () => {
     expect(block).toContain("claude_code_plan_mode_requested=true");
     expect(block).toContain("~/.claude/plans/** is an allowed harness path");
     expect(block).toContain("call ExitPlanMode once the plan is ready");
+    expect(block).toContain("do not launch Agent or Plan subagents");
+    expect(enrichToolDescriptionForClient("Plan", "Design implementation", caps))
+      .toContain("Do not use Agent/Plan subagents");
     expect(block).not.toContain("do not call ExitPlanMode again");
   });
 

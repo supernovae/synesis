@@ -170,6 +170,43 @@ describe("standard harness flows", () => {
     expect(result.stepResults[0]!.decision.matchedRules).not.toContain("no_progress_loop");
   });
 
+  it("flags Claude Plan subagents that implement project files during active plan mode", () => {
+    const subagentImplementationSpec: HarnessFlowSpec = {
+      id: "claude-plan-subagent-implements-during-plan-mode",
+      description: "A Plan subagent may design the plan, but must not create project files before ExitPlanMode approval.",
+      profile: "claude-code",
+      flowType: "plan-then-build",
+      forbiddenSignals: ["subagent_implementation_in_plan_mode"],
+      steps: [
+        {
+          id: "subagent-implemented-project-files",
+          messages: [
+            userText("/plan Build a complete Rust workspace application."),
+            assistantCall("p1", "Plan", { description: "Design Rust workspace architecture" }),
+            toolResult(
+              "p1",
+              "Bash(mkdir -p core/src cli/src config tests && ls -la)\n"
+              + "Bash(cat > Cargo.toml << 'EOF'\n[workspace]\nmembers = [\"core\", \"cli\"]\nEOF)\n"
+              + "Created workspace Cargo.toml",
+            ),
+          ],
+          governorOptions: {
+            clientPlanModeRequested: true,
+            orchestratorWorkflowPhase: "planning",
+            activePlanStage: "plan",
+            taskLedgerOpenCount: 0,
+            taskLedgerExplicitOpenCount: 0,
+            chatState: { completionStatus: "blocked" },
+          },
+        },
+      ],
+    };
+
+    const result = evaluateHarnessFlow(subagentImplementationSpec);
+    expect(result.passed).toBe(false);
+    expect(result.signals).toContain("subagent_implementation_in_plan_mode");
+  });
+
   it("allows stale Claude plan-mode reminders after plan approval", () => {
     const stalePlanModeSpec: HarnessFlowSpec = {
       id: "claude-stale-plan-mode-after-approval",

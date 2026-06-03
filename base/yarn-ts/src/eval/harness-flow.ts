@@ -29,6 +29,7 @@ export type HarnessFlowSignal =
   | "claude_leakage"
   | "opencode_leakage"
   | "plan_regression_after_implementation"
+  | "subagent_implementation_in_plan_mode"
   | "missing_expected_tool"
   | "forbidden_rule";
 
@@ -174,6 +175,7 @@ export function evaluateHarnessFlow(spec: HarnessFlowSpec): HarnessFlowResult {
     "claude_leakage",
     "opencode_leakage",
     "plan_regression_after_implementation",
+    "subagent_implementation_in_plan_mode",
     "missing_expected_tool",
     "forbidden_rule",
   ];
@@ -234,8 +236,29 @@ function signalsForStep(
   if (spec.profile === "claude-code" && spec.flowType === "plan-then-build" && hasPlanReadAfterProjectWrite(events)) {
     signals.push("plan_regression_after_implementation");
   }
+  if (spec.profile === "claude-code" && spec.flowType === "plan-then-build" && hasSubagentImplementationDuringPlanMode(step, events)) {
+    signals.push("subagent_implementation_in_plan_mode");
+  }
 
   return [...new Set(signals)];
+}
+
+function hasSubagentImplementationDuringPlanMode(
+  step: HarnessFlowStep,
+  events: ReturnType<typeof extractCommandEvents>,
+): boolean {
+  const inActivePlanMode = step.governorOptions?.clientPlanModeRequested === true
+    && step.governorOptions?.orchestratorWorkflowPhase !== "implementation";
+  if (!inActivePlanMode) return false;
+  const hasSubagentCall = events.some((event) => {
+    const tool = event.toolName.toLowerCase();
+    return tool === "plan" || tool === "agent";
+  });
+  if (!hasSubagentCall) return false;
+  const text = step.messages.map((message) => messageToText(message)).join("\n");
+  return /\b(?:cat|tee)\s+>\s+(?:\.\/)?(?:Cargo\.toml|core\/Cargo\.toml|cli\/Cargo\.toml|README\.md|src\/|core\/src\/|cli\/src\/)/i.test(text)
+    || /\b(?:Write|Edit|Bash)\([^)]*(?:Cargo\.toml|core\/src\/|cli\/src\/|README\.md)/i.test(text)
+    || /\bCreated (?:workspace )?(?:Cargo\.toml|core\/Cargo\.toml|cli\/Cargo\.toml|README\.md)\b/i.test(text);
 }
 
 function hasPlanReadAfterProjectWrite(events: ReturnType<typeof extractCommandEvents>): boolean {

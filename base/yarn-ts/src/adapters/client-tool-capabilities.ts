@@ -286,6 +286,7 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     lines.push("- Claude Code plan mode: EnterPlanMode is for planning without edits; ExitPlanMode presents the final plan for approval and may require permission. Do not start implementation until plan mode has exited, the user approved the plan, or the user explicitly asked to execute.");
     if (capabilities.planModeRequested) {
       lines.push("- Claude Code plan files: ~/.claude/plans/** is an allowed harness path even though it is outside the project root. In /plan mode, write/update the exact plan file the client provides, then call ExitPlanMode once the plan is ready. Do not switch to a project-local plan file.");
+      lines.push("- Claude Code active /plan mode: do not launch Agent or Plan subagents to create a greenfield implementation plan. Subagent tool calls can surface implementation writes before plan approval. Use direct read-only inspection, write/update the Claude plan file yourself, then call ExitPlanMode.");
     } else if (capabilities.planImplementationApproved) {
       lines.push("- Claude Code plan transition: plan approval has already happened. Do not call ExitPlanMode, do not update the Claude plan file, do not launch planning subagents, and do not treat stale 'Plan mode is active' transcript text as active mode state. Continue with native task setup or the next concrete project edit.");
     } else if (capabilities.hasPlanModeTool) {
@@ -361,6 +362,9 @@ export function enrichToolDescriptionForClient(
       return appendHint(description, " [Synesis: Present the completed plan for approval and exit plan mode before implementation.]");
     }
     if (AGENT_TOOLS.has(normalized)) {
+      if (capabilities.isClaudeCode && capabilities.planModeRequested) {
+        return appendHint(description, " [Synesis: Active Claude /plan mode. Do not use Agent/Plan subagents to create a greenfield implementation plan; write/update the Claude plan file directly with read-only inspection, then call ExitPlanMode before coding.]");
+      }
       return appendHint(description, " [Synesis: Use Agent/Plan for bounded research or planning. In Claude /plan mode, subagents must not implement or write project files; update the plan file and exit plan mode before coding. Parent sees only the final result; subagent tool permissions still apply.]");
     }
     if (normalized === "bash" || normalized === "powershell") {
