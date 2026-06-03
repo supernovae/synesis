@@ -390,8 +390,10 @@ export function injectPlanModeRecoveryHint(
     ? [
         "<SYNESIS_EXECUTION_RECOVERY source=\"plan_mode_exit_already_approved\">",
         "The client rejected ExitPlanMode because plan mode has already ended or the plan was already approved.",
+        "This recovery instruction is newer and more specific than any stale plan-mode reminder still present in the transcript.",
+        "Treat plan mode as closed for this implementation turn even if older context says plan mode is active.",
         "Do NOT call ExitPlanMode again. Do NOT update or rewrite the plan file again.",
-        "Continue with implementation now: create/update the first project file from the approved plan, then update native task/plan status after real progress.",
+        "Continue with implementation now: create/update the next project file from the approved plan, then update native task/plan status after real progress.",
         "</SYNESIS_EXECUTION_RECOVERY>",
       ].join("\n")
     : [

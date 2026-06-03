@@ -48,6 +48,7 @@ describe("standard harness flows", () => {
         "plan-approved",
         "native-task-setup",
         "first-implementation-edit",
+        "post-first-edit-continues-implementation",
       ]);
 
       for (const step of result.stepResults) {
@@ -58,6 +59,50 @@ describe("standard harness flows", () => {
       }
     });
   }
+
+  it("flags Claude returning to plan reads after implementation started", () => {
+    const regressedSpec: HarnessFlowSpec = {
+      id: "claude-plan-regresses-after-first-edit",
+      description: "A stale plan-mode reminder must not send Claude back to reading the plan after project writes started.",
+      profile: "claude-code",
+      flowType: "plan-then-build",
+      forbiddenSignals: ["plan_regression_after_implementation"],
+      steps: [
+        {
+          id: "bad-plan-reread-after-first-edit",
+          messages: [
+            userText("/plan Build a complete Rust workspace application."),
+            assistantCall("bad-plan", "Write", {
+              file_path: ".claude/plans/rust-workspace-plan.md",
+              content: "Plan: Rust workspace application",
+            }),
+            toolResult("bad-plan", "Updated plan"),
+            toolResult("bad-exit", "User has approved your plan. You can now start coding."),
+            assistantCall("bad-write", "Write", {
+              file_path: "Cargo.toml",
+              content: "// FILE: Cargo.toml\n[workspace]\nmembers = [\"core\", \"cli\"]\n",
+            }),
+            toolResult("bad-write", "Wrote Cargo.toml"),
+            { role: "system", content: "Plan mode is active. You MUST NOT make edits except to the plan file." },
+            assistantCall("bad-read-plan", "Read", { file_path: ".claude/plans/rust-workspace-plan.md" }),
+            toolResult("bad-read-plan", "Plan: Rust workspace application"),
+          ],
+          governorOptions: {
+            clientPlanModeRequested: false,
+            orchestratorWorkflowPhase: "implementation",
+            activePlanStage: "implement",
+            taskLedgerOpenCount: 3,
+            taskLedgerExplicitOpenCount: 3,
+            chatState: { completionStatus: "blocked" },
+          },
+        },
+      ],
+    };
+
+    const result = evaluateHarnessFlow(regressedSpec);
+    expect(result.passed).toBe(false);
+    expect(result.signals).toContain("plan_regression_after_implementation");
+  });
 
   it("keeps generic clients free of Claude and OpenCode native-task leakage", () => {
     const generic = standardHarnessFlowSpecs().find((spec) => spec.id === "generic-openai-no-native-task-tools");

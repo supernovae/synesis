@@ -17,6 +17,8 @@ describe("plan file guardrails", () => {
     const injected = String(messages.at(-1)?.content ?? "");
     expect(injected).toContain("plan_mode_exit_already_approved");
     expect(injected).toContain("Continue with implementation now");
+    expect(injected).toContain("newer and more specific than any stale plan-mode reminder");
+    expect(injected).toContain("Treat plan mode as closed");
     expect(injected).toContain("Do NOT update or rewrite the plan file again");
     expect(injected).not.toContain("cat > path");
   });

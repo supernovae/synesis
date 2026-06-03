@@ -28,6 +28,7 @@ export type HarnessFlowSignal =
   | "duplicate_cwd_path"
   | "claude_leakage"
   | "opencode_leakage"
+  | "plan_regression_after_implementation"
   | "missing_expected_tool"
   | "forbidden_rule";
 
@@ -172,6 +173,7 @@ export function evaluateHarnessFlow(spec: HarnessFlowSpec): HarnessFlowResult {
     "duplicate_cwd_path",
     "claude_leakage",
     "opencode_leakage",
+    "plan_regression_after_implementation",
     "missing_expected_tool",
     "forbidden_rule",
   ];
@@ -229,8 +231,25 @@ function signalsForStep(
       signals.push("claude_leakage");
     }
   }
+  if (spec.profile === "claude-code" && spec.flowType === "plan-then-build" && hasPlanReadAfterProjectWrite(events)) {
+    signals.push("plan_regression_after_implementation");
+  }
 
   return [...new Set(signals)];
+}
+
+function hasPlanReadAfterProjectWrite(events: ReturnType<typeof extractCommandEvents>): boolean {
+  let sawProjectWrite = false;
+  for (const event of events) {
+    const command = event.command.toLowerCase();
+    if (sawProjectWrite && command.startsWith("read:") && command.includes(".claude/plans/")) {
+      return true;
+    }
+    if ((command.startsWith("write:") || command.startsWith("edit:")) && !command.includes(".claude/plans/")) {
+      sawProjectWrite = true;
+    }
+  }
+  return false;
 }
 
 function messageToText(message: GovernorInputMessage): string {
@@ -385,6 +404,26 @@ function claudePlanApprovalTransitionFlow(opts: {
             content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",
           }),
           toolResult(`${opts.id}-write-cargo`, "Wrote Cargo.toml"),
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: opts.clientPlanModeRequestedAfterApproval,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "post-first-edit-continues-implementation",
+        messages: [
+          {
+            role: "system",
+            content: "Plan mode is active. You MUST NOT make any edits except to the plan file.",
+          },
+          assistantText("The first project file is created, so I will continue implementation with the next manifest."),
+          assistantCall(`${opts.id}-write-core-cargo`, "Write", {
+            file_path: "core/Cargo.toml",
+            content: "// FILE: core/Cargo.toml\n[package]\nname = \"file-indexer-core\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+          }),
+          toolResult(`${opts.id}-write-core-cargo`, "Wrote core/Cargo.toml"),
         ],
         governorOptions: {
           ...baseOptions,
