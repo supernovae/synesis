@@ -10,7 +10,6 @@ import ast
 import concurrent.futures
 import contextlib
 import hashlib
-import html
 import json
 import math
 import os
@@ -32,8 +31,8 @@ import yaml
 from .code_graph import derive_graph_edges, extract_call_refs, extract_import_refs
 from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
-from .extract import html_to_markdown, normalize_doc_markdown
 from .injection_scan import scan_chunk_text_detailed
+from .language_text import basic_source_text_cleanup, normalize_source_text_by_format
 from .nornic_writer import chunk_id_hash
 from .pipeline import _code_chunk_metrics
 from .schema import CORPUS_VERSION, EMBEDDING_DIM, EMBEDDING_PROFILE, SCHEMA_VERSION, catalog_entity
@@ -175,9 +174,6 @@ STRUCTURED_FORMATS = {
     "ksh",
 }
 LANGUAGE_PACK_GATE_POLICY = GatePolicy(min_chunk_quality=0.10, min_chunk_words=12, min_chunk_words_absolute=3)
-CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-HTML_TAG_RE = re.compile(r"<[^>]+>")
-HTML_SIGNAL_RE = re.compile(r"<(?:!doctype|html|head|body|main|article|section|div|p|h[1-6]|nav|footer)\b", re.I)
 
 
 @dataclass
@@ -204,44 +200,17 @@ class LanguageChunk:
 
 
 def _basic_source_text_cleanup(text: str) -> str:
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = CONTROL_CHAR_RE.sub("", text)
-    lines = [line.rstrip() for line in text.split("\n")]
-    text = "\n".join(lines)
-    text = re.sub(r"\n{4,}", "\n\n\n", text)
-    return text.strip()
+    return basic_source_text_cleanup(text)
 
 
 def _strip_html_tags(text: str) -> str:
-    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", text)
-    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</(?:p|div|section|article|li|h[1-6]|tr)>", "\n", text)
-    return _basic_source_text_cleanup(html.unescape(HTML_TAG_RE.sub("", text)))
+    from .language_text import strip_html_tags
+
+    return strip_html_tags(text)
 
 
 def _normalize_language_chunk_text(chunk: LanguageChunk) -> tuple[str, str]:
-    original_format = (chunk.content_format or "").lower().strip()
-    text = _basic_source_text_cleanup(chunk.text)
-    if not text:
-        return "", original_format or "text"
-
-    has_html_signal = bool(HTML_SIGNAL_RE.search(text[:4096]))
-    looks_html = original_format in HTML_FORMATS or has_html_signal
-    if looks_html and has_html_signal:
-        markdown = normalize_doc_markdown(html_to_markdown(text))
-        if markdown:
-            return markdown, "markdown"
-        return _strip_html_tags(text), "text"
-    if original_format in HTML_FORMATS:
-        return normalize_doc_markdown(text), "markdown"
-
-    if original_format in MARKDOWN_FORMATS:
-        return normalize_doc_markdown(text), "markdown"
-
-    if original_format in {"rst", "adoc", "txt", "text", "texi", "1", ""}:
-        return normalize_doc_markdown(text), original_format or "text"
-
-    return text, original_format
+    return normalize_source_text_by_format(chunk.text, chunk.content_format)
 
 
 def _has_curated_rescue_signal(chunk: LanguageChunk, text: str) -> bool:

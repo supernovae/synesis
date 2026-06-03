@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatCompletionRequestSchema } from "../src/api-schemas.js";
-import { resolvePlannerSessionKey } from "../src/app.js";
+import { resolvePlannerSessionKey } from "../src/routes/route-support.js";
 
 describe("resolvePlannerSessionKey", () => {
   it("uses conversation-scoped key when conversation_id is present", () => {

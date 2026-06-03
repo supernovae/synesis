@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSupportHandle, withSupportHandleHint } from "../src/app.js";
+import { resolveSupportHandle, withSupportHandleHint } from "../src/routes/route-support.js";
 
 describe("support handle fallback helpers", () => {
   it("prefers authz_trace_id over run_id", () => {

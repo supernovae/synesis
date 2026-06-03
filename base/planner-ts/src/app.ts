@@ -79,6 +79,16 @@ import { isLikelyClarificationAnswer } from "./clarification/clarification-answe
 import type { ScopeFilterOptions, WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
 import { CapabilityMatrixClient } from "./capability-matrix/client.js";
 import { resolveCapabilityMatrix } from "./capability-matrix/resolver.js";
+import {
+  resolvePlannerSessionKey,
+  withSupportHandleHint,
+} from "./routes/route-support.js";
+
+export {
+  resolvePlannerSessionKey,
+  resolveSupportHandle,
+  withSupportHandleHint,
+} from "./routes/route-support.js";
 
 type ErrorWithMeta = Error & {
   statusCode?: number;
@@ -158,19 +168,6 @@ function sanitizeErrorMessage(raw: string): string {
   if (raw.startsWith("LLM HTTP ")) return "Upstream model service error";
   if (raw.includes("ZodError") || raw.includes("Expected")) return "Request validation failed";
   return "Internal server error";
-}
-
-export function resolveSupportHandle(input: { authzTraceId?: string | null; runId?: string | null }): string | undefined {
-  return optionalString(input.authzTraceId) ?? optionalString(input.runId);
-}
-
-export function withSupportHandleHint(
-  message: string,
-  input: { authzTraceId?: string | null; runId?: string | null },
-): string {
-  const supportHandle = resolveSupportHandle(input);
-  if (!supportHandle || message.includes(supportHandle)) return message;
-  return `${message} (support id: ${supportHandle})`;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -384,17 +381,6 @@ async function pipeOpenAICompatStream(reply: FastifyReply, upstream: Response): 
     reply.raw.write(Buffer.from(chunk));
   }
   if (!reply.raw.writableEnded) reply.raw.end();
-}
-
-export function resolvePlannerSessionKey(
-  requestBody: ParsedChatRequest,
-  requestId: string,
-): { sessionKey: string; source: "conversation_id" | "ephemeral_request" } {
-  const conversationId = (requestBody.conversation_id ?? "").trim();
-  if (conversationId.length > 0) {
-    return { sessionKey: `conversation:${conversationId}`, source: "conversation_id" };
-  }
-  return { sessionKey: `ephemeral:${requestId}`, source: "ephemeral_request" };
 }
 
 function resolveIncomingConversationId(
