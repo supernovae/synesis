@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assistantCall,
+  assistantText,
   evaluateHarnessFlow,
   standardHarnessFlowSpecs,
   toolResult,
@@ -99,6 +100,105 @@ describe("standard harness flows", () => {
     expect(result.stepResults[0]!.decision.pause).toBe(false);
     expect(result.stepResults[0]!.decision.matchedRules).not.toContain("plan_reread_loop");
     expect(result.stepResults[0]!.decision.matchedRules).not.toContain("no_progress_loop");
+  });
+
+  it("allows stale Claude plan-mode reminders after plan approval", () => {
+    const stalePlanModeSpec: HarnessFlowSpec = {
+      id: "claude-stale-plan-mode-after-approval",
+      description: "Claude may receive stale plan-mode context after approval and retry ExitPlanMode before starting implementation.",
+      profile: "claude-code",
+      flowType: "plan-then-build",
+      forbiddenRules: ["completion_claim_requires_task_update", "identical_tool_repeat", "no_progress_loop"],
+      steps: [
+        {
+          id: "stale-plan-exit-retry",
+          messages: [
+            userText("/plan Build a complete Rust workspace application."),
+            assistantCall("s1", "Write", {
+              file_path: ".claude/plans/you-are-a-rust-logical-waffle.md",
+              content: "Plan: Rust Task Manager application scaffold",
+            }),
+            toolResult("s1", "Updated plan"),
+            assistantText("I've created a comprehensive plan for the Rust application scaffold. Ready to code?"),
+            assistantCall("s2", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+            toolResult("s2", "User has approved your plan. You can now start coding."),
+            assistantText("A stale system reminder says plan mode is active, so I will exit plan mode again before implementation."),
+            assistantCall("s3", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+            toolResult("s3", "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation."),
+            assistantCall("s4", "Write", {
+              file_path: ".claude/plans/you-are-a-rust-logical-waffle.md",
+              content: "Plan: Rust Task Manager application scaffold\n\nUpdated to match file header requirements.",
+            }),
+            toolResult("s4", "Updated plan"),
+            assistantCall("s5", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+            toolResult("s5", "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation."),
+          ],
+          governorOptions: {
+            clientPlanModeRequested: true,
+            orchestratorWorkflowPhase: "implementation",
+            activePlanStage: "implement",
+            taskLedgerOpenCount: 1,
+            taskLedgerExplicitOpenCount: 1,
+            chatState: { completionStatus: "blocked", lastVerificationOutcome: "fail" },
+          },
+          expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "no_progress_loop"],
+        },
+      ],
+    };
+
+    const result = evaluateHarnessFlow(stalePlanModeSpec);
+    expect(result.passed, result.signals.join(", ")).toBe(true);
+    const decision = result.stepResults[0]!.decision;
+    expect(decision.pause).toBe(false);
+    expect(decision.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(decision.matchedRules).not.toContain("identical_tool_repeat");
+    expect(decision.matchedRules).not.toContain("no_progress_loop");
+  });
+
+  it("allows one repeated missing Claude instructions check across startup and plan mode", () => {
+    const missingInstructionsSpec: HarnessFlowSpec = {
+      id: "claude-missing-instructions-startup-to-plan",
+      description: "Claude Code may check CLAUDE.md at startup and once again after /plan, but should not be hard-paused before implementation.",
+      profile: "claude-code",
+      flowType: "plan-then-build",
+      forbiddenRules: ["source_file_stale_reread", "plan_reread_loop", "no_progress_loop"],
+      steps: [
+        {
+          id: "startup-and-plan-instructions-check",
+          messages: [
+            userText("."),
+            assistantCall("m1", "Read", { file_path: "CLAUDE.md" }),
+            toolResult("m1", "File does not exist."),
+            assistantText("The workspace is empty and no CLAUDE.md exists."),
+            userText("/plan Build a complete Rust workspace application."),
+            assistantCall("m2", "Read", { file_path: "CLAUDE.md" }),
+            toolResult("m2", "File does not exist."),
+            assistantCall("m3", "Write", {
+              file_path: ".claude/plans/you-are-a-rust-logical-waffle.md",
+              content: "Plan: Rust Task Manager application scaffold",
+            }),
+            toolResult("m3", "Updated plan"),
+          ],
+          governorOptions: {
+            clientPlanModeRequested: true,
+            orchestratorWorkflowPhase: "planning",
+            activePlanStage: "plan",
+            taskLedgerOpenCount: 0,
+            taskLedgerExplicitOpenCount: 0,
+            chatState: { completionStatus: "blocked", lastVerificationOutcome: "fail" },
+          },
+          expectedRulesExclude: ["source_file_stale_reread", "plan_reread_loop", "no_progress_loop"],
+        },
+      ],
+    };
+
+    const result = evaluateHarnessFlow(missingInstructionsSpec);
+    expect(result.passed, result.signals.join(", ")).toBe(true);
+    const decision = result.stepResults[0]!.decision;
+    expect(decision.pause).toBe(false);
+    expect(decision.matchedRules).not.toContain("source_file_stale_reread");
+    expect(decision.matchedRules).not.toContain("plan_reread_loop");
+    expect(decision.matchedRules).not.toContain("no_progress_loop");
   });
 
   it("treats repeated source reads as a real loop in the negative control", () => {

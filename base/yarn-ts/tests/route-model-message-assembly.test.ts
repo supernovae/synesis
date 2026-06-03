@@ -69,6 +69,9 @@ describe("assembleRouteModelMessages", () => {
     expect(contents[0]).toContain("tool-count=2");
     const systemContent = contents[0];
     expect(systemContent).toContain("workspace is empty");
+    expect(systemContent).toContain("workspace_inspection=complete");
+    expect(systemContent).toContain("CLAUDE.md:absent");
+    expect(systemContent).toContain("Do not re-read or claim absent project instruction files");
     expect(systemContent).toContain("policy-pivot");
     expect(systemContent).toContain("edit-guard:src/app.ts:2");
     expect(systemContent).toContain("reground:src/state.ts:stale");

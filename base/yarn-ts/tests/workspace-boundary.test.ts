@@ -96,7 +96,11 @@ describe("workspace boundary", () => {
 
   it("empty workspace prompt blocks stale internal narration", () => {
     const prompt = buildEmptyWorkspaceSystemPrompt("/tmp/empty");
+    expect(prompt).toContain("workspace_inspection=complete");
+    expect(prompt).toContain("CLAUDE.md:absent");
+    expect(prompt).toContain("AGENTS.md:absent");
     expect(prompt).toContain("Do not create CLAUDE.md automatically");
+    expect(prompt).toContain("Do not re-read or claim absent project instruction files");
     expect(prompt).toContain("Do not invent SYNOPSIS_* labels");
     expect(prompt).toContain("Do not claim prior task frames");
     expect(prompt).toContain("Do not inspect parent or sibling directories");

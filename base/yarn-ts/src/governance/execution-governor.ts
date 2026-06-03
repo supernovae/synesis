@@ -460,8 +460,14 @@ function isPlanModeLifecycleCommand(command: string): boolean {
     || normalized === "planmode:exit";
 }
 
+function hasPlanModeAlreadyExitedSignature(signature: string): boolean {
+  const normalized = normalizeString(signature).toLowerCase();
+  return /not in plan mode|only for exiting plan mode|already approved|continue with implementation/.test(normalized);
+}
+
 function isSuccessfulTaskLifecycleBoundary(event: CommandEvent): boolean {
   if (!isTaskLifecycleCommand(event.command) && !isPlanModeLifecycleCommand(event.command)) return false;
+  if (isPlanModeLifecycleCommand(event.command) && hasPlanModeAlreadyExitedSignature(event.resultSignature)) return true;
   const sig = event.resultSignature;
   return !(sig && (sig.includes("error") || sig.includes("failed") || sig.includes("no match")));
 }
@@ -2255,11 +2261,20 @@ export function evaluateExecutionGovernor(
     && events.length <= 20
     && !hasPlanEdit
     && !events.some((e) => e.command === "planmode:exit");
-  const planApprovalExitActive =
+  const planModeAlreadyExitedActive =
     clientPlanModeRequested
     && changedNonPlanFiles.length === 0
-    && recentAllEvents.some((e) => e.command === "planmode:exit")
-    && hasPlanApprovalReadyClaim(messages);
+    && recentAllEvents.some((e) =>
+      e.command === "planmode:exit" && hasPlanModeAlreadyExitedSignature(e.resultSignature)
+    );
+  const planApprovalExitActive =
+    planModeAlreadyExitedActive
+    || (
+      clientPlanModeRequested
+      && changedNonPlanFiles.length === 0
+      && recentAllEvents.some((e) => e.command === "planmode:exit")
+      && hasPlanApprovalReadyClaim(messages)
+    );
   const planApprovalTaskSetupActive =
     planApprovalExitActive
     && events.length <= 30
@@ -2296,7 +2311,7 @@ export function evaluateExecutionGovernor(
   // current task is finished.
   // Also suppressed during plan recovery grace: the model legitimately says "already done"
   // when describing prior plan progress during orientation.
-  const hasNonExplorationEvents = changedFiles.length > 0
+  const hasNonExplorationEvents = changedNonPlanFiles.length > 0
     || events.some((e) => isExecutionVerificationCommand(e.toolName, e.command));
   if (
     completionClaimNeedsTaskUpdate
