@@ -19,7 +19,17 @@ import {
   type PathSandboxPolicy,
   type PathOperation,
 } from "./path-sandbox.js";
+import {
+  buildStructuredErrorBashCommand,
+  buildUserSafeErrorBashCommand,
+  shellEscape,
+} from "./diagnostics.js";
 import { isCoderClientKind } from "../session/session-key.js";
+
+export {
+  buildStructuredErrorBashCommand,
+  buildUserSafeErrorBashCommand,
+} from "./diagnostics.js";
 
 export interface GovernToolCallOptions {
   toolName: string;
@@ -81,18 +91,6 @@ const WRITE_CAPABLE_LOGICAL = new Set([
 
 function isPlanPath(filePath: string): boolean {
   return /\.claude\/plans\//.test(filePath);
-}
-
-/** One-line JSON on stderr + exit 2 — parseable by agents (schema_version bumps are breaking). */
-export function buildStructuredErrorBashCommand(payload: Record<string, unknown>): string {
-  const json = JSON.stringify(payload);
-  return `printf '%s\\n' ${shellEscape(json)} >&2; exit 2`;
-}
-
-/** User-safe stderr message + exit 2 for client-visible tool failures. */
-export function buildUserSafeErrorBashCommand(message: string): string {
-  const compact = message.replace(/\s+/g, " ").trim();
-  return `printf '%s\\n' ${shellEscape(compact)} >&2; exit 2`;
 }
 
 const CAMEL_TO_SNAKE: Record<string, string> = {
@@ -1419,9 +1417,4 @@ function maybeBlockUnanchoredAbsoluteFileTool(
     },
     nudge: message,
   };
-}
-
-function shellEscape(s: string): string {
-  if (/^[a-zA-Z0-9_./:-]+$/.test(s)) return s;
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }
