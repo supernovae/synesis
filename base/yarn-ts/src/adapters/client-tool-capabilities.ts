@@ -268,6 +268,7 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
   }
   if (capabilities.isClaudeCode) {
     lines.push(`claude_code_builtin_tools=${CLAUDE_CODE_BUILTIN_TOOLS.join(",")}`);
+    lines.push(`claude_code_plan_mode_requested=${capabilities.planModeRequested}`);
     if (capabilities.taskToolNames.length > 0) {
       lines.push(`claude_code_task_tools=${capabilities.taskToolNames.join(",")}`);
     }
@@ -276,8 +277,12 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     }
     lines.push("- Claude Code task list: for macro tasks, multi-file implementation, or explicit planning, use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist. Create 3-7 concrete tasks before the first implementation edit when no equivalent task list exists, then update statuses after each milestone.");
     lines.push("- Claude Code task list: prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite when those tools are offered. Preserve existing tasks with TaskList/TaskGet, create only missing tasks, and update statuses instead of recreating duplicates.");
-    lines.push("- Claude Code plan mode: EnterPlanMode is for planning without edits; ExitPlanMode presents the final plan for approval and may require permission. Do not start implementation until plan mode has exited or the user explicitly asked to execute.");
-    lines.push("- Claude Code plan files: ~/.claude/plans/** is an allowed harness path even though it is outside the project root. In /plan mode, write/update the exact plan file the client provides, then call ExitPlanMode once the plan is ready. Do not switch to a project-local plan file.");
+    lines.push("- Claude Code plan mode: EnterPlanMode is for planning without edits; ExitPlanMode presents the final plan for approval and may require permission. Do not start implementation until plan mode has exited, the user approved the plan, or the user explicitly asked to execute.");
+    if (capabilities.planModeRequested) {
+      lines.push("- Claude Code plan files: ~/.claude/plans/** is an allowed harness path even though it is outside the project root. In /plan mode, write/update the exact plan file the client provides, then call ExitPlanMode once the plan is ready. Do not switch to a project-local plan file.");
+    } else if (capabilities.hasPlanModeTool) {
+      lines.push("- Claude Code plan transition: plan mode is not currently requested for this turn. If a previous plan was approved, or ExitPlanMode said the plan was already approved, do not call ExitPlanMode again and do not re-read or rewrite the plan file; continue implementation with the next concrete project edit.");
+    }
     lines.push("- Claude Code Bash/PowerShell: each command is a process; cd may persist only inside allowed project roots, environment exports do not persist, long-running work should use run_in_background or Monitor, and truncated output should be read from the saved output file.");
     lines.push("- Claude Code file tools: Read returns line-numbered content and supports offset/limit, images, PDFs, and notebooks. Edit/MultiEdit require prior file context and exact unique old_string matches. Write is full-file create/overwrite and should be used for new files or intentional full replacement after reading existing files.");
     lines.push("- Claude Code search/navigation: Glob finds file names, caps results, and may include ignored files; Grep uses ripgrep regex and respects .gitignore; LSP should be preferred for definitions, references, hover/type info, symbols, implementations, call hierarchy, and post-edit diagnostics when available.");

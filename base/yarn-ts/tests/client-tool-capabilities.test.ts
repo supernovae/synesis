@@ -161,18 +161,34 @@ describe("client tool capabilities", () => {
     const block = buildClientToolCapabilityBlock(caps);
 
     expect(block).toContain("claude_code_builtin_tools=");
+    expect(block).toContain("claude_code_plan_mode_requested=false");
     expect(block).toContain("claude_code_task_tools=TaskCreate,TaskUpdate");
     expect(block).toContain("claude_code_plan_mode_tools=EnterPlanMode,ExitPlanMode");
     expect(block).toContain("use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist");
     expect(block).toContain("Create 3-7 concrete tasks before the first implementation edit");
     expect(block).toContain("prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite");
-    expect(block).toContain("~/.claude/plans/** is an allowed harness path");
-    expect(block).toContain("call ExitPlanMode once the plan is ready");
+    expect(block).toContain("plan mode is not currently requested for this turn");
+    expect(block).toContain("do not call ExitPlanMode again");
+    expect(block).toContain("continue implementation with the next concrete project edit");
     expect(block).toContain("call the native task tool before implementation");
     expect(block).toContain("Agent or Plan subagents are for bounded research/planning");
     expect(block).toContain("subagents must not perform implementation writes");
     expect(enrichToolDescriptionForClient("Plan", "Design implementation", caps))
       .toContain("subagents must not implement or write project files");
+  });
+
+  it("builds Claude Code active plan-mode guidance only while plan mode is requested", () => {
+    const caps = detectClientToolCapabilities(
+      [{ name: "TaskCreate" }, { name: "TaskUpdate" }, { name: "EnterPlanMode" }, { name: "ExitPlanMode" }],
+      "claude-code",
+      "/plan build a feature",
+    );
+    const block = buildClientToolCapabilityBlock(caps);
+
+    expect(block).toContain("claude_code_plan_mode_requested=true");
+    expect(block).toContain("~/.claude/plans/** is an allowed harness path");
+    expect(block).toContain("call ExitPlanMode once the plan is ready");
+    expect(block).not.toContain("do not call ExitPlanMode again");
   });
 
   it("enriches OpenCode tool descriptions", () => {

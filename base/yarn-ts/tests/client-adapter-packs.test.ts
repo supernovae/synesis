@@ -40,6 +40,9 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("do not delete or weaken failing tests");
     expect(block).toContain("~/.claude/plans/** is a valid harness-managed write path");
     expect(block).toContain("call ExitPlanMode after the plan is ready");
+    expect(block).toContain("treat plan mode as closed and begin implementation");
+    expect(block).toContain("After approval, do not re-read or rewrite the plan file");
+    expect(block).not.toContain("do not start implementation while plan mode remains active");
     expect(block).not.toContain("use write_file for new/generated files");
     expect(block).not.toContain("ask.go");
   });
