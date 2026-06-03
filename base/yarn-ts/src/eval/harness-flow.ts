@@ -282,11 +282,11 @@ function claudePlanThenBuildFlow(): HarnessFlowSpec {
         id: "write-plan-file",
         messages: [
           assistantCall("c2", "Write", {
-            file_path: "/Users/bymiller/.claude/plans/rust-task-manager.md",
+            file_path: ".claude/plans/rust-task-manager.md",
             content: "# Plan\n- Create workspace\n- Implement core\n- Implement cli\n- Verify",
           }),
-          toolResult("c2", "Wrote /Users/bymiller/.claude/plans/rust-task-manager.md"),
-          assistantText("The plan is ready for review."),
+          toolResult("c2", "Wrote .claude/plans/rust-task-manager.md"),
+          assistantText("The plan is ready for review. I've designed a production-ready Rust application plan."),
         ],
         governorOptions: { clientPlanModeRequested: true },
       },
@@ -297,6 +297,22 @@ function claudePlanThenBuildFlow(): HarnessFlowSpec {
           toolResult("c3", "User has approved your plan. You can now start coding."),
         ],
         governorOptions: { clientPlanModeRequested: true, orchestratorWorkflowPhase: "implementation" },
+      },
+      {
+        id: "first-scaffold-command-after-plan-exit",
+        messages: [
+          assistantText("I'll implement the complete Rust File Indexer application. Starting with workspace setup."),
+          assistantCall("c3b", "Bash", { command: "mkdir -p core/src cli/src config tests" }),
+          toolResult("c3b", "Done"),
+        ],
+        governorOptions: {
+          clientPlanModeRequested: true,
+          orchestratorWorkflowPhase: "implementation",
+          activePlanStage: "implement",
+          taskLedgerOpenCount: 1,
+          taskLedgerExplicitOpenCount: 1,
+          chatState: { completionStatus: "ready_to_finalize" },
+        },
       },
       {
         id: "native-task-setup",

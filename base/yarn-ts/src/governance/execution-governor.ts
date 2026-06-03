@@ -1059,7 +1059,10 @@ function hasPlanApprovalReadyClaim(messages: GovernorInputMessage[]): boolean {
 }
 
 function isClaudePlanPathText(pathText: string): boolean {
-  return pathText.includes("/.claude/plans/") || pathText.includes("\\.claude\\plans\\");
+  const normalized = pathText.replace(/\\/g, "/");
+  return normalized.includes("/.claude/plans/")
+    || normalized.includes("~/.claude/plans/")
+    || /(?:^|[:\s/])\.claude\/plans\//.test(normalized);
 }
 
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
@@ -1999,7 +2002,7 @@ export function evaluateExecutionGovernor(
 
   // Detect if a plan file was read in these events (lowers exploration stall threshold)
   const hasPlanInContext = events.some((e) =>
-    e.command.startsWith("read:") && e.command.includes("/.claude/plans/"),
+    e.command.startsWith("read:") && isClaudePlanPathText(e.command),
   );
 
   // Count plan file re-reads: reads of .claude/plans/* where the result signals
@@ -2010,11 +2013,11 @@ export function evaluateExecutionGovernor(
   let hasPlanEdit = false;
   for (const e of events) {
     const c = e.command;
-    const isPlanPath = c.includes("/.claude/plans/") || c.includes("/plan") || c.includes("plan.md");
+    const isPlanPath = isClaudePlanPathText(c) || c.includes("/plan") || c.includes("plan.md");
     if ((isEditCommand(c) || c.startsWith("todowrite:") || c.startsWith("taskcreate:")) && isPlanPath) {
       hasPlanEdit = true; continue;
     }
-    if (c.startsWith("read:") && c.includes("/.claude/plans/")) {
+    if (c.startsWith("read:") && isClaudePlanPathText(c)) {
       planReadCount += 1;
       const sig = e.resultSignature;
       if (sig.includes("unchanged") || sig.includes("cached") || sig.includes("synesis_plan_loaded") || sig.includes("already read")
@@ -2037,14 +2040,14 @@ export function evaluateExecutionGovernor(
   const sourceFileEditPaths = new Set<string>();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const c = events[i].command;
-    if (isEditCommand(c) && !c.includes("/.claude/plans/")) {
+    if (isEditCommand(c) && !isClaudePlanPathText(c)) {
       const path = extractCommandTarget(c);
       if (path) sourceFileEditPaths.add(path);
       // Reads already counted before we reached this write belong to a prior read-cycle;
       // discard them so only post-write reads contribute to the stale threshold.
       if (path) sourceFileReadCounts.delete(path);
     }
-    if (c.startsWith("read:") && !c.includes("/.claude/plans/")) {
+    if (c.startsWith("read:") && !isClaudePlanPathText(c)) {
       const path = c.slice("read:".length);
       // Once a write is seen (backwards), ignore earlier reads for that file.
       if (!sourceFileEditPaths.has(path)) {
