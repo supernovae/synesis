@@ -26,6 +26,7 @@ import {
 } from "./diagnostics.js";
 import { isCoderClientKind } from "../session/session-key.js";
 import { extractShellWriteTargets } from "../governance/shell-write-command.js";
+import { isStandardVerificationCommand } from "../verification/command-taxonomy.js";
 
 export {
   buildStructuredErrorBashCommand,
@@ -1003,9 +1004,7 @@ function maybeBlockVerificationForFailure(
   if (lower !== "bash") return null;
   const cmd = typeof input.command === "string" ? input.command.toLowerCase() : "";
   if (!cmd) return null;
-  const verificationCommand =
-    /\b(go test|go build|go vet|cargo test|cargo build|cargo check|dotnet test|ctest|mvn test|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(cmd);
-  if (!verificationCommand) return null;
+  if (!isStandardVerificationCommand(cmd)) return null;
   const message = "Synesis Yarn blocked repeated failing verification commands. Apply one focused Edit/Write or one compiler-suggested fix command (for example cargo fix) to fix the failing root cause first, then run one narrow verification command.";
   if (clientKind === "claude-code") {
     return {

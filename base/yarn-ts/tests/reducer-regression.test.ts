@@ -188,6 +188,16 @@ describe("Reducer output quality", () => {
     expect(out!.actionableCount).toBeGreaterThan(0);
   });
 
+  it("cargo preserves compiler suggested fix commands", () => {
+    const raw = [
+      "warning: unused import: `anyhow::Result`",
+      " --> core/src/repository.rs:8:5",
+      "warning: `task-manager-core` (lib) generated 1 warning (run `cargo fix --lib -p task-manager-core` to apply 1 suggestion)",
+    ].join("\n");
+    const out = registry.reduce({ raw, context: { toolName: "bash", command: "cargo build", profile: "balanced", maxChars: 12000, minConfidence: 0.6 } });
+    expect(out!.summary).toContain("suggested fix command: cargo fix --lib -p task-manager-core");
+  });
+
   it("stack-trace extracts error and frames", () => {
     const out = registry.reduce({ raw: fixture("stack-trace"), context: { toolName: "bash", command: "python app.py", profile: "balanced", maxChars: 12000, minConfidence: 0.6 } });
     expect(out!.summary).toContain("frames=");

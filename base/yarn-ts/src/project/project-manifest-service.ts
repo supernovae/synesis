@@ -57,13 +57,17 @@ export class ProjectManifestService {
       ...(text.includes("vitest") ? ["vitest"] : []),
       ...(text.includes("npm test") ? ["npm test"] : []),
       ...(text.includes("go test") ? ["go test"] : []),
-      ...(text.includes("cargo test") ? ["cargo test"] : [])
+      ...(text.includes("cargo test") ? ["cargo test"] : []),
+      ...(text.includes("cargo check") ? ["cargo check"] : []),
+      ...(text.includes("cargo build") ? ["cargo build"] : [])
     ]);
 
     const lintCommands = uniq([
       ...(text.includes("ruff") ? ["ruff"] : []),
       ...(text.includes("eslint") ? ["eslint"] : []),
       ...(text.includes("lint") ? ["lint"] : []),
+      ...(text.includes("cargo clippy") ? ["cargo clippy"] : []),
+      ...(text.includes("cargo fmt") ? ["cargo fmt"] : []),
       ...(text.includes("tsc --noemit") ? ["tsc --noEmit"] : [])
     ]);
 

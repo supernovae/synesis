@@ -11,6 +11,7 @@
  */
 
 import type { RecentToolCall } from "../providers/model-adapter.js";
+import { isStandardVerificationCommand } from "../verification/command-taxonomy.js";
 
 const OUTPUT_CAPTURE_WRAPPERS = [
   /\s*2>&1\s*\|\s*cat\s*$/,
@@ -54,7 +55,8 @@ function extractBaseCommand(cmd: string): string {
 
 function isLikelyHighOutputCommand(baseCommand: string): boolean {
   const cmd = baseCommand.toLowerCase();
-  return /\b(go test|go build|go vet|npm test|pnpm test|yarn test|pytest|vitest|jest|cargo test|cargo build|mvn|gradle|ruff|eslint|tsc|docker build|podman build|kubectl logs|oc logs|git log|npm install|pnpm install|yarn install)\b/.test(cmd);
+  return isStandardVerificationCommand(cmd)
+    || /\b(mvn|gradle|docker build|podman build|kubectl logs|oc logs|git log|npm install|pnpm install|yarn install)\b/.test(cmd);
 }
 
 export interface StdoutCaptureLoopResult {

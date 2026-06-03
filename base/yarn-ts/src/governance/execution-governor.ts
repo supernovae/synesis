@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { suggestScopedVerificationCommand } from "../verification/test-scope-selector.js";
+import {
+  isBroadVerificationCommandText,
+  isStandardVerificationCommand,
+} from "../verification/command-taxonomy.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
 import type { ChatState } from "./chat-state.js";
 import type { FileState } from "./file-state.js";
@@ -160,20 +164,7 @@ function isVerificationLike(toolName: string, command: string): boolean {
   const tool = (typeof toolName === "string" ? toolName : "").trim().toLowerCase();
   const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
   return tool.includes("run_test")
-    // Standard test runners
-    || /\b(go test|go build|go vet|cargo test|cargo build|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
-    // JS: jest, vitest (this repo), npx variants
-    || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
-    // JS: npm/pnpm/yarn script aliases
-    || /\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)
-    // Python: python -m pytest / poetry run / tox
-    || /\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)
-    || /\b(poetry|pipenv)\s+run\s+\S/.test(cmd)
-    || /\btox\b/.test(cmd)
-    // uv run (Python services in this repo)
-    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
-    // TypeScript compiler as lint/typecheck
-    || /\btsc(\s+--noEmit)?\b/.test(cmd)
+    || isStandardVerificationCommand(cmd)
     // CLI binary invocations: ./binary or /path/to/binary (build-then-run pattern)
     || /(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(cmd)
     // git inspection commands count as verification evidence in the rules engine
@@ -190,14 +181,7 @@ function isStrongVerificationCommand(toolName: string, command: string): boolean
   const tool = (typeof toolName === "string" ? toolName : "").trim().toLowerCase();
   const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
   return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|cargo build|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
-    || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
-    || /\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)
-    || /\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)
-    || /\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(cmd)
-    || /\b(poetry|pipenv)\s+run\s+\S/.test(cmd)
-    || /\btox\b/.test(cmd)
-    || /\btsc(\s+--noEmit)?\b/.test(cmd)
+    || isStandardVerificationCommand(cmd)
     || /(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(cmd);
 }
 
@@ -1319,7 +1303,7 @@ function isGovernorRecoveryAnswerText(text: string): boolean {
   if (/\bcontinue with one (focused fix|targeted verification command)\b/.test(value)) return true;
   if (/\bstop and summarize current status\b/.test(value)) return true;
   if (/^(?:option\s*)?[123][).:\s-]/.test(value)) {
-    return /\b(focused fix|targeted verification|summarize|pytest|compileall|go test|npm test|pnpm test|yarn test|vitest|cargo test|git diff|edit|fix)\b/.test(value);
+    return /\b(focused fix|targeted verification|summarize|pytest|compileall|go test|npm test|pnpm test|yarn test|vitest|cargo (?:test|build|check|clippy|fmt)|git diff|edit|fix)\b/.test(value);
   }
   return false;
 }
@@ -1388,7 +1372,7 @@ function inferTestRuntime(
   userText: string,
 ): TestRuntime {
   const joined = `${userText}\n${events.map((e) => `${e.toolName} ${e.command}`).join("\n")}`.toLowerCase();
-  if (/\bcargo test\b|\.rs\b|cargo\.toml\b/.test(joined)) return "rust";
+  if (/\bcargo\s+(?:test|build|check|clippy|fmt|fix)\b|\.rs\b|cargo\.toml\b/.test(joined)) return "rust";
   if (/\bgo test\b|\.go\b|_test\.go\b|\bgo\.mod\b/.test(joined)) return "go";
   if (/\bmvn test\b|\bgradle test\b|\.java\b|pom\.xml\b/.test(joined)) return "java";
   if (/\bgradle test\b|\.kt\b|build\.gradle\.kts\b/.test(joined)) return "kotlin";
@@ -1411,14 +1395,7 @@ function hasTodoHarvest(events: Array<{ command: string; toolName: string }>): b
 }
 
 function isBroadVerificationCommand(command: string): boolean {
-  const cmd = normalizeString(command).toLowerCase();
-  if (!cmd) return false;
-  return /\bgo\s+test\s+\.\/\.\.\./.test(cmd)
-    || /\bgo\s+build\s+\.\/\.\.\./.test(cmd)
-    || /\bgo\s+vet\s+\.\/\.\.\./.test(cmd)
-    || /\bnpm\s+test\b/.test(cmd)
-    || /\bpnpm\s+test\b/.test(cmd)
-    || /\byarn\s+test\b/.test(cmd);
+  return isBroadVerificationCommandText(command);
 }
 
 function isVerificationCommand(toolName: string, command: string): boolean {
@@ -1448,9 +1425,10 @@ function isProductiveCommand(command: string, resultSignature: string | undefine
   );
   if (isFailed) return false;
   // Build commands
-  if (/\b(go build|go install|cargo build|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build|tsc)\b/.test(cmd)) return true;
+  if (/\b(go build|go install|npm run build|make\b|cmake|dotnet build|mvn (compile|package)|gradle build|tsc)\b/.test(cmd)) return true;
   // Test runners — comprehensive cross-ecosystem
-  if (/\b(go test|cargo test|cargo clippy|cargo check|npm test|pnpm test|yarn test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
+  if (isStandardVerificationCommand(cmd)) return true;
+  if (/\b(go test|npm test|pnpm test|yarn test|pytest|jest|vitest|rspec|phpunit|dotnet test|mvn test|gradle test)\b/.test(cmd)) return true;
   if (/\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)) return true;
   if (/\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)) return true;
   if (/\buv\s+run\s+(pytest|ruff|mypy)\b/.test(cmd)) return true;

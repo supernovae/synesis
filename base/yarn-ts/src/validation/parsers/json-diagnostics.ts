@@ -173,8 +173,28 @@ interface CargoMessage {
     level?: string;
     message?: string;
     code?: { code?: string } | null;
-    spans?: Array<{ file_name?: string; line_start?: number; column_start?: number; label?: string }>;
+    spans?: Array<{
+      file_name?: string;
+      line_start?: number;
+      column_start?: number;
+      label?: string;
+      suggested_replacement?: string;
+      suggestion_applicability?: string;
+    }>;
+    children?: Array<{ level?: string; message?: string }>;
   };
+}
+
+function cargoLikelyFix(msg: CargoMessage["message"]): string | undefined {
+  const spanSuggestion = msg?.spans
+    ?.map((span) => span.suggested_replacement?.trim())
+    .find((replacement) => replacement && replacement.length > 0);
+  if (spanSuggestion) return `Apply suggested replacement: ${spanSuggestion}`;
+  const childSuggestion = msg?.children
+    ?.find((child) => child.level === "help" && child.message?.trim())
+    ?.message
+    ?.trim();
+  return childSuggestion || undefined;
 }
 
 function parseCargoJsonLines(raw: string, family: ValidationFamily, max: number): ValidationFinding[] | null {
@@ -203,7 +223,8 @@ function parseCargoJsonLines(raw: string, family: ValidationFamily, max: number)
       line: span?.line_start,
       column: span?.column_start,
       ruleId: msg.code?.code ?? undefined,
-      message: msg.message ?? "cargo finding"
+      message: msg.message ?? "cargo finding",
+      likelyFix: cargoLikelyFix(msg)
     });
   }
   return matched ? findings : null;

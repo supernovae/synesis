@@ -2756,8 +2756,8 @@ describe("execution governor", () => {
     ];
     const out = evaluateExecutionGovernor(messages);
     expect(out.pause).toBe(true);
-    expect(out.matchedRules).toContain("no_progress_loop");
-    expect(out.reason).toBe("no_progress_loop");
+    expect(out.matchedRules).toContain("verification_stall_no_edit");
+    expect(out.reason).toBe("verification_stall_no_edit");
     expect(out.suggestedNextStep).toContain("code edit");
   });
 

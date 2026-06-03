@@ -1,5 +1,6 @@
 import { enrichItems, type ParsedItem } from "../enrich-bridge.js";
 import type { Reducer, ReducerInput, ReducerOutput } from "../types.js";
+import { cargoSuggestedFixCommands } from "../../verification/command-taxonomy.js";
 
 const ERROR_CODE = /^error\[([^\]]+)\]:\s*(.+)$/;
 
@@ -13,6 +14,7 @@ export class CargoReducer implements Reducer {
     const items: ParsedItem[] = [];
     let testSummary = "";
     let compileCount = 0;
+    const fixCommands = cargoSuggestedFixCommands(input.raw);
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -51,6 +53,9 @@ export class CargoReducer implements Reducer {
 
     const parts: string[] = [`<TOOL_REDUCED family="cargo" compiled="${compileCount}">`];
     if (testSummary) parts.push(testSummary);
+    for (const command of fixCommands.slice(0, 3)) {
+      parts.push(`suggested fix command: ${command}`);
+    }
     if (enrichedLines.length > 0) {
       parts.push(...enrichedLines);
       if (items.length > limit) parts.push(`  ... ${items.length - limit} more`);

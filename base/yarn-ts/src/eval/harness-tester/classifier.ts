@@ -165,7 +165,7 @@ function hasRepeatedFileReads(transcript: string): boolean {
 }
 
 function hasRepeatedValidation(transcript: string): boolean {
-  const matches = transcript.match(/\b(?:pytest|npm test|npm run test|go test|cargo test|vitest|jest)\b[^\n]*/g) ?? [];
+  const matches = transcript.match(/\b(?:pytest|npm test|npm run test|go test|cargo (?:test|build|check|clippy|fmt)|vitest|jest)\b[^\n]*/g) ?? [];
   return repeatedValue(matches.map((match) => match.trim()));
 }
 

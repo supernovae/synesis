@@ -1,4 +1,5 @@
 import type { CommandEvent } from "./execution-governor.js";
+import { isStandardVerificationCommand } from "../verification/command-taxonomy.js";
 
 export interface TurnEvidenceDelta {
   previousFailureSignature: string | null;
@@ -32,7 +33,7 @@ function isVerificationTool(toolName: string): boolean {
 
 function isVerificationLikeCommand(command: string): boolean {
   const c = command.toLowerCase();
-  return /\b(go\s+test|go\s+build|go\s+vet|npm\s+(test|run\s+build)|cargo\s+(test|build)|pytest|vitest|jest|make\b|tsc\b|mypy\b|bazel\s+(test|build))/.test(c);
+  return isStandardVerificationCommand(c) || /\b(make\b|bazel\s+(test|build))/.test(c);
 }
 
 function hasFailureSig(sig: string): boolean {
@@ -71,7 +72,7 @@ function verificationScopeCoversFiles(
   changedFiles: readonly string[],
 ): boolean {
   if (changedFiles.length === 0) return false;
-  const scopeMatch = command.match(/(?:go\s+test|pytest|vitest|jest)\s+(\S+)/i);
+  const scopeMatch = command.match(/(?:go\s+test|pytest|vitest|jest|cargo\s+(?:test|build|check))\s+(\S+)/i);
   if (!scopeMatch) return changedFiles.length > 0;
   let scope = scopeMatch[1].replace(/^\.\//, "").replace(/\/\.\.\.$/, "");
   if (scope === "." || scope === "./...") return true;

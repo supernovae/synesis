@@ -132,7 +132,14 @@ describe("JSON diagnostics parser", () => {
           level: "warning",
           message: "unused variable: `x`",
           code: { code: "unused_variables" },
-          spans: [{ file_name: "src/main.rs", line_start: 10, column_start: 9, label: "unused" }]
+          spans: [{
+            file_name: "src/main.rs",
+            line_start: 10,
+            column_start: 9,
+            label: "unused",
+            suggested_replacement: "_x",
+            suggestion_applicability: "MachineApplicable",
+          }]
         }
       }),
       JSON.stringify({
@@ -141,7 +148,8 @@ describe("JSON diagnostics parser", () => {
           level: "error",
           message: "cannot find value `y` in this scope",
           code: { code: "E0425" },
-          spans: [{ file_name: "src/lib.rs", line_start: 22, column_start: 5 }]
+          spans: [{ file_name: "src/lib.rs", line_start: 22, column_start: 5 }],
+          children: [{ level: "help", message: "consider importing this function" }]
         }
       }),
       JSON.stringify({ reason: "compiler-message", message: { level: "help", message: "consider importing" } }),
@@ -158,9 +166,11 @@ describe("JSON diagnostics parser", () => {
       expect(findings![0].file).toBe("src/main.rs");
       expect(findings![0].line).toBe(10);
       expect(findings![0].ruleId).toBe("unused_variables");
+      expect(findings![0].likelyFix).toContain("_x");
 
       expect(findings![1].severity).toBe("error");
       expect(findings![1].ruleId).toBe("E0425");
+      expect(findings![1].likelyFix).toContain("consider importing");
     });
   });
 

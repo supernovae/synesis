@@ -1,7 +1,8 @@
 import type { RecentToolCall } from "../providers/model-adapter.js";
-
-const VERIFICATION_CMD_RE =
-  /\b(go test|go build|go vet|cargo test|cargo build|pytest|vitest|jest|npm test|pnpm test|yarn test|ruff|eslint|tsc|mypy|tox|uv run pytest|uv run ruff|uv run mypy)\b/i;
+import {
+  isDependencySetupCommand,
+  isStandardVerificationCommand,
+} from "../verification/command-taxonomy.js";
 
 const WRAPPER_SUFFIXES = [
   /\s*2>&1\s*\|\s*cat\s*$/i,
@@ -12,12 +13,6 @@ const WRAPPER_SUFFIXES = [
   /\s*\|\s*tail\s+-n?\s*\d+\s*$/i,
   /\s*>\s*\S+\s*2>&1\s*;\s*(echo\s+"[^"]*"\s*;\s*)?(cat|head|tail|sed|rg)\b.*$/i,
 ];
-
-function isDependencySetupCommand(command: string): boolean {
-  return /\b(npm|pnpm|yarn)\s+install\b/i.test(command)
-    || /\b(?:uv\s+)?pip\s+install\b/i.test(command)
-    || /\bgo\s+mod\s+tidy\b/i.test(command);
-}
 
 function normalizeCommand(command: string): string {
   let out = command.trim();
@@ -53,7 +48,7 @@ function extractVerificationFingerprint(call: RecentToolCall): string | null {
   const command = typeof call.args?.command === "string"
     ? normalizeCommand(call.args.command)
     : (typeof call.args?.cmd === "string" ? normalizeCommand(call.args.cmd) : "");
-  if (!command || !VERIFICATION_CMD_RE.test(command)) return null;
+  if (!command || !isStandardVerificationCommand(command)) return null;
   return `shell:${command.toLowerCase()}`;
 }
 

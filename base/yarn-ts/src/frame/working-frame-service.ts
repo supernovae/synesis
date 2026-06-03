@@ -112,7 +112,7 @@ export class WorkingFrameService {
     const files = uniq([...ruleFiles, ...rawFiles]).slice(0, this.maxFiles);
 
     const pendingChecks: string[] = [];
-    if (/\b(test|pytest|vitest|go test|cargo test)\b/i.test(allText)) pendingChecks.push("tests");
+    if (/\b(test|pytest|vitest|go test|cargo (?:test|build|check|clippy|fmt))\b/i.test(allText)) pendingChecks.push("tests");
     if (/\b(ruff|eslint|lint)\b/i.test(allText)) pendingChecks.push("lint");
     if (/\b(typecheck|tsc|mypy)\b/i.test(allText)) pendingChecks.push("typecheck");
 

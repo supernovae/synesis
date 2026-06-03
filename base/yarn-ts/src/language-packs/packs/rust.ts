@@ -39,6 +39,7 @@ export const rustPack: LanguagePackManifest = {
   ],
   verificationCommands: [
     { tool: "cargo-check", command: "cargo check", description: "Type-check without codegen" },
+    { tool: "cargo-build", command: "cargo build", description: "Compile the current package or workspace" },
     { tool: "cargo-clippy", command: "cargo clippy -- -D warnings", description: "Lint with Clippy" },
     { tool: "cargo-test", command: "cargo test", description: "Run tests" },
     { tool: "cargo-fmt", command: "cargo fmt --check", description: "Check formatting" },
@@ -104,6 +105,7 @@ export const rustPack: LanguagePackManifest = {
       template: "In {file}: remove the unused item, prefix with _ if intentionally unused, or check cfg attributes.",
       description: "Variable, import, or function declared but never used.",
       steps: [
+        "If Cargo suggests a scoped cargo fix command, run it once before retesting.",
         "Remove unused item",
         "Prefix with underscore if intentionally unused",
         "Check cfg attributes",

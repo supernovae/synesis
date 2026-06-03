@@ -1,4 +1,5 @@
 import type { ReducerFamily } from "./types.js";
+import { isCargoCommand } from "../verification/command-taxonomy.js";
 
 function hasAny(haystack: string, needles: string[]): boolean {
   return needles.some((n) => haystack.includes(n));
@@ -63,7 +64,7 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   if (hasAny(tc, ["podman ps", "podman inspect", "podman images", "podman logs", "podman run", "podman start", "podman stop"])) return "podman";
 
   // Build tools — specific before generic
-  if (hasAny(tc, ["cargo build", "cargo test", "cargo check", "cargo run"])) return "cargo";
+  if (isCargoCommand(tc)) return "cargo";
   if (hasAny(tc, ["dotnet build", "dotnet test", "dotnet run", "dotnet publish", "msbuild"])) return "dotnet";
   if (hasAny(tc, ["gradle ", "gradlew", "./gradlew"])) return "gradle";
   if (hasAny(tc, ["mvn ", "mvnw", "./mvnw"])) return "java-build";

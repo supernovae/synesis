@@ -1,3 +1,5 @@
+import { isStandardVerificationCommand } from "../verification/command-taxonomy.js";
+
 export interface GovernorObservabilityMessage {
   role: string;
   tool_calls?: unknown;
@@ -48,15 +50,7 @@ function parseToolCallCommand(call: unknown): string {
 function isTestToolCall(name: string, command: string): boolean {
   if (!name && !command) return false;
   if (name.includes("run_test")) return true;
-  // Standard test runners
-  if (/\b(go test|cargo test|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test)\b/.test(command)) return true;
-  // JS: jest, vitest, npx variants, npm run test
-  if (/\b(jest|vitest|npx jest|npx vitest)\b/.test(command)) return true;
-  if (/\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(command)) return true;
-  // Python: python -m pytest / uv run pytest / poetry
-  if (/\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(command)) return true;
-  if (/\buv\s+run\s+(pytest|ruff|mypy|coverage)\b/.test(command)) return true;
-  if (/\b(poetry|pipenv)\s+run\s+\S/.test(command)) return true;
+  if (isStandardVerificationCommand(command)) return true;
   // CLI binary invocations (./binary or /path/to/binary as a command)
   if (/(?:(?:^|[&|;])\s*)(?:\.\/|\/\w[\w/.-]*\/)\w[\w.-]*/.test(command)) return true;
   return false;
