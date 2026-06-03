@@ -830,6 +830,44 @@ describe("governToolCall", () => {
     expect(out.planWriteAudit?.reason).toContain("unchanged since last read");
   });
 
+  it("blocks Bash implementation file writes while Claude plan mode write blocking is active", () => {
+    const command = `cat > Cargo.toml << 'EOF'\n// FILE: Cargo.toml\n[workspace]\nmembers = ["core", "cli"]\nEOF`;
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command, description: "Create workspace Cargo.toml" },
+      projectRoot: "/Users/bymiller/test",
+      shellCwd: "/Users/bymiller/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      blockWriteCapableTools: true,
+      clientKind: "claude-code",
+    });
+
+    expect(out.toolName).toBe("Synesis_Error_WriteCapableBlocked");
+    expect(out.blockedWriteCapable).toBe(true);
+    expect(out.input.reason).toBe("write_capable_blocked");
+    expect(String(out.input.message)).toContain("plan mode is active");
+    expect(String(out.input.message)).toContain("Cargo.toml");
+  });
+
+  it("does not broadly block valid Bash plan-file writes during Claude plan mode", () => {
+    const command = `cat > /Users/bymiller/.claude/plans/steady-splashing-peach.md <<'EOF'\n---\nname: Rust plan\ntodos:\n  - id: task1\n    content: Create workspace manifest\n    status: pending\n---\n\n# Plan\nEOF`;
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command, description: "Create Claude plan file" },
+      projectRoot: "/Users/bymiller/test",
+      shellCwd: "/Users/bymiller/test",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      blockWriteCapableTools: true,
+      clientKind: "claude-code",
+    });
+
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedWriteCapable).toBe(false);
+    expect(out.planWriteAudit?.allowed).toBe(true);
+  });
+
   it("emits user-safe validation failure text for non-claude clients", () => {
     const out = governToolCall({
       toolName: "Write",

@@ -25,6 +25,7 @@ import {
   shellEscape,
 } from "./diagnostics.js";
 import { isCoderClientKind } from "../session/session-key.js";
+import { extractShellWriteTargets } from "../governance/shell-write-command.js";
 
 export {
   buildStructuredErrorBashCommand,
@@ -336,6 +337,43 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     if (bashPlanCheck.replacement) {
       out.toolName = bashPlanCheck.replacement.toolName;
       out.input = bashPlanCheck.replacement.input;
+      out.blockedWriteCapable = true;
+      return out;
+    }
+  }
+
+  if (opts.blockWriteCapableTools && logicalName === "Bash" && typeof out.input.command === "string") {
+    const shellWriteTargets = extractShellWriteTargets(out.input.command)
+      .filter((target) => !isPlanPath(target));
+    if (shellWriteTargets.length > 0) {
+      const sample = shellWriteTargets.slice(0, 3).join(", ");
+      const message = `Synesis Yarn blocked Bash file writes while plan mode is active: ${sample}. Finish or update the plan file, call ExitPlanMode, then perform implementation writes after plan mode exits.`;
+      if (opts.clientKind === "claude-code") {
+        out.toolName = "Synesis_Error_WriteCapableBlocked";
+        out.input = {
+          synesis_error: true,
+          reason: "write_capable_blocked",
+          original_tool: logicalName,
+          blocked_paths: shellWriteTargets.slice(0, 10),
+          message,
+          retryable: false,
+        };
+      } else {
+        out.toolName = "Bash";
+        out.input = {
+          command: buildStructuredErrorBashCommand({
+            synesis_error: true,
+            schema_version: 1,
+            category: "policy",
+            reason: "write_capable_blocked",
+            original_tool: logicalName,
+            blocked_paths: shellWriteTargets.slice(0, 10),
+            message,
+            retryable: false,
+          }),
+          description: "Blocked Bash file writes for safety profile",
+        };
+      }
       out.blockedWriteCapable = true;
       return out;
     }

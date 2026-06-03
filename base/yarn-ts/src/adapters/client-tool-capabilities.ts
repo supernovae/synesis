@@ -40,7 +40,7 @@ const LSP_TOOLS = new Set(["lsp", "language_server"]);
 const SKILL_TOOLS = new Set(["skill", "load_skill"]);
 const WEB_FETCH_TOOLS = new Set(["webfetch", "web_fetch", "fetch"]);
 const WEB_SEARCH_TOOLS = new Set(["websearch", "web_search", "search_web"]);
-const AGENT_TOOLS = new Set(["agent", "task"]);
+const AGENT_TOOLS = new Set(["agent", "task", "plan"]);
 const MONITOR_TOOLS = new Set(["monitor"]);
 const PLAN_ENTER_TOOLS = new Set(["enterplanmode", "enter_plan_mode"]);
 const PLAN_EXIT_TOOLS = new Set(["exitplanmode", "exit_plan_mode"]);
@@ -273,7 +273,7 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     lines.push("- Claude Code Bash/PowerShell: each command is a process; cd may persist only inside allowed project roots, environment exports do not persist, long-running work should use run_in_background or Monitor, and truncated output should be read from the saved output file.");
     lines.push("- Claude Code file tools: Read returns line-numbered content and supports offset/limit, images, PDFs, and notebooks. Edit/MultiEdit require prior file context and exact unique old_string matches. Write is full-file create/overwrite and should be used for new files or intentional full replacement after reading existing files.");
     lines.push("- Claude Code search/navigation: Glob finds file names, caps results, and may include ignored files; Grep uses ripgrep regex and respects .gitignore; LSP should be preferred for definitions, references, hover/type info, symbols, implementations, call hierarchy, and post-edit diagnostics when available.");
-    lines.push("- Claude Code Agent/Monitor: Agent is for bounded subagent research or isolated multi-step work and returns only a final result to the parent; Monitor watches long-running logs/status and uses Bash permission patterns.");
+    lines.push("- Claude Code Agent/Plan/Monitor: Agent or Plan subagents are for bounded research/planning and return only a final result to the parent. While /plan mode is active, subagents must not perform implementation writes or Bash heredoc file creation; write/update only the Claude plan file, then ExitPlanMode before coding. Monitor watches long-running logs/status and uses Bash permission patterns.");
   }
   if (capabilities.hasTodoTool && capabilities.todoToolName && capabilities.isClaudeCode) {
     lines.push(`task_tool=${capabilities.todoToolName}`);
@@ -340,7 +340,7 @@ export function enrichToolDescriptionForClient(
       return appendHint(description, " [Synesis: Present the completed plan for approval and exit plan mode before implementation.]");
     }
     if (AGENT_TOOLS.has(normalized)) {
-      return appendHint(description, " [Synesis: Use Agent for bounded autonomous research or isolated multi-step work. Parent sees only the final result; subagent tool permissions still apply.]");
+      return appendHint(description, " [Synesis: Use Agent/Plan for bounded research or planning. In Claude /plan mode, subagents must not implement or write project files; update the plan file and exit plan mode before coding. Parent sees only the final result; subagent tool permissions still apply.]");
     }
     if (normalized === "bash" || normalized === "powershell") {
       return appendHint(description, " [Synesis: Each command runs as a process; cd persistence is limited to allowed roots and env exports do not persist. Use timeout/run_in_background for long work; read saved output files when output is truncated.]");

@@ -105,7 +105,7 @@ describe("client tool capabilities", () => {
 
   it("builds Claude Code native tool guidance", () => {
     const caps = detectClientToolCapabilities(
-      [{ name: "TaskCreate" }, { name: "TaskUpdate" }, { name: "EnterPlanMode" }, { name: "ExitPlanMode" }, { name: "AskUserQuestion" }, { name: "Agent" }, { name: "Monitor" }],
+      [{ name: "TaskCreate" }, { name: "TaskUpdate" }, { name: "EnterPlanMode" }, { name: "ExitPlanMode" }, { name: "AskUserQuestion" }, { name: "Agent" }, { name: "Plan" }, { name: "Monitor" }],
       "claude-code",
       "build a feature",
     );
@@ -120,7 +120,10 @@ describe("client tool capabilities", () => {
     expect(block).toContain("~/.claude/plans/** is an allowed harness path");
     expect(block).toContain("call ExitPlanMode once the plan is ready");
     expect(block).toContain("call the native task tool before implementation");
-    expect(block).toContain("Agent is for bounded subagent research");
+    expect(block).toContain("Agent or Plan subagents are for bounded research/planning");
+    expect(block).toContain("subagents must not perform implementation writes");
+    expect(enrichToolDescriptionForClient("Plan", "Design implementation", caps))
+      .toContain("subagents must not implement or write project files");
   });
 
   it("enriches OpenCode tool descriptions", () => {
@@ -153,7 +156,9 @@ describe("client tool capabilities", () => {
     expect(enrichToolDescriptionForClient("TaskCreate", "Create a task", caps))
       .toContain("Claude Code native task list");
     expect(enrichToolDescriptionForClient("Agent", "Run a subagent", caps))
-      .toContain("bounded autonomous research");
+      .toContain("bounded research or planning");
+    expect(enrichToolDescriptionForClient("Agent", "Run a subagent", caps))
+      .toContain("subagents must not implement or write project files");
     expect(enrichToolDescriptionForClient("Grep", "Search files", caps))
       .toContain("ripgrep regex");
     expect(enrichToolDescriptionForClient("Monitor", "Watch output", caps))
