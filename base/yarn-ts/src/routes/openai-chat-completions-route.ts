@@ -1,6 +1,7 @@
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import { OptimizationLedger } from "../telemetry/optimization-ledger.js";
 import { sendOpenAIChatPipelineResult } from "../pipeline/openai-chat-pipeline.js";
+import { authRejectionLogFields } from "./platform-route-support.js";
 
 type AuthUser = import("../auth.js").AuthUser;
 
@@ -44,7 +45,8 @@ export function registerOpenAIChatCompletionsRoute(deps: OpenAIChatCompletionsRo
     let authUser: AuthUser;
     try {
       authUser = await authResolver.resolve(req.headers.authorization);
-    } catch {
+    } catch (err) {
+      app.log.warn(authRejectionLogFields(err, req.headers.authorization, "/v1/chat/completions"), "auth_request_rejected");
       return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
     }
 

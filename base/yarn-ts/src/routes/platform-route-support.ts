@@ -37,6 +37,34 @@ export interface StatsProvider {
   getStats(): unknown;
 }
 
+function classifyAuthorizationHeader(authorization: string | undefined): string {
+  const raw = (authorization ?? "").trim();
+  if (!raw) return "missing";
+  if (!raw.toLowerCase().startsWith("bearer ")) return "non_bearer";
+  const token = raw.slice(7).trim();
+  if (!token) return "empty_bearer";
+  if (token.startsWith("syn-")) return "syn_pat";
+  if (token.split(".").length === 3) return "jwt";
+  return "opaque";
+}
+
+function errorReason(err: unknown): string {
+  if (!(err instanceof Error)) return "unknown";
+  return err.message.slice(0, 160);
+}
+
+export function authRejectionLogFields(
+  err: unknown,
+  authorization: string | undefined,
+  endpoint: string,
+): Record<string, unknown> {
+  return {
+    endpoint,
+    authHeaderKind: classifyAuthorizationHeader(authorization),
+    reason: errorReason(err),
+  };
+}
+
 export interface SessionStateForTelemetry {
   history: Array<{ content: string }>;
 }
@@ -206,7 +234,7 @@ export function computeEfficiencyIndex(toolResultReduction: ToolResultReductionL
 }
 
 export async function authorizeClaudeCompatRequest(
-  deps: Pick<PlatformRouteDependencies, "authResolver" | "fgaCheck" | "userRateLimiter">,
+  deps: Pick<PlatformRouteDependencies, "app" | "authResolver" | "fgaCheck" | "userRateLimiter">,
   authorization: string | undefined,
 ): Promise<
   | { ok: true; authUser: Awaited<ReturnType<AuthResolver["resolve"]>> }
@@ -215,7 +243,8 @@ export async function authorizeClaudeCompatRequest(
   let authUser: Awaited<ReturnType<AuthResolver["resolve"]>>;
   try {
     authUser = await deps.authResolver.resolve(authorization);
-  } catch {
+  } catch (err) {
+    deps.app.log.warn(authRejectionLogFields(err, authorization, "/v1/claude/*"), "auth_request_rejected");
     return { ok: false, statusCode: 401, body: { error: { type: "auth_error", message: "Authentication required" } } };
   }
   try {
@@ -246,7 +275,7 @@ export async function authorizeClaudeCompatRequest(
 }
 
 export async function authorizeModelCatalogRequest(
-  deps: Pick<PlatformRouteDependencies, "authResolver">,
+  deps: Pick<PlatformRouteDependencies, "app" | "authResolver">,
   authorization: string | undefined,
 ): Promise<
   | { ok: true; authUser: Awaited<ReturnType<AuthResolver["resolve"]>> }
@@ -255,7 +284,8 @@ export async function authorizeModelCatalogRequest(
   let authUser: Awaited<ReturnType<AuthResolver["resolve"]>>;
   try {
     authUser = await deps.authResolver.resolve(authorization);
-  } catch {
+  } catch (err) {
+    deps.app.log.warn(authRejectionLogFields(err, authorization, "/v1/model-catalog"), "auth_request_rejected");
     return { ok: false, statusCode: 401, body: { error: { type: "auth_error", message: "Authentication required" } } };
   }
   try {

@@ -7,6 +7,7 @@ import {
   type SynesisMcpDeps,
 } from "@synesis/mcp-tools";
 import type { AuthResolver, AuthUser } from "../auth.js";
+import { authRejectionLogFields } from "../routes/platform-route-support.js";
 import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError, type McpToolContext } from "./tool-registry.js";
 import { classifyProjectTool } from "./handlers/classify-project.js";
 import { inspectRepoTool } from "./handlers/inspect-repo.js";
@@ -228,6 +229,7 @@ export async function registerMcpRoutes(
       opts.authResolver.requireCoderScope(user);
       return user;
     } catch (err) {
+      app.log.warn(authRejectionLogFields(err, req.headers.authorization, "mcp"), "auth_request_rejected");
       reply.code(401).send({
         error: {
           type: "authentication_error",

@@ -5,6 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
 import { fgaCheck } from "../openfga-client.js";
+import { authRejectionLogFields } from "../routes/platform-route-support.js";
 import { defaultShellAllowlistFromEnv } from "./tool-call-validator.js";
 import { ToolCallInterceptor, planToSyntheticToolCalls } from "./tool-call-interceptor.js";
 import type { CollapsedOperation, ParsedToolCall } from "./types.js";
@@ -95,7 +96,8 @@ export async function registerToolCollapseRoutes(
     let authUser;
     try {
       authUser = await opts.authResolver.resolve(req.headers.authorization);
-    } catch {
+    } catch (err) {
+      app.log.warn(authRejectionLogFields(err, req.headers.authorization, "/v1/coder/tool-collapse/plan"), "auth_request_rejected");
       return reply.code(401).send({ error: { type: "auth_error", message: "Authentication required" } });
     }
     try {

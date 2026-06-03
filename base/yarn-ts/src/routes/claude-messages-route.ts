@@ -23,6 +23,7 @@ import {
 import {
   resetQwenInterventionOnUserTurn,
 } from "../pipeline/route-adapter-pivot.js";
+import { authRejectionLogFields } from "./platform-route-support.js";
 import {
   runEvidencePrefetch,
   runPatternPrefetch,
@@ -170,8 +171,9 @@ export function registerClaudeMessagesRoute(deps: ClaudeMessagesRouteDependencie
     let claudeAuthUser: AuthUser;
     try {
       claudeAuthUser = await authResolver.resolve(req.headers.authorization);
-    } catch {
+    } catch (err) {
       endClaudeIngressStage();
+      app.log.warn(authRejectionLogFields(err, req.headers.authorization, "/v1/messages"), "auth_request_rejected");
       return reply.code(401).send({
         type: "error",
         error: { type: "authentication_error", message: "Authentication required" }
