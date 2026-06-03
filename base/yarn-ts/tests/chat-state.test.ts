@@ -72,6 +72,31 @@ describe("deriveChatState", () => {
     expect(state.phase).toBe("edit");
   });
 
+  it("ignores synthetic plan-mode reminders when deriving the active objective", () => {
+    const state = deriveChatState([
+      { role: "user", content: "/plan Build a complete Rust workspace application." },
+      { role: "assistant", content: "Ready to code?\n\nHere is Claude's plan:" },
+      { role: "tool", content: "User has approved your plan. You can now start coding.", name: "ExitPlanMode" },
+      {
+        role: "user",
+        content: "<system-reminder>Plan mode is active. You MUST NOT make any edits except to the plan file.</system-reminder>",
+      },
+    ], {
+      previousSnapshot: {
+        activeObjective: "Build a complete Rust workspace application.",
+        pendingUserDirective: "Build a complete Rust workspace application.",
+        phase: "edit",
+        completionStatus: "in_progress",
+        lastVerificationOutcome: "unknown",
+        transcriptSummary: "plan approved; begin implementation",
+      },
+    });
+
+    expect(state.pendingUserDirective).toContain("Build a complete Rust workspace");
+    expect(state.activeObjective).toContain("Build a complete Rust workspace");
+    expect(state.activeObjective).not.toContain("Plan mode is active");
+  });
+
   it("emits a compact chat-state snapshot for session metadata", () => {
     const state = deriveChatState([
       { role: "user", content: "Implement parser guardrails in src/parser.ts" },

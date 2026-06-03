@@ -1,4 +1,5 @@
 import { parseReadSnapshotEnvelope } from "../reduction/file-snapshot-registry.js";
+import { isSyntheticHarnessReminderText } from "../adapters/synthetic-reminders.js";
 
 export type ChatPhase =
   | "interpret"
@@ -346,6 +347,7 @@ function findLatestUserDirective(messages: MessageLike[]): string | null {
     if (isToolResultOnlyUserMessage(message)) continue;
     const text = normalizeText(contentToText(message.content));
     if (!text) continue;
+    if (isSyntheticHarnessReminderText(text)) continue;
     return summarizeValue(text, 220);
   }
   return null;

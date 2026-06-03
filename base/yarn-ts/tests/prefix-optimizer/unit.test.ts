@@ -462,6 +462,21 @@ describe("frame compactor", () => {
     expect(r2.hash).not.toBe(r1.hash);
     expect(r2.changed).toBe(true);
   });
+
+  it("does not use synthetic plan-mode reminders as compact frame objectives", () => {
+    const { frame } = extractCompactFrame([
+      { role: "user", content: "/plan Build a complete Rust workspace application." },
+      { role: "assistant", content: "Ready to code?\n\nHere is Claude's plan:" },
+      { role: "tool", content: "User has approved your plan. You can now start coding." },
+      {
+        role: "user",
+        content: "<system-reminder>Plan mode is active. You MUST NOT make any edits except to the plan file.</system-reminder>",
+      },
+    ], null);
+
+    expect(frame.objective).toContain("Build a complete Rust workspace");
+    expect(frame.objective).not.toContain("Plan mode is active");
+  });
 });
 
 /* ── Request Rebuilder ──────────────────────────────────────── */

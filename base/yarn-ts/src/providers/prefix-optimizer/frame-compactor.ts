@@ -9,6 +9,7 @@
 import crypto from "node:crypto";
 import type { ChatMessage } from "./types.js";
 import { normalizeWhitespace } from "./serializer.js";
+import { isSyntheticHarnessReminderText } from "../../adapters/synthetic-reminders.js";
 
 function messageText(msg: ChatMessage): string {
   if (typeof msg.content === "string") return msg.content;
@@ -97,7 +98,9 @@ export function extractCompactFrame(
   }
 
   if (!objective) {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const lastUser = [...messages].reverse().find((m) =>
+      m.role === "user" && !isSyntheticHarnessReminderText(messageText(m))
+    );
     if (lastUser) {
       const text = messageText(lastUser);
       objective = text.split("\n").find((l) => l.trim())?.trim().slice(0, 220) ?? "Complete the task";

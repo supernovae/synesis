@@ -29,6 +29,7 @@ import { computeMarkerPlacements } from "./marker-policy.js";
 import { buildDiagnostics, logPrefixDiagnostics, logPrefixDivergence } from "./diagnostics.js";
 import { extractMetadataFromMessages } from "./metadata-extractor.js";
 import { canonicalStringify } from "./serializer.js";
+import { isSyntheticHarnessReminderText } from "../../adapters/synthetic-reminders.js";
 
 export interface PrefixOptimizerOpts {
   markerBackend: MarkerBackend;
@@ -107,7 +108,9 @@ export class PrefixOptimizer {
     const frameSeg = segments.find((s) => s.category === "task_frame");
     if (frameSeg) {
       const hasTaskFrameBlock = frameSeg.content.includes("<TASK_FRAME>");
-      if (frameText && !hasTaskFrameBlock) {
+      const hasSyntheticReminderObjective = hasTaskFrameBlock
+        && isSyntheticHarnessReminderText(frameSeg.content.match(/\bobjective=(.+)/)?.[1] ?? "");
+      if (frameText && (!hasTaskFrameBlock || hasSyntheticReminderObjective)) {
         frameSeg.content = frameText;
         frameSeg.hash = frameHash;
       }

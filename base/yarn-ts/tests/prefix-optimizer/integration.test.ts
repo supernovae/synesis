@@ -221,4 +221,42 @@ describe("PrefixOptimizer integration", () => {
     const optimized = optimizer.optimize(messages, undefined, "frame-hash-alignment");
     expect(optimized.diagnostics.frameHash).toBe(frameSeg!.hash);
   });
+
+  it("replaces existing TASK_FRAME when its objective is a synthetic plan-mode reminder", () => {
+    const optimizer = new PrefixOptimizer({ markerBackend: "none", maxMarkers: 0, enableReduction: true, enableDiagnosticLogging: false });
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: [
+          "You are an AI coding assistant.",
+          "<TASK_FRAME>",
+          "objective=Plan mode is active. You MUST NOT make any edits except to the plan file.",
+          "phase=planning",
+          "files=none",
+          "constraints=none",
+          "pending_checks=none",
+          "open_issues=none",
+          "next_action=present it for your approval",
+          "</TASK_FRAME>",
+        ].join("\n"),
+      },
+      { role: "user", content: "/plan Build a complete Rust workspace application." },
+      { role: "assistant", content: "Ready to code?\n\nHere is Claude's plan:" },
+      { role: "tool", content: "User has approved your plan. You can now start coding." },
+      {
+        role: "user",
+        content: "<system-reminder>Plan mode is active. You MUST NOT make any edits except to the plan file.</system-reminder>",
+      },
+    ];
+
+    const optimized = optimizer.optimize(messages, undefined, "stale-task-frame-replaced");
+    const taskFrame = optimized.messages
+      .filter((message) => message.role === "system")
+      .map((message) => String(message.content ?? ""))
+      .find((content) => content.includes("<TASK_FRAME>"));
+
+    expect(taskFrame).toContain("objective=/plan Build a complete Rust workspace application.");
+    expect(taskFrame).not.toContain("objective=Plan mode is active");
+    expect(taskFrame).not.toContain("next_action=present it for your approval");
+  });
 });
