@@ -222,12 +222,9 @@ export async function prepareOpenAISessionWorkspace(
   const planImplementationApproved = isPlanImplementationApprovalTurn(
     request.messages as Array<{ role?: string; content?: unknown; name?: string }>,
   );
-  const clientToolCapabilities =
-    rawClientToolCapabilities.isClaudeCode
-    && rawClientToolCapabilities.planModeRequested
-    && planImplementationApproved
-      ? { ...rawClientToolCapabilities, planModeRequested: false }
-      : rawClientToolCapabilities;
+  const clientToolCapabilities = planImplementationApproved
+    ? { ...rawClientToolCapabilities, planModeRequested: false, planImplementationApproved: true }
+    : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(toolDefs, clientKind);
   applySessionTaskCapabilities(session, detectedTaskCapabilities);
 

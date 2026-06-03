@@ -433,12 +433,9 @@ export async function prepareClaudeMessagesRoute(
   const planImplementationApproved = isPlanImplementationApprovalTurn(
     normalizedFromClaude.messages as Array<{ role?: string; content?: unknown; name?: string }>,
   );
-  const clientToolCapabilities =
-    rawClientToolCapabilities.isClaudeCode
-    && rawClientToolCapabilities.planModeRequested
-    && planImplementationApproved
-      ? { ...rawClientToolCapabilities, planModeRequested: false }
-      : rawClientToolCapabilities;
+  const clientToolCapabilities = planImplementationApproved
+    ? { ...rawClientToolCapabilities, planModeRequested: false, planImplementationApproved: true }
+    : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
     clientKind,

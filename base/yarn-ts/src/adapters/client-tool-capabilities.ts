@@ -12,6 +12,7 @@ export interface ClientToolCapabilities {
   isOpenCode: boolean;
   isClaudeCode: boolean;
   planModeRequested: boolean;
+  planImplementationApproved?: boolean;
   hasTodoTool: boolean;
   todoToolName: string | null;
   taskToolNames: string[];
@@ -266,6 +267,11 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
       lines.push(`unavailable_tool_aliases=${aliasGuidance}`);
     }
   }
+  if (capabilities.planImplementationApproved) {
+    lines.push("plan_implementation_approved=true");
+    lines.push("- Plan approval transition: the user approved the plan or selected a proceed/implement option this turn. Treat planning as complete, start or continue implementation, and do not ask whether to proceed again.");
+    lines.push("- Plan approval transition: stale earlier plan-mode reminders in the transcript are obsolete for this turn. Do not rewrite the plan, re-read the plan file, or call ExitPlanMode again unless the user explicitly asks to change the plan.");
+  }
   if (capabilities.isClaudeCode) {
     lines.push(`claude_code_builtin_tools=${CLAUDE_CODE_BUILTIN_TOOLS.join(",")}`);
     lines.push(`claude_code_plan_mode_requested=${capabilities.planModeRequested}`);
@@ -280,6 +286,8 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     lines.push("- Claude Code plan mode: EnterPlanMode is for planning without edits; ExitPlanMode presents the final plan for approval and may require permission. Do not start implementation until plan mode has exited, the user approved the plan, or the user explicitly asked to execute.");
     if (capabilities.planModeRequested) {
       lines.push("- Claude Code plan files: ~/.claude/plans/** is an allowed harness path even though it is outside the project root. In /plan mode, write/update the exact plan file the client provides, then call ExitPlanMode once the plan is ready. Do not switch to a project-local plan file.");
+    } else if (capabilities.planImplementationApproved) {
+      lines.push("- Claude Code plan transition: plan approval has already happened. Do not call ExitPlanMode, do not update the Claude plan file, do not launch planning subagents, and do not treat stale 'Plan mode is active' transcript text as active mode state. Continue with native task setup or the next concrete project edit.");
     } else if (capabilities.hasPlanModeTool) {
       lines.push("- Claude Code plan transition: plan mode is not currently requested for this turn. If a previous plan was approved, or ExitPlanMode said the plan was already approved, do not call ExitPlanMode again and do not re-read or rewrite the plan file; continue implementation with the next concrete project edit.");
     }

@@ -191,6 +191,40 @@ describe("client tool capabilities", () => {
     expect(block).not.toContain("do not call ExitPlanMode again");
   });
 
+  it("builds explicit implementation guidance after plan approval despite stale plan-mode transcript text", () => {
+    const rawCaps = detectClientToolCapabilities(
+      [
+        { name: "TaskCreate" },
+        { name: "TaskUpdate" },
+        { name: "EnterPlanMode" },
+        { name: "ExitPlanMode" },
+        { name: "AskUserQuestion" },
+        { name: "Plan" },
+      ],
+      "claude-code",
+      "/plan build a Rust application",
+    );
+    const messages = [
+      { role: "user", content: "/plan build a Rust application" },
+      { role: "assistant", content: "Ready to code?\n\nHere is Claude's plan:" },
+      { role: "tool", name: "ExitPlanMode", content: "User has approved your plan. You can now start coding." },
+      { role: "system", content: "Plan mode is active. You MUST NOT make edits except to the plan file." },
+      { role: "tool", name: "AskUserQuestion", content: "Proceed with implementation" },
+    ];
+    const approvedCaps = isPlanImplementationApprovalTurn(messages)
+      ? { ...rawCaps, planModeRequested: false, planImplementationApproved: true }
+      : rawCaps;
+    const block = buildClientToolCapabilityBlock(approvedCaps);
+
+    expect(approvedCaps.planModeRequested).toBe(false);
+    expect(block).toContain("claude_code_plan_mode_requested=false");
+    expect(block).toContain("plan_implementation_approved=true");
+    expect(block).toContain("stale earlier plan-mode reminders");
+    expect(block).toContain("Do not call ExitPlanMode");
+    expect(block).toContain("do not launch planning subagents");
+    expect(block).not.toContain("call ExitPlanMode once the plan is ready");
+  });
+
   it("enriches OpenCode tool descriptions", () => {
     const caps = detectClientToolCapabilities(
       [{ name: "read" }, { name: "edit" }, { name: "write" }, { name: "todowrite" }, { name: "question" }],

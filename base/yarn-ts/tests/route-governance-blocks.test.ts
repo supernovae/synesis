@@ -86,4 +86,22 @@ describe("route governance block assembly", () => {
     expect(result.memoryBlocks.join("\n")).toContain('rule="findings_not_stored"');
     expect(result.blocks[0]).toContain("MEMORY_GUIDANCE");
   });
+
+  it("carries plan implementation approval as route guidance for non-Claude harnesses", () => {
+    const memoryTracker = new MemoryGovernorTracker();
+    const result = buildRouteGovernanceBlocks({
+      memoryTracker,
+      sessionMemoryCount: 0,
+      clientToolCapabilities: capabilities({
+        clientKind: "opencode",
+        planModeRequested: false,
+        planImplementationApproved: true,
+      }),
+    });
+
+    expect(result.clientToolBlock).toContain("plan_implementation_approved=true");
+    expect(result.clientToolBlock).toContain("start or continue implementation");
+    expect(result.clientToolBlock).toContain("do not ask whether to proceed again");
+    expect(result.clientToolBlock).toContain("stale earlier plan-mode reminders");
+  });
 });
