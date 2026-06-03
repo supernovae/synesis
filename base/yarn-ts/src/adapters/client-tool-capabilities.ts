@@ -180,6 +180,67 @@ export function isPlanModePrompt(prompt: string | undefined): boolean {
   return /^\s*\/plan(?:\s|$)/i.test(String(prompt ?? ""));
 }
 
+function messageContentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || typeof item !== "object") return "";
+      const row = item as Record<string, unknown>;
+      return typeof row.text === "string" ? row.text
+        : typeof row.content === "string" ? row.content
+        : "";
+    }).filter(Boolean).join("\n");
+  }
+  if (content && typeof content === "object") {
+    const row = content as Record<string, unknown>;
+    return typeof row.text === "string" ? row.text
+      : typeof row.content === "string" ? row.content
+      : "";
+  }
+  return "";
+}
+
+function isShortPlanApprovalText(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/[.!?]+$/g, "");
+  if (!normalized || normalized.startsWith("/plan")) return false;
+  if (normalized.length > 120) return false;
+  return /^(yes|y|ok|okay|approved|approve|continue|continue please|proceed|go ahead|do it|start|start coding|implement|implement it|implement the plan|build it|looks good|ready|ready to code)$/.test(normalized)
+    || /\b(continue|proceed|implement|start|build)\b.*\b(plan|coding|implementation|work)\b/.test(normalized);
+}
+
+function hasRecentPlanReadyPrompt(messages: Array<{ role?: string; content?: unknown; name?: string }>): boolean {
+  const recent = messages.slice(-12);
+  return recent.some((message) => {
+    const role = String(message.role ?? "").toLowerCase();
+    if (role !== "assistant" && role !== "tool" && role !== "tool_result") return false;
+    const text = messageContentText(message.content).toLowerCase();
+    return /\bready to code\??\b/.test(text)
+      || /\bready for (?:your )?(?:review|approval)\b/.test(text)
+      || /\bplan (?:is )?(?:ready|complete|done|prepared|created)\b/.test(text)
+      || /\buser has approved your plan\b/.test(text)
+      || /\byou can now start coding\b/.test(text)
+      || String(message.name ?? "").toLowerCase().includes("exitplanmode");
+  });
+}
+
+export function isPlanImplementationApprovalTurn(
+  messages: Array<{ role?: string; content?: unknown; name?: string }> | undefined | null,
+): boolean {
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const latestUser = [...messages].reverse().find((message) => String(message.role ?? "").toLowerCase() === "user");
+  const latestUserText = latestUser ? messageContentText(latestUser.content) : "";
+  const latestUserApproves = isShortPlanApprovalText(latestUserText);
+  const recentPlanToolApproval = messages.slice(-8).some((message) => {
+    const role = String(message.role ?? "").toLowerCase();
+    if (role !== "tool" && role !== "tool_result" && role !== "user") return false;
+    const text = messageContentText(message.content).toLowerCase();
+    return /\buser has approved your plan\b/.test(text)
+      || /\byou can now start coding\b/.test(text);
+  });
+  return (latestUserApproves && hasRecentPlanReadyPrompt(messages)) || recentPlanToolApproval;
+}
+
 export function detectClientToolCapabilities(
   tools: ClientToolDefinition[] | undefined | null,
   clientKind: string,

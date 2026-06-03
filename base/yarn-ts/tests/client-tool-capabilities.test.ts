@@ -4,6 +4,7 @@ import {
   detectClientToolCapabilities,
   enrichToolDescriptionForClient,
   enrichToolSchemasForClient,
+  isPlanImplementationApprovalTurn,
   isPlanModePrompt,
 } from "../src/adapters/client-tool-capabilities.js";
 
@@ -37,6 +38,35 @@ describe("client tool capabilities", () => {
     expect(isPlanModePrompt("/plan build a CLI")).toBe(true);
     expect(isPlanModePrompt(" /PLAN")).toBe(true);
     expect(isPlanModePrompt("please plan this")).toBe(false);
+  });
+
+  it("recognizes short user approval after Claude plan preview as implementation approval", () => {
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "/plan build a Rust app" },
+      { role: "assistant", content: "Ready to code?\n\nHere is Claude's plan: ..." },
+      { role: "user", content: "continue" },
+    ])).toBe(true);
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "/plan build a Rust app" },
+      { role: "assistant", content: "The plan is ready for approval." },
+      { role: "user", content: "implement the plan" },
+    ])).toBe(true);
+  });
+
+  it("recognizes Claude plan approval tool results as implementation approval", () => {
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "/plan build a Rust app" },
+      { role: "assistant", content: "The plan is ready for review." },
+      { role: "tool", name: "ExitPlanMode", content: "User has approved your plan. You can now start coding." },
+    ])).toBe(true);
+  });
+
+  it("does not treat generic continue text as plan approval without plan-ready context", () => {
+    expect(isPlanImplementationApprovalTurn([
+      { role: "user", content: "Fix the bug" },
+      { role: "assistant", content: "I found the failing test." },
+      { role: "user", content: "continue" },
+    ])).toBe(false);
   });
 
   it("builds OpenCode tool guidance with todowrite and question", () => {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "../auth.js";
+import { isPlanImplementationApprovalTurn } from "../adapters/client-tool-capabilities.js";
 import {
   detectFreshImplicitSessionStart,
   type SessionIdentity,
@@ -217,7 +218,16 @@ export async function prepareOpenAISessionWorkspace(
   const session = bootstrap.session;
   const runtimePreferences = bootstrap.runtimePreferences;
   const toolDefs = request.tools as Array<{ name?: string; function?: { name?: string } }> | undefined;
-  const clientToolCapabilities = detectClientToolCapabilities(toolDefs, clientKind, taskCue);
+  const rawClientToolCapabilities = detectClientToolCapabilities(toolDefs, clientKind, taskCue);
+  const planImplementationApproved = isPlanImplementationApprovalTurn(
+    request.messages as Array<{ role?: string; content?: unknown; name?: string }>,
+  );
+  const clientToolCapabilities =
+    rawClientToolCapabilities.isClaudeCode
+    && rawClientToolCapabilities.planModeRequested
+    && planImplementationApproved
+      ? { ...rawClientToolCapabilities, planModeRequested: false }
+      : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(toolDefs, clientKind);
   applySessionTaskCapabilities(session, detectedTaskCapabilities);
 

@@ -27,7 +27,10 @@ import {
 } from "../adapters/client-adapter-packs.js";
 import { extractMetadataFromMessages } from "../providers/prefix-optimizer/index.js";
 import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
-import { detectClientToolCapabilities } from "../adapters/client-tool-capabilities.js";
+import {
+  detectClientToolCapabilities,
+  isPlanImplementationApprovalTurn,
+} from "../adapters/client-tool-capabilities.js";
 import {
   deriveModelExecutionPolicy,
   resolveModelArchitectureProfile,
@@ -422,11 +425,20 @@ export async function prepareClaudeMessagesRoute(
   const sessionKey = bootstrap.sessionKey;
   const session = bootstrap.session;
   const runtimePreferences = bootstrap.runtimePreferences;
-  const clientToolCapabilities = detectClientToolCapabilities(
+  const rawClientToolCapabilities = detectClientToolCapabilities(
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
     clientKind,
     taskCue,
   );
+  const planImplementationApproved = isPlanImplementationApprovalTurn(
+    normalizedFromClaude.messages as Array<{ role?: string; content?: unknown; name?: string }>,
+  );
+  const clientToolCapabilities =
+    rawClientToolCapabilities.isClaudeCode
+    && rawClientToolCapabilities.planModeRequested
+    && planImplementationApproved
+      ? { ...rawClientToolCapabilities, planModeRequested: false }
+      : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(
     processedTools as Array<{ name?: string; function?: { name?: string } }> | undefined,
     clientKind,
