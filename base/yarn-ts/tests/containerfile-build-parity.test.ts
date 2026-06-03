@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const yarnTsDir = join(__dirname, "..");
 const repoRoot = join(yarnTsDir, "..", "..");
-const containerfilePath = join(yarnTsDir, "Containerfile");
 const nodeBaseContainerfilePath = join(repoRoot, "base", "images", "base-node-workspace", "Containerfile");
 const packagesDir = join(repoRoot, "packages");
 const nodeServiceWorkspaces = ["base/yarn-ts", "base/planner-ts", "base/synesis-mcp", "base/admin-mcp-ts"];
