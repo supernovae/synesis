@@ -67,6 +67,7 @@ jobs:
       base-api: ${{ steps.filter.outputs.base-api }}
       base-ml: ${{ steps.filter.outputs.base-ml }}
       base-devtools: ${{ steps.filter.outputs.base-devtools }}
+      base-node-workspace: ${{ steps.filter.outputs.base-node-workspace }}
       admin: ${{ steps.filter.outputs.admin }}
       sandbox: ${{ steps.filter.outputs.sandbox }}
       bge-reranker: ${{ steps.filter.outputs.bge-reranker }}
@@ -100,6 +101,15 @@ jobs:
             base-devtools:
               - 'base/images/base-devtools/**'
               - 'base/images/base-api/synesis-telemetry/**'
+            base-node-workspace:
+              - 'base/images/base-node-workspace/**'
+              - 'packages/**'
+              - 'base/admin-mcp-ts/package.json'
+              - 'base/planner-ts/package.json'
+              - 'base/synesis-mcp/package.json'
+              - 'base/yarn-ts/package.json'
+              - 'package.json'
+              - 'package-lock.json'
             admin:
               - 'base/admin/**'
             sandbox:
@@ -159,7 +169,8 @@ jobs:
         run: |
           if [[ "${{ steps.filter.outputs.base-api }}" == "true" \
              || "${{ steps.filter.outputs.base-ml }}" == "true" \
-             || "${{ steps.filter.outputs.base-devtools }}" == "true" ]]; then
+             || "${{ steps.filter.outputs.base-devtools }}" == "true" \
+             || "${{ steps.filter.outputs.base-node-workspace }}" == "true" ]]; then
             echo "any-base=true" >> "$GITHUB_OUTPUT"
           else
             echo "any-base=false" >> "$GITHUB_OUTPUT"
@@ -385,12 +396,72 @@ jobs:
           severity-cutoff: critical
           output-format: table
 
+  build-base-node-workspace:
+    needs: [determine-tag, detect-changes]
+    if: >-
+      needs.detect-changes.outputs.base-node-workspace == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Filter by input
+        id: filter
+        if: inputs.images != ''
+        run: |
+          if ! echo ",${{ inputs.images }}," | grep -qi ",synesis-base-node-workspace,"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-qemu-action@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/login-action@v4
+        if: steps.filter.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: base/images/base-node-workspace/Containerfile
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-node-workspace:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/synesis-base-node-workspace:latest
+          cache-from: type=gha,scope=synesis-base-node-workspace
+          cache-to: type=gha,mode=max,scope=synesis-base-node-workspace
+
+      - name: Generate SBOM (Syft)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-node-workspace:${{ needs.determine-tag.outputs.tag }}
+          artifact-name: sbom-synesis-base-node-workspace
+          output-file: sbom-synesis-base-node-workspace.cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Scan image (Grype)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/scan-action@v7
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-node-workspace:${{ needs.determine-tag.outputs.tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
+
   # -----------------------------------------------------------------------
   # Stage 2: Service images — only rebuilt when their files (or base) change.
   # When base images are unchanged, services reference :latest from GHCR.
   # -----------------------------------------------------------------------
   build-services:
-    needs: [determine-tag, detect-changes, build-base-api, build-base-devtools, build-base-ml]
+    needs: [determine-tag, detect-changes, build-base-api, build-base-devtools, build-base-ml, build-base-node-workspace]
     if: always() && needs.determine-tag.result == 'success' && needs.detect-changes.result == 'success'
     runs-on: ubuntu-latest
     strategy:
@@ -436,9 +507,9 @@ jobs:
           - name: synesis-mcp
             dockerfile: base/synesis-mcp/Containerfile
             context: .
-            base_arg: ""
+            base_arg: synesis-base-node-workspace
             change_key: synesis-mcp
-            base_change_key: ""
+            base_change_key: base-node-workspace
             platforms: linux/amd64,linux/arm64
           # GHCR image name synesis-ast-mcp (ast-mcp push failed with write_package in CI).
           - name: synesis-ast-mcp
@@ -451,23 +522,23 @@ jobs:
           - name: admin-mcp-ts
             dockerfile: base/admin-mcp-ts/Containerfile
             context: .
-            base_arg: ""
+            base_arg: synesis-base-node-workspace
             change_key: admin-mcp-ts
-            base_change_key: ""
+            base_change_key: base-node-workspace
             platforms: linux/amd64,linux/arm64
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile
             context: .
-            base_arg: ""
+            base_arg: synesis-base-node-workspace
             change_key: yarn-ts
-            base_change_key: ""
+            base_change_key: base-node-workspace
             platforms: linux/amd64,linux/arm64
           - name: planner-ts
             dockerfile: base/planner-ts/Containerfile
             context: .
-            base_arg: ""
+            base_arg: synesis-base-node-workspace
             change_key: planner-ts
-            base_change_key: ""
+            base_change_key: base-node-workspace
             platforms: linux/amd64,linux/arm64
           # ------- amd64-only (ML/torch/Playwright — arm64 not yet validated) -------
           - name: bge-reranker

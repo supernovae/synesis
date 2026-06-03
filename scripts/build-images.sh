@@ -84,6 +84,7 @@ BASE_IMAGES=(
     "synesis-base-api|base/images/base-api/Dockerfile|base/images/base-api"
     "synesis-base-ml|base/images/base-ml/Dockerfile|base/images/base-ml"
     "synesis-base-devtools|base/images/base-devtools/Dockerfile|base/images"
+    "synesis-base-node-workspace|base/images/base-node-workspace/Containerfile|."
 )
 
 SERVICE_IMAGES=(
@@ -100,7 +101,7 @@ SERVICE_IMAGES=(
     "open-webui|base/webui/Dockerfile|base/webui"
     "synesis-mcp|base/synesis-mcp/Containerfile|."
     "admin-mcp-ts|base/admin-mcp-ts/Containerfile|."
-    "yarn-ts|base/yarn-ts/Containerfile|base"
+    "yarn-ts|base/yarn-ts/Containerfile|."
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then
@@ -192,6 +193,10 @@ for entry in "${IMAGES[@]}"; do
             ;;
         sandbox)
             local_base="${BASE_TAG_MAP[synesis-base-devtools]:-$REGISTRY/synesis-base-devtools:$TAG}"
+            BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
+            ;;
+        planner-ts|synesis-mcp|admin-mcp-ts|yarn-ts)
+            local_base="${BASE_TAG_MAP[synesis-base-node-workspace]:-$REGISTRY/synesis-base-node-workspace:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
     esac

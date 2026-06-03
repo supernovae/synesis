@@ -1,0 +1,61 @@
+FROM registry.access.redhat.com/ubi10/nodejs-24:latest
+
+LABEL org.opencontainers.image.description="Synesis Node workspace base — root npm workspace install plus compiled shared @synesis packages"
+
+USER 0
+WORKDIR /opt/app-root/src
+
+# Copy every workspace package manifest before npm ci so the lockfile resolves
+# the same dependency graph that service images use, without re-running npm ci
+# in every TypeScript service image.
+COPY package.json package-lock.json ./
+COPY packages/synesis-agent-orchestration/package.json packages/synesis-agent-orchestration/
+COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
+COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
+COPY packages/synesis-manifest/package.json packages/synesis-manifest/
+COPY packages/synesis-mcp/package.json packages/synesis-mcp/
+COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/
+COPY packages/synesis-oidc-auth/package.json packages/synesis-oidc-auth/
+COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
+COPY packages/synesis-upper-harness/package.json packages/synesis-upper-harness/
+COPY base/admin-mcp-ts/package.json base/admin-mcp-ts/
+COPY base/planner-ts/package.json base/planner-ts/
+COPY base/synesis-mcp/package.json base/synesis-mcp/
+COPY base/yarn-ts/package.json base/yarn-ts/
+RUN npm ci --ignore-scripts
+
+# Shared packages are built here once. App images inherit their dist/types and
+# only rebuild their own service package.
+COPY packages/synesis-agent-orchestration/tsconfig.json packages/synesis-agent-orchestration/
+COPY packages/synesis-agent-orchestration/src packages/synesis-agent-orchestration/src
+RUN npm run build --workspace=packages/synesis-agent-orchestration
+
+COPY packages/synesis-auth-contracts/tsconfig.json packages/synesis-auth-contracts/
+COPY packages/synesis-auth-contracts/src packages/synesis-auth-contracts/src
+RUN npm run build --workspace=packages/synesis-auth-contracts
+
+COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
+COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
+RUN npm run build --workspace=packages/synesis-context-trust
+
+COPY packages/synesis-manifest/tsconfig.json packages/synesis-manifest/
+COPY packages/synesis-manifest/src packages/synesis-manifest/src
+RUN npm run build --workspace=packages/synesis-manifest
+
+COPY packages/synesis-mcp-tools/tsconfig.json packages/synesis-mcp-tools/
+COPY packages/synesis-mcp-tools/src packages/synesis-mcp-tools/src
+RUN npm run build --workspace=packages/synesis-mcp-tools
+
+COPY packages/synesis-oidc-auth/tsconfig.json packages/synesis-oidc-auth/
+COPY packages/synesis-oidc-auth/src packages/synesis-oidc-auth/src
+RUN npm run build --workspace=packages/synesis-oidc-auth
+
+COPY packages/synesis-telemetry/tsconfig.json packages/synesis-telemetry/
+COPY packages/synesis-telemetry/src packages/synesis-telemetry/src
+RUN npm run build --workspace=packages/synesis-telemetry
+
+COPY packages/synesis-upper-harness/tsconfig.json packages/synesis-upper-harness/
+COPY packages/synesis-upper-harness/src packages/synesis-upper-harness/src
+RUN npm run build --workspace=packages/synesis-upper-harness
+
+USER 1001

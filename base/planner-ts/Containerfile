@@ -1,48 +1,28 @@
-FROM registry.access.redhat.com/ubi10/nodejs-24:latest
+ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-node-workspace:latest
+FROM ${BASE_IMAGE} AS builder
 
 USER 0
 WORKDIR /opt/app-root/src
 
-# Copy workspace root and ALL workspace package.json files so npm can
-# resolve the full workspace dependency tree from the lockfile.
-COPY package.json package-lock.json ./
-COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
-COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
-COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
-COPY packages/synesis-upper-harness/package.json packages/synesis-upper-harness/
-COPY base/planner-ts/package.json base/planner-ts/
-COPY base/yarn-ts/package.json base/yarn-ts/
-RUN npm ci --ignore-scripts
-
-# Build shared packages
-COPY packages/synesis-telemetry/tsconfig.json packages/synesis-telemetry/
-COPY packages/synesis-telemetry/src packages/synesis-telemetry/src
-RUN npm run build --workspace=packages/synesis-telemetry
-
-COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
-COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
-RUN npm run build --workspace=packages/synesis-context-trust
-
-COPY packages/synesis-auth-contracts/tsconfig.json packages/synesis-auth-contracts/
-COPY packages/synesis-auth-contracts/src packages/synesis-auth-contracts/src
-RUN npm run build --workspace=packages/synesis-auth-contracts
-
-COPY packages/synesis-upper-harness/tsconfig.json packages/synesis-upper-harness/
-COPY packages/synesis-upper-harness/src packages/synesis-upper-harness/src
-RUN npm run build --workspace=packages/synesis-upper-harness
-
-# Build planner-ts
 COPY base/planner-ts/tsconfig.json base/planner-ts/
 COPY base/planner-ts/src base/planner-ts/src
 RUN npm run build --workspace=base/planner-ts
 
-# Prune dev dependencies
 RUN npm prune --omit=dev
+
+FROM registry.access.redhat.com/ubi10/nodejs-24-minimal:latest
+
+USER 1001
+WORKDIR /opt/app-root/src
+
+COPY --from=builder /opt/app-root/src/node_modules ./node_modules
+COPY --from=builder /opt/app-root/src/packages ./packages
+COPY --from=builder /opt/app-root/src/base/planner-ts/package.json base/planner-ts/package.json
+COPY --from=builder /opt/app-root/src/base/planner-ts/dist base/planner-ts/dist
 
 # Taxonomy + ontology config (single source of truth from planner-ts/config)
 COPY base/planner-ts/config base/planner-ts/config
 
-USER 1001
 EXPOSE 8080
 
 ENV NODE_ENV=production
