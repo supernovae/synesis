@@ -259,6 +259,48 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("one concrete code fix");
   });
 
+  it("recognizes repeated Rust cargo build failures and preserves cargo fix guidance", () => {
+    const cargoFailure = [
+      "warning: unused import: `anyhow::Result`",
+      " --> core/src/repository.rs:8:5",
+      "  = note: `#[warn(unused_imports)]` on by default",
+      "warning: `task-manager-core` (lib) generated 1 warning (run `cargo fix --lib -p task-manager-core` to apply 1 suggestion)",
+      "error[E0107]: enum takes 2 generic arguments but 1 generic argument was supplied",
+      " --> cli/src/commands.rs:25:20",
+    ].join("\n");
+    const messages = [
+      { role: "user", content: "please fix the code and re-run the tests. running the tests over and over won't work." },
+      { role: "assistant", content: "I understand. Let me take a systematic approach." },
+      assistantCall("1", "bash", { command: "cargo build 2>&1" }),
+      toolResult("1", cargoFailure),
+      { role: "assistant", content: "I understand. Let me take a systematic approach." },
+      assistantCall("2", "bash", { command: "cargo build 2>&1" }),
+      toolResult("2", cargoFailure),
+    ];
+
+    const out = evaluateExecutionGovernor(messages);
+    expect(out.pause).toBe(true);
+    expect(out.reason).toBe("verification_same_failure_signature_replay");
+    expect(out.matchedRules).toContain("verification_same_failure_signature_replay");
+    expect(out.suggestedNextStep).toContain("cargo fix");
+
+    const recovery = executionGovernorRecoveryRewriteBlock(out);
+    expect(recovery).toContain("cargo fix");
+    expect(recovery).toContain("Do NOT re-run the same broad build/test first");
+  });
+
+  it("hard-stop copy prioritizes repeated compile failure over repeated narration", () => {
+    const message = buildExecutionGovernorHardStopUserMessage({
+      consecutiveRecoveryFires: 1,
+      matchedRules: ["repeated_assistant_intro", "verification_same_failure_signature_replay"],
+    });
+
+    expect(message).toContain("same build or compile failure repeated");
+    expect(message).toContain("cargo fix");
+    expect(message).toContain("Reason: verification_same_failure_signature_replay");
+    expect(message).toContain("Inspect one failing traceback/assertion and edit the implicated file");
+  });
+
   it("pauses repeated edit-failure replay even when reads are interleaved", () => {
     const messages = [
       assistantCall("1", "edit", { file_path: "cmd/synesis/main.go", old_string: "import (", new_string: "import (\n\t\"x\"" }),

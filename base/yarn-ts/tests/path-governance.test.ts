@@ -514,6 +514,22 @@ describe("governToolCall", () => {
     expect(out.input.reason).toBe("verification_fail_repeat_block");
   });
 
+  it("blocks repeated failing cargo build when fail-repeat guard is active", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: { command: "cargo build 2>&1" },
+      shellCwd: "/Users/me/repo",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+      blockVerificationForFailure: true,
+    });
+    expect(out.toolName).toBe("Synesis_Error_VerificationLoop");
+    expect(out.input.synesis_error).toBe(true);
+    expect(out.input.reason).toBe("verification_fail_repeat_block");
+    expect(out.input.message).toContain("cargo fix");
+  });
+
   it("allows verification bash when fail-repeat guard is inactive", () => {
     const out = governToolCall({
       toolName: "Bash",

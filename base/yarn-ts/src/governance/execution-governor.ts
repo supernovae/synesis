@@ -139,7 +139,7 @@ function verificationScopeCoversChangedFiles(
 ): boolean {
   if (changedFiles.length === 0) return true;
   const scopeMatch = command.match(
-    /(?:go\s+test|pytest|vitest|jest|npm\s+test|cargo\s+test)\s+(\S+)/i,
+    /(?:go\s+test|pytest|vitest|jest|npm\s+test|cargo\s+(?:test|build|check))\s+(\S+)/i,
   );
   if (!scopeMatch) return true;
   let scope = scopeMatch[1].replace(/^\.\//, "").replace(/\/\.\.\.$/, "");
@@ -161,7 +161,7 @@ function isVerificationLike(toolName: string, command: string): boolean {
   const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
   return tool.includes("run_test")
     // Standard test runners
-    || /\b(go test|go build|go vet|cargo test|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    || /\b(go test|go build|go vet|cargo test|cargo build|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
     // JS: jest, vitest (this repo), npx variants
     || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
     // JS: npm/pnpm/yarn script aliases
@@ -190,7 +190,7 @@ function isStrongVerificationCommand(toolName: string, command: string): boolean
   const tool = (typeof toolName === "string" ? toolName : "").trim().toLowerCase();
   const cmd = (typeof command === "string" ? command : "").trim().toLowerCase();
   return tool.includes("run_test")
-    || /\b(go test|go build|go vet|cargo test|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
+    || /\b(go test|go build|go vet|cargo test|cargo build|cargo clippy|cargo check|dotnet test|ctest|mvn (test|verify)|gradle test|swift test|xcodebuild test|phpunit|rspec|pytest|npm test|pnpm test|yarn test|eslint|ruff|golangci-lint)\b/.test(cmd)
     || /\b(jest|vitest|npx jest|npx vitest)\b/.test(cmd)
     || /\bnpm\s+run\s+(test|check|lint|build|typecheck)\b/.test(cmd)
     || /\bpython3?\s+-m\s+(pytest|mypy|ruff)\b/.test(cmd)
@@ -838,7 +838,7 @@ function hasFailureSignature(sig: string): boolean {
 
 function isCompileLikeFailureSignature(sig: string): boolean {
   if (!sig) return false;
-  return /imported and not used|declared and not used|declared but its value is never read|unused (variable|import|binding)|undefined\b|cannot find symbol|unresolved reference|type mismatch|syntax error|expected .* found|failed to compile|compilation failed|build failed|no required module provides package/.test(sig);
+  return /imported and not used|declared and not used|declared but its value is never read|unused (variable|import|binding)|undefined\b|cannot find symbol|unresolved reference|type mismatch|syntax error|expected .* found|failed to compile|compilation failed|build failed|no required module provides package|error\[e<n>\]|enum takes <n> generic arguments|generic argument was supplied|run `?cargo fix/.test(sig);
 }
 
 function hasSuccessSignature(sig: string): boolean {
@@ -2627,7 +2627,7 @@ export function evaluateExecutionGovernor(
       pause: true,
       reason: "verification_same_failure_signature_replay",
       suggestedNextStep:
-        "You are replaying the same compile/build failure signature without edits. Stop rerunning broad verification. Make one concrete code fix at the reported symbol/location, then run one narrow package/file-level verification.",
+        "You are replaying the same compile/build failure signature without edits. Stop rerunning broad verification. If the compiler output suggests an automatic fix such as `cargo fix --lib -p <package>`, run that exact targeted fix once; otherwise make one concrete code fix at the reported symbol/location. Then run one narrow package/file-level verification.",
       matchedRules,
       telemetry: {
         phase: sessionPhase,
@@ -3397,8 +3397,8 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
     case "verification_fail_repeat_block":
     case "verification_same_failure_signature_replay":
     case "verification_truncated_output":
-      step1 = "Read the failing file at the error location (use offset/limit). Do NOT re-read README or unrelated files.";
-      step2 = "Make one concrete code fix at the reported symbol/location.";
+      step1 = "Use the failure output directly. If it includes a compiler-suggested fix command such as `cargo fix --lib -p <package>`, run that exact targeted fix once; otherwise read the failing file at the error location.";
+      step2 = "Make one concrete code fix at the reported symbol/location. Do NOT re-run the same broad build/test first.";
       step3 = "Run one narrow file-level or package-level verification command (not a broad build).";
       break;
     case "consecutive_edit_failures":
@@ -3504,6 +3504,18 @@ const HARD_STOP_PLAIN: Record<string, { what: string; nudge: string }> = {
     what: "Many verification or build steps in a row did not add new signal and no edit was written to break the loop.",
     nudge: "Do not answer by repeating 'continue'. Pick one failing traceback/assertion line, edit the implicated file once, then run one narrow verification command.",
   },
+  verification_same_failure_signature_replay: {
+    what: "The same build or compile failure repeated without a code change, so another test/build run will produce the same output.",
+    nudge: "Use the compiler output directly: run one suggested fix command such as `cargo fix` when present, or edit the reported file/symbol once before any retest.",
+  },
+  verification_fail_repeat_block: {
+    what: "The same failing verification repeated without an intervening fix.",
+    nudge: "Stop running tests/builds. Apply one focused edit or one compiler-suggested fix command, then run one narrow verification.",
+  },
+  verification_truncated_output: {
+    what: "Verification output was truncated or repeated without enough new signal to justify another full run.",
+    nudge: "Capture once to a stable file or inspect the known failing location, then make one fix before re-running verification.",
+  },
   verification_stall_no_edit: {
     what: "Verification and exploration were repeated without a successful edit or a clear written conclusion.",
     nudge: "One concrete fix or a clear written summary: what passed, what failed, and the single next step.",
@@ -3540,7 +3552,13 @@ const HARD_STOP_PLAIN_DEFAULT: { what: string; nudge: string } = {
 };
 
 function hardStopPlainCopy(matchedRules: string[]): { what: string; nudge: string; primary: string } {
-  const primary = (matchedRules[0] ?? "unknown").trim() || "unknown";
+  const preferred = matchedRules.find((rule) =>
+    rule === "verification_same_failure_signature_replay"
+    || rule === "verification_fail_repeat_block"
+    || rule === "verification_churn_no_edit"
+    || rule === "verification_truncated_output"
+  );
+  const primary = (preferred ?? matchedRules[0] ?? "unknown").trim() || "unknown";
   const row = HARD_STOP_PLAIN[primary] ?? HARD_STOP_PLAIN_DEFAULT;
   return { what: row.what, nudge: row.nudge, primary };
 }
