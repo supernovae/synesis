@@ -2402,7 +2402,8 @@ export function evaluateExecutionGovernor(
   // because they indicate the model is doing legitimate verification work.
   const baseNoProgressThreshold = hasPlanInContext ? 5 : 8;
   const productiveBonus = Math.min(trailingProductiveCount, 4);
-  const noProgressThreshold = baseNoProgressThreshold + productiveBonus;
+  const planModeSetupBonus = planModeSetupGraceActive ? 4 : 0;
+  const noProgressThreshold = baseNoProgressThreshold + productiveBonus + planModeSetupBonus;
   const noProgressDiscoveryOnly =
     trailingVerificationRunLength === 0
     && trailingProductiveCount === 0
@@ -2422,7 +2423,7 @@ export function evaluateExecutionGovernor(
   if (identicalToolRepeatCount >= identicalToolRepeatThreshold && !(planApprovalTaskSetupActive && identicalRepeatIsTaskLifecycle)) {
     pushRule("identical_tool_repeat");
   }
-  const planRereadThreshold = planRecoveryDiscoveryGraceActive ? 4 : 2;
+  const planRereadThreshold = (planRecoveryDiscoveryGraceActive || planModeSetupGraceActive) ? 4 : 2;
   if (!isInvestigationOnly && planCachedRereadCount >= planRereadThreshold && !hasPlanEdit) {
     pushRule("plan_reread_loop");
   }
