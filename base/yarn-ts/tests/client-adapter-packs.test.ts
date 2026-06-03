@@ -39,6 +39,7 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("prefer Update/Edit-style targeted diffs");
     expect(block).toContain("do not delete or weaken failing tests");
     expect(block).not.toContain("use write_file for new/generated files");
+    expect(block).not.toContain("ask.go");
   });
 
   it("uses exact OpenCode native tool names", () => {

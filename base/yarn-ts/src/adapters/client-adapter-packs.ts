@@ -164,7 +164,7 @@ export class ClientAdapterPacks {
       "- Do NOT use the Write tool on a file without reading it first to verify its current state.",
       "- Prefer the currently offered targeted edit/patch tool for existing files; use the currently offered full-file write tool for new/generated files or when patching is infeasible after inspection.",
       "- For tests and other existing files, prefer Update/Edit-style targeted diffs; avoid full-file overwrite unless the user explicitly asked to replace the file.",
-      "- Before your first edit after discovery/verification, send one brief transition sentence naming the remaining gap you are fixing (for example: 'Found one remaining gap in ask.go; patching it now.').",
+      "- Before your first edit after discovery/verification, send one brief transition sentence naming the remaining gap you are fixing without introducing unrelated example file names.",
       "- When tests fail, fix implementation or expected assertions based on contract; do not delete or weaken failing tests just to make the suite pass.",
       "- After patch mismatch, read the smallest nearby window and retry with adjusted context instead of blind retries.",
       "- For Synesis platform APIs, deployment, and conventions: synesis_search / synesis_docs_search before guessing.",

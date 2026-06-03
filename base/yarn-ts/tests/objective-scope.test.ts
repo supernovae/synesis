@@ -659,7 +659,7 @@ describe("objective scope", () => {
     });
 
     expect(scoped.boundaryIndex).toBe(messages.length - 1);
-    expect(scoped.relevantEvidenceBlock).toContain("Previous assistant proposal confirmed by latest user");
+    expect(scoped.relevantEvidenceBlock).toContain("confirms the previous assistant proposal");
     expect(scoped.relevantEvidenceBlock).toContain("ssl-redirect");
     expect(scoped.relevantEvidenceBlock).toContain("kubectl annotate ingress seerr");
   });
@@ -705,7 +705,70 @@ describe("objective scope", () => {
     });
 
     expect(scoped.reanchored).toBe(false);
-    expect(scoped.relevantEvidenceBlock).toContain("Previous assistant proposal confirmed by latest user");
+    expect(scoped.relevantEvidenceBlock).toContain("confirms the previous assistant proposal");
     expect(scoped.relevantEvidenceBlock).toContain("ssl-redirect");
+  });
+
+  it("retains the previous question tool prompt when the latest user says yes", () => {
+    const chatState = makeChatState({
+      activeObjective: "yes",
+      pendingUserDirective: "yes",
+    });
+    const messages: ObjectiveScopeMessage[] = [];
+    for (let i = 0; i < 40; i++) {
+      messages.push({ role: "assistant", content: `Older Kubernetes debug step ${i}` });
+      messages.push({ role: "tool", content: `Result ${i}` });
+    }
+    messages.push({
+      role: "assistant",
+      content: "I found the deployment is still failing.",
+      tool_calls: [
+        {
+          id: "q1",
+          type: "function",
+          function: {
+            name: "question",
+            arguments: JSON.stringify({
+              question: "Do you want me to debug the failing Kubernetes node now?",
+              options: [
+                { label: "Yes", description: "Inspect node/pod events and propose the fix." },
+                { label: "No", description: "Stop and summarize current state." },
+              ],
+            }),
+          },
+        },
+      ],
+    } as ObjectiveScopeMessage);
+    messages.push({ role: "tool", name: "question", tool_call_id: "q1", content: "Yes" });
+    messages.push({ role: "user", content: "yes" });
+
+    const scoped = applyObjectiveScope({
+      messages,
+      epoch: {
+        epochId: 2,
+        objectiveHash: "abc",
+        objectiveText: "yes",
+        anchorUserHash: "missing",
+        objectiveSetRequest: 1,
+        objectiveChanged: true,
+        similarityToPrevious: 0,
+        pruningCheckpoint: {
+          frozenBoundaryIndex: 1,
+          frozenAtRequest: 1,
+          frozenMessageCount: 1,
+        },
+      },
+      chatState,
+      fileState: makeFileState("seerr-k8s.yaml"),
+      requestOrdinal: 12,
+      bucketSize: 1,
+      preBoundaryWindow: 8,
+      minimumScore: 3,
+    });
+
+    expect(scoped.boundaryIndex).toBe(messages.length - 1);
+    expect(scoped.relevantEvidenceBlock).toContain("confirms the previous question");
+    expect(scoped.relevantEvidenceBlock).toContain("debug the failing Kubernetes node");
+    expect(scoped.relevantEvidenceBlock).toContain("Inspect node/pod events");
   });
 });

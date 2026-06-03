@@ -218,6 +218,83 @@ function isConfirmatoryUserReply(text: string): boolean {
     || /\boption\s+\d+\b/.test(normalized);
 }
 
+function isQuestionToolName(value: unknown): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalized === "question"
+    || normalized === "askquestion"
+    || normalized === "askuserquestion"
+    || normalized === "askfollowupquestion"
+    || normalized === "userquestion";
+}
+
+function compactQuestionText(value: unknown): string {
+  if (typeof value === "string") return normalizeText(value);
+  if (Array.isArray(value)) {
+    return normalizeText(value.map(compactQuestionText).filter(Boolean).join(" "));
+  }
+  if (!value || typeof value !== "object") return "";
+  const row = value as Record<string, unknown>;
+  const directText = normalizeText([
+    row.question,
+    row.prompt,
+    row.text,
+    row.message,
+    row.title,
+    row.header,
+    row.label,
+    row.description,
+  ].map(compactQuestionText).filter(Boolean).join(" "));
+  const options = compactQuestionText(row.options ?? row.choices);
+  return normalizeText([directText, options ? `Options: ${options}` : ""].filter(Boolean).join(" "));
+}
+
+function parseJsonLike(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function extractQuestionTextFromArgs(args: unknown): string {
+  const parsed = typeof args === "string" ? parseJsonLike(args) : args;
+  if (!parsed || typeof parsed !== "object") return compactQuestionText(parsed);
+  const row = parsed as Record<string, unknown>;
+  const questions = row.questions;
+  const questionPayload = typeof questions === "string" ? parseJsonLike(questions) : questions;
+  const questionText = compactQuestionText(questionPayload);
+  if (questionText) return questionText;
+  return compactQuestionText(row);
+}
+
+function extractAssistantQuestionToolText(message: ObjectiveScopeMessage): string {
+  const row = message as unknown as Record<string, unknown>;
+  const toolCalls = Array.isArray(row.tool_calls) ? row.tool_calls as Array<Record<string, unknown>> : [];
+  for (const call of toolCalls) {
+    const fn = call.function && typeof call.function === "object"
+      ? call.function as Record<string, unknown>
+      : {};
+    const name = fn.name ?? call.name;
+    if (!isQuestionToolName(name)) continue;
+    const text = extractQuestionTextFromArgs(fn.arguments ?? call.arguments ?? call.input);
+    if (text) return safeSummary(text, 760);
+  }
+
+  if (Array.isArray(message.content)) {
+    for (const block of message.content as Array<Record<string, unknown>>) {
+      const type = String(block?.type ?? "").trim().toLowerCase();
+      if (type !== "tool_use" && type !== "tool-call") continue;
+      if (!isQuestionToolName(block.name ?? block.toolName ?? block.tool_name)) continue;
+      const text = extractQuestionTextFromArgs(block.input ?? block.arguments ?? block.args);
+      if (text) return safeSummary(text, 760);
+    }
+  }
+
+  return "";
+}
+
 function findConfirmationContext(messages: ObjectiveScopeMessage[]): RelevancyCandidate | null {
   const latestUserIndex = findLastGenuineUserIndex(messages);
   if (latestUserIndex <= 0) return null;
@@ -230,12 +307,23 @@ function findConfirmationContext(messages: ObjectiveScopeMessage[]): RelevancyCa
     if (message.role === "user") break;
     if (message.role !== "assistant") continue;
 
+    const questionText = extractAssistantQuestionToolText(message);
+    if (questionText) {
+      return {
+        role: "assistant",
+        toolName: "question",
+        summary: safeSummary(`Latest user reply "${safeSummary(latestUserText, 80)}" confirms the previous question: ${questionText}`, 820),
+        score: 99,
+        index: i,
+      };
+    }
+
     const text = contentToText(message.content);
     if (!text) continue;
     return {
       role: "assistant",
       toolName: null,
-      summary: safeSummary(`Previous assistant proposal confirmed by latest user: ${text}`, 640),
+      summary: safeSummary(`Latest user reply "${safeSummary(latestUserText, 80)}" confirms the previous assistant proposal: ${text}`, 640),
       score: 99,
       index: i,
     };
