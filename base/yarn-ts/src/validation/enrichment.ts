@@ -229,6 +229,14 @@ function classifyTerraform(msg: string): string | undefined {
 
 function classifyCargo(msg: string, ruleId?: string): string | undefined {
   const code = (ruleId ?? "").toUpperCase();
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("failed to load manifest")
+    || lower.includes("failed to parse manifest")
+    || lower.includes("key with no value")
+    || lower.includes("expected `=`")
+    || (lower.includes("cargo.toml") && lower.includes("toml"))
+  ) return "manifest_syntax";
   if (code === "E0308" || msg.toLowerCase().includes("mismatched types")) return "type_mismatch";
   if (code === "E0425" || msg.toLowerCase().includes("cannot find value")) return "undeclared_name";
   if (code === "E0433" || msg.toLowerCase().includes("unresolved import")) return "import_error";
@@ -732,6 +740,7 @@ const ACTION_TABLES: Record<string, Record<string, string>> = {
     syntax_error: "Fix the HCL syntax — check for unmatched braces, missing equals signs, or invalid tokens."
   },
   cargo: {
+    manifest_syntax: "Fix the Cargo manifest syntax in {file}; Cargo.toml is TOML, so comments use # and every key needs `=`.",
     type_mismatch: "Fix the type in {file} — check assignments, function returns, and generic parameters.",
     undeclared_name: "Add the missing `use` import or declare the item in {file}.",
     import_error: "Check the crate name in Cargo.toml and the `use` path in {file}.",

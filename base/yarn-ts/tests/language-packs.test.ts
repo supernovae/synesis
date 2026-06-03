@@ -338,6 +338,14 @@ describe("Fast-path patterns from registry packs", () => {
     expect(match!.language).toBe("rust");
   });
 
+  it("detects Cargo manifest syntax errors", () => {
+    const match = detectPattern("error: key with no value, expected `=` --> core/Cargo.toml:1:4");
+    expect(match).not.toBeNull();
+    expect(match!.pattern).toBe("cargo_manifest_syntax");
+    expect(match!.language).toBe("rust");
+    expect(match!.constraint_kind).toBe("hard");
+  });
+
   it("detects Python traceback", () => {
     const match = detectPattern("Traceback (most recent call last)");
     expect(match).not.toBeNull();
@@ -403,7 +411,7 @@ describe("Conformance matrix snapshot", () => {
       { language: "typescript", familyCount: 3, classifierCount: 3, reducerCount: 4, fastPathPatternCount: 2, fixRecipeCount: 12 },
       { language: "python", familyCount: 4, classifierCount: 4, reducerCount: 6, fastPathPatternCount: 2, fixRecipeCount: 12 },
       { language: "go", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 2, fixRecipeCount: 9 },
-      { language: "rust", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 9 },
+      { language: "rust", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 3, fixRecipeCount: 10 },
       { language: "terraform", familyCount: 2, classifierCount: 2, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 10 },
       { language: "java", familyCount: 1, classifierCount: 1, reducerCount: 2, fastPathPatternCount: 2, fixRecipeCount: 9 },
       { language: "csharp", familyCount: 1, classifierCount: 1, reducerCount: 1, fastPathPatternCount: 1, fixRecipeCount: 9 },

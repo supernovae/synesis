@@ -29,6 +29,13 @@ export const rustPack: LanguagePackManifest = {
       constraint_kind: "guiding",
       queryTransform: (m) => `Rust Clippy lint ${m[1]}`,
     },
+    {
+      name: "cargo_manifest_syntax",
+      regex: /\b(?:failed to load manifest|failed to parse manifest|key with no value|expected `=`|Cargo\.toml:\d+:\d+)\b/i,
+      scope_tags: ["cargo-manifest", "toml-syntax"],
+      constraint_kind: "hard",
+      queryTransform: () => "Rust Cargo.toml manifest TOML syntax",
+    },
   ],
   verificationCommands: [
     { tool: "cargo-check", command: "cargo check", description: "Type-check without codegen" },
@@ -37,6 +44,18 @@ export const rustPack: LanguagePackManifest = {
     { tool: "cargo-fmt", command: "cargo fmt --check", description: "Check formatting" },
   ],
   fixRecipes: [
+    {
+      errorFamily: "manifest_syntax",
+      template: "Fix the Cargo manifest syntax in {file}: Cargo.toml uses TOML, not Rust syntax.",
+      description: "Cargo could not parse a Cargo.toml manifest.",
+      steps: [
+        "Inspect the exact Cargo.toml path and line from Cargo's diagnostic.",
+        "Use # for TOML comments; remove Rust-style // file headers from Cargo.toml files.",
+        "Ensure every key has a value with =, and dependency tables use valid TOML syntax.",
+        "After the manifest edit, run one cargo check or cargo build from the workspace root.",
+      ],
+      constraints: "Do not repeatedly run Cargo before editing the manifest named in the diagnostic.",
+    },
     {
       errorFamily: "type_mismatch",
       template: "Fix the type in {file} — check assignments, function returns, and generic parameters.",

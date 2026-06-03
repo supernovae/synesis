@@ -886,6 +886,23 @@ describe("execution governor", () => {
     expect(out.suggestedNextStep).toContain("project-relative path you have actually observed");
   });
 
+  it("does not classify repeated Cargo build manifest failures as dependency install replay", () => {
+    const messages = [
+      { role: "user", content: "verify this rust workspace builds and tests pass" },
+      assistantCall("1", "bash", { command: "cd /home/byron/src/test && cargo build 2>&1" }),
+      toolResult("1", "error: key with no value, expected `=`\n --> Cargo.toml:1:4\n  |\n1 | // FILE: Cargo.toml\n  |    ^"),
+      assistantCall("2", "Read", { file_path: "Cargo.toml" }),
+      toolResult("2", "// FILE: Cargo.toml\n[workspace]\nmembers = [\"core\", \"cli\"]"),
+      assistantCall("3", "Write", { file_path: "Cargo.toml", content: "# Task Manager Workspace\n[workspace]\nmembers = [\"core\", \"cli\"]" }),
+      toolResult("3", "Wrote Cargo.toml"),
+      assistantCall("4", "bash", { command: "cd /home/byron/src/test && cargo build 2>&1" }),
+      toolResult("4", "error: key with no value, expected `=`\n --> core/Cargo.toml:1:4\n  |\n1 | // FILE: core/Cargo.toml\n  |    ^"),
+    ];
+    const out = evaluateExecutionGovernor(messages as never, { modelAdapterFamily: "minimax" });
+    expect(out.matchedRules).not.toContain("dependency_install_replay");
+    expect(out.reason).not.toBe("dependency_install_replay");
+  });
+
   it("pauses repeated successful narrow verification and asks for completion report", () => {
     const messages = [
       assistantCall("1", "bash", { command: "go test -c ./cmd/synesis 2>&1 && echo Build OK" }),

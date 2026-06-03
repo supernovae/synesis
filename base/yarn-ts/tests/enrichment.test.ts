@@ -215,6 +215,10 @@ describe("classifyErrorFamily — Cargo", () => {
   it("classifies borrow error E0502", () => {
     expect(classifyErrorFamily("cargo", "cannot borrow as mutable", "E0502")).toBe("borrow_error");
   });
+  it("classifies Cargo manifest TOML syntax errors", () => {
+    expect(classifyErrorFamily("cargo", "error: key with no value, expected `=` --> core/Cargo.toml:1:4", undefined)).toBe("manifest_syntax");
+    expect(classifyErrorFamily("cargo", "error: failed to load manifest for workspace member `/repo/core`", undefined)).toBe("manifest_syntax");
+  });
 });
 
 /* ── golangci-lint classifier ──────────────────────────────────── */
@@ -426,5 +430,19 @@ describe("enrichFindings", () => {
     expect(enriched[0].errorFamily).toBe("borrow_error");
     expect(enriched[0].likelyRootCause).toContain("borrow");
     expect(enriched[0].suggestedNextAction).toContain("Restructure");
+  });
+
+  it("enriches Cargo manifest syntax findings", () => {
+    const findings: ValidationFinding[] = [{
+      family: "cargo",
+      severity: "error",
+      file: "core/Cargo.toml",
+      line: 1,
+      message: "key with no value, expected `=`"
+    }];
+    const enriched = enrichFindings(findings);
+    expect(enriched[0].errorFamily).toBe("manifest_syntax");
+    expect(enriched[0].suggestedNextAction).toContain("TOML");
+    expect(enriched[0].suggestedNextAction).toContain("#");
   });
 });

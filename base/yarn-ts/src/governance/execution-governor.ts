@@ -1450,8 +1450,7 @@ function isDependencyInstallCommand(command: string): boolean {
     || /\byarn\s+install\b/.test(cmd)
     || /\bgo\s+mod\s+tidy\b/.test(cmd)
     || /\bpip\s+install\b/.test(cmd)
-    || /\buv\s+pip\s+install\b/.test(cmd)
-    || /\bcargo\s+build\b/.test(cmd);
+    || /\buv\s+pip\s+install\b/.test(cmd);
 }
 
 function isDependencyPathMismatch(event: CommandEvent): boolean {
