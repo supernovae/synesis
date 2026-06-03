@@ -74,6 +74,27 @@ export {
   type BuildContextMediationArtifactsInput,
 } from "./context-mediation.js";
 export {
+  ARCHITECTURE_MEDIATION_MODES,
+  ARCHITECTURE_PROFILE_SOURCES,
+  MODEL_ARCHITECTURE_DIAGNOSTICS_SCHEMA_VERSION,
+  ArchitectureMediationModeInputSchema,
+  ArchitectureMediationModeSchema,
+  ArchitectureProfileSourceInputSchema,
+  ArchitectureProfileSourceSchema,
+  ModelArchitectureDiagnosticsV1Schema,
+  ModelCapabilityPresetIdSchema,
+  SynesisMetadataSchema,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
+  parseModelArchitectureDiagnosticsV1,
+  parseModelCapabilityPresetContract,
+  parseSynesisMetadataContract,
+  type ArchitectureMediationModeContract,
+  type ArchitectureProfileSourceContract,
+  type ModelArchitectureDiagnosticsV1,
+  type SynesisMetadataContract,
+} from "./contracts.js";
+export {
   HARNESS_CARD_SCHEMA_VERSION,
   MASTER_HARNESS_POLICY_SCHEMA_VERSION,
   UPPER_HARNESS_DECISION_SCHEMA_VERSION,

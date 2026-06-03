@@ -5,6 +5,11 @@ import {
   buildContextMediationArtifacts,
   deriveModelExecutionPolicy,
   normalizeModelCapabilityPreset,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
+  parseModelArchitectureDiagnosticsV1,
+  parseModelCapabilityPresetContract,
+  parseSynesisMetadataContract,
   resolveArchitectureMediationMode,
   resolveModelArchitectureProfile,
   telemetryProviderForModelCapabilityPreset,
@@ -104,5 +109,46 @@ describe("architecture mediation", () => {
     expect(resolveArchitectureMediationMode({
       metadata: { synesis: { contextMediation: "observe" } },
     })).toBe("observe");
+  });
+
+  it("validates architecture contracts while preserving legacy input tolerance", () => {
+    expect(parseArchitectureMediationModeContract({ configMode: "strict" })).toBe("aggressive");
+    expect(parseArchitectureProfileSourceContract({ configSource: "raw" })).toBe("raw");
+    expect(parseModelCapabilityPresetContract("deepseek-v4-pro")).toBe("deepseek_v4");
+    expect(parseSynesisMetadataContract({
+      synesis: {
+        contextMediation: "adaptive",
+        architectureProfile: "model-registry",
+      },
+      request_id: "req-1",
+    })).toMatchObject({
+      synesis: {
+        contextMediation: "adaptive",
+        architectureProfile: "model-registry",
+      },
+    });
+  });
+
+  it("validates model architecture diagnostics envelopes", () => {
+    const envelope = parseModelArchitectureDiagnosticsV1({
+      schema_version: "model_architecture_diagnostics_v1",
+      count: 1,
+      models: [{
+        model_id: "coder-deepseek",
+        resolved: true,
+        backend_model: "deepseek-v4-pro",
+        adapter_family: "deepseek",
+        model_capability_preset: "deepseek_v4",
+        override_applied: false,
+        architecture: { attention: "mla" },
+      }],
+    });
+
+    expect(envelope.models[0]?.model_id).toBe("coder-deepseek");
+    expect(() => parseModelArchitectureDiagnosticsV1({
+      schema_version: "model_architecture_diagnostics_v1",
+      count: 2,
+      models: [],
+    })).toThrow(/count must match/);
   });
 });

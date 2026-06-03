@@ -1,0 +1,164 @@
+{
+  "summary": "The repo has strong recent security direction: OIDC verification is centralized enough to validate RS256, JWKS, issuer, expiry, client identity, and roles; coder routes generally run through OpenFGA; MCP already uses constant-time internal-token comparison; Yarn and Planner typecheck cleanly; root npm audit at high severity reports zero vulnerabilities; and the quick quality gate passes cleanly after removing one unused harness import. The accumulated risk is mostly architectural entropy around auth and runtime orchestration: Yarn, Planner, MCP, and Admin each carry overlapping auth/scoping logic; Yarn and Planner still accept opaque bearer identities in ways that are too permissive for public coder surfaces; several governor/context/path modules are large enough that fixes are hard to reason about; and TS strictness differs by package. Treat this as a staged hardening and cohesion plan, not a rewrite.",
+  "critical_issues": [],
+  "high_issues": [
+    {
+      "id": "high-001-yarn-opaque-bearer-default",
+      "file": "base/yarn-ts/src/auth.ts",
+      "line_range": "51-80, 83-90",
+      "category": "security",
+      "description": "Yarn accepts any non-PAT bearer token as an authenticated principal when OIDC is not configured, assigns tokenScopes=[\"coder:default\"], and requireCoderScope also accepts model:/chat: scoped tokens. Route-level OpenFGA checks help, but the resolver still creates a trusted-looking identity from an unsigned opaque bearer on coder endpoints.",
+      "impact": "A deployment with permissive or misconfigured OpenFGA tuples can unintentionally authorize arbitrary bearer strings. This weakens the trust boundary for OpenAI-compatible and Claude-compatible coder surfaces.",
+      "recommended_fix": "Add an explicit production gate such as SYNESIS_YARN_ALLOW_OPAQUE_BEARER=false by default. Public coder routes should require PAT, validated OIDC, or internal service identity unless the operator intentionally enables opaque compatibility mode. Keep compatibility errors actionable and record auth mode in diagnostics."
+    },
+    {
+      "id": "high-002-planner-caller-scopes-from-header",
+      "file": "base/planner-ts/src/auth/resolver.ts",
+      "line_range": "120-134",
+      "category": "security",
+      "description": "Planner maps any non-PAT bearer token to a bearer-* identity and reads caller scopes from x-synesis-token-scopes unless no header is present. The strict forwarded-identity path is separate, so this gives untrusted callers a way to influence scopes if bearer auth reaches this resolver.",
+      "impact": "Authorization still passes through the policy engine and OpenFGA, but caller-controlled scope claims make policy outcomes harder to audit and can become dangerous when combined with broad tuples or future scope-only checks.",
+      "recommended_fix": "Only honor x-synesis-token-scopes when the request is authenticated by the trusted forwarded identity path or a validated signed token. For ordinary opaque bearer tokens, assign a minimal non-escalating scope or reject unless an explicit compatibility flag is enabled."
+    }
+  ],
+  "medium_issues": [
+    {
+      "id": "medium-001-internal-token-compare-inconsistent",
+      "file": "base/yarn-ts/src/server/internal-auth.ts; base/planner-ts/src/app.ts; base/planner-ts/src/auth/resolver.ts",
+      "line_range": "base/yarn-ts/src/server/internal-auth.ts:11-18; base/planner-ts/src/app.ts:280-297; base/planner-ts/src/auth/resolver.ts:45-48",
+      "category": "security",
+      "description": "Internal service token comparison is implemented with direct string equality in Yarn and in multiple Planner paths. MCP already uses crypto.timingSafeEqual for the same class of comparison, so the repo has inconsistent security primitives for the same contract.",
+      "impact": "Timing leakage is usually low-probability over normal network paths, but duplicated comparison logic is a durable footgun and makes later auth hardening uneven.",
+      "recommended_fix": "Move constant-time bearer comparison into a shared auth utility and replace every direct internal-token equality check. Add a small test fixture that exercises match, mismatch, empty token, and unequal-length token cases."
+    },
+    {
+      "id": "medium-002-auth-logic-duplicated-across-services",
+      "file": "base/yarn-ts/src/auth.ts; base/synesis-mcp/src/auth.ts; base/planner-ts/src/auth/resolver.ts; base/admin/app/auth.py",
+      "line_range": "base/yarn-ts/src/auth.ts:51-218; base/synesis-mcp/src/auth.ts:27-178; base/planner-ts/src/auth/resolver.ts:37-134",
+      "category": "architecture",
+      "description": "PAT lookup, OIDC mapping, service-token handling, role-to-scope conversion, and authorization diagnostics are repeated across services with similar but not identical behavior.",
+      "impact": "Every auth feature or security fix needs multiple edits, and small differences already exist: MCP scope checks are stricter than Yarn, Planner accepts header scopes in one path, and token comparison differs across services.",
+      "recommended_fix": "Create a shared auth contract package for principal resolution, PAT verification, OIDC principal mapping, constant-time token comparison, and diagnostic shape. Leave service-specific policy decisions in each service, but make trust-boundary parsing one implementation."
+    },
+    {
+      "id": "medium-003-cors-wildcard-with-credentials",
+      "file": "base/synesis-mcp/src/index.ts; base/synesis-mcp/src/config.ts",
+      "line_range": "base/synesis-mcp/src/index.ts:153-164; base/synesis-mcp/src/config.ts:37-43",
+      "category": "security",
+      "description": "MCP accepts SYNESIS_MCP_CORS_ORIGINS=\"*\" while CORS credentials are enabled. The default is localhost-only, but the config shape allows a dangerous production setting.",
+      "impact": "A misconfigured deployment can expose credentialed MCP routes to unintended browser origins.",
+      "recommended_fix": "Reject wildcard origins when credentials are enabled outside local development, or split the setting into explicit allowCredentials and allowedOrigins controls. Add a startup validation test for prod-like NODE_ENV."
+    },
+    {
+      "id": "medium-004-pat-pepper-not-uniformly-required",
+      "file": "base/yarn-ts/src/auth.ts; base/synesis-mcp/src/auth.ts; base/planner-ts/src/auth/resolver.ts",
+      "line_range": "base/yarn-ts/src/auth.ts:116-120; base/synesis-mcp/src/auth.ts:119-121",
+      "category": "security",
+      "description": "PAT validation falls back to plain SHA-256 when the pepper is absent. Some services warn or expose stricter flags, but the requirement is not enforced uniformly across all production entry points.",
+      "impact": "A leaked PAT hash table is materially easier to attack when hashes are unpeppered.",
+      "recommended_fix": "Adopt one repo-wide production rule: DB-backed PAT validation requires SYNESIS_PAT_PEPPER or service startup fails. Keep an explicit development-only escape hatch and document rotation steps."
+    },
+    {
+      "id": "medium-005-large-runtime-modules",
+      "file": "base/yarn-ts/src/governance/execution-governor.ts; base/planner-ts/src/app.ts; base/yarn-ts/src/state/session-usage-persistence.ts; base/yarn-ts/src/providers/model-adapter.ts; base/yarn-ts/src/mcp/handlers/coding-tools.ts; base/yarn-ts/src/path-governance/tool-call-governance.ts",
+      "line_range": "3989 LOC; 2687 LOC; 1732 LOC; 1489 LOC; 1481 LOC; 1427 LOC",
+      "category": "architecture",
+      "description": "Core runtime behavior is concentrated in very large files that mix parsing, policy, state mutation, diagnostics, provider behavior, and control flow.",
+      "impact": "The recent Minimax/DeepSeek governor and workspace-context bugs are harder to isolate because unrelated responsibilities share state and tests. Review cost and regression risk are high.",
+      "recommended_fix": "Split by contract, not by arbitrary size: governor detectors vs pause policy vs recovery hints; planner app routing vs auth middleware vs request orchestration; coding tool path context vs tool rewrite vs diagnostics. Add contract tests at the split boundaries before moving logic."
+    },
+    {
+      "id": "medium-006-typescript-strictness-not-uniform",
+      "file": "base/yarn-ts/tsconfig.json; base/planner-ts/tsconfig.json; base/synesis-mcp/tsconfig.json",
+      "line_range": "base/yarn-ts/tsconfig.json:6-10; base/planner-ts/tsconfig.json:6-10; base/synesis-mcp/tsconfig.json:9-15",
+      "category": "quality",
+      "description": "Yarn and Planner use strict mode but do not enable noUncheckedIndexedAccess or exactOptionalPropertyTypes. MCP already enables both, so package-level type safety is inconsistent.",
+      "impact": "Several architecture-policy and path-governance classes depend on optional config and indexed maps; weaker compiler checks make undefined behavior easier to introduce.",
+      "recommended_fix": "Adopt MCP's stricter settings in staged mode: first shared packages and new modules, then Planner, then Yarn. Track suppressions explicitly instead of allowing package-wide drift."
+    },
+    {
+      "id": "medium-007-admin-router-and-rag-module-size",
+      "file": "base/admin/app/routers/ingestion.py; base/admin/app/services/yarn_service.py; base/admin/app/routers/rag.py; base/rag/indexer/app/language_pack.py",
+      "line_range": "2459 LOC; 2117 LOC; 1905 LOC; 5366 LOC",
+      "category": "architecture",
+      "description": "Admin and RAG code contain very large Python modules that combine API routing, persistence access, transformation logic, orchestration, and reporting.",
+      "impact": "Slow admin-count fixes, graph/content accounting, and ingestion behavior are coupled to large surfaces with limited local invariants.",
+      "recommended_fix": "Extract service-layer contracts for count queries, ingestion job orchestration, graph/content accounting, and language-pack transforms. Add focused tests around corpus totals, graph-node exclusion, and admin count queries before refactoring."
+    }
+  ],
+  "low_issues": [
+    {
+      "id": "low-001-quality-check-local-cache-assumption",
+      "file": "scripts/quality-check.sh",
+      "line_range": "24-27",
+      "category": "developer_experience",
+      "description": "The quick quality check shells out to uvx tools and assumes the default user cache/tool directories are writable. In sandboxed development, it failed until UV_CACHE_DIR and UV_TOOL_DIR were pointed at /tmp.",
+      "impact": "Contributors and CI-like sandboxes can get false failures unrelated to code quality.",
+      "recommended_fix": "Set repo-local or /tmp default cache/tool dirs when the variables are unset, or document the required environment in docs/QUALITY_PIPELINE.md."
+    },
+    {
+      "id": "low-002-admin-cors-broad-methods-headers",
+      "file": "base/admin/app/main.py",
+      "line_range": "132-145",
+      "category": "security",
+      "description": "Admin CORS defaults to local origins, but allows credentials with wildcard methods and headers.",
+      "impact": "The default is not broadly exposed, but operators who widen origins inherit a larger cross-origin surface than necessary.",
+      "recommended_fix": "Constrain production methods and headers to the actual Admin API/browser needs, and validate that wildcard origins are not used with credentials."
+    },
+    {
+      "id": "low-003-existing-audit-doc-needs-refresh",
+      "file": "docs/PLANNER_YARN_TS_SECURITY_AUDIT.md",
+      "line_range": "1-200",
+      "category": "documentation",
+      "description": "The existing Planner/Yarn security audit still overlaps with current findings but is not tied to the latest npm audit and quality-check results.",
+      "impact": "Security status is harder to communicate because stale and current findings are mixed across documents.",
+      "recommended_fix": "After fixing phase-1 items, update or supersede the older audit with links to this JSON review, current verification commands, and resolved items."
+    },
+    {
+      "id": "low-004-external-payload-boundaries-are-assertion-heavy",
+      "file": "repo-wide TypeScript service boundaries",
+      "line_range": "multiple files",
+      "category": "quality",
+      "description": "Provider metadata, request metadata, and diagnostic payloads are often handled through structural assumptions and casts rather than named schemas at the boundary.",
+      "impact": "Model/harness-specific features can accept malformed values until a downstream path fails or silently degrades.",
+      "recommended_fix": "Use shared zod-style schemas or narrow parser functions for request metadata, architecture-profile overrides, and diagnostics payloads. Reuse the same parser in Yarn, Planner, and Admin UI."
+    }
+  ],
+  "repo_wide_patterns": [
+    {
+      "pattern": "Good: authz is not an afterthought on the main coder routes.",
+      "evidence": "Yarn OpenAI-compatible and Claude-compatible routes resolve auth, require coder scope, and call OpenFGA checks before provider execution. Planner protected routes similarly call the authorization policy engine.",
+      "recommendation": "Keep this route-level gate as the invariant while tightening what counts as an authenticated principal."
+    },
+    {
+      "pattern": "Good: the shared OIDC verifier is materially stronger than ad hoc JWT decoding.",
+      "evidence": "packages/synesis-oidc-auth validates RS256, JWKS, issuer, expiry, client audience/authorized party, and role claims.",
+      "recommendation": "Make service entry points prefer this verifier over opaque bearer compatibility paths whenever public traffic is possible."
+    },
+    {
+      "pattern": "Auth semantics drift by service.",
+      "evidence": "Yarn, Planner, MCP, and Admin each parse PATs, OIDC, forwarded identity, internal tokens, scopes, and diagnostics separately.",
+      "recommendation": "Move principal resolution and scope normalization into a shared package, leaving only service-specific policy/resource checks local."
+    },
+    {
+      "pattern": "Runtime orchestration files are too large for the rate of model/harness change.",
+      "evidence": "Governor, model adapter, coding tools, path governance, planner app, and admin ingestion modules all exceed normal reviewable sizes.",
+      "recommendation": "Refactor around contracts that match the incidents being debugged: workspace context, tool path validation, completion/governor state, provider capability, session identity, and diagnostics."
+    },
+    {
+      "pattern": "Compiler and quality conventions vary across packages.",
+      "evidence": "MCP has noUncheckedIndexedAccess and exactOptionalPropertyTypes enabled; Yarn and Planner do not. Python quality checks exist but cache assumptions can fail in sandboxed environments.",
+      "recommendation": "Adopt stricter TypeScript settings in staged packages and make quality-check execution deterministic in constrained environments."
+    },
+    {
+      "pattern": "Long-context architecture work is moving in the right direction but needs shared boundary schemas.",
+      "evidence": "Yarn and Planner now share architecture-aware concepts, but request metadata, profile overrides, traces, and active-state diagnostics cross service boundaries.",
+      "recommendation": "Define versioned schemas for mediation mode, architecture profile, capability class, trace artifacts, and context hygiene so Admin UI, Yarn, and Planner cannot drift."
+    }
+  ],
+  "refactor_plan": {
+    "phase_1": "Security hardening and deterministic checks. Disable or explicitly gate Yarn opaque-bearer auth on public coder routes; stop Planner from accepting untrusted x-synesis-token-scopes; replace all direct internal-token equality checks with one constant-time shared helper; reject wildcard credentialed CORS in MCP production config; require PAT pepper for DB-backed PAT validation in production; and make scripts/quality-check.sh cache-safe. Verification: Yarn typecheck, Planner typecheck, npm audit --audit-level=high, quick quality check, authz route coverage, and targeted auth resolver tests.",
+    "phase_2": "Shared contracts. Create a shared auth/principal package used by Yarn, Planner, MCP, and Admin-adjacent TypeScript clients; create shared schemas for architecture profile, context mediation mode, provider capability class, and diagnostics trace payloads; move constant-time token comparison and PAT hash helpers there. Verification: contract tests for PAT, OIDC, forwarded identity, opaque compatibility mode, and route policy denial cases.",
+    "phase_3": "Cohesion refactor. Split oversized modules by explicit responsibility: governor detectors/policies/recovery hints, coding tool path context/rewrite/diagnostics, planner routing/auth/orchestration, admin ingestion/counts/reporting, and RAG language-pack transforms. Add boundary tests before each split, then migrate one subsystem at a time. Use the stricter MCP tsconfig options as the target for new modules first, then Planner, then Yarn."
+  }
+}

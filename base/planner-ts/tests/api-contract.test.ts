@@ -98,7 +98,8 @@ describe("API contract", () => {
     const app = buildApp(
       makeConfig({
         SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "false",
-        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token"
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "debug-token",
+        SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER: "true"
       })
     );
     setFgaCheckOverride(() => ({ allowed: false, resolution: "test_deny" }));
@@ -328,7 +329,7 @@ describe("API contract", () => {
     await app.close();
   });
 
-  it("rejects bearer without model scope", async () => {
+  it("rejects opaque bearer by default before caller-provided scopes can affect policy", async () => {
     const app = buildApp(
       makeConfig({
         SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true"
@@ -347,51 +348,53 @@ describe("API contract", () => {
         stream: false
       }
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(401);
     const body = response.json();
-    expect(body.error?.message).toContain("scope");
-    expect(body.error?.type).toBe("permission_error");
-    expect(response.headers["x-synesis-authz-engine"]).toBe("openfga");
-    expect(String(response.headers["x-synesis-authz-rules"] ?? "")).toContain("deny_missing_model_scope");
-    expect(String(response.headers["x-synesis-authz-trace-id"] ?? "").length).toBeGreaterThan(10);
+    expect(body.error?.type).toBe("authentication_error");
     await app.close();
   });
 
   it("increments authz policy stats after denied request", async () => {
     const token = "test-internal-token";
+    setFgaCheckOverride(() => ({ allowed: false, resolution: "test_deny" }));
     const app = buildApp(
       makeConfig({
         SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
         SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token,
+        SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER: "true",
       })
     );
-    await app.inject({
-      method: "POST",
-      url: "/v1/chat/completions",
-      headers: {
-        authorization: "Bearer non-pat-bearer-token",
-        "x-synesis-token-scopes": "coder:readonly"
-      },
-      payload: {
-        model: "Synesis",
-        messages: [{ role: "user", content: "hello planner" }],
-        stream: false
-      }
-    });
-    const health = await app.inject({
-      method: "GET",
-      url: "/health/detailed",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(health.statusCode).toBe(200);
-    const body = health.json();
-    expect(Number(body.auth?.policyStats?.evaluations ?? 0)).toBeGreaterThanOrEqual(1);
-    expect(Number(body.auth?.policyStats?.rejectedCount ?? 0)).toBeGreaterThanOrEqual(1);
-    expect(Array.isArray(body.auth?.policyStats?.recentEvents)).toBe(true);
-    const lastEvent = body.auth?.policyStats?.recentEvents?.slice(-1)?.[0];
-    expect(lastEvent?.allow).toBe(false);
-    expect(String(lastEvent?.traceId ?? "").length).toBeGreaterThan(10);
-    await app.close();
+    try {
+      await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer non-pat-bearer-token",
+          "x-synesis-token-scopes": "coder:readonly"
+        },
+        payload: {
+          model: "Synesis",
+          messages: [{ role: "user", content: "hello planner" }],
+          stream: false
+        }
+      });
+      const health = await app.inject({
+        method: "GET",
+        url: "/health/detailed",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(health.statusCode).toBe(200);
+      const body = health.json();
+      expect(Number(body.auth?.policyStats?.evaluations ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(Number(body.auth?.policyStats?.rejectedCount ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(body.auth?.policyStats?.recentEvents)).toBe(true);
+      const lastEvent = body.auth?.policyStats?.recentEvents?.slice(-1)?.[0];
+      expect(lastEvent?.allow).toBe(false);
+      expect(String(lastEvent?.traceId ?? "").length).toBeGreaterThan(10);
+    } finally {
+      setFgaCheckOverride(() => ({ allowed: true }));
+      await app.close();
+    }
   });
 
   it("rejects untrusted forwarded identity headers in strict mode", async () => {

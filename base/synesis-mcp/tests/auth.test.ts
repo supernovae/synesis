@@ -92,6 +92,15 @@ describe("McpAuthResolver", () => {
     ).toThrow(/SYNESIS_PAT_PEPPER/);
   });
 
+  it("rejects wildcard credentialed CORS outside development", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        SYNESIS_MCP_CORS_ORIGINS: "*",
+      }),
+    ).toThrow(/CORS_ORIGINS/);
+  });
+
   it("resolves valid harness OIDC bearer tokens for hosted MCP", async () => {
     const { privateKey, jwk } = keyPair();
     stubOidcJwks(jwk);

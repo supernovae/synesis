@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
 import { Pool } from "pg";
+import { hashPatToken } from "@synesis/auth-contracts";
 import type { AppConfig } from "../config.js";
 import { buildPgPoolConfig } from "../db/pg-pool-config.js";
 
@@ -31,10 +31,7 @@ export async function closePatPool(): Promise<void> {
 }
 
 function hashPat(token: string, pepper: string): string {
-  if (pepper) {
-    return crypto.createHmac("sha256", pepper).update(token).digest("hex");
-  }
-  return crypto.createHash("sha256").update(token).digest("hex");
+  return hashPatToken(token, pepper);
 }
 
 export async function resolvePatFromDb(

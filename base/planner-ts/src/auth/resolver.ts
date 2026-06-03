@@ -1,54 +1,37 @@
 import type { FastifyRequest } from "fastify";
-import crypto from "node:crypto";
+import {
+  buildForwardedIdentityPrincipal,
+  constantTimeStringMatch,
+  extractBearerToken,
+  hasForwardedIdentityHeaders,
+  parseForwardedIdentityHeaders,
+  stableOpaqueBearerUserId,
+  type HeaderMap,
+} from "@synesis/auth-contracts";
 import type { AppConfig } from "../config.js";
 import type { AuthContext } from "./types.js";
 import { resolvePatFromDb } from "./pat-resolver.js";
 
 function parseBearerToken(request: FastifyRequest): string {
-  const raw = String(request.headers.authorization ?? "");
-  if (!raw.startsWith("Bearer ")) return "";
-  return raw.slice(7).trim();
-}
-
-function parseCsvHeader(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  const raw = Array.isArray(value) ? value.join(",") : value;
-  return raw
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
-
-function hasForwardedIdentityHeaders(request: FastifyRequest): boolean {
-  const keys = [
-    "x-openwebui-user-id",
-    "x-openwebui-user-email",
-    "x-synesis-org-id",
-    "x-synesis-tenant-ids",
-    "x-synesis-acl-groups"
-  ];
-  return keys.some((key) => {
-    const value = request.headers[key];
-    if (!value) return false;
-    return String(Array.isArray(value) ? value[0] : value).trim().length > 0;
-  });
+  const raw = request.headers.authorization;
+  return extractBearerToken(Array.isArray(raw) ? raw[0] : raw);
 }
 
 export async function resolveAuthContext(request: FastifyRequest, config: AppConfig): Promise<AuthContext> {
   const token = parseBearerToken(request);
-  const forwardedPresent = hasForwardedIdentityHeaders(request);
+  const forwarded = parseForwardedIdentityHeaders(request.headers as HeaderMap);
 
   if (config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH && !token) {
     throw new Error("Missing Bearer token");
   }
 
+  const internalTokenMatch = constantTimeStringMatch(token, config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN);
   const trustedForwarded =
     Boolean(config.SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS) &&
-    token.length > 0 &&
-    token === config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    internalTokenMatch;
 
   if (
-    forwardedPresent &&
+    hasForwardedIdentityHeaders(request.headers as HeaderMap) &&
     config.SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE &&
     !trustedForwarded
   ) {
@@ -57,25 +40,30 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
     throw err;
   }
 
-  const scopeHeader = parseCsvHeader(request.headers["x-synesis-token-scopes"]);
-
   if (trustedForwarded) {
-    const forwardedEmail = String(request.headers["x-openwebui-user-email"] ?? "");
-    const tenantIdsFromHeader = parseCsvHeader(request.headers["x-synesis-tenant-ids"]);
-    const aclGroupsFromHeader = parseCsvHeader(request.headers["x-synesis-acl-groups"]);
+    const principal = buildForwardedIdentityPrincipal(forwarded, ["model:readonly"]);
     return {
-      userId: String(request.headers["x-openwebui-user-id"] ?? "forwarded-user"),
-      userEmail: forwardedEmail,
-      orgId: String(request.headers["x-synesis-org-id"] ?? ""),
-      tenantIds: tenantIdsFromHeader,
-      aclGroups: aclGroupsFromHeader,
+      ...principal,
+      authMethod: "internal_service",
       role: "user",
-      tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
+      userEmail: principal.userEmail ?? "",
+      trustedForwardedIdentity: true,
+    };
+  }
+
+  if (internalTokenMatch) {
+    return {
+      userId: "planner-internal",
+      userEmail: "",
+      orgId: "",
+      tenantIds: [],
+      role: "user",
+      tokenScopes: ["model:readonly"],
       authMethod: "internal_service",
       authKeyId: "internal-service",
       authKeyName: "Internal service",
       authKeyPrefix: "internal",
-      trustedForwardedIdentity: true
+      trustedForwardedIdentity: false
     };
   }
 
@@ -117,7 +105,13 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
     };
   }
 
-  const bearerKeyId = `bearer-${crypto.createHash("sha256").update(token).digest("hex").slice(0, 24)}`;
+  if (!config.SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER) {
+    const err = new Error("Opaque bearer authentication is disabled");
+    (err as Error & { statusCode?: number }).statusCode = 401;
+    throw err;
+  }
+
+  const bearerKeyId = stableOpaqueBearerUserId(token);
 
   return {
     userId: bearerKeyId,
@@ -125,7 +119,7 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
     orgId: "",
     tenantIds: [],
     role: "user",
-    tokenScopes: scopeHeader.length > 0 ? scopeHeader : ["model:readonly"],
+    tokenScopes: ["model:readonly"],
     authMethod: "bearer",
     authKeyId: bearerKeyId,
     authKeyName: "External bearer token",

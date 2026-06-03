@@ -1,5 +1,11 @@
-import crypto from "node:crypto";
 import { Pool } from "pg";
+import {
+  extractBearerToken,
+  hasAnyScope,
+  hasScopePrefix,
+  hashPatToken,
+  type SynesisPrincipalBase,
+} from "@synesis/auth-contracts";
 import {
   createOidcVerifierFromEnv,
   OidcAuthError,
@@ -9,13 +15,7 @@ import {
 import type { McpTsConfig } from "./config.js";
 import type { SynesisMcpAuth } from "@synesis/mcp-tools";
 
-export interface PatUser {
-  userId: string;
-  orgId: string;
-  tenantIds: string[];
-  role: string;
-  tokenScopes: string[];
-  displayName?: string;
+export interface PatUser extends SynesisPrincipalBase {
   authMethod?: "pat" | "oidc" | "internal";
 }
 
@@ -61,11 +61,7 @@ export class McpAuthResolver {
   }
 
   extractBearer(authorizationHeader: string | undefined): string {
-    const raw = authorizationHeader ?? "";
-    if (!raw.toLowerCase().startsWith("bearer ")) {
-      throw new Error("Missing Bearer token");
-    }
-    const token = raw.slice(7).trim();
+    const token = extractBearerToken(authorizationHeader);
     if (!token) throw new Error("Missing Bearer token");
     return token;
   }
@@ -75,12 +71,7 @@ export class McpAuthResolver {
     if (!scopes || scopes.length === 0) {
       throw new Error("Insufficient scope for MCP access");
     }
-    if (
-      scopes.some((scope) => {
-        const s = scope.trim().toLowerCase();
-        return s === "coder" || s.startsWith("coder:") || s === "mcp:invoke" || s === "mcp:tool:*" || s.startsWith("mcp:tool:");
-      })
-    ) {
+    if (hasAnyScope(scopes, ["coder", "mcp:invoke", "mcp:tool:*"]) || hasScopePrefix(scopes, ["coder:", "mcp:tool:"])) {
       return;
     }
     throw new Error("Insufficient scope for MCP access");
@@ -179,9 +170,6 @@ export class McpAuthResolver {
   }
 
   private hashPat(token: string): string {
-    if (!this.pepper) {
-      return crypto.createHash("sha256").update(token).digest("hex");
-    }
-    return crypto.createHmac("sha256", this.pepper).update(token).digest("hex");
+    return hashPatToken(token, this.pepper);
   }
 }

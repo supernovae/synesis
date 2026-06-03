@@ -1,5 +1,12 @@
-import crypto from "node:crypto";
 import { Pool } from "pg";
+import {
+  extractBearerToken,
+  hashPatToken,
+  hasAnyScope,
+  hasScopePrefix,
+  stableOpaqueBearerUserId,
+  type SynesisPrincipal,
+} from "@synesis/auth-contracts";
 import {
   createOidcVerifierFromEnv,
   OidcAuthError,
@@ -8,23 +15,15 @@ import {
 } from "@synesis/oidc-auth";
 import type { AppConfig } from "./config.js";
 
-export interface AuthUser {
-  userId: string;
-  orgId: string;
-  tenantIds: string[];
-  role: string;
+export interface AuthUser extends Omit<SynesisPrincipal, "authMethod"> {
   authMethod: "pat" | "bearer" | "oidc";
-  tokenScopes: string[];
-  displayName?: string;
-  authKeyId?: string;
-  authKeyName?: string;
-  authKeyPrefix?: string;
 }
 
 export class AuthResolver {
   private readonly pool: Pool | null;
   private readonly pepper: string;
   private readonly oidcVerifier: OidcTokenVerifier | null;
+  private readonly allowOpaqueBearer: boolean;
 
   constructor(config: AppConfig) {
     this.pool = config.SYNESIS_YARN_ADMIN_DB_URL
@@ -36,6 +35,7 @@ export class AuthResolver {
       })
       : null;
     this.pepper = config.SYNESIS_PAT_PEPPER;
+    this.allowOpaqueBearer = config.SYNESIS_YARN_ALLOW_OPAQUE_BEARER;
     this.oidcVerifier = createOidcVerifierFromEnv({
       issuerUrl: config.SYNESIS_OIDC_ISSUER_URL,
       internalIssuerUrl: config.SYNESIS_OIDC_INTERNAL_ISSUER_URL,
@@ -45,6 +45,9 @@ export class AuthResolver {
     });
     if (this.pool && !this.pepper) {
       console.warn("[auth] SYNESIS_PAT_PEPPER is empty — PAT hashing uses plain SHA-256 instead of HMAC. Set a pepper for production deployments.");
+    }
+    if (!this.allowOpaqueBearer && !this.oidcVerifier && !this.pool) {
+      console.warn("[auth] Opaque bearer auth is disabled and no PAT/OIDC auth source is configured. Set up PAT/OIDC or explicitly enable SYNESIS_YARN_ALLOW_OPAQUE_BEARER for compatibility.");
     }
   }
 
@@ -65,6 +68,9 @@ export class AuthResolver {
         throw err;
       }
     }
+    if (!this.allowOpaqueBearer) {
+      throw new Error("Opaque bearer authentication is disabled");
+    }
     const bearerIdentity = this.resolveBearerIdentity(token);
     return {
       userId: bearerIdentity.userId,
@@ -72,7 +78,7 @@ export class AuthResolver {
       tenantIds: [],
       role: "user",
       authMethod: "bearer",
-      tokenScopes: ["coder:default"],
+      tokenScopes: ["coder:opaque"],
       displayName: bearerIdentity.displayName,
       authKeyId: bearerIdentity.userId,
       authKeyName: "External bearer token",
@@ -85,8 +91,7 @@ export class AuthResolver {
     if (!scopes || scopes.length === 0) {
       throw new Error("Insufficient scope for coder access");
     }
-    const allowedPrefixes = ["coder", "model:", "chat:"];
-    if (scopes.some((s) => allowedPrefixes.some((p) => s.startsWith(p)))) return;
+    if (hasAnyScope(scopes, ["coder"]) || hasScopePrefix(scopes, ["coder:", "model:", "chat:"])) return;
     throw new Error("Insufficient scope for coder access");
   }
 
@@ -104,27 +109,19 @@ export class AuthResolver {
   }
 
   private extractBearerToken(authorizationHeader: string | undefined): string {
-    const raw = authorizationHeader ?? "";
-    if (!raw.startsWith("Bearer ")) {
-      throw new Error("Missing Bearer token");
-    }
-    const token = raw.slice(7).trim();
+    const token = extractBearerToken(authorizationHeader);
     if (!token) throw new Error("Missing Bearer token");
     return token;
   }
 
   private hashPat(token: string): string {
-    if (!this.pepper) {
-      return crypto.createHash("sha256").update(token).digest("hex");
-    }
-    return crypto.createHmac("sha256", this.pepper).update(token).digest("hex");
+    return hashPatToken(token, this.pepper);
   }
 
   private resolveBearerIdentity(token: string): { userId: string; displayName?: string } {
     // Non-PAT bearer tokens are opaque at this layer. Do not derive the
     // authorization principal from unsigned JWT claims.
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex").slice(0, 24);
-    const identity = { userId: `bearer-${tokenHash}` };
+    const identity = { userId: stableOpaqueBearerUserId(token) };
 
     const payload = this.decodeJwtPayload(token);
     if (payload) {

@@ -180,6 +180,25 @@ PATs are hashed with HMAC-SHA256 when a pepper is configured. **Without a pepper
 ```
 
 Set the same `SYNESIS_PAT_PEPPER` value on all services that validate PATs: planner, yarn, and admin.
+For TypeScript services that validate PATs from the admin database, set
+`SYNESIS_REQUIRE_PAT_PEPPER=true` so startup fails instead of falling back to
+plain SHA-256.
+
+### Opaque Bearer Compatibility
+
+Public coder/chat entrypoints should use PAT or OIDC tokens. Opaque non-PAT
+bearer compatibility is disabled by default:
+
+```yaml
+- name: SYNESIS_YARN_ALLOW_OPAQUE_BEARER
+  value: "false"
+- name: SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER
+  value: "false"
+```
+
+Only set these to `true` for a deliberately isolated compatibility deployment.
+When enabled, opaque bearer identities are stable token hashes and caller-supplied
+scope headers are not trusted.
 
 ### PAT Scopes
 
@@ -232,6 +251,9 @@ Before deploying to production, verify:
 - [ ] `SYNESIS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY=false` on planner
 - [ ] `SYNESIS_INTERNAL_SERVICE_TOKEN` set from `synesis-internal-service-auth` secret on planner, yarn, and admin
 - [ ] `SYNESIS_PAT_PEPPER` set on planner, yarn, and admin
+- [ ] `SYNESIS_REQUIRE_PAT_PEPPER=true` wherever DB-backed PAT validation is enabled
+- [ ] `SYNESIS_YARN_ALLOW_OPAQUE_BEARER=false` and `SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER=false` unless explicitly operating a compatibility-only deployment
+- [ ] Credentialed CORS does not use wildcard origins on admin or MCP
 - [ ] Open WebUI uses internal service token (not model API key) as `OPENAI_API_KEY`
 - [ ] Upstream model calls do not forward end-user Authorization headers
 - [ ] Network policies applied for planner, warm pool, sandbox, and NornicDB

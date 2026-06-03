@@ -2,6 +2,11 @@
 
 Date: 2026-05-07
 
+Update: see `docs/CODEBASE_REVIEW_2026_06_02.json` for the current repo-wide
+audit plan. The June remediation hardens opaque bearer defaults, PAT pepper
+requirements, internal service-token comparison, CORS validation, and shared
+auth helper contracts across Yarn, Planner, and MCP.
+
 ## Executive Summary
 
 This audit covered runtime TypeScript source for `base/planner-ts/src` and `base/yarn-ts/src`. Tests and scripts were reviewed only when they informed runtime security behavior. The packages are in reasonably good shape for dependency hygiene and strict TypeScript compilation: both workspace typechecks pass, Planner-TS has no `npm audit` findings, and Yarn-TS has one moderate transitive `hono` advisory that is not high/critical.

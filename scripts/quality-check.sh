@@ -21,6 +21,10 @@ require_cmd uvx
 require_cmd shellcheck
 require_cmd npm
 
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/synesis-uv-cache}"
+export UV_TOOL_DIR="${UV_TOOL_DIR:-${TMPDIR:-/tmp}/synesis-uv-tools}"
+mkdir -p "$UV_CACHE_DIR" "$UV_TOOL_DIR"
+
 run uvx ruff check base/ --output-format=github
 run uvx ruff format --check base/
 run python3 scripts/check-authz-coverage.py

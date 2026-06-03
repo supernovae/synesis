@@ -135,13 +135,24 @@ _cors_origins = (
     if _cors_origins_env
     else ["http://localhost:5173", "http://localhost:3000"]
 )
+_cors_allow_credentials = _os.getenv("SYNESIS_CORS_ALLOW_CREDENTIALS", "true").lower() in {"1", "true", "yes"}
+if _cors_allow_credentials and "*" in _cors_origins:
+    raise RuntimeError("SYNESIS_CORS_ORIGINS='*' is not allowed when credentialed CORS is enabled")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=_cors_allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-Synesis-CSRF",
+        "x-active-org-id",
+        "x-synesis-org-id",
+    ],
 )
 app.add_middleware(RateLimitMiddleware)
 

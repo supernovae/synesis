@@ -1,12 +1,12 @@
 /**
  * Synesis MCP — Streamable HTTP transport (official MCP protocol).
  */
-import crypto from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { constantTimeStringMatch } from "@synesis/auth-contracts";
 import { getSynesisPlatformCatalog, registerSynesisMcpTools, type SynesisMcpDeps } from "@synesis/mcp-tools";
 import { loadConfig } from "./config.js";
 import { McpAuthResolver, type PatUser } from "./auth.js";
@@ -89,7 +89,7 @@ async function resolvePatAndAuth(
   const bearer = authResolver.extractBearer(req.headers.authorization);
   const internal = config.SYNESIS_INTERNAL_SERVICE_TOKEN.trim();
 
-  if (internal && bearer.length === internal.length && crypto.timingSafeEqual(Buffer.from(bearer), Buffer.from(internal))) {
+  if (constantTimeStringMatch(bearer, internal)) {
     if (!config.SYNESIS_MCP_ALLOW_INTERNAL_ONLY) {
       throw new Error("internal_token_not_allowed");
     }

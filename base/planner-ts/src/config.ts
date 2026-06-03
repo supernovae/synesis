@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePatPepperRequirement } from "@synesis/auth-contracts";
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(8080),
@@ -105,6 +106,14 @@ const EnvSchema = z.object({
   SYNESIS_OPENFGA_AUTH_TOKEN: z.string().default(""),
   SYNESIS_PLANNER_TS_ADMIN_DB_URL: z.string().default(""),
   SYNESIS_PAT_PEPPER: z.string().default(""),
+  SYNESIS_REQUIRE_PAT_PEPPER: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: z
     .string()
     .optional()
@@ -253,5 +262,12 @@ const EnvSchema = z.object({
 export type AppConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  return EnvSchema.parse(env);
+  const config = EnvSchema.parse(env);
+  validatePatPepperRequirement({
+    patValidationEnabled: Boolean(config.SYNESIS_PLANNER_TS_ADMIN_DB_URL.trim()),
+    pepper: config.SYNESIS_PAT_PEPPER,
+    requirePatPepper: config.SYNESIS_REQUIRE_PAT_PEPPER,
+    serviceName: "synesis-planner-ts",
+  });
+  return config;
 }

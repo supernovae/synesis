@@ -5,8 +5,8 @@ import {
   buildContextMediationArtifacts,
   deriveModelExecutionPolicy,
   filterContextBlocksForMediation,
-  resolveArchitectureMediationMode,
-  resolveArchitectureProfileSource,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
   resolveModelArchitectureProfile,
   type ArchitectureMediationMode,
   type ArchitectureProfileSource,
@@ -116,13 +116,13 @@ export function resolvePlannerArchitectureMediation(
   input: ResolvePlannerArchitectureMediationInput,
 ): PlannerArchitectureMediation {
   const modelId = input.writerModel?.trim() || input.requestedModel || "unknown";
-  const profileSource = resolveArchitectureProfileSource({
+  const profileSource = parseArchitectureProfileSourceContract({
     headers: input.headers,
     metadata: input.metadata,
     extraBody: input.extraBody,
     configSource: input.configSource,
   });
-  const mode = resolveArchitectureMediationMode({
+  const mode = parseArchitectureMediationModeContract({
     headers: input.headers,
     metadata: input.metadata,
     extraBody: input.extraBody,

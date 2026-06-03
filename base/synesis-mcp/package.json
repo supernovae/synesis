@@ -23,6 +23,7 @@
     "@opentelemetry/sdk-trace-base": "^2.7.1",
     "@opentelemetry/sdk-trace-node": "^2.7.1",
     "@opentelemetry/semantic-conventions": "^1.41.1",
+    "@synesis/auth-contracts": "*",
     "@synesis/mcp-tools": "file:../../packages/synesis-mcp-tools",
     "@synesis/oidc-auth": "file:../../packages/synesis-oidc-auth",
     "fastify": "^5.8.5",

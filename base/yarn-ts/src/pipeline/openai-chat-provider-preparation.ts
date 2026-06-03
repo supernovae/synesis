@@ -27,8 +27,8 @@ import {
   buildArchitecturePolicySystemHint,
   defaultConservativeArchitectureProfile,
   deriveModelExecutionPolicy,
-  resolveArchitectureMediationMode,
-  resolveArchitectureProfileSource,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
   resolveModelArchitectureProfile,
   type ModelArchitectureProfileOverride,
 } from "../providers/model-architecture-profile.js";
@@ -239,7 +239,7 @@ export function prepareOpenAIChatProviderRuntime(
   const providerForHarness = resolvedTierForHarness
     ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
     : undefined;
-  const architectureProfileSource = resolveArchitectureProfileSource({
+  const architectureProfileSource = parseArchitectureProfileSourceContract({
     headers: input.headers ?? null,
     metadata: recordOrNull(input.request.metadata),
     extraBody: recordOrNull(input.request.extra_body),
@@ -258,7 +258,7 @@ export function prepareOpenAIChatProviderRuntime(
         declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
         override: architectureProfileSource === "model-registry" ? resolvedTierForHarness?.architectureProfile : null,
       });
-  const architectureMediationMode = resolveArchitectureMediationMode({
+  const architectureMediationMode = parseArchitectureMediationModeContract({
     headers: input.headers ?? null,
     metadata: recordOrNull(input.request.metadata),
     extraBody: recordOrNull(input.request.extra_body),

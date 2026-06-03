@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
+import { constantTimeBearerMatch, extractBearerToken } from "@synesis/auth-contracts";
 import { Registry } from "prom-client";
 import {
   ZERO_USAGE,
@@ -147,9 +148,7 @@ const SAFE_ERROR_PATTERNS = [
 ];
 
 function timingSafeTokenMatch(header: string | undefined, expected: string): boolean {
-  const actual = (header ?? "").startsWith("Bearer ") ? (header ?? "").slice(7) : "";
-  if (actual.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+  return constantTimeBearerMatch(header, expected);
 }
 
 function sanitizeErrorMessage(raw: string): string {
@@ -284,9 +283,9 @@ async function isSearchRouteAuthorized(
 ): Promise<boolean> {
   const raw = String(authorizationHeader ?? "");
   if (!raw.toLowerCase().startsWith("bearer ")) return false;
-  const bearer = raw.slice(7).trim();
+  const bearer = extractBearerToken(raw);
   if (!bearer) return false;
-  if (internalServiceToken && bearer === internalServiceToken) return true;
+  if (constantTimeBearerMatch(raw, internalServiceToken)) return true;
   if (!bearer.startsWith("syn-")) return false;
   try {
     const pat = await resolvePatFromDb(bearer, patPepper);

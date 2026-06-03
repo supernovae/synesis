@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePatPepperRequirement } from "@synesis/auth-contracts";
 
 const EnvSchema = z.object({
   NODE_ENV: z.string().default("development"),
@@ -49,12 +50,17 @@ export type McpTsConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpTsConfig {
   const config = EnvSchema.parse(env);
+  validatePatPepperRequirement({
+    patValidationEnabled: Boolean(config.SYNESIS_ADMIN_DB_URL?.trim()),
+    pepper: config.SYNESIS_PAT_PEPPER,
+    requirePatPepper: config.SYNESIS_REQUIRE_PAT_PEPPER,
+    serviceName: "synesis-mcp",
+  });
   if (
-    config.SYNESIS_REQUIRE_PAT_PEPPER
-    && config.SYNESIS_ADMIN_DB_URL?.trim()
-    && !config.SYNESIS_PAT_PEPPER.trim()
+    config.NODE_ENV !== "development"
+    && config.SYNESIS_MCP_CORS_ORIGINS.trim() === "*"
   ) {
-    throw new Error("SYNESIS_PAT_PEPPER is required when PAT validation is enabled");
+    throw new Error("SYNESIS_MCP_CORS_ORIGINS='*' is not allowed outside development when credentialed CORS is enabled");
   }
   return config;
 }

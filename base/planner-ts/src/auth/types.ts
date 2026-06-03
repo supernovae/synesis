@@ -1,14 +1,11 @@
-export interface AuthContext {
-  userId: string;
+import type { SynesisPrincipal } from "@synesis/auth-contracts";
+
+type PlannerAuthMethod = "anonymous" | "bearer" | "pat" | "internal_service";
+type PlannerRole = "readonly" | "user" | "org_admin" | "platform_admin";
+
+export interface AuthContext extends Omit<SynesisPrincipal, "authMethod" | "role" | "userEmail" | "trustedForwardedIdentity"> {
+  authMethod: PlannerAuthMethod;
+  role: PlannerRole;
   userEmail: string;
-  orgId: string;
-  tenantIds: string[];
-  aclGroups?: string[];
-  role: "readonly" | "user" | "org_admin" | "platform_admin";
-  tokenScopes: string[];
-  authMethod: "anonymous" | "bearer" | "pat" | "internal_service";
-  authKeyId?: string;
-  authKeyName?: string;
-  authKeyPrefix?: string;
   trustedForwardedIdentity: boolean;
 }

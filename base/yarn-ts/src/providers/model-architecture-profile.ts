@@ -10,6 +10,8 @@ export {
   adapterHintForModelCapabilityPreset,
   inferModelCapabilityPreset,
   normalizeModelCapabilityPreset,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
   telemetryProviderForModelCapabilityPreset,
   type ActivationArchitecture,
   type ArchitectureLevel,

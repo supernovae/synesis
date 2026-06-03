@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePatPepperRequirement } from "@synesis/auth-contracts";
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(8000),
@@ -25,6 +26,14 @@ const EnvSchema = z.object({
         : t;
     }),
   SYNESIS_PAT_PEPPER: z.string().default(""),
+  SYNESIS_REQUIRE_PAT_PEPPER: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_ALLOW_OPAQUE_BEARER: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_OIDC_ISSUER_URL: z.string().default(""),
   SYNESIS_OIDC_INTERNAL_ISSUER_URL: z.string().default(""),
   SYNESIS_OIDC_ALLOWED_CLIENT_IDS: z.string().default("synesis-harness"),
@@ -782,5 +791,12 @@ const EnvSchema = z.object({
 export type AppConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  return EnvSchema.parse(env);
+  const config = EnvSchema.parse(env);
+  validatePatPepperRequirement({
+    patValidationEnabled: Boolean(config.SYNESIS_YARN_ADMIN_DB_URL.trim()),
+    pepper: config.SYNESIS_PAT_PEPPER,
+    requirePatPepper: config.SYNESIS_REQUIRE_PAT_PEPPER,
+    serviceName: "synesis-yarn-ts",
+  });
+  return config;
 }

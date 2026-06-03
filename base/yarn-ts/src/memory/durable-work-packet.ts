@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  resolveArchitectureMediationMode,
+  parseArchitectureMediationModeContract,
   type ArchitectureMediationMode,
   type ModelExecutionPolicy,
 } from "../providers/model-architecture-profile.js";
@@ -82,7 +82,7 @@ export function resolveWorkPacketMode(input: Pick<DurableWorkPacketInput, "metad
 }
 
 export function buildDurableWorkPacketDecision(input: DurableWorkPacketInput): DurableWorkPacketDecision {
-  const mode = resolveArchitectureMediationMode({
+  const mode = parseArchitectureMediationModeContract({
     headers: input.headers,
     metadata: input.metadata,
     extraBody: input.extraBody,

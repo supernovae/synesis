@@ -5,7 +5,7 @@ import { buildDurableWorkPacketDecision } from "../memory/durable-work-packet.js
 import {
   applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
-  resolveArchitectureMediationMode,
+  parseArchitectureMediationModeContract,
   resolveModelArchitectureProfile,
 } from "../providers/model-architecture-profile.js";
 import { filterContextBlocksForMediation } from "../memory/context-mediation.js";
@@ -135,7 +135,7 @@ export async function prepareOpenAIEnrichment(input: PrepareOpenAIEnrichmentInpu
   const pathContext = metadataPrebackfill.pathContext;
   const adapterBlock = metadataPrebackfill.adapterBlock;
   const seedDirs = await getCachedTopLevelDirs(pathContext.projectRoot ?? pathContext.shellCwd);
-  const architectureMediationMode = resolveArchitectureMediationMode({
+  const architectureMediationMode = parseArchitectureMediationModeContract({
     headers: headers ?? null,
     metadata: bodyMetadata ?? null,
     extraBody: extraBody ?? null,

@@ -2,10 +2,11 @@ import {
   architecturePolicyTrace,
   applyArchitectureMediationMode,
   deriveModelExecutionPolicy,
-  resolveArchitectureMediationMode,
+  parseArchitectureMediationModeContract,
   resolveModelArchitectureProfile,
   adapterHintForModelCapabilityPreset,
 } from "../providers/model-architecture-profile.js";
+import { parseModelArchitectureDiagnosticsV1 } from "@synesis/upper-harness";
 import { resolveAdapter } from "../providers/model-adapter.js";
 import { resolveEndpointCapabilityId } from "../providers/endpoint-capabilities/resolve.js";
 import { summarizeCacheShapeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
@@ -54,7 +55,7 @@ export function buildModelArchitectureDiagnostics(
     });
     const policy = applyArchitectureMediationMode(
       deriveModelExecutionPolicy(profile),
-      resolveArchitectureMediationMode({
+      parseArchitectureMediationModeContract({
         configMode: deps.config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE,
       }),
     );
@@ -73,11 +74,11 @@ export function buildModelArchitectureDiagnostics(
     };
   });
 
-  return {
+  return parseModelArchitectureDiagnosticsV1({
     schema_version: "model_architecture_diagnostics_v1",
     count: models.length,
     models,
-  };
+  });
 }
 
 export function registerDiagnosticsRoutes(deps: PlatformRouteDependencies): void {

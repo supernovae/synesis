@@ -27,6 +27,8 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE).toBe("off");
     expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT).toBe(10);
     expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS).toBe(3);
+    expect(config.SYNESIS_REQUIRE_PAT_PEPPER).toBe(false);
+    expect(config.SYNESIS_YARN_ALLOW_OPAQUE_BEARER).toBe(false);
   });
 
   it("parses DashScope explicit cache controls", () => {
@@ -75,5 +77,15 @@ describe("loadConfig", () => {
   it("coerces PORT from string to number", () => {
     const config = loadConfig({ PORT: "9000" } as never);
     expect(config.PORT).toBe(9000);
+  });
+
+  it("requires PAT pepper when requested with DB PAT validation", () => {
+    expect(() =>
+      loadConfig({
+        SYNESIS_YARN_ADMIN_DB_URL: "postgres://localhost/test",
+        SYNESIS_REQUIRE_PAT_PEPPER: "true",
+        SYNESIS_PAT_PEPPER: "",
+      } as never),
+    ).toThrow(/SYNESIS_PAT_PEPPER/);
   });
 });

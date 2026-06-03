@@ -53,6 +53,11 @@ oc port-forward svc/searxng 8888:8080 -n synesis-search
 
 ## Running Locally
 
+`scripts/quality-check.sh` defaults `UV_CACHE_DIR` and `UV_TOOL_DIR` to a
+temporary directory when they are unset, so sandboxed runs do not depend on a
+writable user-level uv cache. Override those variables if you need a persistent
+cache.
+
 ```bash
 make bench-corpus-audit
 make bench-corpus-audit-llm

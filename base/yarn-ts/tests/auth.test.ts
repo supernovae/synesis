@@ -26,6 +26,8 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3",
     SYNESIS_YARN_ADMIN_DB_URL: "postgres://localhost/test",
     SYNESIS_PAT_PEPPER: "",
+    SYNESIS_REQUIRE_PAT_PEPPER: false,
+    SYNESIS_YARN_ALLOW_OPAQUE_BEARER: false,
     SYNESIS_YARN_DB_POOL_MAX: 5,
     SYNESIS_YARN_DB_POOL_IDLE_MS: 10000,
     SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS: 1000,
@@ -114,19 +116,24 @@ describe("AuthResolver", () => {
       await expect(resolver.resolve("Basic abc")).rejects.toThrow("Missing Bearer token");
     });
 
-    it("returns stable hashed user id for opaque non-PAT bearer tokens", async () => {
+    it("rejects opaque non-PAT bearer tokens by default", async () => {
       resolver = new AuthResolver(makeConfig());
+      await expect(resolver.resolve("Bearer some-api-key-123")).rejects.toThrow("Opaque bearer authentication is disabled");
+    });
+
+    it("returns stable hashed user id for opaque non-PAT bearer tokens when compatibility is enabled", async () => {
+      resolver = new AuthResolver(makeConfig({ SYNESIS_YARN_ALLOW_OPAQUE_BEARER: true }));
       const user = await resolver.resolve("Bearer some-api-key-123");
       expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);
       expect(user.authMethod).toBe("bearer");
-      expect(user.tokenScopes).toEqual(["coder:default"]);
+      expect(user.tokenScopes).toEqual(["coder:opaque"]);
 
       const again = await resolver.resolve("Bearer some-api-key-123");
       expect(again.userId).toBe(user.userId);
     });
 
     it("does not trust unsigned JWT email claims for authorization identity", async () => {
-      resolver = new AuthResolver(makeConfig());
+      resolver = new AuthResolver(makeConfig({ SYNESIS_YARN_ALLOW_OPAQUE_BEARER: true }));
       const token = unsignedJwt({
         email: "Yarn.Test.User@example.com",
         sub: "test-user-subject",
@@ -139,7 +146,7 @@ describe("AuthResolver", () => {
     });
 
     it("does not trust unsigned JWT sub claims for authorization identity", async () => {
-      resolver = new AuthResolver(makeConfig());
+      resolver = new AuthResolver(makeConfig({ SYNESIS_YARN_ALLOW_OPAQUE_BEARER: true }));
       const token = unsignedJwt({ sub: "test-user-subject" });
       const user = await resolver.resolve(`Bearer ${token}`);
       expect(user.userId).toMatch(/^bearer-[a-f0-9]{24}$/);

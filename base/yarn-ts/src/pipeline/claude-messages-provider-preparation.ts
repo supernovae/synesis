@@ -33,8 +33,8 @@ import {
   buildArchitecturePolicySystemHint,
   defaultConservativeArchitectureProfile,
   deriveModelExecutionPolicy,
-  resolveArchitectureMediationMode,
-  resolveArchitectureProfileSource,
+  parseArchitectureMediationModeContract,
+  parseArchitectureProfileSourceContract,
   resolveModelArchitectureProfile,
   type ModelArchitectureProfileOverride,
 } from "../providers/model-architecture-profile.js";
@@ -188,7 +188,7 @@ export function prepareClaudeMessagesProviderRuntime(
   const providerForHarness = resolvedTierForHarness
     ? input.resolveEndpointCapabilityId(resolvedTierForHarness.baseUrl)
     : "anthropic";
-  const architectureProfileSource = resolveArchitectureProfileSource({
+  const architectureProfileSource = parseArchitectureProfileSourceContract({
     headers: input.headers ?? null,
     metadata: recordOrNull(input.body.metadata),
   });
@@ -206,7 +206,7 @@ export function prepareClaudeMessagesProviderRuntime(
         declaredContextTokens: resolvedTierForHarness?.contextCeilingTokens,
         override: architectureProfileSource === "model-registry" ? resolvedTierForHarness?.architectureProfile : null,
       });
-  const architectureMediationMode = resolveArchitectureMediationMode({
+  const architectureMediationMode = parseArchitectureMediationModeContract({
     headers: input.headers ?? null,
     metadata: recordOrNull(input.body.metadata),
     configMode: firstString(resolvedTierForHarness?.defaultContextMediationMode, config.SYNESIS_YARN_ARCHITECTURE_MEDIATION_MODE),

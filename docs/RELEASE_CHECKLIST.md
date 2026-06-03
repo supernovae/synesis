@@ -10,6 +10,10 @@ Pre-tag verification for an internet-facing, multi-tenant Synesis deployment.
 - [ ] `SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE` is `true`
 - [ ] `SYNESIS_PLANNER_TS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY` is `false`
 - [ ] `SYNESIS_PAT_PEPPER` is set on planner, yarn, and admin
+- [ ] `SYNESIS_REQUIRE_PAT_PEPPER` is `true` for services with DB-backed PAT validation
+- [ ] `SYNESIS_YARN_ALLOW_OPAQUE_BEARER` is `false`
+- [ ] `SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER` is `false`
+- [ ] Credentialed CORS origins are explicit; no `*` origins on admin or MCP
 - [ ] Internal service token secret synced to all namespaces
 - [ ] Planner startup logs show `identity_trust_config_ok`
 - [ ] `curl` without Bearer to planner returns 401
