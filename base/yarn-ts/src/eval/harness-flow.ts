@@ -259,6 +259,143 @@ export function standardHarnessFlowSpecs(): HarnessFlowSpec[] {
   ];
 }
 
+export function criticalHarnessTransitionSpecs(): HarnessFlowSpec[] {
+  return [
+    claudePlanApprovalTransitionFlow({
+      id: "claude-plan-approval-normal-then-task-setup",
+      description: "Claude Code should move from approved ExitPlanMode to native task setup and the first edit.",
+      approvalMessages: [
+        assistantCall("normal-exit", "ExitPlanMode", { plan: "Rust workspace implementation plan" }),
+        toolResult("normal-exit", "User has approved your plan. You can now start coding."),
+      ],
+      clientPlanModeRequestedAfterApproval: true,
+    }),
+    claudePlanApprovalTransitionFlow({
+      id: "claude-plan-approval-cleared-flag-then-task-setup",
+      description: "Claude Code should still allow task setup after route prep clears the plan-mode flag on approval.",
+      approvalMessages: [
+        toolResult("cleared-approval", "User has approved your plan. You can now start coding."),
+      ],
+      clientPlanModeRequestedAfterApproval: false,
+    }),
+    claudePlanApprovalTransitionFlow({
+      id: "claude-plan-approved-exit-error-then-task-setup",
+      description: "Claude Code should treat an already-approved ExitPlanMode error as an implementation transition.",
+      approvalMessages: [
+        assistantCall("approved-error-exit", "ExitPlanMode", { plan: "Rust workspace implementation plan" }),
+        toolResult(
+          "approved-error-exit",
+          "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation.",
+        ),
+      ],
+      clientPlanModeRequestedAfterApproval: false,
+    }),
+    claudePlanApprovalTransitionFlow({
+      id: "claude-plan-approval-stale-reminder-then-task-setup",
+      description: "Claude Code should recover when a stale plan-mode reminder causes one redundant ExitPlanMode call.",
+      approvalMessages: [
+        assistantCall("stale-exit", "ExitPlanMode", { plan: "Rust workspace implementation plan" }),
+        toolResult("stale-exit", "User has approved your plan. You can now start coding."),
+        assistantText("A stale reminder says plan mode is active, so I will exit plan mode again."),
+        assistantCall("stale-exit-again", "ExitPlanMode", { plan: "Rust workspace implementation plan" }),
+        toolResult(
+          "stale-exit-again",
+          "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation.",
+        ),
+      ],
+      clientPlanModeRequestedAfterApproval: false,
+    }),
+  ];
+}
+
+function claudePlanApprovalTransitionFlow(opts: {
+  id: string;
+  description: string;
+  approvalMessages: GovernorInputMessage[];
+  clientPlanModeRequestedAfterApproval: boolean;
+}): HarnessFlowSpec {
+  const baseOptions = {
+    orchestratorWorkflowPhase: "implementation" as const,
+    activePlanStage: "implement" as const,
+    taskLedgerOpenCount: 6,
+    taskLedgerExplicitOpenCount: 6,
+    chatState: { completionStatus: "blocked" as const, lastVerificationOutcome: "fail" as const },
+  };
+
+  return {
+    id: opts.id,
+    description: opts.description,
+    profile: "claude-code",
+    flowType: "plan-then-build",
+    expectedTools: ["Write", "TaskCreate"],
+    forbiddenRules: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+    steps: [
+      {
+        id: "plan-file-written",
+        messages: [
+          userText("/plan Build a complete Rust workspace application."),
+          assistantCall(`${opts.id}-plan`, "Write", {
+            file_path: ".claude/plans/rust-workspace-plan.md",
+            content: "Plan: Rust workspace application\n\n- Create workspace manifest\n- Create core and cli crates\n",
+          }),
+          toolResult(`${opts.id}-plan`, "Updated plan"),
+          assistantText("Claude has written up a plan and is ready to execute. Would you like to proceed?"),
+        ],
+        governorOptions: {
+          clientPlanModeRequested: true,
+          orchestratorWorkflowPhase: "planning",
+          activePlanStage: "plan",
+          taskLedgerOpenCount: 0,
+          taskLedgerExplicitOpenCount: 0,
+          chatState: { completionStatus: "blocked" },
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "plan-approved",
+        messages: opts.approvalMessages,
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: opts.clientPlanModeRequestedAfterApproval,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "native-task-setup",
+        messages: [
+          assistantText("The plan is approved. I'll create the implementation task list and start with the workspace manifest."),
+          assistantCall(`${opts.id}-task-1`, "TaskCreate", { title: "Create workspace Cargo.toml" }),
+          toolResult(`${opts.id}-task-1`, "task created"),
+          assistantCall(`${opts.id}-task-2`, "TaskCreate", { title: "Create workspace Cargo.toml" }),
+          toolResult(`${opts.id}-task-2`, "task created"),
+          assistantCall(`${opts.id}-task-3`, "TaskCreate", { title: "Create workspace Cargo.toml" }),
+          toolResult(`${opts.id}-task-3`, "task created"),
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: opts.clientPlanModeRequestedAfterApproval,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+      {
+        id: "first-implementation-edit",
+        messages: [
+          assistantCall(`${opts.id}-write-cargo`, "Write", {
+            file_path: "Cargo.toml",
+            content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",
+          }),
+          toolResult(`${opts.id}-write-cargo`, "Wrote Cargo.toml"),
+        ],
+        governorOptions: {
+          ...baseOptions,
+          clientPlanModeRequested: opts.clientPlanModeRequestedAfterApproval,
+        },
+        expectedRulesExclude: ["completion_claim_requires_task_update", "identical_tool_repeat", "task_creation_replay", "no_progress_loop"],
+      },
+    ],
+  };
+}
+
 function claudePlanThenBuildFlow(): HarnessFlowSpec {
   return {
     id: "claude-plan-build-rust",

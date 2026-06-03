@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assistantCall,
   assistantText,
+  criticalHarnessTransitionSpecs,
   evaluateHarnessFlow,
   standardHarnessFlowSpecs,
   toolResult,
@@ -32,6 +33,28 @@ describe("standard harness flows", () => {
 
       for (const step of result.stepResults) {
         expect(step.decision.pause, `${spec.id}:${step.stepId}:${step.decision.reason}`).toBe(false);
+      }
+    });
+  }
+
+  for (const spec of criticalHarnessTransitionSpecs()) {
+    it(`allows critical harness transition: ${spec.id}`, () => {
+      const result = evaluateHarnessFlow(spec);
+      expect(result.passed, `${spec.id}: ${result.signals.join(", ")}`).toBe(true);
+      expect(result.signals, spec.id).toEqual([]);
+      expect(result.forbiddenRules, spec.id).toEqual([]);
+      expect(spec.steps.map((step) => step.id)).toEqual([
+        "plan-file-written",
+        "plan-approved",
+        "native-task-setup",
+        "first-implementation-edit",
+      ]);
+
+      for (const step of result.stepResults) {
+        expect(step.decision.pause, `${spec.id}:${step.stepId}:${step.decision.reason}`).toBe(false);
+        expect(step.decision.matchedRules, `${spec.id}:${step.stepId}`).not.toContain("task_creation_replay");
+        expect(step.decision.matchedRules, `${spec.id}:${step.stepId}`).not.toContain("identical_tool_repeat");
+        expect(step.decision.matchedRules, `${spec.id}:${step.stepId}`).not.toContain("completion_claim_requires_task_update");
       }
     });
   }
@@ -176,6 +199,13 @@ describe("standard harness flows", () => {
             toolResult("a2", "User has approved your plan. You can now start coding."),
             assistantCall("a3", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
             toolResult("a3", "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation."),
+            assistantText("The plan is approved. I'll create the implementation task list and start with the workspace manifest."),
+            assistantCall("a3t1", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+            toolResult("a3t1", "task created"),
+            assistantCall("a3t2", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+            toolResult("a3t2", "task created"),
+            assistantCall("a3t3", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+            toolResult("a3t3", "task created"),
             assistantCall("a4", "Write", {
               file_path: "Cargo.toml",
               content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",

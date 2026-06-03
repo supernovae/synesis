@@ -627,6 +627,44 @@ describe("execution governor", () => {
     expect(out.pause).toBe(false);
   });
 
+  it("does not pause native task setup after approved plan transition clears plan-mode flag", () => {
+    const messages = [
+      { role: "user", content: "/plan\nCreate a complete Rust application plan." },
+      assistantCall("w1", "Write", {
+        file_path: "/Users/bymiller/.claude/plans/plan-design-rust-file-sequential-bee.md",
+        content: "---\nname: Rust File Indexer Plan\n---\n# Plan\n\nImplement the Rust workspace.\n",
+      }),
+      toolResult("w1", "Updated plan"),
+      { role: "assistant", content: "Claude has written up a plan and is ready to execute. Would you like to proceed?" },
+      assistantCall("x1", "ExitPlanMode", { plan: "Rust File Indexer implementation plan" }),
+      toolResult("x1", "Error: You are not in plan mode. This tool is only for exiting plan mode after writing a plan. If your plan was already approved, continue with implementation."),
+      assistantCall("t1", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t1", "task created"),
+      assistantCall("t2", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t2", "task created"),
+      assistantCall("t3", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t3", "task created"),
+      assistantCall("w2", "Write", {
+        file_path: "Cargo.toml",
+        content: "// FILE: Cargo.toml\n[workspace]\nresolver = \"2\"\nmembers = [\"core\", \"cli\"]\n",
+      }),
+      toolResult("w2", "Wrote Cargo.toml"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, {
+      clientPlanModeRequested: false,
+      taskLedgerOpenCount: 6,
+      taskLedgerExplicitOpenCount: 6,
+      chatState: {
+        completionStatus: "blocked",
+      },
+    });
+
+    expect(out.matchedRules).not.toContain("task_creation_replay");
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.pause).toBe(false);
+  });
+
   it("does not pause completion claims when TodoWrite marks tasks done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },

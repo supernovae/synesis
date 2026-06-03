@@ -465,6 +465,19 @@ function hasPlanModeAlreadyExitedSignature(signature: string): boolean {
   return /not in plan mode|only for exiting plan mode|already approved|continue with implementation/.test(normalized);
 }
 
+function hasPlanApprovedForImplementationSignal(messages: GovernorInputMessage[]): boolean {
+  const text = messages
+    .slice(-24)
+    .map((m) => contentToText(m.content).toLowerCase())
+    .join("\n");
+  if (!text.trim()) return false;
+  return /\buser\s+has\s+approved\s+your\s+plan\b/.test(text)
+    || /\byou\s+can\s+now\s+start\s+coding\b/.test(text)
+    || /\bplan\s+was\s+already\s+approved\b/.test(text)
+    || /\bplan\s+is\s+already\s+approved\b/.test(text)
+    || /\bcontinue\s+with\s+implementation\b/.test(text);
+}
+
 function isSuccessfulTaskLifecycleBoundary(event: CommandEvent): boolean {
   if (!isTaskLifecycleCommand(event.command) && !isPlanModeLifecycleCommand(event.command)) return false;
   if (isPlanModeLifecycleCommand(event.command) && hasPlanModeAlreadyExitedSignature(event.resultSignature)) return true;
@@ -2262,13 +2275,15 @@ export function evaluateExecutionGovernor(
     && !hasPlanEdit
     && !events.some((e) => e.command === "planmode:exit");
   const planModeAlreadyExitedActive =
-    clientPlanModeRequested
-    && changedNonPlanFiles.length === 0
-    && recentAllEvents.some((e) =>
+    recentAllEvents.some((e) =>
       e.command === "planmode:exit" && hasPlanModeAlreadyExitedSignature(e.resultSignature)
     );
+  const planApprovedForImplementationActive =
+    hasPlanApprovedForImplementationSignal(messages)
+    && events.length <= 30;
   const planApprovalExitActive =
     planModeAlreadyExitedActive
+    || planApprovedForImplementationActive
     || (
       clientPlanModeRequested
       && changedNonPlanFiles.length === 0
