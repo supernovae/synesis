@@ -1047,6 +1047,19 @@ function hasActiveCompletionClaim(messages: GovernorInputMessage[]): boolean {
   return matchesCompletionClaimPattern(assistantText);
 }
 
+function hasPlanApprovalReadyClaim(messages: GovernorInputMessage[]): boolean {
+  const latestUserIdx = latestUserRedirectIndex(messages);
+  const assistantText = messages
+    .slice(latestUserIdx >= 0 ? latestUserIdx + 1 : 0)
+    .filter((m) => m.role === "assistant")
+    .map((m) => contentToText(m.content).toLowerCase())
+    .join("\n");
+  if (!assistantText.trim()) return false;
+  return /\bplan\s+(?:is\s+)?(?:ready|complete|done|prepared|created)\b/.test(assistantText)
+    || /\bready\s+for\s+(?:your\s+)?(?:review|approval)\b/.test(assistantText)
+    || /\bready\s+to\s+code\??\b/.test(assistantText);
+}
+
 function hasTaskMentionInTurnText(messages: GovernorInputMessage[]): boolean {
   const text = messages
     .filter((m) => m.role === "assistant" || m.role === "user")
@@ -2235,6 +2248,11 @@ export function evaluateExecutionGovernor(
     && events.length <= 20
     && !hasPlanEdit
     && !events.some((e) => e.command === "planmode:exit");
+  const planApprovalExitActive =
+    clientPlanModeRequested
+    && changedFiles.length === 0
+    && events.some((e) => e.command === "planmode:exit")
+    && hasPlanApprovalReadyClaim(turnMessages);
 
   if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
@@ -2275,6 +2293,7 @@ export function evaluateExecutionGovernor(
     && !hasActiveRepairEvidenceAfterCompletionClaim
     && !editContextMissActive
     && !planRecoveryDiscoveryGraceActive
+    && !planApprovalExitActive
   ) {
     pushRule("completion_claim_requires_task_update");
   }

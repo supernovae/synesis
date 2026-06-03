@@ -567,6 +567,34 @@ describe("execution governor", () => {
     expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
   });
 
+  it("does not pause Claude plan approval exit as implementation completion", () => {
+    const messages = [
+      { role: "user", content: "/plan\nCreate a complete Rust application plan." },
+      assistantCall("q1", "AskUserQuestion", { question: "Which domain should I implement?" }),
+      toolResult("q1", "Task Manager"),
+      assistantCall("w1", "Write", {
+        file_path: "/Users/bymiller/.claude/plans/you-are-a-rust-temporal-falcon.md",
+        content: "---\nname: Rust Task Manager Plan\n---\n# Plan\n\nImplement the Rust task manager workspace.\n",
+      }),
+      toolResult("w1", "Updated plan"),
+      { role: "assistant", content: "The plan is ready for your review." },
+      assistantCall("x1", "ExitPlanMode", { plan: "Rust Task Manager implementation plan" }),
+      toolResult("x1", "Ready to code?"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, {
+      clientPlanModeRequested: true,
+      taskLedgerOpenCount: 5,
+      taskLedgerExplicitOpenCount: 0,
+      chatState: {
+        completionStatus: "ready_to_finalize",
+      },
+    });
+
+    expect(out.matchedRules).not.toContain("completion_claim_requires_task_update");
+    expect(out.pause).toBe(false);
+  });
+
   it("does not pause completion claims when TodoWrite marks tasks done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
