@@ -136,12 +136,21 @@ jobs:
             yarn-ts:
               - 'base/yarn-ts/**'
               - 'packages/synesis-telemetry/**'
+              - 'packages/synesis-context-trust/**'
+              - 'packages/synesis-auth-contracts/**'
+              - 'packages/synesis-oidc-auth/**'
+              - 'packages/synesis-manifest/**'
+              - 'packages/synesis-mcp-tools/**'
               - 'packages/synesis-agent-orchestration/**'
+              - 'packages/synesis-upper-harness/**'
               - 'package.json'
               - 'package-lock.json'
             planner-ts:
               - 'base/planner-ts/**'
               - 'packages/synesis-telemetry/**'
+              - 'packages/synesis-context-trust/**'
+              - 'packages/synesis-auth-contracts/**'
+              - 'packages/synesis-upper-harness/**'
               - 'package.json'
               - 'package-lock.json'
 

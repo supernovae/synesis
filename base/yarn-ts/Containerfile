@@ -8,6 +8,8 @@ WORKDIR /opt/app-root/src
 COPY package.json package-lock.json ./
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
+COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
+COPY packages/synesis-oidc-auth/package.json packages/synesis-oidc-auth/
 COPY packages/synesis-manifest/package.json packages/synesis-manifest/
 COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/
 COPY packages/synesis-agent-orchestration/package.json packages/synesis-agent-orchestration/
@@ -24,6 +26,14 @@ RUN npm run build --workspace=packages/synesis-telemetry
 COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
 COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
 RUN npm run build --workspace=packages/synesis-context-trust
+
+COPY packages/synesis-auth-contracts/tsconfig.json packages/synesis-auth-contracts/
+COPY packages/synesis-auth-contracts/src packages/synesis-auth-contracts/src
+RUN npm run build --workspace=packages/synesis-auth-contracts
+
+COPY packages/synesis-oidc-auth/tsconfig.json packages/synesis-oidc-auth/
+COPY packages/synesis-oidc-auth/src packages/synesis-oidc-auth/src
+RUN npm run build --workspace=packages/synesis-oidc-auth
 
 COPY packages/synesis-manifest/tsconfig.json packages/synesis-manifest/
 COPY packages/synesis-manifest/src packages/synesis-manifest/src

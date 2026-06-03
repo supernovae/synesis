@@ -5,12 +5,16 @@ on:
     branches: [main]
     paths:
       - "base/yarn-ts/**"
+      - "packages/synesis-auth-contracts/**"
+      - "packages/synesis-oidc-auth/**"
       - "packages/synesis-upper-harness/**"
       - ".github/workflows/yarn-governor-eval-tiers.yml"
   pull_request:
     branches: [main]
     paths:
       - "base/yarn-ts/**"
+      - "packages/synesis-auth-contracts/**"
+      - "packages/synesis-oidc-auth/**"
       - "packages/synesis-upper-harness/**"
       - ".github/workflows/yarn-governor-eval-tiers.yml"
   schedule:
@@ -51,6 +55,8 @@ jobs:
         run: |
           npm run build -w packages/synesis-telemetry
           npm run build -w packages/synesis-context-trust
+          npm run build -w packages/synesis-auth-contracts
+          npm run build -w packages/synesis-oidc-auth
           npm run build -w packages/synesis-manifest
           npm run build -w packages/synesis-mcp-tools
           npm run build -w packages/synesis-agent-orchestration

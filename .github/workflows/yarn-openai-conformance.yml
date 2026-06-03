@@ -7,6 +7,8 @@ on:
       - "base/yarn-ts/**"
       - "packages/synesis-telemetry/**"
       - "packages/synesis-context-trust/**"
+      - "packages/synesis-auth-contracts/**"
+      - "packages/synesis-oidc-auth/**"
       - "packages/synesis-manifest/**"
       - "packages/synesis-mcp-tools/**"
       - "packages/synesis-agent-orchestration/**"
@@ -18,6 +20,8 @@ on:
       - "base/yarn-ts/**"
       - "packages/synesis-telemetry/**"
       - "packages/synesis-context-trust/**"
+      - "packages/synesis-auth-contracts/**"
+      - "packages/synesis-oidc-auth/**"
       - "packages/synesis-manifest/**"
       - "packages/synesis-mcp-tools/**"
       - "packages/synesis-agent-orchestration/**"
@@ -49,6 +53,8 @@ jobs:
         run: |
           npm run build -w packages/synesis-telemetry
           npm run build -w packages/synesis-context-trust
+          npm run build -w packages/synesis-auth-contracts
+          npm run build -w packages/synesis-oidc-auth
           npm run build -w packages/synesis-manifest
           npm run build -w packages/synesis-mcp-tools
           npm run build -w packages/synesis-agent-orchestration
