@@ -95,6 +95,15 @@ export class AuthResolver {
     throw new Error("Insufficient scope for coder access");
   }
 
+  requireModelReadScope(user: AuthUser): void {
+    const scopes = user.tokenScopes;
+    if (!scopes || scopes.length === 0) {
+      throw new Error("Insufficient scope for model catalog access");
+    }
+    if (hasAnyScope(scopes, ["model", "coder", "chat"]) || hasScopePrefix(scopes, ["model:", "coder:", "chat:"])) return;
+    throw new Error("Insufficient scope for model catalog access");
+  }
+
   getPoolStats(): { totalCount: number; idleCount: number; waitingCount: number } {
     if (!this.pool) return { totalCount: 0, idleCount: 0, waitingCount: 0 };
     return {

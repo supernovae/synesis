@@ -12,7 +12,11 @@ import {
   type ClaudeModelResolutionQuery,
 } from "../schemas.js";
 import type { SessionIdentity } from "../session/session-key.js";
-import { authorizeClaudeCompatRequest, type PlatformRouteDependencies } from "./platform-route-support.js";
+import {
+  authorizeClaudeCompatRequest,
+  authorizeModelCatalogRequest,
+  type PlatformRouteDependencies,
+} from "./platform-route-support.js";
 
 export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): void {
   const {
@@ -173,7 +177,11 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
     }
   });
 
-  app.get("/v1/adapter-packs", async () => ({
-    catalog: deps.clientAdapterPacks.getCatalog(),
-  }));
+  app.get("/v1/adapter-packs", async (req, reply) => {
+    const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
+    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
+    return {
+      catalog: deps.clientAdapterPacks.getCatalog(),
+    };
+  });
 }

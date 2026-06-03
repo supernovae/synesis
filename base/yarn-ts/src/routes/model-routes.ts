@@ -1,4 +1,5 @@
 import type { PlatformRouteDependencies } from "./platform-route-support.js";
+import { authorizeModelCatalogRequest } from "./platform-route-support.js";
 
 export function registerModelRoutes(deps: PlatformRouteDependencies): void {
   const { app, tierRegistry } = deps;
@@ -10,12 +11,18 @@ export function registerModelRoutes(deps: PlatformRouteDependencies): void {
     endpoints: ["/v1/models", "/v1/models/{model}", "/v1/chat/completions", "/v1/responses", "/v1/messages"],
   }));
 
-  app.get("/v1/models", async () => ({
-    object: "list",
-    data: tierRegistry.getAvailableModels(),
-  }));
+  app.get("/v1/models", async (req, reply) => {
+    const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
+    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
+    return {
+      object: "list",
+      data: tierRegistry.getAvailableModels(),
+    };
+  });
 
   app.get("/v1/models/:model", async (req, reply) => {
+    const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
+    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
     const { model } = req.params as { model: string };
     const found = tierRegistry.getAvailableModels().find((entry) => entry.id === model);
     if (!found) {

@@ -241,6 +241,33 @@ describe("AuthResolver", () => {
     });
   });
 
+  describe("requireModelReadScope", () => {
+    beforeEach(() => {
+      resolver = new AuthResolver(makeConfig());
+    });
+
+    it("passes for model catalog scopes", () => {
+      expect(() =>
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["model:readonly"] })
+      ).not.toThrow();
+    });
+
+    it("passes for broader chat and coder scopes", () => {
+      expect(() =>
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["chat:read"] })
+      ).not.toThrow();
+      expect(() =>
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["coder:execute"] })
+      ).not.toThrow();
+    });
+
+    it("denies unrelated scopes", () => {
+      expect(() =>
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["billing:read"] })
+      ).toThrow("Insufficient scope");
+    });
+  });
+
   describe("PAT hashing", () => {
     it("produces consistent hash without pepper", async () => {
       resolver = new AuthResolver(makeConfig({ SYNESIS_PAT_PEPPER: "" }));

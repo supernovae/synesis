@@ -118,7 +118,7 @@ export interface ArtifactStoreLike extends StatsProvider {
 export interface PlatformRouteDependencies {
   app: FastifyInstance;
   config: AppConfig;
-  authResolver: Pick<AuthResolver, "resolve" | "requireCoderScope" | "getPoolStats">;
+  authResolver: Pick<AuthResolver, "resolve" | "requireCoderScope" | "requireModelReadScope" | "getPoolStats">;
   fgaCheck: FgaCheck;
   userRateLimiter: UserRateLimiterLike;
   requireInternalToken: RequireInternalToken;
@@ -241,6 +241,27 @@ export async function authorizeClaudeCompatRequest(
         },
       },
     };
+  }
+  return { ok: true, authUser };
+}
+
+export async function authorizeModelCatalogRequest(
+  deps: Pick<PlatformRouteDependencies, "authResolver">,
+  authorization: string | undefined,
+): Promise<
+  | { ok: true; authUser: Awaited<ReturnType<AuthResolver["resolve"]>> }
+  | { ok: false; statusCode: number; body: Record<string, unknown> }
+> {
+  let authUser: Awaited<ReturnType<AuthResolver["resolve"]>>;
+  try {
+    authUser = await deps.authResolver.resolve(authorization);
+  } catch {
+    return { ok: false, statusCode: 401, body: { error: { type: "auth_error", message: "Authentication required" } } };
+  }
+  try {
+    deps.authResolver.requireModelReadScope(authUser);
+  } catch {
+    return { ok: false, statusCode: 403, body: { error: { type: "authz_error", message: "Insufficient scope for model catalog access" } } };
   }
   return { ok: true, authUser };
 }
