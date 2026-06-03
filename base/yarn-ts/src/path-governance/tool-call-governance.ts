@@ -1267,6 +1267,7 @@ function maybeBlockPathSandbox(
   // File/search tool paths, including absolute Glob patterns like /repo-parent/*
   if (logicalName !== "Bash") {
     for (const entry of sandboxPathsForNonBashTool(logicalName, input)) {
+      if (clientKind === "claude-code" && isClaudePlanFilePath(entry.path)) continue;
       const result = evaluatePathAccess(entry.path, entry.operation, policy);
       if (!result.allowed) {
         const message = result.nudge
@@ -1321,6 +1322,7 @@ function maybeBlockPathSandbox(
         || input.command.includes(`>>${bp}`)
           ? "write" : "read";
       const result = evaluatePathAccess(bp, bashOp, policy);
+      if (clientKind === "claude-code" && isClaudePlanFilePath(bp)) continue;
       if (!result.allowed) {
         const message = result.nudge
           ?? `Bash command references "${bp}" which is outside the project sandbox. ${result.reason}.`;
@@ -1375,6 +1377,7 @@ function maybeBlockUnanchoredAbsoluteFileTool(
   if (!["Read", "Write", "Edit", "Update"].includes(logicalName)) return null;
   const rawPath = typeof input.file_path === "string" ? input.file_path.trim() : "";
   if (!rawPath) return null;
+  if (isClaudePlanFilePath(rawPath)) return null;
   const absoluteLike =
     path.isAbsolute(rawPath)
     || /^[A-Za-z]:[\\/]/.test(rawPath)

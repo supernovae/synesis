@@ -137,6 +137,43 @@ describe("governToolCall", () => {
     expect(String(out.input.command)).toContain("workspace context handshake");
   });
 
+  it("allows Claude plan files before workspace context is known", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/bymiller/.claude/plans/you-are-a-rust-buzzing-gadget.md",
+        content: "---\nname: Rust Task Manager Plan\n---\n# Plan\n\nImplement the Rust task manager workspace.\n",
+      },
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+
+    expect(out.blockedPathSandbox).not.toBe(true);
+    expect(out.toolName).toBe("Write");
+    expect(out.input.file_path).toBe("/Users/bymiller/.claude/plans/you-are-a-rust-buzzing-gadget.md");
+  });
+
+  it("allows Claude plan files through the sandbox policy for Claude Code clients", () => {
+    const out = governToolCall({
+      toolName: "Write",
+      input: {
+        file_path: "/Users/someone/.claude/plans/you-are-a-rust-buzzing-gadget.md",
+        content: "---\nname: Rust Task Manager Plan\n---\n# Plan\n\nImplement the Rust task manager workspace.\n",
+      },
+      projectRoot: "/workspace/project",
+      shellCwd: "/workspace/project",
+      pathSandboxPolicy: buildDefaultPolicy("/workspace/project"),
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+
+    expect(out.blockedPathSandbox).not.toBe(true);
+    expect(out.toolName).toBe("Write");
+    expect(out.input.file_path).toBe("/Users/someone/.claude/plans/you-are-a-rust-buzzing-gadget.md");
+  });
+
   it("blocks Windows absolute file paths for coder clients until workspace context is known", () => {
     const out = governToolCall({
       toolName: "Read",

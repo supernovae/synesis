@@ -38,6 +38,8 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("family=default");
     expect(block).toContain("prefer Update/Edit-style targeted diffs");
     expect(block).toContain("do not delete or weaken failing tests");
+    expect(block).toContain("~/.claude/plans/** is a valid harness-managed write path");
+    expect(block).toContain("call ExitPlanMode after the plan is ready");
     expect(block).not.toContain("use write_file for new/generated files");
     expect(block).not.toContain("ask.go");
   });

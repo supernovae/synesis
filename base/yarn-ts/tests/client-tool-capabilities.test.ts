@@ -117,6 +117,8 @@ describe("client tool capabilities", () => {
     expect(block).toContain("use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist");
     expect(block).toContain("Create 3-7 concrete tasks before the first implementation edit");
     expect(block).toContain("prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite");
+    expect(block).toContain("~/.claude/plans/** is an allowed harness path");
+    expect(block).toContain("call ExitPlanMode once the plan is ready");
     expect(block).toContain("call the native task tool before implementation");
     expect(block).toContain("Agent is for bounded subagent research");
   });
