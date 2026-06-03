@@ -1,12 +1,44 @@
 # Governor Behavior Validation
 
-Synesis should not rely on live trial-and-error to discover whether the execution governor is helping or blocking coding momentum. Governor quality is validated in three lanes:
+Synesis should not rely on live trial-and-error to discover whether the execution governor is helping or blocking coding momentum. Governor quality is validated in four lanes:
 
-1. **Offline replay fixtures** in `tests/fixtures/governor-replay`.
-2. **Eval-gym model scenarios** in `src/eval/scenarios`.
-3. **Reviewed trace harvests** promoted from production/session telemetry.
+1. **Standard harness-flow contracts** in `src/eval/harness-flow.ts` and `tests/harness-flow.test.ts`.
+2. **Offline replay fixtures** in `tests/fixtures/governor-replay`.
+3. **Eval-gym model scenarios** in `src/eval/scenarios`.
+4. **Reviewed trace harvests** promoted from production/session telemetry.
 
-The offline lane is the release gate for deterministic behavior. Eval-gym is the model-in-loop canary. Trace harvests are the source of new cases when a human finds a surprising stop, loop, or recovery.
+The harness-flow and replay lanes are the release gate for deterministic behavior. Eval-gym is the model-in-loop canary. Trace harvests are the source of new cases when a human finds a surprising stop, loop, or recovery.
+
+## Standard Harness-Flow Lane
+
+Harness-flow tests model the 95% developer-harness lifecycle instead of a single isolated rule. A flow is a deterministic transcript with a client profile, lifecycle type, expected native tools, and forbidden UX signals.
+
+Current profiles:
+
+- `claude-code`: `/plan`, `~/.claude/plans`, `ExitPlanMode`, `TaskCreate`/`TaskUpdate`, implementation, verification.
+- `opencode`: workspace handshake, `TodoWrite`, write/edit, verification, final todo completion.
+- `codex-cli`: generic coding loop without Claude/OpenCode native task leakage.
+- `pi`: OIDC-capable basic authenticated chat without coding-harness task assumptions.
+- `cursor`: OpenAI-compatible coding loop without Claude/OpenCode native task leakage.
+- `generic-openai`: OpenAI-compatible bugfix flow with no client-specific task or plan tools.
+
+The flow layer catches product-level UX regressions:
+
+- premature governor pause during expected forward progress
+- Claude/OpenCode-specific tool leakage into unrelated clients
+- missing expected native task/plan tools for the matching harness
+- duplicate cwd/path confusion such as `/src/test/src/test`
+- forbidden governor rules during normal lifecycle phases
+
+Run it directly:
+
+```bash
+npm run test --prefix base/yarn-ts -- tests/harness-flow.test.ts
+```
+
+It is also part of `npm run test:governor:unit --workspace=base/yarn-ts`.
+
+Add a new manual regression here when the issue is a normal lifecycle false-positive across a known harness. Add a replay fixture instead when the issue is a narrow rule-level edge case.
 
 ## Fixture Taxonomy
 
@@ -152,9 +184,11 @@ When a live run surprises us:
 
 1. Capture the minimal transcript around the governor decision.
 2. Remove secrets and irrelevant long output.
-3. Convert it into an offline replay fixture.
-4. Add one opposite fixture if possible, so the fix cannot overcorrect.
-5. Only then adjust governor logic.
+3. Decide whether the issue is a standard lifecycle failure or a narrow rule failure.
+4. For lifecycle failures, add or extend a `HarnessFlowSpec` in `src/eval/harness-flow.ts`.
+5. For narrow rule failures, convert it into an offline replay fixture.
+6. Add one opposite fixture or negative-control flow if possible, so the fix cannot overcorrect.
+7. Only then adjust governor logic.
 
 This keeps the governor from accumulating one-off exceptions without a behavior contract.
 
