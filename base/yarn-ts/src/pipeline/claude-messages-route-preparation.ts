@@ -31,6 +31,7 @@ import {
   detectClientToolCapabilities,
   isPlanImplementationApprovalTurn,
 } from "../adapters/client-tool-capabilities.js";
+import { neutralizeSyntheticPlanModeRemindersAfterApproval } from "../adapters/synthetic-reminders.js";
 import {
   deriveModelExecutionPolicy,
   resolveModelArchitectureProfile,
@@ -392,10 +393,10 @@ export async function prepareClaudeMessagesRoute(
         clientKind,
         { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
       );
-  const latestUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)]
+  let latestUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
     .find((m) => m.role === "user");
-  const manifest = projectManifestService.build(normalizedFromClaude.messages as never);
+  let manifest = projectManifestService.build(normalizedFromClaude.messages as never);
   const freshImplicitStart = detectFreshImplicitSessionStart({
     clientKind,
     conversationId,
@@ -433,6 +434,19 @@ export async function prepareClaudeMessagesRoute(
   const planImplementationApproved = isPlanImplementationApprovalTurn(
     normalizedFromClaude.messages as Array<{ role?: string; content?: unknown; name?: string }>,
   );
+  if (planImplementationApproved) {
+    const neutralized = neutralizeSyntheticPlanModeRemindersAfterApproval(
+      normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    );
+    if (neutralized.neutralizedCount > 0) {
+      normalizedFromClaude.messages = neutralized.messages as never;
+      latestUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)]
+        .reverse()
+        .find((m) => m.role === "user");
+      manifest = projectManifestService.build(normalizedFromClaude.messages as never);
+      app.log.info({ reqId: input.requestId, count: neutralized.neutralizedCount }, "stale_plan_mode_reminders_neutralized_claude");
+    }
+  }
   const clientToolCapabilities = planImplementationApproved
     ? { ...rawClientToolCapabilities, planModeRequested: false, planImplementationApproved: true }
     : rawClientToolCapabilities;

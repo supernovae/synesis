@@ -3,6 +3,8 @@ import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { OpenAIChatCompletionRequest } from "../schemas.js";
 import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
+import { isPlanImplementationApprovalTurn } from "../adapters/client-tool-capabilities.js";
+import { neutralizeSyntheticPlanModeRemindersAfterApproval } from "../adapters/synthetic-reminders.js";
 import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
 import { prepareOpenAIRouteRequestSetup } from "./openai-route-request-setup.js";
 import { prepareOpenAIRouteTranscript } from "./openai-route-transcript-prep.js";
@@ -158,6 +160,15 @@ export async function prepareOpenAIRouteNormalization(input: PrepareOpenAIRouteN
         identity.clientKind,
         { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
       );
+  if (isPlanImplementationApprovalTurn(transcriptPrep.normalizedOpenAI.messages as Array<{ role?: string; content?: unknown; name?: string }>)) {
+    const neutralized = neutralizeSyntheticPlanModeRemindersAfterApproval(
+      transcriptPrep.normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
+    );
+    if (neutralized.neutralizedCount > 0) {
+      transcriptPrep.normalizedOpenAI.messages = neutralized.messages as never;
+      app.log.info({ reqId: requestId, count: neutralized.neutralizedCount }, "stale_plan_mode_reminders_neutralized_openai_route");
+    }
+  }
   const latestUserText = [...(transcriptPrep.normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)]
     .reverse()
     .find((m) => m.role === "user");
