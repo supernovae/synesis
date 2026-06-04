@@ -1775,6 +1775,7 @@ export function evaluateExecutionGovernor(
   const taskCreateReplay = new Map<string, number>();
   const askUserReplay = new Map<string, number>();
   let repeatedAskUserPrompts = 0;
+  let repeatedExplicitTaskCreateReplay = false;
 
   for (let i = 0; i < events.length; i += 1) {
     const tool = events[i].toolName;
@@ -1863,6 +1864,7 @@ export function evaluateExecutionGovernor(
       const next = (taskCreateReplay.get(key) ?? 0) + 1;
       taskCreateReplay.set(key, next);
       if (next >= 2) repeatedTaskCreateReplay += 1;
+      if (next >= 2 && c.startsWith("taskcreate:")) repeatedExplicitTaskCreateReplay = true;
       previousTodoWriteCommand = "";
       continue;
     }
@@ -2272,6 +2274,16 @@ export function evaluateExecutionGovernor(
     planApprovalExitActive
     && events.length <= 30
     && events.some((e) => isTaskLifecycleCommand(e.command));
+  const taskLifecycleEvents = events.filter((e) => isTaskLifecycleCommand(e.command));
+  const initialNativeTaskSetupActive =
+    changedNonPlanFiles.length === 0
+    && events.length >= 3
+    && events.length <= 12
+    && taskLifecycleEvents.length === events.length
+    && taskLifecycleEvents.length >= 3
+    && taskLifecycleEvents.length <= 7
+    && !hasFailures
+    && !events.some((e) => isVerificationCommand(e.toolName, e.command));
 
   if (!planRecoveryDiscoveryGraceActive && broadTestRepeat) pushRule("broad_to_narrow_verification");
   if (!isInvestigationOnly && isGitAddWithoutCommit(events) && events.length >= 4) pushRule("git_commit_followthrough");
@@ -2295,7 +2307,11 @@ export function evaluateExecutionGovernor(
   if (repeatedCompileLikeFailureVerification >= 1 && effectiveNoEditEvidence) pushRule("verification_same_failure_signature_replay");
   if (consecutiveEditFailures >= 3) pushRule("consecutive_edit_failures");
   if (repeatedEditFailureReplay >= 1) pushRule("edit_failure_replay");
-  if (repeatedTaskCreateReplay >= 1 && !planApprovalTaskSetupActive) pushRule("task_creation_replay");
+  if (
+    repeatedTaskCreateReplay >= 1
+    && !planApprovalTaskSetupActive
+    && !(initialNativeTaskSetupActive && !repeatedExplicitTaskCreateReplay)
+  ) pushRule("task_creation_replay");
   if (!isInvestigationOnly && declarationFollowthroughViolation) pushRule("declaration_followthrough_required");
   if (!isInvestigationOnly && repeatedAskUserPrompts >= 1 && effectiveNoEditEvidence) pushRule("repeat_user_prompt_loop");
   // Only fire completion-claim enforcement when the model has done non-exploration work
@@ -2428,7 +2444,11 @@ export function evaluateExecutionGovernor(
   }
   const identicalToolRepeatThreshold = planModeSetupGraceActive ? 4 : 2;
   const identicalRepeatIsTaskLifecycle = lastEvent ? isTaskLifecycleCommand(lastEvent.command) : false;
-  if (identicalToolRepeatCount >= identicalToolRepeatThreshold && !(planApprovalTaskSetupActive && identicalRepeatIsTaskLifecycle)) {
+  if (
+    identicalToolRepeatCount >= identicalToolRepeatThreshold
+    && !(planApprovalTaskSetupActive && identicalRepeatIsTaskLifecycle)
+    && !(initialNativeTaskSetupActive && identicalRepeatIsTaskLifecycle)
+  ) {
     pushRule("identical_tool_repeat");
   }
   const planRereadThreshold = (planRecoveryDiscoveryGraceActive || planModeSetupGraceActive) ? 4 : 2;

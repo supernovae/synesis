@@ -707,6 +707,59 @@ describe("execution governor", () => {
     expect(out.pause).toBe(false);
   });
 
+  it("does not pause bounded native task setup when task payloads are not visible", () => {
+    const messages = [
+      { role: "user", content: "Yes, implement this plan." },
+      { role: "assistant", content: "Plan mode is closed. I will create the native task list and begin implementation." },
+      assistantCall("t1", "TaskCreate", {}),
+      toolResult("t1", "task created"),
+      assistantCall("t2", "TaskCreate", {}),
+      toolResult("t2", "task created"),
+      assistantCall("t3", "TaskCreate", {}),
+      toolResult("t3", "task created"),
+      assistantCall("t4", "TaskCreate", {}),
+      toolResult("t4", "task created"),
+      assistantCall("t5", "TaskCreate", {}),
+      toolResult("t5", "task created"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, {
+      clientPlanModeRequested: false,
+      orchestratorWorkflowPhase: "implementation",
+      taskLedgerOpenCount: 5,
+      taskLedgerExplicitOpenCount: 5,
+      chatState: {
+        completionStatus: "blocked",
+      },
+    });
+
+    expect(out.matchedRules).not.toContain("task_creation_replay");
+    expect(out.matchedRules).not.toContain("identical_tool_repeat");
+    expect(out.pause).toBe(false);
+  });
+
+  it("still pauses visible duplicate TaskCreate titles outside plan approval", () => {
+    const messages = [
+      { role: "user", content: "Create tasks for the implementation." },
+      assistantCall("t1", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t1", "task created"),
+      assistantCall("t2", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t2", "task created"),
+      assistantCall("t3", "TaskCreate", { title: "Create workspace Cargo.toml" }),
+      toolResult("t3", "task created"),
+    ];
+
+    const out = evaluateExecutionGovernor(messages as never, {
+      clientPlanModeRequested: false,
+      orchestratorWorkflowPhase: "implementation",
+      taskLedgerOpenCount: 3,
+      taskLedgerExplicitOpenCount: 3,
+    });
+
+    expect(out.matchedRules).toContain("task_creation_replay");
+    expect(out.pause).toBe(true);
+  });
+
   it("does not pause completion claims when TodoWrite marks tasks done", () => {
     const messages = [
       { role: "assistant", content: "I've completed the clipboard support implementation." },
