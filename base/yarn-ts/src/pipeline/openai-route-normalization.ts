@@ -4,7 +4,10 @@ import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dep
 import type { OpenAIChatCompletionRequest } from "../schemas.js";
 import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
 import { isPlanImplementationApprovalTurn } from "../adapters/client-tool-capabilities.js";
-import { neutralizeSyntheticPlanModeRemindersAfterApproval } from "../adapters/synthetic-reminders.js";
+import {
+  hasNonPlanImplementationWriteAfterPlanTransition,
+  neutralizeSyntheticPlanModeRemindersAfterApproval,
+} from "../adapters/synthetic-reminders.js";
 import { mergePathContextWithClientMetadata } from "./workspace-metadata-prebackfill.js";
 import { prepareOpenAIRouteRequestSetup } from "./openai-route-request-setup.js";
 import { prepareOpenAIRouteTranscript } from "./openai-route-transcript-prep.js";
@@ -160,7 +163,11 @@ export async function prepareOpenAIRouteNormalization(input: PrepareOpenAIRouteN
         identity.clientKind,
         { gitPolicyMode: config.SYNESIS_YARN_GIT_POLICY_MODE },
       );
-  if (isPlanImplementationApprovalTurn(transcriptPrep.normalizedOpenAI.messages as Array<{ role?: string; content?: unknown; name?: string }>)) {
+  const planImplementationApproved = isPlanImplementationApprovalTurn(transcriptPrep.normalizedOpenAI.messages as Array<{ role?: string; content?: unknown; name?: string }>);
+  const implementationAlreadyStarted = hasNonPlanImplementationWriteAfterPlanTransition(
+    transcriptPrep.normalizedOpenAI.messages as Array<{ role?: string; content?: unknown; name?: string; tool_calls?: unknown }>,
+  );
+  if (planImplementationApproved || implementationAlreadyStarted) {
     const neutralized = neutralizeSyntheticPlanModeRemindersAfterApproval(
       transcriptPrep.normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
     );

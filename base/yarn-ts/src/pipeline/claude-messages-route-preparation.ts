@@ -31,7 +31,10 @@ import {
   detectClientToolCapabilities,
   isPlanImplementationApprovalTurn,
 } from "../adapters/client-tool-capabilities.js";
-import { neutralizeSyntheticPlanModeRemindersAfterApproval } from "../adapters/synthetic-reminders.js";
+import {
+  hasNonPlanImplementationWriteAfterPlanTransition,
+  neutralizeSyntheticPlanModeRemindersAfterApproval,
+} from "../adapters/synthetic-reminders.js";
 import {
   deriveModelExecutionPolicy,
   resolveModelArchitectureProfile,
@@ -434,7 +437,10 @@ export async function prepareClaudeMessagesRoute(
   const planImplementationApproved = isPlanImplementationApprovalTurn(
     normalizedFromClaude.messages as Array<{ role?: string; content?: unknown; name?: string }>,
   );
-  if (planImplementationApproved) {
+  const implementationAlreadyStarted = hasNonPlanImplementationWriteAfterPlanTransition(
+    normalizedFromClaude.messages as Array<{ role?: string; content?: unknown; name?: string; tool_calls?: unknown }>,
+  );
+  if (planImplementationApproved || implementationAlreadyStarted) {
     const neutralized = neutralizeSyntheticPlanModeRemindersAfterApproval(
       normalizedFromClaude.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
     );
@@ -447,7 +453,7 @@ export async function prepareClaudeMessagesRoute(
       app.log.info({ reqId: input.requestId, count: neutralized.neutralizedCount }, "stale_plan_mode_reminders_neutralized_claude");
     }
   }
-  const clientToolCapabilities = planImplementationApproved
+  const clientToolCapabilities = planImplementationApproved || implementationAlreadyStarted
     ? { ...rawClientToolCapabilities, planModeRequested: false, planImplementationApproved: true }
     : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(

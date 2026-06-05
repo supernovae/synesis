@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import type { AuthUser } from "../auth.js";
 import { isPlanImplementationApprovalTurn } from "../adapters/client-tool-capabilities.js";
-import { neutralizeSyntheticPlanModeRemindersAfterApproval } from "../adapters/synthetic-reminders.js";
+import {
+  hasNonPlanImplementationWriteAfterPlanTransition,
+  neutralizeSyntheticPlanModeRemindersAfterApproval,
+} from "../adapters/synthetic-reminders.js";
 import {
   detectFreshImplicitSessionStart,
   type SessionIdentity,
@@ -223,7 +226,10 @@ export async function prepareOpenAISessionWorkspace(
   const planImplementationApproved = isPlanImplementationApprovalTurn(
     request.messages as Array<{ role?: string; content?: unknown; name?: string }>,
   );
-  if (planImplementationApproved) {
+  const implementationAlreadyStarted = hasNonPlanImplementationWriteAfterPlanTransition(
+    normalizedOpenAI.messages as Array<{ role?: string; content?: unknown; name?: string; tool_calls?: unknown }>,
+  );
+  if (planImplementationApproved || implementationAlreadyStarted) {
     const neutralized = neutralizeSyntheticPlanModeRemindersAfterApproval(
       normalizedOpenAI.messages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string; tool_calls?: unknown }>,
     );
@@ -232,7 +238,7 @@ export async function prepareOpenAISessionWorkspace(
       app.log.info({ reqId: requestId, count: neutralized.neutralizedCount }, "stale_plan_mode_reminders_neutralized_openai");
     }
   }
-  const clientToolCapabilities = planImplementationApproved
+  const clientToolCapabilities = planImplementationApproved || implementationAlreadyStarted
     ? { ...rawClientToolCapabilities, planModeRequested: false, planImplementationApproved: true }
     : rawClientToolCapabilities;
   const detectedTaskCapabilities = detectClientTaskCapabilities(toolDefs, clientKind);
