@@ -49,8 +49,8 @@
     "governor:loop": "tsx scripts/dual-agent-loop.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.22.1",
-    "@ai-sdk/openai": "^3.0.66",
+    "@agentclientprotocol/sdk": "^0.24.0",
+    "@ai-sdk/openai": "^3.0.68",
     "@fastify/rate-limit": "^10.3.0",
     "@openfga/sdk": "0.9.6",
     "@opentelemetry/api": "^1.9.1",
@@ -67,9 +67,9 @@
     "@synesis/oidc-auth": "*",
     "@synesis/telemetry": "*",
     "@synesis/upper-harness": "*",
-    "ai": "^6.0.191",
+    "ai": "^6.0.197",
     "fastify": "^5.8.5",
-    "ioredis": "^5.11.0",
+    "ioredis": "^5.11.1",
     "pg": "^8.21.0",
     "prom-client": "^15.1.3",
     "tinypool": "^2.1.0",
@@ -78,9 +78,9 @@
   "devDependencies": {
     "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
-    "tsx": "^4.22.3",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   },
   "overrides": {
     "axios": "1.16.0",
