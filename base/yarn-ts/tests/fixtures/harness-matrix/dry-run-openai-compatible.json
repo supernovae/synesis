@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "harness_matrix_v1",
+  "name": "dry-run-openai-compatible-lower-harness",
+  "description": "Small matrix fixture that validates expansion, redaction, and report generation without launching a live lower harness.",
+  "defaults": {
+    "apiBaseUrl": "http://localhost:8000/v1",
+    "rounds": 1,
+    "timeoutMs": 300000,
+    "cleanup": true,
+    "expected": {
+      "allowGovernorPause": false,
+      "forbiddenRiskSignals": ["path_confusion", "invalid_tool_arguments", "task_reset", "verification_churn", "discovery_churn"]
+    }
+  },
+  "tasks": [
+    {
+      "id": "rust-workspace-plan-build",
+      "tags": ["rust", "plan_then_build", "greenfield"],
+      "prompt": "Build a small Rust workspace with a core library and CLI binary. Create files only inside the disposable workspace, run one targeted verification command, and report the result."
+    }
+  ],
+  "harnesses": [
+    {
+      "id": "raw-openai-dry-run",
+      "profile": "raw-openai",
+      "command": "node",
+      "args": ["-e", "console.log('dry-run harness placeholder for {model} using {apiBaseUrl}')"],
+      "cwd": "{workspace}",
+      "env": {
+        "OPENAI_BASE_URL": "{apiBaseUrl}",
+        "OPENAI_API_KEY": "{env:OPENAI_API_KEY}"
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "local-core",
+      "alias": "Core"
+    }
+  ]
+}

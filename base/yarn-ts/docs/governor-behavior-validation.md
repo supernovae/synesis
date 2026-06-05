@@ -1,13 +1,15 @@
 # Governor Behavior Validation
 
-Synesis should not rely on live trial-and-error to discover whether the execution governor is helping or blocking coding momentum. Governor quality is validated in four lanes:
+Synesis should not rely on live trial-and-error to discover whether the execution governor is helping or blocking coding momentum. Governor quality is validated in six lanes:
 
 1. **Standard harness-flow contracts** in `src/eval/harness-flow.ts` and `tests/harness-flow.test.ts`.
 2. **Offline replay fixtures** in `tests/fixtures/governor-replay`.
 3. **Eval-gym model scenarios** in `src/eval/scenarios`.
-4. **Reviewed trace harvests** promoted from production/session telemetry.
+4. **Eval Client Lab** profile sweeps over eval-gym scenarios.
+5. **Harness Lab / Harness Tester** live lower-harness runs in disposable workspaces.
+6. **Harness Matrix** cross-product sweeps across task, harness, model, and endpoint definitions.
 
-The harness-flow and replay lanes are the release gate for deterministic behavior. Eval-gym is the model-in-loop canary. Trace harvests are the source of new cases when a human finds a surprising stop, loop, or recovery.
+The harness-flow and replay lanes are the release gate for deterministic behavior. Eval-gym is the model-in-loop canary. Harness Matrix coordinates live canaries and produces reviewed promotion candidates. Trace harvests are the source of new cases when a human finds a surprising stop, loop, or recovery.
 
 ## Standard Harness-Flow Lane
 
@@ -176,7 +178,76 @@ npm run eval:lab --prefix base/yarn-ts -- \
   --allow-failures
 ```
 
-Use Harness Lab for real lower-harness subprocess behavior. Use Harness Tester for validated coding-task loops with setup, workspace diff, deterministic validators, and failure attribution. Use Eval Client Lab for cheaper, faster API-level sweeps over the deterministic eval-gym scenario corpus.
+Use Harness Matrix to compare task × harness × model combinations. Use Harness Lab for a single real lower-harness subprocess spec. Use Harness Tester for validated coding-task loops with setup, workspace diff, deterministic validators, and failure attribution. Use Eval Client Lab for cheaper, faster API-level sweeps over the deterministic eval-gym scenario corpus.
+
+## Harness Matrix Lane
+
+Harness Matrix is the live sweep coordinator. It fans out task fixtures across lower-harness profiles, model aliases, API base URLs, and rounds, then reuses Harness Lab for subprocess execution and disposable workspace handling. It does not tune governor thresholds or promote generated behavior automatically.
+
+Use it when you want to compare:
+
+- OpenCode vs Codex CLI vs Claude Code vs Cursor vs raw OpenAI-compatible clients.
+- model aliases against the same lower-harness task.
+- local Synesis endpoint behavior before and after governor/session changes.
+- repeated runs for flaky harness/model behavior.
+
+Dry-run the starter matrix without API keys or live models:
+
+```bash
+npm run harness:matrix --prefix base/yarn-ts -- \
+  --matrix tests/fixtures/harness-matrix/dry-run-openai-compatible.json \
+  --dry-run \
+  --out /tmp/synesis-harness-matrix.json \
+  --markdown /tmp/synesis-harness-matrix.md \
+  --artifacts-root /tmp/synesis-harness-matrix-artifacts \
+  --allow-failures
+```
+
+Run a real OpenCode sweep against a local OpenAI-compatible Synesis endpoint:
+
+```bash
+OPENAI_API_KEY="$SYNESIS_TEST_PAT_TOKEN" \
+OPENAI_BASE_URL="http://localhost:8000/v1" \
+npm run harness:matrix --prefix base/yarn-ts -- \
+  --matrix tests/fixtures/harness-matrix/dry-run-openai-compatible.json \
+  --out /tmp/synesis-opencode-matrix.json \
+  --markdown /tmp/synesis-opencode-matrix.md \
+  --artifacts-root /tmp/synesis-harness-artifacts \
+  --allow-failures
+```
+
+Run a Codex CLI sweep by using a matrix whose harness command/args point at the local Codex CLI command template:
+
+```bash
+OPENAI_API_KEY="$SYNESIS_TEST_PAT_TOKEN" \
+OPENAI_BASE_URL="http://localhost:8000/v1" \
+npm run harness:matrix --prefix base/yarn-ts -- \
+  --matrix tests/fixtures/harness-matrix/codex-cli-local.json \
+  --out /tmp/synesis-codex-matrix.json \
+  --markdown /tmp/synesis-codex-matrix.md \
+  --artifacts-root /tmp/synesis-harness-artifacts \
+  --allow-failures
+```
+
+Matrix reports include:
+
+- redacted command invocation and environment
+- compact stdout/stderr excerpts
+- risk signals and score
+- failure category and likely owner
+- recommended next action
+- promotion recommendation
+- candidate replay fixture draft for review
+
+Interpret promotion recommendations conservatively:
+
+- `harness-flow-contract`: normal lifecycle regression across a known harness.
+- `offline-governor-replay-fixture`: narrow governor false-positive/false-negative or loop boundary.
+- `eval-gym-scenario`: model-in-loop completion or behavior canary.
+- `harness-adapter-regression`: command, auth, schema, or tool adapter mismatch.
+- `none`: clean pass or insufficient evidence.
+
+Never let a model-generated matrix scenario directly change production governor behavior. Promote only reviewed failures into harness-flow contracts, replay fixtures, eval-gym scenarios, or adapter regression tests.
 
 ## Promotion Rule
 
