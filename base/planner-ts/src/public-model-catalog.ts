@@ -1,19 +1,46 @@
 import type { AppConfig } from "./config.js";
+import { z } from "zod";
 
 import { normalizeProviderExtraBody } from "./llm/extra-body.js";
 
-export interface PublicPlannerOffering {
-  client_model_id: string;
-  label: string | null;
-  effort_tier: string;
-  connection_mode: string | null;
-  route_via_role: string | null;
-  standalone_provider: string | null;
-  standalone_endpoint: string | null;
-  standalone_api_key_env: string | null;
-  backend_model_override: string | null;
-  generation_params?: Record<string, unknown> | null;
-}
+const PublicOfferingGenerationParamsSchema = z.object({
+  max_tokens: z.number().int().nonnegative().optional(),
+  temperature: z.number().optional(),
+  top_p: z.number().optional(),
+  top_k: z.number().int().nonnegative().optional(),
+  min_p: z.number().optional(),
+  presence_penalty: z.number().optional(),
+  repetition_penalty: z.number().optional(),
+  enable_thinking: z.boolean().optional(),
+  reasoning_effort: z.string().optional(),
+  model_capability_preset: z.string().optional(),
+}).strict();
+
+const PublicPlannerOfferingSchema = z.object({
+  id: z.number().optional(),
+  client_model_id: z.string(),
+  label: z.string().nullable(),
+  effort_tier: z.string(),
+  connection_mode: z.string().nullable(),
+  route_via_role: z.string().nullable(),
+  standalone_provider: z.string().nullable(),
+  standalone_endpoint: z.string().nullable(),
+  standalone_api_key_env: z.string().nullable(),
+  backend_model_override: z.string().nullable(),
+  generation_params: PublicOfferingGenerationParamsSchema.nullable().optional(),
+  expose_planner: z.boolean().optional(),
+  expose_yarn: z.boolean().optional(),
+  is_active: z.boolean().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+}).strict();
+
+const PublicOfferingsEnvelopeSchema = z.object({
+  offerings: z.array(PublicPlannerOfferingSchema),
+  for_service: z.string().optional(),
+}).strict();
+
+export type PublicPlannerOffering = z.infer<typeof PublicPlannerOfferingSchema>;
 
 export interface LlmRoute {
   model: string;
@@ -147,8 +174,8 @@ export async function refreshPublicModelCatalog(config: AppConfig): Promise<void
   }
   if (offRes.ok) {
     try {
-      const j = (await offRes.json()) as { offerings?: PublicPlannerOffering[] };
-      offerings = Array.isArray(j.offerings) ? j.offerings : [];
+      const parsed = PublicOfferingsEnvelopeSchema.parse(await offRes.json());
+      offerings = parsed.offerings;
     } catch {
       offerings = [];
     }

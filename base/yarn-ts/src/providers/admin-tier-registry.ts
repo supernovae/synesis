@@ -659,7 +659,18 @@ const PublicOfferingRowSchema = z.object({
   standalone_endpoint: z.string().nullable().optional(),
   standalone_api_key_env: z.string().nullable().optional(),
   backend_model_override: z.string().nullable().optional(),
-  generation_params: z.record(z.string(), z.unknown()).nullable().optional(),
+  generation_params: z.object({
+    max_tokens: z.number().int().nonnegative().optional(),
+    temperature: z.number().optional(),
+    top_p: z.number().optional(),
+    top_k: z.number().int().nonnegative().optional(),
+    min_p: z.number().optional(),
+    presence_penalty: z.number().optional(),
+    repetition_penalty: z.number().optional(),
+    enable_thinking: z.boolean().optional(),
+    reasoning_effort: z.string().optional(),
+    model_capability_preset: z.string().optional(),
+  }).strict().nullable().optional(),
 });
 
 export type PublicYarnOffering = z.infer<typeof PublicOfferingRowSchema>;

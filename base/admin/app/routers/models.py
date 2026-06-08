@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
 from ..auth import UserInfo
@@ -156,7 +156,28 @@ async def list_role_assignments_internal(
     return {"roles": await get_role_assignments()}
 
 
+class PublicOfferingGenerationParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
+    enable_thinking: bool | None = None
+    reasoning_effort: str | None = None
+    model_capability_preset: str | None = None
+
+
+def _generation_params_payload(value: PublicOfferingGenerationParams | None) -> dict[str, Any] | None:
+    return value.model_dump(exclude_none=True) if value is not None else None
+
+
 class PublicOfferingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     client_model_id: str
     label: str | None = None
     effort_tier: str | None = None
@@ -166,13 +187,15 @@ class PublicOfferingCreate(BaseModel):
     standalone_endpoint: str | None = None
     standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
-    generation_params: dict[str, Any] | None = None
+    generation_params: PublicOfferingGenerationParams | None = None
     expose_planner: bool = False
     expose_yarn: bool = False
     is_active: bool = True
 
 
 class PublicOfferingPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     client_model_id: str | None = None
     label: str | None = None
     effort_tier: str | None = None
@@ -182,7 +205,7 @@ class PublicOfferingPatch(BaseModel):
     standalone_endpoint: str | None = None
     standalone_api_key_env: str | None = None
     backend_model_override: str | None = None
-    generation_params: dict[str, Any] | None = None
+    generation_params: PublicOfferingGenerationParams | None = None
     expose_planner: bool | None = None
     expose_yarn: bool | None = None
     is_active: bool | None = None
@@ -225,7 +248,7 @@ async def create_public_offering(
                 standalone_endpoint=body.standalone_endpoint,
                 standalone_api_key_env=body.standalone_api_key_env,
                 backend_model_override=body.backend_model_override,
-                generation_params=body.generation_params,
+                generation_params=_generation_params_payload(body.generation_params),
                 expose_planner=body.expose_planner,
                 expose_yarn=body.expose_yarn,
                 is_active=body.is_active,
@@ -250,6 +273,8 @@ async def patch_public_offering(
     user: UserInfo = Depends(require_platform_admin),
 ):
     patch = body.model_dump(exclude_unset=True)
+    if isinstance(body.generation_params, PublicOfferingGenerationParams):
+        patch["generation_params"] = _generation_params_payload(body.generation_params)
     if not patch:
         raise HTTPException(400, "no fields to update")
     try:

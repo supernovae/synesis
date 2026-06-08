@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadConfig } from "../src/config.js";
 import { resolveTierSettings } from "../src/model-tiers.js";
 import * as catalog from "../src/public-model-catalog.js";
 
@@ -50,5 +51,53 @@ describe("resolveTierSettings with public offerings", () => {
     expect(t.registry_writer_role).toBe("writer-core");
     expect(t.resolved_writer_model).toBe("xiaomi-2.5");
     expect(t.model_capability_preset).toBe("xiaomi_mimo_2_5");
+  });
+
+  it("rejects public offerings with unknown generation_params keys", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            offerings: [
+              {
+                id: 1,
+                client_model_id: "unsafe-public-model",
+                label: null,
+                effort_tier: "core",
+                connection_mode: "standalone",
+                route_via_role: null,
+                standalone_provider: "openrouter",
+                standalone_endpoint: "https://openrouter.ai/api/v1",
+                standalone_api_key_env: "OPENROUTER_API_KEY",
+                backend_model_override: null,
+                generation_params: {
+                  model_capability_preset: "xiaomi_mimo_2_5",
+                  invented_provider_flag: "unsafe",
+                },
+                expose_planner: true,
+                expose_yarn: false,
+                is_active: true,
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+            for_service: "planner",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ roles: [] }),
+        }),
+    );
+
+    await catalog.refreshPublicModelCatalog(loadConfig({
+      SYNESIS_ADMIN_URL: "http://admin",
+      SYNESIS_ADMIN_INTERNAL_TOKEN: "internal-token",
+    }));
+
+    expect(catalog.getPlannerPublicOfferings()).toEqual([]);
   });
 });

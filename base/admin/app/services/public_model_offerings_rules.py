@@ -217,7 +217,7 @@ def normalize_generation_params(value: Any) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
     for key, raw in value.items():
         if key not in GENERATION_PARAM_KEYS:
-            continue
+            raise ValueError(f"generation_params.{key} is not supported")
         if raw is None or raw == "":
             continue
         if key == "enable_thinking":

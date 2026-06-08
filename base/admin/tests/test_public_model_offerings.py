@@ -104,7 +104,6 @@ def test_normalize_generation_params() -> None:
             "enable_thinking": False,
             "reasoning_effort": "low",
             "model_capability_preset": "deepseek-v4",
-            "ignored": "value",
         }
     ) == {
         "max_tokens": 2048,
@@ -124,3 +123,8 @@ def test_normalize_generation_params_rejects_invalid_boolean() -> None:
 def test_normalize_generation_params_rejects_invalid_model_capability_preset() -> None:
     with pytest.raises(ValueError, match="model_capability_preset"):
         normalize_generation_params({"model_capability_preset": "custom_freeform"})
+
+
+def test_normalize_generation_params_rejects_unknown_key() -> None:
+    with pytest.raises(ValueError, match=r"generation_params\.ignored"):
+        normalize_generation_params({"ignored": "value"})
