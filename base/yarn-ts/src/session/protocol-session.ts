@@ -27,7 +27,7 @@ export interface ProtocolSessionBootstrapInput<TSession, TPreferences> {
     session: TSession,
     authUser: Pick<AuthUser, "authMethod" | "authKeyId" | "authKeyName" | "authKeyPrefix">,
   ) => void;
-  loadRuntimePreferences: (userId: string) => Promise<TPreferences>;
+  loadRuntimePreferences: (orgId: string, userId: string) => Promise<TPreferences>;
   afterSessionLoaded?: (params: {
     sessionKey: string;
     session: TSession;
@@ -103,6 +103,6 @@ export async function runProtocolSessionBootstrap<TSession, TPreferences>(
   const session = await input.getSessionState(sessionKey, input.identity);
   input.applyAuthKeyAttribution(session, input.authUser);
   await input.afterSessionLoaded?.({ sessionKey, session, identity: input.identity });
-  const runtimePreferences = await input.loadRuntimePreferences(input.identity.userId);
+  const runtimePreferences = await input.loadRuntimePreferences(input.identity.orgId, input.identity.userId);
   return { sessionKey, session, runtimePreferences };
 }

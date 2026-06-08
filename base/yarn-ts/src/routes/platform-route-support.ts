@@ -117,7 +117,7 @@ export interface SessionStateForCommand {
 
 export interface SessionStoreLike {
   ping(): Promise<boolean>;
-  saveUserRuntimePreferences(userId: string, preferences: UserRuntimePreferences, ttlMs: number): Promise<void>;
+  saveUserRuntimePreferences(orgId: string, userId: string, preferences: UserRuntimePreferences, ttlMs: number): Promise<void>;
 }
 
 export interface UsageWriterLike {
@@ -237,7 +237,7 @@ export interface PlatformRouteDependencies {
   safeWrite: SafeWrite;
   safeEnd: SafeEnd;
   tierRegistry: TierRegistryLike;
-  loadUserRuntimePreferences(userId: string): Promise<UserRuntimePreferences>;
+  loadUserRuntimePreferences(orgId: string, userId: string): Promise<UserRuntimePreferences>;
   getSessionKey(identity: SessionIdentity): Promise<string>;
   getSessionState(sessionKey: string, identity: SessionIdentity): Promise<SessionStateForCommand>;
   forceCheckpoint(state: SessionStateForCommand): Promise<boolean>;

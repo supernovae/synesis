@@ -11,6 +11,7 @@ describe("preference routes", () => {
     const response = await routes.put.get("/v1/user-runtime-preferences/:userId")?.({
       headers: {},
       params: { userId: "u1" },
+      query: { org_id: "org1" },
       body: {
         loopBreakMode: "assertive",
         role_override: "admin",
@@ -30,6 +31,7 @@ describe("preference routes", () => {
     await routes.put.get("/v1/user-runtime-preferences/:userId")?.({
       headers: {},
       params: { userId: "u1" },
+      query: { org_id: "org1" },
       body: {
         loopBreakMode: "assertive",
         updatedAt: 123,
@@ -38,6 +40,48 @@ describe("preference routes", () => {
 
     expect(reply.statusCode).toBe(400);
     expect(deps.sessionStore.saveUserRuntimePreferences).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit org scope for runtime preference updates", async () => {
+    const { routes, deps } = createPreferenceRouteHarness();
+    registerPreferenceRoutes(deps);
+
+    const reply = createReplyProbe();
+    const response = await routes.put.get("/v1/user-runtime-preferences/:userId")?.({
+      headers: {},
+      params: { userId: "u1" },
+      query: {},
+      body: {
+        loopBreakMode: "assertive",
+      },
+    }, reply);
+
+    expect(reply.statusCode).toBe(400);
+    expect(response).toMatchObject({ error: { type: "invalid_request_error", message: "org_id is required" } });
+    expect(deps.sessionStore.saveUserRuntimePreferences).not.toHaveBeenCalled();
+  });
+
+  it("loads runtime preferences with explicit org scope", async () => {
+    const { routes, deps } = createPreferenceRouteHarness();
+    vi.mocked(deps.loadUserRuntimePreferences).mockResolvedValue({
+      loopBreakMode: "standard",
+      cachePolicyBias: "auto",
+      synesisMemoryMode: "adaptive",
+      allowAggressiveCompactionWithoutCacheHits: true,
+      maxToolLoopSoftFails: null,
+      updatedAt: 1,
+    });
+    registerPreferenceRoutes(deps);
+
+    const reply = createReplyProbe();
+    await routes.get.get("/v1/user-runtime-preferences/:userId")?.({
+      headers: {},
+      params: { userId: "u1" },
+      query: { org_id: "org1" },
+    }, reply);
+
+    expect(reply.statusCode).toBe(200);
+    expect(deps.loadUserRuntimePreferences).toHaveBeenCalledWith("org1", "u1");
   });
 
   it("saves validated runtime preferences with server-derived timestamp", async () => {
@@ -49,6 +93,7 @@ describe("preference routes", () => {
     await routes.put.get("/v1/user-runtime-preferences/:userId")?.({
       headers: {},
       params: { userId: "u1" },
+      query: { org_id: "org1" },
       body: {
         loop_break_mode: "assertive",
         cache_policy_bias: "balanced",
@@ -60,7 +105,8 @@ describe("preference routes", () => {
 
     expect(reply.statusCode).toBe(200);
     expect(deps.sessionStore.saveUserRuntimePreferences).toHaveBeenCalledTimes(1);
-    const [userId, preferences, ttlMs] = vi.mocked(deps.sessionStore.saveUserRuntimePreferences).mock.calls[0]!;
+    const [orgId, userId, preferences, ttlMs] = vi.mocked(deps.sessionStore.saveUserRuntimePreferences).mock.calls[0]!;
+    expect(orgId).toBe("org1");
     expect(userId).toBe("u1");
     expect(ttlMs).toBe(60000);
     expect(preferences).toMatchObject({

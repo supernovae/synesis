@@ -54,7 +54,7 @@ export interface ProviderRequestSupportInput {
 }
 
 export interface ProviderRequestSupport {
-  loadUserRuntimePreferences(userId: string): Promise<UserRuntimePreferences>;
+  loadUserRuntimePreferences(orgId: string, userId: string): Promise<UserRuntimePreferences>;
   loadProviderCachePolicyWindow(
     orgId: string,
     provider: string,
@@ -101,15 +101,15 @@ export function createProviderRequestSupport(input: ProviderRequestSupportInput)
     return hash.readUInt32BE(0) % 100 < pct;
   }
 
-  async function loadUserRuntimePreferences(userId: string): Promise<UserRuntimePreferences> {
+  async function loadUserRuntimePreferences(orgId: string, userId: string): Promise<UserRuntimePreferences> {
     if (!config.SYNESIS_YARN_USER_RUNTIME_PREFERENCES_ENABLED || !userId || userId === "anon") {
       return DEFAULT_USER_RUNTIME_PREFERENCES;
     }
     try {
-      const raw = await sessionStore.loadUserRuntimePreferences(userId);
+      const raw = await sessionStore.loadUserRuntimePreferences(orgId || "no-org", userId);
       return normalizeUserRuntimePreferences(raw);
     } catch (err) {
-      logger.warn({ err, userId }, "user_runtime_preferences_load_failed");
+      logger.warn({ err, orgId, userId }, "user_runtime_preferences_load_failed");
       return DEFAULT_USER_RUNTIME_PREFERENCES;
     }
   }

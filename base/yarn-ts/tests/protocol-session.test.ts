@@ -100,8 +100,8 @@ describe("protocol session utilities", () => {
       afterSessionLoaded: async ({ sessionKey, session: loadedSession }) => {
         calls.push(`hook:${sessionKey}:${loadedSession.attributed}`);
       },
-      loadRuntimePreferences: async (userId) => {
-        calls.push(`prefs:${userId}`);
+      loadRuntimePreferences: async (orgId, userId) => {
+        calls.push(`prefs:${orgId}:${userId}`);
         return { mode: "test" };
       },
       debugEnabled: true,
@@ -123,7 +123,7 @@ describe("protocol session utilities", () => {
       "state:session-key-1:conversation-1",
       "auth:pat",
       "hook:session-key-1:true",
-      "prefs:user-1",
+      "prefs:org-1:user-1",
     ]);
   });
 

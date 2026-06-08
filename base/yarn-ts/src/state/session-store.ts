@@ -189,20 +189,21 @@ export class SessionStore {
   }
 
   async saveUserRuntimePreferences(
+    orgId: string,
     userId: string,
     preferences: UserRuntimePreferences,
     ttlMs: number,
   ): Promise<void> {
     await this.redis.set(
-      this.userPreferencesKey(userId),
+      this.userPreferencesKey(orgId, userId),
       JSON.stringify(preferences),
       "EX",
       Math.ceil(ttlMs / 1000),
     );
   }
 
-  async loadUserRuntimePreferences(userId: string): Promise<unknown | null> {
-    const raw = await this.redis.get(this.userPreferencesKey(userId));
+  async loadUserRuntimePreferences(orgId: string, userId: string): Promise<unknown | null> {
+    const raw = await this.redis.get(this.userPreferencesKey(orgId, userId));
     if (!raw) return null;
     try {
       return JSON.parse(raw) as unknown;
@@ -329,8 +330,8 @@ export class SessionStore {
     return `yarn-ts:continuity:${this.safeKeyPart(orgId || "no-org")}:${this.safeKeyPart(userId || "anon")}`;
   }
 
-  private userPreferencesKey(userId: string): string {
-    return `yarn-ts:user-runtime-preferences:${this.safeKeyPart(userId || "anon")}`;
+  private userPreferencesKey(orgId: string, userId: string): string {
+    return `yarn-ts:user-runtime-preferences:${this.safeKeyPart(orgId || "no-org")}:${this.safeKeyPart(userId || "anon")}`;
   }
 
   private providerCacheWindowKey(

@@ -102,6 +102,10 @@ def _user_pref_id(user: UserInfo) -> str:
     return quote((user.user_id or user.username or "").strip(), safe="")
 
 
+def _user_pref_org_id(user: UserInfo) -> str:
+    return (user.org_id or "no-org").strip() or "no-org"
+
+
 async def _fetch_yarn_recent_diagnostics() -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
@@ -174,6 +178,7 @@ async def get_runtime_preferences(user: UserInfo = Depends(get_current_user)):
             resp = await client.get(
                 f"{_YARN_URL.rstrip('/')}/v1/user-runtime-preferences/{user_id}",
                 headers=_internal_headers(),
+                params={"org_id": _user_pref_org_id(user)},
             )
     except httpx.RequestError as exc:
         raise HTTPException(502, "Yarn runtime preferences service is unavailable") from exc
@@ -196,6 +201,7 @@ async def update_runtime_preferences(
             resp = await client.put(
                 f"{_YARN_URL.rstrip('/')}/v1/user-runtime-preferences/{user_id}",
                 headers={**_internal_headers(), "Content-Type": "application/json"},
+                params={"org_id": _user_pref_org_id(user)},
                 json=body.model_dump(),
             )
     except httpx.RequestError as exc:

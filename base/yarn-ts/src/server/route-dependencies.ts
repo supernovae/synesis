@@ -88,7 +88,7 @@ export interface ClaudeSessionDependencies extends TransitionalRouteDependencyBa
   ): void;
   getSessionKey(identity: SessionIdentity): Promise<string>;
   getSessionState(sessionKey: string, identity: SessionIdentity): Promise<SessionState>;
-  loadUserRuntimePreferences(userId: string): Promise<unknown>;
+  loadUserRuntimePreferences(orgId: string, userId: string): Promise<unknown>;
   casSessionSave(state: SessionState): Promise<unknown>;
   sessions: Map<string, SessionState>;
   recordSessionEvent: TransitionalRouteFn;

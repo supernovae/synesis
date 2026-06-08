@@ -480,6 +480,33 @@ describe("Session isolation — two clients, same user", () => {
 
     await store.close();
   });
+
+  it("isolates Redis runtime preferences by organization and user", async () => {
+    const { SessionStore } = await import("../src/state/session-store.js");
+    const store = new SessionStore({ SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3" } as never);
+
+    await store.saveUserRuntimePreferences("org-1", "alice", {
+      loopBreakMode: "assertive",
+      cachePolicyBias: "auto",
+      synesisMemoryMode: "adaptive",
+      allowAggressiveCompactionWithoutCacheHits: true,
+      maxToolLoopSoftFails: null,
+      updatedAt: 1,
+    }, 60_000);
+    await store.saveUserRuntimePreferences("org-2", "alice", {
+      loopBreakMode: "hands_off",
+      cachePolicyBias: "balanced",
+      synesisMemoryMode: "safe",
+      allowAggressiveCompactionWithoutCacheHits: false,
+      maxToolLoopSoftFails: 8,
+      updatedAt: 2,
+    }, 60_000);
+
+    await expect(store.loadUserRuntimePreferences("org-1", "alice")).resolves.toMatchObject({ loopBreakMode: "assertive" });
+    await expect(store.loadUserRuntimePreferences("org-2", "alice")).resolves.toMatchObject({ loopBreakMode: "hands_off" });
+
+    await store.close();
+  });
 });
 
 describe("Usage writer — session event inserts", () => {
