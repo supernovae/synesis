@@ -199,6 +199,7 @@ async def add_member(
         if not grp:
             raise HTTPException(status_code=404, detail="Group not found")
         _ensure_group_access(_user, grp)
+        group_org_id = grp.org_id
         existing = (
             await session.execute(
                 select(AclGroupMember).where(
@@ -217,6 +218,13 @@ async def add_member(
             )
         )
         await session.commit()
+    await record_admin_audit(
+        action="acl.group.member.add",
+        status="success",
+        summary=f"Added user {body.user_id} to ACL group {group_id}",
+        detail={"group_id": group_id, "member_user_id": body.user_id, "org_id": group_org_id},
+        user=_user,
+    )
     return {"ok": True, "status": "added"}
 
 
@@ -232,6 +240,7 @@ async def remove_member(
         if not grp:
             raise HTTPException(status_code=404, detail="Group not found")
         _ensure_group_access(_user, grp)
+        group_org_id = grp.org_id
         result = await session.execute(
             delete(AclGroupMember).where(
                 AclGroupMember.group_id == group_id,
@@ -241,6 +250,13 @@ async def remove_member(
         await session.commit()
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Membership not found")
+    await record_admin_audit(
+        action="acl.group.member.remove",
+        status="success",
+        summary=f"Removed user {user_id} from ACL group {group_id}",
+        detail={"group_id": group_id, "member_user_id": user_id, "org_id": group_org_id},
+        user=_user,
+    )
     return {"ok": True}
 
 
