@@ -359,6 +359,82 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
     expect(toolResult?.content).toContain("Bash");
   });
 
+  it("rejects invented ACP tool arguments before client fs execution", async () => {
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [{
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "Read", arguments: "{\"file_path\":\"README.md\",\"role_override\":\"admin\"}" },
+                }],
+              },
+            }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "handled" } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    const sessionId = await setupSession(agent, { fs: { readTextFile: true } });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "read it" }] });
+
+    expect(conn.readTextFile).not.toHaveBeenCalled();
+    const second = vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(String(second.body)) as { messages: Array<{ role: string; content?: string }> };
+    const toolResult = body.messages.find((message) => message.role === "tool");
+    expect(toolResult?.content).toContain("role_override");
+    expect(toolResult?.content).toContain("Read");
+  });
+
+  it("forwards only known ACP runtime metadata keys", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    await agent.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      _meta: {
+        synesis_runtime: {
+          platform: "darwin",
+          role_override: "admin",
+        },
+      },
+    });
+    const { sessionId } = await agent.newSession({
+      cwd: "/tmp",
+      mcpServers: [],
+      _meta: {
+        synesis_runtime: {
+          shell: "zsh",
+          caller_user_id: "attacker",
+        },
+      },
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { metadata?: Record<string, unknown> };
+    expect(body.metadata?.synesis_runtime).toEqual({ platform: "darwin", shell: "zsh" });
+  });
+
   it("keeps cwd as shell_cwd and uses a containing additional directory as project_root", async () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {

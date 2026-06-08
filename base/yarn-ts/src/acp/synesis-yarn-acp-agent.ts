@@ -5,6 +5,7 @@
  * @see https://agentclientprotocol.com/
  */
 import path from "node:path";
+import { z } from "zod";
 import type {
   Agent,
   AgentSideConnection,
@@ -55,9 +56,44 @@ interface SessionData {
 const META_MAX = 500;
 const ACP_META_JSON_MAX = 2048;
 const MAX_TOOL_ROUNDS = 32;
+const ACP_MAX_PATH_CHARS = 4096;
+const ACP_MAX_COMMAND_CHARS = 16_000;
+const ACP_MAX_WRITE_CONTENT_CHARS = 2_000_000;
 
 const ACP_USER_ERROR_PREFIX = "[Synesis ACP] ";
 const ACP_TOOL_NAMES = new Set<string>(["Read", "Write", "Bash"]);
+
+const AcpPathArgSchema = z.string().min(1).max(ACP_MAX_PATH_CHARS);
+
+const AcpReadInputSchema = z.object({
+  file_path: AcpPathArgSchema.optional(),
+  path: AcpPathArgSchema.optional(),
+}).strict().superRefine((input, ctx) => {
+  if (!input.file_path && !input.path) {
+    ctx.addIssue({ code: "custom", message: "Read requires file_path or path" });
+  }
+});
+
+const AcpWriteInputSchema = z.object({
+  file_path: AcpPathArgSchema.optional(),
+  path: AcpPathArgSchema.optional(),
+  content: z.string().max(ACP_MAX_WRITE_CONTENT_CHARS),
+}).strict().superRefine((input, ctx) => {
+  if (!input.file_path && !input.path) {
+    ctx.addIssue({ code: "custom", message: "Write requires file_path or path" });
+  }
+});
+
+const AcpBashInputSchema = z.object({
+  command: z.string().min(1).max(ACP_MAX_COMMAND_CHARS),
+  cwd: AcpPathArgSchema.optional(),
+}).strict();
+
+const AcpRuntimeMetaSchema = z.object({
+  platform: z.string().max(64).optional(),
+  os_version: z.string().max(128).optional(),
+  shell: z.string().max(128).optional(),
+}).strict();
 
 const READ_TOOL_SCHEMA = {
   type: "function",
@@ -272,14 +308,31 @@ function repairShellCwdPrefixedRelativePath(relPath: string, shellCwd: string): 
   return relPath;
 }
 
-function parseToolArguments(argumentsJson: string | undefined): Record<string, unknown> {
-  if (!argumentsJson || !argumentsJson.trim()) return {};
-  try {
-    const v = JSON.parse(argumentsJson) as unknown;
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-  } catch {
-    return {};
+function validateAcpToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  switch (toolName) {
+    case "Read":
+      return AcpReadInputSchema.parse(input);
+    case "Write":
+      return AcpWriteInputSchema.parse(input);
+    case "Bash":
+      return AcpBashInputSchema.parse(input);
+    default:
+      return input;
   }
+}
+
+function parseToolArguments(toolName: string, argumentsJson: string | undefined): Record<string, unknown> {
+  if (!argumentsJson || !argumentsJson.trim()) return {};
+  let v: unknown;
+  try {
+    v = JSON.parse(argumentsJson) as unknown;
+  } catch {
+    throw new Error(`${toolName}: arguments must be valid JSON`);
+  }
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    throw new Error(`${toolName}: arguments must be a JSON object`);
+  }
+  return validateAcpToolInput(toolName, v as Record<string, unknown>);
 }
 
 function acpToolError(message: string): string {
@@ -338,8 +391,16 @@ function applyAcpMetaHints(target: Record<string, unknown>, meta: Record<string,
 
   const nested = meta.synesis_runtime;
   if (nested && typeof nested === "object" && nested !== null) {
-    for (const [k, v] of Object.entries(nested as Record<string, unknown>)) {
-      if (typeof v === "string" && v.trim()) rtExisting[k] = v.trim();
+    const raw = nested as Record<string, unknown>;
+    const parsed = AcpRuntimeMetaSchema.safeParse({
+      platform: raw.platform,
+      os_version: raw.os_version,
+      shell: raw.shell,
+    });
+    if (parsed.success) {
+      for (const [k, v] of Object.entries(parsed.data)) {
+        if (typeof v === "string" && v.trim()) rtExisting[k] = v.trim();
+      }
     }
   }
 
@@ -569,9 +630,12 @@ export class SynesisYarnAcpAgent implements Agent {
           if (!id || !name) continue;
           let rawInput: unknown = {};
           try {
-            rawInput = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-          } catch {
-            rawInput = { _raw: tc.function?.arguments ?? "" };
+            rawInput = parseToolArguments(name, tc.function?.arguments);
+          } catch (err) {
+            rawInput = {
+              error: "invalid_acp_tool_arguments",
+              message: err instanceof Error ? err.message : String(err),
+            };
           }
           const n: SessionNotification = {
             sessionId: params.sessionId,
@@ -608,7 +672,14 @@ export class SynesisYarnAcpAgent implements Agent {
       for (const tc of toolCalls) {
         const id = tc.id;
         const name = tc.function?.name ?? "";
-        const input = parseToolArguments(tc.function?.arguments);
+        let input: Record<string, unknown>;
+        let inputError: Error | null = null;
+        try {
+          input = parseToolArguments(name, tc.function?.arguments);
+        } catch (err) {
+          inputError = err instanceof Error ? err : new Error(String(err));
+          input = {};
+        }
         await this.connection.sessionUpdate({
           sessionId: params.sessionId,
           update: {
@@ -620,6 +691,7 @@ export class SynesisYarnAcpAgent implements Agent {
         });
         let resultText: string;
         try {
+          if (inputError) throw inputError;
           resultText = await this.executeSynesisToolOnAcpClient(params.sessionId, session, name, input);
         } catch (err) {
           resultText = JSON.stringify({
@@ -776,7 +848,7 @@ export class SynesisYarnAcpAgent implements Agent {
     }
 
     const effectiveToolName = upper.toolName;
-    const effectiveInput = upper.input;
+    const effectiveInput = validateAcpToolInput(effectiveToolName, upper.input);
 
     if (ACP_TOOL_NAMES.has(effectiveToolName) && !session.availableToolNames.has(effectiveToolName as AcpToolName)) {
       return JSON.stringify({
