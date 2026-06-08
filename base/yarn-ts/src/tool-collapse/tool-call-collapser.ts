@@ -78,14 +78,6 @@ function asRecord(input: unknown): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
     return input as Record<string, unknown>;
   }
-  if (typeof input === "string") {
-    try {
-      const j = JSON.parse(input) as unknown;
-      if (j && typeof j === "object" && !Array.isArray(j)) return j as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
   return {};
 }
 

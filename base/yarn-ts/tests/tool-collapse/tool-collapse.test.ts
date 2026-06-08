@@ -19,6 +19,18 @@ import { CollapseRequestSchema } from "../../src/tool-collapse/routes.js";
 import type { ParsedToolCall } from "../../src/tool-collapse/types.js";
 
 describe("tool-call-collapser", () => {
+  it("does not parse raw string inputs in internal extractor helpers", () => {
+    const calls: ParsedToolCall[] = [
+      { toolCallId: "a", toolName: "read_file", input: JSON.stringify({ path: "src/a.ts" }) },
+      { toolCallId: "b", toolName: "grep", input: JSON.stringify({ query: "foo" }) },
+    ];
+
+    const plan = collapseToolCalls(calls);
+
+    expect(plan.operations).toHaveLength(2);
+    expect(plan.operations.every((op) => op.kind === "passthrough")).toBe(true);
+  });
+
   it("dedupes multiple read_file into batch_read", () => {
     const calls: ParsedToolCall[] = [
       { toolCallId: "a", toolName: "read_file", input: { target_file: "src/a.ts" } },

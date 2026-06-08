@@ -13,6 +13,12 @@ describe("discovery-guardrails", () => {
     expect(isRootWildcardGlobCall("glob", { glob_pattern: "src/*" })).toBe(false);
   });
 
+  it("does not parse raw string inputs for guardrail decisions", () => {
+    expect(isRootWildcardGlobCall("glob", JSON.stringify({ glob_pattern: "*" }))).toBe(false);
+    expect(isEmptyGlobPatternCall("glob", JSON.stringify({ glob_pattern: "" }))).toBe(false);
+    expect(broadDiscoverySignature("glob", JSON.stringify({ glob_pattern: "src/*" }))).toBeNull();
+  });
+
   it("blocks empty glob patterns", () => {
     expect(isEmptyGlobPatternCall("Glob", { glob_pattern: "" })).toBe(true);
     expect(isEmptyGlobPatternCall("glob", { pattern: "   " })).toBe(true);
