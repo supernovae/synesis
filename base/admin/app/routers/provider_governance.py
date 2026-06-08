@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user
@@ -26,6 +28,41 @@ logger = logging.getLogger("synesis.admin.provider_governance")
 router = APIRouter(prefix="/api/v1/provider-governance", tags=["provider-governance"])
 
 _KEY_RE = re.compile(r"^[a-z0-9_-]{2,64}$")
+ProviderRoleName = Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class ProviderCreateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    key: str = Field(..., min_length=2, max_length=64)
+    label: str = Field(..., min_length=1, max_length=128)
+    route_prefix: str = Field("openai/", max_length=64)
+    api_key_env: str = Field("", max_length=128)
+    needs_endpoint: bool = True
+    placeholder: str = Field("model-name", max_length=256)
+    is_local: bool = False
+    enabled: bool = True
+    default_endpoint: str = Field("", max_length=2048)
+    default_max_tokens: int = Field(8192, ge=1, le=1048576)
+    default_temperature: float = Field(0.1, ge=0, le=5)
+    notes: str = Field("", max_length=4000)
+
+
+class ProviderUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    enabled: bool | None = None
+    default_max_tokens: int | None = Field(None, ge=1, le=1048576)
+    default_temperature: float | None = Field(None, ge=0, le=5)
+    allowed_roles: list[ProviderRoleName] | None = Field(None, max_length=100)
+    notes: str | None = Field(None, max_length=4000)
+    default_endpoint: str | None = Field(None, max_length=2048)
+    label: str | None = Field(None, max_length=128)
+    route_prefix: str | None = Field(None, max_length=64)
+    api_key_env: str | None = Field(None, max_length=128)
+    needs_endpoint: bool | None = None
+    placeholder: str | None = Field(None, max_length=256)
+    is_local: bool | None = None
 
 
 async def seed_provider_configs() -> int:
@@ -238,7 +275,10 @@ async def list_provider_configs(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/{provider_key}")
-async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_current_user)):
+async def get_provider_config(
+    provider_key: str = Path(..., min_length=2, max_length=64, pattern=r"^[a-z0-9_-]+$"),
+    _user: UserInfo = Depends(get_current_user),
+):
     """Get a single provider's catalog info + governance config."""
     catalog = get_catalog()
     configs = await _get_all_configs()
@@ -274,10 +314,11 @@ async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_c
 
 @router.post("")
 async def create_provider(
-    data: dict = Body(...),
+    body: ProviderCreateBody = Body(...),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Create a new custom provider."""
+    data = body.model_dump()
     key = data.get("key", "").strip().lower()
     if not key or not _KEY_RE.match(key):
         raise HTTPException(400, "Provider key must be 2-64 lowercase alphanumeric/dash/underscore characters")
@@ -323,11 +364,12 @@ async def create_provider(
 
 @router.put("/{provider_key}")
 async def update_provider_config(
-    provider_key: str,
-    data: dict = Body(...),
+    provider_key: str = Path(..., min_length=2, max_length=64, pattern=r"^[a-z0-9_-]+$"),
+    body: ProviderUpdateBody = Body(...),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Create or update governance config for a provider."""
+    data = body.model_dump(exclude_unset=True)
     is_catalog = provider_key in PROVIDER_CATALOG
 
     async with async_session() as session:
@@ -386,7 +428,7 @@ async def update_provider_config(
 
 @router.delete("/{provider_key}")
 async def delete_or_reset_provider(
-    provider_key: str,
+    provider_key: str = Path(..., min_length=2, max_length=64, pattern=r"^[a-z0-9_-]+$"),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete a custom provider, or reset a catalog provider to defaults."""
