@@ -31,12 +31,12 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
     expect(body.caller_org_id).toBe("o1");
   });
 
-  it("does not allow tool args to override trusted caller attribution", async () => {
+  it("rejects caller-controlled attribution fields before execution", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }),
     );
 
-    await dispatchSynesisTool(
+    const result = await dispatchSynesisTool(
       "synesis_search",
       {
         query: "hello",
@@ -48,10 +48,29 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
       deps,
     );
 
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body.caller_org_id).toBe("o1");
-    expect(body.caller_user_id).toBe("u1");
-    expect(body.caller_tenant_ids).toBeUndefined();
+    expect(result).toMatchObject({ error: "validation_error" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown patch operation fields before integrity execution", async () => {
+    const result = await dispatchSynesisTool(
+      "synesis_patch_integrity",
+      {
+        code: "print('ok')",
+        patch_ops: [
+          {
+            op: "modify",
+            path: "app.py",
+            content: "print('ok')",
+            run_as_admin: true,
+          },
+        ],
+      },
+      auth,
+      deps,
+    );
+
+    expect(result).toMatchObject({ error: "validation_error" });
   });
 
   it("calls planner /v1/web/search for synesis_web_search", async () => {
