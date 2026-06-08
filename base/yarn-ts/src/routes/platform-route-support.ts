@@ -10,6 +10,10 @@ import type { SessionIdentity } from "../session/session-key.js";
 export type WritableRaw = NodeJS.WritableStream & { destroyed?: boolean };
 
 export type RequireInternalToken = (req: { headers: Record<string, unknown> }) => boolean;
+export interface InternalAuthReply {
+  code(statusCode: number): InternalAuthReply;
+  send(body: unknown): unknown;
+}
 export type FgaCheck = (
   user: string,
   relation: string,
@@ -65,6 +69,37 @@ export function authRejectionLogFields(
     authHeaderKind: classifyAuthorizationHeader(authorization),
     reason: errorReason(err),
   };
+}
+
+function firstHeader(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const first = value.find((item) => typeof item === "string");
+    return typeof first === "string" ? first : undefined;
+  }
+  return undefined;
+}
+
+export function requireInternalRouteToken(
+  deps: Pick<PlatformRouteDependencies, "app" | "requireInternalToken">,
+  req: { headers: Record<string, unknown>; id?: unknown; method?: unknown; url?: unknown },
+  reply: InternalAuthReply,
+  endpoint: string,
+): boolean {
+  if (deps.requireInternalToken(req)) return true;
+
+  const authz = firstHeader(req.headers.authorization);
+  const logRecord = {
+    ...authRejectionLogFields(new Error("internal_service_token_required"), authz, endpoint),
+    reqId: typeof req.id === "string" ? req.id : undefined,
+    method: typeof req.method === "string" ? req.method : undefined,
+    route: endpoint,
+  };
+  const logger = (deps.app as unknown as { log?: { warn?: (record: Record<string, unknown>, message: string) => void } }).log;
+  logger?.warn?.(logRecord, "internal_route_auth_denied");
+
+  reply.code(401).send({ error: { type: "auth_error", message: "Internal service token required" } });
+  return false;
 }
 
 export interface SessionStateForTelemetry {

@@ -1,7 +1,7 @@
-import type { PlatformRouteDependencies } from "./platform-route-support.js";
+import { requireInternalRouteToken, type PlatformRouteDependencies } from "./platform-route-support.js";
 
 export function registerHealthRoutes(deps: PlatformRouteDependencies): void {
-  const { app, usagePersistenceEnabled, usageWriter, sessionStore, promRegistry, requireInternalToken } = deps;
+  const { app, usagePersistenceEnabled, usageWriter, sessionStore, promRegistry } = deps;
 
   app.get("/health", async () => ({
     status: "ok",
@@ -18,9 +18,7 @@ export function registerHealthRoutes(deps: PlatformRouteDependencies): void {
   });
 
   app.get("/metrics", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/metrics")) return;
     reply.header("Content-Type", promRegistry.contentType);
     return promRegistry.metrics();
   });

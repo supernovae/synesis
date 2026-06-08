@@ -10,7 +10,7 @@ import { parseModelArchitectureDiagnosticsV1 } from "@synesis/upper-harness";
 import { resolveAdapter } from "../providers/model-adapter.js";
 import { resolveEndpointCapabilityId } from "../providers/endpoint-capabilities/resolve.js";
 import { summarizeCacheShapeDiagnostics } from "../telemetry/cache-shape-diagnostics.js";
-import type { PlatformRouteDependencies } from "./platform-route-support.js";
+import { requireInternalRouteToken, type PlatformRouteDependencies } from "./platform-route-support.js";
 
 export interface ModelArchitectureDiagnosticsEnvelope {
   schema_version: "model_architecture_diagnostics_v1";
@@ -82,20 +82,16 @@ export function buildModelArchitectureDiagnostics(
 }
 
 export function registerDiagnosticsRoutes(deps: PlatformRouteDependencies): void {
-  const { app, requireInternalToken, diagnosticRegistry } = deps;
+  const { app, diagnosticRegistry } = deps;
 
   app.get("/v1/diagnostics/recent", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/v1/diagnostics/recent")) return;
     const recent = await diagnosticRegistry.listRecent();
     return { diagnostics: recent.diagnostics, count: recent.diagnostics.length, source: recent.source };
   });
 
   app.get("/v1/diagnostics/cache-shapes/recent", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/v1/diagnostics/cache-shapes/recent")) return;
     const recent = await diagnosticRegistry.listRecent();
     const summaries = summarizeCacheShapeDiagnostics(
       recent.diagnostics as Array<Record<string, unknown>>,
@@ -110,16 +106,12 @@ export function registerDiagnosticsRoutes(deps: PlatformRouteDependencies): void
   });
 
   app.get("/v1/diagnostics/model-architecture", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/v1/diagnostics/model-architecture")) return;
     return buildModelArchitectureDiagnostics(deps);
   });
 
   app.get("/v1/diagnostics/:requestId", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/v1/diagnostics/:requestId")) return;
     const { requestId } = req.params as { requestId: string };
     const diagnostic = await diagnosticRegistry.getByRequestId(requestId);
     if (diagnostic) return diagnostic;

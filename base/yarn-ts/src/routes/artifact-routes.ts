@@ -1,14 +1,10 @@
-import type { PlatformRouteDependencies } from "./platform-route-support.js";
+import { requireInternalRouteToken, type PlatformRouteDependencies } from "./platform-route-support.js";
 
 export function registerArtifactRoutes(deps: PlatformRouteDependencies): void {
-  const { app, requireInternalToken, artifactStore } = deps;
+  const { app, artifactStore } = deps;
 
   app.get("/v1/artifacts/:id", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({
-        error: { type: "auth_error", message: "Internal service token required" },
-      });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/v1/artifacts/:id")) return;
     const id = (req.params as { id: string }).id;
     const artifact = artifactStore.get(id);
     if (!artifact) {

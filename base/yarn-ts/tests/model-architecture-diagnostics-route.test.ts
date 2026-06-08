@@ -97,7 +97,7 @@ describe("model architecture diagnostics route", () => {
     await routes.get("/v1/diagnostics/model-architecture")?.({ headers: {} }, reply);
 
     expect(reply.statusCode).toBe(401);
-    expect(reply.body).toEqual({ error: { type: "auth_error", message: "Unauthorized" } });
+    expect(reply.body).toEqual({ error: { type: "auth_error", message: "Internal service token required" } });
   });
 });
 

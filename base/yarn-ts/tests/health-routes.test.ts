@@ -6,10 +6,10 @@ describe("health routes", () => {
   it("requires an internal token for metrics", async () => {
     const routes = registerRoutesWithAuth(false);
     const reply = createReplyProbe();
-    const body = await routes.get("/metrics")?.({ headers: {} }, reply);
+    await routes.get("/metrics")?.({ headers: {} }, reply);
 
     expect(reply.statusCode).toBe(401);
-    expect(body).toEqual({ error: { type: "auth_error", message: "Unauthorized" } });
+    expect(reply.body).toEqual({ error: { type: "auth_error", message: "Internal service token required" } });
   });
 
   it("returns metrics for internal callers", async () => {

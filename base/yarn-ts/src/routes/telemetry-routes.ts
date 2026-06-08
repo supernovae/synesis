@@ -1,4 +1,4 @@
-import { computeEfficiencyIndex, type PlatformRouteDependencies } from "./platform-route-support.js";
+import { computeEfficiencyIndex, requireInternalRouteToken, type PlatformRouteDependencies } from "./platform-route-support.js";
 
 function telemetryUnavailable(name: string, reason = "missing_dependency"): { available: false; name: string; reason: string } {
   return { available: false, name, reason };
@@ -46,7 +46,6 @@ export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
     config,
     authResolver,
     userRateLimiter,
-    requireInternalToken,
     usageWriter,
     sessions,
     validationNormalization,
@@ -86,9 +85,7 @@ export function registerTelemetryRoutes(deps: PlatformRouteDependencies): void {
   } = deps;
 
   app.get("/health/telemetry", async (req, reply) => {
-    if (!requireInternalToken(req as never)) {
-      return reply.code(401).send({ error: { type: "auth_error", message: "Unauthorized" } });
-    }
+    if (!requireInternalRouteToken(deps, req as never, reply, "/health/telemetry")) return;
     let activeSessionCount = 0;
     let totalHistoryEntries = 0;
     let checkpointedSessions = 0;
