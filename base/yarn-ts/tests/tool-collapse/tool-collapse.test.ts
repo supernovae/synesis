@@ -15,6 +15,7 @@ import {
 } from "../../src/tool-collapse/tool-call-validator.js";
 import { executeCollapsePlan, type ToolCollapseExecutor } from "../../src/tool-collapse/tool-call-executor.js";
 import { compactExecutionResults } from "../../src/tool-collapse/response-compactor.js";
+import { CollapseRequestSchema } from "../../src/tool-collapse/routes.js";
 import type { ParsedToolCall } from "../../src/tool-collapse/types.js";
 
 describe("tool-call-collapser", () => {
@@ -204,6 +205,60 @@ describe("tool-call-validator", () => {
     const batchOp = plan.operations.find((o) => o.kind === "batch_read");
     if (batchOp) {
       expect(v.ok).toBe(false);
+    }
+  });
+});
+
+describe("tool-collapse route schemas", () => {
+  it("rejects unknown top-level request fields", () => {
+    const parsed = CollapseRequestSchema.safeParse({
+      tool_calls: [{ toolCallId: "a", toolName: "read_file", input: { path: "src/a.ts" } }],
+      workspace_root: "/tmp/synesis-ws",
+      caller_role: "platform_admin",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects security-sensitive tool input keys", () => {
+    const parsed = CollapseRequestSchema.safeParse({
+      tool_calls: [{
+        toolCallId: "a",
+        toolName: "read_file",
+        input: { path: "src/a.ts", run_as_admin: true },
+      }],
+      workspace_root: "/tmp/synesis-ws",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unknown keys for collapsible tool inputs", () => {
+    const parsed = CollapseRequestSchema.safeParse({
+      tool_calls: [{
+        toolCallId: "a",
+        toolName: "grep",
+        input: JSON.stringify({ query: "foo", invented_filter: "bar" }),
+      }],
+      workspace_root: "/tmp/synesis-ws",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("parses bounded JSON string inputs into validated objects", () => {
+    const parsed = CollapseRequestSchema.safeParse({
+      tool_calls: [{
+        toolCallId: "a",
+        toolName: "grep",
+        input: JSON.stringify({ query: "foo", path: "src" }),
+      }],
+      workspace_root: "/tmp/synesis-ws",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.tool_calls[0].input).toEqual({ query: "foo", path: "src" });
     }
   });
 });

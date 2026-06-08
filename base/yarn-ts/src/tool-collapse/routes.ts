@@ -7,6 +7,7 @@ import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
 import { fgaCheck } from "../openfga-client.js";
 import { authRejectionLogFields } from "../routes/platform-route-support.js";
 import { defaultShellAllowlistFromEnv } from "./tool-call-validator.js";
+import { classifyTool } from "./tool-call-collapser.js";
 import { ToolCallInterceptor, planToSyntheticToolCalls } from "./tool-call-interceptor.js";
 import type { CollapsedOperation, ParsedToolCall } from "./types.js";
 
@@ -33,18 +34,79 @@ function summarizeOperation(op: CollapsedOperation, idx: number): Record<string,
   return base;
 }
 
-const ToolCallItemSchema = z.object({
-  toolCallId: z.string(),
-  toolName: z.string(),
-  input: z.unknown(),
+const TOOL_COLLAPSE_MAX_STRING_CHARS = 16_000;
+const TOOL_COLLAPSE_MAX_INPUT_KEYS = 64;
+const TOOL_COLLAPSE_SECURITY_KEYS = /^(?:caller_|x-synesis|authorization|cookie|role$|user_id$|org_id$|tenant_ids$|token$|api[_-]?key$|secret$|run_as_admin$)/i;
+const TOOL_COLLAPSE_ALLOWED_BODY_KEYS = new Set(["tool_calls", "workspace_root", "strict_validation", "execute"]);
+const TOOL_COLLAPSE_ALLOWED_OPENAI_CALL_KEYS = new Set(["id", "toolCallId", "type", "index", "function", "name", "input"]);
+const TOOL_COLLAPSE_ALLOWED_OPENAI_FUNCTION_KEYS = new Set(["name", "arguments"]);
+
+const TOOL_COLLAPSE_INPUT_KEYS_BY_KIND: Record<string, Set<string>> = {
+  read_file: new Set(["target_file", "path", "file", "file_path", "filename", "line_range", "offset", "limit", "start_line", "end_line"]),
+  search: new Set(["query", "pattern", "q", "search_term", "path", "target_directory", "include", "exclude", "glob", "max_results", "limit"]),
+  str_replace: new Set(["path", "file", "target_file", "patch", "diff", "contents", "new_string", "old_string"]),
+  run_tests: new Set(["command", "cmd", "shell", "cwd", "timeout_ms"]),
+};
+
+function parseBoundedJsonString(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  if (value.length > TOOL_COLLAPSE_MAX_STRING_CHARS) return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function bodyHasOnlyKnownFields(body: unknown): body is Record<string, unknown> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  return Object.keys(body).every((key) => TOOL_COLLAPSE_ALLOWED_BODY_KEYS.has(key));
+}
+
+const ToolInputScalarSchema = z.union([
+  z.string().max(TOOL_COLLAPSE_MAX_STRING_CHARS),
+  z.number().refine((value) => Number.isFinite(value), { message: "number must be finite" }),
+  z.boolean(),
+  z.null(),
+]);
+
+const ToolInputValueSchema = z.union([
+  ToolInputScalarSchema,
+  z.array(ToolInputScalarSchema).max(100),
+]);
+
+const ToolInputObjectSchema = z
+  .record(z.string().min(1).max(128), ToolInputValueSchema)
+  .refine((input) => Object.keys(input).length <= TOOL_COLLAPSE_MAX_INPUT_KEYS, {
+    message: `input must have ${TOOL_COLLAPSE_MAX_INPUT_KEYS} keys or fewer`,
+  });
+
+const ToolCallInputSchema = z.preprocess(parseBoundedJsonString, ToolInputObjectSchema);
+
+export const ToolCallItemSchema = z.object({
+  toolCallId: z.string().min(1).max(256),
+  toolName: z.string().min(1).max(128),
+  input: ToolCallInputSchema,
+}).strict().superRefine((item, ctx) => {
+  const kind = classifyTool(item.toolName);
+  const allowedKeys = TOOL_COLLAPSE_INPUT_KEYS_BY_KIND[kind];
+  for (const key of Object.keys(item.input)) {
+    if (TOOL_COLLAPSE_SECURITY_KEYS.test(key)) {
+      ctx.addIssue({ code: "custom", path: ["input", key], message: "security-sensitive input key is not allowed" });
+      continue;
+    }
+    if (allowedKeys && !allowedKeys.has(key)) {
+      ctx.addIssue({ code: "custom", path: ["input", key], message: `unknown ${kind} input key` });
+    }
+  }
 });
 
-const CollapseRequestSchema = z.object({
+export const CollapseRequestSchema = z.object({
   tool_calls: z.array(ToolCallItemSchema).min(1),
-  workspace_root: z.string().nullable().optional(),
+  workspace_root: z.string().max(4096).nullable().optional(),
   strict_validation: z.boolean().optional().default(true),
   execute: z.boolean().optional().default(false),
-});
+}).strict();
 
 export interface ToolCollapseRouteOptions {
   authResolver: AuthResolver;
@@ -59,18 +121,16 @@ function parseOpenAiStyleCalls(raw: unknown): ParsedToolCall[] | null {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
+    if (!Object.keys(o).every((key) => TOOL_COLLAPSE_ALLOWED_OPENAI_CALL_KEYS.has(key))) return null;
     const id = typeof o.id === "string" ? o.id : typeof o.toolCallId === "string" ? o.toolCallId : "";
     let name = "";
     let args: unknown = {};
     if (o.function && typeof o.function === "object") {
       const fn = o.function as Record<string, unknown>;
+      if (!Object.keys(fn).every((key) => TOOL_COLLAPSE_ALLOWED_OPENAI_FUNCTION_KEYS.has(key))) return null;
       if (typeof fn.name === "string") name = fn.name;
       if (typeof fn.arguments === "string") {
-        try {
-          args = JSON.parse(fn.arguments) as unknown;
-        } catch {
-          args = { _raw_arguments: fn.arguments };
-        }
+        args = parseBoundedJsonString(fn.arguments);
       }
     }
     if (typeof o.name === "string") name = o.name;
@@ -114,7 +174,7 @@ export async function registerToolCollapseRoutes(
     const body = req.body as Record<string, unknown> | null;
     let parsed = CollapseRequestSchema.safeParse(body);
     if (!parsed.success) {
-      const oai = parseOpenAiStyleCalls(body?.tool_calls);
+      const oai = bodyHasOnlyKnownFields(body) ? parseOpenAiStyleCalls(body.tool_calls) : null;
       if (oai) {
         parsed = CollapseRequestSchema.safeParse({
           tool_calls: oai,
