@@ -150,6 +150,10 @@ function parseInvokeBody(body: unknown): { name: string; args: Record<string, un
     throw new Error("invalid_body");
   }
   const raw = body as { name?: unknown; arguments?: unknown };
+  const allowed = new Set(["name", "arguments"]);
+  for (const key of Object.keys(raw)) {
+    if (!allowed.has(key)) throw new Error("unknown_invoke_field");
+  }
   const name = typeof raw.name === "string" ? raw.name.trim() : "";
   if (!name) throw new Error("name_required");
   const argsRaw = raw.arguments;

@@ -215,4 +215,24 @@ describe("admin MCP internal auth", () => {
     expect(res.json()).toMatchObject({ error: "invalid_arguments", tool: "synesis_classify_intent" });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects unknown direct tool invoke envelope fields", async () => {
+    const fetchSpy = mockUser("user");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: {
+        name: "synesis_classify_intent",
+        arguments: { query: "debug this" },
+        role_override: "platform_admin",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_request", detail: "invalid request body" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });
