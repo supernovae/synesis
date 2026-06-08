@@ -4,11 +4,11 @@ import logging
 import os
 import time
 from datetime import date as date_type
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 
 from ..auth import UserInfo
@@ -56,6 +56,36 @@ router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 def _registry_runtime_summary() -> dict[str, Any]:
     return {"source_of_truth": "admin_db", "runtime": "direct_provider_routes", "route_refresh_required": False}
+
+
+class PromptProfileCreateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=256)
+    service: Literal["yarn", "planner"] = "yarn"
+    description: str = Field("", max_length=2000)
+    content: str = Field(..., min_length=1, max_length=200000)
+    enabled: bool = True
+
+
+class PromptProfileUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, min_length=1, max_length=256)
+    service: Literal["yarn", "planner"] | None = None
+    description: str | None = Field(None, max_length=2000)
+    content: str | None = Field(None, min_length=1, max_length=200000)
+    enabled: bool | None = None
+
+
+class PromptAssignmentUpsertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service: Literal["yarn", "planner"] = "yarn"
+    target_type: Literal["default", "tier", "role", "model_family", "chat_profile", "node"] = "default"
+    target_value: str = Field("*", max_length=256)
+    profile_id: int = Field(..., ge=1)
+    enabled: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -325,9 +355,10 @@ async def list_prompts_profiles(
 
 @router.post("/prompts/profiles")
 async def create_prompts_profile(
-    data: dict = Body(...),
+    body: PromptProfileCreateBody,
     user: UserInfo = Depends(require_platform_admin),
 ):
+    data = body.model_dump()
     try:
         out = await create_prompt_profile(data, actor=user.email or user.username)
     except ValueError as exc:
@@ -345,9 +376,10 @@ async def create_prompts_profile(
 @router.put("/prompts/profiles/{profile_id}")
 async def update_prompts_profile(
     profile_id: int,
-    data: dict = Body(...),
+    body: PromptProfileUpdateBody,
     user: UserInfo = Depends(require_platform_admin),
 ):
+    data = body.model_dump(exclude_unset=True)
     try:
         out = await update_prompt_profile(profile_id, data, actor=user.email or user.username)
     except ValueError as exc:
@@ -392,9 +424,10 @@ async def list_prompts_assignments(
 
 @router.put("/prompts/assignments")
 async def put_prompts_assignment(
-    data: dict = Body(...),
+    body: PromptAssignmentUpsertBody,
     user: UserInfo = Depends(require_platform_admin),
 ):
+    data = body.model_dump()
     try:
         out = await upsert_prompt_assignment(data, actor=user.email or user.username)
     except ValueError as exc:
