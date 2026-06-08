@@ -8,7 +8,7 @@ const InputSchema = z.object({
   target: ProjectManifestSchema.describe("The target (ideal) project manifest"),
   observed: ProjectManifestSchema.describe("The observed (actual) project manifest"),
   includeStructuralCritique: z.boolean().default(true).describe("Include deterministic structural critique"),
-});
+}).strict();
 
 type Input = z.infer<typeof InputSchema>;
 

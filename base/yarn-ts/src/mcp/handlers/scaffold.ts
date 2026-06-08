@@ -4,8 +4,8 @@ import type { McpToolDefinition } from "../tool-registry.js";
 
 const InputSchema = z.object({
   projectKind: ProjectKind.describe("The project kind to scaffold"),
-  projectName: z.string().optional().describe("Name for the project (substituted into file paths)"),
-});
+  projectName: z.string().min(1).max(128).optional().describe("Name for the project (substituted into file paths)"),
+}).strict();
 
 type Input = z.infer<typeof InputSchema>;
 

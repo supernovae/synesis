@@ -4,9 +4,9 @@ import { classify } from "../../manifest/classifier.js";
 import type { McpToolDefinition } from "../tool-registry.js";
 
 const InputSchema = z.object({
-  task: z.string().min(1).describe("The task or prompt to classify"),
+  task: z.string().min(1).max(16_000).describe("The task or prompt to classify"),
   fileCount: z.number().int().min(0).optional().describe("Number of files in the project (helps complexity assessment)"),
-});
+}).strict();
 
 type Input = z.infer<typeof InputSchema>;
 type Output = {

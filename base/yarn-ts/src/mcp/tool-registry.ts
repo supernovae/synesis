@@ -100,7 +100,14 @@ function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
         }
       }
     }
-    return { type: "object", properties, ...(required.length ? { required } : {}) };
+    const catchall = (def.def as { catchall?: z.core.$ZodType })?.catchall;
+    const additionalProperties = catchall?._zod?.def?.type === "never" ? false : undefined;
+    return {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      ...(additionalProperties === false ? { additionalProperties } : {}),
+    };
   }
   if (typeName === "string") return { type: "string" };
   if (typeName === "number") return { type: "number" };

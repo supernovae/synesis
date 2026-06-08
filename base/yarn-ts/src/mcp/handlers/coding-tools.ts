@@ -116,7 +116,7 @@ const MAX_SEARCH_RESULTS = 500;
 
 const RootSchema = z.object({
   projectRoot: z.string().min(1).describe("Absolute project root path"),
-});
+}).strict();
 
 const RelPathSchema = z
   .string()
@@ -288,6 +288,20 @@ const FORMAT_PRESETS: Record<string, [string, ...string[]]> = {
   rust: ["cargo", "fmt"],
 };
 
+const SANDBOX_LANGUAGES = ["python", "bash", "go", "javascript", "typescript", "node", "ruby", "rust"] as const;
+
+function enumKeys<T extends Record<string, unknown>>(record: T): [string, ...string[]] {
+  const keys = Object.keys(record);
+  if (keys.length === 0) throw new Error("Expected non-empty enum record");
+  return keys as [string, ...string[]];
+}
+
+const RunTestPresetSchema = z.enum(enumKeys(RUN_TEST_PRESETS));
+const RunBuildPresetSchema = z.enum(enumKeys(RUN_BUILD_PRESETS));
+const RunLintPresetSchema = z.enum(enumKeys(RUN_LINT_PRESETS));
+const FormatPresetSchema = z.enum(enumKeys(FORMAT_PRESETS));
+const SandboxLanguageSchema = z.enum(SANDBOX_LANGUAGES);
+
 const BlockedGitPaths = [/^\.env($|\.)/i, /credentials/i, /secret/i, /token/i];
 type GitPolicyMode = "off" | "advisory" | "enforced";
 
@@ -316,7 +330,7 @@ async function listStagedFiles(projectRoot: string): Promise<string[]> {
 }
 
 const RuntimeContextSchema = RootSchema.extend({
-  shellCwd: z.string().optional(),
+  shellCwd: RelPathSchema.optional(),
 });
 export const getRuntimeContextTool: McpToolDefinition<
   z.infer<typeof RuntimeContextSchema>,
@@ -506,8 +520,8 @@ export const takeScreenshotTool: McpToolDefinition<
 };
 
 const DelegateTaskSchema = RootSchema.extend({
-  task_description: z.string().min(10).describe("Detailed description of the task for the sub-agent to perform"),
-  context_files: z.array(RelPathSchema).optional().describe("Optional list of files to pre-load into the sub-agent's context"),
+  task_description: z.string().min(10).max(32_000).describe("Detailed description of the task for the sub-agent to perform"),
+  context_files: z.array(RelPathSchema).max(100).optional().describe("Optional list of files to pre-load into the sub-agent's context"),
 });
 
 export function projectRootFromArgs(args: Record<string, unknown>, fallback: string): string {
@@ -523,81 +537,81 @@ async function runRepoOpFromDelegate(
     const args = request.args ?? {};
     switch (request.op) {
       case REPO_OPERATION_IDS.search: {
-        const result = await searchCodeTool.handler({
+        const result = await searchCodeTool.handler(searchCodeTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           pattern: String(args.pattern ?? ""),
           dir: typeof args.dir === "string" ? args.dir : ".",
           glob: typeof args.glob === "string" ? args.glob : undefined,
           headLimit: typeof args.headLimit === "number" ? args.headLimit : 100,
-        });
+        }));
         return { ok: true, data: result };
       }
       case REPO_OPERATION_IDS.readRange: {
-        const result = await readFileTool.handler({
+        const result = await readFileTool.handler(readFileTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           filePath: String(args.filePath ?? ""),
           maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : 200_000,
           startLine: typeof args.startLine === "number" ? args.startLine : undefined,
           endLine: typeof args.endLine === "number" ? args.endLine : undefined,
-        });
+        }));
         return { ok: true, data: result };
       }
       case REPO_OPERATION_IDS.findSymbol: {
         const symbol = String(args.symbol ?? "");
-        const result = await searchCodeTool.handler({
+        const result = await searchCodeTool.handler(searchCodeTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           pattern: symbol,
           dir: typeof args.dir === "string" ? args.dir : ".",
           headLimit: typeof args.headLimit === "number" ? args.headLimit : 50,
           glob: typeof args.glob === "string" ? args.glob : undefined,
-        });
+        }));
         return { ok: true, data: result };
       }
       case REPO_OPERATION_IDS.applyPatch: {
         const mode = typeof args.mode === "string" ? args.mode : "str_replace";
         if (mode === "write_file") {
-          const result = await writeFileTool.handler({
+          const result = await writeFileTool.handler(writeFileTool.inputSchema.parse({
             projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
             filePath: String(args.filePath ?? ""),
             content: String(args.content ?? ""),
             createDirs: args.createDirs === true,
-          });
+          }));
           return { ok: true, data: result };
         }
-        const result = await strReplaceTool.handler({
+        const result = await strReplaceTool.handler(strReplaceTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           filePath: String(args.filePath ?? ""),
           oldString: String(args.oldString ?? ""),
           newString: String(args.newString ?? ""),
-        });
+        }));
         return { ok: true, data: result };
       }
       case REPO_OPERATION_IDS.runTests: {
-        const result = await runTestTool.handler({
+        const result = await runTestTool.handler(runTestTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           preset: typeof args.preset === "string" ? args.preset : "node_npm",
-        });
+        }));
         return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
       }
       case REPO_OPERATION_IDS.runLint: {
-        const result = await runLintTool.handler({
+        const result = await runLintTool.handler(runLintTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           preset: typeof args.preset === "string" ? args.preset : "typescript_eslint",
-        });
+        }));
         return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
       }
       case REPO_OPERATION_IDS.gitDiff: {
-        const result = await gitDiffTool.handler({
+        const result = await gitDiffTool.handler(gitDiffTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           staged: args.staged === true,
           filePath: typeof args.filePath === "string" ? args.filePath : undefined,
-        });
+        }));
         return { ok: result.exitCode === 0, data: result, error: result.exitCode === 0 ? undefined : result.stderr };
       }
       case REPO_OPERATION_IDS.listChangedFiles: {
-        const result = await gitStatusTool.handler({
+        const result = await gitStatusTool.handler(gitStatusTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-        });
+        }));
         if (result.exitCode !== 0) {
           return { ok: false, error: result.stderr };
         }
@@ -609,12 +623,12 @@ async function runRepoOpFromDelegate(
         return { ok: true, data: { files } };
       }
       case REPO_OPERATION_IDS.writeDecisionRecord: {
-        const result = await writeFileTool.handler({
+        const result = await writeFileTool.handler(writeFileTool.inputSchema.parse({
           projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
           filePath: typeof args.filePath === "string" ? args.filePath : ".synesis/decision-record.json",
           content: JSON.stringify(args.decisionRecord ?? {}, null, 2),
           createDirs: true,
-        });
+        }));
         return { ok: true, data: result };
       }
       default:
@@ -698,8 +712,12 @@ const RepoApplyPatchSchema = RootSchema.extend({
   newString: z.string(),
 });
 
-const RepoRunPresetSchema = RootSchema.extend({
-  preset: z.string().min(1),
+const RepoRunTestsSchema = RootSchema.extend({
+  preset: RunTestPresetSchema,
+});
+
+const RepoRunLintSchema = RootSchema.extend({
+  preset: RunLintPresetSchema,
 });
 
 const RepoGitDiffSchema = RootSchema.extend({
@@ -765,17 +783,17 @@ export const repoApplyPatchTool: McpToolDefinition<
   handler: (input) => strReplaceTool.handler(input),
 };
 
-export const repoRunTestsTool: McpToolDefinition<z.infer<typeof RepoRunPresetSchema>, RunPresetResult> = {
+export const repoRunTestsTool: McpToolDefinition<z.infer<typeof RepoRunTestsSchema>, RunPresetResult> = {
   name: "repo.run_tests",
   description: "Agent-scoped test runner primitive.",
-  inputSchema: RepoRunPresetSchema,
+  inputSchema: RepoRunTestsSchema,
   handler: (input) => runTestTool.handler(input),
 };
 
-export const repoRunLintTool: McpToolDefinition<z.infer<typeof RepoRunPresetSchema>, RunPresetResult> = {
+export const repoRunLintTool: McpToolDefinition<z.infer<typeof RepoRunLintSchema>, RunPresetResult> = {
   name: "repo.run_lint",
   description: "Agent-scoped lint runner primitive.",
-  inputSchema: RepoRunPresetSchema,
+  inputSchema: RepoRunLintSchema,
   handler: (input) => runLintTool.handler(input),
 };
 
@@ -974,9 +992,7 @@ export const searchCodeTool: McpToolDefinition<
   },
 };
 
-const RunPresetSchema = RootSchema.extend({
-  preset: z.string().min(1),
-});
+type RunnerPresetInput = z.infer<typeof RootSchema> & { preset: string };
 
 /** Structured result for run_build / run_test / run_lint / format_code (observation contract). */
 export interface RunPresetResult {
@@ -1003,11 +1019,15 @@ function makeRunnerTool(
   name: string,
   description: string,
   presets: Record<string, [string, ...string[]]>,
-): McpToolDefinition<z.infer<typeof RunPresetSchema>, RunPresetResult> {
+  presetSchema: z.ZodType<string>,
+): McpToolDefinition<RunnerPresetInput, RunPresetResult> {
+  const inputSchema = RootSchema.extend({
+    preset: presetSchema,
+  });
   return {
     name,
     description,
-    inputSchema: RunPresetSchema,
+    inputSchema,
     async handler(input) {
       const preset = presets[input.preset];
       if (!preset) {
@@ -1062,24 +1082,28 @@ export const runTestTool = makeRunnerTool(
   "run_test",
   `Run tests using preset test commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_TEST_PRESETS,
+  RunTestPresetSchema,
 );
 
 export const runBuildTool = makeRunnerTool(
   "run_build",
   `Run compile/build using preset commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_BUILD_PRESETS,
+  RunBuildPresetSchema,
 );
 
 export const runLintTool = makeRunnerTool(
   "run_lint",
   `Run lint/static checks using preset commands (bounded stdout/stderr + errorLines). ${RUNNER_DESC}`,
   RUN_LINT_PRESETS,
+  RunLintPresetSchema,
 );
 
 export const formatCodeTool = makeRunnerTool(
   "format_code",
   "Run formatter using allowlisted deterministic command presets (bounded stdout/stderr + errorLines).",
   FORMAT_PRESETS,
+  FormatPresetSchema,
 );
 
 const GitStatusSchema = RootSchema;
@@ -1308,7 +1332,7 @@ const GitCommitGuardedSchema = RootSchema.extend({
 });
 const RunInSandboxSchema = RootSchema.extend({
   filePath: RelPathSchema,
-  language: z.string().min(1).describe("Language of the file (e.g., python, bash, go, javascript)"),
+  language: SandboxLanguageSchema.describe("Language of the file"),
   trivial: z.boolean().default(false).describe("If true, only runs syntax/format checks. If false, runs full linting/execution."),
 });
 

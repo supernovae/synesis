@@ -11,6 +11,9 @@ import type { McpToolDefinition } from "../tool-registry.js";
 import { MemoryStore } from "../../memory/memory-store.js";
 import type { MemoryScope } from "../../memory/types.js";
 
+const MemoryStoreScopeSchema = z.enum(["session", "project"]);
+const MemoryRecallScopeSchema = z.enum(["session", "project", "all"]);
+
 // ---------------------------------------------------------------------------
 // Shared singleton — initialized at import time with null Redis.
 // Call `initMemoryToolStore(redis)` from startup to enable Redis persistence.
@@ -62,10 +65,10 @@ export const storeObservationTool: McpToolDefinition<
     "Scope 'session' persists within the current session; 'project' persists " +
     "across sessions for the same project root.",
   inputSchema: z.object({
-    topic: z.string().describe("Short topic label (e.g. 'auth flow', 'database schema', 'missing tests')"),
-    finding: z.string().describe("The finding or observation to store (be concise but complete)"),
-    scope: z.string().optional().describe("'session' (default) or 'project'"),
-  }),
+    topic: z.string().min(1).max(256).describe("Short topic label (e.g. 'auth flow', 'database schema', 'missing tests')"),
+    finding: z.string().min(1).max(16_000).describe("The finding or observation to store (be concise but complete)"),
+    scope: MemoryStoreScopeSchema.optional().describe("'session' (default) or 'project'"),
+  }).strict(),
   async handler(input, context) {
     const scope: MemoryScope = input.scope === "project" ? "project" : "session";
     const sessionKey = context?.sessionKey ?? "unknown";
@@ -86,10 +89,10 @@ export const recallFindingsTool: McpToolDefinition<
     "or running broad discovery — your past findings may already contain the " +
     "information you need. Returns matching findings sorted by recency.",
   inputSchema: z.object({
-    query: z.string().optional().describe("Search query to filter findings (empty returns all)"),
-    scope: z.string().optional().describe("'session', 'project', or 'all' (default 'all')"),
-    limit: z.number().optional().describe("Max findings to return (default 10)"),
-  }),
+    query: z.string().max(512).optional().describe("Search query to filter findings (empty returns all)"),
+    scope: MemoryRecallScopeSchema.optional().describe("'session', 'project', or 'all' (default 'all')"),
+    limit: z.number().int().min(1).max(100).optional().describe("Max findings to return (default 10)"),
+  }).strict(),
   async handler(input, context) {
     const scope = (input.scope === "session" || input.scope === "project") ? input.scope : "all";
     const sessionKey = context?.sessionKey ?? "unknown";

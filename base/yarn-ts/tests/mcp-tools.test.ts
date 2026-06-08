@@ -16,7 +16,13 @@ import {
   strReplaceTool,
   searchCodeTool,
   runBuildTool,
+  runTestTool,
+  runInSandboxTool,
 } from "../src/mcp/handlers/coding-tools.js";
+import {
+  storeObservationTool,
+  recallFindingsTool,
+} from "../src/mcp/handlers/memory-tools.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,9 +68,55 @@ describe("McpToolRegistry", () => {
       registry.call("synesis_classify_project", { task: "" })
     ).rejects.toThrow();
   });
+
+  it("publishes closed JSON schemas for strict tool inputs", () => {
+    const registry = new McpToolRegistry();
+    registry.register(classifyProjectTool);
+    registry.register(listDirTool);
+
+    const catalog = registry.getCatalog();
+    const classify = catalog.find((tool) => tool.name === "synesis_classify_project");
+    const listDir = catalog.find((tool) => tool.name === "list_dir");
+
+    expect(classify?.inputSchema).toMatchObject({ additionalProperties: false });
+    expect(listDir?.inputSchema).toMatchObject({ additionalProperties: false });
+  });
+
+  it("rejects unknown attributes before invoking strict MCP handlers", async () => {
+    const registry = new McpToolRegistry();
+    registry.register(classifyProjectTool);
+    registry.register(listDirTool);
+
+    await expect(
+      registry.call("synesis_classify_project", {
+        task: "Create a Go CLI",
+        caller_role: "admin",
+      }),
+    ).rejects.toThrow(/caller_role/);
+
+    await expect(
+      registry.call("list_dir", {
+        projectRoot: "/tmp/repo",
+        caller_user_id: "u-admin",
+      }),
+    ).rejects.toThrow(/caller_user_id/);
+  });
 });
 
 describe("coding tools", () => {
+  it("rejects undeclared runner presets and sandbox languages at schema validation", () => {
+    expect(() => runTestTool.inputSchema.parse({
+      projectRoot: "/tmp/repo",
+      preset: "shell_command",
+    })).toThrow(/Invalid option/);
+
+    expect(() => runInSandboxTool.inputSchema.parse({
+      projectRoot: "/tmp/repo",
+      filePath: "script.ps1",
+      language: "powershell",
+    })).toThrow(/Invalid option/);
+  });
+
   it("rejects invented decision-record fields", () => {
     expect(() => repoWriteDecisionRecordTool.inputSchema.parse({
       projectRoot: "/tmp/repo",
@@ -239,6 +291,27 @@ describe("coding tools", () => {
     expect(fileState.isGitRepo).toBe(true);
     expect(fileState.statusCode).toBe("A ");
     expect(fileState.staged).toBe(true);
+  });
+});
+
+describe("memory MCP tool schemas", () => {
+  it("rejects unknown attributes and undeclared scopes", () => {
+    expect(() => storeObservationTool.inputSchema.parse({
+      topic: "auth",
+      finding: "Session middleware validates PATs.",
+      scope: "tenant",
+    })).toThrow(/Invalid option/);
+
+    expect(() => storeObservationTool.inputSchema.parse({
+      topic: "auth",
+      finding: "Session middleware validates PATs.",
+      run_as_admin: true,
+    })).toThrow(/run_as_admin/);
+
+    expect(() => recallFindingsTool.inputSchema.parse({
+      scope: "all",
+      user_id: "u-admin",
+    })).toThrow(/user_id/);
   });
 });
 

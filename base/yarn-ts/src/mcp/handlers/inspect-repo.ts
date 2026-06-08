@@ -4,9 +4,9 @@ import { scanForManifest } from "../../manifest/repo-scanner.js";
 import type { McpToolDefinition } from "../tool-registry.js";
 
 const InputSchema = z.object({
-  filePaths: z.array(z.string()).min(1).describe("List of file paths in the repository"),
-  conversationText: z.string().optional().describe("Additional context from conversation"),
-});
+  filePaths: z.array(z.string().min(1).max(4096)).min(1).max(10_000).describe("List of file paths in the repository"),
+  conversationText: z.string().max(32_000).optional().describe("Additional context from conversation"),
+}).strict();
 
 type Input = z.infer<typeof InputSchema>;
 
