@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ArtifactEnvelopeSchema } from "./schemas.js";
 import type { ArtifactEnvelope, ArtifactStore } from "./types.js";
 
 export class InMemoryArtifactStore implements ArtifactStore {
@@ -10,8 +11,9 @@ export class InMemoryArtifactStore implements ArtifactStore {
       artifactId: `art_${randomUUID()}`,
       createdAtIso: new Date().toISOString(),
     };
-    this.artifacts.set(saved.artifactId, saved as ArtifactEnvelope);
-    return saved;
+    const parsed = ArtifactEnvelopeSchema.parse(saved) as ArtifactEnvelope<T>;
+    this.artifacts.set(parsed.artifactId, parsed as ArtifactEnvelope);
+    return parsed;
   }
 
   async get<T>(artifactId: string): Promise<ArtifactEnvelope<T> | null> {

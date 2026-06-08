@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { TraceEventSchema } from "./schemas.js";
 import type { TraceEvent, TraceLogger } from "./types.js";
 
 export class InMemoryTraceLogger implements TraceLogger {
@@ -10,10 +11,11 @@ export class InMemoryTraceLogger implements TraceLogger {
       eventId: `evt_${randomUUID()}`,
       createdAtIso: new Date().toISOString(),
     };
+    const parsed = TraceEventSchema.parse(built);
     const current = this.byTrace.get(built.traceId) ?? [];
-    current.push(built);
-    this.byTrace.set(built.traceId, current);
-    return built;
+    current.push(parsed);
+    this.byTrace.set(parsed.traceId, current);
+    return parsed;
   }
 
   async list(traceId: string): Promise<TraceEvent[]> {
