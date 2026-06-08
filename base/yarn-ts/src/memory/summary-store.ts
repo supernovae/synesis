@@ -17,6 +17,35 @@ import { detectLanguage } from "./extractors.js";
 const REDIS_PREFIX = "yarn-ts:summary:";
 const DEFAULT_TTL_S = 14_400;
 const CHARS_PER_TOKEN = 4;
+const MAX_MEMORY_TEXT_CHARS = 4_000;
+const MAX_MEMORY_ATTR_CHARS = 512;
+
+function replaceControlChars(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function memoryText(value: unknown, maxChars = MAX_MEMORY_TEXT_CHARS): string {
+  return replaceControlChars(String(value ?? ""))
+    .replace(/=/g, ":")
+    .replace(/[<>"`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function memoryAttr(value: unknown, fallback = "unknown"): string {
+  const sanitized = memoryText(value, MAX_MEMORY_ATTR_CHARS)
+    .replace(/[^A-Za-z0-9_./@:+ -]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized || fallback;
+}
 
 function fastHash(content: string): string {
   let h1 = 0xdeadbeef;
@@ -310,12 +339,14 @@ export class HierarchicalSummaryStore {
    * Format a summary result as a compact block for model context.
    */
   formatSummaryBlock(summary: FileSummary | null, scope: SummaryLevel, path: string): string {
+    const safeScope = memoryAttr(scope);
+    const safePath = memoryAttr(path);
     if (!summary) {
-      return `<PROJECT_MEMORY scope="${scope}" path="${path}">No summary available for this ${scope}.</PROJECT_MEMORY>`;
+      return `<PROJECT_MEMORY scope="${safeScope}" path="${safePath}">No summary available for this ${safeScope}.</PROJECT_MEMORY>`;
     }
     return [
-      `<PROJECT_MEMORY scope="${scope}" path="${path}">`,
-      summary.summary,
+      `<PROJECT_MEMORY scope="${safeScope}" path="${safePath}">`,
+      memoryText(summary.summary),
       `</PROJECT_MEMORY>`,
     ].join("\n");
   }
