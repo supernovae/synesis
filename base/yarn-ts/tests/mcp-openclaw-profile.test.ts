@@ -5,6 +5,7 @@ import {
   buildMcpSessionAttribution,
   filterMcpCatalogForOpenClaw,
   isOpenClawClientHeader,
+  normalizeMcpToolArguments,
   parseMcpToolName,
   validateMcpProjectRootBinding,
 } from "../src/mcp/index.js";
@@ -116,6 +117,22 @@ describe("MCP security audit fields", () => {
 });
 
 describe("MCP project root binding", () => {
+  it("rejects non-object tool arguments before project-root injection", () => {
+    const result = validateMcpProjectRootBinding(
+      "filePath=src/index.ts",
+      "/workspace/app",
+      {},
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.statusCode).toBe(400);
+      expect(result.error).toMatchObject({
+        type: "invalid_tool_arguments",
+        message: "Tool arguments must be an object",
+      });
+    }
+  });
+
   it("normalizes and injects the header-bound project root", () => {
     const root = path.resolve("/workspace/app");
     const result = validateMcpProjectRootBinding({ filePath: "src/index.ts" }, root, {});
@@ -160,6 +177,30 @@ describe("MCP project root binding", () => {
       expect(result.statusCode).toBe(403);
       expect(result.error.type).toBe("forbidden_project_root");
     }
+  });
+});
+
+describe("MCP tool argument normalization", () => {
+  it("accepts omitted arguments as an empty object for no-argument tools", () => {
+    expect(normalizeMcpToolArguments(undefined)).toEqual({ ok: true, args: {} });
+  });
+
+  it("rejects non-object and array tool arguments", () => {
+    expect(normalizeMcpToolArguments("query=hello")).toMatchObject({
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "invalid_tool_arguments",
+        message: "Tool arguments must be an object",
+      },
+    });
+    expect(normalizeMcpToolArguments(["query", "hello"])).toMatchObject({
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "invalid_tool_arguments",
+      },
+    });
   });
 });
 

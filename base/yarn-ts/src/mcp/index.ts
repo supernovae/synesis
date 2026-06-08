@@ -149,6 +149,10 @@ type McpProjectRootValidation =
   | { ok: true; projectRoot: string; args: Record<string, unknown> }
   | { ok: false; statusCode: 400 | 403; error: { type: string; message: string } };
 
+type McpToolArgumentsNormalization =
+  | { ok: true; args: Record<string, unknown> }
+  | { ok: false; statusCode: 400; error: { type: string; message: string } };
+
 export interface McpSessionAttribution {
   sessionKey: string;
   conversationId?: string;
@@ -219,6 +223,21 @@ function optionalMcpString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.replace(/\0/g, "").trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function normalizeMcpToolArguments(args: unknown): McpToolArgumentsNormalization {
+  if (args === undefined) return { ok: true, args: {} };
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    return { ok: true, args: args as Record<string, unknown> };
+  }
+  return {
+    ok: false,
+    statusCode: 400,
+    error: {
+      type: "invalid_tool_arguments",
+      message: "Tool arguments must be an object",
+    },
+  };
 }
 
 export function parseMcpToolName(value: unknown): string | null {
@@ -338,9 +357,10 @@ export function validateMcpProjectRootBinding(
     };
   }
 
-  const rawArgs = args && typeof args === "object" && !Array.isArray(args)
-    ? (args as Record<string, unknown>)
-    : {};
+  const normalizedArgs = normalizeMcpToolArguments(args);
+  if (!normalizedArgs.ok) return normalizedArgs;
+
+  const rawArgs = normalizedArgs.args;
   const argProjectRoot = rawArgs.projectRoot;
   if (argProjectRoot !== undefined) {
     if (typeof argProjectRoot !== "string" || argProjectRoot.trim().length === 0) {
@@ -695,6 +715,25 @@ export async function registerMcpRoutes(
       });
     }
 
+    const normalizedToolArguments = normalizeMcpToolArguments(toolArguments);
+    if (!normalizedToolArguments.ok) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName,
+          requestId,
+          outcome: "denied",
+          reason: normalizedToolArguments.error.type,
+          statusCode: normalizedToolArguments.statusCode,
+          openClawClient,
+          agentFlow,
+          args: toolArguments,
+        }),
+        "mcp_tool_denied",
+      );
+      return reply.code(normalizedToolArguments.statusCode).send({ error: normalizedToolArguments.error });
+    }
+
     const concurrencyDecision = toolConcurrencyLimiter.tryAcquire({
       orgId: user.orgId,
       userId: user.userId,
@@ -728,10 +767,7 @@ export async function registerMcpRoutes(
     try {
       let result: unknown;
       if (SYNESIS_PLATFORM_TOOL_SET.has(toolName)) {
-        const rawArgs =
-          toolArguments && typeof toolArguments === "object" && !Array.isArray(toolArguments)
-            ? (toolArguments as Record<string, unknown>)
-            : {};
+        const rawArgs = normalizedToolArguments.args;
         mcpSession = buildMcpSessionAttribution({
           user,
           args: rawArgs,
@@ -759,7 +795,7 @@ export async function registerMcpRoutes(
         );
       } else {
         const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(toolName)
-          ? validateMcpProjectRootBinding(toolArguments, req.headers["x-synesis-project-root"])
+          ? validateMcpProjectRootBinding(normalizedToolArguments.args, req.headers["x-synesis-project-root"])
           : null;
         if (projectRootValidation && !projectRootValidation.ok) {
           app.log.warn(
@@ -779,7 +815,7 @@ export async function registerMcpRoutes(
           return reply.code(projectRootValidation.statusCode).send({ error: projectRootValidation.error });
         }
         const validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
-        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : (toolArguments ?? {});
+        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : normalizedToolArguments.args;
         mcpSession = buildMcpSessionAttribution({
           user,
           headerSessionKey: req.headers["x-synesis-session-key"],
