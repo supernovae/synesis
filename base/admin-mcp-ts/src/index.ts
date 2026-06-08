@@ -10,6 +10,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 import { adminApiBaseUrl, loadConfig, type AdminMcpConfig } from "./config.js";
+import {
+  AdminMcpConcurrencyLimiter,
+  type AdminMcpConcurrencyRejection,
+} from "./concurrency-limiter.js";
 import { validateMcpJsonRpcPostBody } from "./json-rpc-preflight.js";
 import {
   AdminMcpToolError,
@@ -27,6 +31,7 @@ const ADMIN_ROLE_VALUES = ["readonly", "user", "org_admin", "platform_admin", "a
 const ORG_HEADER_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
 
 type RateLimitOptions = { max: number; timeWindow: string | number };
+type AdminMcpAuditOutcome = "allowed" | "denied" | "error";
 
 const boundedString = (maxLength: number) => z.string().trim().max(maxLength);
 const boundedSecurityStringArray = (maxItems: number, maxLength: number) =>
@@ -189,6 +194,13 @@ function jsonResult(data: unknown): { content: Array<{ type: "text"; text: strin
   };
 }
 
+export function parseAdminMcpToolName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  if (!name || name.length > 128) return null;
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : null;
+}
+
 function parseInvokeBody(body: unknown): { name: string; args: Record<string, unknown> } {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("invalid_body");
@@ -198,14 +210,54 @@ function parseInvokeBody(body: unknown): { name: string; args: Record<string, un
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) throw new Error("unknown_invoke_field");
   }
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
-  if (!name) throw new Error("name_required");
+  const name = parseAdminMcpToolName(raw.name);
+  if (!name) {
+    if (typeof raw.name === "string" && raw.name.trim()) throw new Error("invalid_tool_name");
+    throw new Error("name_required");
+  }
   const argsRaw = raw.arguments;
   if (argsRaw === undefined || argsRaw === null) return { name, args: {} };
   if (typeof argsRaw === "object" && !Array.isArray(argsRaw)) {
     return { name, args: argsRaw as Record<string, unknown> };
   }
   throw new Error("arguments_must_be_object");
+}
+
+function adminMcpLimitMeta(decision: AdminMcpConcurrencyRejection): Record<string, unknown> {
+  return {
+    userKey: decision.userKey,
+    userActive: decision.userActive,
+    userLimit: decision.userLimit,
+    globalActive: decision.globalActive,
+    globalLimit: decision.globalLimit,
+  };
+}
+
+export function buildAdminMcpAuditFields(input: {
+  user: SessionUser;
+  toolName: string;
+  requestId: string;
+  outcome: AdminMcpAuditOutcome;
+  reason: string;
+  statusCode: number;
+  elapsedMs?: number;
+  limitMeta?: Record<string, unknown>;
+}): Record<string, unknown> {
+  return {
+    surface: "admin_mcp_direct",
+    action: "admin_tool_invoke",
+    outcome: input.outcome,
+    reason: input.reason,
+    statusCode: input.statusCode,
+    tool: input.toolName,
+    userId: input.user.user_id || input.user.username || "unknown",
+    username: input.user.username,
+    orgId: input.user.org_id,
+    role: input.user.role,
+    requestId: input.requestId,
+    elapsed_ms: input.elapsedMs,
+    ...(input.limitMeta ?? {}),
+  };
 }
 
 interface AuthenticatedRequestContext {
@@ -309,6 +361,10 @@ export function createApp(cfg: AdminMcpConfig) {
   // and trusted network paths still have bounded abuse protection.
   const adminAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
   const adminAuthPreHandler = createRouteRateLimit(adminAuthRateLimit);
+  const directInvokeLimiter = new AdminMcpConcurrencyLimiter({
+    maxPerUser: cfg.SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_PER_USER,
+    maxGlobal: cfg.SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_GLOBAL,
+  });
 
   app.get("/health", async () => ({
     status: "ok",
@@ -358,6 +414,7 @@ export function createApp(cfg: AdminMcpConfig) {
     },
     // codeql[js/missing-rate-limiting]
     async (req, reply) => {
+    const requestId = req.id;
     let authCtx: AuthenticatedRequestContext;
     try {
       authCtx = await authenticateAdminRequest(cfg, req);
@@ -376,12 +433,50 @@ export function createApp(cfg: AdminMcpConfig) {
       if (msg === "name_required") {
         return reply.code(400).send({ error: "invalid_request", detail: "name required" });
       }
+      if (msg === "invalid_tool_name") {
+        app.log.warn(
+          buildAdminMcpAuditFields({
+            user: authCtx.user,
+            toolName: "invalid",
+            requestId,
+            outcome: "denied",
+            reason: "invalid_tool_name",
+            statusCode: 400,
+          }),
+          "admin_tools_invoke_denied",
+        );
+        return reply.code(400).send({ error: "invalid_request", detail: "invalid tool name" });
+      }
       if (msg === "arguments_must_be_object") {
         return reply.code(400).send({ error: "invalid_request", detail: "arguments must be an object" });
       }
       return reply.code(400).send({ error: "invalid_request", detail: "invalid request body" });
     }
 
+    const concurrencyDecision = directInvokeLimiter.tryAcquire({
+      orgId: authCtx.user.org_id,
+      userId: authCtx.user.user_id || authCtx.user.username,
+    });
+    if (!concurrencyDecision.allowed) {
+      app.log.warn(
+        buildAdminMcpAuditFields({
+          user: authCtx.user,
+          toolName: parsed.name,
+          requestId,
+          outcome: "denied",
+          reason: concurrencyDecision.reason,
+          statusCode: 429,
+          limitMeta: adminMcpLimitMeta(concurrencyDecision),
+        }),
+        "admin_tools_invoke_denied",
+      );
+      return reply.code(429).send({
+        error: "rate_limit_exceeded",
+        message: "Too many concurrent admin MCP tool calls. Retry after an active call completes.",
+      });
+    }
+
+    const start = performance.now();
     try {
       const result = await invokeTool(
         {
@@ -397,21 +492,86 @@ export function createApp(cfg: AdminMcpConfig) {
         parsed.args,
       );
       _directToolInvocations++;
+      app.log.info(
+        buildAdminMcpAuditFields({
+          user: authCtx.user,
+          toolName: parsed.name,
+          requestId,
+          outcome: "allowed",
+          reason: "ok",
+          statusCode: 200,
+          elapsedMs: Math.round(performance.now() - start),
+        }),
+        "admin_tools_invoke",
+      );
       return reply.code(200).send({ result });
     } catch (e) {
       const safe = toSafeToolError(e, parsed.name);
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.startsWith("Unknown tool:")) {
+        app.log.warn(
+          buildAdminMcpAuditFields({
+            user: authCtx.user,
+            toolName: parsed.name,
+            requestId,
+            outcome: "denied",
+            reason: "tool_not_found",
+            statusCode: 404,
+            elapsedMs: Math.round(performance.now() - start),
+          }),
+          "admin_tools_invoke_denied",
+        );
         return reply.code(404).send({ error: "tool_not_found", tool: parsed.name });
       }
       if (msg.includes("requires")) {
+        app.log.warn(
+          buildAdminMcpAuditFields({
+            user: authCtx.user,
+            toolName: parsed.name,
+            requestId,
+            outcome: "denied",
+            reason: "forbidden",
+            statusCode: 403,
+            elapsedMs: Math.round(performance.now() - start),
+          }),
+          "admin_tools_invoke_denied",
+        );
         return reply.code(403).send({ error: "forbidden", tool: parsed.name });
       }
       if (e instanceof AdminMcpToolError && e.code === "invalid_arguments") {
+        app.log.warn(
+          buildAdminMcpAuditFields({
+            user: authCtx.user,
+            toolName: parsed.name,
+            requestId,
+            outcome: "denied",
+            reason: "invalid_arguments",
+            statusCode: 400,
+            elapsedMs: Math.round(performance.now() - start),
+          }),
+          "admin_tools_invoke_denied",
+        );
         return reply.code(400).send(safe);
       }
-      app.log.error({ err: e, tool: parsed.name }, "admin_tools_invoke_failed");
-      return reply.code(e instanceof AdminMcpToolError && e.statusCode ? e.statusCode : 500).send(safe);
+      const statusCode = e instanceof AdminMcpToolError && e.statusCode ? e.statusCode : 500;
+      app.log.error(
+        {
+          err: e,
+          ...buildAdminMcpAuditFields({
+            user: authCtx.user,
+            toolName: parsed.name,
+            requestId,
+            outcome: "error",
+            reason: "tool_error",
+            statusCode,
+            elapsedMs: Math.round(performance.now() - start),
+          }),
+        },
+        "admin_tools_invoke_failed",
+      );
+      return reply.code(statusCode).send(safe);
+    } finally {
+      concurrencyDecision.release();
     }
     },
   );

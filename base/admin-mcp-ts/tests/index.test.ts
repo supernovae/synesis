@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { createApp } from "../src/index.js";
+import { buildAdminMcpAuditFields, createApp, parseAdminMcpToolName } from "../src/index.js";
 
 function cfg(overrides: Record<string, unknown> = {}) {
   return {
@@ -322,6 +322,87 @@ describe("admin MCP internal auth", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects invalid direct tool names before lookup", async () => {
+    const fetchSpy = mockUser("user");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: {
+        name: "synesis_classify_intent;role=platform_admin",
+        arguments: { query: "debug this" },
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_request", detail: "invalid tool name" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("limits concurrent direct tool invocations per validated user", async () => {
+    let healthCalls = 0;
+    let releaseHealth: ((response: Response) => void) | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const textUrl = String(url);
+      if (textUrl.endsWith("/api/v1/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            username: "admin",
+            role: "org_admin",
+            user_id: "u1",
+            org_id: "o1",
+            org_name: "Org",
+            org_roles: ["admin"],
+            tenant_ids: [],
+            token_scopes: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (textUrl.endsWith("/api/v1/observability/health")) {
+        healthCalls += 1;
+        return await new Promise<Response>((resolve) => {
+          releaseHealth = resolve;
+        });
+      }
+      throw new Error(`unexpected fetch ${textUrl}`);
+    });
+
+    const app = createApp(cfg({ SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_PER_USER: 1 }));
+    const first = app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: { name: "service_health", arguments: {} },
+    });
+
+    for (let i = 0; i < 20 && healthCalls === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(healthCalls).toBe(1);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: { name: "service_health", arguments: {} },
+    });
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ error: "rate_limit_exceeded" });
+
+    releaseHealth?.(new Response(JSON.stringify({ services: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const firstRes = await first;
+    await app.close();
+
+    expect(firstRes.statusCode).toBe(200);
+    expect(healthCalls).toBe(1);
+  });
+
   it("rejects malformed MCP JSON-RPC envelopes before transport dispatch", async () => {
     const fetchSpy = mockUser("org_admin");
     const app = createApp(cfg());
@@ -363,5 +444,60 @@ describe("admin MCP internal auth", () => {
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: "unauthorized" });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin MCP direct invoke security helpers", () => {
+  it("accepts only bounded tool identifiers", () => {
+    expect(parseAdminMcpToolName("synesis_classify_intent")).toBe("synesis_classify_intent");
+    expect(parseAdminMcpToolName(" audit.events ")).toBe("audit.events");
+    expect(parseAdminMcpToolName("bad tool")).toBeNull();
+    expect(parseAdminMcpToolName("tool;role=admin")).toBeNull();
+    expect(parseAdminMcpToolName("x".repeat(129))).toBeNull();
+    expect(parseAdminMcpToolName({ name: "service_health" })).toBeNull();
+  });
+
+  it("emits uniform direct invoke audit fields", () => {
+    expect(buildAdminMcpAuditFields({
+      user: {
+        username: "admin",
+        role: "org_admin",
+        user_id: "u1",
+        org_id: "o1",
+        org_name: "Org",
+        org_roles: ["admin"],
+        tenant_ids: [],
+        token_scopes: [],
+      },
+      toolName: "service_health",
+      requestId: "req-1",
+      outcome: "denied",
+      reason: "user_concurrency_exceeded",
+      statusCode: 429,
+      elapsedMs: 7,
+      limitMeta: {
+        userActive: 1,
+        userLimit: 1,
+        globalActive: 3,
+        globalLimit: 100,
+      },
+    })).toMatchObject({
+      surface: "admin_mcp_direct",
+      action: "admin_tool_invoke",
+      outcome: "denied",
+      reason: "user_concurrency_exceeded",
+      statusCode: 429,
+      tool: "service_health",
+      userId: "u1",
+      username: "admin",
+      orgId: "o1",
+      role: "org_admin",
+      requestId: "req-1",
+      elapsed_ms: 7,
+      userActive: 1,
+      userLimit: 1,
+      globalActive: 3,
+      globalLimit: 100,
+    });
   });
 });

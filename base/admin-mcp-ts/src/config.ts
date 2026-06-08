@@ -17,6 +17,8 @@ const ConfigSchema = z.object({
   SYNESIS_INTERNAL_SERVICE_TOKEN: z.string().default(""),
   SYNESIS_ADMIN_MCP_AUTH_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_PER_USER: z.coerce.number().int().min(0).default(4),
+  SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_GLOBAL: z.coerce.number().int().min(0).default(100),
   SYNESIS_ADMIN_MCP_WATCH_MAX_MS: z.coerce.number().int().positive().default(30000),
   SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: z.coerce.number().int().positive().default(1),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
