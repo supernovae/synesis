@@ -217,6 +217,47 @@ describe("OpenAI Responses API compatibility", () => {
     expect(textFormat.success).toBe(false);
   });
 
+  it("rejects free-form and semantically invalid Responses JSON Schema descriptors", () => {
+    const emptyToolSchema = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      tools: [
+        {
+          type: "function",
+          name: "lookup",
+          parameters: { type: "object", properties: { id: {} } },
+        },
+      ],
+    });
+    expect(emptyToolSchema.success).toBe(false);
+
+    const freeFormToolSchema = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      tools: [
+        {
+          type: "function",
+          name: "lookup",
+          parameters: { type: "object", properties: {}, additionalProperties: true },
+        },
+      ],
+    });
+    expect(freeFormToolSchema.success).toBe(false);
+
+    const invalidTextFormat = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      text: {
+        format: {
+          type: "json_schema",
+          name: "result",
+          schema: { type: "object", properties: { id: { type: "string" } }, required: ["role_override"] },
+        },
+      },
+    });
+    expect(invalidTextFormat.success).toBe(false);
+  });
+
   it("maps Chat Completions output into Responses objects and SSE events", () => {
     const response = chatCompletionToResponseObject({
       id: "chatcmpl_1",

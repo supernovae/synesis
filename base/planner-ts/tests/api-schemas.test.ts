@@ -163,6 +163,64 @@ describe("planner API schemas", () => {
     expect(responseFormat.success).toBe(false);
   });
 
+  it("rejects free-form and semantically invalid JSON Schema descriptors", () => {
+    const emptyToolSchema = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search",
+            parameters: { type: "object", properties: { query: {} } },
+          },
+        },
+      ],
+    });
+    expect(emptyToolSchema.success).toBe(false);
+
+    const freeFormObject = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search",
+            parameters: { type: "object", properties: {}, additionalProperties: true },
+          },
+        },
+      ],
+    });
+    expect(freeFormObject.success).toBe(false);
+
+    const invalidRequired = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "answer",
+          schema: { type: "object", properties: { answer: { type: "string" } }, required: ["admin_only"] },
+        },
+      },
+    });
+    expect(invalidRequired.success).toBe(false);
+
+    const wrongTypeConstraint = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "answer",
+          schema: { type: "string", items: { type: "string" } },
+        },
+      },
+    });
+    expect(wrongTypeConstraint.success).toBe(false);
+  });
+
   it("rejects invented prediction and audio attributes", () => {
     const prediction = ChatCompletionRequestSchema.safeParse({
       model: "Synesis",

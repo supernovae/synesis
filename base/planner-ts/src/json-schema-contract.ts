@@ -50,6 +50,100 @@ function jsonSchemaArray(max = 128) {
   return z.array(JsonSchemaContractSchema).max(max);
 }
 
+function schemaTypeSet(type: JsonSchemaContract["type"]): Set<string> | null {
+  if (type === undefined) return null;
+  return new Set(Array.isArray(type) ? type : [type]);
+}
+
+function typeIncludes(types: Set<string> | null, typeName: string): boolean {
+  return types === null || types.has(typeName);
+}
+
+function scalarMatchesType(value: JsonSchemaScalar, types: Set<string> | null): boolean {
+  if (types === null) return true;
+  if (value === null) return types.has("null");
+  if (typeof value === "string") return types.has("string");
+  if (typeof value === "boolean") return types.has("boolean");
+  if (typeof value === "number") {
+    return types.has("number") || (Number.isInteger(value) && types.has("integer"));
+  }
+  return false;
+}
+
+function refineJsonSchemaContract(schema: JsonSchemaContract, ctx: z.RefinementCtx): void {
+  if (Object.keys(schema).length === 0) {
+    ctx.addIssue({ code: "custom", message: "JSON Schema descriptor must not be empty" });
+    return;
+  }
+
+  const types = schemaTypeSet(schema.type);
+
+  if (schema.additionalProperties === true) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["additionalProperties"],
+      message: "additionalProperties true is not allowed",
+    });
+  }
+
+  if (schema.properties !== undefined && !typeIncludes(types, "object")) {
+    ctx.addIssue({ code: "custom", path: ["properties"], message: "properties requires object type" });
+  }
+  if (schema.required !== undefined) {
+    if (!typeIncludes(types, "object")) {
+      ctx.addIssue({ code: "custom", path: ["required"], message: "required requires object type" });
+    }
+    if (schema.properties === undefined) {
+      ctx.addIssue({ code: "custom", path: ["required"], message: "required requires properties" });
+    } else {
+      for (const requiredKey of schema.required) {
+        if (!(requiredKey in schema.properties)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["required"],
+            message: `required key is not declared in properties: ${requiredKey}`,
+          });
+        }
+      }
+    }
+  }
+  if (schema.additionalProperties !== undefined && !typeIncludes(types, "object")) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["additionalProperties"],
+      message: "additionalProperties requires object type",
+    });
+  }
+
+  if (schema.items !== undefined && !typeIncludes(types, "array")) {
+    ctx.addIssue({ code: "custom", path: ["items"], message: "items requires array type" });
+  }
+
+  if ((schema.minLength !== undefined || schema.maxLength !== undefined || schema.pattern !== undefined)
+    && !typeIncludes(types, "string")) {
+    ctx.addIssue({ code: "custom", message: "string constraints require string type" });
+  }
+  if ((schema.minItems !== undefined || schema.maxItems !== undefined) && !typeIncludes(types, "array")) {
+    ctx.addIssue({ code: "custom", message: "array constraints require array type" });
+  }
+  if ((schema.minimum !== undefined || schema.maximum !== undefined)
+    && !typeIncludes(types, "number") && !typeIncludes(types, "integer")) {
+    ctx.addIssue({ code: "custom", message: "numeric constraints require number or integer type" });
+  }
+
+  for (const enumValue of schema.enum ?? []) {
+    if (!scalarMatchesType(enumValue, types)) {
+      ctx.addIssue({ code: "custom", path: ["enum"], message: "enum value does not match schema type" });
+    }
+  }
+  if (schema.const !== undefined && !scalarMatchesType(schema.const, types)) {
+    ctx.addIssue({ code: "custom", path: ["const"], message: "const value does not match schema type" });
+  }
+  if (schema.default !== undefined && !scalarMatchesType(schema.default, types)) {
+    ctx.addIssue({ code: "custom", path: ["default"], message: "default value does not match schema type" });
+  }
+}
+
 export const JsonSchemaContractSchema: z.ZodType<JsonSchemaContract> = z.lazy(() => z.object({
   $schema: z.string().max(512).optional(),
   $id: z.string().max(512).optional(),
@@ -78,4 +172,4 @@ export const JsonSchemaContractSchema: z.ZodType<JsonSchemaContract> = z.lazy(()
   allOf: jsonSchemaArray().optional(),
   $defs: jsonSchemaMap().optional(),
   definitions: jsonSchemaMap().optional(),
-}).strict());
+}).strict().superRefine(refineJsonSchemaContract));

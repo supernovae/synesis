@@ -372,6 +372,46 @@ describe("client payload conformance fixtures", () => {
     expect(claude.success).toBe(false);
   });
 
+  it("rejects free-form and semantically invalid OpenAI and Claude tool schemas", () => {
+    const emptyOpenAiToolSchema = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Use a tool." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            parameters: { type: "object", properties: { path: {} } },
+          },
+        },
+      ],
+    });
+    expect(emptyOpenAiToolSchema.success).toBe(false);
+
+    const freeFormOpenAiToolSchema = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Use a tool." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            parameters: { type: "object", properties: {}, additionalProperties: true },
+          },
+        },
+      ],
+    });
+    expect(freeFormOpenAiToolSchema.success).toBe(false);
+
+    const invalidClaudeToolSchema = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "Read", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["role_override"] } }],
+    });
+    expect(invalidClaudeToolSchema.success).toBe(false);
+  });
+
   it("rejects unknown Claude request and tool envelope fields", () => {
     const request = ClaudeMessagesRequestSchema.safeParse({
       model: "synesis-yarn",
