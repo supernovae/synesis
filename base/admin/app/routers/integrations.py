@@ -23,6 +23,11 @@ def _ensure_org_content_admin(user: UserInfo) -> None:
         raise HTTPException(status_code=403, detail="Requires org content admin access")
 
 
+def _ensure_platform_control(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.platform_control):
+        raise HTTPException(status_code=403, detail="Requires platform admin access")
+
+
 def _sanitize_probe_payload(payload: dict) -> dict:
     allowed_errors = {"not_ready", "upstream_unhealthy", "request_failed", None}
     raw_error = payload.get("error")
@@ -260,7 +265,8 @@ class PolicyCreate(BaseModel):
 
 
 @router.get("/web-search/policies")
-async def list_policies(_user: UserInfo = Depends(get_current_user)):
+async def list_policies(user: UserInfo = Depends(get_current_user)):
+    _ensure_platform_control(user)
     async with async_session() as session:
         rows = (await session.execute(select(WebUrlPolicy).order_by(WebUrlPolicy.id.desc()))).scalars().all()
         items = [
@@ -284,7 +290,7 @@ async def create_or_update_policy(
     body: PolicyCreate,
     user: UserInfo = Depends(get_current_user),
 ):
-    _ensure_org_content_admin(user)
+    _ensure_platform_control(user)
     async with async_session() as session:
         existing = (
             (await session.execute(select(WebUrlPolicy).where(WebUrlPolicy.url_pattern == body.url_pattern)))
@@ -318,9 +324,9 @@ async def create_or_update_policy(
 @router.delete("/web-search/policies/{policy_id}")
 async def delete_policy(
     policy_id: int,
-    _user: UserInfo = Depends(get_current_user),
+    user: UserInfo = Depends(get_current_user),
 ):
-    _ensure_org_content_admin(_user)
+    _ensure_platform_control(user)
     async with async_session() as session:
         await session.execute(delete(WebUrlPolicy).where(WebUrlPolicy.id == policy_id))
         await session.commit()
@@ -348,7 +354,7 @@ async def ingest_url(
     """
     import hashlib
 
-    _ensure_org_content_admin(user)
+    _ensure_platform_control(user)
 
     gap_id = "web-ingest-" + hashlib.sha256(body.url.encode()).hexdigest()[:12]
     async with async_session() as session:

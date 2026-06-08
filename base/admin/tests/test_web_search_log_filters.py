@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import pytest
 from app.auth import UserInfo
+from fastapi import HTTPException
 
 
 @dataclass
@@ -92,6 +93,52 @@ def _user(**overrides) -> UserInfo:
     }
     data.update(overrides)
     return UserInfo(**data)
+
+
+def test_web_search_global_policy_controls_require_platform_admin():
+    from app.routers.integrations import _ensure_platform_control
+
+    with pytest.raises(HTTPException) as exc:
+        _ensure_platform_control(_user(role="org_admin", org_id="org-allowed"))
+
+    assert exc.value.status_code == 403
+
+    _ensure_platform_control(_user(role="platform_admin"))
+
+
+@pytest.mark.anyio
+async def test_web_search_policy_routes_deny_org_admin_before_db_access():
+    from app.routers import integrations as integrations_router
+
+    org_admin = _user(role="org_admin", user_id="admin-1", org_id="org-allowed")
+
+    with pytest.raises(HTTPException) as list_exc:
+        await integrations_router.list_policies(user=org_admin)
+    assert list_exc.value.status_code == 403
+
+    with pytest.raises(HTTPException) as create_exc:
+        await integrations_router.create_or_update_policy(
+            body=integrations_router.PolicyCreate(url_pattern="example.com", policy="allow"),
+            user=org_admin,
+        )
+    assert create_exc.value.status_code == 403
+
+    with pytest.raises(HTTPException) as delete_exc:
+        await integrations_router.delete_policy(policy_id=1, user=org_admin)
+    assert delete_exc.value.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_web_search_ingest_route_denies_org_admin_before_db_access():
+    from app.routers import integrations as integrations_router
+
+    with pytest.raises(HTTPException) as exc:
+        await integrations_router.ingest_url(
+            body=integrations_router.IngestRequest(url="https://example.com/doc"),
+            user=_user(role="org_admin", user_id="admin-1", org_id="org-allowed"),
+        )
+
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.anyio
