@@ -139,6 +139,56 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].baseUrl).toBe("https://route-base/v1");
   });
 
+  it("rejects unknown route_params keys from the admin registry", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "m",
+            endpoint: "",
+            route_params: {
+              api_base: "https://route-base/v1",
+              invented_provider_flag: "unsafe",
+            },
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/invented_provider_flag/);
+  });
+
+  it("rejects unknown nested architecture profile keys from route_params", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "m",
+            endpoint: "",
+            route_params: {
+              architecture_profile: {
+                recommendations: {
+                  preferShorterTurns: false,
+                  invented_policy_toggle: true,
+                },
+              },
+            },
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/invented_policy_toggle/);
+  });
+
   it("maps coder-compaction role to synesis-compaction tier", async () => {
     stubFetch(
       { roles: [{ role: "coder-compaction", assigned: true, provider: "openrouter", model: "qwen/qwen2.5-coder-7b-instruct", endpoint: "" }] },
