@@ -3,7 +3,6 @@ import { isPlanImplementationApprovalMessages } from "./interactive-answer-inten
 export interface ClientToolDefinition {
   name?: string;
   function?: { name?: string };
-  [key: string]: unknown;
 }
 
 export interface ClientToolCapabilities {
@@ -47,6 +46,10 @@ const AGENT_TOOLS = new Set(["agent", "task", "plan"]);
 const MONITOR_TOOLS = new Set(["monitor"]);
 const PLAN_ENTER_TOOLS = new Set(["enterplanmode", "enter_plan_mode"]);
 const PLAN_EXIT_TOOLS = new Set(["exitplanmode", "exit_plan_mode"]);
+const MAX_CLIENT_KIND_CHARS = 64;
+const MAX_CLIENT_TOOL_NAME_CHARS = 128;
+const SAFE_CLIENT_KIND_RE = /^[a-z0-9._-]+$/;
+const SAFE_CLIENT_TOOL_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 export const OPENCODE_BUILTIN_TOOLS = [
   "bash",
@@ -130,12 +133,25 @@ function normalizeToolName(name: string): string {
     .replace(/-/g, "_");
 }
 
+function normalizeClientKind(clientKind: string): string {
+  const client = clientKind.trim().toLowerCase();
+  if (!client || client.length > MAX_CLIENT_KIND_CHARS || !SAFE_CLIENT_KIND_RE.test(client)) {
+    return "unknown";
+  }
+  return client;
+}
+
+function safeClientToolName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const name = value.trim();
+  if (!name || name.length > MAX_CLIENT_TOOL_NAME_CHARS || !SAFE_CLIENT_TOOL_NAME_RE.test(name)) {
+    return "";
+  }
+  return name;
+}
+
 function toolDefinitionName(tool: ClientToolDefinition): string {
-  return typeof tool.name === "string" && tool.name.trim()
-    ? tool.name.trim()
-    : typeof tool.function?.name === "string" && tool.function.name.trim()
-      ? tool.function.name.trim()
-      : "";
+  return safeClientToolName(tool.name) || safeClientToolName(tool.function?.name);
 }
 
 function firstMatchingTool(
@@ -194,7 +210,7 @@ export function detectClientToolCapabilities(
   clientKind: string,
   latestUserPrompt?: string,
 ): ClientToolCapabilities {
-  const client = clientKind.trim().toLowerCase();
+  const client = normalizeClientKind(clientKind);
   const namedTools = Array.isArray(tools)
     ? tools
       .map((tool) => toolDefinitionName(tool))
