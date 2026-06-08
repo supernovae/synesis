@@ -194,9 +194,13 @@ export const ClaudeModelResolutionQuerySchema = z.object({
   model: z.string().trim().min(1),
 });
 
+const ClaudeCommandArgsSchema = z.object({
+  reason: z.string().trim().max(512).optional(),
+}).strict();
+
 export const ClaudeCommandExecuteRequestSchema = z.object({
   command: z.string().trim().min(1),
-  args: z.record(z.string(), z.unknown()).optional(),
+  args: ClaudeCommandArgsSchema.optional(),
   session_id: z.string().trim().optional(),
   conversation_id: z.string().trim().optional(),
   model: z.string().trim().optional(),

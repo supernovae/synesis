@@ -21,7 +21,7 @@ describe("Claude compatibility schemas", () => {
     expect(parsed.model).toBe("claude-opus-4-6");
   });
 
-  it("accepts extensible command payloads", () => {
+  it("accepts known command args", () => {
     const parsed = ClaudeCommandExecuteRequestSchema.parse({
       command: "compact",
       args: { reason: "manual" },
@@ -29,6 +29,18 @@ describe("Claude compatibility schemas", () => {
     });
     expect(parsed.command).toBe("compact");
     expect(parsed.args?.reason).toBe("manual");
+  });
+
+  it("rejects unknown command args", () => {
+    const parsed = ClaudeCommandExecuteRequestSchema.safeParse({
+      command: "compact",
+      args: {
+        reason: "manual",
+        role_override: "admin",
+      },
+      conversation_id: "abc",
+    });
+    expect(parsed.success).toBe(false);
   });
 });
 
