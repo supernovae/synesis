@@ -153,6 +153,24 @@ export interface McpSessionAttribution {
   workspaceHash: string;
 }
 
+type McpAuditOutcome = "allowed" | "denied" | "error" | "timeout";
+
+export interface McpAuditFieldInput {
+  user: Pick<AuthUser, "userId" | "orgId" | "role" | "authMethod" | "authKeyId" | "authKeyPrefix">;
+  toolName: string;
+  requestId: string;
+  outcome: McpAuditOutcome;
+  reason?: string;
+  statusCode?: number;
+  openClawClient?: boolean;
+  agentFlow?: boolean;
+  session?: McpSessionAttribution;
+  elapsedMs?: number;
+  args?: unknown;
+  runMeta?: Record<string, unknown>;
+  diagnosticsMeta?: Record<string, unknown>;
+}
+
 function splitAllowedProjectRoots(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(path.delimiter)
@@ -197,6 +215,13 @@ function optionalMcpString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.replace(/\0/g, "").trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function parseMcpToolName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  if (!name || name.length > 128) return null;
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : null;
 }
 
 function safeMcpKeyPart(value: string, label: string): string {
@@ -403,6 +428,33 @@ function inferTargetScope(args: unknown): "workspace" | "package" | "file" | "un
   return "unknown";
 }
 
+export function buildMcpAuditFields(input: McpAuditFieldInput): Record<string, unknown> {
+  return {
+    surface: "yarn_mcp_http",
+    action: "mcp_tool_call",
+    outcome: input.outcome,
+    reason: input.reason ?? (input.outcome === "allowed" ? "ok" : "unspecified"),
+    statusCode: input.statusCode,
+    tool: input.toolName,
+    tool_kind: classifyToolKind(input.toolName),
+    target_scope: inferTargetScope(input.args),
+    userId: input.user.userId,
+    orgId: input.user.orgId,
+    role: input.user.role,
+    authMethod: input.user.authMethod,
+    authKeyId: input.user.authKeyId,
+    authKeyPrefix: input.user.authKeyPrefix,
+    requestId: input.requestId,
+    openclaw_profile: input.openClawClient ?? false,
+    agent_flow: input.agentFlow ?? false,
+    sessionKey: input.session?.sessionKey,
+    workspaceHash: input.session?.workspaceHash,
+    elapsed_ms: input.elapsedMs,
+    ...(input.runMeta ?? {}),
+    ...(input.diagnosticsMeta ?? {}),
+  };
+}
+
 const registry = new McpToolRegistry();
 registry.register(classifyProjectTool);
 registry.register(inspectRepoTool);
@@ -531,63 +583,116 @@ export async function registerMcpRoutes(
     const user = await resolveUser(req, reply);
     if (!user) return;
 
-    const body = req.body as { name?: string; arguments?: unknown } | null;
-    if (!body?.name) {
+    const body = req.body as { name?: unknown; arguments?: unknown } | null;
+    const requestIdHeader = req.headers["x-request-id"];
+    const requestId = typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
+      ? requestIdHeader.trim()
+      : req.id;
+    const toolName = parseMcpToolName(body?.name);
+    if (!toolName) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName: "invalid",
+          requestId,
+          outcome: "denied",
+          reason: "invalid_tool_name",
+          statusCode: 400,
+        }),
+        "mcp_tool_denied",
+      );
       return reply.code(400).send({
-        error: { type: "invalid_request", message: "Missing tool name" },
+        error: { type: "invalid_request", message: "Invalid or missing tool name" },
       });
     }
+    const toolArguments = body?.arguments;
     const openClawClient = opts.openClawProfileEnabled
       && isOpenClawClientHeader(req.headers["x-synesis-client"]);
     const agentFlow = isAgentFlowRequest(req);
-    if (!agentFlow && AGENT_FLOW_ONLY_TOOLS.has(body.name)) {
-      app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_non_agent_flow");
+    if (!agentFlow && AGENT_FLOW_ONLY_TOOLS.has(toolName)) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName,
+          requestId,
+          outcome: "denied",
+          reason: "non_agent_flow",
+          statusCode: 403,
+          openClawClient,
+          agentFlow,
+          args: toolArguments,
+        }),
+        "mcp_tool_denied",
+      );
       return reply.code(403).send({
         error: {
           type: "forbidden_tool",
-          message: `Tool '${body.name}' is only available during agent flow`,
+          message: `Tool '${toolName}' is only available during agent flow`,
         },
       });
     }
-    if (openClawClient && opts.openClawMcpAllowlistEnabled && !OPENCLAW_MCP_ALLOWLIST.has(body.name)) {
-      app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_openclaw_allowlist");
+    if (openClawClient && opts.openClawMcpAllowlistEnabled && !OPENCLAW_MCP_ALLOWLIST.has(toolName)) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName,
+          requestId,
+          outcome: "denied",
+          reason: "openclaw_allowlist",
+          statusCode: 403,
+          openClawClient,
+          agentFlow,
+          args: toolArguments,
+        }),
+        "mcp_tool_denied",
+      );
       return reply.code(403).send({
         error: {
           type: "forbidden_tool",
-          message: `Tool '${body.name}' is not available for OpenClaw profile`,
+          message: `Tool '${toolName}' is not available for OpenClaw profile`,
         },
       });
     }
-    if (openClawClient && opts.openClawStrictGovernanceEnabled && OPENCLAW_WRITE_CAPABLE_TOOLS.has(body.name)) {
-      app.log.warn({ userId: user.userId, tool: body.name }, "mcp_tool_blocked_openclaw_strict_write");
+    if (openClawClient && opts.openClawStrictGovernanceEnabled && OPENCLAW_WRITE_CAPABLE_TOOLS.has(toolName)) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName,
+          requestId,
+          outcome: "denied",
+          reason: "openclaw_strict_write",
+          statusCode: 403,
+          openClawClient,
+          agentFlow,
+          args: toolArguments,
+        }),
+        "mcp_tool_denied",
+      );
       return reply.code(403).send({
         error: {
           type: "forbidden_tool",
-          message: `Write-capable MCP tool '${body.name}' is blocked for OpenClaw safety profile`,
+          message: `Write-capable MCP tool '${toolName}' is blocked for OpenClaw safety profile`,
         },
       });
     }
 
     const start = performance.now();
-    const requestIdHeader = req.headers["x-request-id"];
-    const requestId = typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
-      ? requestIdHeader.trim()
-      : req.id;
+    let mcpSession: McpSessionAttribution | undefined;
     try {
       let result: unknown;
-      if (SYNESIS_PLATFORM_TOOL_SET.has(body.name)) {
+      if (SYNESIS_PLATFORM_TOOL_SET.has(toolName)) {
         const rawArgs =
-          body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
-            ? (body.arguments as Record<string, unknown>)
+          toolArguments && typeof toolArguments === "object" && !Array.isArray(toolArguments)
+            ? (toolArguments as Record<string, unknown>)
             : {};
-        const mcpSession = buildMcpSessionAttribution({
+        mcpSession = buildMcpSessionAttribution({
           user,
           args: rawArgs,
           headerSessionKey: req.headers["x-synesis-session-key"],
           headerConversationId: req.headers["x-synesis-conversation-id"],
           projectRoot: optionalMcpString(req.headers["x-synesis-project-root"]),
         });
-        const isWebSearchTool = body.name === "synesis_web_search" || body.name === "web_search";
+        const isWebSearchTool = toolName === "synesis_web_search" || toolName === "web_search";
         const mcpArgs = isWebSearchTool
           ? {
               ...rawArgs,
@@ -600,25 +705,35 @@ export async function registerMcpRoutes(
             }
           : rawArgs;
         result = await dispatchSynesisTool(
-          body.name,
+          toolName,
           mcpArgs,
           synesisAuthForRequest(user, req),
           opts.synesisMcpDeps,
         );
       } else {
-        const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(body.name)
-          ? validateMcpProjectRootBinding(body.arguments, req.headers["x-synesis-project-root"])
+        const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(toolName)
+          ? validateMcpProjectRootBinding(toolArguments, req.headers["x-synesis-project-root"])
           : null;
         if (projectRootValidation && !projectRootValidation.ok) {
           app.log.warn(
-            { userId: user.userId, tool: body.name, reason: projectRootValidation.error.type, requestId },
-            "mcp_tool_blocked_project_root",
+            buildMcpAuditFields({
+              user,
+              toolName,
+              requestId,
+              outcome: "denied",
+              reason: projectRootValidation.error.type,
+              statusCode: projectRootValidation.statusCode,
+              openClawClient,
+              agentFlow,
+              args: toolArguments,
+            }),
+            "mcp_tool_denied",
           );
           return reply.code(projectRootValidation.statusCode).send({ error: projectRootValidation.error });
         }
         const validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
-        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : (body.arguments ?? {});
-        const mcpSession = buildMcpSessionAttribution({
+        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : (toolArguments ?? {});
+        mcpSession = buildMcpSessionAttribution({
           user,
           headerSessionKey: req.headers["x-synesis-session-key"],
           headerConversationId: req.headers["x-synesis-conversation-id"],
@@ -630,7 +745,7 @@ export async function registerMcpRoutes(
           userId: user.userId,
           orgId: user.orgId,
         };
-        result = await registry.call(body.name, validatedToolArgs, toolCtx);
+        result = await registry.call(toolName, validatedToolArgs, toolCtx);
       }
       const elapsed = Math.round(performance.now() - start);
       const runMeta =
@@ -657,34 +772,89 @@ export async function registerMcpRoutes(
         };
       })();
       app.log.info(
-        {
-          tool: body.name,
-          tool_kind: classifyToolKind(body.name),
-          target_scope: inferTargetScope(body.arguments),
-          userId: user.userId,
+        buildMcpAuditFields({
+          user,
+          toolName,
           requestId,
-          elapsed_ms: elapsed,
-          ...(runMeta ?? {}),
-          ...(diagnosticsMeta ?? {}),
-        },
+          outcome: "allowed",
+          reason: "ok",
+          statusCode: 200,
+          openClawClient,
+          agentFlow,
+          session: mcpSession,
+          elapsedMs: elapsed,
+          args: toolArguments,
+          runMeta,
+          diagnosticsMeta,
+        }),
         "mcp_tool_call",
       );
-      return reply.send({ result, meta: { tool: body.name, request_id: requestId, elapsed_ms: elapsed } });
+      return reply.send({ result, meta: { tool: toolName, request_id: requestId, elapsed_ms: elapsed } });
     } catch (err) {
       if (err instanceof McpToolNotFoundError) {
+        const elapsed = Math.round(performance.now() - start);
+        app.log.warn(
+          buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "denied",
+            reason: "tool_not_found",
+            statusCode: 404,
+            openClawClient,
+            agentFlow,
+            session: mcpSession,
+            elapsedMs: elapsed,
+            args: toolArguments,
+          }),
+          "mcp_tool_denied",
+        );
         return reply.code(404).send({
           error: { type: "not_found", message: err.message },
         });
       }
       if (err instanceof McpToolTimeoutError) {
         const elapsed = Math.round(performance.now() - start);
-        app.log.warn({ tool: body.name, requestId, elapsed_ms: elapsed }, "mcp_tool_timeout");
+        app.log.warn(
+          buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "timeout",
+            reason: "tool_timeout",
+            statusCode: 504,
+            openClawClient,
+            agentFlow,
+            session: mcpSession,
+            elapsedMs: elapsed,
+            args: toolArguments,
+          }),
+          "mcp_tool_timeout",
+        );
         return reply.code(504).send({
           error: { type: "timeout", message: err.message },
         });
       }
       const elapsed = Math.round(performance.now() - start);
-      app.log.error({ err, tool: body.name, requestId, elapsed_ms: elapsed }, "mcp_tool_error");
+      app.log.error(
+        {
+          err,
+          ...buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "error",
+            reason: "tool_error",
+            statusCode: 422,
+            openClawClient,
+            agentFlow,
+            session: mcpSession,
+            elapsedMs: elapsed,
+            args: toolArguments,
+          }),
+        },
+        "mcp_tool_error",
+      );
       return reply.code(422).send({
         error: {
           type: "tool_error",

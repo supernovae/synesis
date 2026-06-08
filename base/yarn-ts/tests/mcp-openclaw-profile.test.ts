@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import {
+  buildMcpAuditFields,
   buildMcpSessionAttribution,
   filterMcpCatalogForOpenClaw,
   isOpenClawClientHeader,
+  parseMcpToolName,
   validateMcpProjectRootBinding,
 } from "../src/mcp/index.js";
 
@@ -34,6 +36,72 @@ describe("OpenClaw MCP profile", () => {
     ];
     const filtered = filterMcpCatalogForOpenClaw(catalog);
     expect(filtered.map((t) => t.name)).toEqual(["synesis_search", "synesis_web_search"]);
+  });
+});
+
+describe("MCP security audit fields", () => {
+  const user = {
+    userId: "alice",
+    orgId: "org-1",
+    role: "user",
+    authMethod: "pat" as const,
+    authKeyId: "key-1",
+    authKeyPrefix: "syn-abc",
+  };
+
+  it("accepts only bounded MCP tool identifiers", () => {
+    expect(parseMcpToolName("repo.search")).toBe("repo.search");
+    expect(parseMcpToolName(" git_status ")).toBe("git_status");
+    expect(parseMcpToolName("synesis-web_search")).toBe("synesis-web_search");
+
+    expect(parseMcpToolName("")).toBeNull();
+    expect(parseMcpToolName("bad tool")).toBeNull();
+    expect(parseMcpToolName("read_file;rm")).toBeNull();
+    expect(parseMcpToolName({ name: "read_file" })).toBeNull();
+    expect(parseMcpToolName("x".repeat(129))).toBeNull();
+  });
+
+  it("emits uniform caller, decision, request, profile, and session fields", () => {
+    const session = buildMcpSessionAttribution({
+      user,
+      headerSessionKey: "client-session",
+      projectRoot: "/workspace/app",
+    });
+
+    expect(buildMcpAuditFields({
+      user,
+      toolName: "read_file",
+      requestId: "req-1",
+      outcome: "denied",
+      reason: "forbidden_project_root",
+      statusCode: 403,
+      openClawClient: true,
+      agentFlow: false,
+      session,
+      args: { filePath: "src/index.ts" },
+      elapsedMs: 12,
+    })).toMatchObject({
+      surface: "yarn_mcp_http",
+      action: "mcp_tool_call",
+      outcome: "denied",
+      reason: "forbidden_project_root",
+      statusCode: 403,
+      tool: "read_file",
+      tool_kind: "evidence",
+      target_scope: "file",
+      userId: "alice",
+      orgId: "org-1",
+      role: "user",
+      authMethod: "pat",
+      authKeyId: "key-1",
+      authKeyPrefix: "syn-abc",
+      requestId: "req-1",
+      openclaw_profile: true,
+      agent_flow: false,
+      sessionKey: session.sessionKey,
+      workspaceHash: session.workspaceHash,
+      elapsed_ms: 12,
+    });
   });
 });
 
