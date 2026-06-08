@@ -35,7 +35,7 @@ type RecordSessionEvent = (
 ) => void;
 
 type UsageContinuityReader = {
-  loadLatestContinuity(userId: string, maxAgeMs: number): Promise<SessionContinuity | null>;
+  loadLatestContinuity(orgId: string, userId: string, maxAgeMs: number): Promise<SessionContinuity | null>;
 };
 
 type TierRegistryLike = {
@@ -218,7 +218,7 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
     }
 
     if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_SESSION_CONTINUITY_ENABLED && allowCarryForwardBootstrap) {
-      const prevContinuity = await sessionStore.loadContinuity(identity.userId);
+      const prevContinuity = await sessionStore.loadContinuity(identity.orgId, identity.userId);
       if (prevContinuity) {
         const block = sessionContinuity.toSystemBlock(prevContinuity);
         if (block) {
@@ -229,7 +229,11 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
 
     if (!loaded && identity.userId !== "anon" && config.SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED && allowCarryForwardBootstrap) {
       try {
-        const pgContinuity = await usageWriter.loadLatestContinuity(identity.userId, config.SYNESIS_YARN_RECALL_MAX_AGE_MS);
+        const pgContinuity = await usageWriter.loadLatestContinuity(
+          identity.orgId,
+          identity.userId,
+          config.SYNESIS_YARN_RECALL_MAX_AGE_MS,
+        );
         if (pgContinuity) {
           const recallBlock = sessionContinuity.toRecallBlock(pgContinuity);
           if (recallBlock) {
@@ -379,7 +383,7 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
           continuity.planFilePath = metaPlanFilePath;
         }
         state.record.continuity = continuity;
-        void sessionStore.saveContinuity(state.record.userId, continuity).catch((err) => { console.warn("[session] saveContinuity failed:", (err as Error).message ?? err); });
+        void sessionStore.saveContinuity(state.record.orgId, state.record.userId, continuity).catch((err) => { console.warn("[session] saveContinuity failed:", (err as Error).message ?? err); });
       }
       if (state.taskLedger && state.taskLedger.tasks.length > 0) {
         state.record.metadata.task_ledger = serializeTaskLedger(state.taskLedger);

@@ -359,8 +359,8 @@ describe("Fresh implicit session bootstrap", () => {
   it("keeps configured carry-forward bootstrap for non-fresh implicit sessions", async () => {
     const { state, loadContinuity, loadLatestContinuity } = await makeLifecycle();
 
-    expect(loadContinuity).toHaveBeenCalledWith("alice");
-    expect(loadLatestContinuity).toHaveBeenCalledWith("alice", 7 * 24 * 60 * 60 * 1000);
+    expect(loadContinuity).toHaveBeenCalledWith("", "alice");
+    expect(loadLatestContinuity).toHaveBeenCalledWith("", "alice", 7 * 24 * 60 * 60 * 1000);
     expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_CONTINUITY>");
     expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_RECALL");
     expect(state.history.map((m) => m.content).join("\n")).toContain("categorizer.py");
@@ -452,6 +452,31 @@ describe("Session isolation — two clients, same user", () => {
     await expect(store.loadActiveSessionKey("synesis:_:alice:opencode:_")).resolves.toBe(
       "synesis:_:alice:opencode:_:r123",
     );
+
+    await store.close();
+  });
+
+  it("isolates Redis continuity by organization and user", async () => {
+    const { SessionStore } = await import("../src/state/session-store.js");
+    const store = new SessionStore({ SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3" } as never);
+
+    await store.saveContinuity("org-1", "alice", {
+      currentTask: "org one task",
+      keyFindings: [],
+      decisions: [],
+      recentFiles: [],
+      updatedAt: 1,
+    });
+    await store.saveContinuity("org-2", "alice", {
+      currentTask: "org two task",
+      keyFindings: [],
+      decisions: [],
+      recentFiles: [],
+      updatedAt: 2,
+    });
+
+    await expect(store.loadContinuity("org-1", "alice")).resolves.toMatchObject({ currentTask: "org one task" });
+    await expect(store.loadContinuity("org-2", "alice")).resolves.toMatchObject({ currentTask: "org two task" });
 
     await store.close();
   });

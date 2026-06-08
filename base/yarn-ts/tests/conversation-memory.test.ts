@@ -179,6 +179,10 @@ describe("Conversation Memory — UsageWriter continuity persistence", () => {
       (call: unknown[]) => typeof call[0] === "string" && call[0].includes("CREATE TABLE IF NOT EXISTS yarn_session_continuity")
     );
     expect(ddlCall).toBeTruthy();
+    const indexCall = pool.query.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && call[0].includes("idx_continuity_org_user_updated")
+    );
+    expect(indexCall?.[0]).toContain("(org_id, user_id, updated_at DESC)");
   });
 
   it("ensureContinuityTable is idempotent", async () => {
@@ -204,7 +208,7 @@ describe("Conversation Memory — UsageWriter recall loading", () => {
 
   it("loadLatestContinuity returns null when no rows found", async () => {
     writer = new UsageWriter(makeConfig());
-    const result = await writer.loadLatestContinuity("user1");
+    const result = await writer.loadLatestContinuity("org1", "user1");
     expect(result).toBeNull();
 
     const memStats = writer.getConversationMemoryStats();
@@ -226,7 +230,7 @@ describe("Conversation Memory — UsageWriter recall loading", () => {
       }],
     });
 
-    const result = await writer.loadLatestContinuity("user1");
+    const result = await writer.loadLatestContinuity("org1", "user1");
     expect(result).not.toBeNull();
     expect(result!.currentTask).toBe("Fix auth");
     expect(result!.keyFindings).toEqual(["found bug"]);
@@ -242,7 +246,7 @@ describe("Conversation Memory — UsageWriter recall loading", () => {
     const pool = (writer as unknown as { pool: { query: ReturnType<typeof vi.fn> } }).pool;
     pool.query.mockRejectedValueOnce(new Error("db down"));
 
-    const result = await writer.loadLatestContinuity("user1");
+    const result = await writer.loadLatestContinuity("org1", "user1");
     expect(result).toBeNull();
 
     const memStats = writer.getConversationMemoryStats();
@@ -253,19 +257,21 @@ describe("Conversation Memory — UsageWriter recall loading", () => {
     writer = new UsageWriter(makeConfig());
     const pool = (writer as unknown as { pool: { query: ReturnType<typeof vi.fn> } }).pool;
     const oneDay = 24 * 60 * 60 * 1000;
-    await writer.loadLatestContinuity("user1", oneDay);
+    await writer.loadLatestContinuity("org1", "user1", oneDay);
 
     expect(pool.query).toHaveBeenCalled();
     const [sql, params] = pool.query.mock.calls[0];
-    expect(sql).toContain("updated_at >= $2");
-    const cutoffDate = new Date(params[1]);
+    expect(sql).toContain("org_id = $1 AND user_id = $2 AND updated_at >= $3");
+    expect(params[0]).toBe("org1");
+    expect(params[1]).toBe("user1");
+    const cutoffDate = new Date(params[2]);
     const expectedCutoff = new Date(Date.now() - oneDay);
     expect(Math.abs(cutoffDate.getTime() - expectedCutoff.getTime())).toBeLessThan(5000);
   });
 
   it("loadLatestContinuity returns null when pool is null (DB disabled)", async () => {
     writer = new UsageWriter(makeConfig({ SYNESIS_YARN_ADMIN_DB_URL: "" }));
-    const result = await writer.loadLatestContinuity("user1");
+    const result = await writer.loadLatestContinuity("org1", "user1");
     expect(result).toBeNull();
   });
 });
@@ -341,14 +347,14 @@ describe("Conversation Memory — ConversationMemoryStats", () => {
     writer.enqueueContinuityUpsert("u1", "o1", "s2", dummyContinuity());
     await writer.flush();
 
-    await writer.loadLatestContinuity("u1");
-    await writer.loadLatestContinuity("u2");
+    await writer.loadLatestContinuity("o1", "u1");
+    await writer.loadLatestContinuity("o1", "u2");
 
     const pool = (writer as unknown as { pool: { query: ReturnType<typeof vi.fn> } }).pool;
     pool.query.mockResolvedValueOnce({
       rows: [{ current_task: "x", key_findings: [], decisions: [], recent_files: [], updated_at: new Date().toISOString() }],
     });
-    await writer.loadLatestContinuity("u3");
+    await writer.loadLatestContinuity("o2", "u3");
 
     const stats = writer.getConversationMemoryStats();
     expect(stats.continuityUpserts).toBe(2);

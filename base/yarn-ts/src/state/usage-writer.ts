@@ -169,8 +169,8 @@ export class UsageWriter {
         END $$
       `);
       await this.pool.query(`
-        CREATE INDEX IF NOT EXISTS idx_continuity_user_updated
-          ON yarn_session_continuity (user_id, updated_at DESC)
+        CREATE INDEX IF NOT EXISTS idx_continuity_org_user_updated
+          ON yarn_session_continuity (org_id, user_id, updated_at DESC)
       `);
       this._tablesEnsured = true;
     } catch {
@@ -178,7 +178,11 @@ export class UsageWriter {
     }
   }
 
-  async loadLatestContinuity(userId: string, maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): Promise<SessionContinuity | null> {
+  async loadLatestContinuity(
+    orgId: string,
+    userId: string,
+    maxAgeMs: number = 7 * 24 * 60 * 60 * 1000,
+  ): Promise<SessionContinuity | null> {
     if (!this.pool) return null;
     this._memoryStats.recallLoads++;
     try {
@@ -186,10 +190,10 @@ export class UsageWriter {
       const result = await this.pool.query(
         `SELECT current_task, key_findings, decisions, recent_files, plan_graph, plan_file_path, updated_at
          FROM yarn_session_continuity
-         WHERE user_id = $1 AND updated_at >= $2
+         WHERE org_id = $1 AND user_id = $2 AND updated_at >= $3
          ORDER BY updated_at DESC
          LIMIT 1`,
-        [userId, cutoff.toISOString()]
+        [orgId, userId, cutoff.toISOString()]
       );
       if (result.rows.length === 0) {
         this._memoryStats.recallMisses++;

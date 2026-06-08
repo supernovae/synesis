@@ -172,13 +172,13 @@ export class SessionStore {
     return false;
   }
 
-  async saveContinuity(userId: string, continuity: SessionContinuity): Promise<void> {
-    const key = `yarn-ts:continuity:${userId}`;
+  async saveContinuity(orgId: string, userId: string, continuity: SessionContinuity): Promise<void> {
+    const key = this.continuityKey(orgId, userId);
     await this.redis.set(key, JSON.stringify(continuity), "EX", this.ttlSeconds);
   }
 
-  async loadContinuity(userId: string): Promise<SessionContinuity | null> {
-    const key = `yarn-ts:continuity:${userId}`;
+  async loadContinuity(orgId: string, userId: string): Promise<SessionContinuity | null> {
+    const key = this.continuityKey(orgId, userId);
     const raw = await this.redis.get(key);
     if (!raw) return null;
     try {
@@ -323,6 +323,10 @@ export class SessionStore {
 
   private activeKey(baseKey: string): string {
     return `yarn-ts:active-session:${baseKey}`;
+  }
+
+  private continuityKey(orgId: string, userId: string): string {
+    return `yarn-ts:continuity:${this.safeKeyPart(orgId || "no-org")}:${this.safeKeyPart(userId || "anon")}`;
   }
 
   private userPreferencesKey(userId: string): string {
