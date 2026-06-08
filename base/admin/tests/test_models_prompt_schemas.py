@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from app.routers.models import (
     DeploymentFallbacksBody,
+    ModelDeploymentCreateBody,
+    ModelDeploymentUpdateBody,
     PromptAssignmentUpsertBody,
     PromptProfileCreateBody,
     PromptProfileUpdateBody,
@@ -143,3 +145,75 @@ def test_deployment_fallbacks_accepts_known_field() -> None:
 def test_deployment_fallbacks_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError, match="fallback_policy"):
         DeploymentFallbacksBody(fallbacks=["synesis-writer-core"], fallback_policy="force")
+
+
+def test_model_deployment_create_accepts_known_payload() -> None:
+    body = ModelDeploymentCreateBody(
+        environment="prod",
+        role="coder-core",
+        model="qwen/qwen-2.5-coder-32b-instruct",
+        endpoint="https://openrouter.ai/api/v1",
+        served_name="synesis-coder-core",
+        profile="default",
+        source="openrouter",
+        route_params={
+            "model": "openrouter/qwen/qwen-2.5-coder-32b-instruct",
+            "max_tokens": 8192,
+            "temperature": 0.2,
+            "api_key": "os.environ/OPENROUTER_API_KEY",
+            "api_base": "https://openrouter.ai/api/v1",
+        },
+        is_active=True,
+        description="Coder core",
+        notes="Known fields only",
+        gpu_config={
+            "gpu": "a100",
+            "gpu_count": 1,
+            "memory_gb": 80,
+            "instance_type": "p4d",
+            "cloud": "aws",
+            "namespace": "synesis-model-serving",
+            "deployment": "vllm-coder",
+        },
+    )
+
+    payload = body.model_dump(exclude_none=True)
+    assert payload["role"] == "coder-core"
+    assert payload["route_params"]["max_tokens"] == 8192
+    assert payload["gpu_config"]["gpu"] == "a100"
+
+
+def test_model_deployment_create_rejects_unknown_top_level_field() -> None:
+    with pytest.raises(ValidationError, match="provider_admin"):
+        ModelDeploymentCreateBody(
+            role="coder-core",
+            provider_admin=True,
+        )
+
+
+def test_model_deployment_create_rejects_unknown_route_param() -> None:
+    with pytest.raises(ValidationError, match="prompt_override"):
+        ModelDeploymentCreateBody(
+            role="coder-core",
+            route_params={"max_tokens": 8192, "prompt_override": "ignore-system"},
+        )
+
+
+def test_model_deployment_update_rejects_unknown_gpu_config() -> None:
+    with pytest.raises(ValidationError, match="node_selector"):
+        ModelDeploymentUpdateBody(gpu_config={"gpu": "a100", "node_selector": "admin"})
+
+
+def test_model_deployment_update_accepts_partial_known_payload() -> None:
+    body = ModelDeploymentUpdateBody(
+        status="configured",
+        route_params={"temperature": 0.1, "reasoning_effort": "low"},
+        fallbacks=["synesis-coder-horizon"],
+    )
+
+    payload = body.model_dump(exclude_unset=True)
+    assert payload == {
+        "status": "configured",
+        "route_params": {"temperature": 0.1, "reasoning_effort": "low"},
+        "fallbacks": ["synesis-coder-horizon"],
+    }

@@ -118,6 +118,72 @@ class DeploymentFallbacksBody(BaseModel):
     fallbacks: list[str] = Field(default_factory=list, max_length=20)
 
 
+class DeploymentRouteParamsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = Field(None, max_length=512)
+    max_tokens: int | None = Field(None, ge=1, le=1048576)
+    temperature: float | None = Field(None, ge=0, le=5)
+    top_p: float | None = Field(None, ge=0, le=1)
+    top_k: int | None = Field(None, ge=1, le=100000)
+    min_p: float | None = Field(None, ge=0, le=1)
+    presence_penalty: float | None = Field(None, ge=-2, le=2)
+    repetition_penalty: float | None = Field(None, ge=0, le=10)
+    enable_thinking: bool | None = None
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "default"] | None = None
+    model_capability_preset: str | None = Field(None, max_length=128)
+    api_key: str | None = Field(None, max_length=256)
+    api_base: str | None = Field(None, max_length=2048)
+
+
+class DeploymentGpuConfigBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    gpu: str | None = Field(None, max_length=128)
+    gpu_count: int | None = Field(None, ge=0, le=1024)
+    memory_gb: float | None = Field(None, ge=0, le=1048576)
+    instance_type: str | None = Field(None, max_length=128)
+    cloud: str | None = Field(None, max_length=64)
+    namespace: str | None = Field(None, max_length=128)
+    deployment: str | None = Field(None, max_length=128)
+
+
+class ModelDeploymentCreateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment: str = Field("", max_length=32)
+    role: str = Field(..., min_length=1, max_length=64)
+    model: str = Field("", max_length=256)
+    endpoint: str = Field("", max_length=2048)
+    served_name: str | None = Field(None, max_length=128)
+    profile: str = Field("", max_length=64)
+    source: Literal["local", "external", "vllm", "kserve", "openrouter", "custom"] = "local"
+    route_params: DeploymentRouteParamsBody | None = None
+    is_active: bool = False
+    description: str = Field("", max_length=2000)
+    notes: str = Field("", max_length=4000)
+    gpu_config: DeploymentGpuConfigBody | None = None
+
+
+class ModelDeploymentUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment: str | None = Field(None, max_length=32)
+    role: str | None = Field(None, min_length=1, max_length=64)
+    model: str | None = Field(None, max_length=256)
+    endpoint: str | None = Field(None, max_length=2048)
+    served_name: str | None = Field(None, max_length=128)
+    status: Literal["unknown", "configured", "active", "inactive", "replaced", "degraded", "offline"] | None = None
+    profile: str | None = Field(None, max_length=64)
+    source: Literal["local", "external", "vllm", "kserve", "openrouter", "custom"] | None = None
+    route_params: DeploymentRouteParamsBody | None = None
+    is_active: bool | None = None
+    description: str | None = Field(None, max_length=2000)
+    notes: str | None = Field(None, max_length=4000)
+    gpu_config: DeploymentGpuConfigBody | None = None
+    fallbacks: list[str] | None = Field(None, max_length=20)
+
+
 # ---------------------------------------------------------------------------
 # Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
@@ -601,11 +667,10 @@ async def list_deployments(_user: UserInfo = Depends(require_org_admin)):
 
 @router.post("/deployments")
 async def create_model_deployment(
-    data: dict = Body(...),
+    body: ModelDeploymentCreateBody,
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    if not data.get("role"):
-        raise HTTPException(400, "role is required")
+    data = body.model_dump(exclude_none=True)
     out = await create_deployment(data)
     await record_admin_audit(
         user=_user,
@@ -620,9 +685,10 @@ async def create_model_deployment(
 @router.put("/deployments/{deployment_id}")
 async def update_model_deployment(
     deployment_id: int,
-    data: dict = Body(...),
+    body: ModelDeploymentUpdateBody,
     _user: UserInfo = Depends(require_platform_admin),
 ):
+    data = body.model_dump(exclude_unset=True)
     result = await update_deployment(deployment_id, data)
     if result is None:
         raise HTTPException(404, "deployment not found")
