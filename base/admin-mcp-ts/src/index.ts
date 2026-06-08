@@ -8,16 +8,14 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import * as z from "zod/v4";
 import { adminApiBaseUrl, loadConfig, type AdminMcpConfig } from "./config.js";
 import {
   AdminMcpToolError,
   invokeTool,
   type SessionUser,
   visibleToolDescriptorsForRole,
+  zodInputSchemaForTool,
 } from "./tools.js";
-
-const FlexibleArgs = z.object({}).passthrough();
 
 const DELEGATED_AUTH_HEADER = "x-synesis-delegated-authorization";
 const DELEGATED_COOKIE_HEADER = "x-synesis-delegated-cookie";
@@ -203,13 +201,12 @@ export function buildAdminMcpServer(
       tool.name,
       {
         description: tool.description,
-        inputSchema: FlexibleArgs,
+        inputSchema: zodInputSchemaForTool(tool.inputSchema),
       },
       async (args) => {
         const raw = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-        const record = z.record(z.string(), z.unknown()).parse(raw);
         try {
-          const result = await invokeTool(toolContext, authCtx.user.role, tool.name, record);
+          const result = await invokeTool(toolContext, authCtx.user.role, tool.name, raw as Record<string, unknown>);
           return jsonResult(result);
         } catch (e) {
           const err = toSafeToolError(e, tool.name);

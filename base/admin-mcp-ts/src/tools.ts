@@ -1,4 +1,5 @@
 import { adminApiBaseUrl, type AdminMcpConfig } from "./config.js";
+import * as z from "zod/v4";
 
 export type AdminRole = "readonly" | "user" | "org_admin" | "platform_admin" | "admin";
 
@@ -22,7 +23,7 @@ export interface AdminToolDescriptor {
   name: string;
   description: string;
   min_role: AdminRole;
-  inputSchema: Record<string, unknown>;
+  inputSchema: ToolInputSchema;
 }
 
 interface ToolContext {
@@ -36,6 +37,24 @@ interface ToolContext {
 
 interface AdminToolDefinition extends AdminToolDescriptor {
   invoke: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
+}
+
+interface ToolJsonSchemaProperty {
+  type?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+  items?: ToolJsonSchemaProperty;
+  properties?: Record<string, ToolJsonSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
+}
+
+interface ToolInputSchema {
+  type: string;
+  properties: Record<string, ToolJsonSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
 }
 
 export class AdminMcpToolError extends Error {
@@ -114,11 +133,6 @@ function optionalInt(v: unknown, defaultValue: number, min: number, max: number)
 function optionalBool(v: unknown): boolean | undefined {
   if (v === undefined || v === null || asString(v).trim() === "") return undefined;
   return asBool(v, false);
-}
-
-function asRecord(v: unknown): Record<string, unknown> {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-  return v as Record<string, unknown>;
 }
 
 function isHttpNotFoundError(error: unknown): boolean {
@@ -363,11 +377,123 @@ async function plannerRequest(ctx: ToolContext, path: string, body: Record<strin
   return parsed;
 }
 
+function strictInputSchema(schema: ToolInputSchema): ToolInputSchema {
+  return { ...schema, additionalProperties: false };
+}
+
+function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
+  let out: z.ZodType;
+  if (schema.type === "string") {
+    out = z.string();
+  } else if (schema.type === "boolean") {
+    out = z.boolean();
+  } else if (schema.type === "integer") {
+    out = z.number().int();
+  } else if (schema.type === "number") {
+    out = z.number();
+  } else if (schema.type === "array") {
+    out = z.array(schema.items ? zodForProperty(schema.items) : z.unknown());
+  } else if (schema.type === "object") {
+    const shape: Record<string, z.ZodType> = {};
+    for (const [key, propertySchema] of Object.entries(schema.properties ?? {})) {
+      shape[key] = zodForProperty(propertySchema).optional();
+    }
+    let objectSchema = z.object(shape);
+    objectSchema = schema.additionalProperties === false ? objectSchema.strict() : objectSchema.passthrough();
+    out = objectSchema;
+  } else {
+    out = z.unknown();
+  }
+  if (schema.enum) {
+    out = out.refine((value) => schema.enum?.includes(value), { message: "Unsupported value" });
+  }
+  return out;
+}
+
+export function zodInputSchemaForTool(schema: ToolInputSchema): z.ZodType {
+  const strictSchema = strictInputSchema(schema);
+  const shape: Record<string, z.ZodType> = {};
+  const required = new Set(strictSchema.required ?? []);
+  for (const [key, propertySchema] of Object.entries(strictSchema.properties)) {
+    const zodProperty = zodForProperty(propertySchema);
+    shape[key] = required.has(key) ? zodProperty : zodProperty.optional();
+  }
+  return z.object(shape).strict();
+}
+
+function validateValueAgainstSchema(
+  tool: string,
+  key: string,
+  value: unknown,
+  schema: ToolJsonSchemaProperty,
+): void {
+  if (value === undefined || value === null) return;
+  if (schema.enum && !schema.enum.includes(value)) {
+    throw new AdminMcpToolError("invalid_arguments", 400, {
+      reason: "invalid_enum",
+      key,
+      tool,
+      allowed: schema.enum,
+    });
+  }
+  if (schema.type === "string" && typeof value !== "string") {
+    throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "string" });
+  }
+  if (schema.type === "boolean" && typeof value !== "boolean") {
+    throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "boolean" });
+  }
+  if (schema.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) {
+    throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "number" });
+  }
+  if (schema.type === "integer" && (typeof value !== "number" || !Number.isInteger(value))) {
+    throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "integer" });
+  }
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) {
+      throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "array" });
+    }
+    if (schema.items) {
+      for (const [idx, item] of value.entries()) {
+        validateValueAgainstSchema(tool, `${key}.${idx}`, item, schema.items);
+      }
+    }
+  }
+  if (schema.type === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "object" });
+    }
+    const nested = value as Record<string, unknown>;
+    const allowed = new Set(Object.keys(schema.properties ?? {}));
+    if (schema.additionalProperties === false) {
+      for (const nestedKey of Object.keys(nested)) {
+        if (!allowed.has(nestedKey)) {
+          throw new AdminMcpToolError("invalid_arguments", 400, {
+            reason: "unknown_argument",
+            key: `${key}.${nestedKey}`,
+            tool,
+          });
+        }
+      }
+    }
+    for (const requiredKey of schema.required ?? []) {
+      if (nested[requiredKey] === undefined || nested[requiredKey] === null || asString(nested[requiredKey]).trim() === "") {
+        throw new AdminMcpToolError("invalid_arguments", 400, {
+          reason: "missing_required",
+          key: `${key}.${requiredKey}`,
+          tool,
+        });
+      }
+    }
+    for (const [nestedKey, nestedSchema] of Object.entries(schema.properties ?? {})) {
+      validateValueAgainstSchema(tool, `${key}.${nestedKey}`, nested[nestedKey], nestedSchema);
+    }
+  }
+}
+
 function validateToolArgs(tool: AdminToolDefinition, args: Record<string, unknown>): Record<string, unknown> {
-  const properties = tool.inputSchema.properties;
-  const allowed = properties && typeof properties === "object" && !Array.isArray(properties)
-    ? new Set(Object.keys(properties as Record<string, unknown>))
-    : new Set<string>();
+  const schema = strictInputSchema(tool.inputSchema);
+  const properties = schema.properties;
+  const allowed = new Set(Object.keys(properties));
   const required = Array.isArray(tool.inputSchema.required)
     ? (tool.inputSchema.required as unknown[]).map((v) => asString(v)).filter(Boolean)
     : [];
@@ -380,6 +506,9 @@ function validateToolArgs(tool: AdminToolDefinition, args: Record<string, unknow
     if (args[key] === undefined || args[key] === null || asString(args[key]).trim() === "") {
       throw new AdminMcpToolError("invalid_arguments", 400, { reason: "missing_required", key, tool: tool.name });
     }
+  }
+  for (const [key, propertySchema] of Object.entries(properties)) {
+    validateValueAgainstSchema(tool.name, key, args[key], propertySchema);
   }
   return args;
 }
@@ -427,7 +556,7 @@ function getTool(
   name: string,
   description: string,
   minRole: AdminRole,
-  inputSchema: Record<string, unknown>,
+  inputSchema: ToolInputSchema,
   path: string | ((args: Record<string, unknown>) => string),
   params?: (args: Record<string, unknown>) => Record<string, unknown>,
 ): AdminToolDefinition {
@@ -435,7 +564,7 @@ function getTool(
     name,
     description,
     min_role: minRole,
-    inputSchema,
+    inputSchema: strictInputSchema(inputSchema),
     invoke: async (ctx, args) => {
       const resolvedPath = typeof path === "function" ? path(args) : path;
       return apiRequest(ctx, "GET", resolvedPath, params ? params(args) : undefined);
@@ -447,7 +576,7 @@ function postTool(
   name: string,
   description: string,
   minRole: AdminRole,
-  inputSchema: Record<string, unknown>,
+  inputSchema: ToolInputSchema,
   path: string | ((args: Record<string, unknown>) => string),
   body?: (args: Record<string, unknown>) => Record<string, unknown>,
   params?: (args: Record<string, unknown>) => Record<string, unknown>,
@@ -456,7 +585,7 @@ function postTool(
     name,
     description,
     min_role: minRole,
-    inputSchema,
+    inputSchema: strictInputSchema(inputSchema),
     invoke: async (ctx, args) => {
       const resolvedPath = typeof path === "function" ? path(args) : path;
       return apiRequest(ctx, "POST", resolvedPath, params ? params(args) : undefined, body ? body(args) : {});
@@ -1384,7 +1513,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         prompt: { type: "string", description: "Prompt to evaluate" },
         effort_mode: { type: "string" },
         include_frame: { type: "boolean", default: true },
-        operational_health: { type: "object" },
+        operational_health: { type: "number" },
       },
       required: ["prompt"],
     },
@@ -1393,7 +1522,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       prompt: boundedString(args.prompt, 12000),
       effort_mode: boundedString(args.effort_mode, 64),
       include_frame: args.include_frame === undefined ? true : asBool(args.include_frame, true),
-      operational_health: asRecord(args.operational_health),
+      operational_health: typeof args.operational_health === "number" && Number.isFinite(args.operational_health)
+        ? args.operational_health
+        : undefined,
     }),
   ),
   getTool("model_policies", "Active model policies grouped by role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/policies"),
@@ -1791,7 +1922,9 @@ export function isOrgAdminOrHigher(role: string | undefined): boolean {
 
 export function visibleToolDescriptorsForRole(role: string | undefined): AdminToolDescriptor[] {
   const rank = roleRank(role);
-  return TOOL_DEFINITIONS.filter((tool) => rank >= roleRank(tool.min_role));
+  return TOOL_DEFINITIONS
+    .filter((tool) => rank >= roleRank(tool.min_role))
+    .map((tool) => ({ ...tool, inputSchema: strictInputSchema(tool.inputSchema) }));
 }
 
 export function openAIFunctionToolsForRole(

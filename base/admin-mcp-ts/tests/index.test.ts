@@ -16,6 +16,29 @@ afterEach(() => {
 });
 
 describe("admin MCP internal auth", () => {
+  function mockUser(role = "user") {
+    return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          username: role,
+          role,
+          user_id: "u1",
+          org_id: "o1",
+          org_name: "Org",
+          org_roles: role === "org_admin" ? ["admin"] : [],
+          tenant_ids: [],
+          token_scopes: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }
+
+  const delegatedHeaders = {
+    "x-synesis-service-token": "internal-secret",
+    "x-synesis-delegated-cookie": "synesis_admin_session=session",
+  };
+
   it("reports ready from local configuration without probing the Admin API", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("should_not_probe"));
     const app = createApp(cfg());
@@ -137,5 +160,59 @@ describe("admin MCP internal auth", () => {
     const names = new Set(res.json().tools.map((tool: { name: string }) => tool.name));
     expect(names.has("synesis_classify_intent")).toBe(true);
     expect(names.has("get_trace")).toBe(false);
+  });
+
+  it("advertises closed input schemas for visible tools", async () => {
+    mockUser("user");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: delegatedHeaders,
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    const tools = res.json().tools as Array<{ name: string; inputSchema: Record<string, unknown> }>;
+    const classify = tools.find((tool) => tool.name === "synesis_classify_intent");
+    expect(classify?.inputSchema.additionalProperties).toBe(false);
+  });
+
+  it("rejects unknown direct tool arguments before invocation", async () => {
+    const fetchSpy = mockUser("user");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: {
+        name: "synesis_classify_intent",
+        arguments: { query: "debug this", invented_flag: true },
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_arguments", tool: "synesis_classify_intent" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects wrong-typed direct tool arguments before invocation", async () => {
+    const fetchSpy = mockUser("user");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin-tools/invoke",
+      headers: delegatedHeaders,
+      payload: {
+        name: "synesis_classify_intent",
+        arguments: { query: 42 },
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_arguments", tool: "synesis_classify_intent" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
