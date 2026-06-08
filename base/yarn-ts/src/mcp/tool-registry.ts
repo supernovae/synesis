@@ -77,49 +77,81 @@ export class McpToolNotFoundError extends Error {
   }
 }
 
-/**
- * Minimal Zod-to-JSON-Schema converter for MCP tool discovery.
- * Covers the subset we use (object, string, number, boolean, array, enum).
- */
-function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
-  const def = (schema as z.core.$ZodType)._zod;
-  if (!def) return { type: "object" };
+const CATALOG_JSON_SCHEMA_KEYS = new Set([
+  "$schema",
+  "$defs",
+  "$ref",
+  "additionalProperties",
+  "allOf",
+  "anyOf",
+  "const",
+  "default",
+  "description",
+  "enum",
+  "exclusiveMaximum",
+  "exclusiveMinimum",
+  "format",
+  "items",
+  "maxItems",
+  "maxLength",
+  "maximum",
+  "minItems",
+  "minLength",
+  "minimum",
+  "oneOf",
+  "pattern",
+  "propertyNames",
+  "properties",
+  "required",
+  "type",
+]);
 
-  const typeName = def.def?.type;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
-  if (typeName === "object") {
-    const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    if (shape && typeof shape === "object") {
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = zodToJsonSchema(value as ZodType);
-        const innerDef = (value as z.core.$ZodType)?._zod?.def;
-        if (innerDef?.type !== "optional" && innerDef?.type !== "default") {
-          required.push(key);
-        }
-      }
+function closeJsonSchemaMap(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[key] = closeCatalogJsonSchema(item);
+  }
+  return out;
+}
+
+function closeCatalogJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => closeCatalogJsonSchema(item));
+  if (!isRecord(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!CATALOG_JSON_SCHEMA_KEYS.has(key)) {
+      throw new Error(`unsupported_mcp_catalog_schema_key:${key}`);
     }
-    const catchall = (def.def as { catchall?: z.core.$ZodType })?.catchall;
-    const additionalProperties = catchall?._zod?.def?.type === "never" ? false : undefined;
-    return {
-      type: "object",
-      properties,
-      ...(required.length ? { required } : {}),
-      ...(additionalProperties === false ? { additionalProperties } : {}),
-    };
+    if (key === "properties" || key === "$defs") {
+      out[key] = closeJsonSchemaMap(item);
+    } else {
+      out[key] = closeCatalogJsonSchema(item);
+    }
   }
-  if (typeName === "string") return { type: "string" };
-  if (typeName === "number") return { type: "number" };
-  if (typeName === "boolean") return { type: "boolean" };
-  if (typeName === "array") return { type: "array", items: zodToJsonSchema((schema as z.ZodArray<ZodType>).element) };
-  if (typeName === "enum") {
-    const values = (def.def as { values?: readonly string[] })?.values;
-    return { type: "string", enum: values ? [...values] : [] };
+  if (Object.keys(out).length === 0) {
+    throw new Error("unsupported_mcp_catalog_empty_schema");
   }
-  if (typeName === "optional" || typeName === "default") {
-    const inner = (def.def as { innerType?: ZodType })?.innerType;
-    if (inner) return zodToJsonSchema(inner);
+
+  const hasBoundedMapSchema = isRecord(out.propertyNames) && isRecord(out.additionalProperties);
+  if ((out.type === "object" || isRecord(out.properties)) && !hasBoundedMapSchema) {
+    out.type = "object";
+    if (!isRecord(out.properties)) out.properties = {};
+    out.additionalProperties = false;
   }
-  return {};
+
+  return out;
+}
+
+function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
+  const converted = z.toJSONSchema(schema);
+  const jsonSchema = converted && typeof converted === "object" && !Array.isArray(converted)
+    ? (converted as Record<string, unknown>)
+    : { type: "object" };
+  return closeCatalogJsonSchema(jsonSchema) as Record<string, unknown>;
 }

@@ -1,23 +1,40 @@
 import { describe, it, expect } from "vitest";
-import { McpToolRegistry, McpToolNotFoundError } from "../src/mcp/tool-registry.js";
+import { z } from "zod";
+import { McpToolRegistry, McpToolNotFoundError, type McpToolDefinition } from "../src/mcp/tool-registry.js";
 import { classifyProjectTool } from "../src/mcp/handlers/classify-project.js";
 import { inspectRepoTool } from "../src/mcp/handlers/inspect-repo.js";
 import { scaffoldTool } from "../src/mcp/handlers/scaffold.js";
 import { compareManifestTool } from "../src/mcp/handlers/compare-manifest.js";
 import {
+  delegateTaskTool,
+  formatCodeTool,
+  gitAddGuardedTool,
+  gitCommitGuardedTool,
+  gitDiffTool,
   getRuntimeContextTool,
   gitBranchInfoTool,
   gitFileStateTool,
   gitRevParseTool,
+  gitStatusTool,
   listDirTool,
+  repoApplyPatchTool,
+  repoFindSymbolTool,
+  repoGitDiffTool,
+  repoListChangedFilesTool,
+  repoReadRangeTool,
+  repoRunLintTool,
+  repoRunTestsTool,
+  repoSearchTool,
   repoWriteDecisionRecordTool,
   readFileTool,
+  runLintTool,
   writeFileTool,
   strReplaceTool,
   searchCodeTool,
   runBuildTool,
   runTestTool,
   runInSandboxTool,
+  takeScreenshotTool,
 } from "../src/mcp/handlers/coding-tools.js";
 import {
   storeObservationTool,
@@ -27,6 +44,109 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+
+const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
+  classifyProjectTool,
+  inspectRepoTool,
+  scaffoldTool,
+  compareManifestTool,
+  getRuntimeContextTool,
+  listDirTool,
+  readFileTool,
+  writeFileTool,
+  strReplaceTool,
+  searchCodeTool,
+  runTestTool,
+  runBuildTool,
+  runLintTool,
+  formatCodeTool,
+  gitStatusTool,
+  gitDiffTool,
+  gitRevParseTool,
+  gitBranchInfoTool,
+  gitFileStateTool,
+  gitAddGuardedTool,
+  gitCommitGuardedTool,
+  runInSandboxTool,
+  takeScreenshotTool,
+  delegateTaskTool,
+  repoSearchTool,
+  repoReadRangeTool,
+  repoFindSymbolTool,
+  repoApplyPatchTool,
+  repoRunTestsTool,
+  repoRunLintTool,
+  repoGitDiffTool,
+  repoListChangedFilesTool,
+  repoWriteDecisionRecordTool,
+  storeObservationTool,
+  recallFindingsTool,
+];
+
+const CATALOG_JSON_SCHEMA_KEYS = new Set([
+  "$schema",
+  "$defs",
+  "$ref",
+  "additionalProperties",
+  "allOf",
+  "anyOf",
+  "const",
+  "default",
+  "description",
+  "enum",
+  "exclusiveMaximum",
+  "exclusiveMinimum",
+  "format",
+  "items",
+  "maxItems",
+  "maxLength",
+  "maximum",
+  "minItems",
+  "minLength",
+  "minimum",
+  "oneOf",
+  "pattern",
+  "propertyNames",
+  "properties",
+  "required",
+  "type",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertClosedSchema(schema: unknown, path: string): void {
+  if (Array.isArray(schema)) {
+    schema.forEach((item, index) => assertClosedSchema(item, `${path}[${index}]`));
+    return;
+  }
+  if (!isRecord(schema)) return;
+
+  for (const key of Object.keys(schema)) {
+    expect(CATALOG_JSON_SCHEMA_KEYS.has(key), `${path} should not expose unknown schema key ${key}`).toBe(true);
+  }
+
+  const hasBoundedMapSchema = isRecord(schema.propertyNames) && isRecord(schema.additionalProperties);
+  if ((schema.type === "object" || isRecord(schema.properties)) && !hasBoundedMapSchema) {
+    expect(schema.additionalProperties, `${path} must reject undeclared fields`).toBe(false);
+  }
+
+  for (const key of ["items", "allOf", "anyOf", "oneOf", "propertyNames", "additionalProperties"] as const) {
+    assertClosedSchema(schema[key], `${path}.${key}`);
+  }
+
+  if (isRecord(schema.properties)) {
+    for (const [propertyName, propertySchema] of Object.entries(schema.properties)) {
+      assertClosedSchema(propertySchema, `${path}.properties.${propertyName}`);
+    }
+  }
+  if (isRecord(schema.$defs)) {
+    for (const [definitionName, definitionSchema] of Object.entries(schema.$defs)) {
+      assertClosedSchema(definitionSchema, `${path}.$defs.${definitionName}`);
+    }
+  }
+}
 
 describe("McpToolRegistry", () => {
   it("registers and lists tools", () => {
@@ -71,8 +191,7 @@ describe("McpToolRegistry", () => {
 
   it("publishes closed JSON schemas for strict tool inputs", () => {
     const registry = new McpToolRegistry();
-    registry.register(classifyProjectTool);
-    registry.register(listDirTool);
+    for (const tool of LOCAL_MCP_TOOLS) registry.register(tool);
 
     const catalog = registry.getCatalog();
     const classify = catalog.find((tool) => tool.name === "synesis_classify_project");
@@ -80,6 +199,23 @@ describe("McpToolRegistry", () => {
 
     expect(classify?.inputSchema).toMatchObject({ additionalProperties: false });
     expect(listDir?.inputSchema).toMatchObject({ additionalProperties: false });
+    for (const tool of catalog) {
+      assertClosedSchema(tool.inputSchema, tool.name);
+    }
+  });
+
+  it("rejects unsupported tool schemas during catalog generation", () => {
+    const registry = new McpToolRegistry();
+    registry.register({
+      name: "unsafe_freeform",
+      description: "invalid test tool",
+      inputSchema: z.object({
+        payload: z.unknown(),
+      }).strict(),
+      handler: () => ({}),
+    });
+
+    expect(() => registry.getCatalog()).toThrow(/unsupported_mcp_catalog_(schema_key|empty_schema)|Unrepresentable/);
   });
 
   it("rejects unknown attributes before invoking strict MCP handlers", async () => {
