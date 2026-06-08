@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import {
   dispatchSynesisTool,
@@ -106,6 +108,182 @@ const AGENT_FLOW_ONLY_TOOLS = new Set<string>([
   "repo.list_changed_files",
   "repo.write_decision_record",
 ]);
+
+const PROJECT_BOUND_MCP_TOOLS = new Set<string>([
+  "get_runtime_context",
+  "list_dir",
+  "read_file",
+  "write_file",
+  "str_replace",
+  "format_code",
+  "git_add_guarded",
+  "git_commit_guarded",
+  "take_screenshot",
+  "delegate_task",
+  "repo.search",
+  "repo.read_range",
+  "repo.find_symbol",
+  "repo.apply_patch",
+  "repo.run_tests",
+  "repo.run_lint",
+  "repo.git_diff",
+  "repo.list_changed_files",
+  "repo.write_decision_record",
+  "search_code",
+  "run_test",
+  "run_build",
+  "run_lint",
+  "git_status",
+  "git_diff",
+  "git_rev_parse",
+  "git_branch_info",
+  "git_file_state",
+  "run_in_sandbox",
+]);
+
+type McpProjectRootValidation =
+  | { ok: true; projectRoot: string; args: Record<string, unknown> }
+  | { ok: false; statusCode: 400 | 403; error: { type: string; message: string } };
+
+function splitAllowedProjectRoots(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => path.resolve(entry));
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const rel = path.relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function isDeniedProjectRoot(projectRoot: string, homeDir = os.homedir()): boolean {
+  const normalized = path.resolve(projectRoot);
+  const exactDeniedRoots = [
+    path.parse(normalized).root,
+    path.resolve(homeDir),
+  ];
+  if (exactDeniedRoots.some((entry) => normalized === entry)) return true;
+
+  const deniedSubtrees = [
+    "/bin",
+    "/dev",
+    "/etc",
+    "/Library",
+    "/private/var",
+    "/proc",
+    "/sbin",
+    "/System",
+    "/sys",
+    "/usr",
+    "/var",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+  ].map((entry) => path.resolve(entry));
+  return deniedSubtrees.some((entry) => normalized === entry || isPathInside(entry, normalized));
+}
+
+export function validateMcpProjectRootBinding(
+  args: unknown,
+  headerProjectRoot: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): McpProjectRootValidation {
+  if (typeof headerProjectRoot !== "string" || headerProjectRoot.trim().length === 0) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "invalid_project_root",
+        message: "Project-bound MCP tools require x-synesis-project-root",
+      },
+    };
+  }
+
+  const requestedRoot = headerProjectRoot.replace(/\0/g, "").trim();
+  if (!path.isAbsolute(requestedRoot)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "invalid_project_root",
+        message: "Project root must be an absolute path",
+      },
+    };
+  }
+
+  const projectRoot = path.resolve(requestedRoot);
+  if (isDeniedProjectRoot(projectRoot)) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: {
+        type: "forbidden_project_root",
+        message: "Project root is not an allowed workspace root",
+      },
+    };
+  }
+
+  const allowedRoots = splitAllowedProjectRoots(env.SYNESIS_YARN_MCP_ALLOWED_PROJECT_ROOTS);
+  if (allowedRoots.length > 0 && !allowedRoots.some((allowedRoot) => isPathInside(allowedRoot, projectRoot))) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: {
+        type: "forbidden_project_root",
+        message: "Project root is outside configured MCP workspace roots",
+      },
+    };
+  }
+  if ((env.NODE_ENV ?? "").toLowerCase() === "production" && allowedRoots.length === 0) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: {
+        type: "forbidden_project_root",
+        message: "MCP workspace roots are not configured",
+      },
+    };
+  }
+
+  const rawArgs = args && typeof args === "object" && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : {};
+  const argProjectRoot = rawArgs.projectRoot;
+  if (argProjectRoot !== undefined) {
+    if (typeof argProjectRoot !== "string" || argProjectRoot.trim().length === 0) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: {
+          type: "invalid_project_root",
+          message: "Tool projectRoot must be a non-empty string",
+        },
+      };
+    }
+    const resolvedArgRoot = path.resolve(argProjectRoot.replace(/\0/g, "").trim());
+    if (resolvedArgRoot !== projectRoot) {
+      return {
+        ok: false,
+        statusCode: 403,
+        error: {
+          type: "project_root_mismatch",
+          message: "Tool projectRoot does not match the request workspace root",
+        },
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    projectRoot,
+    args: {
+      ...rawArgs,
+      projectRoot,
+    },
+  };
+}
 
 export function isOpenClawClientHeader(raw: unknown): boolean {
   const v = String(raw ?? "").trim().toLowerCase();
@@ -377,15 +555,26 @@ export async function registerMcpRoutes(
           opts.synesisMcpDeps,
         );
       } else {
+        const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(body.name)
+          ? validateMcpProjectRootBinding(body.arguments, req.headers["x-synesis-project-root"])
+          : null;
+        if (projectRootValidation && !projectRootValidation.ok) {
+          app.log.warn(
+            { userId: user.userId, tool: body.name, reason: projectRootValidation.error.type, requestId },
+            "mcp_tool_blocked_project_root",
+          );
+          return reply.code(projectRootValidation.statusCode).send({ error: projectRootValidation.error });
+        }
+        const validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
+        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : (body.arguments ?? {});
         const toolCtx: McpToolContext = {
           sessionKey: typeof req.headers["x-synesis-session-key"] === "string"
             ? req.headers["x-synesis-session-key"] : `mcp:${user.userId}`,
-          projectRoot: typeof req.headers["x-synesis-project-root"] === "string"
-            ? req.headers["x-synesis-project-root"] : "",
+          projectRoot: validatedProjectRoot,
           userId: user.userId,
           orgId: user.orgId,
         };
-        result = await registry.call(body.name, body.arguments ?? {}, toolCtx);
+        result = await registry.call(body.name, validatedToolArgs, toolCtx);
       }
       const elapsed = Math.round(performance.now() - start);
       const runMeta =

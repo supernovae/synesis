@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import pytest
+from app.auth import UserInfo
 
 
 @dataclass
@@ -61,17 +62,36 @@ class _FakeSession:
     def __init__(self) -> None:
         self._calls = 0
         self._row = _FakeWebSearchRow()
+        self.statements = []
 
     async def execute(self, *_args, **_kwargs):
         self._calls += 1
+        self.statements.append(_args[0])
         if self._calls == 1:
             return _FakeCountResult(1)
         return _FakeRowsResult([self._row])
 
 
+_last_fake_session: _FakeSession | None = None
+
+
 @asynccontextmanager
 async def _fake_async_session():
-    yield _FakeSession()
+    global _last_fake_session
+    _last_fake_session = _FakeSession()
+    yield _last_fake_session
+
+
+def _user(**overrides) -> UserInfo:
+    data = {
+        "username": "user-1",
+        "role": "user",
+        "user_id": "user-1",
+        "org_id": "",
+        "tenant_ids": [],
+    }
+    data.update(overrides)
+    return UserInfo(**data)
 
 
 @pytest.mark.anyio
@@ -80,7 +100,7 @@ async def test_web_search_log_returns_attribution_fields():
 
     integrations_router.async_session = _fake_async_session
     body = await integrations_router.web_search_log(
-        _user=None,  # Unused in handler; route auth is tested elsewhere.
+        user=_user(role="platform_admin"),
         domain="",
         outcome="",
         source_surface="yarn_chat",
@@ -102,3 +122,58 @@ async def test_web_search_log_returns_attribution_fields():
     assert row["request_id"] == "req-1"
     assert row["tool_name"] == "synesis_web_search"
     assert row["query_hash"] == "hash-1"
+
+
+@pytest.mark.anyio
+async def test_web_search_log_applies_org_scope_even_with_other_org_filter():
+    from app.routers import integrations as integrations_router
+
+    integrations_router.async_session = _fake_async_session
+    await integrations_router.web_search_log(
+        user=_user(role="org_admin", user_id="admin-1", org_id="org-allowed"),
+        domain="",
+        outcome="",
+        source_surface="",
+        org_id="org-other",
+        user_id="",
+        session_key="",
+        request_id="",
+        trace_id="",
+        tool_name="",
+        engine="",
+        query_filter="",
+        page=1,
+        page_size=30,
+    )
+    assert _last_fake_session is not None
+    sql = str(_last_fake_session.statements[0])
+    assert "web_search_log.org_id = :org_id_1" in sql
+    assert "web_search_log.org_id = :org_id_2" in sql
+    assert "web_search_log.user_id =" not in sql
+
+
+@pytest.mark.anyio
+async def test_web_search_log_applies_self_scope_for_non_admin():
+    from app.routers import integrations as integrations_router
+
+    integrations_router.async_session = _fake_async_session
+    await integrations_router.web_search_log(
+        user=_user(role="user", user_id="user-allowed"),
+        domain="",
+        outcome="",
+        source_surface="",
+        org_id="",
+        user_id="user-other",
+        session_key="",
+        request_id="",
+        trace_id="",
+        tool_name="",
+        engine="",
+        query_filter="",
+        page=1,
+        page_size=30,
+    )
+    assert _last_fake_session is not None
+    sql = str(_last_fake_session.statements[0])
+    assert "web_search_log.user_id = :user_id_1" in sql
+    assert "web_search_log.user_id = :user_id_2" in sql

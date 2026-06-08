@@ -11,7 +11,7 @@ from sqlalchemy import case, delete, func, select
 from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
-from ..rbac import RouteGroup, can_access_route_group
+from ..rbac import RouteGroup, can_access_route_group, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 
@@ -34,6 +34,18 @@ def _sanitize_probe_payload(payload: dict) -> dict:
         "url": payload.get("url"),
         "error": error,
     }
+
+
+def _apply_web_search_log_scope(stmt, user: UserInfo):
+    """Constrain web-search log reads to the caller's server-derived scope."""
+    scope = trace_scope_filters(user)
+    if scope.get("org_id"):
+        stmt = stmt.where(WebSearchLog.org_id == scope["org_id"])
+    elif scope.get("user_id"):
+        stmt = stmt.where(WebSearchLog.user_id == scope["user_id"])
+    if scope.get("scope_tenant_id"):
+        stmt = stmt.where(WebSearchLog.tenant_id == scope["scope_tenant_id"])
+    return stmt
 
 
 # ── MCP ──
@@ -84,20 +96,18 @@ async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_
 @router.get("/web-search")
 async def web_search_stats(_user: UserInfo = Depends(get_current_user)):
     """Web search aggregate stats — try Prometheus first, fall back to Postgres."""
+    scope = trace_scope_filters(_user)
     stats = await prom.get_web_search_stats()
-    if stats and stats.get("total", 0) > 0:
+    if not scope and stats and stats.get("total", 0) > 0:
         return stats
     try:
         async with async_session() as session:
-            row = (
-                await session.execute(
-                    select(
-                        func.count().label("total"),
-                        func.avg(WebSearchLog.latency_ms).label("avg_latency_ms"),
-                        func.sum(case((WebSearchLog.outcome == "error", 1), else_=0)).label("errors"),
-                    )
-                )
-            ).one()
+            stmt = select(
+                func.count().label("total"),
+                func.avg(WebSearchLog.latency_ms).label("avg_latency_ms"),
+                func.sum(case((WebSearchLog.outcome == "error", 1), else_=0)).label("errors"),
+            )
+            row = (await session.execute(_apply_web_search_log_scope(stmt, _user))).one()
             total = int(row.total or 0)
             errors = int(row.errors or 0)
             return {
@@ -115,7 +125,7 @@ async def web_search_stats(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/web-search/log")
 async def web_search_log(
-    _user: UserInfo = Depends(get_current_user),
+    user: UserInfo = Depends(get_current_user),
     domain: str = Query("", description="Filter by domain"),
     outcome: str = Query("", description="Filter by outcome"),
     source_surface: str = Query("", description="Filter by source surface"),
@@ -132,7 +142,7 @@ async def web_search_log(
 ):
     offset = (page - 1) * page_size
     async with async_session() as session:
-        base = select(WebSearchLog)
+        base = _apply_web_search_log_scope(select(WebSearchLog), user)
         if domain:
             base = base.where(WebSearchLog.domain == domain)
         if outcome:
@@ -206,11 +216,11 @@ async def web_search_log(
 
 @router.get("/web-search/log/domains")
 async def web_search_domain_summary(
-    _user: UserInfo = Depends(get_current_user),
+    user: UserInfo = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=200),
 ):
     async with async_session() as session:
-        stmt = (
+        stmt = _apply_web_search_log_scope(
             select(
                 WebSearchLog.domain,
                 func.count().label("count"),
@@ -221,7 +231,8 @@ async def web_search_domain_summary(
             .where(WebSearchLog.domain != "")
             .group_by(WebSearchLog.domain)
             .order_by(func.count().desc())
-            .limit(limit)
+            .limit(limit),
+            user,
         )
         rows = (await session.execute(stmt)).all()
         items = [

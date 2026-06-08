@@ -128,6 +128,31 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
     return b"\n".join(comment_lines) + b"\n" if comment_lines else b""
 
 
+def _configured_allowed_roots() -> list[Path]:
+    raw = os.getenv("SYNESIS_AST_MCP_ALLOWED_ROOTS", str(Path.cwd()))
+    roots = [entry.strip() for entry in raw.split(os.pathsep) if entry.strip()]
+    return [Path(root).expanduser().resolve(strict=False) for root in roots]
+
+
+def resolve_allowed_file_path(file_path: str, allowed_roots: list[Path] | None = None) -> Path:
+    cleaned = file_path.replace("\0", "").strip()
+    if not cleaned:
+        raise ValueError("empty_file_path")
+    candidate = Path(cleaned).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    resolved = candidate.resolve(strict=False)
+    roots = allowed_roots if allowed_roots is not None else _configured_allowed_roots()
+    for root in roots:
+        root_resolved = root.expanduser().resolve(strict=False)
+        try:
+            resolved.relative_to(root_resolved)
+            return resolved
+        except ValueError:
+            continue
+    raise ValueError("file_path_outside_allowed_roots")
+
+
 _HOST = os.getenv("FASTMCP_HOST", os.getenv("HOST", "0.0.0.0"))  # nosec B104
 _PORT = int(os.getenv("FASTMCP_PORT", os.getenv("PORT", "8080")))
 _TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http").strip().lower()
@@ -157,12 +182,19 @@ def get_file_outline(file_path: str) -> str:
     Useful for exploring large codebases efficiently.
     """
     try:
-        with open(file_path, encoding="utf-8", errors="replace") as f:
-            source_code = f.read()
-    except Exception as e:
-        return f"Error reading file: {e}"
+        resolved_path = resolve_allowed_file_path(file_path)
+    except ValueError:
+        return "Error: file path is outside allowed roots."
 
-    language = detect_language(file_path)
+    try:
+        with open(resolved_path, encoding="utf-8", errors="replace") as f:
+            source_code = f.read()
+    except PermissionError:
+        return "Error reading file: permission denied."
+    except OSError:
+        return "Error reading file."
+
+    language = detect_language(str(resolved_path))
     if not language:
         return "Error: Unsupported file extension or language not recognized."
 
