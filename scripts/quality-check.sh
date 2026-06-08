@@ -28,6 +28,7 @@ mkdir -p "$UV_CACHE_DIR" "$UV_TOOL_DIR"
 run uvx ruff check base/ --output-format=github
 run uvx ruff format --check base/
 run python3 scripts/check-authz-coverage.py
+run python3 scripts/check-json-schema-contract-parity.py
 run npm run lint
 
 shell_files=()
