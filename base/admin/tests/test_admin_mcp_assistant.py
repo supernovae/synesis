@@ -6,7 +6,12 @@ import json
 
 import pytest
 from app.auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo
-from app.routers.assistant import AssistantChatBody, _extract_trace_lookup_id
+from app.routers.assistant import (
+    AssistantChatBody,
+    _extract_trace_lookup_id,
+    _parse_tool_call_arguments,
+    _validate_tool_arguments_against_schema,
+)
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -42,6 +47,32 @@ def test_assistant_chat_body_rejects_unknown_field() -> None:
 def test_assistant_chat_body_rejects_blank_message() -> None:
     with pytest.raises(ValidationError, match="message"):
         AssistantChatBody(message="")
+
+
+def test_assistant_tool_arguments_must_be_json_objects() -> None:
+    assert _parse_tool_call_arguments('{"trace_id":"t1"}') == ({"trace_id": "t1"}, None)
+    assert _parse_tool_call_arguments("{}") == ({}, None)
+    assert _parse_tool_call_arguments('["trace_id"]') == (None, "non_object_arguments")
+    assert _parse_tool_call_arguments('"role_override=platform_admin"') == (None, "non_object_arguments")
+    assert _parse_tool_call_arguments("{") == (None, "invalid_json_arguments")
+
+
+def test_assistant_tool_arguments_reject_unknown_schema_fields() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "trace_id": {"type": "string"},
+            "include_spans": {"type": "boolean"},
+        },
+        "required": ["trace_id"],
+    }
+
+    assert _validate_tool_arguments_against_schema({"trace_id": "t1", "include_spans": True}, schema) is None
+    assert _validate_tool_arguments_against_schema({"trace_id": "t1", "role_override": "platform_admin"}, schema) == (
+        "unknown_argument:role_override"
+    )
+    assert _validate_tool_arguments_against_schema({"include_spans": True}, schema) == "missing_required:trace_id"
+    assert _validate_tool_arguments_against_schema({"trace_id": 123}, schema) == "invalid_type:trace_id"
 
 
 def test_admin_assistant_requires_admin_role():
@@ -383,5 +414,110 @@ def test_support_assistant_uses_user_safe_ts_mcp_tools(monkeypatch):
         assert invoked_tools == ["provider_catalog"]
         tool_names = {t["function"]["name"] for t in calls[0]["tools"]}
         assert tool_names == {"provider_catalog"}
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_support_assistant_rejects_model_requested_unadvertised_tool(monkeypatch):
+    from app.auth import get_current_user
+    from app.main import app
+
+    calls: list[dict] = []
+    invoked_tools: list[str] = []
+
+    async def _override_user() -> UserInfo:
+        return UserInfo(username="u1", role="user", user_id="u1")
+
+    async def _fake_list_tools(*_args, **_kwargs):
+        return [
+            {
+                "name": "provider_catalog",
+                "description": "Provider catalog",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "get_trace",
+                "description": "Admin trace detail",
+                "inputSchema": {"type": "object", "properties": {"trace_id": {"type": "string"}}},
+            },
+        ]
+
+    async def _fake_invoke_tool(_auth_header, _org_headers, tool_name, arguments, **kwargs):
+        invoked_tools.append(tool_name)
+        return json.dumps({"unexpected": arguments, "kwargs": kwargs})
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            calls.append(kwargs.get("json") or {})
+            if len(calls) == 1:
+                return _Resp(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": None,
+                                    "tool_calls": [
+                                        {
+                                            "id": "call_1",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "get_trace",
+                                                "arguments": '{"trace_id":"t1"}',
+                                            },
+                                        }
+                                    ],
+                                }
+                            }
+                        ],
+                        "usage": {"total_tokens": 7},
+                        "model": "test-model",
+                    }
+                )
+            return _Resp(
+                {
+                    "choices": [{"message": {"content": "I cannot access that tool."}}],
+                    "usage": {"total_tokens": 11},
+                    "model": "test-model",
+                }
+            )
+
+    monkeypatch.setattr("app.routers.assistant.list_admin_mcp_tools", _fake_list_tools)
+    monkeypatch.setattr("app.routers.assistant.invoke_admin_mcp_tool", _fake_invoke_tool)
+    monkeypatch.setattr("app.routers.assistant.httpx.AsyncClient", lambda timeout=120.0: _Client())
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        client = TestClient(app)
+        client.cookies.set(SESSION_COOKIE_NAME, "a" * 43)
+        client.cookies.set(CSRF_COOKIE_NAME, "b" * 64)
+        resp = client.post(
+            "/api/v1/assistant/support/chat",
+            json={"message": "Summarize trace t1"},
+            headers={CSRF_HEADER_NAME: "b" * 64},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "I cannot access that tool."
+        assert invoked_tools == []
+        assert json.loads(calls[1]["messages"][-1]["content"]) == {
+            "error": "invalid_tool_call",
+            "tool": "get_trace",
+            "reason": "unknown_tool",
+        }
     finally:
         app.dependency_overrides.pop(get_current_user, None)

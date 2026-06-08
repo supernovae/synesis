@@ -152,6 +152,109 @@ def _message_content_text(msg: dict[str, Any]) -> str | None:
     return str(c)
 
 
+def _tool_result_error(tool_name: str, reason: str) -> str:
+    return json.dumps({"error": "invalid_tool_call", "tool": tool_name, "reason": reason})
+
+
+def _parse_tool_call_arguments(raw_args: Any) -> tuple[dict[str, Any] | None, str | None]:
+    if raw_args is None:
+        return {}, None
+    try:
+        parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+    except json.JSONDecodeError:
+        return None, "invalid_json_arguments"
+    if parsed is None:
+        return {}, None
+    if not isinstance(parsed, dict):
+        return None, "non_object_arguments"
+    return parsed, None
+
+
+def _tool_schemas_by_name(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for tool in tools:
+        if tool.get("type") != "function":
+            continue
+        fn = tool.get("function")
+        if not isinstance(fn, dict):
+            continue
+        name = fn.get("name")
+        parameters = fn.get("parameters")
+        if isinstance(name, str) and name.strip() and isinstance(parameters, dict):
+            out[name.strip()] = parameters
+    return out
+
+
+def _json_schema_type_matches(value: Any, expected_type: str) -> bool:
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    return False
+
+
+def _validate_tool_arg_value(key: str, value: Any, schema: dict[str, Any]) -> str | None:
+    expected_type = schema.get("type")
+    if isinstance(expected_type, list):
+        if not any(isinstance(item, str) and _json_schema_type_matches(value, item) for item in expected_type):
+            return f"invalid_type:{key}"
+    elif isinstance(expected_type, str):
+        if not _json_schema_type_matches(value, expected_type):
+            return f"invalid_type:{key}"
+
+    enum_values = schema.get("enum")
+    if isinstance(enum_values, list) and value not in enum_values:
+        return f"invalid_enum:{key}"
+
+    if isinstance(value, list):
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for idx, item in enumerate(value):
+                reason = _validate_tool_arg_value(f"{key}.{idx}", item, item_schema)
+                if reason:
+                    return reason
+    if isinstance(value, dict):
+        reason = _validate_tool_arguments_against_schema(value, schema, path=key)
+        if reason:
+            return reason
+    return None
+
+
+def _validate_tool_arguments_against_schema(
+    args: dict[str, Any],
+    schema: dict[str, Any],
+    *,
+    path: str = "",
+) -> str | None:
+    if schema.get("type") != "object":
+        return "invalid_tool_schema"
+    raw_properties = schema.get("properties")
+    properties = raw_properties if isinstance(raw_properties, dict) else {}
+    required = {key for key in schema.get("required", []) if isinstance(key, str)}
+
+    for key in args:
+        if key not in properties:
+            return f"unknown_argument:{path + '.' if path else ''}{key}"
+    for key in required:
+        if key not in args or args[key] is None:
+            return f"missing_required:{path + '.' if path else ''}{key}"
+    for key, value in args.items():
+        property_schema = properties.get(key)
+        if isinstance(property_schema, dict):
+            reason = _validate_tool_arg_value(path + "." + key if path else key, value, property_schema)
+            if reason:
+                return reason
+    return None
+
+
 def _is_trace_id_char(ch: str) -> bool:
     return ch.isalnum() or ch in "._:-"
 
@@ -323,6 +426,7 @@ async def _assistant_chat_impl(
     total_usage_tokens = 0
     last_model = ASSISTANT_MODEL
     tools_enabled = bool(tools)
+    tool_schemas = _tool_schemas_by_name(tools)
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -381,19 +485,31 @@ async def _assistant_chat_impl(
                         }
                     )
                     for tc in tool_calls:
-                        fn = tc.get("function") or {}
-                        tname = fn.get("name", "")
+                        fn = tc.get("function") if isinstance(tc, dict) else {}
+                        if not isinstance(fn, dict):
+                            fn = {}
+                        tname = str(fn.get("name", "") or "").strip()
                         raw_args = fn.get("arguments", "{}")
-                        try:
-                            args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-                        except json.JSONDecodeError:
-                            args = {}
-                        if auth_header.lower().startswith("bearer ") or session_cookie:
+                        args, parse_error = _parse_tool_call_arguments(raw_args)
+                        schema = tool_schemas.get(tname)
+                        validation_error = (
+                            "unknown_tool"
+                            if not tname or schema is None
+                            else parse_error or _validate_tool_arguments_against_schema(args or {}, schema)
+                        )
+                        if validation_error:
+                            logger.warning(
+                                "assistant_tool_call_rejected tool=%s reason=%s",
+                                tname or "missing",
+                                validation_error,
+                            )
+                            tool_text = _tool_result_error(tname or "missing", validation_error)
+                        elif auth_header.lower().startswith("bearer ") or session_cookie:
                             tool_text = await invoke_admin_mcp_tool(
                                 auth_header,
                                 org_headers,
                                 tname,
-                                args,
+                                args or {},
                                 session_cookie=session_cookie,
                                 csrf_cookie=csrf_cookie,
                                 csrf_token=csrf_token,
