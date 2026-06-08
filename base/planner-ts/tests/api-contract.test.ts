@@ -633,10 +633,12 @@ describe("API contract", () => {
   });
 
   it("purges memory by conversation id", async () => {
-    const app = buildApp(makeConfig());
+    const token = "memory-purge-token";
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token }));
     await app.inject({
       method: "POST",
       url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         model: "Synesis",
         messages: [{ role: "user", content: "hello" }],
@@ -646,7 +648,8 @@ describe("API contract", () => {
     });
     const purge = await app.inject({
       method: "DELETE",
-      url: "/v1/memory/purge-test-conv"
+      url: "/v1/memory/purge-test-conv",
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(purge.statusCode).toBe(200);
     const body = purge.json();

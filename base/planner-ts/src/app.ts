@@ -81,11 +81,13 @@ import type { ScopeFilterOptions, WebSearchAttribution, WebSearchResponse } from
 import { CapabilityMatrixClient } from "./capability-matrix/client.js";
 import { resolveCapabilityMatrix } from "./capability-matrix/resolver.js";
 import {
+  legacyPlannerConversationSessionKeys,
   resolvePlannerSessionKey,
   withSupportHandleHint,
 } from "./routes/route-support.js";
 
 export {
+  legacyPlannerConversationSessionKeys,
   resolvePlannerSessionKey,
   resolveSupportHandle,
   withSupportHandleHint,
@@ -1842,16 +1844,30 @@ export function buildApp(config: AppConfig): FastifyInstance {
         });
       }
       const normalizedConversationId = conversationId.trim();
-      // Fix-forward keying: current sessions are conversation-scoped with prefix,
-      // but we also attempt a legacy raw key purge for existing in-memory sessions.
-      const deletedConversationScoped = await sessionManager.purge(`conversation:${normalizedConversationId}`);
-      const deletedLegacy = await sessionManager.purge(normalizedConversationId);
-      const deleted = deletedConversationScoped || deletedLegacy;
+      const scopedSession = resolvePlannerSessionKey(
+        { conversation_id: normalizedConversationId },
+        authzTraceId,
+        auth,
+      );
+      const deletedScoped = await sessionManager.purge(scopedSession.sessionKey);
+      const mayPurgeLegacyGlobal =
+        auth.authMethod === "internal_service" ||
+        auth.role === "platform_admin" ||
+        auth.role === "org_admin";
+      let deletedLegacy = false;
+      if (mayPurgeLegacyGlobal) {
+        for (const legacyKey of legacyPlannerConversationSessionKeys(normalizedConversationId)) {
+          deletedLegacy = (await sessionManager.purge(legacyKey)) || deletedLegacy;
+        }
+      }
+      const deleted = deletedScoped || deletedLegacy;
       request.log.info(
         {
           authzTraceId,
           conversationId: normalizedConversationId,
           userId: auth.userId,
+          sessionKey: scopedSession.sessionKey,
+          legacyGlobalPurge: mayPurgeLegacyGlobal,
           deleted
         },
         "memory purge"
@@ -2297,7 +2313,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       }
       requestSpan.setAttribute("planner.request.stream", Boolean(body.stream));
       requestSpan.setAttribute("planner.request.model", body.model);
-      const resolvedSession = resolvePlannerSessionKey(effectiveBody, authzTraceId);
+      const resolvedSession = resolvePlannerSessionKey(effectiveBody, authzTraceId, auth);
       if (resolvedSession.source === "ephemeral_request") {
         request.log.warn(
           {
