@@ -4,6 +4,8 @@ const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go
 const DECISION_PHRASES = /\b(decided|choosing|switched to|going with|will use|opted for|selected)\b/i;
 const FINDING_PHRASES = /\b(found|discovered|noticed|identified|issue is|root cause|turns out|confirmed)\b/i;
 const MAX_ITEMS = 8;
+const MAX_CONTROL_TEXT_CHARS = 300;
+const MAX_CONTROL_PATH_CHARS = 512;
 
 export interface SessionContinuityStats {
   extractionCount: number;
@@ -21,6 +23,37 @@ function extractSentences(text: string): string[] {
     .split(/[.\n]/)
     .map((s) => s.trim())
     .filter((s) => s.length > 10 && s.length < 300);
+}
+
+function replaceControlChars(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function promptControlText(value: string, maxChars = MAX_CONTROL_TEXT_CHARS): string {
+  return replaceControlChars(value)
+    .replace(/=/g, ":")
+    .replace(/[<>"`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function promptControlPath(value: string): string {
+  return promptControlText(value, MAX_CONTROL_PATH_CHARS)
+    .replace(/[^A-Za-z0-9_./@:+ -]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .trim();
+}
+
+function sanitizedList(values: string[], sanitizer = promptControlText): string[] {
+  return values.map((value) => sanitizer(value)).filter(Boolean).slice(0, MAX_ITEMS);
 }
 
 export class SessionContinuityService {
@@ -87,21 +120,26 @@ export class SessionContinuityService {
    */
   toSystemBlock(continuity: SessionContinuity): string | null {
     const parts: string[] = ["<SESSION_CONTINUITY>"];
+    const currentTask = promptControlText(continuity.currentTask);
+    const keyFindings = sanitizedList(continuity.keyFindings);
+    const decisions = sanitizedList(continuity.decisions);
+    const recentFiles = sanitizedList(continuity.recentFiles, promptControlPath);
+    const planFilePath = continuity.planFilePath ? promptControlPath(continuity.planFilePath) : "";
 
-    if (continuity.currentTask) {
-      parts.push(`previous_task=${continuity.currentTask}`);
+    if (currentTask) {
+      parts.push(`previous_task=${currentTask}`);
     }
-    if (continuity.keyFindings.length > 0) {
-      parts.push(`key_findings=${continuity.keyFindings.join(" | ")}`);
+    if (keyFindings.length > 0) {
+      parts.push(`key_findings=${keyFindings.join(" | ")}`);
     }
-    if (continuity.decisions.length > 0) {
-      parts.push(`decisions=${continuity.decisions.join(" | ")}`);
+    if (decisions.length > 0) {
+      parts.push(`decisions=${decisions.join(" | ")}`);
     }
-    if (continuity.recentFiles.length > 0) {
-      parts.push(`recent_files=${continuity.recentFiles.join(",")}`);
+    if (recentFiles.length > 0) {
+      parts.push(`recent_files=${recentFiles.join(",")}`);
     }
-    if (continuity.planFilePath) {
-      parts.push(`plan_file=${continuity.planFilePath}`);
+    if (planFilePath) {
+      parts.push(`plan_file=${planFilePath}`);
     }
 
     if (parts.length <= 1) return null;
@@ -118,22 +156,27 @@ export class SessionContinuityService {
    */
   toRecallBlock(continuity: SessionContinuity): string | null {
     const parts: string[] = ["<SESSION_RECALL source=\"prior_session\">"];
+    const currentTask = promptControlText(continuity.currentTask);
+    const keyFindings = sanitizedList(continuity.keyFindings);
+    const decisions = sanitizedList(continuity.decisions);
+    const recentFiles = sanitizedList(continuity.recentFiles, promptControlPath);
+    const planFilePath = continuity.planFilePath ? promptControlPath(continuity.planFilePath) : "";
 
-    if (continuity.currentTask) {
-      parts.push(`last_task=${continuity.currentTask}`);
+    if (currentTask) {
+      parts.push(`last_task=${currentTask}`);
     }
-    if (continuity.keyFindings.length > 0) {
-      parts.push(`prior_findings=${continuity.keyFindings.join(" | ")}`);
+    if (keyFindings.length > 0) {
+      parts.push(`prior_findings=${keyFindings.join(" | ")}`);
     }
-    if (continuity.decisions.length > 0) {
-      parts.push(`prior_decisions=${continuity.decisions.join(" | ")}`);
+    if (decisions.length > 0) {
+      parts.push(`prior_decisions=${decisions.join(" | ")}`);
     }
-    if (continuity.recentFiles.length > 0) {
-      parts.push(`prior_files=${continuity.recentFiles.join(",")}`);
+    if (recentFiles.length > 0) {
+      parts.push(`prior_files=${recentFiles.join(",")}`);
     }
-    if (continuity.planFilePath) {
-      parts.push(`last_plan_file=${continuity.planFilePath}`);
-      parts.push(`To continue the prior session's plan, read this file with Read(${continuity.planFilePath}) and display its task status summary.`);
+    if (planFilePath) {
+      parts.push(`last_plan_file=${planFilePath}`);
+      parts.push(`To continue the prior session's plan, read this file with Read(${planFilePath}) and display its task status summary.`);
     }
 
     if (parts.length <= 1) return null;
