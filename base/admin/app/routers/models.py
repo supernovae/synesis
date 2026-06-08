@@ -184,6 +184,22 @@ class ModelDeploymentUpdateBody(BaseModel):
     fallbacks: list[str] | None = Field(None, max_length=20)
 
 
+class ModelCostUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: str = Field(..., min_length=1, max_length=64)
+    model: str = Field("", max_length=256)
+    profile: str = Field("", max_length=64)
+    source: str = Field("local", max_length=32)
+    input_per_million: float | None = Field(None, ge=0, le=1_000_000)
+    input_cached_per_million: float | None = Field(None, ge=0, le=1_000_000)
+    input_cache_write_per_million: float | None = Field(None, ge=0, le=1_000_000)
+    output_per_million: float | None = Field(None, ge=0, le=1_000_000)
+    monthly_fixed_cost: float | None = Field(None, ge=0, le=1_000_000_000)
+    cost_formula: str | None = Field(None, max_length=4000)
+    notes: str | None = Field(None, max_length=4000)
+
+
 # ---------------------------------------------------------------------------
 # Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
@@ -957,9 +973,10 @@ async def model_costs(_user: UserInfo = Depends(require_org_admin)):
 
 @router.put("/costs")
 async def update_model_cost(
-    data: dict = Body(...),
+    body: ModelCostUpdateBody,
     _user: UserInfo = Depends(require_platform_admin),
 ):
+    data = body.model_dump(exclude_unset=True)
     result = await upsert_model_cost(data)
     await record_admin_audit(
         user=_user,
@@ -973,10 +990,11 @@ async def update_model_cost(
 
 @router.put("/costs/internal")
 async def update_model_cost_internal(
-    data: dict = Body(...),
+    body: ModelCostUpdateBody,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
 ):
     """Internal service write path for cost rates (bootstrap / automation)."""
+    data = body.model_dump(exclude_unset=True)
     result = await upsert_model_cost(data)
     actor_name = getattr(_principal, "service_name", None) or getattr(_principal, "username", "service")
     await record_admin_audit(

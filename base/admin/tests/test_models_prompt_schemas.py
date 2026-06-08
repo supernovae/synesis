@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from app.routers.models import (
     DeploymentFallbacksBody,
+    ModelCostUpdateBody,
     ModelDeploymentCreateBody,
     ModelDeploymentUpdateBody,
     PromptAssignmentUpsertBody,
@@ -217,3 +218,39 @@ def test_model_deployment_update_accepts_partial_known_payload() -> None:
         "route_params": {"temperature": 0.1, "reasoning_effort": "low"},
         "fallbacks": ["synesis-coder-horizon"],
     }
+
+
+def test_model_cost_update_accepts_known_payload() -> None:
+    body = ModelCostUpdateBody(
+        role="planner",
+        model="grok-4.3",
+        profile="",
+        source="xai",
+        input_per_million=3.0,
+        input_cached_per_million=None,
+        input_cache_write_per_million=2.0,
+        output_per_million=15.0,
+        monthly_fixed_cost=0.0,
+        cost_formula="provider list price",
+        notes="manual override",
+    )
+
+    payload = body.model_dump(exclude_unset=True)
+    assert payload["role"] == "planner"
+    assert payload["input_cached_per_million"] is None
+    assert payload["output_per_million"] == 15.0
+
+
+def test_model_cost_update_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError, match="pricing_admin"):
+        ModelCostUpdateBody(
+            role="planner",
+            input_per_million=3.0,
+            output_per_million=15.0,
+            pricing_admin=True,
+        )
+
+
+def test_model_cost_update_rejects_negative_rate() -> None:
+    with pytest.raises(ValidationError, match="input_per_million"):
+        ModelCostUpdateBody(role="planner", input_per_million=-1.0)
