@@ -52,6 +52,20 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects non-object tool arguments before execution", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }),
+    );
+
+    const result = await dispatchSynesisTool("synesis_search", "query=hello", auth, deps);
+
+    expect(result).toMatchObject({
+      error: "validation_error",
+      issues: [{ path: "", message: "Tool arguments must be an object" }],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects unknown patch operation fields before integrity execution", async () => {
     const result = await dispatchSynesisTool(
       "synesis_patch_integrity",

@@ -83,20 +83,35 @@ const TOOL_INPUT_SCHEMAS: Record<SynesisMcpToolName, z.ZodType> = {
   web_search: webSearchInputSchema,
 };
 
-function validationError(issues: z.core.$ZodIssue[]): Record<string, unknown> {
+function validationErrorFromItems(issues: Array<{ path: string; message: string }>): Record<string, unknown> {
   return {
     error: "validation_error",
     message: "Invalid tool arguments",
-    issues: issues.map((issue) => ({
-      path: issue.path.join("."),
-      message: issue.message,
-    })),
+    issues,
+  };
+}
+
+function validationError(issues: z.core.$ZodIssue[]): Record<string, unknown> {
+  return validationErrorFromItems(issues.map((issue) => ({
+    path: issue.path.join("."),
+    message: issue.message,
+  })));
+}
+
+export function normalizeSynesisToolArgs(args: unknown): { ok: true; args: Record<string, unknown> } | { ok: false; error: Record<string, unknown> } {
+  if (args === undefined) return { ok: true, args: {} };
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    return { ok: true, args: args as Record<string, unknown> };
+  }
+  return {
+    ok: false,
+    error: validationErrorFromItems([{ path: "", message: "Tool arguments must be an object" }]),
   };
 }
 
 export async function dispatchSynesisTool(
   name: string,
-  args: Record<string, unknown>,
+  args: unknown,
   auth: SynesisMcpAuth,
   deps: SynesisMcpDeps,
 ): Promise<unknown> {
@@ -104,7 +119,10 @@ export async function dispatchSynesisTool(
     return { error: "unknown_tool", message: `Unknown tool: ${name}` };
   }
   const toolName = name as SynesisMcpToolName;
-  const parsedArgs = TOOL_INPUT_SCHEMAS[toolName].safeParse(args);
+  const normalizedArgs = normalizeSynesisToolArgs(args);
+  if (!normalizedArgs.ok) return normalizedArgs.error;
+
+  const parsedArgs = TOOL_INPUT_SCHEMAS[toolName].safeParse(normalizedArgs.args);
   if (!parsedArgs.success) {
     return validationError(parsedArgs.error.issues);
   }

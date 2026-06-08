@@ -55,6 +55,22 @@ describe("registered Synesis MCP tool schemas", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects non-object registered tool arguments before dispatch", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    );
+    const tool = registeredTools().get("synesis_search");
+    expect(tool).toBeTypeOf("function");
+
+    const result = await tool?.("query=kubernetes deployment");
+
+    expect(textPayload(result)).toMatchObject({
+      error: "validation_error",
+      issues: [{ path: "", message: "Tool arguments must be an object" }],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects unknown patch operation attributes", async () => {
     const tool = registeredTools().get("synesis_patch_integrity");
     expect(tool).toBeTypeOf("function");

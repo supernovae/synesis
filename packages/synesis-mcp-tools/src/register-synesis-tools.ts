@@ -1,6 +1,6 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
-import { dispatchSynesisTool } from "./dispatch.js";
+import { dispatchSynesisTool, normalizeSynesisToolArgs } from "./dispatch.js";
 import {
   knowledgeSearchInputSchema,
   resolvePackInputSchema,
@@ -41,13 +41,6 @@ export interface RegisterSynesisMcpToolsOptions {
   allTools?: boolean;
 }
 
-function argsRecord(args: unknown): Record<string, unknown> {
-  if (args && typeof args === "object" && !Array.isArray(args)) {
-    return args as Record<string, unknown>;
-  }
-  return {};
-}
-
 function registerTool(
   server: ToolRegistrationServer,
   name: string,
@@ -56,7 +49,10 @@ function registerTool(
   deps: SynesisMcpDeps,
 ): void {
   server.registerTool(name, config, async (args) => {
-    const parsed = config.inputSchema.safeParse(argsRecord(args));
+    const normalizedArgs = normalizeSynesisToolArgs(args);
+    if (!normalizedArgs.ok) return jsonResult(normalizedArgs.error);
+
+    const parsed = config.inputSchema.safeParse(normalizedArgs.args);
     if (!parsed.success) {
       return jsonResult({
         error: "validation_error",
@@ -67,7 +63,7 @@ function registerTool(
         })),
       });
     }
-    return jsonResult(await dispatchSynesisTool(name, argsRecord(parsed.data), auth, deps));
+    return jsonResult(await dispatchSynesisTool(name, parsed.data, auth, deps));
   });
 }
 
