@@ -6,6 +6,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
+import { requireInternalRouteToken } from "../routes/platform-route-support.js";
 import { runScenarios } from "./scenario-runner.js";
 import { ALL_SCENARIOS, getScenariosByCategory, getScenarioById, listScenarios } from "./scenarios/index.js";
 import { enableObserver, disableObserver, getObserverConfig } from "./session-observer.js";
@@ -41,9 +42,13 @@ export function registerEvalRoutes(app: FastifyInstance, config: AppConfig, opts
   if (!config.SYNESIS_YARN_EVAL_API_ENABLED) return;
 
   async function requireEvalAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    if (!opts.requireInternalToken(request as never)) {
-      reply.code(401).send({ error: { type: "auth_error", message: "Internal service token required" } });
-    }
+    const endpoint = typeof request.routeOptions?.url === "string" ? request.routeOptions.url : "/v1/eval/*";
+    requireInternalRouteToken(
+      { app, requireInternalToken: opts.requireInternalToken },
+      request as never,
+      reply,
+      endpoint,
+    );
   }
 
   let configuredTargetUrl = "";
