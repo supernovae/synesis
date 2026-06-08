@@ -139,8 +139,16 @@ export const terraformPlanAnalyzeInputSchema = z.object({
   plan_json: z.unknown(),
   pack_id: z.string().max(LIMITS.shortStringChars).optional(),
   top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
-  synpack_metadata: z.record(z.string(), z.unknown()).optional(),
-});
+  synpack_metadata: z.object({
+    resources: z.array(z.object({
+      resource_type: z.string().min(1).max(LIMITS.shortStringChars),
+      core_safety: z.enum(["0", "1", "2"]).optional(),
+      risk_notes: z.string().max(LIMITS.mediumStringChars).optional(),
+      policy_reference: z.string().max(LIMITS.mediumStringChars).optional(),
+      provider: z.string().max(LIMITS.shortStringChars).optional(),
+    }).strict()).max(LIMITS.maxTerraformResources).optional(),
+  }).strict().optional(),
+}).strict();
 
 export const ecmaEnvironmentCheckInputSchema = z.object({
   package_json: z.unknown().optional(),

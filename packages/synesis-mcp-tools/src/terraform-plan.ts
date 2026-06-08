@@ -5,6 +5,13 @@ import { runKnowledgeSearch } from "./knowledge.js";
 import { LIMITS, clampInt } from "./tool-utils.js";
 
 type PlanAction = "no-op" | "create" | "read" | "update" | "delete" | string;
+type TerraformMetadataContext = {
+  core_safety?: "0" | "1" | "2";
+  risk_notes?: string;
+  policy_reference?: string;
+  provider?: string;
+  resource_type?: string;
+};
 
 export interface TerraformResourceRisk {
   address: string;
@@ -14,7 +21,7 @@ export interface TerraformResourceRisk {
   hardGateRequired: boolean;
   riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   riskReason: string;
-  metadataContext: Record<string, unknown>;
+  metadataContext: TerraformMetadataContext;
 }
 
 function stableId(input: unknown): string {
@@ -47,13 +54,25 @@ function asStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.map((x) => String(x)) : [];
 }
 
-function metadataFor(type: string, synpackMetadata: Record<string, unknown>): Record<string, unknown> {
-  const direct = synpackMetadata[type];
-  if (typeof direct === "object" && direct !== null) return direct as Record<string, unknown>;
-  return {};
+function normalizeTerraformMetadata(type: string, value: unknown): TerraformMetadataContext {
+  const raw = asRecord(value);
+  const coreSafety = String(raw.core_safety ?? "").trim();
+  return {
+    resource_type: typeof raw.resource_type === "string" ? raw.resource_type : type,
+    ...(coreSafety === "0" || coreSafety === "1" || coreSafety === "2" ? { core_safety: coreSafety } : {}),
+    ...(typeof raw.risk_notes === "string" ? { risk_notes: raw.risk_notes.slice(0, LIMITS.mediumStringChars) } : {}),
+    ...(typeof raw.policy_reference === "string" ? { policy_reference: raw.policy_reference.slice(0, LIMITS.mediumStringChars) } : {}),
+    ...(typeof raw.provider === "string" ? { provider: raw.provider.slice(0, LIMITS.shortStringChars) } : {}),
+  };
 }
 
-function riskFromActions(actions: string[], metadata: Record<string, unknown>): Pick<TerraformResourceRisk, "hardGateRequired" | "riskLevel" | "riskReason"> {
+function metadataFor(type: string, synpackMetadata: Record<string, unknown>): TerraformMetadataContext {
+  const resources = Array.isArray(synpackMetadata.resources) ? synpackMetadata.resources : [];
+  const direct = resources.find((item) => asRecord(item).resource_type === type);
+  return direct ? normalizeTerraformMetadata(type, direct) : {};
+}
+
+function riskFromActions(actions: string[], metadata: TerraformMetadataContext): Pick<TerraformResourceRisk, "hardGateRequired" | "riskLevel" | "riskReason"> {
   const replacement = actions.includes("delete") && actions.includes("create");
   const deletion = actions.includes("delete") && !actions.includes("create");
   const update = actions.includes("update");
@@ -94,9 +113,9 @@ export function analyzeTerraformPlanLocal(args: Record<string, unknown>, fetched
     const type = String(change.type ?? "");
     const providerName = String(change.provider_name ?? "");
     const actions = asStringArray(changeBody.actions);
-    const metadata = {
+    const metadata: TerraformMetadataContext = {
       ...metadataFor(type, suppliedMetadata),
-      ...(fetchedMetadata[type] ?? {}),
+      ...normalizeTerraformMetadata(type, fetchedMetadata[type] ?? {}),
     };
     const risk = riskFromActions(actions, metadata);
     risks.push({
@@ -145,8 +164,8 @@ export function analyzeTerraformPlanLocal(args: Record<string, unknown>, fetched
   };
 }
 
-function extractFirstMetadata(payload: unknown): Record<string, Record<string, unknown>> {
-  const out: Record<string, Record<string, unknown>> = {};
+function extractFirstMetadata(payload: unknown): Record<string, TerraformMetadataContext> {
+  const out: Record<string, TerraformMetadataContext> = {};
   const results = Array.isArray(asRecord(payload).results) ? asRecord(payload).results as unknown[] : [];
   for (const result of results) {
     const row = asRecord(result);
@@ -155,7 +174,7 @@ function extractFirstMetadata(payload: unknown): Record<string, Record<string, u
     if (!symbol || !json || out[symbol]) continue;
     try {
       const parsed = JSON.parse(json);
-      if (typeof parsed === "object" && parsed !== null) out[symbol] = parsed as Record<string, unknown>;
+      if (typeof parsed === "object" && parsed !== null) out[symbol] = normalizeTerraformMetadata(symbol, parsed);
     } catch {
       // Ignore malformed metadata; plan analysis remains deterministic from plan actions.
     }

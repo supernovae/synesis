@@ -78,11 +78,15 @@ export const DecisionOptionSchema = z.object({
   description: z.string().min(1),
 }).strict();
 
+const DecisionOptionIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/);
+const DecisionEvidenceSchema = z.string().min(1).max(512);
+const DecisionRiskSchema = z.string().min(1).max(256);
+
 export const DecisionRecordSchema = z.object({
   question: z.string().min(1),
   options: z.array(DecisionOptionSchema).min(2),
-  evidencePerOption: z.record(z.string(), z.array(z.string())),
-  riskPerOption: z.record(z.string(), z.string()),
+  evidencePerOption: z.record(DecisionOptionIdSchema, z.array(DecisionEvidenceSchema).max(16)),
+  riskPerOption: z.record(DecisionOptionIdSchema, DecisionRiskSchema),
   recommendation: z.string().min(1),
   confidence: z.number().min(0).max(1),
   requiresUserChoice: z.boolean().default(false),

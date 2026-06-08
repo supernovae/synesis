@@ -6,6 +6,7 @@ import { promises as fs } from "node:fs";
 import { z } from "zod";
 import {
   DEFAULT_AGENT_ALLOWED_REPO_OPS,
+  DecisionRecordSchema,
   GuardedRepoOpsAdapter,
   REPO_OPERATION_IDS,
   RequestResponseRuntime,
@@ -708,7 +709,7 @@ const RepoGitDiffSchema = RootSchema.extend({
 
 const RepoWriteDecisionRecordSchema = RootSchema.extend({
   filePath: RelPathSchema.default(".synesis/decision-record.json"),
-  decisionRecord: z.record(z.string(), z.unknown()),
+  decisionRecord: DecisionRecordSchema,
 });
 
 export const repoSearchTool: McpToolDefinition<z.infer<typeof RepoSearchSchema>, { matches: string[]; exitCode: number; stderr: string }> = {
@@ -1478,4 +1479,3 @@ export const gitCommitGuardedTool: McpToolDefinition<
     };
   },
 };
-

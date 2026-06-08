@@ -10,6 +10,7 @@ import {
   gitFileStateTool,
   gitRevParseTool,
   listDirTool,
+  repoWriteDecisionRecordTool,
   readFileTool,
   writeFileTool,
   strReplaceTool,
@@ -64,6 +65,31 @@ describe("McpToolRegistry", () => {
 });
 
 describe("coding tools", () => {
+  it("rejects invented decision-record fields", () => {
+    expect(() => repoWriteDecisionRecordTool.inputSchema.parse({
+      projectRoot: "/tmp/repo",
+      decisionRecord: {
+        question: "Which path?",
+        options: [
+          { id: "safe_minimal", description: "Minimal reversible diff." },
+          { id: "broader_refactor", description: "Broader change." },
+        ],
+        evidencePerOption: {
+          safe_minimal: ["smaller diff"],
+          broader_refactor: ["long-term simplification"],
+        },
+        riskPerOption: {
+          safe_minimal: "low",
+          broader_refactor: "medium",
+        },
+        recommendation: "safe_minimal",
+        confidence: 0.8,
+        requiresUserChoice: true,
+        role_override: "platform_admin",
+      },
+    })).toThrow(/role_override/);
+  });
+
   it("performs read/write/apply patch flow in temp root", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-tools-"));
     const rel = "src/app.txt";

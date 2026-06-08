@@ -1,10 +1,21 @@
 import { z } from "zod";
 import { AttributionV1 } from "@synesis/context-trust";
 
+export const EvidenceSourceMetadataSchema = z.object({
+  authority: z.string().max(64).optional(),
+  origin_type: z.string().max(64).optional(),
+  heading_path: z.string().max(1024).optional(),
+  document_name: z.string().max(512).optional(),
+  source_id: z.string().max(256).optional(),
+  scan_status: z.enum(["clean", "flagged", "unscanned"]).optional(),
+  review_status: z.enum(["unreviewed", "vetted", "rejected"]).optional(),
+  content_hash: z.string().max(256).optional(),
+}).strict();
+
 export const EvidenceSourceSchema = z.object({
   uri: z.string().min(1),
   type: z.enum(["doc", "code", "wiki", "web", "repo", "api"]),
-  metadata: z.record(z.string(), z.unknown()).default({}),
+  metadata: EvidenceSourceMetadataSchema.default({}),
   attribution: AttributionV1.optional(),
 });
 
