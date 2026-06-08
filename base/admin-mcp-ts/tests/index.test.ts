@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { buildAdminMcpAuditFields, createApp, parseAdminMcpToolName } from "../src/index.js";
+import { AdminMcpConcurrencyLimiter } from "../src/concurrency-limiter.js";
+import {
+  buildAdminMcpAuditFields,
+  createApp,
+  invokeAdminMcpToolWithControls,
+  parseAdminMcpToolName,
+} from "../src/index.js";
 
 function cfg(overrides: Record<string, unknown> = {}) {
   return {
@@ -448,6 +454,35 @@ describe("admin MCP internal auth", () => {
 });
 
 describe("admin MCP direct invoke security helpers", () => {
+  const authCtx = {
+    delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+    orgHeaders: {},
+    user: {
+      username: "user",
+      role: "user" as const,
+      user_id: "u1",
+      org_id: "o1",
+      org_name: "Org",
+      org_roles: [],
+      tenant_ids: [],
+      token_scopes: [],
+    },
+  };
+
+  const toolContext = {
+    cfg: {
+      SYNESIS_ADMIN_API_URL: "http://admin.local",
+      SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+      SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+      SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+    } as never,
+    delegatedHeaders: authCtx.delegatedHeaders,
+    orgHeaders: authCtx.orgHeaders,
+    userId: "u1",
+    role: "user",
+    user: authCtx.user,
+  };
+
   it("accepts only bounded tool identifiers", () => {
     expect(parseAdminMcpToolName("synesis_classify_intent")).toBe("synesis_classify_intent");
     expect(parseAdminMcpToolName(" audit.events ")).toBe("audit.events");
@@ -499,5 +534,69 @@ describe("admin MCP direct invoke security helpers", () => {
       globalActive: 3,
       globalLimit: 100,
     });
+  });
+
+  it("invokes streamable MCP tools through controlled audit logging", async () => {
+    const audit: Array<{ level: string; fields: Record<string, unknown>; message: string }> = [];
+    const result = await invokeAdminMcpToolWithControls({
+      authCtx,
+      toolContext,
+      role: "user",
+      toolName: "synesis_classify_intent",
+      args: { query: "Fix this Kubernetes deployment test failure" },
+      requestId: "req-stream",
+      surface: "admin_mcp_streamable",
+      limiter: new AdminMcpConcurrencyLimiter({ maxPerUser: 1, maxGlobal: 10 }),
+      auditLog: (level, fields, message) => audit.push({ level, fields, message }),
+    });
+
+    expect(result).toMatchObject({ complexity: "simple" });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      level: "info",
+      message: "admin_tools_invoke",
+      fields: {
+        surface: "admin_mcp_streamable",
+        outcome: "allowed",
+        reason: "ok",
+        tool: "synesis_classify_intent",
+        userId: "u1",
+        orgId: "o1",
+      },
+    });
+  });
+
+  it("limits streamable MCP tool invocations before execution", async () => {
+    const limiter = new AdminMcpConcurrencyLimiter({ maxPerUser: 1, maxGlobal: 10 });
+    const held = limiter.tryAcquire({ orgId: "o1", userId: "u1" });
+    expect(held.allowed).toBe(true);
+    const audit: Array<{ level: string; fields: Record<string, unknown>; message: string }> = [];
+
+    await expect(invokeAdminMcpToolWithControls({
+      authCtx,
+      toolContext,
+      role: "user",
+      toolName: "synesis_classify_intent",
+      args: { query: "should not execute" },
+      requestId: "req-stream-limit",
+      surface: "admin_mcp_streamable",
+      limiter,
+      auditLog: (level, fields, message) => audit.push({ level, fields, message }),
+    })).rejects.toMatchObject({ code: "rate_limit_exceeded", statusCode: 429 });
+
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      level: "warn",
+      message: "admin_tools_invoke_denied",
+      fields: {
+        surface: "admin_mcp_streamable",
+        outcome: "denied",
+        reason: "user_concurrency_exceeded",
+        statusCode: 429,
+        userActive: 1,
+        userLimit: 1,
+      },
+    });
+    if (held.allowed) held.release();
   });
 });

@@ -20,6 +20,7 @@ import {
   type AdminRole,
   invokeTool,
   type SessionUser,
+  type ToolContext,
   visibleToolDescriptorsForRole,
   zodInputSchemaForTool,
 } from "./tools.js";
@@ -240,11 +241,12 @@ export function buildAdminMcpAuditFields(input: {
   outcome: AdminMcpAuditOutcome;
   reason: string;
   statusCode: number;
+  surface?: "admin_mcp_direct" | "admin_mcp_streamable";
   elapsedMs?: number;
   limitMeta?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
-    surface: "admin_mcp_direct",
+    surface: input.surface ?? "admin_mcp_direct",
     action: "admin_tool_invoke",
     outcome: input.outcome,
     reason: input.reason,
@@ -260,7 +262,111 @@ export function buildAdminMcpAuditFields(input: {
   };
 }
 
-interface AuthenticatedRequestContext {
+type AdminMcpAuditLogger = (
+  level: "info" | "warn" | "error",
+  fields: Record<string, unknown>,
+  message: string,
+) => void;
+
+export async function invokeAdminMcpToolWithControls(input: {
+  authCtx: AuthenticatedRequestContext;
+  toolContext: ToolContext;
+  role: AdminRole;
+  toolName: string;
+  args: Record<string, unknown>;
+  requestId: string;
+  surface: "admin_mcp_direct" | "admin_mcp_streamable";
+  limiter: AdminMcpConcurrencyLimiter;
+  auditLog?: AdminMcpAuditLogger | undefined;
+}): Promise<unknown> {
+  const concurrencyDecision = input.limiter.tryAcquire({
+    orgId: input.authCtx.user.org_id,
+    userId: input.authCtx.user.user_id || input.authCtx.user.username,
+  });
+  if (!concurrencyDecision.allowed) {
+    input.auditLog?.(
+      "warn",
+      buildAdminMcpAuditFields({
+        user: input.authCtx.user,
+        toolName: input.toolName,
+        requestId: input.requestId,
+        surface: input.surface,
+        outcome: "denied",
+        reason: concurrencyDecision.reason,
+        statusCode: 429,
+        limitMeta: adminMcpLimitMeta(concurrencyDecision),
+      }),
+      "admin_tools_invoke_denied",
+    );
+    throw new AdminMcpToolError("rate_limit_exceeded", 429, {
+      reason: concurrencyDecision.reason,
+      ...adminMcpLimitMeta(concurrencyDecision),
+    });
+  }
+
+  const start = performance.now();
+  try {
+    const result = await invokeTool(input.toolContext, input.role, input.toolName, input.args);
+    input.auditLog?.(
+      "info",
+      buildAdminMcpAuditFields({
+        user: input.authCtx.user,
+        toolName: input.toolName,
+        requestId: input.requestId,
+        surface: input.surface,
+        outcome: "allowed",
+        reason: "ok",
+        statusCode: 200,
+        elapsedMs: Math.round(performance.now() - start),
+      }),
+      "admin_tools_invoke",
+    );
+    return result;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    let statusCode = e instanceof AdminMcpToolError && e.statusCode ? e.statusCode : 500;
+    let reason = "tool_error";
+    let level: "warn" | "error" = "error";
+    if (msg.startsWith("Unknown tool:")) {
+      statusCode = 404;
+      reason = "tool_not_found";
+      level = "warn";
+    } else if (msg.includes("requires")) {
+      statusCode = 403;
+      reason = "forbidden";
+      level = "warn";
+    } else if (e instanceof AdminMcpToolError && e.code === "invalid_arguments") {
+      statusCode = 400;
+      reason = "invalid_arguments";
+      level = "warn";
+    } else if (e instanceof AdminMcpToolError && e.statusCode < 500) {
+      reason = e.code;
+      level = "warn";
+    }
+    input.auditLog?.(
+      level,
+      {
+        ...(level === "error" ? { err: e } : {}),
+        ...buildAdminMcpAuditFields({
+          user: input.authCtx.user,
+          toolName: input.toolName,
+          requestId: input.requestId,
+          surface: input.surface,
+          outcome: level === "warn" ? "denied" : "error",
+          reason,
+          statusCode,
+          elapsedMs: Math.round(performance.now() - start),
+        }),
+      },
+      level === "warn" ? "admin_tools_invoke_denied" : "admin_tools_invoke_failed",
+    );
+    throw e;
+  } finally {
+    concurrencyDecision.release();
+  }
+}
+
+export interface AuthenticatedRequestContext {
   delegatedHeaders: Record<string, string>;
   orgHeaders: Record<string, string>;
   user: SessionUser;
@@ -307,6 +413,11 @@ function sendAuthError(
 export function buildAdminMcpServer(
   cfg: AdminMcpConfig,
   authCtx: AuthenticatedRequestContext,
+  options: {
+    limiter?: AdminMcpConcurrencyLimiter;
+    requestId?: string;
+    auditLog?: AdminMcpAuditLogger;
+  } = {},
 ): McpServer {
   const server = new McpServer(
     { name: "synesis-admin-mcp", version: "0.1.0" },
@@ -333,7 +444,19 @@ export function buildAdminMcpServer(
       async (args) => {
         const raw = args && typeof args === "object" && !Array.isArray(args) ? args : {};
         try {
-          const result = await invokeTool(toolContext, authCtx.user.role, tool.name, raw as Record<string, unknown>);
+          const result = options.limiter
+            ? await invokeAdminMcpToolWithControls({
+                authCtx,
+                toolContext,
+                role: authCtx.user.role,
+                toolName: tool.name,
+                args: raw as Record<string, unknown>,
+                requestId: options.requestId ?? "mcp-transport",
+                surface: "admin_mcp_streamable",
+                limiter: options.limiter,
+                auditLog: options.auditLog,
+              })
+            : await invokeTool(toolContext, authCtx.user.role, tool.name, raw as Record<string, unknown>);
           return jsonResult(result);
         } catch (e) {
           const err = toSafeToolError(e, tool.name);
@@ -606,7 +729,11 @@ export function createApp(cfg: AdminMcpConfig) {
 
       reply.hijack();
 
-      const server = buildAdminMcpServer(cfg, authCtx);
+      const server = buildAdminMcpServer(cfg, authCtx, {
+        limiter: directInvokeLimiter,
+        requestId: req.id,
+        auditLog: (level, fields, message) => req.log[level](fields, message),
+      });
       const transport = new StreamableHTTPServerTransport({});
       let connected = false;
       try {

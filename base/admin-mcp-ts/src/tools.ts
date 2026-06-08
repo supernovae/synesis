@@ -30,7 +30,7 @@ export interface AdminToolDescriptor {
   inputSchema: ToolInputSchema;
 }
 
-interface ToolContext {
+export interface ToolContext {
   cfg: AdminMcpConfig;
   delegatedHeaders: Record<string, string>;
   orgHeaders: Record<string, string>;
