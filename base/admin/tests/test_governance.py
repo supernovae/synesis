@@ -484,6 +484,61 @@ class TestClauseCRUD:
         assert data["constraint_kind"] == "hard"
         assert data["statement"] == "No secrets in code"
 
+    def test_create_clause_accepts_known_applicability(self, admin_client, _mock_db):
+        parent = FakeRow(
+            id=1,
+            constitution_id="c-1",
+            name="Parent",
+            version=1,
+            status="draft",
+            scope="org",
+            scope_value="org-1",
+            precedence=0,
+            description="",
+            provenance_source="",
+            provenance_owner="",
+            provenance_checksum="",
+            effective_from=None,
+            effective_until=None,
+            maturity_mode="base",
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        _mock_db._execute_results = [FakeResult(items=[parent])]
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions/c-1/clauses",
+            json={
+                "category": "quality",
+                "constraint_kind": "guiding",
+                "statement": "Python rules",
+                "applicability": {"languages": ["python"]},
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["applicability"] == {"languages": ["python"]}
+
+    def test_create_clause_rejects_unknown_nested_clause_document_key(self, admin_client, _mock_db):
+        resp = admin_client.post(
+            "/api/v1/governance/constitutions/c-1/clauses",
+            json={
+                "category": "quality",
+                "constraint_kind": "guiding",
+                "statement": "Bad rule",
+                "applicability": {"languages": ["python"], "invented_scope": "admin"},
+            },
+        )
+        assert resp.status_code == 422
+        assert "invented_scope" in resp.text
+
+    def test_update_clause_rejects_unknown_machine_rule_key(self, admin_client, _mock_db):
+        resp = admin_client.put(
+            "/api/v1/governance/clauses/cl-1",
+            json={"machine_rule": {"invented_enforcement": True}},
+        )
+        assert resp.status_code == 422
+        assert "invented_enforcement" in resp.text
+
     def test_create_clause_invalid_category(self, admin_client, _mock_db):
         resp = admin_client.post(
             "/api/v1/governance/constitutions/c-1/clauses",

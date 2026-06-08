@@ -846,10 +846,10 @@ class ClauseCreate(BaseModel):
     category: str = Field("quality")
     constraint_kind: str = Field("guiding")
     statement: str = Field("")
-    machine_rule: dict | None = None
-    applicability: dict | None = None
-    evidence_requirements: dict | None = None
-    actions: dict | None = None
+    machine_rule: ClauseMachineRule | None = None
+    applicability: ClauseApplicability | None = None
+    evidence_requirements: ClauseEvidenceRequirements | None = None
+    actions: ClauseActions | None = None
     validation_recipe_id: str | None = None
     enabled: bool = Field(True)
     priority: int = Field(0)
@@ -861,13 +861,35 @@ class ClauseUpdate(BaseModel):
     category: str | None = None
     constraint_kind: str | None = None
     statement: str | None = None
-    machine_rule: dict | None = None
-    applicability: dict | None = None
-    evidence_requirements: dict | None = None
-    actions: dict | None = None
+    machine_rule: ClauseMachineRule | None = None
+    applicability: ClauseApplicability | None = None
+    evidence_requirements: ClauseEvidenceRequirements | None = None
+    actions: ClauseActions | None = None
     validation_recipe_id: str | None = None
     enabled: bool | None = None
     priority: int | None = None
+
+
+class ClauseMachineRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ClauseApplicability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    languages: list[str] | None = Field(None, max_length=50)
+
+
+class ClauseEvidenceRequirements(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ClauseActions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _clause_doc_payload(doc: BaseModel | None) -> dict[str, Any] | None:
+    return doc.model_dump(exclude_none=True) if doc is not None else None
 
 
 def _clause_to_dict(c: GovernanceClause) -> dict:
@@ -927,10 +949,10 @@ async def create_clause(constitution_id: str, body: ClauseCreate, user: UserInfo
         category=body.category,
         constraint_kind=body.constraint_kind,
         statement=body.statement,
-        machine_rule=body.machine_rule,
-        applicability=body.applicability,
-        evidence_requirements=body.evidence_requirements,
-        actions=body.actions,
+        machine_rule=_clause_doc_payload(body.machine_rule),
+        applicability=_clause_doc_payload(body.applicability),
+        evidence_requirements=_clause_doc_payload(body.evidence_requirements),
+        actions=_clause_doc_payload(body.actions),
         validation_recipe_id=body.validation_recipe_id,
         enabled=body.enabled,
         priority=body.priority,
@@ -994,13 +1016,13 @@ async def update_clause(clause_id: str, body: ClauseUpdate, user: UserInfo = Dep
         if body.statement is not None:
             row.statement = body.statement
         if body.machine_rule is not None:
-            row.machine_rule = body.machine_rule
+            row.machine_rule = _clause_doc_payload(body.machine_rule)
         if body.applicability is not None:
-            row.applicability = body.applicability
+            row.applicability = _clause_doc_payload(body.applicability)
         if body.evidence_requirements is not None:
-            row.evidence_requirements = body.evidence_requirements
+            row.evidence_requirements = _clause_doc_payload(body.evidence_requirements)
         if body.actions is not None:
-            row.actions = body.actions
+            row.actions = _clause_doc_payload(body.actions)
         if body.validation_recipe_id is not None:
             row.validation_recipe_id = body.validation_recipe_id
         if body.enabled is not None:
