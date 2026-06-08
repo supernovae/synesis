@@ -478,9 +478,11 @@ describe("Config integration", () => {
       SYNESIS_YARN_INTERNAL_TOKEN: "tok",
     });
     expect(cfg.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS).toBe(60_000);
+    expect(cfg.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_PER_CALLER).toBe(4);
+    expect(cfg.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_GLOBAL).toBe(100);
   });
 
-  it("overrides MCP tool timeout from env", async () => {
+  it("overrides MCP tool timeout and concurrency from env", async () => {
     const { loadConfig } = await import("../src/config.js");
     const cfg = loadConfig({
       SYNESIS_YARN_ADMIN_API_URL: "http://localhost:9090",
@@ -489,8 +491,12 @@ describe("Config integration", () => {
       SYNESIS_PAT_PEPPER: "test",
       SYNESIS_YARN_INTERNAL_TOKEN: "tok",
       SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS: "15000",
+      SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_PER_CALLER: "2",
+      SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_GLOBAL: "20",
     });
     expect(cfg.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS).toBe(15_000);
+    expect(cfg.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_PER_CALLER).toBe(2);
+    expect(cfg.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_GLOBAL).toBe(20);
   });
 });
 

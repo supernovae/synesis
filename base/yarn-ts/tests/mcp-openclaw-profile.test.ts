@@ -80,6 +80,12 @@ describe("MCP security audit fields", () => {
       session,
       args: { filePath: "src/index.ts" },
       elapsedMs: 12,
+      limitMeta: {
+        callerActive: 4,
+        callerLimit: 4,
+        globalActive: 25,
+        globalLimit: 100,
+      },
     })).toMatchObject({
       surface: "yarn_mcp_http",
       action: "mcp_tool_call",
@@ -101,6 +107,10 @@ describe("MCP security audit fields", () => {
       sessionKey: session.sessionKey,
       workspaceHash: session.workspaceHash,
       elapsed_ms: 12,
+      callerActive: 4,
+      callerLimit: 4,
+      globalActive: 25,
+      globalLimit: 100,
     });
   });
 });

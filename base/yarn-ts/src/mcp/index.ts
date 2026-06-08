@@ -11,6 +11,7 @@ import {
 } from "@synesis/mcp-tools";
 import type { AuthResolver, AuthUser } from "../auth.js";
 import { authRejectionLogFields } from "../routes/platform-route-support.js";
+import { McpConcurrencyLimiter, type McpConcurrencyRejection } from "./concurrency-limiter.js";
 import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError, type McpToolContext } from "./tool-registry.js";
 import { classifyProjectTool } from "./handlers/classify-project.js";
 import { inspectRepoTool } from "./handlers/inspect-repo.js";
@@ -57,6 +58,8 @@ export interface McpPluginOptions {
   openClawProfileEnabled: boolean;
   openClawMcpAllowlistEnabled: boolean;
   openClawStrictGovernanceEnabled: boolean;
+  toolMaxConcurrentPerCaller: number;
+  toolMaxConcurrentGlobal: number;
   /** Same deps as `KnowledgeSearchService` / synesis-mcp — planner + critic URLs for platform tools. */
   synesisMcpDeps: SynesisMcpDeps;
 }
@@ -169,6 +172,7 @@ export interface McpAuditFieldInput {
   args?: unknown;
   runMeta?: Record<string, unknown>;
   diagnosticsMeta?: Record<string, unknown>;
+  limitMeta?: Record<string, unknown>;
 }
 
 function splitAllowedProjectRoots(raw: string | undefined): string[] {
@@ -452,6 +456,17 @@ export function buildMcpAuditFields(input: McpAuditFieldInput): Record<string, u
     elapsed_ms: input.elapsedMs,
     ...(input.runMeta ?? {}),
     ...(input.diagnosticsMeta ?? {}),
+    ...(input.limitMeta ?? {}),
+  };
+}
+
+function mcpConcurrencyLimitMeta(decision: McpConcurrencyRejection): Record<string, unknown> {
+  return {
+    callerKey: decision.callerKey,
+    callerActive: decision.callerActive,
+    callerLimit: decision.callerLimit,
+    globalActive: decision.globalActive,
+    globalLimit: decision.globalLimit,
   };
 }
 
@@ -514,6 +529,10 @@ export async function registerMcpRoutes(
   // apply local limits so private traffic paths are consistently protected.
   const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
   const mcpAuthPreHandler = app.rateLimit(mcpAuthRateLimit);
+  const toolConcurrencyLimiter = new McpConcurrencyLimiter({
+    maxPerCaller: opts.toolMaxConcurrentPerCaller,
+    maxGlobal: opts.toolMaxConcurrentGlobal,
+  });
 
   async function resolveUser(req: FastifyRequest, reply: FastifyReply): Promise<AuthUser | null> {
     try {
@@ -672,6 +691,34 @@ export async function registerMcpRoutes(
         error: {
           type: "forbidden_tool",
           message: `Write-capable MCP tool '${toolName}' is blocked for OpenClaw safety profile`,
+        },
+      });
+    }
+
+    const concurrencyDecision = toolConcurrencyLimiter.tryAcquire({
+      orgId: user.orgId,
+      userId: user.userId,
+    });
+    if (!concurrencyDecision.allowed) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName,
+          requestId,
+          outcome: "denied",
+          reason: concurrencyDecision.reason,
+          statusCode: 429,
+          openClawClient,
+          agentFlow,
+          args: toolArguments,
+          limitMeta: mcpConcurrencyLimitMeta(concurrencyDecision),
+        }),
+        "mcp_tool_denied",
+      );
+      return reply.code(429).send({
+        error: {
+          type: "rate_limit_error",
+          message: "Too many concurrent MCP tool calls. Retry after an active call completes.",
         },
       });
     }
@@ -861,6 +908,8 @@ export async function registerMcpRoutes(
           message: "Tool execution failed",
         },
       });
+    } finally {
+      concurrencyDecision.release();
     }
     },
   );

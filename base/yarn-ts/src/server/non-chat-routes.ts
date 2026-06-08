@@ -35,6 +35,8 @@ export async function registerNonChatRoutes(input: RegisterNonChatRoutesInput): 
     openClawProfileEnabled: config.SYNESIS_YARN_OPENCLAW_PROFILE_ENABLED,
     openClawMcpAllowlistEnabled: config.SYNESIS_YARN_OPENCLAW_MCP_ALLOWLIST_ENABLED,
     openClawStrictGovernanceEnabled: config.SYNESIS_YARN_OPENCLAW_STRICT_GOVERNANCE_ENABLED,
+    toolMaxConcurrentPerCaller: config.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_PER_CALLER,
+    toolMaxConcurrentGlobal: config.SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_GLOBAL,
     synesisMcpDeps: {
       plannerBaseUrl: config.SYNESIS_YARN_PLANNER_URL,
       internalServiceToken: config.SYNESIS_INTERNAL_SERVICE_TOKEN,

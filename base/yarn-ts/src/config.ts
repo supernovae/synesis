@@ -623,6 +623,8 @@ const EnvSchema = z.object({
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_YARN_DIAGNOSTIC_REDIS_TTL_S: z.coerce.number().default(86400),
   SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS: z.coerce.number().default(60_000),
+  SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_PER_CALLER: z.coerce.number().default(4),
+  SYNESIS_YARN_MCP_TOOL_MAX_CONCURRENT_GLOBAL: z.coerce.number().default(100),
 
   // Sensemaking — future-backward exploration engine (Phase 10)
   SYNESIS_YARN_SENSEMAKING_ENABLED: z
