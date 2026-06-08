@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import Path as PathParam
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select
 
 from ..auth import UserInfo, get_current_user, require_admin
@@ -18,6 +20,19 @@ from ..deps import TAXONOMY_YAML_PATH
 logger = logging.getLogger("synesis.admin.taxonomy")
 
 router = APIRouter(prefix="/api/v1/taxonomy", tags=["taxonomy"])
+RequiredElement = Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class TaxonomyDomainUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    path: str | None = Field(None, max_length=512)
+    complexity: float | None = Field(None, ge=0, le=1)
+    persona: str | None = Field(None, max_length=512)
+    required_elements: list[RequiredElement] | None = Field(None, max_length=100)
+    depth_instructions: str | None = Field(None, max_length=20000)
+    output_style_guidance: str | None = Field(None, max_length=20000)
+    epistemic_guidance: str | None = Field(None, max_length=20000)
 
 
 async def _ensure_loaded() -> None:
@@ -72,7 +87,10 @@ async def list_domains(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/{key}")
-async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
+async def domain_detail(
+    key: str = PathParam(..., min_length=1, max_length=128),
+    _user: UserInfo = Depends(get_current_user),
+):
     await _ensure_loaded()
     async with async_session() as session:
         result = await session.execute(select(TaxonomyDomain).where(TaxonomyDomain.key == key))
@@ -95,10 +113,11 @@ async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
 
 @router.put("/{key}")
 async def update_domain(
-    key: str,
-    data: dict = Body(...),
+    key: str = PathParam(..., min_length=1, max_length=128),
+    body: TaxonomyDomainUpdateBody = Body(...),
     _user: UserInfo = Depends(require_admin),
 ):
+    data = body.model_dump(exclude_unset=True, exclude_none=True)
     async with async_session() as session:
         result = await session.execute(select(TaxonomyDomain).where(TaxonomyDomain.key == key))
         row = result.scalar_one_or_none()
@@ -119,8 +138,6 @@ async def update_domain(
             cfg["output_style_guidance"] = data["output_style_guidance"]
         if "epistemic_guidance" in data:
             cfg["epistemic_guidance"] = data["epistemic_guidance"]
-        if "raw_config" in data:
-            cfg = data["raw_config"]
         row.raw_config = cfg
 
         await session.commit()
