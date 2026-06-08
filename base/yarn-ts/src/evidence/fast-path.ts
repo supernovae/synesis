@@ -22,6 +22,35 @@ import { withSpanAsync } from "../telemetry/otel.js";
 import { detectCompositionIntent } from "./composition-detector.js";
 import type { CompositionIntent } from "./composition-detector.js";
 
+const MAX_EVIDENCE_TEXT_CHARS = 800;
+const MAX_EVIDENCE_ATTR_CHARS = 128;
+
+function replaceControlChars(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function evidenceText(value: unknown, maxChars = MAX_EVIDENCE_TEXT_CHARS): string {
+  return replaceControlChars(String(value ?? ""))
+    .replace(/=/g, ":")
+    .replace(/[<>"`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function evidenceAttr(value: unknown, fallback = "unknown"): string {
+  const sanitized = evidenceText(value, MAX_EVIDENCE_ATTR_CHARS)
+    .replace(/[^A-Za-z0-9_.:/@+-]/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized || fallback;
+}
+
 export interface FastPathMatch {
   pattern: string;
   language: string;
@@ -523,22 +552,22 @@ export function formatEvidenceBlock(result: FastPathResult): string | null {
   if (!result.evidence || result.evidence.total === 0) return null;
 
   const attrs = [
-    `pattern="${result.pattern}"`,
+    `pattern="${evidenceAttr(result.pattern)}"`,
     `source="rag_prefetch"`,
     `confidence="${result.confidence.toFixed(2)}"`,
   ];
-  if (result.constraintKind) attrs.push(`constraint_kind="${result.constraintKind}"`);
+  if (result.constraintKind) attrs.push(`constraint_kind="${evidenceAttr(result.constraintKind)}"`);
   if (result.authoritative) attrs.push(`authoritative="true"`);
 
   const lines = [`<synesis_evidence ${attrs.join(" ")}>`];
 
   for (const item of result.evidence.results.slice(0, 3)) {
-    const profileTag = item.content_profile ? ` (${item.content_profile})` : "";
-    lines.push(`[${item.authority}${profileTag}] ${item.document_name || item.source_url}`);
+    const profileTag = item.content_profile ? ` (${evidenceAttr(item.content_profile)})` : "";
+    lines.push(`[${evidenceAttr(item.authority)}${profileTag}] ${evidenceText(item.document_name || item.source_url, 240)}`);
     if (item.chunk_summary) {
-      lines.push(item.chunk_summary);
+      lines.push(evidenceText(item.chunk_summary, 500));
     } else {
-      lines.push(item.text.slice(0, 500));
+      lines.push(evidenceText(item.text, 500));
     }
     lines.push("");
   }
@@ -662,8 +691,8 @@ export function formatPatternBlock(result: PatternPrefetchResult): string | null
   if (!result.evidence || result.evidence.total === 0 || !result.intent) return null;
 
   const attrs = [
-    `language="${result.intent.language}"`,
-    `skill_family="${result.intent.skillFamily}"`,
+    `language="${evidenceAttr(result.intent.language)}"`,
+    `skill_family="${evidenceAttr(result.intent.skillFamily)}"`,
     `source="pattern_library"`,
     `confidence="${result.confidence.toFixed(2)}"`,
   ];
@@ -671,9 +700,9 @@ export function formatPatternBlock(result: PatternPrefetchResult): string | null
   const lines = [`<synesis_pattern_recall ${attrs.join(" ")}>`];
 
   for (const item of result.evidence.results.slice(0, 3)) {
-    lines.push(`[${item.authority ?? "vetted"}] ${item.document_name || item.source_url}`);
+    lines.push(`[${evidenceAttr(item.authority ?? "vetted")}] ${evidenceText(item.document_name || item.source_url, 240)}`);
     if (item.text) {
-      lines.push(item.text.slice(0, 800));
+      lines.push(evidenceText(item.text, 800));
     }
     lines.push("");
   }
