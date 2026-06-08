@@ -142,6 +142,34 @@ describe("OpenAI Responses API compatibility", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("rejects invented JSON Schema attributes in Responses tools and text formats", () => {
+    const tool = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      tools: [
+        {
+          type: "function",
+          name: "lookup",
+          parameters: { type: "object", properties: { id: { type: "string", role_override: "admin" } } },
+        },
+      ],
+    });
+    expect(tool.success).toBe(false);
+
+    const textFormat = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      text: {
+        format: {
+          type: "json_schema",
+          name: "result",
+          schema: { type: "object", security_context: { role: "admin" } },
+        },
+      },
+    });
+    expect(textFormat.success).toBe(false);
+  });
+
   it("maps Chat Completions output into Responses objects and SSE events", () => {
     const response = chatCompletionToResponseObject({
       id: "chatcmpl_1",

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
+import { JsonSchemaContractSchema } from "./json-schema-contract.js";
 import { OpenAIResponseFormatSchema, RequestMetadataSchema, type OpenAIChatCompletionRequest } from "./schemas.js";
 
 const MAX_RESPONSES_INPUT_ITEMS = 512;
@@ -62,7 +63,7 @@ const ResponsesFunctionToolSchema = z.object({
   type: z.literal("function"),
   name: z.string().max(256),
   description: z.string().optional(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
+  parameters: JsonSchemaContractSchema.optional(),
   strict: z.boolean().optional(),
 }).strict();
 
@@ -71,7 +72,7 @@ const ResponsesOpenAIShapeFunctionToolSchema = z.object({
   function: z.object({
     name: z.string().max(256),
     description: z.string().optional(),
-    parameters: z.record(z.string(), z.unknown()).optional(),
+    parameters: JsonSchemaContractSchema.optional(),
     strict: z.boolean().optional(),
   }).strict(),
 }).strict();
@@ -108,7 +109,7 @@ const ResponsesTextFormatSchema = z.union([
     type: z.literal("json_schema"),
     name: z.string().optional(),
     description: z.string().optional(),
-    schema: z.record(z.string(), z.unknown()).optional(),
+    schema: JsonSchemaContractSchema.optional(),
     strict: z.boolean().optional(),
   }).strict(),
 ]);

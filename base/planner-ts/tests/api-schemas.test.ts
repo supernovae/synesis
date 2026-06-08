@@ -74,4 +74,34 @@ describe("planner API schemas", () => {
 
     expect(parsed.success).toBe(false);
   });
+
+  it("rejects invented JSON Schema attributes in tool and response schemas", () => {
+    const tool = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search",
+            parameters: { type: "object", properties: { query: { type: "string", role_override: "admin" } } },
+          },
+        },
+      ],
+    });
+    expect(tool.success).toBe(false);
+
+    const responseFormat = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "answer",
+          schema: { type: "object", security_context: { role: "admin" } },
+        },
+      },
+    });
+    expect(responseFormat.success).toBe(false);
+  });
 });

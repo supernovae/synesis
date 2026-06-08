@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JsonSchemaContractSchema } from "./json-schema-contract.js";
 import { SynesisClarificationRoundSchema } from "./validation/clarification-schema.js";
 
 export const RoleSchema = z.enum(["system", "developer", "user", "assistant", "tool"]);
@@ -120,7 +121,7 @@ export const OpenAIResponseFormatSchema = z.union([
     json_schema: z.object({
       name: z.string().optional(),
       description: z.string().optional(),
-      schema: z.record(z.string(), z.unknown()).optional(),
+      schema: JsonSchemaContractSchema.optional(),
       strict: z.boolean().optional(),
     }).strict(),
   }).strict(),
@@ -129,7 +130,7 @@ export const OpenAIResponseFormatSchema = z.union([
 const ToolFunctionSchema = z.object({
   name: z.string().max(256),
   description: z.string().max(4096).optional(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
+  parameters: JsonSchemaContractSchema.optional(),
   strict: z.boolean().optional(),
 }).strict();
 
@@ -206,7 +207,7 @@ export const ClaudeMessageSchema = z.object({
 const ClaudeToolSchema = z.object({
   name: z.string().max(256),
   description: z.string().max(4096).optional(),
-  input_schema: z.record(z.string(), z.unknown()).optional(),
+  input_schema: JsonSchemaContractSchema.optional(),
 }).strict();
 
 const ClaudeToolChoiceSchema = z.union([

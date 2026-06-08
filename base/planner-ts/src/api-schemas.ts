@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JsonSchemaContractSchema } from "./json-schema-contract.js";
 import { ProviderExtraBodySchema } from "./llm/extra-body.js";
 
 function messageContentToText(value: unknown): string {
@@ -44,7 +45,7 @@ const MessageSchema = z.object({
 const ToolFunctionSchema = z.object({
   name: z.string().max(256),
   description: z.string().max(4096).optional(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
+  parameters: JsonSchemaContractSchema.optional(),
   strict: z.boolean().optional(),
 }).strict();
 
@@ -58,7 +59,7 @@ const ResponseFormatSchema = z.object({
   json_schema: z.object({
     name: z.string().optional(),
     description: z.string().optional(),
-    schema: z.record(z.string(), z.unknown()).optional(),
+    schema: JsonSchemaContractSchema.optional(),
     strict: z.boolean().optional(),
   }).strict().optional(),
 }).strict();

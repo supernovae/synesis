@@ -219,6 +219,31 @@ describe("client payload conformance fixtures", () => {
     expect(toolChoice.success).toBe(false);
   });
 
+  it("rejects invented JSON Schema attributes in OpenAI and Claude tool schemas", () => {
+    const openai = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Use a tool." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            parameters: { type: "object", properties: { path: { type: "string", role_override: "admin" } } },
+          },
+        },
+      ],
+    });
+    expect(openai.success).toBe(false);
+
+    const claude = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "Read", input_schema: { type: "object", properties: { path: { type: "string", role_override: "admin" } } } }],
+    });
+    expect(claude.success).toBe(false);
+  });
+
   it("rejects unknown Claude request and tool envelope fields", () => {
     const request = ClaudeMessagesRequestSchema.safeParse({
       model: "synesis-yarn",
