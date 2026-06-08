@@ -242,6 +242,22 @@ const ToolChoiceSchema = z.union([
   OpenAIToolChoiceObjectSchema,
 ]);
 
+const OpenAIPredictionSchema = z.object({
+  type: z.literal("content"),
+  content: z.union([
+    z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    z.array(z.object({
+      type: z.literal("text"),
+      text: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    }).strict()).max(MAX_CONTENT_PARTS),
+  ]),
+}).strict();
+
+const OpenAIAudioSchema = z.object({
+  voice: z.string().trim().min(1).max(64),
+  format: z.string().trim().min(1).max(32),
+}).strict();
+
 const MAX_MESSAGES = 512;
 const MAX_TOOLS = 128;
 
@@ -279,8 +295,8 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
   modalities: z.array(z.string()).optional(),
-  prediction: z.unknown().optional(),
-  audio: z.unknown().optional(),
+  prediction: OpenAIPredictionSchema.optional(),
+  audio: OpenAIAudioSchema.optional(),
   service_tier: z.string().optional(),
   prompt_cache_key: z.string().optional(),
   prompt_cache_retention: z.string().optional(),
@@ -353,6 +369,16 @@ const ClaudeToolChoiceSchema = z.union([
   z.object({ type: z.literal("tool"), name: z.string() }),
 ]);
 
+const ClaudeThinkingSchema = z.union([
+  z.object({
+    type: z.literal("enabled"),
+    budget_tokens: z.number().int().min(1).max(2_000_000).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("disabled"),
+  }).strict(),
+]);
+
 export const ClaudeMessagesRequestSchema = z.object({
   model: z.string(),
   max_tokens: z.number(),
@@ -364,7 +390,7 @@ export const ClaudeMessagesRequestSchema = z.object({
   stream: z.boolean().optional().default(false),
   tools: z.array(ClaudeToolSchema).max(MAX_TOOLS).optional(),
   tool_choice: ClaudeToolChoiceSchema.optional(),
-  thinking: z.unknown().optional(),
+  thinking: ClaudeThinkingSchema.optional(),
   temperature: z.number().optional(),
   top_p: z.number().optional(),
   top_k: z.number().optional(),

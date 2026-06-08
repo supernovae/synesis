@@ -28,6 +28,9 @@ describe("planner API schemas", () => {
         },
       ],
       tool_choice: { type: "function", function: { name: "search" } },
+      modalities: ["text", "audio"],
+      prediction: { type: "content", content: [{ type: "text", text: "Known output prefix" }] },
+      audio: { voice: "alloy", format: "mp3" },
     });
 
     expect(parsed.success).toBe(true);
@@ -133,5 +136,29 @@ describe("planner API schemas", () => {
       },
     });
     expect(responseFormat.success).toBe(false);
+  });
+
+  it("rejects invented prediction and audio attributes", () => {
+    const prediction = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      prediction: {
+        type: "content",
+        content: "Known output prefix",
+        run_as_role: "admin",
+      },
+    });
+    expect(prediction.success).toBe(false);
+
+    const audio = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      audio: {
+        voice: "alloy",
+        format: "mp3",
+        credential_env: "OPENAI_API_KEY",
+      },
+    });
+    expect(audio.success).toBe(false);
   });
 });

@@ -165,6 +165,22 @@ const ToolChoiceSchema = z.union([
   ToolChoiceObjectSchema,
 ]);
 
+const PredictionSchema = z.object({
+  type: z.literal("content"),
+  content: z.union([
+    z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    z.array(z.object({
+      type: z.literal("text"),
+      text: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    }).strict()).max(MAX_CONTENT_PARTS),
+  ]),
+}).strict();
+
+const AudioSchema = z.object({
+  voice: z.string().trim().min(1).max(64),
+  format: z.string().trim().min(1).max(32),
+}).strict();
+
 const StringOrStringArraySchema = z.union([z.string(), z.array(z.string())]);
 
 const MAX_MESSAGES = 512;
@@ -202,8 +218,8 @@ export const ChatCompletionRequestSchema = z.object({
   metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
   modalities: z.array(z.string()).optional(),
-  prediction: z.unknown().optional(),
-  audio: z.unknown().optional(),
+  prediction: PredictionSchema.optional(),
+  audio: AudioSchema.optional(),
   service_tier: z.string().optional(),
 }).strict();
 

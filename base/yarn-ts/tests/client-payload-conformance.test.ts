@@ -120,6 +120,8 @@ describe("client payload conformance fixtures", () => {
       metadata: { trace_id: "trace-1" },
       store: false,
       modalities: ["text"],
+      prediction: { type: "content", content: [{ type: "text", text: "Known output prefix" }] },
+      audio: { voice: "alloy", format: "mp3" },
       service_tier: "auto",
       prompt_cache_key: "repo:synesis",
       prompt_cache_retention: "24h",
@@ -131,6 +133,31 @@ describe("client payload conformance fixtures", () => {
     expect(parsed.data.messages[0]?.role).toBe("system");
     expect(parsed.data.stop).toEqual(["</done>"]);
     expect(parsed.data.parallel_tool_calls).toBe(false);
+  });
+
+  it("rejects invented OpenAI prediction and audio attributes", () => {
+    const prediction = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      prediction: {
+        type: "content",
+        content: "Known output prefix",
+        role_override: "platform_admin",
+      },
+    });
+    expect(prediction.success).toBe(false);
+
+    const audio = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      modalities: ["text", "audio"],
+      audio: {
+        voice: "alloy",
+        format: "mp3",
+        credential_env: "OPENAI_API_KEY",
+      },
+    });
+    expect(audio.success).toBe(false);
   });
 
   it("restricts OpenAI extra_body to known provider and Synesis controls", () => {
@@ -208,6 +235,7 @@ describe("client payload conformance fixtures", () => {
     const accepted = ClaudeMessagesRequestSchema.safeParse({
       model: "synesis-yarn",
       max_tokens: 1000,
+      thinking: { type: "enabled", budget_tokens: 2048 },
       system: [{ type: "text", text: "Follow policy.", cache_control: { type: "ephemeral" } }],
       messages: [
         {
@@ -233,6 +261,21 @@ describe("client payload conformance fixtures", () => {
       ],
     });
     expect(rejected.success).toBe(false);
+  });
+
+  it("rejects invented Claude thinking attributes", () => {
+    const parsed = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 1000,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 2048,
+        service_role: "admin",
+      },
+      messages: [{ role: "user", content: "Plan this task." }],
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   it("rejects unknown OpenAI and Claude metadata fields", () => {
