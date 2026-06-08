@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
@@ -70,6 +71,15 @@ SUPPORT_ALLOWED_TOOL_NAMES = {
     "yarn_runtime_preferences",
     "yarn_user_usage",
 }
+
+
+class AssistantChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(..., min_length=1, max_length=20000)
+    context: str = Field("", max_length=200000)
+    trace_id: str | None = Field(None, min_length=1, max_length=128)
+    span_index: int | None = Field(None, ge=0, le=10000)
 
 
 def _trace_context_text(trace: dict, span_index: int | None = None) -> str:
@@ -231,7 +241,7 @@ async def _load_prompt_trace_context_via_admin_mcp(
 
 
 async def _assistant_chat_impl(
-    data: dict = Body(...),
+    data: AssistantChatBody,
     _user: UserInfo = Depends(get_current_user),
     request: Request | None = None,
     *,
@@ -242,13 +252,10 @@ async def _assistant_chat_impl(
     When the model supports function calling, the assistant runs an MCP tool loop
     (same handlers as Admin MCP / synesis-admin-mcp-ts) under the caller's JWT.
     """
-    user_message = data.get("message", "")
-    context = data.get("context", "")
-    trace_id = data.get("trace_id")
-    span_index = data.get("span_index")
-
-    if not user_message:
-        return {"error": "message is required"}
+    user_message = data.message
+    context = data.context
+    trace_id = data.trace_id
+    span_index = data.span_index
 
     auth_header = (request.headers.get("authorization") if request else "") or ""
     session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) if request else "") or ""
@@ -445,7 +452,7 @@ async def _assistant_chat_impl(
 @router.post("/chat")
 async def assistant_chat(
     request: Request,
-    data: dict = Body(...),
+    data: AssistantChatBody = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Admin assistant chat endpoint (org_admin+)."""
@@ -457,7 +464,7 @@ async def assistant_chat(
 @router.post("/support/chat")
 async def support_assistant_chat(
     request: Request,
-    data: dict = Body(...),
+    data: AssistantChatBody = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Support assistant endpoint for authenticated user context."""

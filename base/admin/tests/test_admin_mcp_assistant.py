@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from app.auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo
-from app.routers.assistant import _extract_trace_lookup_id
+from app.routers.assistant import AssistantChatBody, _extract_trace_lookup_id
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 
 def test_extract_trace_lookup_id_from_operator_prompt():
@@ -14,6 +16,32 @@ def test_extract_trace_lookup_id_from_operator_prompt():
 
     assert _extract_trace_lookup_id(f"Can you summarize the trace for {trace_id} in detail") == trace_id
     assert _extract_trace_lookup_id("Can you summarize this config?") is None
+
+
+def test_assistant_chat_body_accepts_known_payload() -> None:
+    body = AssistantChatBody(
+        message="Summarize this trace.",
+        context="Trace context",
+        trace_id="5f256b3b-2fb3-4196-a707-9d6550b122a6",
+        span_index=2,
+    )
+
+    assert body.model_dump() == {
+        "message": "Summarize this trace.",
+        "context": "Trace context",
+        "trace_id": "5f256b3b-2fb3-4196-a707-9d6550b122a6",
+        "span_index": 2,
+    }
+
+
+def test_assistant_chat_body_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError, match="admin_tool_override"):
+        AssistantChatBody(message="hello", admin_tool_override=True)
+
+
+def test_assistant_chat_body_rejects_blank_message() -> None:
+    with pytest.raises(ValidationError, match="message"):
+        AssistantChatBody(message="")
 
 
 def test_admin_assistant_requires_admin_role():
