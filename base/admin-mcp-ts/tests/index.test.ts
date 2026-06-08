@@ -162,6 +162,92 @@ describe("admin MCP internal auth", () => {
     expect(names.has("get_trace")).toBe(false);
   });
 
+  it("rejects unknown security attributes in Admin API session responses", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          username: "admin",
+          role: "org_admin",
+          user_id: "u1",
+          role_override: "platform_admin",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: delegatedHeaders,
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ error: "bad_gateway" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unknown Admin API session roles", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ username: "admin", role: "super_admin", user_id: "u1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: delegatedHeaders,
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ error: "bad_gateway" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects malformed active org headers before validating delegated sessions", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("should_not_validate_session"));
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: {
+        ...delegatedHeaders,
+        "x-synesis-org-id": "org alpha",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_org_header" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects active org headers that do not match the validated session org", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ username: "admin", role: "org_admin", user_id: "u1", org_id: "org-real" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/admin-tools",
+      headers: {
+        ...delegatedHeaders,
+        "x-synesis-org-id": "org-attacker",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "forbidden" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("advertises closed input schemas for visible tools", async () => {
     mockUser("user");
     const app = createApp(cfg());

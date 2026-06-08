@@ -8,10 +8,12 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import * as z from "zod/v4";
 import { adminApiBaseUrl, loadConfig, type AdminMcpConfig } from "./config.js";
 import { validateMcpJsonRpcPostBody } from "./json-rpc-preflight.js";
 import {
   AdminMcpToolError,
+  type AdminRole,
   invokeTool,
   type SessionUser,
   visibleToolDescriptorsForRole,
@@ -21,8 +23,26 @@ import {
 const DELEGATED_AUTH_HEADER = "x-synesis-delegated-authorization";
 const DELEGATED_COOKIE_HEADER = "x-synesis-delegated-cookie";
 const DELEGATED_CSRF_HEADER = "x-synesis-delegated-csrf";
+const ADMIN_ROLE_VALUES = ["readonly", "user", "org_admin", "platform_admin", "admin"] as const satisfies readonly AdminRole[];
+const ORG_HEADER_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
 
 type RateLimitOptions = { max: number; timeWindow: string | number };
+
+const boundedString = (maxLength: number) => z.string().trim().max(maxLength);
+const boundedSecurityStringArray = (maxItems: number, maxLength: number) =>
+  z.array(boundedString(maxLength).min(1)).max(maxItems);
+
+const SessionUserSchema = z.object({
+  username: boundedString(256).min(1),
+  role: z.enum(ADMIN_ROLE_VALUES),
+  user_id: boundedString(256).default(""),
+  email: boundedString(256).optional().default(""),
+  org_id: boundedString(256).default(""),
+  org_name: boundedString(256).default(""),
+  org_roles: boundedSecurityStringArray(50, 64).default([]),
+  tenant_ids: boundedSecurityStringArray(50, 64).default([]),
+  token_scopes: boundedSecurityStringArray(50, 128).default([]),
+}).strict();
 
 function timeWindowMs(timeWindow: string | number): number {
   if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
@@ -80,13 +100,32 @@ function requireInternalServiceToken(cfg: AdminMcpConfig, req: FastifyRequest): 
   }
 }
 
+function readBoundedOrgHeader(req: FastifyRequest, headerName: "x-synesis-org-id" | "x-active-org-id"): string {
+  const raw = req.headers[headerName];
+  if (raw === undefined) return "";
+  if (Array.isArray(raw)) throw new Error("invalid_org_header");
+  const value = raw.trim();
+  if (!value) return "";
+  if (!ORG_HEADER_RE.test(value)) throw new Error("invalid_org_header");
+  return value;
+}
+
 function forwardOrgHeaders(req: FastifyRequest): Record<string, string> {
   const h: Record<string, string> = {};
-  const a = req.headers["x-synesis-org-id"];
-  const b = req.headers["x-active-org-id"];
-  if (typeof a === "string" && a.trim()) h["x-synesis-org-id"] = a.trim();
-  if (typeof b === "string" && b.trim()) h["x-active-org-id"] = b.trim();
+  const a = readBoundedOrgHeader(req, "x-synesis-org-id");
+  const b = readBoundedOrgHeader(req, "x-active-org-id");
+  if (a && b && a !== b) throw new Error("invalid_org_header");
+  if (a) h["x-synesis-org-id"] = a;
+  if (b) h["x-active-org-id"] = b;
   return h;
+}
+
+function assertOrgHeaderMatchesSession(orgHeaders: Record<string, string>, user: SessionUser): void {
+  const requestedOrg = orgHeaders["x-synesis-org-id"] || orgHeaders["x-active-org-id"] || "";
+  const sessionOrg = user.org_id.trim();
+  if (requestedOrg && sessionOrg && requestedOrg !== sessionOrg) {
+    throw new Error("org_header_mismatch");
+  }
 }
 
 function delegatedAdminHeaders(req: FastifyRequest): Record<string, string> {
@@ -136,8 +175,12 @@ async function validateSession(
   if (!r.ok) {
     throw new Error(`auth_upstream_${r.status}`);
   }
-  const data = (await r.json()) as SessionUser;
-  return data;
+  const raw = await r.json();
+  const parsed = SessionUserSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error("auth_upstream_invalid_session");
+  }
+  return parsed.data;
 }
 
 function jsonResult(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -179,7 +222,34 @@ async function authenticateAdminRequest(
   const delegatedHeaders = delegatedAdminHeaders(req);
   const orgHeaders = forwardOrgHeaders(req);
   const user = await validateSession(cfg, delegatedHeaders, orgHeaders);
+  assertOrgHeaderMatchesSession(orgHeaders, user);
   return { delegatedHeaders, orgHeaders, user };
+}
+
+function sendAuthError(
+  reply: FastifyReply,
+  msg: string,
+  onAuthFailure: () => void,
+  logUnexpected?: () => void,
+): FastifyReply {
+  if (msg === "service_token_unconfigured") {
+    onAuthFailure();
+    return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
+  }
+  if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
+    onAuthFailure();
+    return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
+  }
+  if (msg === "invalid_org_header") {
+    onAuthFailure();
+    return reply.code(400).send({ error: "invalid_org_header", message: "Invalid active organization header" });
+  }
+  if (msg === "org_header_mismatch") {
+    onAuthFailure();
+    return reply.code(403).send({ error: "forbidden", message: "Active organization does not match session" });
+  }
+  logUnexpected?.();
+  return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
 }
 
 export function buildAdminMcpServer(
@@ -268,21 +338,14 @@ export function createApp(cfg: AdminMcpConfig) {
       const authCtx = await authenticateAdminRequest(cfg, req);
       const tools = visibleToolDescriptorsForRole(authCtx.user.role);
       return reply.code(200).send({
-        role: authCtx.user.role ?? "unknown",
+        role: authCtx.user.role,
         tools,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "service_token_unconfigured") {
-        _mcpAuthFailures++;
-        return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
-      }
-      if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-        _mcpAuthFailures++;
-        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
-      }
-      app.log.error({ err: msg }, "admin_tools_catalog_failed");
-      return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
+      return sendAuthError(reply, msg, () => { _mcpAuthFailures++; }, () => {
+        app.log.error({ err: msg }, "admin_tools_catalog_failed");
+      });
     }
     },
   );
@@ -300,16 +363,9 @@ export function createApp(cfg: AdminMcpConfig) {
       authCtx = await authenticateAdminRequest(cfg, req);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "service_token_unconfigured") {
-        _mcpAuthFailures++;
-        return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
-      }
-      if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-        _mcpAuthFailures++;
-        return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
-      }
-      app.log.error({ err: msg }, "admin_tools_invoke_auth_failed");
-      return reply.code(502).send({ error: "bad_gateway", message: "Could not validate admin session" });
+      return sendAuthError(reply, msg, () => { _mcpAuthFailures++; }, () => {
+        app.log.error({ err: msg }, "admin_tools_invoke_auth_failed");
+      });
     }
 
     let parsed: { name: string; args: Record<string, unknown> };
@@ -375,15 +431,9 @@ export function createApp(cfg: AdminMcpConfig) {
         authCtx = await authenticateAdminRequest(cfg, req);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg === "service_token_unconfigured") {
-          _mcpAuthFailures++;
-          return reply.code(503).send({ error: "service_token_unconfigured", message: "Admin MCP is not configured" });
-        }
-        if (msg === "invalid_service_token" || msg === "missing_delegated_admin_session" || msg === "unauthorized") {
-          _mcpAuthFailures++;
-          return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
-        }
-        return reply.code(502).send({ error: "bad_gateway", message: "Admin auth validation failed" });
+        return sendAuthError(reply, msg, () => { _mcpAuthFailures++; }, () => {
+          req.log.error({ err: msg }, "admin_mcp_auth_failed");
+        });
       }
 
       if (req.method === "POST") {

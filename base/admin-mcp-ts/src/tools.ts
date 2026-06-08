@@ -12,11 +12,15 @@ const ROLE_RANK: Record<AdminRole, number> = {
 };
 
 export interface SessionUser {
-  role?: string;
-  username?: string;
-  user_id?: string;
-  org_id?: string;
-  org_name?: string;
+  role: AdminRole;
+  username: string;
+  user_id: string;
+  email?: string;
+  org_id: string;
+  org_name: string;
+  org_roles?: string[];
+  tenant_ids?: string[];
+  token_scopes?: string[];
 }
 
 export interface AdminToolDescriptor {
