@@ -94,6 +94,31 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("requires internal token on metrics", async () => {
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "metrics-token" }));
+    const response = await app.inject({
+      method: "GET",
+      url: "/metrics"
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthorized" });
+    await app.close();
+  });
+
+  it("returns metrics for internal callers", async () => {
+    const token = "metrics-token";
+    const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token }));
+    const response = await app.inject({
+      method: "GET",
+      url: "/metrics",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.body).toContain("# HELP");
+    await app.close();
+  });
+
   it("returns authz recent events on dedicated health endpoint", async () => {
     const app = buildApp(
       makeConfig({

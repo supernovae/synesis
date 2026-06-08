@@ -1108,7 +1108,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
     });
   });
 
-  app.get("/metrics", async (_request, reply) => {
+  app.get("/metrics", async (request, reply) => {
+    const token = config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN;
+    if (!token || !timingSafeTokenMatch(request.headers.authorization, token)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
     reply.header("Content-Type", promRegistry.contentType);
     return promRegistry.metrics();
   });
