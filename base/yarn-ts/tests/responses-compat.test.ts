@@ -80,6 +80,58 @@ describe("OpenAI Responses API compatibility", () => {
     ]);
   });
 
+  it("rejects unknown top-level Responses request fields", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      role_override: "admin",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unknown Responses message and tool fields", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: [
+        {
+          role: "user",
+          content: "hi",
+          security_context: { role: "admin" },
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "lookup",
+          description: "Lookup",
+          parameters: { type: "object" },
+          role_override: "admin",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unknown Responses tool choice and text format fields", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      tool_choice: { type: "function", name: "lookup", role_override: "admin" },
+      text: {
+        format: {
+          type: "json_schema",
+          name: "result",
+          schema: { type: "object" },
+          injected_attribute: true,
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("maps Chat Completions output into Responses objects and SSE events", () => {
     const response = chatCompletionToResponseObject({
       id: "chatcmpl_1",

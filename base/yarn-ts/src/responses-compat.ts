@@ -1,33 +1,123 @@
 import { z } from "zod";
 import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
-import type { OpenAIChatCompletionRequest } from "./schemas.js";
+import { OpenAIResponseFormatSchema, type OpenAIChatCompletionRequest } from "./schemas.js";
 
-const ResponsesContentPartSchema = z.object({
-  type: z.string().optional(),
-}).passthrough();
+const MAX_RESPONSES_INPUT_ITEMS = 512;
+const MAX_RESPONSES_TOOLS = 128;
+
+const ResponsesTextContentPartSchema = z.object({
+  type: z.enum(["input_text", "output_text", "text"]).optional(),
+  text: z.string().optional(),
+}).strict();
+
+const ResponsesImageContentPartSchema = z.object({
+  type: z.enum(["input_image", "image_url"]),
+  image_url: z.union([
+    z.string(),
+    z.object({
+      url: z.string(),
+      detail: z.string().optional(),
+    }).strict(),
+  ]).optional(),
+  detail: z.string().optional(),
+}).strict();
+
+const ResponsesContentPartSchema = z.union([
+  ResponsesTextContentPartSchema,
+  ResponsesImageContentPartSchema,
+]);
+
+const ResponsesFunctionCallSchema = z.object({
+  name: z.string().max(256),
+  arguments: z.string().optional().default("{}"),
+}).strict();
+
+const ResponsesToolCallSchema = z.object({
+  id: z.string().optional(),
+  type: z.literal("function").optional().default("function"),
+  function: ResponsesFunctionCallSchema,
+}).strict();
 
 const ResponsesInputMessageSchema = z.object({
-  type: z.string().optional(),
-  role: z.string().optional(),
+  type: z.enum(["message", "input_message"]).optional(),
+  role: z.enum(["system", "developer", "user", "assistant", "tool"]).optional(),
   content: z.union([
     z.string(),
     z.array(z.union([z.string(), ResponsesContentPartSchema])),
-    z.record(z.string(), z.unknown()),
+    ResponsesContentPartSchema,
     z.null(),
   ]).optional(),
-}).passthrough();
+  name: z.string().max(256).optional(),
+  tool_call_id: z.string().optional(),
+  tool_calls: z.array(ResponsesToolCallSchema).optional(),
+}).strict();
 
 const ResponsesFunctionCallOutputSchema = z.object({
   type: z.literal("function_call_output"),
   call_id: z.string().optional(),
   output: z.unknown().optional(),
-}).passthrough();
+}).strict();
+
+const ResponsesFunctionToolSchema = z.object({
+  type: z.literal("function"),
+  name: z.string().max(256),
+  description: z.string().optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
+  strict: z.boolean().optional(),
+}).strict();
+
+const ResponsesOpenAIShapeFunctionToolSchema = z.object({
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string().max(256),
+    description: z.string().optional(),
+    parameters: z.record(z.string(), z.unknown()).optional(),
+    strict: z.boolean().optional(),
+  }).strict(),
+}).strict();
+
+const ResponsesToolSchema = z.union([
+  ResponsesFunctionToolSchema,
+  ResponsesOpenAIShapeFunctionToolSchema,
+]);
+
+const ResponsesToolChoiceSchema = z.union([
+  z.literal("none"),
+  z.literal("auto"),
+  z.literal("required"),
+  z.object({
+    type: z.literal("function"),
+    name: z.string().max(256),
+  }).strict(),
+  z.object({
+    type: z.literal("function"),
+    function: z.object({
+      name: z.string().max(256),
+    }).strict(),
+  }).strict(),
+]);
+
+const ResponsesTextFormatSchema = z.union([
+  z.object({
+    type: z.literal("text"),
+  }).strict(),
+  z.object({
+    type: z.literal("json_object"),
+  }).strict(),
+  z.object({
+    type: z.literal("json_schema"),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    schema: z.record(z.string(), z.unknown()).optional(),
+    strict: z.boolean().optional(),
+  }).strict(),
+]);
 
 export const OpenAIResponsesRequestSchema = z.object({
   model: z.string().default("auto"),
   input: z.union([
     z.string(),
-    z.array(z.union([ResponsesInputMessageSchema, ResponsesFunctionCallOutputSchema, z.record(z.string(), z.unknown())])),
+    z.array(z.union([ResponsesInputMessageSchema, ResponsesFunctionCallOutputSchema])).max(MAX_RESPONSES_INPUT_ITEMS),
   ]),
   instructions: z.string().optional(),
   stream: z.boolean().optional().default(false),
@@ -38,18 +128,16 @@ export const OpenAIResponsesRequestSchema = z.object({
   max_completion_tokens: z.number().int().optional(),
   stop: z.union([z.string(), z.array(z.string())]).optional(),
   seed: z.number().int().optional(),
-  tools: z.array(z.unknown()).optional(),
-  tool_choice: z.unknown().optional(),
+  tools: z.array(ResponsesToolSchema).max(MAX_RESPONSES_TOOLS).optional(),
+  tool_choice: ResponsesToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
   text: z.object({
-    format: z.object({
-      type: z.string(),
-    }).passthrough().optional(),
-  }).passthrough().optional(),
-  response_format: z.unknown().optional(),
+    format: ResponsesTextFormatSchema.optional(),
+  }).strict().optional(),
+  response_format: OpenAIResponseFormatSchema.optional(),
   reasoning: z.object({
     effort: z.string().optional(),
-  }).passthrough().optional(),
+  }).strict().optional(),
   reasoning_effort: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   store: z.boolean().optional(),
@@ -60,7 +148,7 @@ export const OpenAIResponsesRequestSchema = z.object({
   prompt_cache_retention: z.string().optional(),
   safety_identifier: z.string().optional(),
   verbosity: z.string().optional(),
-}).passthrough();
+}).strict();
 
 export type OpenAIResponsesRequest = z.infer<typeof OpenAIResponsesRequestSchema>;
 
