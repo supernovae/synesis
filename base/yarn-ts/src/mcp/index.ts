@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import {
   dispatchSynesisTool,
@@ -145,6 +146,13 @@ type McpProjectRootValidation =
   | { ok: true; projectRoot: string; args: Record<string, unknown> }
   | { ok: false; statusCode: 400 | 403; error: { type: string; message: string } };
 
+export interface McpSessionAttribution {
+  sessionKey: string;
+  conversationId?: string;
+  clientSessionId?: string;
+  workspaceHash: string;
+}
+
 function splitAllowedProjectRoots(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(path.delimiter)
@@ -183,6 +191,60 @@ function isDeniedProjectRoot(projectRoot: string, homeDir = os.homedir()): boole
     "C:\\Program Files (x86)",
   ].map((entry) => path.resolve(entry));
   return deniedSubtrees.some((entry) => normalized === entry || isPathInside(entry, normalized));
+}
+
+function optionalMcpString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/\0/g, "").trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function safeMcpKeyPart(value: string, label: string): string {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return label;
+  const encoded = encodeURIComponent(trimmed);
+  if (encoded.length <= 160) return encoded;
+  return `${label}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
+}
+
+function hashMcpWorkspace(projectRoot: string | undefined): string {
+  const normalized = projectRoot?.trim()
+    ? path.resolve(projectRoot.replace(/\0/g, "").trim())
+    : "no-workspace";
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+
+export function buildMcpSessionAttribution(input: {
+  user: Pick<AuthUser, "userId" | "orgId">;
+  args?: unknown;
+  headerSessionKey?: unknown;
+  headerConversationId?: unknown;
+  projectRoot?: string;
+}): McpSessionAttribution {
+  const rawArgs = input.args && typeof input.args === "object" && !Array.isArray(input.args)
+    ? input.args as Record<string, unknown>
+    : {};
+  const conversationId =
+    optionalMcpString(rawArgs.conversation_id) ?? optionalMcpString(input.headerConversationId);
+  const clientSessionId =
+    optionalMcpString(rawArgs.session_key) ?? optionalMcpString(input.headerSessionKey);
+  const workspaceHash = hashMcpWorkspace(input.projectRoot);
+  const scope = [
+    "mcp",
+    "principal",
+    safeMcpKeyPart(input.user.orgId || "_", "org"),
+    safeMcpKeyPart(input.user.userId || "unknown", "user"),
+    "workspace",
+    workspaceHash,
+  ];
+  if (conversationId) {
+    scope.push("conversation", safeMcpKeyPart(conversationId, "conversation"));
+  } else if (clientSessionId) {
+    scope.push("client-session", safeMcpKeyPart(clientSessionId, "session"));
+  } else {
+    scope.push("default");
+  }
+  return { sessionKey: scope.join(":"), conversationId, clientSessionId, workspaceHash };
 }
 
 export function validateMcpProjectRootBinding(
@@ -518,34 +580,23 @@ export async function registerMcpRoutes(
           body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
             ? (body.arguments as Record<string, unknown>)
             : {};
+        const mcpSession = buildMcpSessionAttribution({
+          user,
+          args: rawArgs,
+          headerSessionKey: req.headers["x-synesis-session-key"],
+          headerConversationId: req.headers["x-synesis-conversation-id"],
+          projectRoot: optionalMcpString(req.headers["x-synesis-project-root"]),
+        });
         const isWebSearchTool = body.name === "synesis_web_search" || body.name === "web_search";
         const mcpArgs = isWebSearchTool
           ? {
               ...rawArgs,
-              source_surface: typeof rawArgs.source_surface === "string" && rawArgs.source_surface.trim().length > 0
-                ? rawArgs.source_surface
-                : "yarn_mcp_http",
+              source_surface: "yarn_mcp_http",
               tool_name: "synesis_web_search",
-              request_id:
-                typeof rawArgs.request_id === "string" && rawArgs.request_id.trim().length > 0
-                  ? rawArgs.request_id
-                  : requestId,
-              session_key:
-                typeof rawArgs.session_key === "string" && rawArgs.session_key.trim().length > 0
-                  ? rawArgs.session_key
-                  : (typeof req.headers["x-synesis-session-key"] === "string"
-                    ? req.headers["x-synesis-session-key"]
-                    : undefined),
-              conversation_id:
-                typeof rawArgs.conversation_id === "string" && rawArgs.conversation_id.trim().length > 0
-                  ? rawArgs.conversation_id
-                  : (typeof req.headers["x-synesis-conversation-id"] === "string"
-                    ? req.headers["x-synesis-conversation-id"]
-                    : undefined),
-              trace_id:
-                typeof rawArgs.trace_id === "string" && rawArgs.trace_id.trim().length > 0
-                  ? rawArgs.trace_id
-                  : requestId,
+              request_id: requestId,
+              session_key: mcpSession.sessionKey,
+              conversation_id: mcpSession.conversationId,
+              trace_id: requestId,
             }
           : rawArgs;
         result = await dispatchSynesisTool(
@@ -567,9 +618,14 @@ export async function registerMcpRoutes(
         }
         const validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
         const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : (body.arguments ?? {});
+        const mcpSession = buildMcpSessionAttribution({
+          user,
+          headerSessionKey: req.headers["x-synesis-session-key"],
+          headerConversationId: req.headers["x-synesis-conversation-id"],
+          projectRoot: validatedProjectRoot,
+        });
         const toolCtx: McpToolContext = {
-          sessionKey: typeof req.headers["x-synesis-session-key"] === "string"
-            ? req.headers["x-synesis-session-key"] : `mcp:${user.userId}`,
+          sessionKey: mcpSession.sessionKey,
           projectRoot: validatedProjectRoot,
           userId: user.userId,
           orgId: user.orgId,
