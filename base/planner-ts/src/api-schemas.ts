@@ -2,16 +2,21 @@ import { z } from "zod";
 import { JsonSchemaContractSchema } from "./json-schema-contract.js";
 import { ProviderExtraBodySchema } from "./llm/extra-body.js";
 
+const MAX_MESSAGE_CONTENT_CHARS = 2_000_000;
+const MAX_CONTENT_PARTS = 512;
+
 function messageContentToText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     return value
       .map((part) => {
+        if (typeof part === "string") return part;
         if (!part || typeof part !== "object") return "";
         const record = part as Record<string, unknown>;
         if (typeof record.text === "string") return record.text;
         if (typeof record.input_text === "string") return record.input_text;
+        if (typeof record.output_text === "string") return record.output_text;
         return "";
       })
       .filter(Boolean)
@@ -19,6 +24,61 @@ function messageContentToText(value: unknown): string {
   }
   return "";
 }
+
+const TextContentPartSchema = z.object({
+  type: z.enum(["text", "input_text", "output_text"]).optional(),
+  text: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+}).strict();
+
+const ImageUrlSchema = z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.object({
+    url: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    detail: z.string().max(64).optional(),
+  }).strict(),
+]);
+
+const ImageContentPartSchema = z.object({
+  type: z.enum(["image_url", "input_image"]),
+  image_url: ImageUrlSchema.optional(),
+  detail: z.string().max(64).optional(),
+}).strict();
+
+const InputAudioContentPartSchema = z.object({
+  type: z.literal("input_audio"),
+  input_audio: z.object({
+    data: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    format: z.string().max(32),
+  }).strict(),
+}).strict();
+
+const FileContentPartSchema = z.object({
+  type: z.literal("file"),
+  file: z.object({
+    file_data: z.string().max(MAX_MESSAGE_CONTENT_CHARS).optional(),
+    file_id: z.string().max(256).optional(),
+    filename: z.string().max(1024).optional(),
+  }).strict(),
+}).strict();
+
+const RefusalContentPartSchema = z.object({
+  type: z.literal("refusal"),
+  refusal: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+}).strict();
+
+const MessageContentPartSchema = z.union([
+  TextContentPartSchema,
+  ImageContentPartSchema,
+  InputAudioContentPartSchema,
+  FileContentPartSchema,
+  RefusalContentPartSchema,
+]);
+
+const MessageContentSchema = z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.array(z.union([z.string().max(MAX_MESSAGE_CONTENT_CHARS), MessageContentPartSchema])).max(MAX_CONTENT_PARTS),
+  z.null(),
+]);
 
 const FunctionCallSchema = z.object({
   name: z.string().max(256),
@@ -33,7 +93,7 @@ const ToolCallSchema = z.object({
 
 const MessageSchema = z.object({
   role: z.enum(["system", "developer", "user", "assistant", "tool"]),
-  content: z.unknown().optional().transform(messageContentToText),
+  content: MessageContentSchema.optional().transform(messageContentToText),
   name: z.string().max(256).optional(),
   tool_call_id: z.string().optional(),
   tool_calls: z.array(ToolCallSchema).optional(),

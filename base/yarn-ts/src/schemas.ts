@@ -4,6 +4,95 @@ import { SynesisClarificationRoundSchema } from "./validation/clarification-sche
 
 export const RoleSchema = z.enum(["system", "developer", "user", "assistant", "tool"]);
 
+const MAX_MESSAGE_CONTENT_CHARS = 2_000_000;
+const MAX_CONTENT_PARTS = 512;
+const MAX_JSON_ARRAY_ITEMS = 512;
+const MAX_JSON_OBJECT_KEYS = 256;
+
+type BoundedJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | BoundedJsonValue[]
+  | { [key: string]: BoundedJsonValue };
+
+const BoundedJsonValueSchema: z.ZodType<BoundedJsonValue> = z.lazy(() => z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(BoundedJsonValueSchema).max(MAX_JSON_ARRAY_ITEMS),
+  z.record(z.string().min(1).max(128), BoundedJsonValueSchema).superRefine((value, ctx) => {
+    if (Object.keys(value).length > MAX_JSON_OBJECT_KEYS) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Object exceeds ${MAX_JSON_OBJECT_KEYS} keys`,
+      });
+    }
+  }),
+]));
+
+const CacheControlSchema = z.object({
+  type: z.literal("ephemeral"),
+}).strict();
+
+const TextContentPartSchema = z.object({
+  type: z.enum(["text", "input_text", "output_text"]).optional(),
+  text: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  cache_control: CacheControlSchema.optional(),
+}).strict();
+
+const OpenAIImageUrlSchema = z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.object({
+    url: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    detail: z.string().max(64).optional(),
+  }).strict(),
+]);
+
+const OpenAIImageContentPartSchema = z.object({
+  type: z.enum(["image_url", "input_image"]),
+  image_url: OpenAIImageUrlSchema.optional(),
+  detail: z.string().max(64).optional(),
+}).strict();
+
+const OpenAIInputAudioContentPartSchema = z.object({
+  type: z.literal("input_audio"),
+  input_audio: z.object({
+    data: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    format: z.string().max(32),
+  }).strict(),
+}).strict();
+
+const OpenAIFileContentPartSchema = z.object({
+  type: z.literal("file"),
+  file: z.object({
+    file_data: z.string().max(MAX_MESSAGE_CONTENT_CHARS).optional(),
+    file_id: z.string().max(256).optional(),
+    filename: z.string().max(1024).optional(),
+  }).strict(),
+}).strict();
+
+const OpenAIRefusalContentPartSchema = z.object({
+  type: z.literal("refusal"),
+  refusal: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+}).strict();
+
+const OpenAIContentPartSchema = z.union([
+  TextContentPartSchema,
+  OpenAIImageContentPartSchema,
+  OpenAIInputAudioContentPartSchema,
+  OpenAIFileContentPartSchema,
+  OpenAIRefusalContentPartSchema,
+]);
+
+const OpenAIMessageContentSchema = z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.array(z.union([z.string().max(MAX_MESSAGE_CONTENT_CHARS), OpenAIContentPartSchema])).max(MAX_CONTENT_PARTS),
+  z.null(),
+]);
+
 const SynesisExtraBodySchema = z.object({
   contextMediation: z.string().max(64).optional(),
   architectureProfile: z.string().max(64).optional(),
@@ -100,7 +189,7 @@ const ToolCallSchema = z.object({
 
 export const ChatMessageSchema = z.object({
   role: RoleSchema,
-  content: z.union([z.string(), z.array(z.unknown()), z.null()]).optional(),
+  content: OpenAIMessageContentSchema.optional(),
   name: z.string().max(256).optional(),
   tool_call_id: z.string().optional(),
   tool_calls: z.array(ToolCallSchema).optional(),
@@ -199,9 +288,57 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   verbosity: z.string().optional(),
 }).strict();
 
+const ClaudeImageBlockSchema = z.object({
+  type: z.literal("image"),
+  source: z.union([
+    z.object({
+      type: z.literal("base64"),
+      media_type: z.string().max(128),
+      data: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    }).strict(),
+    z.object({
+      type: z.literal("url"),
+      url: z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    }).strict(),
+  ]),
+  cache_control: CacheControlSchema.optional(),
+}).strict();
+
+const ClaudeToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  id: z.string().max(256).optional(),
+  name: z.string().max(256),
+  input: z.record(z.string().min(1).max(128), BoundedJsonValueSchema).optional().default({}),
+  cache_control: CacheControlSchema.optional(),
+}).strict();
+
+const ClaudeToolResultBlockSchema = z.object({
+  type: z.literal("tool_result"),
+  tool_use_id: z.string().max(256).optional(),
+  content: z.union([
+    z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    BoundedJsonValueSchema,
+    z.array(BoundedJsonValueSchema).max(MAX_JSON_ARRAY_ITEMS),
+  ]).optional(),
+  is_error: z.boolean().optional(),
+  cache_control: CacheControlSchema.optional(),
+}).strict();
+
+const ClaudeContentBlockSchema = z.union([
+  TextContentPartSchema,
+  ClaudeImageBlockSchema,
+  ClaudeToolUseBlockSchema,
+  ClaudeToolResultBlockSchema,
+]);
+
+const ClaudeMessageContentSchema = z.union([
+  z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+  z.array(ClaudeContentBlockSchema).max(MAX_CONTENT_PARTS),
+]);
+
 export const ClaudeMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
-  content: z.unknown()
+  content: ClaudeMessageContentSchema,
 }).strict();
 
 const ClaudeToolSchema = z.object({
@@ -220,7 +357,10 @@ export const ClaudeMessagesRequestSchema = z.object({
   model: z.string(),
   max_tokens: z.number(),
   messages: z.array(ClaudeMessageSchema).min(1).max(MAX_MESSAGES),
-  system: z.union([z.string(), z.array(z.unknown())]).optional(),
+  system: z.union([
+    z.string().max(MAX_MESSAGE_CONTENT_CHARS),
+    z.array(TextContentPartSchema).max(MAX_CONTENT_PARTS),
+  ]).optional(),
   stream: z.boolean().optional().default(false),
   tools: z.array(ClaudeToolSchema).max(MAX_TOOLS).optional(),
   tool_choice: ClaudeToolChoiceSchema.optional(),

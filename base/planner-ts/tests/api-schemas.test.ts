@@ -65,6 +65,36 @@ describe("planner API schemas", () => {
     expect(tool.success).toBe(false);
   });
 
+  it("accepts known multipart message content and rejects invented content attributes", () => {
+    const accepted = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "Plan this task." },
+            { type: "image_url", image_url: { url: "https://example.test/diagram.png" } },
+          ],
+        },
+      ],
+    });
+    expect(accepted.success).toBe(true);
+    if (accepted.success) {
+      expect(accepted.data.messages[0]?.content).toBe("Plan this task.");
+    }
+
+    const rejected = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "Plan this task.", run_as_admin: true }],
+        },
+      ],
+    });
+    expect(rejected.success).toBe(false);
+  });
+
   it("rejects unknown tool_choice envelope fields", () => {
     const parsed = ChatCompletionRequestSchema.safeParse({
       model: "Synesis",

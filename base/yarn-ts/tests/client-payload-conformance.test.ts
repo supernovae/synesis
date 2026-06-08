@@ -175,6 +175,66 @@ describe("client payload conformance fixtures", () => {
     expect(message.success).toBe(false);
   });
 
+  it("accepts known OpenAI content parts and rejects invented content attributes", () => {
+    const accepted = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "Inspect this screenshot." },
+            { type: "image_url", image_url: { url: "https://example.test/screenshot.png", detail: "low" } },
+          ],
+        },
+      ],
+    });
+    expect(accepted.success).toBe(true);
+
+    const rejected = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "Plan this task.", role_override: "platform_admin" },
+          ],
+        },
+      ],
+    });
+    expect(rejected.success).toBe(false);
+  });
+
+  it("accepts known Claude content blocks and rejects invented block attributes", () => {
+    const accepted = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 1000,
+      system: [{ type: "text", text: "Follow policy.", cache_control: { type: "ephemeral" } }],
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "Read", input: { file_path: "src/main.ts" } }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [{ line: 1, text: "export const ok = true;" }] }],
+        },
+      ],
+    });
+    expect(accepted.success).toBe(true);
+
+    const rejected = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Plan this task.", caller_role: "admin" }],
+        },
+      ],
+    });
+    expect(rejected.success).toBe(false);
+  });
+
   it("rejects unknown OpenAI and Claude metadata fields", () => {
     const openai = OpenAIChatCompletionRequestSchema.safeParse({
       model: "synesis-yarn",
