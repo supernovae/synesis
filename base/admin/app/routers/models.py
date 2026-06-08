@@ -88,6 +88,36 @@ class PromptAssignmentUpsertBody(BaseModel):
     enabled: bool = True
 
 
+class RoleAssignmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(..., min_length=1, max_length=128)
+    model: str = Field(..., min_length=1, max_length=512)
+    endpoint: str = Field("", max_length=2048)
+    api_key_env: str = Field("", max_length=256)
+    max_tokens: int = Field(8192, ge=1, le=1048576)
+    temperature: float = Field(0.3, ge=0, le=5)
+    top_p: float | None = Field(None, ge=0, le=1)
+    top_k: int | None = Field(None, ge=1, le=100000)
+    min_p: float | None = Field(None, ge=0, le=1)
+    presence_penalty: float | None = Field(None, ge=-2, le=2)
+    repetition_penalty: float | None = Field(None, ge=0, le=10)
+    enable_thinking: bool | None = None
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "default"] | None = None
+    fallbacks: list[str] | None = Field(None, max_length=20)
+    adapter_hint: str | None = Field(None, max_length=128)
+    context_window: int | None = Field(None, ge=1, le=10485760)
+    model_capability_preset: str | None = Field(None, max_length=128)
+    description: str = Field("", max_length=2000)
+    notes: str = Field("", max_length=4000)
+
+
+class DeploymentFallbacksBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fallbacks: list[str] = Field(default_factory=list, max_length=20)
+
+
 # ---------------------------------------------------------------------------
 # Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
@@ -477,14 +507,13 @@ async def prompts_snapshot_internal(
 @router.put("/roles/{role}")
 async def assign_model_to_role(
     role: str,
-    data: dict = Body(...),
+    body: RoleAssignmentBody,
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Assign a provider + model to a role.  Deactivates the previous assignment."""
     if role not in KNOWN_ROLES:
         raise HTTPException(400, f"Unknown role: {role}. Valid: {', '.join(KNOWN_ROLES)}")
-    if not data.get("provider") or not data.get("model"):
-        raise HTTPException(400, "provider and model are required")
+    data = body.model_dump()
 
     try:
         result = await assign_role(
@@ -682,11 +711,11 @@ async def refresh_routes(_user: UserInfo = Depends(require_platform_admin)):
 @router.put("/deployments/{deployment_id}/fallbacks")
 async def set_fallbacks(
     deployment_id: int,
-    data: dict = Body(...),
+    body: DeploymentFallbacksBody,
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Set fallback model names for a deployment. Body: {"fallbacks": ["model-a", "model-b"]}."""
-    fallbacks = data.get("fallbacks", [])
+    fallbacks = body.fallbacks
     result = await update_deployment(deployment_id, {"fallbacks": fallbacks if fallbacks else None})
     if result is None:
         raise HTTPException(404, "deployment not found")
