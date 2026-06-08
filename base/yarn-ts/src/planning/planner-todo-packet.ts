@@ -9,19 +9,19 @@ const PlannerTodoSchema = z.object({
   content: z.string().min(3).max(180),
   status: z.enum(["pending", "in_progress", "completed", "blocked"]).default("pending"),
   priority: z.enum(["high", "medium", "low"]).default("medium"),
-});
+}).strict();
 
 const PlannerQuestionOptionSchema = z.object({
   label: z.string().min(1).max(40),
   description: z.string().min(1).max(140),
-});
+}).strict();
 
 const PlannerQuestionSchema = z.object({
   id: z.string().min(1).max(40),
   header: z.string().min(1).max(40),
   question: z.string().min(3).max(240),
   options: z.array(PlannerQuestionOptionSchema).min(2).max(4),
-});
+}).strict();
 
 const PlannerTodoPacketSchema = z.object({
   schema_version: z.literal(PLANNER_TODO_PACKET_SCHEMA_VERSION).default(PLANNER_TODO_PACKET_SCHEMA_VERSION),
@@ -30,7 +30,7 @@ const PlannerTodoPacketSchema = z.object({
   questions: z.array(PlannerQuestionSchema).max(3).default([]),
   todos: z.array(PlannerTodoSchema).min(1).max(7),
   success_criteria: z.array(z.string().min(3).max(180)).min(1).max(8),
-});
+}).strict();
 
 export type PlannerTodoPacket = z.infer<typeof PlannerTodoPacketSchema>;
 
@@ -206,16 +206,62 @@ function extractJsonObject(raw: string): unknown | null {
   }
 }
 
-function normalizeTodoIds(packet: PlannerTodoPacket): PlannerTodoPacket {
+function replaceControlChars(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function promptControlText(value: string, maxChars: number, fallback = "unspecified"): string {
+  const sanitized = replaceControlChars(value)
+    .replace(/=/g, ":")
+    .replace(/[<>"`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+  return sanitized || fallback;
+}
+
+function promptControlAttr(value: string, maxChars: number, fallback = "unknown"): string {
+  const compact = value.replace(/\s+/g, "").trim().slice(0, maxChars);
+  const sanitized = compact.replace(/[^A-Za-z0-9._:/@+-]/g, "_").replace(/^_+|_+$/g, "");
+  return sanitized || fallback;
+}
+
+function normalizePlannerTodoPacket(packet: PlannerTodoPacket): PlannerTodoPacket {
   const seen = new Set<string>();
   const todos = packet.todos.map((todo, idx) => {
     const base = todo.id.trim() || `todo_${idx + 1}`;
     const clean = base.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || `todo_${idx + 1}`;
     const id = seen.has(clean) ? `${clean}_${idx + 1}`.slice(0, 40) : clean;
     seen.add(id);
-    return { ...todo, id, status: todo.status ?? "pending" };
+    return {
+      ...todo,
+      id,
+      content: promptControlText(todo.content, 180),
+      status: todo.status ?? "pending",
+    };
   });
-  return { ...packet, todos };
+  return {
+    ...packet,
+    objective: promptControlText(packet.objective, 300),
+    questions: packet.questions.map((question) => ({
+      ...question,
+      id: promptControlAttr(question.id, 40, "q"),
+      header: promptControlText(question.header, 40),
+      question: promptControlText(question.question, 240),
+      options: question.options.map((option) => ({
+        label: promptControlText(option.label, 40),
+        description: promptControlText(option.description, 140),
+      })),
+    })),
+    todos,
+    success_criteria: packet.success_criteria.map((criteria) => promptControlText(criteria, 180)),
+  };
 }
 
 export function parsePlannerTodoPacket(raw: string): PlannerTodoPacketGenerateResult {
@@ -227,7 +273,7 @@ export function parsePlannerTodoPacket(raw: string): PlannerTodoPacketGenerateRe
   if (!result.success) {
     return { packet: null, rawText: raw, parseError: result.error.issues.map((i) => i.path.join(".") || i.code).slice(0, 4).join(",") };
   }
-  return { packet: normalizeTodoIds(result.data), rawText: raw };
+  return { packet: normalizePlannerTodoPacket(result.data), rawText: raw };
 }
 
 export function formatPlannerTodoPacketBlock(options: {
@@ -236,9 +282,12 @@ export function formatPlannerTodoPacketBlock(options: {
   modelId: string;
   capabilities: ClientToolCapabilities;
 }): string {
-  const { packet, capabilities } = options;
+  const { capabilities } = options;
+  const packet = normalizePlannerTodoPacket(options.packet);
+  const sourceHash = promptControlAttr(options.sourceHash, 128);
+  const modelId = promptControlAttr(options.modelId, 128);
   const lines = [
-    `<synesis_planner_todo_packet source_hash="${options.sourceHash}" model="${options.modelId}" ambiguity="${packet.ambiguity}">`,
+    `<synesis_planner_todo_packet source_hash="${sourceHash}" model="${modelId}" ambiguity="${packet.ambiguity}">`,
     `objective=${packet.objective}`,
   ];
   if (packet.questions.length > 0) {
@@ -298,7 +347,7 @@ export function serializePlannerTodoPacket(packet: PlannerTodoPacket): Record<st
 
 export function deserializePlannerTodoPacket(raw: unknown): PlannerTodoPacket | null {
   const result = PlannerTodoPacketSchema.safeParse(raw);
-  return result.success ? normalizeTodoIds(result.data) : null;
+  return result.success ? normalizePlannerTodoPacket(result.data) : null;
 }
 
 export function plannerTodoPacketToHarnessTasks(packet: PlannerTodoPacket, turn: number): HarnessTask[] {
