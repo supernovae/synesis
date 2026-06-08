@@ -377,8 +377,28 @@ async function plannerRequest(ctx: ToolContext, path: string, body: Record<strin
   return parsed;
 }
 
+function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaProperty {
+  const next: ToolJsonSchemaProperty = { ...schema };
+  if (schema.items) {
+    next.items = strictPropertySchema(schema.items);
+  }
+  if (schema.type === "object") {
+    const properties: Record<string, ToolJsonSchemaProperty> = {};
+    for (const [key, propertySchema] of Object.entries(schema.properties ?? {})) {
+      properties[key] = strictPropertySchema(propertySchema);
+    }
+    next.properties = properties;
+    next.additionalProperties = false;
+  }
+  return next;
+}
+
 function strictInputSchema(schema: ToolInputSchema): ToolInputSchema {
-  return { ...schema, additionalProperties: false };
+  const properties: Record<string, ToolJsonSchemaProperty> = {};
+  for (const [key, propertySchema] of Object.entries(schema.properties)) {
+    properties[key] = strictPropertySchema(propertySchema);
+  }
+  return { ...schema, properties, additionalProperties: false };
 }
 
 function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
@@ -398,9 +418,7 @@ function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
     for (const [key, propertySchema] of Object.entries(schema.properties ?? {})) {
       shape[key] = zodForProperty(propertySchema).optional();
     }
-    let objectSchema = z.object(shape);
-    objectSchema = schema.additionalProperties === false ? objectSchema.strict() : objectSchema.passthrough();
-    out = objectSchema;
+    out = z.object(shape).strict();
   } else {
     out = z.unknown();
   }
@@ -464,15 +482,13 @@ function validateValueAgainstSchema(
     }
     const nested = value as Record<string, unknown>;
     const allowed = new Set(Object.keys(schema.properties ?? {}));
-    if (schema.additionalProperties === false) {
-      for (const nestedKey of Object.keys(nested)) {
-        if (!allowed.has(nestedKey)) {
-          throw new AdminMcpToolError("invalid_arguments", 400, {
-            reason: "unknown_argument",
-            key: `${key}.${nestedKey}`,
-            tool,
-          });
-        }
+    for (const nestedKey of Object.keys(nested)) {
+      if (!allowed.has(nestedKey)) {
+        throw new AdminMcpToolError("invalid_arguments", 400, {
+          reason: "unknown_argument",
+          key: `${key}.${nestedKey}`,
+          tool,
+        });
       }
     }
     for (const requiredKey of schema.required ?? []) {

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AdminMcpToolError, invokeTool, isOrgAdminOrHigher, visibleToolDescriptorsForRole } from "../src/tools.js";
+import {
+  AdminMcpToolError,
+  invokeTool,
+  isOrgAdminOrHigher,
+  visibleToolDescriptorsForRole,
+  zodInputSchemaForTool,
+} from "../src/tools.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -214,6 +220,35 @@ describe("admin MCP tool catalog", () => {
       code: "invalid_arguments",
       privateDetail: expect.objectContaining({ key: "config.invented_config_flag" }),
     });
+  });
+
+  it("recursively closes nested MCP tool argument schemas", () => {
+    const schema = zodInputSchemaForTool({
+      type: "object",
+      properties: {
+        config: {
+          type: "object",
+          properties: {
+            allowed: { type: "string" },
+            nested: {
+              type: "object",
+              properties: {
+                known: { type: "boolean" },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(() =>
+      schema.parse({
+        config: {
+          allowed: "yes",
+          nested: { known: true, invented_security_attr: true },
+        },
+      }),
+    ).toThrow();
   });
 
   it("rejects overly long transition watches", async () => {
