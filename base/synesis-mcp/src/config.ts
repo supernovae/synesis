@@ -40,8 +40,12 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  /** Comma-separated CORS origins, or "*" to allow all. Empty disables CORS. */
+  /** Comma-separated exact CORS origins. "*" is development-only and must be non-credentialed. */
   SYNESIS_MCP_CORS_ORIGINS: z.string().default(""),
+  SYNESIS_MCP_CORS_ALLOW_CREDENTIALS: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   OTEL_SERVICE_NAME: z.string().default("synesis-mcp"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 });
@@ -56,11 +60,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpTsConfig {
     requirePatPepper: config.SYNESIS_REQUIRE_PAT_PEPPER,
     serviceName: "synesis-mcp",
   });
-  if (
-    config.NODE_ENV !== "development"
-    && config.SYNESIS_MCP_CORS_ORIGINS.trim() === "*"
-  ) {
-    throw new Error("SYNESIS_MCP_CORS_ORIGINS='*' is not allowed outside development when credentialed CORS is enabled");
+  const corsOrigins = config.SYNESIS_MCP_CORS_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean);
+  if (corsOrigins.includes("*")) {
+    if (corsOrigins.length > 1) {
+      throw new Error("SYNESIS_MCP_CORS_ORIGINS='*' must not be combined with exact origins");
+    }
+    if (config.SYNESIS_MCP_CORS_ALLOW_CREDENTIALS) {
+      throw new Error("SYNESIS_MCP_CORS_ORIGINS='*' requires SYNESIS_MCP_CORS_ALLOW_CREDENTIALS=false");
+    }
+    if (config.NODE_ENV !== "development") {
+      throw new Error("SYNESIS_MCP_CORS_ORIGINS='*' is not allowed outside development");
+    }
   }
   return config;
 }

@@ -162,7 +162,7 @@ if (corsOrigins) {
     origin: corsOrigins === "*" ? true : corsOrigins.split(",").map((o) => o.trim()),
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Mcp-Session-Id"],
-    credentials: true,
+    credentials: config.SYNESIS_MCP_CORS_ALLOW_CREDENTIALS,
   });
 }
 void app.register(fastifyRateLimit, {

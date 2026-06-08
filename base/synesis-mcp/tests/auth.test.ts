@@ -92,13 +92,31 @@ describe("McpAuthResolver", () => {
     ).toThrow(/SYNESIS_PAT_PEPPER/);
   });
 
-  it("rejects wildcard credentialed CORS outside development", () => {
+  it("rejects wildcard credentialed CORS in any environment", () => {
+    expect(() =>
+      loadConfig({
+        SYNESIS_MCP_CORS_ORIGINS: "*",
+      }),
+    ).toThrow(/CORS_ALLOW_CREDENTIALS/);
+  });
+
+  it("rejects wildcard CORS outside development even when non-credentialed", () => {
     expect(() =>
       loadConfig({
         NODE_ENV: "production",
         SYNESIS_MCP_CORS_ORIGINS: "*",
+        SYNESIS_MCP_CORS_ALLOW_CREDENTIALS: "false",
       }),
     ).toThrow(/CORS_ORIGINS/);
+  });
+
+  it("allows wildcard CORS only as an explicit non-credentialed development mode", () => {
+    const config = loadConfig({
+      NODE_ENV: "development",
+      SYNESIS_MCP_CORS_ORIGINS: "*",
+      SYNESIS_MCP_CORS_ALLOW_CREDENTIALS: "false",
+    });
+    expect(config.SYNESIS_MCP_CORS_ALLOW_CREDENTIALS).toBe(false);
   });
 
   it("resolves valid harness OIDC bearer tokens for hosted MCP", async () => {
