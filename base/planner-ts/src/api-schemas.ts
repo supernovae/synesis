@@ -67,6 +67,29 @@ const StreamOptionsSchema = z.object({
   include_usage: z.boolean().optional(),
 }).strict();
 
+const SynesisPlannerMetadataSchema = z.object({
+  contextMediation: z.string().max(64).optional(),
+  architectureProfile: z.string().max(64).optional(),
+}).strict();
+
+export const RequestMetadataSchema = z.object({
+  session: z.string().max(256).optional(),
+  session_id: z.string().max(256).optional(),
+  conversation_id: z.string().max(256).optional(),
+  synesis_conversation_id: z.string().max(256).optional(),
+  thread_id: z.string().max(256).optional(),
+  chat_id: z.string().max(256).optional(),
+  trace: z.string().max(256).optional(),
+  trace_id: z.string().max(256).optional(),
+  request_id: z.string().max(256).optional(),
+  user_id: z.string().max(256).optional(),
+  synesis: SynesisPlannerMetadataSchema.optional(),
+  synesis_context_mediation: z.string().max(64).optional(),
+  synesis_architecture_mediation: z.string().max(64).optional(),
+  architecture_mediation: z.string().max(64).optional(),
+  synesis_architecture_profile: z.string().max(64).optional(),
+}).strict();
+
 const ToolChoiceObjectSchema = z.object({
   type: z.literal("function"),
   function: z.object({
@@ -115,7 +138,7 @@ export const ChatCompletionRequestSchema = z.object({
   extra_body: ProviderExtraBodySchema.optional(),
   user: z.string().optional().nullable(),
   conversation_id: z.string().optional().nullable(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
   modalities: z.array(z.string()).optional(),
   prediction: z.unknown().optional(),

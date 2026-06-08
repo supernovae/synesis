@@ -175,6 +175,29 @@ describe("client payload conformance fixtures", () => {
     expect(message.success).toBe(false);
   });
 
+  it("rejects unknown OpenAI and Claude metadata fields", () => {
+    const openai = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      metadata: {
+        trace_id: "trace-1",
+        role_override: "platform_admin",
+      },
+    });
+    expect(openai.success).toBe(false);
+
+    const claude = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: "Implement the change." }],
+      metadata: {
+        session_id: "session-1",
+        workspace_owner_id: "attacker",
+      },
+    });
+    expect(claude.success).toBe(false);
+  });
+
   it("rejects unknown OpenAI tool and tool_choice envelope fields", () => {
     const tool = OpenAIChatCompletionRequestSchema.safeParse({
       model: "synesis-yarn",

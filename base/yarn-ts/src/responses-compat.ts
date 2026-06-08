@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { normalizeToolDescriptions } from "./compat/tool-description-normalizer.js";
-import { OpenAIResponseFormatSchema, type OpenAIChatCompletionRequest } from "./schemas.js";
+import { OpenAIResponseFormatSchema, RequestMetadataSchema, type OpenAIChatCompletionRequest } from "./schemas.js";
 
 const MAX_RESPONSES_INPUT_ITEMS = 512;
 const MAX_RESPONSES_TOOLS = 128;
@@ -139,7 +139,7 @@ export const OpenAIResponsesRequestSchema = z.object({
     effort: z.string().optional(),
   }).strict().optional(),
   reasoning_effort: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
   user: z.string().optional().nullable(),
   conversation_id: z.string().optional().nullable(),

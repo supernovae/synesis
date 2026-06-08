@@ -90,6 +90,16 @@ describe("OpenAI Responses API compatibility", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("rejects unknown Responses metadata fields", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hi",
+      metadata: { trace: "t1", role_override: "platform_admin" },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects unknown Responses message and tool fields", () => {
     const parsed = OpenAIResponsesRequestSchema.safeParse({
       model: "synesis-yarn",

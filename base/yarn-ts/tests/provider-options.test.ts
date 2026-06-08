@@ -44,15 +44,16 @@ describe("applyOpenAiJsonSchemaStrictness", () => {
 });
 
 describe("openAiMetadataProviderOptions", () => {
-  it("coerces compact metadata values and drops oversized entries", () => {
+  it("only forwards provider-safe metadata identifiers", () => {
     expect(openAiMetadataProviderOptions({
-      short: "value",
-      object: { ok: true },
-      ["x".repeat(65)]: "ignored",
-      oversized: "x".repeat(513),
+      trace_id: "trace-1",
+      session_id: "session-1",
+      synesis_project_root: "/private/repo",
+      synesis_runtime: { platform: "darwin" },
+      custom_provider_option: "invented",
     })).toEqual({
-      short: "value",
-      object: "{\"ok\":true}",
+      trace_id: "trace-1",
+      session_id: "session-1",
     });
   });
 });
@@ -77,7 +78,7 @@ describe("buildOpenAIChatProviderRequestOptions", () => {
       parallel_tool_calls: false,
       user: "user_1",
       store: true,
-      metadata: { compact: { ok: true } },
+      metadata: { trace_id: "trace-1", synesis_project_root: "/private/repo" },
       service_tier: "priority",
       prompt_cache_key: "cache-key",
       prompt_cache_retention: "24h",
@@ -126,7 +127,7 @@ describe("buildOpenAIChatProviderRequestOptions", () => {
         parallelToolCalls: false,
         user: "user_1",
         store: true,
-        metadata: { compact: "{\"ok\":true}" },
+        metadata: { trace_id: "trace-1" },
         serviceTier: "priority",
         promptCacheKey: "cache-key",
         promptCacheRetention: "24h",

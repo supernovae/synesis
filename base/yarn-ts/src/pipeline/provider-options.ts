@@ -214,10 +214,23 @@ export function applyOpenAiJsonSchemaStrictness(
   };
 }
 
+const OPENAI_PROVIDER_METADATA_KEYS = new Set([
+  "session",
+  "session_id",
+  "conversation_id",
+  "synesis_conversation_id",
+  "thread_id",
+  "chat_id",
+  "trace",
+  "trace_id",
+  "request_id",
+  "user_id",
+]);
+
 export function openAiMetadataProviderOptions(metadata: Record<string, unknown> | undefined): Record<string, string> | undefined {
   if (!metadata) return undefined;
   const entries = Object.entries(metadata)
-    .filter(([key]) => key.length <= 64)
+    .filter(([key]) => OPENAI_PROVIDER_METADATA_KEYS.has(key))
     .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)] as const)
     .filter(([, value]) => typeof value === "string" && value.length <= 512);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;

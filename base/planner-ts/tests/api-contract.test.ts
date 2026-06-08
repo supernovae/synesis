@@ -52,6 +52,22 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("rejects unknown chat metadata fields", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "synesis horizon",
+        messages: [{ role: "user", content: "hello planner" }],
+        metadata: { conversation_id: "conv-1", role_override: "platform_admin" },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { type: "invalid_request_error" } });
+    await app.close();
+  });
+
   it("reports authz engine on health", async () => {
     const token = "test-internal-token";
     const app = buildApp(makeConfig({ SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: token }));
