@@ -3,7 +3,8 @@
 import logging
 import os
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import UserInfo, get_current_user
 from ..rbac import require_platform_admin
@@ -33,6 +34,18 @@ PUBLIC_ENV_PREFIXES = (
 )
 
 REDACTED_PATTERNS = ("PASSWORD", "SECRET", "TOKEN", "KEY")
+
+
+class InfraCostConfigBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cloud: str = Field("", max_length=32)
+    instance_type: str = Field("", max_length=128)
+    gpu_model: str = Field("", max_length=64)
+    gpu_count: int = Field(0, ge=0, le=1024)
+    hourly_rate: float = Field(0, ge=0, le=1_000_000)
+    tokens_per_hour: int = Field(0, ge=0, le=10_000_000_000_000)
+    notes: str = Field("", max_length=4000)
 
 
 @router.get("/config")
@@ -67,11 +80,12 @@ async def list_infra_costs(_user: UserInfo = Depends(get_current_user)):
 
 @router.put("/infra-costs/{role}")
 async def set_infra_cost(
-    role: str,
-    data: dict = Body(...),
+    role: str = Path(..., min_length=1, max_length=64),
+    body: InfraCostConfigBody = Body(...),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Create or update infra cost config for a role."""
+    data = body.model_dump()
     data["role"] = role
     result = await upsert_infra_config(data)
     await record_admin_audit(
@@ -86,7 +100,7 @@ async def set_infra_cost(
 
 @router.delete("/infra-costs/{role}")
 async def remove_infra_cost(
-    role: str,
+    role: str = Path(..., min_length=1, max_length=64),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete infra cost config for a role."""
