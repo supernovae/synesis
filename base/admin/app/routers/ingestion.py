@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -59,13 +59,85 @@ _validate_discovery_target_url = _ingestion_discovery.validate_discovery_target_
 # ---------------------------------------------------------------------------
 
 
+class IngestionDiscoveryReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    handler: str | None = Field(None, max_length=64)
+    domain: str | None = Field(None, max_length=128)
+    title: str | None = Field(None, max_length=512)
+    tags: list[str] | None = Field(None, max_length=50)
+    risk_flags: list[str] | None = Field(None, max_length=50)
+    recommended_mode: str | None = Field(None, max_length=64)
+    notes: list[str] | None = Field(None, max_length=50)
+    suggested_corpus_class: str | None = Field(None, max_length=32)
+
+
+class IngestionSynesisMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    language: str | None = Field(None, max_length=32)
+    languages: list[str] | None = Field(None, max_length=20)
+    artifact_kind: str | None = Field(None, max_length=32)
+    corpus_class: str | None = Field(None, max_length=32)
+    content_profile: str | None = Field(None, max_length=32)
+    freshness_sla_days: int | None = Field(None, ge=1, le=3650)
+    scope_tags: list[str] | None = Field(None, max_length=20)
+    golden_path_id: str | None = Field(None, max_length=128)
+    validation_recipe_id: str | None = Field(None, max_length=128)
+    source_owner: str | None = Field(None, max_length=128)
+    review_status: str | None = Field(None, max_length=128)
+    backstage_entity_ref: str | None = Field(None, max_length=256)
+    constraint_domain: str | None = Field(None, max_length=64)
+    constraint_kind: str | None = Field(None, max_length=16)
+    constraint_source: str | None = Field(None, max_length=64)
+    constraint_confidence: float | None = Field(None, ge=0, le=1)
+
+
+class IngestionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str | None = Field(None, max_length=2048)
+    branch: str | None = Field(None, max_length=128)
+    paths: list[str] | None = Field(None, max_length=100)
+    discovery: str | None = Field(None, max_length=64)
+    follow_links: bool | None = None
+    max_depth: int | None = Field(None, ge=0, le=25)
+    max_pages: int | None = Field(None, ge=1, le=10000)
+    respect_robots: bool | None = None
+    min_request_interval: float | None = Field(None, ge=0, le=60)
+    allowed_prefixes: list[str] | None = Field(None, max_length=200)
+    blocked_prefixes: list[str] | None = Field(None, max_length=200)
+    allow_blog: bool | None = None
+    disallow_dotted_first_path_segment: bool | None = None
+    max_sitemap_expand: int | None = Field(None, ge=1, le=10000)
+    max_links_per_page: int | None = Field(None, ge=1, le=5000)
+    profile: str | None = Field(None, max_length=64)
+    user_agent: str | None = Field(None, max_length=256)
+    format: str | None = Field(None, max_length=32)
+    tags: list[str] | None = Field(None, max_length=50)
+    repo: str | None = Field(None, max_length=256)
+    language: str | None = Field(None, max_length=32)
+    context_prefix: str | None = Field(None, max_length=2000)
+    inline_content: str | None = Field(None, max_length=200000)
+    devhub_entity_ref: str | None = Field(None, max_length=256)
+    synesis_meta: IngestionSynesisMeta | None = None
+    discovery_report: IngestionDiscoveryReport | None = None
+    preflight_at: str | None = Field(None, max_length=64)
+
+
+def _config_payload(config: IngestionConfig | None) -> dict[str, Any] | None:
+    return config.model_dump(exclude_none=True) if config is not None else None
+
+
 class SourceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     handler: str = "html_document"
     origin_type: str = "curated"
     authority: str = "vetted"
     domain: str = ""
-    config: dict | None = None
+    config: IngestionConfig | None = None
     tags: list[str] | None = None
     visibility_scope: str = "global"
     org_id: str = ""
@@ -75,6 +147,8 @@ class SourceCreate(BaseModel):
 
 
 class ItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     uri: str
     handler: str | None = None
     title: str = ""
@@ -88,11 +162,13 @@ class ItemCreate(BaseModel):
     acl_mode: str = "open"
     acl_groups: str = ""
     priority: int = 0
-    config: dict | None = None
+    config: IngestionConfig | None = None
     source_id: int | None = None
 
 
 class BulkImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     items: list[ItemCreate]
 
 
@@ -306,7 +382,7 @@ async def create_source(
             origin_type=body.origin_type,
             authority=body.authority,
             domain=body.domain,
-            config=body.config,
+            config=_config_payload(body.config),
             tags=body.tags,
             visibility_scope=vis_scope,
             org_id=org_id,
@@ -636,7 +712,7 @@ async def add_item(
                 acl_mode=norm_acl_mode,
                 acl_groups=norm_acl_groups,
                 priority=body.priority,
-                config=body.config,
+                config=_config_payload(body.config),
                 status="pending",
                 queued_at=datetime.now(UTC),
             )
@@ -684,7 +760,7 @@ async def add_items_bulk(
                     acl_mode=norm_acl_mode,
                     acl_groups=norm_acl_groups,
                     priority=item.priority,
-                    config=item.config,
+                    config=_config_payload(item.config),
                     status="pending",
                     queued_at=now,
                 )
@@ -731,6 +807,8 @@ _ADMIN_SETTABLE_STATUSES = frozenset(
 
 
 class ItemPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     handler: str | None = None
     domain: str | None = None
@@ -741,7 +819,7 @@ class ItemPatch(BaseModel):
     org_id: str | None = None
     tenant_id: str | None = None
     priority: int | None = None
-    config: dict | None = None
+    config: IngestionConfig | None = None
     source_id: int | None = None
     status: str | None = Field(None, description="Admin-driven status transition")
 
@@ -783,7 +861,7 @@ async def patch_item(
         if body.priority is not None:
             item.priority = body.priority
         if body.config is not None:
-            item.config = body.config
+            item.config = _config_payload(body.config)
         if body.source_id is not None:
             item.source_id = body.source_id
 

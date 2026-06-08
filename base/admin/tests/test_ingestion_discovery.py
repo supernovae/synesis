@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,6 +204,52 @@ class TestBootstrapValidation:
         cfg, warnings = _normalize_bootstrap_meta({}, None)
         assert cfg is None
         assert not warnings
+
+
+class TestIngestionConfigValidation:
+    """Strict request schema tests for state-changing ingestion config paths."""
+
+    def test_item_create_accepts_known_config_keys(self):
+        from app.routers.ingestion import ItemCreate
+
+        item = ItemCreate(
+            uri="https://example.com/docs/",
+            config={
+                "url": "https://example.com/docs/",
+                "discovery": "sitemap_first",
+                "follow_links": True,
+                "max_depth": 2,
+                "allowed_prefixes": ["https://example.com/docs/"],
+                "synesis_meta": {
+                    "corpus_class": "coder_enriched",
+                    "languages": ["python"],
+                    "constraint_confidence": 0.8,
+                },
+            },
+        )
+
+        assert item.config is not None
+        assert item.config.max_depth == 2
+        assert item.config.synesis_meta is not None
+        assert item.config.synesis_meta.languages == ["python"]
+
+    def test_item_create_rejects_unknown_config_key(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="invented_flag"):
+            ItemCreate(uri="https://example.com/docs/", config={"invented_flag": True})
+
+    def test_item_patch_rejects_unknown_nested_synesis_meta_key(self):
+        from app.routers.ingestion import ItemPatch
+
+        with pytest.raises(ValidationError, match="invented_meta"):
+            ItemPatch(config={"synesis_meta": {"corpus_class": "general", "invented_meta": "x"}})
+
+    def test_item_patch_rejects_unknown_top_level_patch_key(self):
+        from app.routers.ingestion import ItemPatch
+
+        with pytest.raises(ValidationError, match="invented_patch_key"):
+            ItemPatch(invented_patch_key=True)
 
 
 # ---------------------------------------------------------------------------

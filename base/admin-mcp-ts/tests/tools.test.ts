@@ -191,6 +191,31 @@ describe("admin MCP tool catalog", () => {
     ).rejects.toBeInstanceOf(AdminMcpToolError);
   });
 
+  it("rejects unknown ingestion config keys before forwarding to Admin API", async () => {
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        { item_id: 1, config: { invented_config_flag: true } },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ key: "config.invented_config_flag" }),
+    });
+  });
+
   it("rejects overly long transition watches", async () => {
     await expect(
       invokeTool(
