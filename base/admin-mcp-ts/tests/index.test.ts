@@ -235,4 +235,47 @@ describe("admin MCP internal auth", () => {
     expect(res.json()).toMatchObject({ error: "invalid_request", detail: "invalid request body" });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects malformed MCP JSON-RPC envelopes before transport dispatch", async () => {
+    const fetchSpy = mockUser("org_admin");
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: delegatedHeaders,
+      payload: {
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent" },
+        role_override: "platform_admin",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "invalid_mcp_request" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("authenticates MCP requests before JSON-RPC preflight details are exposed", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("should_not_validate_session"));
+    const app = createApp(cfg());
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      payload: {
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent" },
+        role_override: "platform_admin",
+      },
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ error: "unauthorized" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

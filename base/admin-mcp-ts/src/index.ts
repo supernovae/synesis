@@ -9,6 +9,7 @@ import fastifyRateLimit from "@fastify/rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { adminApiBaseUrl, loadConfig, type AdminMcpConfig } from "./config.js";
+import { validateMcpJsonRpcPostBody } from "./json-rpc-preflight.js";
 import {
   AdminMcpToolError,
   invokeTool,
@@ -228,7 +229,7 @@ export function createApp(cfg: AdminMcpConfig) {
   let _mcpAuthFailures = 0;
   let _directToolInvocations = 0;
 
-  const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
+  const app = Fastify({ logger: { level: cfg.LOG_LEVEL }, bodyLimit: 1_048_576 });
   void app.register(fastifyRateLimit, {
     global: true,
     max: cfg.SYNESIS_ADMIN_MCP_GLOBAL_RATE_LIMIT_MAX,
@@ -383,6 +384,14 @@ export function createApp(cfg: AdminMcpConfig) {
           return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing admin session" });
         }
         return reply.code(502).send({ error: "bad_gateway", message: "Admin auth validation failed" });
+      }
+
+      if (req.method === "POST") {
+        const preflight = validateMcpJsonRpcPostBody(req.body as unknown);
+        if (!preflight.ok) {
+          req.log.warn({ reason: preflight.reason }, "admin_mcp_jsonrpc_preflight_failed");
+          return reply.code(400).send({ error: "invalid_mcp_request", message: "Invalid MCP JSON-RPC request" });
+        }
       }
 
       reply.hijack();

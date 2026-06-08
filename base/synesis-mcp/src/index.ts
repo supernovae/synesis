@@ -12,6 +12,7 @@ import { loadConfig } from "./config.js";
 import { McpAuthResolver, type PatUser } from "./auth.js";
 import { initFgaClient, fgaCheckMcpTools, getFgaClient } from "./fga.js";
 import { requireInternalBearer } from "./internal-auth.js";
+import { validateMcpJsonRpcPostBody } from "./json-rpc-preflight.js";
 import { initOtel, withSpan } from "./otel.js";
 
 const config = loadConfig();
@@ -257,6 +258,14 @@ const mcpRouteOptions = {
         return reply.code(401).send({ error: "unauthorized", message: msg });
       }
       return reply.code(401).send({ error: "unauthorized", message: "Invalid or missing credentials" });
+    }
+
+    if (req.method === "POST") {
+      const preflight = validateMcpJsonRpcPostBody(req.body as unknown);
+      if (!preflight.ok) {
+        req.log.warn({ reason: preflight.reason, userId: patUser.userId }, "mcp_jsonrpc_preflight_failed");
+        return reply.code(400).send({ error: "invalid_mcp_request", message: "Invalid MCP JSON-RPC request" });
+      }
     }
 
     reply.hijack();
