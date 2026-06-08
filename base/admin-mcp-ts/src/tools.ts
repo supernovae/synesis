@@ -62,6 +62,17 @@ interface ToolInputSchema {
 }
 
 const SUPPORTED_TOOL_SCHEMA_TYPES = new Set(["string", "boolean", "integer", "number", "array", "object"]);
+const TOOL_INPUT_SCHEMA_KEYS = new Set(["type", "properties", "required", "additionalProperties"]);
+const TOOL_PROPERTY_SCHEMA_KEYS = new Set([
+  "type",
+  "description",
+  "default",
+  "enum",
+  "items",
+  "properties",
+  "required",
+  "additionalProperties",
+]);
 
 export class AdminMcpToolError extends Error {
   readonly code: string;
@@ -384,6 +395,11 @@ async function plannerRequest(ctx: ToolContext, path: string, body: Record<strin
 }
 
 function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaProperty {
+  for (const key of Object.keys(schema)) {
+    if (!TOOL_PROPERTY_SCHEMA_KEYS.has(key)) {
+      throw new Error("unsupported_tool_schema_property_key");
+    }
+  }
   const schemaType = schema.type;
   if (typeof schemaType !== "string" || !SUPPORTED_TOOL_SCHEMA_TYPES.has(schemaType)) {
     throw new Error("unsupported_tool_schema_type");
@@ -416,6 +432,11 @@ function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaPro
 }
 
 function strictInputSchema(schema: ToolInputSchema): ToolInputSchema {
+  for (const key of Object.keys(schema)) {
+    if (!TOOL_INPUT_SCHEMA_KEYS.has(key)) {
+      throw new Error("unsupported_tool_schema_root_key");
+    }
+  }
   if (schema.type !== "object") {
     throw new Error("unsupported_tool_schema_root_type");
   }

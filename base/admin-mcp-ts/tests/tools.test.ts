@@ -262,6 +262,25 @@ describe("admin MCP tool catalog", () => {
     ).toThrow(/unsupported_tool_schema_type/);
   });
 
+  it("rejects unknown MCP tool schema descriptor keys", () => {
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {},
+        security_context: { role: "admin" },
+      } as never),
+    ).toThrow(/unsupported_tool_schema_root_key/);
+
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          query: { type: "string", role_override: "platform_admin" } as never,
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_property_key/);
+  });
+
   it("rejects array MCP tool argument schemas without item definitions", () => {
     expect(() =>
       zodInputSchemaForTool({
