@@ -202,30 +202,38 @@ export function addScopeParams(scope: ScopeFilterOptions | undefined, params: Re
   }
 }
 
+const SCOPE_PREDICATE_ALIASES = new Set(["n", "node", "neighbor"]);
+
+function scopePredicateAlias(alias: string): string {
+  if (SCOPE_PREDICATE_ALIASES.has(alias)) return alias;
+  throw new Error(`invalid_scope_predicate_alias:${alias}`);
+}
+
 export function buildScopePredicate(alias: string, scope: ScopeFilterOptions | undefined): string {
-  const visibilityClauses = [`coalesce(${alias}.visibility_scope, "global") = "global"`];
+  const nodeAlias = scopePredicateAlias(alias);
+  const visibilityClauses = [`coalesce(${nodeAlias}.visibility_scope, "global") = "global"`];
 
   if (scope?.callerOrgId) {
-    visibilityClauses.push(`(${alias}.visibility_scope = "org" AND ${alias}.org_id = $caller_org_id)`);
+    visibilityClauses.push(`(${nodeAlias}.visibility_scope = "org" AND ${nodeAlias}.org_id = $caller_org_id)`);
 
     if (scope.callerTenantIds?.length) {
-      visibilityClauses.push(`(${alias}.visibility_scope = "tenant" AND ${alias}.org_id = $caller_org_id AND ${alias}.tenant_id IN $caller_tenant_ids)`);
+      visibilityClauses.push(`(${nodeAlias}.visibility_scope = "tenant" AND ${nodeAlias}.org_id = $caller_org_id AND ${nodeAlias}.tenant_id IN $caller_tenant_ids)`);
     }
 
     if (scope.callerUserId) {
-      visibilityClauses.push(`(${alias}.visibility_scope = "user" AND ${alias}.org_id = $caller_org_id AND ${alias}.owner_user_id = $caller_user_id)`);
+      visibilityClauses.push(`(${nodeAlias}.visibility_scope = "user" AND ${nodeAlias}.org_id = $caller_org_id AND ${nodeAlias}.owner_user_id = $caller_user_id)`);
 
       if (scope.callerConversationId) {
-        visibilityClauses.push(`(${alias}.visibility_scope = "session" AND ${alias}.org_id = $caller_org_id AND ${alias}.owner_user_id = $caller_user_id AND ${alias}.conversation_id = $caller_conversation_id AND (coalesce(${alias}.expires_at_epoch, 0) <= 0 OR ${alias}.expires_at_epoch >= $now_epoch))`);
+        visibilityClauses.push(`(${nodeAlias}.visibility_scope = "session" AND ${nodeAlias}.org_id = $caller_org_id AND ${nodeAlias}.owner_user_id = $caller_user_id AND ${nodeAlias}.conversation_id = $caller_conversation_id AND (coalesce(${nodeAlias}.expires_at_epoch, 0) <= 0 OR ${nodeAlias}.expires_at_epoch >= $now_epoch))`);
       }
     }
   }
 
   const aclClause = scope?.authzMode === "enforce" && scope.callerUserId
-    ? `coalesce(${alias}.acl_mode, "open") IN ["open", "", "restricted", "private"]`
+    ? `coalesce(${nodeAlias}.acl_mode, "open") IN ["open", "", "restricted", "private"]`
     : scope?.callerAclGroups?.length
-    ? `(coalesce(${alias}.acl_mode, "open") IN ["open", ""] OR any(group IN $caller_acl_groups WHERE group IN coalesce(${alias}.acl_group_ids, []) OR group IN [g IN split(coalesce(${alias}.acl_groups, ""), ",") | trim(g)]))`
-    : `coalesce(${alias}.acl_mode, "open") IN ["open", ""]`;
+    ? `(coalesce(${nodeAlias}.acl_mode, "open") IN ["open", ""] OR any(group IN $caller_acl_groups WHERE group IN coalesce(${nodeAlias}.acl_group_ids, []) OR group IN [g IN split(coalesce(${nodeAlias}.acl_groups, ""), ",") | trim(g)]))`
+    : `coalesce(${nodeAlias}.acl_mode, "open") IN ["open", ""]`;
 
   return `((${visibilityClauses.join(" OR ")}) AND ${aclClause})`;
 }

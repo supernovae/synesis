@@ -197,12 +197,21 @@ describe("buildScopePredicate — structural assertions", () => {
     expect(pred).not.toContain('"alice"');
   });
 
-  it("supports arbitrary alias names", () => {
-    const pred = buildScopePredicate("myAlias", { callerOrgId: "acme" });
-    expect(pred).toContain("myAlias.visibility_scope");
-    expect(pred).toContain("myAlias.org_id");
+  it("supports the known diagnostic alias", () => {
+    const pred = buildScopePredicate("n", { callerOrgId: "acme" });
+    expect(pred).toContain("n.visibility_scope");
+    expect(pred).toContain("n.org_id");
     expect(pred).not.toContain("node.");
     expect(pred).not.toContain("neighbor.");
+  });
+
+  it("rejects unknown alias names", () => {
+    expect(() => buildScopePredicate("myAlias", { callerOrgId: "acme" })).toThrow(
+      "invalid_scope_predicate_alias:myAlias",
+    );
+    expect(() => buildScopePredicate("node) OR true //", { callerOrgId: "acme" })).toThrow(
+      "invalid_scope_predicate_alias:node) OR true //",
+    );
   });
 });
 
