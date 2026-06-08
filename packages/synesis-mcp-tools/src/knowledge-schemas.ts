@@ -237,8 +237,8 @@ export const ecmaEnvironmentCheckInputSchema = z.object({
 export const ecmaPackageRiskInputSchema = z.object({
   dependencies_added: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
   dependencies_removed: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
-  scripts_added: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
-  scripts_changed: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
+  scripts_added: StringValueMapSchema.optional(),
+  scripts_changed: StringValueMapSchema.optional(),
   package_json_before: EcmaPackageJsonSchema.optional(),
   package_json_after: EcmaPackageJsonSchema.optional(),
 }).strict();

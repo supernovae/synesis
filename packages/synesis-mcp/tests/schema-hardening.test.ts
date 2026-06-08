@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terraformPlanAnalyzeInputSchema } from "../../synesis-mcp-tools/src/knowledge-schemas.js";
+import { ecmaPackageRiskInputSchema, terraformPlanAnalyzeInputSchema } from "../../synesis-mcp-tools/src/knowledge-schemas.js";
 import { analyzeTerraformPlanLocal } from "../../synesis-mcp-tools/src/terraform-plan.js";
 
 const PLAN = {
@@ -53,5 +53,14 @@ describe("MCP tool schema hardening", () => {
     expect(result.hard_gate_required).toBe(true);
     expect(JSON.stringify(result)).toContain("aws-instance-delete-create");
     expect(JSON.stringify(result)).not.toContain("workspace_owner_id");
+  });
+
+  it("bounds ECMA package-risk script map keys", () => {
+    expect(() => ecmaPackageRiskInputSchema.parse({
+      scripts_added: {
+        postinstall: "node install.js",
+        ["x".repeat(513)]: "node injected.js",
+      },
+    })).toThrow();
   });
 });
