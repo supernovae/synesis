@@ -11,6 +11,7 @@ import { getSynesisPlatformCatalog, registerSynesisMcpTools, type SynesisMcpDeps
 import { loadConfig } from "./config.js";
 import { McpAuthResolver, type PatUser } from "./auth.js";
 import { initFgaClient, fgaCheckMcpTools, getFgaClient } from "./fga.js";
+import { requireInternalBearer } from "./internal-auth.js";
 import { initOtel, withSpan } from "./otel.js";
 
 const config = loadConfig();
@@ -332,15 +333,20 @@ app.get("/health/readiness", async (request, reply) => {
   return { status: "ready", checks };
 });
 
-app.get("/health/telemetry", async () => ({
-  service: "synesis-mcp",
-  mcp_http_requests: mcpHttpRequests,
-  mcp_auth_failures: mcpAuthFailures,
-  mcp_policy_denials: mcpPolicyDenials,
-  openfga_configured: Boolean(getFgaClient()),
-  authz_mode: config.SYNESIS_MCP_AUTHZ_MODE,
-  otel: { configured: Boolean(config.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
-}));
+app.get("/health/telemetry", async (request, reply) => {
+  if (!requireInternalBearer(request.headers.authorization, config.SYNESIS_INTERNAL_SERVICE_TOKEN)) {
+    return reply.code(401).send({ error: "unauthorized" });
+  }
+  return {
+    service: "synesis-mcp",
+    mcp_http_requests: mcpHttpRequests,
+    mcp_auth_failures: mcpAuthFailures,
+    mcp_policy_denials: mcpPolicyDenials,
+    openfga_configured: Boolean(getFgaClient()),
+    authz_mode: config.SYNESIS_MCP_AUTHZ_MODE,
+    otel: { configured: Boolean(config.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) },
+  };
+});
 
 async function main() {
   await app.listen({ port: config.PORT, host: config.HOST });
