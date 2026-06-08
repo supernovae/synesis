@@ -57,6 +57,7 @@ export interface StoredObservation {
   scope: MemoryScope;
   sessionKey: string;
   projectRoot: string;
+  namespace?: string;
   createdAt: number;
 }
 

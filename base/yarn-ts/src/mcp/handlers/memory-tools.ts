@@ -49,6 +49,12 @@ export function getSessionMemoryCount(sessionKey: string): number {
   return sharedStore.countSession(sessionKey);
 }
 
+function memoryNamespace(context: { orgId?: string; userId?: string } | undefined): string {
+  const orgId = context?.orgId?.trim() || "no-org";
+  const userId = context?.userId?.trim() || "unknown";
+  return `org:${orgId}:user:${userId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
@@ -73,7 +79,14 @@ export const storeObservationTool: McpToolDefinition<
     const scope: MemoryScope = input.scope === "project" ? "project" : "session";
     const sessionKey = context?.sessionKey ?? "unknown";
     const projectRoot = context?.projectRoot ?? "";
-    const obs = await sharedStore.store(input.topic, input.finding, scope, sessionKey, projectRoot);
+    const obs = await sharedStore.store(
+      input.topic,
+      input.finding,
+      scope,
+      sessionKey,
+      projectRoot,
+      { namespace: memoryNamespace(context) },
+    );
     const count = sharedStore.countSession(sessionKey);
     return { ok: true, id: obs.id, stored: count };
   },
@@ -98,7 +111,14 @@ export const recallFindingsTool: McpToolDefinition<
     const sessionKey = context?.sessionKey ?? "unknown";
     const projectRoot = context?.projectRoot ?? "";
     const limit = input.limit ?? 10;
-    const entries = await sharedStore.recall(input.query ?? "", scope, sessionKey, projectRoot, limit);
+    const entries = await sharedStore.recall(
+      input.query ?? "",
+      scope,
+      sessionKey,
+      projectRoot,
+      limit,
+      { namespace: memoryNamespace(context) },
+    );
     const now = Date.now();
     const findings = entries.map((e) => {
       const ageMs = now - e.createdAt;

@@ -11,6 +11,7 @@
  * is unavailable, the in-memory layer provides graceful degradation.
  */
 
+import { createHash } from "node:crypto";
 import type { Redis } from "ioredis";
 import type { MemoryScope, MemoryStoreStats, StoredObservation } from "./types.js";
 
@@ -48,6 +49,7 @@ export class MemoryStore {
     scope: MemoryScope,
     sessionKey: string,
     projectRoot: string,
+    options: { namespace?: string } = {},
   ): Promise<StoredObservation> {
     const obs: StoredObservation = {
       id: generateId(),
@@ -56,15 +58,17 @@ export class MemoryStore {
       scope,
       sessionKey,
       projectRoot,
+      namespace: options.namespace,
       createdAt: Date.now(),
     };
 
-    const cacheKey = this.cacheKey(scope, scope === "session" ? sessionKey : projectRoot);
+    const scopeKey = this.scopeKey(scope, sessionKey, projectRoot, options.namespace);
+    const cacheKey = this.cacheKey(scope, scopeKey);
     this.localPush(cacheKey, obs);
 
     if (this.redis) {
       try {
-        const redisKey = this.listKey(scope, scope === "session" ? sessionKey : projectRoot);
+        const redisKey = this.listKey(scope, scopeKey);
         const raw = JSON.stringify(obs);
         await this.redis.lpush(redisKey, raw);
         await this.redis.ltrim(redisKey, 0, this.maxEntries - 1);
@@ -87,15 +91,16 @@ export class MemoryStore {
     sessionKey: string,
     projectRoot: string,
     limit = 10,
+    options: { namespace?: string } = {},
   ): Promise<StoredObservation[]> {
     this.stats.totalRecalled += 1;
 
     let allObs: StoredObservation[];
 
     if (this.redis) {
-      allObs = await this.recallFromRedis(scope, sessionKey, projectRoot);
+      allObs = await this.recallFromRedis(scope, sessionKey, projectRoot, options.namespace);
     } else {
-      allObs = this.recallFromLocal(scope, sessionKey, projectRoot);
+      allObs = this.recallFromLocal(scope, sessionKey, projectRoot, options.namespace);
     }
 
     if (!query.trim()) {
@@ -113,17 +118,21 @@ export class MemoryStore {
     scope: MemoryScope,
     scopeKey: string,
     limit = 50,
+    options: { namespace?: string } = {},
   ): Promise<StoredObservation[]> {
+    const effectiveScopeKey = scope === "project"
+      ? this.scopedProjectKey(scopeKey, options.namespace)
+      : scopeKey;
     if (this.redis) {
       try {
-        const key = this.listKey(scope, scopeKey);
+        const key = this.listKey(scope, effectiveScopeKey);
         const items = await this.redis.lrange(key, 0, limit - 1);
         return items.map((raw) => {
           try { return JSON.parse(raw) as StoredObservation; } catch { return null; }
         }).filter((o): o is StoredObservation => o !== null);
       } catch { /* fall through to local */ }
     }
-    const cacheKey = this.cacheKey(scope, scopeKey);
+    const cacheKey = this.cacheKey(scope, effectiveScopeKey);
     return (this.localCache.get(cacheKey) ?? []).slice(0, limit);
   }
 
@@ -143,11 +152,12 @@ export class MemoryStore {
   }
 
   /** Clear project-scoped entries (local + Redis). For testing. */
-  async clearProject(projectRoot: string): Promise<void> {
-    this.localCache.delete(this.cacheKey("project", projectRoot));
+  async clearProject(projectRoot: string, options: { namespace?: string } = {}): Promise<void> {
+    const scopeKey = this.scopeKey("project", "", projectRoot, options.namespace);
+    this.localCache.delete(this.cacheKey("project", scopeKey));
     if (this.redis) {
       try {
-        await this.redis.del(this.listKey("project", projectRoot));
+        await this.redis.del(this.listKey("project", scopeKey));
       } catch { /* best effort */ }
     }
   }
@@ -188,13 +198,14 @@ export class MemoryStore {
     scope: MemoryScope | "all",
     sessionKey: string,
     projectRoot: string,
+    namespace?: string,
   ): StoredObservation[] {
     const results: StoredObservation[] = [];
     if (scope === "session" || scope === "all") {
-      results.push(...(this.localCache.get(this.cacheKey("session", sessionKey)) ?? []));
+      results.push(...(this.localCache.get(this.cacheKey("session", this.scopeKey("session", sessionKey, projectRoot, namespace))) ?? []));
     }
     if (scope === "project" || scope === "all") {
-      results.push(...(this.localCache.get(this.cacheKey("project", projectRoot)) ?? []));
+      results.push(...(this.localCache.get(this.cacheKey("project", this.scopeKey("project", sessionKey, projectRoot, namespace))) ?? []));
     }
     return results;
   }
@@ -203,14 +214,15 @@ export class MemoryStore {
     scope: MemoryScope | "all",
     sessionKey: string,
     projectRoot: string,
+    namespace?: string,
   ): Promise<StoredObservation[]> {
     try {
       const keys: string[] = [];
       if (scope === "session" || scope === "all") {
-        keys.push(this.listKey("session", sessionKey));
+        keys.push(this.listKey("session", this.scopeKey("session", sessionKey, projectRoot, namespace)));
       }
       if (scope === "project" || scope === "all") {
-        keys.push(this.listKey("project", projectRoot));
+        keys.push(this.listKey("project", this.scopeKey("project", sessionKey, projectRoot, namespace)));
       }
 
       const allObs: StoredObservation[] = [];
@@ -224,15 +236,33 @@ export class MemoryStore {
       }
       return allObs;
     } catch {
-      return this.recallFromLocal(scope, sessionKey, projectRoot);
+      return this.recallFromLocal(scope, sessionKey, projectRoot, namespace);
     }
   }
 
+  private scopeKey(scope: MemoryScope, sessionKey: string, projectRoot: string, namespace?: string): string {
+    return scope === "session"
+      ? sessionKey
+      : this.scopedProjectKey(projectRoot, namespace);
+  }
+
+  private scopedProjectKey(projectRoot: string, namespace?: string): string {
+    const ns = namespace?.trim() ? namespace.trim() : "global";
+    return `${ns}:${projectRoot}`;
+  }
+
   private listKey(scope: MemoryScope, scopeKey: string): string {
-    return `${REDIS_PREFIX}${scope}:${scopeKey}`;
+    return `${REDIS_PREFIX}${scope}:${this.safeScopeKey(scopeKey)}`;
   }
 
   private cacheKey(scope: MemoryScope, scopeKey: string): string {
-    return `${scope}:${scopeKey}`;
+    return `${scope}:${this.safeScopeKey(scopeKey)}`;
+  }
+
+  private safeScopeKey(scopeKey: string): string {
+    const trimmed = scopeKey.replace(/\0/g, "").trim() || "unknown";
+    const encoded = encodeURIComponent(trimmed);
+    if (encoded.length <= 180) return encoded;
+    return `sha256-${createHash("sha256").update(trimmed).digest("hex")}`;
   }
 }

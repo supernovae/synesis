@@ -23,6 +23,20 @@ const CTX2: McpToolContext = {
   orgId: "o1",
 };
 
+const CTX_OTHER_ORG: McpToolContext = {
+  sessionKey: "test-session-3",
+  projectRoot: "/home/user/project",
+  userId: "u1",
+  orgId: "o2",
+};
+
+const CTX_OTHER_USER: McpToolContext = {
+  sessionKey: "test-session-4",
+  projectRoot: "/home/user/project",
+  userId: "u2",
+  orgId: "o1",
+};
+
 beforeEach(() => {
   initMemoryToolStore(new MemoryStore(null));
 });
@@ -110,6 +124,22 @@ describe("recall_findings", () => {
     expect(result.findings[0].finding).toBe("shared project finding");
   });
 
+  it("isolates project-scoped findings by org and user", async () => {
+    await storeObservationTool.handler(
+      { topic: "arch", finding: "org one user one project finding", scope: "project" },
+      CTX,
+    );
+
+    const samePrincipal = await recallFindingsTool.handler({ scope: "project" }, CTX2);
+    expect(samePrincipal.count).toBe(1);
+
+    const otherOrg = await recallFindingsTool.handler({ scope: "project" }, CTX_OTHER_ORG);
+    expect(otherOrg.count).toBe(0);
+
+    const otherUser = await recallFindingsTool.handler({ scope: "project" }, CTX_OTHER_USER);
+    expect(otherUser.count).toBe(0);
+  });
+
   it("returns findings with age metadata", async () => {
     await storeObservationTool.handler({ topic: "test", finding: "recent" }, CTX);
     const result = await recallFindingsTool.handler({}, CTX);
@@ -164,6 +194,20 @@ describe("MemoryStore in-memory fallback", () => {
     const recalled = await store.recall("", "project", "s2", "/proj");
     expect(recalled.length).toBe(1);
     expect(recalled[0].finding).toBe("monorepo");
+  });
+
+  it("project scope can be isolated by namespace", async () => {
+    const store = new MemoryStore(null);
+    await store.store("arch", "org one", "project", "s1", "/proj", { namespace: "org:o1:user:u1" });
+    await store.store("arch", "org two", "project", "s2", "/proj", { namespace: "org:o2:user:u1" });
+
+    const orgOne = await store.recall("", "project", "s3", "/proj", 10, { namespace: "org:o1:user:u1" });
+    expect(orgOne).toHaveLength(1);
+    expect(orgOne[0].finding).toBe("org one");
+
+    const orgTwo = await store.recall("", "project", "s4", "/proj", 10, { namespace: "org:o2:user:u1" });
+    expect(orgTwo).toHaveLength(1);
+    expect(orgTwo[0].finding).toBe("org two");
   });
 
   it("scope=all returns session + project entries", async () => {
