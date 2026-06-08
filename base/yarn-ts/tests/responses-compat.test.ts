@@ -80,6 +80,53 @@ describe("OpenAI Responses API compatibility", () => {
     ]);
   });
 
+  it("rejects non-JSON-compatible function call outputs", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: [
+        { type: "function_call_output", call_id: "call_123", output: new Date("2026-01-01T00:00:00Z") },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects oversized and over-deep function call outputs", () => {
+    const oversized = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: [
+        { type: "function_call_output", call_id: "call_123", output: "x".repeat(2_000_001) },
+      ],
+    });
+    expect(oversized.success).toBe(false);
+
+    let nested: unknown = "leaf";
+    for (let i = 0; i < 26; i += 1) {
+      nested = { child: nested };
+    }
+    const overDeep = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: [
+        { type: "function_call_output", call_id: "call_123", output: nested },
+      ],
+    });
+    expect(overDeep.success).toBe(false);
+  });
+
+  it("rejects invented Responses content part attributes", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "Return status.", run_as_admin: true }],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects unknown top-level Responses request fields", () => {
     const parsed = OpenAIResponsesRequestSchema.safeParse({
       model: "synesis-yarn",

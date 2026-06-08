@@ -5,22 +5,68 @@ import { OpenAIResponseFormatSchema, RequestMetadataSchema, type OpenAIChatCompl
 
 const MAX_RESPONSES_INPUT_ITEMS = 512;
 const MAX_RESPONSES_TOOLS = 128;
+const MAX_RESPONSES_CONTENT_CHARS = 2_000_000;
+const MAX_RESPONSES_CONTENT_PARTS = 512;
+const MAX_RESPONSES_JSON_DEPTH = 24;
+const MAX_RESPONSES_JSON_ARRAY_ITEMS = 512;
+const MAX_RESPONSES_JSON_OBJECT_KEYS = 256;
+const MAX_RESPONSES_JSON_KEY_CHARS = 128;
+
+type ResponsesJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ResponsesJsonValue[]
+  | { [key: string]: ResponsesJsonValue };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function validateResponsesJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > MAX_RESPONSES_JSON_DEPTH) return false;
+  if (value === null || typeof value === "boolean") return true;
+  if (typeof value === "string") return value.length <= MAX_RESPONSES_CONTENT_CHARS;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    return value.length <= MAX_RESPONSES_JSON_ARRAY_ITEMS
+      && value.every((item) => validateResponsesJsonValue(item, depth + 1));
+  }
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    return entries.length <= MAX_RESPONSES_JSON_OBJECT_KEYS
+      && entries.every(([key, nested]) =>
+        key.length > 0
+        && key.length <= MAX_RESPONSES_JSON_KEY_CHARS
+        && validateResponsesJsonValue(nested, depth + 1),
+      );
+  }
+  return false;
+}
+
+const ResponsesJsonValueSchema = z.custom<ResponsesJsonValue>(
+  (value) => validateResponsesJsonValue(value),
+  "Expected bounded JSON-compatible value",
+);
 
 const ResponsesTextContentPartSchema = z.object({
   type: z.enum(["input_text", "output_text", "text"]).optional(),
-  text: z.string().optional(),
+  text: z.string().max(MAX_RESPONSES_CONTENT_CHARS).optional(),
 }).strict();
 
 const ResponsesImageContentPartSchema = z.object({
   type: z.enum(["input_image", "image_url"]),
   image_url: z.union([
-    z.string(),
+    z.string().max(MAX_RESPONSES_CONTENT_CHARS),
     z.object({
-      url: z.string(),
-      detail: z.string().optional(),
+      url: z.string().max(MAX_RESPONSES_CONTENT_CHARS),
+      detail: z.string().max(64).optional(),
     }).strict(),
   ]).optional(),
-  detail: z.string().optional(),
+  detail: z.string().max(64).optional(),
 }).strict();
 
 const ResponsesContentPartSchema = z.union([
@@ -43,8 +89,8 @@ const ResponsesInputMessageSchema = z.object({
   type: z.enum(["message", "input_message"]).optional(),
   role: z.enum(["system", "developer", "user", "assistant", "tool"]).optional(),
   content: z.union([
-    z.string(),
-    z.array(z.union([z.string(), ResponsesContentPartSchema])),
+    z.string().max(MAX_RESPONSES_CONTENT_CHARS),
+    z.array(z.union([z.string().max(MAX_RESPONSES_CONTENT_CHARS), ResponsesContentPartSchema])).max(MAX_RESPONSES_CONTENT_PARTS),
     ResponsesContentPartSchema,
     z.null(),
   ]).optional(),
@@ -56,7 +102,7 @@ const ResponsesInputMessageSchema = z.object({
 const ResponsesFunctionCallOutputSchema = z.object({
   type: z.literal("function_call_output"),
   call_id: z.string().optional(),
-  output: z.unknown().optional(),
+  output: ResponsesJsonValueSchema.optional(),
 }).strict();
 
 const ResponsesFunctionToolSchema = z.object({
