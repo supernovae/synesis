@@ -560,6 +560,74 @@ class TestPolicyCRUD:
         )
         assert resp.status_code == 400
 
+    def test_create_policy_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={
+                "name": "Bad Threshold",
+                "rule_type": "threshold",
+                "rule_config": {"max_tool_calls": 20, "invented_security_bypass": True},
+            },
+        )
+        assert resp.status_code == 400
+        assert "invented_security_bypass" in resp.json()["detail"]
+
+    def test_create_policy_rejects_invalid_threshold_value(self, admin_client, _mock_db):
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={
+                "name": "Bad Threshold",
+                "rule_type": "threshold",
+                "rule_config": {"max_tool_calls": True},
+            },
+        )
+        assert resp.status_code == 400
+        assert "max_tool_calls" in resp.json()["detail"]
+
+    def test_create_feature_toggle_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={
+                "name": "Bad Feature Toggle",
+                "rule_type": "feature_toggle",
+                "rule_config": {"invented_toggle": True},
+            },
+        )
+        assert resp.status_code == 400
+        assert "invented_toggle" in resp.json()["detail"]
+
+    def test_update_policy_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
+        policy = FakeRow(
+            id=21,
+            policy_id="p-2",
+            name="Update Me",
+            description="",
+            scope="org",
+            scope_value="org-1",
+            org_id="org-1",
+            category="quality",
+            constraint_kind="guiding",
+            rule_type="threshold",
+            rule_config={},
+            enabled=True,
+            priority=0,
+            created_by="admin",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        _mock_db._execute_results = [FakeResult(items=[policy])]
+        resp = admin_client.put(
+            "/api/v1/governance/policies/p-2",
+            json={
+                "rule_config": {
+                    "max_tool_calls": 20,
+                    "invented_security_bypass": True,
+                }
+            },
+        )
+        assert resp.status_code == 400
+        assert "invented_security_bypass" in resp.json()["detail"]
+
     def test_delete_policy(self, admin_client, _mock_db):
         policy = FakeRow(
             id=20,

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, select, update
 
 from ..auth import UserInfo, get_current_user
@@ -35,6 +35,7 @@ VALID_MATURITY_MODES = {"base", "guided", "governed", "assured"}
 VALID_CATEGORIES = {"safety", "compliance", "quality", "style", "architecture", "tooling", "process"}
 VALID_CONSTRAINT_KINDS = {"hard", "guiding", "advisory"}
 VALID_RULE_TYPES = {"threshold", "escalation", "boundary", "routing", "reducer_config", "feature_toggle"}
+VALID_LEGACY_FEATURE_TOGGLES = {"enable_reducers", "enable_validation"}
 
 SCOPE_PRECEDENCE = {"platform": 0, "org": 1, "tenant": 2, "project": 3, "team": 4}
 
@@ -130,6 +131,98 @@ def _normalize_capability_key_map(raw: Any) -> dict[str, bool]:
             raise HTTPException(400, f"Capability '{key}' must be a boolean")
         normalized[key] = value
     return normalized
+
+
+def _reject_unknown_config_keys(raw: dict[str, Any], allowed: set[str], *, rule_type: str) -> None:
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise HTTPException(400, f"Unsupported {rule_type} rule_config key: {unknown[0]}")
+
+
+def _normalize_policy_rule_config(rule_type: str, raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "rule_config must be an object")
+
+    normalized_rule_type = str(rule_type or "").strip().lower()
+    if normalized_rule_type == "threshold":
+        _reject_unknown_config_keys(raw, {"max_tool_calls"}, rule_type=normalized_rule_type)
+        if not raw:
+            return {}
+        value = raw.get("max_tool_calls")
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1 or value > 1000:
+            raise HTTPException(400, "rule_config.max_tool_calls must be an integer between 1 and 1000")
+        return {"max_tool_calls": value}
+
+    if normalized_rule_type in {"escalation", "boundary", "routing", "reducer_config"}:
+        _reject_unknown_config_keys(raw, set(), rule_type=normalized_rule_type)
+        return {}
+
+    if normalized_rule_type == "feature_toggle":
+        if raw.get("kind") == CAPABILITY_MATRIX_KIND:
+            return _normalize_capability_matrix_rule_config(raw)
+        allowed = VALID_LEGACY_FEATURE_TOGGLES | CAPABILITY_MATRIX_KEYS
+        _reject_unknown_config_keys(raw, allowed, rule_type=normalized_rule_type)
+        normalized: dict[str, Any] = {}
+        for key, value in raw.items():
+            if not isinstance(value, bool):
+                raise HTTPException(400, f"rule_config.{key} must be a boolean")
+            normalized[key] = value
+        return normalized
+
+    raise HTTPException(400, f"Invalid rule_type: {rule_type}")
+
+
+def _normalize_capability_matrix_rule_config(raw: dict[str, Any]) -> dict[str, Any]:
+    row_type = str(raw.get("row_type", "")).strip().lower()
+    if row_type == CAPABILITY_MATRIX_GLOBAL_ROW_TYPE:
+        allowed = {"kind", "row_type", "version", "mode", "global_optimizations_enabled"}
+        _reject_unknown_config_keys(raw, allowed, rule_type="feature_toggle")
+        mode = str(raw.get("mode", "enforced")).strip().lower()
+        if mode not in CAPABILITY_MATRIX_MODES:
+            raise HTTPException(400, f"Invalid capability matrix mode: {mode}")
+        version = raw.get("version", 1)
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise HTTPException(400, "rule_config.version must be a positive integer")
+        enabled = raw.get("global_optimizations_enabled", False)
+        if not isinstance(enabled, bool):
+            raise HTTPException(400, "rule_config.global_optimizations_enabled must be a boolean")
+        return {
+            "kind": CAPABILITY_MATRIX_KIND,
+            "row_type": CAPABILITY_MATRIX_GLOBAL_ROW_TYPE,
+            "version": version,
+            "mode": mode,
+            "global_optimizations_enabled": enabled,
+        }
+
+    if row_type == CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE:
+        allowed = {"kind", "row_type", "version", "selector_type", "selector", "priority", "capabilities"}
+        _reject_unknown_config_keys(raw, allowed, rule_type="feature_toggle")
+        selector_type = str(raw.get("selector_type", "")).strip().lower()
+        if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES:
+            raise HTTPException(400, f"Invalid selector_type: {selector_type}")
+        selector = str(raw.get("selector", "")).strip()
+        if not selector:
+            raise HTTPException(400, "rule_config.selector is required")
+        version = raw.get("version", 1)
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise HTTPException(400, "rule_config.version must be a positive integer")
+        priority = raw.get("priority", 0)
+        if not isinstance(priority, int) or isinstance(priority, bool):
+            raise HTTPException(400, "rule_config.priority must be an integer")
+        capabilities = _normalize_capability_key_map(raw.get("capabilities", {}))
+        return {
+            "kind": CAPABILITY_MATRIX_KIND,
+            "row_type": CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE,
+            "version": version,
+            "selector_type": selector_type,
+            "selector": selector,
+            "priority": priority,
+            "capabilities": capabilities,
+        }
+
+    raise HTTPException(400, f"Invalid capability matrix row_type: {row_type}")
 
 
 def _is_capability_matrix_row(policy: GovernancePolicyDef) -> bool:
@@ -352,6 +445,8 @@ async def _ensure_no_selector_conflict(
 
 
 class ConstitutionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., min_length=1, max_length=256)
     scope: str = Field("org")
     scope_value: str = Field("")
@@ -365,6 +460,8 @@ class ConstitutionCreate(BaseModel):
 
 
 class ConstitutionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     description: str | None = None
     precedence: int | None = None
@@ -744,6 +841,8 @@ async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_
 
 
 class ClauseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     category: str = Field("quality")
     constraint_kind: str = Field("guiding")
     statement: str = Field("")
@@ -757,6 +856,8 @@ class ClauseCreate(BaseModel):
 
 
 class ClauseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     category: str | None = None
     constraint_kind: str | None = None
     statement: str | None = None
@@ -949,6 +1050,8 @@ async def delete_clause(clause_id: str, user: UserInfo = Depends(get_current_use
 
 
 class PolicyDefCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., min_length=1, max_length=256)
     description: str = Field("")
     scope: str = Field("org")
@@ -957,15 +1060,17 @@ class PolicyDefCreate(BaseModel):
     category: str = Field("quality")
     constraint_kind: str = Field("guiding")
     rule_type: str = Field("threshold")
-    rule_config: dict = Field(default_factory=dict)
+    rule_config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = Field(True)
     priority: int = Field(0)
 
 
 class PolicyDefUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     description: str | None = None
-    rule_config: dict | None = None
+    rule_config: dict[str, Any] | None = None
     enabled: bool | None = None
     priority: int | None = None
     category: str | None = None
@@ -1033,6 +1138,7 @@ async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_curr
         raise HTTPException(400, f"Invalid constraint_kind: {body.constraint_kind}")
     if body.rule_type not in VALID_RULE_TYPES:
         raise HTTPException(400, f"Invalid rule_type: {body.rule_type}")
+    rule_config = _normalize_policy_rule_config(body.rule_type, body.rule_config)
 
     pid = str(uuid.uuid4())
     row = GovernancePolicyDef(
@@ -1045,7 +1151,7 @@ async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_curr
         category=body.category,
         constraint_kind=body.constraint_kind,
         rule_type=body.rule_type,
-        rule_config=body.rule_config,
+        rule_config=rule_config,
         enabled=body.enabled,
         priority=body.priority,
         created_by=user.username,
@@ -1075,7 +1181,7 @@ async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = 
         if body.description is not None:
             row.description = body.description
         if body.rule_config is not None:
-            row.rule_config = body.rule_config
+            row.rule_config = _normalize_policy_rule_config(row.rule_type, body.rule_config)
         if body.enabled is not None:
             row.enabled = body.enabled
         if body.priority is not None:
@@ -1254,12 +1360,16 @@ async def get_effective_governance(
 
 
 class CapabilityMatrixGlobalUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     mode: str = Field("enforced")
     global_optimizations_enabled: bool = Field(False)
     org_id: str = Field("")
 
 
 class CapabilityMatrixOverrideUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     org_id: str = Field("")
     scope: str = Field("platform")
