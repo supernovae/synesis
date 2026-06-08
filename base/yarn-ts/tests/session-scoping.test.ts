@@ -38,22 +38,35 @@ vi.mock("pg", () => {
 });
 
 describe("Canonical session key", () => {
-  it("produces synesis:{userId}:{clientKind}:{conversationId} format", async () => {
+  it("produces synesis:{orgId}:{userId}:{clientKind}:{conversationId} format", async () => {
     const { buildSessionKey } = await import("../src/session/session-key.js");
-    const key = buildSessionKey("alice", "claude-code", "conv-123");
-    expect(key).toBe("synesis:alice:claude-code:conv-123");
+    const key = buildSessionKey("alice", "org-1", "claude-code", "conv-123");
+    expect(key).toBe("synesis:org-1:alice:claude-code:conv-123");
+  });
+
+  it("isolates the same user and conversation across organizations", async () => {
+    const { buildSessionKey } = await import("../src/session/session-key.js");
+    const orgOne = buildSessionKey("alice", "org-1", "claude-code", "conv-123");
+    const orgTwo = buildSessionKey("alice", "org-2", "claude-code", "conv-123");
+    expect(orgOne).not.toBe(orgTwo);
   });
 
   it("uses _ in the base key for missing conversation ID", async () => {
     const { buildSessionKey } = await import("../src/session/session-key.js");
-    const key = buildSessionKey("alice", "cursor", "");
-    expect(key).toBe("synesis:alice:cursor:_");
+    const key = buildSessionKey("alice", "", "cursor", "");
+    expect(key).toBe("synesis:_:alice:cursor:_");
   });
 
   it("uses anon for missing userId", async () => {
     const { buildSessionKey } = await import("../src/session/session-key.js");
-    const key = buildSessionKey("", "unknown", "");
-    expect(key).toBe("synesis:anon:unknown:_");
+    const key = buildSessionKey("", "", "unknown", "");
+    expect(key).toBe("synesis:_:anon:unknown:_");
+  });
+
+  it("encodes delimiter-bearing session key parts", async () => {
+    const { buildSessionKey } = await import("../src/session/session-key.js");
+    const key = buildSessionKey("alice:admin\0", "org:1", "codex:cli", "conv:123");
+    expect(key).toBe("synesis:org%3A1:alice%3Aadmin:codex%3Acli:conv%3A123");
   });
 
   it("mints a rotated key for a new implicit conversation", async () => {
@@ -78,15 +91,15 @@ describe("Canonical session key", () => {
       }),
     });
 
-    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r12345");
+    expect(decision.sessionKey).toBe("synesis:_:alice:opencode:_:r12345");
     expect(decision.reason).toBe("new_implicit_conversation");
-    expect(activeByBaseKey.get("synesis:alice:opencode:_")).toBe(decision.sessionKey);
-    expect(saved).toEqual([["synesis:alice:opencode:_", decision.sessionKey]]);
+    expect(activeByBaseKey.get("synesis:_:alice:opencode:_")).toBe(decision.sessionKey);
+    expect(saved).toEqual([["synesis:_:alice:opencode:_", decision.sessionKey]]);
   });
 
   it("reuses an active implicit alias", async () => {
     const { resolveSessionKey } = await import("../src/session/session-key.js");
-    const activeByBaseKey = new Map([["synesis:alice:opencode:_", "synesis:alice:opencode:_:r1000"]]);
+    const activeByBaseKey = new Map([["synesis:_:alice:opencode:_", "synesis:_:alice:opencode:_:r1000"]]);
     const decision = await resolveSessionKey({
       identity: {
         userId: "alice",
@@ -97,18 +110,18 @@ describe("Canonical session key", () => {
       nowMs: 2000,
       inactivityRotationMs: 30 * 60 * 1000,
       activeByBaseKey,
-      loadRecord: vi.fn().mockResolvedValue({ sessionKey: "synesis:alice:opencode:_:r1000", lastActiveAt: 1500 }),
+      loadRecord: vi.fn().mockResolvedValue({ sessionKey: "synesis:_:alice:opencode:_:r1000", lastActiveAt: 1500 }),
       loadActiveSessionKey: vi.fn().mockResolvedValue(null),
       saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
     });
 
-    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r1000");
+    expect(decision.sessionKey).toBe("synesis:_:alice:opencode:_:r1000");
     expect(decision.reason).toBe("active_alias");
   });
 
   it("rotates an active implicit alias when the incoming coder transcript is fresh", async () => {
     const { resolveSessionKey } = await import("../src/session/session-key.js");
-    const activeByBaseKey = new Map([["synesis:alice:opencode:_", "synesis:alice:opencode:_:r1000"]]);
+    const activeByBaseKey = new Map([["synesis:_:alice:opencode:_", "synesis:_:alice:opencode:_:r1000"]]);
     const saved: Array<[string, string]> = [];
 
     const decision = await resolveSessionKey({
@@ -123,7 +136,7 @@ describe("Canonical session key", () => {
       nowMs: 4000,
       inactivityRotationMs: 30 * 60 * 1000,
       activeByBaseKey,
-      loadRecord: vi.fn().mockResolvedValue({ sessionKey: "synesis:alice:opencode:_:r1000", lastActiveAt: 3500 }),
+      loadRecord: vi.fn().mockResolvedValue({ sessionKey: "synesis:_:alice:opencode:_:r1000", lastActiveAt: 3500 }),
       loadActiveSessionKey: vi.fn().mockResolvedValue(null),
       saveActiveSessionKey: vi.fn((baseKey: string, sessionKey: string) => {
         saved.push([baseKey, sessionKey]);
@@ -131,11 +144,11 @@ describe("Canonical session key", () => {
       }),
     });
 
-    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r4000");
-    expect(decision.previousSessionKey).toBe("synesis:alice:opencode:_:r1000");
+    expect(decision.sessionKey).toBe("synesis:_:alice:opencode:_:r4000");
+    expect(decision.previousSessionKey).toBe("synesis:_:alice:opencode:_:r1000");
     expect(decision.reason).toBe("fresh_implicit_rotation");
-    expect(activeByBaseKey.get("synesis:alice:opencode:_")).toBe(decision.sessionKey);
-    expect(saved).toEqual([["synesis:alice:opencode:_", decision.sessionKey]]);
+    expect(activeByBaseKey.get("synesis:_:alice:opencode:_")).toBe(decision.sessionKey);
+    expect(saved).toEqual([["synesis:_:alice:opencode:_", decision.sessionKey]]);
   });
 
   it("does not rotate explicit conversations even when fresh implicit is requested", async () => {
@@ -156,7 +169,7 @@ describe("Canonical session key", () => {
       saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
     });
 
-    expect(decision.sessionKey).toBe("synesis:alice:opencode:oc-session-1");
+    expect(decision.sessionKey).toBe("synesis:_:alice:opencode:oc-session-1");
     expect(decision.reason).toBe("explicit_conversation");
     expect(decision.rotated).toBe(false);
   });
@@ -182,7 +195,7 @@ describe("Canonical session key", () => {
       saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
     });
 
-    expect(decision.sessionKey).toBe("synesis:alice:opencode:_:r3000");
+    expect(decision.sessionKey).toBe("synesis:_:alice:opencode:_:r3000");
     expect(decision.reason).toBe("new_implicit_conversation");
   });
 
@@ -310,7 +323,7 @@ describe("Fresh implicit session bootstrap", () => {
       recordSessionEvent,
     });
 
-    const state = await helpers.getSessionState("synesis:alice:opencode:_:r1", {
+    const state = await helpers.getSessionState("synesis:_:alice:opencode:_:r1", {
       userId: "alice",
       orgId: "",
       clientKind: "opencode",
@@ -332,7 +345,7 @@ describe("Fresh implicit session bootstrap", () => {
     expect(loadContinuity).not.toHaveBeenCalled();
     expect(loadLatestContinuity).not.toHaveBeenCalled();
     expect(recordSessionEvent).toHaveBeenCalledWith(
-      "synesis:alice:opencode:_:r1",
+      "synesis:_:alice:opencode:_:r1",
       "alice",
       "",
       "session_carry_forward_suppressed",
@@ -378,14 +391,14 @@ describe("Session isolation — two clients, same user", () => {
       version: 0,
     };
 
-    const record1 = { ...base, sessionKey: "synesis:alice:claude-code:conv-1", conversationId: "conv-1" };
-    const record2 = { ...base, sessionKey: "synesis:alice:claude-code:conv-2", conversationId: "conv-2" };
+    const record1 = { ...base, sessionKey: "synesis:_:alice:claude-code:conv-1", conversationId: "conv-1" };
+    const record2 = { ...base, sessionKey: "synesis:_:alice:claude-code:conv-2", conversationId: "conv-2" };
 
     await store.save(record1);
     await store.save(record2);
 
-    const loaded1 = await store.load("synesis:alice:claude-code:conv-1");
-    const loaded2 = await store.load("synesis:alice:claude-code:conv-2");
+    const loaded1 = await store.load("synesis:_:alice:claude-code:conv-1");
+    const loaded2 = await store.load("synesis:_:alice:claude-code:conv-2");
 
     expect(loaded1).not.toBeNull();
     expect(loaded2).not.toBeNull();
@@ -415,8 +428,8 @@ describe("Session isolation — two clients, same user", () => {
       version: 0,
     };
 
-    const record1 = { ...base, sessionKey: "synesis:alice:claude-code:_", clientKind: "claude-code" };
-    const record2 = { ...base, sessionKey: "synesis:alice:cursor:_", clientKind: "cursor" };
+    const record1 = { ...base, sessionKey: "synesis:_:alice:claude-code:_", clientKind: "claude-code" };
+    const record2 = { ...base, sessionKey: "synesis:_:alice:cursor:_", clientKind: "cursor" };
 
     await store.save(record1);
     await store.save(record2);
@@ -424,8 +437,8 @@ describe("Session isolation — two clients, same user", () => {
     const redis = (store as unknown as { redis: { eval: ReturnType<typeof vi.fn> } }).redis;
     const calls = redis.eval.mock.calls;
     const keys = calls.map((c: unknown[]) => c[2]);
-    expect(keys).toContain("yarn-ts:session:synesis:alice:claude-code:_");
-    expect(keys).toContain("yarn-ts:session:synesis:alice:cursor:_");
+    expect(keys).toContain("yarn-ts:session:synesis:_:alice:claude-code:_");
+    expect(keys).toContain("yarn-ts:session:synesis:_:alice:cursor:_");
 
     await store.close();
   });
@@ -434,10 +447,10 @@ describe("Session isolation — two clients, same user", () => {
     const { SessionStore } = await import("../src/state/session-store.js");
     const store = new SessionStore({ SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3" } as never);
 
-    await store.saveActiveSessionKey("synesis:alice:opencode:_", "synesis:alice:opencode:_:r123");
+    await store.saveActiveSessionKey("synesis:_:alice:opencode:_", "synesis:_:alice:opencode:_:r123");
 
-    await expect(store.loadActiveSessionKey("synesis:alice:opencode:_")).resolves.toBe(
-      "synesis:alice:opencode:_:r123",
+    await expect(store.loadActiveSessionKey("synesis:_:alice:opencode:_")).resolves.toBe(
+      "synesis:_:alice:opencode:_:r123",
     );
 
     await store.close();
@@ -462,7 +475,7 @@ describe("Usage writer — session event inserts", () => {
     } as never);
 
     writer.enqueueSessionEvent({
-      sessionKey: "synesis:alice:claude-code:conv-1",
+      sessionKey: "synesis:org1:alice:claude-code:conv-1",
       requestId: `req-${crypto.randomUUID()}`,
       userId: "alice",
       orgId: "org1",
@@ -480,7 +493,7 @@ describe("Usage writer — session event inserts", () => {
     expect(sql).toContain("component");
 
     const params = pool.query.mock.calls[0]?.[1] as unknown[];
-    expect(params[0]).toBe("synesis:alice:claude-code:conv-1");
+    expect(params[0]).toBe("synesis:org1:alice:claude-code:conv-1");
     expect(params[4]).toBe("upstream_error");
     expect(params[5]).toBe("generateText");
 
@@ -503,7 +516,7 @@ describe("Usage writer — session event inserts", () => {
     } as never);
 
     writer.enqueueSessionUpsert({
-      sessionKey: "synesis:alice:claude-code:conv-1",
+      sessionKey: "synesis:org1:alice:claude-code:conv-1",
       userId: "alice",
       orgId: "org1",
       conversationId: "conv-1",

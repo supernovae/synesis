@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export interface SessionIdentity {
   userId: string;
   orgId: string;
@@ -33,11 +35,21 @@ export interface SessionKeyDecision {
   previousSessionKey?: string | null;
 }
 
-export function buildSessionKey(userId: string, clientKind: string, conversationId: string): string {
-  const user = userId || "anon";
-  const client = clientKind || "unknown";
-  const convo = conversationId || "_";
-  return `synesis:${user}:${client}:${convo}`;
+function safeSessionKeyPart(value: string, fallback: string): string {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return fallback;
+  const encoded = encodeURIComponent(trimmed);
+  return encoded.length <= 160
+    ? encoded
+    : `${fallback}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
+}
+
+export function buildSessionKey(userId: string, orgId: string, clientKind: string, conversationId: string): string {
+  const org = safeSessionKeyPart(orgId, "_");
+  const user = safeSessionKeyPart(userId, "anon");
+  const client = safeSessionKeyPart(clientKind, "unknown");
+  const convo = safeSessionKeyPart(conversationId, "_");
+  return `synesis:${org}:${user}:${client}:${convo}`;
 }
 
 export function hasExplicitConversationId(conversationId: string): boolean {
@@ -132,6 +144,7 @@ export function buildRotatedSessionKey(baseKey: string, nowMs: number): string {
 export async function resolveSessionKey(options: ResolveSessionKeyOptions): Promise<SessionKeyDecision> {
   const baseKey = buildSessionKey(
     options.identity.userId,
+    options.identity.orgId,
     options.identity.clientKind,
     options.identity.conversationId,
   );
