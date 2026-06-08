@@ -146,64 +146,82 @@ class TestBootstrapValidation:
         from app.routers.ingestion import _normalize_bootstrap_meta
 
         for cc in ("coder_enriched", "general", "hybrid"):
-            cfg, warnings = _normalize_bootstrap_meta({"corpus_class": cc}, None)
+            cfg, warnings, errors = _normalize_bootstrap_meta({"corpus_class": cc}, None)
             assert cfg is not None
             assert cfg["synesis_meta"]["corpus_class"] == cc
             assert not warnings
+            assert not errors
 
     def test_invalid_corpus_class_warns(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        cfg, warnings = _normalize_bootstrap_meta({"corpus_class": "invalid"}, None)
+        cfg, warnings, errors = _normalize_bootstrap_meta({"corpus_class": "invalid"}, None)
         assert len(warnings) == 1
         assert "invalid corpus_class" in warnings[0]
+        assert cfg is None
+        assert not errors
 
     def test_valid_constraint_kinds(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
         for ck in ("hard", "guiding", "advisory"):
-            cfg, warnings = _normalize_bootstrap_meta({"constraint_kind": ck}, None)
+            cfg, warnings, errors = _normalize_bootstrap_meta({"constraint_kind": ck}, None)
             assert cfg is not None
             assert cfg["synesis_meta"]["constraint_kind"] == ck
             assert not any("constraint_kind" in w for w in warnings)
+            assert not errors
 
     def test_invalid_constraint_kind_warns(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        cfg, warnings = _normalize_bootstrap_meta({"constraint_kind": "wrong"}, None)
+        cfg, warnings, errors = _normalize_bootstrap_meta({"constraint_kind": "wrong"}, None)
         assert any("constraint_kind" in w for w in warnings)
+        assert cfg is None
+        assert not errors
 
     def test_languages_list_preserved(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        cfg, _ = _normalize_bootstrap_meta({"languages": ["python", "go"]}, None)
+        cfg, _, errors = _normalize_bootstrap_meta({"languages": ["python", "go"]}, None)
         assert cfg is not None
         assert cfg["synesis_meta"]["languages"] == ["python", "go"]
+        assert not errors
 
     def test_existing_config_preserved(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
         existing = {"url": "https://example.com", "max_pages": 50}
-        cfg, _ = _normalize_bootstrap_meta({"corpus_class": "general"}, existing)
+        cfg, _, errors = _normalize_bootstrap_meta({"corpus_class": "general"}, existing)
         assert cfg is not None
         assert cfg["url"] == "https://example.com"
         assert cfg["max_pages"] == 50
         assert cfg["synesis_meta"]["corpus_class"] == "general"
+        assert not errors
 
-    def test_empty_entry_returns_original_config(self):
+    def test_empty_entry_returns_normalized_config(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        original = {"key": "value"}
-        cfg, warnings = _normalize_bootstrap_meta({}, original)
+        original = {"path": "seed-corpus.json"}
+        cfg, warnings, errors = _normalize_bootstrap_meta({}, original)
         assert cfg == original
         assert not warnings
+        assert not errors
+
+    def test_unknown_existing_config_key_rejected(self):
+        from app.routers.ingestion import _normalize_bootstrap_meta
+
+        cfg, warnings, errors = _normalize_bootstrap_meta({}, {"invented_config_flag": True})
+        assert cfg is None
+        assert not warnings
+        assert any("invented_config_flag" in error for error in errors)
 
     def test_empty_entry_none_config(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        cfg, warnings = _normalize_bootstrap_meta({}, None)
+        cfg, warnings, errors = _normalize_bootstrap_meta({}, None)
         assert cfg is None
         assert not warnings
+        assert not errors
 
 
 class TestIngestionConfigValidation:
@@ -233,11 +251,58 @@ class TestIngestionConfigValidation:
         assert item.config.synesis_meta is not None
         assert item.config.synesis_meta.languages == ["python"]
 
+    def test_item_create_accepts_known_handler_config_keys(self):
+        from app.routers.ingestion import ItemCreate
+
+        item = ItemCreate(
+            uri="license:spdx",
+            config={
+                "path": "seed-corpus.json",
+                "doc_id_prefix": "epistemic",
+                "papers": [{"id": "2005.11401", "title": "RAG"}],
+                "spdx": {
+                    "licenses_url": "https://example.com/licenses.json",
+                    "details_base_url": "https://example.com/details/",
+                },
+                "fedora": {
+                    "repo_url": "https://example.com/fedora/",
+                    "common_licenses": ["MIT"],
+                },
+                "choosealicense": {
+                    "repo": "github/choosealicense.com",
+                    "branch": "gh-pages",
+                    "licenses_path": "_licenses",
+                },
+                "compat_path": "/data/compatibility.yaml",
+            },
+        )
+
+        assert item.config is not None
+        assert item.config.path == "seed-corpus.json"
+        assert item.config.papers is not None
+        assert item.config.papers[0].id == "2005.11401"
+        assert item.config.spdx is not None
+        assert item.config.spdx.licenses_url == "https://example.com/licenses.json"
+
     def test_item_create_rejects_unknown_config_key(self):
         from app.routers.ingestion import ItemCreate
 
         with pytest.raises(ValidationError, match="invented_flag"):
             ItemCreate(uri="https://example.com/docs/", config={"invented_flag": True})
+
+    def test_item_create_rejects_unknown_nested_handler_config_key(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="invented_license_attr"):
+            ItemCreate(
+                uri="license:spdx",
+                config={
+                    "spdx": {
+                        "licenses_url": "https://example.com/licenses.json",
+                        "invented_license_attr": True,
+                    }
+                },
+            )
 
     def test_item_patch_rejects_unknown_nested_synesis_meta_key(self):
         from app.routers.ingestion import ItemPatch

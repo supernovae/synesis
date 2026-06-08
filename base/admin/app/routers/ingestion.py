@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -93,10 +93,40 @@ class IngestionSynesisMeta(BaseModel):
     constraint_confidence: float | None = Field(None, ge=0, le=1)
 
 
+class IngestionArxivPaper(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., max_length=64)
+    title: str | None = Field(None, max_length=512)
+
+
+class IngestionSpdxLicenseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    licenses_url: str = Field(..., max_length=2048)
+    details_base_url: str | None = Field(None, max_length=2048)
+
+
+class IngestionFedoraLicenseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repo_url: str = Field(..., max_length=2048)
+    common_licenses: list[str] = Field(default_factory=list, max_length=500)
+
+
+class IngestionChooseALicenseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repo: str = Field(..., max_length=256)
+    branch: str | None = Field(None, max_length=128)
+    licenses_path: str | None = Field(None, max_length=512)
+
+
 class IngestionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str | None = Field(None, max_length=2048)
+    path: str | None = Field(None, max_length=2048)
     branch: str | None = Field(None, max_length=128)
     paths: list[str] | None = Field(None, max_length=100)
     discovery: str | None = Field(None, max_length=64)
@@ -117,9 +147,15 @@ class IngestionConfig(BaseModel):
     tags: list[str] | None = Field(None, max_length=50)
     repo: str | None = Field(None, max_length=256)
     language: str | None = Field(None, max_length=32)
+    doc_id_prefix: str | None = Field(None, max_length=128)
     context_prefix: str | None = Field(None, max_length=2000)
     inline_content: str | None = Field(None, max_length=200000)
     devhub_entity_ref: str | None = Field(None, max_length=256)
+    papers: list[IngestionArxivPaper] | None = Field(None, max_length=500)
+    spdx: IngestionSpdxLicenseConfig | None = None
+    fedora: IngestionFedoraLicenseConfig | None = None
+    choosealicense: IngestionChooseALicenseConfig | None = None
+    compat_path: str | None = Field(None, max_length=2048)
     synesis_meta: IngestionSynesisMeta | None = None
     discovery_report: IngestionDiscoveryReport | None = None
     preflight_at: str | None = Field(None, max_length=64)
@@ -127,6 +163,24 @@ class IngestionConfig(BaseModel):
 
 def _config_payload(config: IngestionConfig | None) -> dict[str, Any] | None:
     return config.model_dump(exclude_none=True) if config is not None else None
+
+
+def _config_validation_messages(exc: ValidationError) -> list[str]:
+    messages: list[str] = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err.get("loc", ()))
+        suffix = f".{loc}" if loc else ""
+        messages.append(f"invalid config{suffix}: {err.get('msg', 'validation failed')}")
+    return messages
+
+
+def _validate_config_payload(config: dict[str, Any] | None) -> tuple[dict[str, Any] | None, list[str]]:
+    if not config:
+        return None, []
+    try:
+        return _config_payload(IngestionConfig.model_validate(config)), []
+    except ValidationError as exc:
+        return None, _config_validation_messages(exc)
 
 
 class SourceCreate(BaseModel):
@@ -1953,7 +2007,7 @@ def _string_list(v: Any, *, item_limit: int = 64, max_items: int = 20) -> list[s
 
 def _normalize_bootstrap_meta(
     entry: dict[str, Any], config: dict[str, Any] | None
-) -> tuple[dict[str, Any] | None, list[str]]:
+) -> tuple[dict[str, Any] | None, list[str], list[str]]:
     """Normalize optional corpus metadata into config.synesis_meta.
 
     This keeps ingestion backward compatible while allowing richer corpus
@@ -2014,8 +2068,10 @@ def _normalize_bootstrap_meta(
 
     if meta:
         cfg["synesis_meta"] = meta
-        return cfg, warnings
-    return (config if isinstance(config, dict) else None), warnings
+    if cfg:
+        normalized_config, errors = _validate_config_payload(cfg)
+        return normalized_config, warnings, errors
+    return None, warnings, []
 
 
 @router.get("/bootstrap/metadata-guide")
@@ -2092,9 +2148,14 @@ async def bootstrap_validate(
             item_warnings.append("domain is empty — discovery may need to guess")
 
         config_raw = entry.get("config")
-        config = config_raw if isinstance(config_raw, dict) else None
-        config, meta_warnings = _normalize_bootstrap_meta(entry, config)
+        if config_raw is not None and not isinstance(config_raw, dict):
+            config = None
+            meta_warnings = []
+            config_errors = ["invalid config: expected object"]
+        else:
+            config, meta_warnings, config_errors = _normalize_bootstrap_meta(entry, config_raw)
         item_warnings.extend(meta_warnings)
+        item_errors.extend(config_errors)
 
         corpus_class = _string_or_empty(entry.get("corpus_class"), limit=32).lower()
         if corpus_class and corpus_class not in _VALID_CORPUS_CLASSES:
@@ -2169,6 +2230,7 @@ async def bootstrap_from_yaml(
     added = 0
     skipped_empty = 0
     skipped_duplicate = 0
+    skipped_invalid_config = 0
     unchanged = 0
     updated_meta = 0
     requeued = 0
@@ -2205,8 +2267,18 @@ async def bootstrap_from_yaml(
             )
             priority = int(entry.get("priority") or 0)
             config_raw = entry.get("config")
-            config = config_raw if isinstance(config_raw, dict) else None
-            config, entry_warnings = _normalize_bootstrap_meta(entry, config)
+            if config_raw is not None and not isinstance(config_raw, dict):
+                logger.info(
+                    "bootstrap_entry_invalid_config",
+                    extra={"uri": uri, "errors": ["invalid config: expected object"]},
+                )
+                skipped_invalid_config += 1
+                continue
+            config, entry_warnings, config_errors = _normalize_bootstrap_meta(entry, config_raw)
+            if config_errors:
+                logger.info("bootstrap_entry_invalid_config", extra={"uri": uri, "errors": config_errors[:5]})
+                skipped_invalid_config += 1
+                continue
             metadata_warnings += len(entry_warnings)
             if entry_warnings:
                 logger.info(
@@ -2323,12 +2395,13 @@ async def bootstrap_from_yaml(
 
         await session.commit()
 
-    skipped_total = skipped_empty + (skipped_duplicate if not upsert else 0)
+    skipped_total = skipped_empty + skipped_invalid_config + (skipped_duplicate if not upsert else 0)
     logger.info(
         "bootstrap_import",
         extra={
             "added": added,
             "skipped": skipped_total,
+            "skipped_invalid_config": skipped_invalid_config,
             "metadata_warnings": metadata_warnings,
             "upsert": upsert,
             "unchanged": unchanged if upsert else None,
@@ -2343,6 +2416,7 @@ async def bootstrap_from_yaml(
         "skipped": skipped_total,
         "upsert": upsert,
         "metadata_warnings": metadata_warnings,
+        "skipped_invalid_config": skipped_invalid_config,
         "total_in_file": len(items_list),
     }
     if upsert:
