@@ -225,16 +225,16 @@ export async function runCritique(
 
 export const classifyInputSchema = z.object({
   task: z.string().min(1).max(LIMITS.queryChars).describe("The task or prompt to classify"),
-});
+}).strict();
 
 export const planInputSchema = z.object({
   task: z.string().min(1).max(LIMITS.queryChars).describe("The task to plan for"),
   context: z.string().max(LIMITS.contextChars).optional().describe("Additional context (file contents, etc.)"),
   language: z.string().max(LIMITS.shortStringChars).optional().describe("Target language"),
-});
+}).strict();
 
 export const critiqueInputSchema = z.object({
   code: z.string().min(1).max(LIMITS.codeChars).describe("Code to review"),
   task: z.string().min(1).max(LIMITS.queryChars).describe("What the code is supposed to do"),
   language: z.string().max(LIMITS.shortStringChars).optional().describe("Programming language"),
-});
+}).strict();

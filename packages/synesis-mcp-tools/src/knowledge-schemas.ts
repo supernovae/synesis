@@ -113,7 +113,7 @@ export const knowledgeSearchInputSchema = z.object({
   content_profile: z.string().max(LIMITS.shortStringChars).optional(),
   constraint_source: z.string().max(LIMITS.shortStringChars).optional(),
   golden_path_id: z.string().max(LIMITS.shortStringChars).optional(),
-});
+}).strict();
 
 export const resolvePackInputSchema = z.object({
   query: z.string().max(LIMITS.queryChars).optional(),
@@ -124,7 +124,7 @@ export const resolvePackInputSchema = z.object({
   symbol: z.string().max(LIMITS.mediumStringChars).optional(),
   version: z.string().max(LIMITS.shortStringChars).optional(),
   top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
-});
+}).strict();
 
 export const contextBundleInputSchema = knowledgeSearchInputSchema.extend({
   mode: z.enum(["bundle", "cards"]).optional().default("bundle"),
@@ -157,7 +157,7 @@ export const ecmaEnvironmentCheckInputSchema = z.object({
   deno_json: z.unknown().optional(),
   bunfig_toml: z.string().max(LIMITS.contextChars).optional(),
   lockfiles: z.array(z.string().max(LIMITS.mediumStringChars)).max(LIMITS.maxStringArrayItems).optional(),
-});
+}).strict();
 
 export const ecmaPackageRiskInputSchema = z.object({
   dependencies_added: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
@@ -166,4 +166,4 @@ export const ecmaPackageRiskInputSchema = z.object({
   scripts_changed: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
   package_json_before: z.unknown().optional(),
   package_json_after: z.unknown().optional(),
-});
+}).strict();

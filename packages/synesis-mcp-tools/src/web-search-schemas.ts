@@ -15,4 +15,4 @@ export const webSearchInputSchema = z.object({
   session_key: z.string().max(LIMITS.shortStringChars).optional(),
   conversation_id: z.string().max(LIMITS.shortStringChars).optional(),
   trace_id: z.string().max(LIMITS.shortStringChars).optional(),
-});
+}).strict();
