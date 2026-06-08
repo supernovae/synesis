@@ -61,6 +61,8 @@ interface ToolInputSchema {
   additionalProperties?: boolean;
 }
 
+const SUPPORTED_TOOL_SCHEMA_TYPES = new Set(["string", "boolean", "integer", "number", "array", "object"]);
+
 export class AdminMcpToolError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -382,6 +384,22 @@ async function plannerRequest(ctx: ToolContext, path: string, body: Record<strin
 }
 
 function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaProperty {
+  const schemaType = schema.type;
+  if (typeof schemaType !== "string" || !SUPPORTED_TOOL_SCHEMA_TYPES.has(schemaType)) {
+    throw new Error("unsupported_tool_schema_type");
+  }
+  if (schemaType === "array" && !schema.items) {
+    throw new Error("unsupported_tool_schema_array_without_items");
+  }
+  if (schemaType === "object" && (!schema.properties || typeof schema.properties !== "object")) {
+    throw new Error("unsupported_tool_schema_object_without_properties");
+  }
+  for (const requiredKey of schema.required ?? []) {
+    if (typeof requiredKey !== "string" || !(requiredKey in (schema.properties ?? {}))) {
+      throw new Error("unsupported_tool_schema_required_key");
+    }
+  }
+
   const next: ToolJsonSchemaProperty = { ...schema };
   if (schema.items) {
     next.items = strictPropertySchema(schema.items);
@@ -398,7 +416,18 @@ function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaPro
 }
 
 function strictInputSchema(schema: ToolInputSchema): ToolInputSchema {
+  if (schema.type !== "object") {
+    throw new Error("unsupported_tool_schema_root_type");
+  }
+  if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
+    throw new Error("unsupported_tool_schema_root_without_properties");
+  }
   const properties: Record<string, ToolJsonSchemaProperty> = {};
+  for (const requiredKey of schema.required ?? []) {
+    if (typeof requiredKey !== "string" || !(requiredKey in schema.properties)) {
+      throw new Error("unsupported_tool_schema_required_key");
+    }
+  }
   for (const [key, propertySchema] of Object.entries(schema.properties)) {
     properties[key] = strictPropertySchema(propertySchema);
   }
@@ -416,7 +445,8 @@ function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
   } else if (schema.type === "number") {
     out = z.number();
   } else if (schema.type === "array") {
-    out = z.array(schema.items ? zodForProperty(schema.items) : z.unknown());
+    if (!schema.items) throw new Error("unsupported_tool_schema_array_without_items");
+    out = z.array(zodForProperty(schema.items));
   } else if (schema.type === "object") {
     const shape: Record<string, z.ZodType> = {};
     for (const [key, propertySchema] of Object.entries(schema.properties ?? {})) {
@@ -424,7 +454,7 @@ function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
     }
     out = z.object(shape).strict();
   } else {
-    out = z.unknown();
+    throw new Error("unsupported_tool_schema_type");
   }
   if (schema.enum) {
     out = out.refine((value) => schema.enum?.includes(value), { message: "Unsupported value" });
@@ -449,6 +479,9 @@ function validateValueAgainstSchema(
   value: unknown,
   schema: ToolJsonSchemaProperty,
 ): void {
+  if (typeof schema.type !== "string" || !SUPPORTED_TOOL_SCHEMA_TYPES.has(schema.type)) {
+    throw new AdminMcpToolError("invalid_tool_schema", 500, { reason: "unsupported_type", key, tool });
+  }
   if (value === undefined || value === null) return;
   if (schema.enum && !schema.enum.includes(value)) {
     throw new AdminMcpToolError("invalid_arguments", 400, {
@@ -471,13 +504,14 @@ function validateValueAgainstSchema(
     throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "integer" });
   }
   if (schema.type === "array") {
+    if (!schema.items) {
+      throw new AdminMcpToolError("invalid_tool_schema", 500, { reason: "array_without_items", key, tool });
+    }
     if (!Array.isArray(value)) {
       throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "array" });
     }
-    if (schema.items) {
-      for (const [idx, item] of value.entries()) {
-        validateValueAgainstSchema(tool, `${key}.${idx}`, item, schema.items);
-      }
+    for (const [idx, item] of value.entries()) {
+      validateValueAgainstSchema(tool, `${key}.${idx}`, item, schema.items);
     }
   }
   if (schema.type === "object") {

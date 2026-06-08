@@ -251,6 +251,28 @@ describe("admin MCP tool catalog", () => {
     ).toThrow();
   });
 
+  it("rejects unsupported MCP tool argument schema property types", () => {
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          security_context: { type: "freeform" },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_type/);
+  });
+
+  it("rejects array MCP tool argument schemas without item definitions", () => {
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          security_labels: { type: "array" },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_array_without_items/);
+  });
+
   it("rejects overly long transition watches", async () => {
     await expect(
       invokeTool(
