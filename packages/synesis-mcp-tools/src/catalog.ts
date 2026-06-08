@@ -20,11 +20,79 @@ export interface SynesisPlatformCatalogEntry {
   inputSchema: Record<string, unknown>;
 }
 
+const CATALOG_JSON_SCHEMA_KEYS = new Set([
+  "$schema",
+  "$defs",
+  "$ref",
+  "additionalProperties",
+  "allOf",
+  "anyOf",
+  "const",
+  "default",
+  "description",
+  "enum",
+  "exclusiveMaximum",
+  "exclusiveMinimum",
+  "format",
+  "items",
+  "maxItems",
+  "maxLength",
+  "maximum",
+  "minItems",
+  "minLength",
+  "minimum",
+  "oneOf",
+  "propertyNames",
+  "properties",
+  "required",
+  "type",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function closeJsonSchemaMap(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[key] = closeCatalogJsonSchema(item);
+  }
+  return out;
+}
+
+function closeCatalogJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => closeCatalogJsonSchema(item));
+  if (!isRecord(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!CATALOG_JSON_SCHEMA_KEYS.has(key)) {
+      throw new Error(`unsupported_catalog_schema_key:${key}`);
+    }
+    if (key === "properties" || key === "$defs") {
+      out[key] = closeJsonSchemaMap(item);
+    } else {
+      out[key] = closeCatalogJsonSchema(item);
+    }
+  }
+
+  const hasBoundedMapSchema = isRecord(out.propertyNames) && isRecord(out.additionalProperties);
+  if ((out.type === "object" || isRecord(out.properties)) && !hasBoundedMapSchema) {
+    out.type = "object";
+    if (!isRecord(out.properties)) out.properties = {};
+    out.additionalProperties = false;
+  }
+
+  return out;
+}
+
 function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   const converted = z.toJSONSchema(schema);
-  return converted && typeof converted === "object" && !Array.isArray(converted)
+  const jsonSchema = converted && typeof converted === "object" && !Array.isArray(converted)
     ? (converted as Record<string, unknown>)
     : { type: "object" };
+  return closeCatalogJsonSchema(jsonSchema) as Record<string, unknown>;
 }
 
 /**
