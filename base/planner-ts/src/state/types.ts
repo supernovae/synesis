@@ -4,6 +4,7 @@ import type {
   PlannerArchitectureMediation,
   PlannerChatProfile,
 } from "../context/architecture-mediation.js";
+import type { ProviderExtraBody } from "../llm/extra-body.js";
 import type { LlmRoute } from "../public-model-catalog.js";
 import type { PromptSnapshot } from "../prompt-registry.js";
 import type { CohesionLockData } from "../retrieval/types.js";
@@ -41,7 +42,7 @@ export interface GenerationParams {
   tools?: unknown[];
   tool_choice?: "none" | "auto" | "required" | Record<string, unknown>;
   parallel_tool_calls?: boolean;
-  extra_body?: Record<string, unknown>;
+  extra_body?: ProviderExtraBody;
 }
 
 export interface GraphState {

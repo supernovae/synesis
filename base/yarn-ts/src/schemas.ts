@@ -2,6 +2,33 @@ import { z } from "zod";
 
 export const RoleSchema = z.enum(["system", "developer", "user", "assistant", "tool"]);
 
+const SynesisExtraBodySchema = z.object({
+  contextMediation: z.string().max(64).optional(),
+  architectureProfile: z.string().max(64).optional(),
+}).strict();
+
+const OpenAIExtraBodySchema = z.object({
+  top_k: z.number().int().min(0).optional(),
+  min_p: z.number().min(0).max(1).optional(),
+  repetition_penalty: z.number().min(0).optional(),
+  enable_thinking: z.boolean().optional(),
+  enable_prefix_caching: z.boolean().optional(),
+  synesis: SynesisExtraBodySchema.optional(),
+  synesis_planning_override: z.union([z.boolean(), z.string().max(32)]).optional(),
+  planning_override: z.union([z.boolean(), z.string().max(32)]).optional(),
+  synesis_plan_mode: z.union([z.boolean(), z.string().max(32)]).optional(),
+  plan_mode: z.union([z.boolean(), z.string().max(32)]).optional(),
+  synesis_custom_style: z.string().max(2000).optional(),
+  custom_style: z.string().max(2000).optional(),
+  synesis_context_mediation: z.string().max(64).optional(),
+  synesis_memory: z.string().max(64).optional(),
+  synesis_work_packet: z.string().max(64).optional(),
+  synesis_memory_mediation: z.string().max(64).optional(),
+  synesis_architecture_mediation: z.string().max(64).optional(),
+  architecture_mediation: z.string().max(64).optional(),
+  synesis_architecture_profile: z.string().max(64).optional(),
+}).strict();
+
 const FunctionCallSchema = z.object({
   name: z.string().max(256),
   arguments: z.string().optional().default("{}"),
@@ -92,7 +119,7 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   tool_choice: ToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
   response_format: OpenAIResponseFormatSchema.optional(),
-  extra_body: z.record(z.string(), z.unknown()).optional(),
+  extra_body: OpenAIExtraBodySchema.optional(),
   user: z.string().optional().nullable(),
   conversation_id: z.string().optional().nullable(),
   metadata: z.record(z.string(), z.unknown()).optional(),

@@ -133,6 +133,33 @@ describe("client payload conformance fixtures", () => {
     expect(parsed.data.parallel_tool_calls).toBe(false);
   });
 
+  it("restricts OpenAI extra_body to known provider and Synesis controls", () => {
+    const accepted = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      extra_body: {
+        top_k: 20,
+        min_p: 0.1,
+        enable_prefix_caching: true,
+        synesis_planning_override: "yes",
+        synesis: {
+          contextMediation: "safe",
+          architectureProfile: "model-registry",
+        },
+      },
+    });
+    expect(accepted.success).toBe(true);
+
+    const rejected = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      extra_body: {
+        custom_provider_option: "invented",
+      },
+    });
+    expect(rejected.success).toBe(false);
+  });
+
   it("codex-cli fixture sanitizes malformed tool IDs and maps tool_choice", () => {
     const body = loadFixture("codex-cli", "openai_malformed_tool_payload.json");
     const parsed = OpenAIChatCompletionRequestSchema.safeParse(body);

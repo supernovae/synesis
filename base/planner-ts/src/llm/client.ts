@@ -10,6 +10,7 @@ import {
   computeCost,
 } from "@synesis/telemetry";
 import { CircuitBreakerRegistry } from "./circuit-breaker.js";
+import { normalizeProviderExtraBody } from "./extra-body.js";
 import { getLlmRoute, hasLlmRoutes, type LlmRoute } from "../public-model-catalog.js";
 
 export type { LlmUsage };
@@ -293,8 +294,9 @@ function resolvedGenerationParams(route: LlmRoute | undefined): Partial<ChatRequ
     out.tool_choice = raw.tool_choice as ChatRequest["tool_choice"];
   }
   if (typeof raw.parallel_tool_calls === "boolean") out.parallel_tool_calls = raw.parallel_tool_calls;
-  if (raw.extra_body && typeof raw.extra_body === "object" && !Array.isArray(raw.extra_body)) {
-    out.extra_body = raw.extra_body as Record<string, unknown>;
+  const extraBody = normalizeProviderExtraBody(raw.extra_body);
+  if (extraBody) {
+    out.extra_body = extraBody;
   }
   return out;
 }
@@ -477,8 +479,9 @@ function mutateOpenAICompatBody(body: BodyInit | null | undefined, request: Chat
   if (prefixCacheMode === "strict") {
     extraBody.enable_prefix_caching = true;
   }
-  if (request.extra_body && typeof request.extra_body === "object") {
-    Object.assign(extraBody, request.extra_body);
+  const requestExtraBody = normalizeProviderExtraBody(request.extra_body);
+  if (requestExtraBody) {
+    Object.assign(extraBody, requestExtraBody);
   }
   if (Object.keys(extraBody).length > 0) parsed.extra_body = extraBody;
 
@@ -536,10 +539,7 @@ function openAICompatBody(
   if (request.parallel_tool_calls !== undefined) body.parallel_tool_calls = request.parallel_tool_calls;
   if (request.response_format !== undefined) body.response_format = request.response_format;
 
-  const extraBody =
-    request.extra_body && typeof request.extra_body === "object"
-      ? { ...request.extra_body }
-      : {};
+  const extraBody = { ...(normalizeProviderExtraBody(request.extra_body) ?? {}) };
   addExtraBodyOption(extraBody, "top_k", request.top_k);
   addExtraBodyOption(extraBody, "min_p", request.min_p);
   addExtraBodyOption(extraBody, "repetition_penalty", request.repetition_penalty);

@@ -80,7 +80,7 @@ describe("llm client request shaping", () => {
       tools: [{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }],
       tool_choice: "auto",
       parallel_tool_calls: false,
-      extra_body: { custom_provider_option: "x" },
+      extra_body: { min_p: 0.1, custom_provider_option: "x" },
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -99,7 +99,8 @@ describe("llm client request shaping", () => {
     expect(body.tools).toEqual([{ type: "function", function: { name: "lookup", parameters: { type: "object" } } }]);
     expect(body.tool_choice).toBe("auto");
     expect(body.parallel_tool_calls).toBe(false);
-    expect(body.extra_body.custom_provider_option).toBe("x");
+    expect(body.extra_body.min_p).toBe(0.1);
+    expect(body.extra_body.custom_provider_option).toBeUndefined();
   });
 
   it("uses a direct admin route for base URL, API key env, model, and generation defaults", async () => {
@@ -137,7 +138,7 @@ describe("llm client request shaping", () => {
           frequency_penalty: 0.2,
           stop: ["END"],
           parallel_tool_calls: false,
-          extra_body: { custom_provider_option: "x" },
+          extra_body: { min_p: 0.2, custom_provider_option: "x" },
         },
       },
       messages: [{ role: "user", content: "plan this" }],
@@ -154,6 +155,7 @@ describe("llm client request shaping", () => {
     expect(body.stop).toEqual(["END"]);
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.extra_body.top_k).toBe(20);
-    expect(body.extra_body.custom_provider_option).toBe("x");
+    expect(body.extra_body.min_p).toBe(0.2);
+    expect(body.extra_body.custom_provider_option).toBeUndefined();
   });
 });

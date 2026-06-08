@@ -283,7 +283,7 @@ describe("API contract", () => {
         n: 1,
         tool_choice: "none",
         parallel_tool_calls: false,
-        extra_body: { custom_provider_option: "x" },
+        extra_body: { top_k: 20, enable_prefix_caching: true },
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -303,6 +303,23 @@ describe("API contract", () => {
     const body = response.json();
     const content = String(body.choices?.[0]?.message?.content ?? "");
     expect(() => JSON.parse(content)).not.toThrow();
+    await app.close();
+  });
+
+  it("rejects unknown extra_body provider attributes", async () => {
+    const app = buildApp(makeConfig());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "hello planner" }],
+        stream: false,
+        extra_body: { custom_provider_option: "x" },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error?.type).toBe("invalid_request_error");
     await app.close();
   });
 

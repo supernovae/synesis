@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderExtraBodySchema } from "./llm/extra-body.js";
 
 function messageContentToText(value: unknown): string {
   if (value == null) return "";
@@ -98,7 +99,7 @@ export const ChatCompletionRequestSchema = z.object({
   tool_choice: ToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
   response_format: ResponseFormatSchema.optional(),
-  extra_body: z.record(z.string(), z.unknown()).optional(),
+  extra_body: ProviderExtraBodySchema.optional(),
   user: z.string().optional().nullable(),
   conversation_id: z.string().optional().nullable(),
   metadata: z.record(z.string(), z.unknown()).optional(),

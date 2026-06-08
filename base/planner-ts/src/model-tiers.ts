@@ -6,6 +6,7 @@ import {
   type LlmRoute,
   type PublicPlannerOffering,
 } from "./public-model-catalog.js";
+import { normalizeProviderExtraBody } from "./llm/extra-body.js";
 import type { GenerationParams } from "./state/types.js";
 
 export type ModelTier = "auto" | "pulse" | "core" | "horizon";
@@ -144,8 +145,9 @@ function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParam
     out.tool_choice = params.tool_choice as GenerationParams["tool_choice"];
   }
   if (typeof params.parallel_tool_calls === "boolean") out.parallel_tool_calls = params.parallel_tool_calls;
-  if (params.extra_body && typeof params.extra_body === "object" && !Array.isArray(params.extra_body)) {
-    out.extra_body = params.extra_body as Record<string, unknown>;
+  const extraBody = normalizeProviderExtraBody(params.extra_body);
+  if (extraBody) {
+    out.extra_body = extraBody;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

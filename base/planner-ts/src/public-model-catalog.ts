@@ -1,5 +1,7 @@
 import type { AppConfig } from "./config.js";
 
+import { normalizeProviderExtraBody } from "./llm/extra-body.js";
+
 export interface PublicPlannerOffering {
   client_model_id: string;
   label: string | null;
@@ -78,7 +80,12 @@ function generationParamsFromRecord(raw: Record<string, unknown> | null | undefi
   ];
   const out: Record<string, unknown> = {};
   for (const key of allowed) {
-    if (raw[key] !== undefined) out[key] = raw[key];
+    if (key === "extra_body") {
+      const extraBody = normalizeProviderExtraBody(raw.extra_body);
+      if (extraBody) out.extra_body = extraBody;
+    } else if (raw[key] !== undefined) {
+      out[key] = raw[key];
+    }
   }
   return Object.keys(out).length > 0 ? out : null;
 }
