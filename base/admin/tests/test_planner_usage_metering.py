@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.routers.planner_usage import PlannerMeteringBody, PlannerMeteringRatesSnapshot
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 
 @pytest.fixture
@@ -13,6 +15,55 @@ def client():
     from app.main import app
 
     return TestClient(app)
+
+
+def test_planner_metering_body_accepts_known_payload() -> None:
+    body = PlannerMeteringBody(
+        request_id="test-meter-req-0",
+        user_id="u1",
+        org_id="o1",
+        tenant_id="",
+        conversation_id="c1",
+        model="synesis-agent",
+        tokens_in=10,
+        tokens_out=5,
+        tokens_cached=2,
+        tokens_cache_write=1,
+        estimated_cost_usd=0.0001,
+        actual_cost_usd=0.0,
+        pricing_source="registry",
+        rates_snapshot={
+            "input_per_million": 1.0,
+            "output_per_million": 2.0,
+            "cached_input_per_million": 0.1,
+            "cache_write_input_per_million": 0.5,
+        },
+        latency_ms=100.0,
+        has_error=False,
+    )
+
+    payload = body.model_dump(exclude_none=True)
+    assert payload["request_id"] == "test-meter-req-0"
+    assert payload["rates_snapshot"]["cache_write_input_per_million"] == 0.5
+
+
+def test_planner_metering_body_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError, match="admin_override"):
+        PlannerMeteringBody(request_id="test-meter-req-0", admin_override=True)
+
+
+def test_planner_metering_body_requires_request_or_trace_id() -> None:
+    with pytest.raises(ValidationError, match="request_id or trace_id is required"):
+        PlannerMeteringBody(model="synesis-agent")
+
+
+def test_planner_metering_rates_reject_unknown_field() -> None:
+    with pytest.raises(ValidationError, match="provider_secret"):
+        PlannerMeteringRatesSnapshot(
+            input_per_million=1.0,
+            output_per_million=2.0,
+            provider_secret="leak",
+        )
 
 
 def test_planner_metering_ingest_requires_token_when_configured(client: TestClient, monkeypatch: pytest.MonkeyPatch):
