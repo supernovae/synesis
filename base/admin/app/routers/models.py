@@ -1535,6 +1535,18 @@ async def performance_by_role(
 CONDITION_TYPES = ("difficulty_lt", "difficulty_gte", "account_tier", "user_preference", "always")
 
 
+class ModelPolicyRuleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int | None = Field(None, ge=1)
+    priority: int | None = Field(None, ge=0, le=10000)
+    condition_type: Literal["difficulty_lt", "difficulty_gte", "account_tier", "user_preference", "always"]
+    condition_value: str = Field("", max_length=128)
+    model: str = Field(..., min_length=1, max_length=256)
+    label: str = Field("", max_length=128)
+    enabled: bool = True
+
+
 class EffortRecommendationPreviewRequest(BaseModel):
     prompt: str
     effort_mode: str | None = None
@@ -1666,18 +1678,13 @@ async def get_role_policies(role: str, _user: UserInfo = Depends(require_org_adm
 @router.put("/policies/{role}")
 async def put_role_policies(
     role: str,
-    rules: list[dict] = Body(...),
+    rules: list[ModelPolicyRuleBody] = Body(..., max_length=100),
     user: UserInfo = Depends(require_platform_admin),
 ):
     """Replace all rules for a role atomically."""
     if role not in KNOWN_ROLES:
         raise HTTPException(404, f"Unknown role: {role}")
-    for r in rules:
-        ct = r.get("condition_type", "")
-        if ct not in CONDITION_TYPES:
-            raise HTTPException(422, f"Invalid condition_type: {ct}")
-        if not r.get("model"):
-            raise HTTPException(422, "Each rule must have a model")
+    rules_data = [rule.model_dump(exclude_none=True) for rule in rules]
 
     async with async_session() as session:
         async with session.begin():
@@ -1685,7 +1692,7 @@ async def put_role_policies(
                 text("DELETE FROM model_policies WHERE role = :role"),
                 {"role": role},
             )
-            for idx, r in enumerate(rules):
+            for idx, r in enumerate(rules_data):
                 policy = ModelPolicy(
                     role=role,
                     priority=idx,
@@ -1704,7 +1711,7 @@ async def put_role_policies(
         summary=f"Updated model policies for role {role}",
         detail={"resource_type": "model_policy", "resource_id": role, "rules_count": len(rules)},
     )
-    return {"role": role, "rules_count": len(rules), "preview": _preview_policy(rules)}
+    return {"role": role, "rules_count": len(rules), "preview": _preview_policy(rules_data)}
 
 
 @router.delete("/policies/{role}")

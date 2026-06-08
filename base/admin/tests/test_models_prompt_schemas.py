@@ -6,6 +6,7 @@ from app.routers.models import (
     ModelCostUpdateBody,
     ModelDeploymentCreateBody,
     ModelDeploymentUpdateBody,
+    ModelPolicyRuleBody,
     PromptAssignmentUpsertBody,
     PromptProfileCreateBody,
     PromptProfileUpdateBody,
@@ -254,3 +255,44 @@ def test_model_cost_update_rejects_unknown_field() -> None:
 def test_model_cost_update_rejects_negative_rate() -> None:
     with pytest.raises(ValidationError, match="input_per_million"):
         ModelCostUpdateBody(role="planner", input_per_million=-1.0)
+
+
+def test_model_policy_rule_accepts_known_payload() -> None:
+    body = ModelPolicyRuleBody(
+        id=10,
+        priority=2,
+        condition_type="difficulty_gte",
+        condition_value="0.7",
+        model="synesis-planner-core",
+        label="Hard plans",
+        enabled=True,
+    )
+
+    payload = body.model_dump(exclude_none=True)
+    assert payload == {
+        "id": 10,
+        "priority": 2,
+        "condition_type": "difficulty_gte",
+        "condition_value": "0.7",
+        "model": "synesis-planner-core",
+        "label": "Hard plans",
+        "enabled": True,
+    }
+
+
+def test_model_policy_rule_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError, match="platform_admin"):
+        ModelPolicyRuleBody(
+            condition_type="always",
+            model="synesis-planner-core",
+            platform_admin=True,
+        )
+
+
+def test_model_policy_rule_rejects_unknown_condition_type() -> None:
+    with pytest.raises(ValidationError, match="tenant_override"):
+        ModelPolicyRuleBody(
+            condition_type="tenant_override",
+            condition_value="enterprise",
+            model="synesis-planner-core",
+        )
