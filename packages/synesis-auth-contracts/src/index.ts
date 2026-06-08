@@ -42,6 +42,53 @@ export interface SynesisForwardedIdentity {
 
 export type HeaderMap = Record<string, string | string[] | undefined>;
 
+const SECURITY_ID_RE = /^[^\s,]{1,256}$/;
+const ORG_ID_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
+const TENANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const ACL_GROUP_RE = /^[A-Za-z0-9_.:@/-]{1,128}$/;
+const TOKEN_SCOPE_RE = /^[A-Za-z0-9][A-Za-z0-9:_.*-]{0,127}$/;
+const EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+
+function boundedHeaderString(value: unknown, maxLength: number): string {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (text.length > maxLength) throw new Error("invalid_forwarded_identity_header");
+  return text;
+}
+
+function requireHeaderPattern(value: string, pattern: RegExp, fieldName: string): string {
+  if (!value || !pattern.test(value)) throw new Error(`invalid_${fieldName}`);
+  return value;
+}
+
+function optionalHeaderPattern(value: string, pattern: RegExp, fieldName: string): string {
+  if (!value) return "";
+  return requireHeaderPattern(value, pattern, fieldName);
+}
+
+function parseBoundedCsvList(
+  value: string | string[] | undefined,
+  fieldName: string,
+  pattern: RegExp,
+  maxItems: number,
+  normalize: (item: string) => string = (item) => item,
+): string[] {
+  if (!value) return [];
+  const raw = Array.isArray(value) ? value.join(",") : value;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    const item = normalize(part.trim());
+    if (!item) continue;
+    if (!pattern.test(item)) throw new Error(`invalid_${fieldName}`);
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+    if (out.length > maxItems) throw new Error(`invalid_${fieldName}`);
+  }
+  return out;
+}
+
 export function extractBearerToken(authorizationHeader: string | undefined): string {
   const raw = authorizationHeader ?? "";
   if (!raw.toLowerCase().startsWith("bearer ")) return "";
@@ -91,24 +138,11 @@ export function validatePatPepperRequirement(requirement: PatPepperRequirement):
 }
 
 export function parseCsvScopes(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  const raw = Array.isArray(value) ? value.join(",") : value;
-  return normalizeTokenScopes(raw
-    .split(",")
-    .map((scope) => scope.trim())
-    .filter(Boolean));
+  return parseBoundedCsvList(value, "token_scopes", TOKEN_SCOPE_RE, 100, (scope) => scope.toLowerCase());
 }
 
 export function normalizeTokenScopes(value: readonly string[] | undefined, fallback: readonly string[] = []): string[] {
-  const seen = new Set<string>();
-  const scopes: string[] = [];
-  for (const raw of value ?? fallback) {
-    const scope = String(raw).trim();
-    if (!scope || seen.has(scope)) continue;
-    seen.add(scope);
-    scopes.push(scope);
-  }
-  return scopes;
+  return parseBoundedCsvList([...(value ?? fallback)], "token_scopes", TOKEN_SCOPE_RE, 100, (scope) => scope.toLowerCase());
 }
 
 export function hasScopePrefix(scopes: readonly string[] | undefined, prefixes: readonly string[]): boolean {
@@ -128,8 +162,8 @@ export function hasAnyScope(scopes: readonly string[] | undefined, allowedScopes
 
 export function firstHeaderValue(headers: HeaderMap, key: string): string {
   const value = headers[key.toLowerCase()] ?? headers[key];
-  if (Array.isArray(value)) return String(value[0] ?? "").trim();
-  return String(value ?? "").trim();
+  if (Array.isArray(value)) return boundedHeaderString(value[0] ?? "", 512);
+  return boundedHeaderString(value ?? "", 512);
 }
 
 export function hasForwardedIdentityHeaders(headers: HeaderMap): boolean {
@@ -143,11 +177,12 @@ export function hasForwardedIdentityHeaders(headers: HeaderMap): boolean {
 }
 
 export function parseForwardedIdentityHeaders(headers: HeaderMap): SynesisForwardedIdentity {
-  const userId = firstHeaderValue(headers, "x-openwebui-user-id") || "forwarded-user";
-  const userEmail = firstHeaderValue(headers, "x-openwebui-user-email");
-  const orgId = firstHeaderValue(headers, "x-synesis-org-id");
-  const tenantIds = parseCsvScopes(headers["x-synesis-tenant-ids"]);
-  const aclGroups = parseCsvScopes(headers["x-synesis-acl-groups"]);
+  const userId = optionalHeaderPattern(firstHeaderValue(headers, "x-openwebui-user-id"), SECURITY_ID_RE, "forwarded_user_id")
+    || "forwarded-user";
+  const userEmail = optionalHeaderPattern(firstHeaderValue(headers, "x-openwebui-user-email"), EMAIL_RE, "forwarded_user_email");
+  const orgId = optionalHeaderPattern(firstHeaderValue(headers, "x-synesis-org-id"), ORG_ID_RE, "forwarded_org_id");
+  const tenantIds = parseBoundedCsvList(headers["x-synesis-tenant-ids"], "forwarded_tenant_ids", TENANT_ID_RE, 50);
+  const aclGroups = parseBoundedCsvList(headers["x-synesis-acl-groups"], "forwarded_acl_groups", ACL_GROUP_RE, 100);
   const tokenScopes = parseCsvScopes(headers["x-synesis-token-scopes"]);
   return {
     present: hasForwardedIdentityHeaders(headers),

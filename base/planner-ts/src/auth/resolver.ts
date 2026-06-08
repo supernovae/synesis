@@ -19,7 +19,6 @@ function parseBearerToken(request: FastifyRequest): string {
 
 export async function resolveAuthContext(request: FastifyRequest, config: AppConfig): Promise<AuthContext> {
   const token = parseBearerToken(request);
-  const forwarded = parseForwardedIdentityHeaders(request.headers as HeaderMap);
 
   if (config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH && !token) {
     throw new Error("Missing Bearer token");
@@ -41,6 +40,14 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
   }
 
   if (trustedForwarded) {
+    let forwarded: ReturnType<typeof parseForwardedIdentityHeaders>;
+    try {
+      forwarded = parseForwardedIdentityHeaders(request.headers as HeaderMap);
+    } catch (error) {
+      const err = new Error(error instanceof Error ? error.message : "Invalid forwarded identity headers");
+      (err as Error & { statusCode?: number }).statusCode = 400;
+      throw err;
+    }
     const principal = buildForwardedIdentityPrincipal(forwarded, ["model:readonly"]);
     return {
       ...principal,

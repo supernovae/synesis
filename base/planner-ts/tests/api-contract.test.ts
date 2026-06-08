@@ -510,6 +510,35 @@ describe("API contract", () => {
     await app.close();
   });
 
+  it("rejects malformed trusted forwarded identity headers", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: "true",
+        SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE: "true",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "internal-service-token"
+      })
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: {
+        authorization: "Bearer internal-service-token",
+        "x-openwebui-user-id": "trusted-user",
+        "x-synesis-token-scopes": "model:readonly,role override"
+      },
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "hello planner" }],
+        stream: false
+      }
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json();
+    expect(body.error?.type).toBe("invalid_request_error");
+    await app.close();
+  });
+
   it("records trusted forwarded identity in authz event lineage", async () => {
     const app = buildApp(
       makeConfig({

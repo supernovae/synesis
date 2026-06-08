@@ -60,6 +60,43 @@ describe("resolveAuthContext", () => {
     expect(auth.tokenScopes).toEqual(["model:readonly", "coder:execute"]);
   });
 
+  it("rejects untrusted malformed forwarded identity headers in strict mode", async () => {
+    await expect(
+      resolveAuthContext(
+        request({
+          authorization: "Bearer arbitrary-token",
+          "x-openwebui-user-id": "spoofed user",
+          "x-synesis-token-scopes": "model:readonly,role override",
+        }),
+        config({
+          SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+          SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER: "true",
+          SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: "true",
+          SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE: "true",
+          SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "internal-token",
+        }),
+      ),
+    ).rejects.toMatchObject({ message: "Untrusted forwarded identity headers", statusCode: 403 });
+  });
+
+  it("rejects malformed trusted forwarded identity headers with a validation status", async () => {
+    await expect(
+      resolveAuthContext(
+        request({
+          authorization: "Bearer internal-token",
+          "x-openwebui-user-id": "trusted-user",
+          "x-synesis-token-scopes": "model:readonly,role override",
+        }),
+        config({
+          SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+          SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: "true",
+          SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE: "true",
+          SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "internal-token",
+        }),
+      ),
+    ).rejects.toMatchObject({ message: "invalid_token_scopes", statusCode: 400 });
+  });
+
   it("accepts internal service tokens without trusting forwarded identity headers", async () => {
     const auth = await resolveAuthContext(
       request({ authorization: "Bearer internal-token" }),

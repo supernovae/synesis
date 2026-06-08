@@ -65,10 +65,16 @@ describe("@synesis/auth-contracts", () => {
 
   it("parses comma-separated scopes", () => {
     expect(parseCsvScopes(" model:readonly, coder:readonly ,,")).toEqual(["model:readonly", "coder:readonly"]);
+    expect(parseCsvScopes(" MCP:INVOKE, coder:execute, mcp:invoke")).toEqual(["mcp:invoke", "coder:execute"]);
     expect(parseCsvScopes(["a,b", "c"])).toEqual(["a", "b", "c"]);
     expect(normalizeTokenScopes([" model:readonly", "model:readonly", ""])).toEqual(["model:readonly"]);
     expect(hasScopePrefix(["coder:execute"], ["coder:"])).toBe(true);
     expect(hasScopePrefix(["model:readonly"], ["coder:"])).toBe(false);
+  });
+
+  it("rejects malformed security scope strings", () => {
+    expect(() => parseCsvScopes("model:readonly, role override")).toThrow(/invalid_token_scopes/);
+    expect(() => parseCsvScopes("model:readonly,admin/write")).toThrow(/invalid_token_scopes/);
   });
 
   it("parses trusted forwarded identity headers into a principal contract", () => {
@@ -103,5 +109,23 @@ describe("@synesis/auth-contracts", () => {
       trusted_forwarded_identity: true,
       scope_count: 2,
     });
+  });
+
+  it("rejects malformed trusted forwarded identity headers", () => {
+    expect(() => parseForwardedIdentityHeaders({
+      "x-openwebui-user-id": "trusted user",
+    })).toThrow(/invalid_forwarded_user_id/);
+    expect(() => parseForwardedIdentityHeaders({
+      "x-openwebui-user-id": "trusted-user",
+      "x-openwebui-user-email": "not an email",
+    })).toThrow(/invalid_forwarded_user_email/);
+    expect(() => parseForwardedIdentityHeaders({
+      "x-openwebui-user-id": "trusted-user",
+      "x-synesis-org-id": "org alpha",
+    })).toThrow(/invalid_forwarded_org_id/);
+    expect(() => parseForwardedIdentityHeaders({
+      "x-openwebui-user-id": "trusted-user",
+      "x-synesis-token-scopes": "model:readonly,role override",
+    })).toThrow(/invalid_token_scopes/);
   });
 });
