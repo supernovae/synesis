@@ -137,6 +137,18 @@ describe("llm client request shaping", () => {
           top_k: 20,
           frequency_penalty: 0.2,
           stop: ["END"],
+          logit_bias: { "123": -1, role_override: 100 },
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "lookup_trace",
+                parameters: { type: "object", properties: { query: { type: "string" } } },
+                role_override: "platform_admin",
+              },
+            },
+          ],
+          tool_choice: { type: "function", function: { name: "lookup_trace" }, role_override: "platform_admin" },
           parallel_tool_calls: false,
           extra_body: { min_p: 0.2, custom_provider_option: "x" },
         },
@@ -153,9 +165,13 @@ describe("llm client request shaping", () => {
     expect(body.reasoning_effort).toBe("low");
     expect(body.frequency_penalty).toBe(0.2);
     expect(body.stop).toEqual(["END"]);
+    expect(body.logit_bias).toEqual({ "123": -1 });
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.extra_body.top_k).toBe(20);
     expect(body.extra_body.min_p).toBe(0.2);
     expect(body.extra_body.custom_provider_option).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("role_override");
   });
 });

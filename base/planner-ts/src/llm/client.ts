@@ -11,6 +11,7 @@ import {
 } from "@synesis/telemetry";
 import { CircuitBreakerRegistry } from "./circuit-breaker.js";
 import { normalizeProviderExtraBody } from "./extra-body.js";
+import { ToolChoiceSchema, ToolDefinitionSchema } from "../api-schemas.js";
 import { getLlmRoute, hasLlmRoutes, type LlmRoute } from "../public-model-catalog.js";
 
 export type { LlmUsage };
@@ -276,29 +277,33 @@ function resolvedGenerationParams(route: LlmRoute | undefined): Partial<ChatRequ
   }
   const seed = numberParam("seed");
   if (seed != null) out.seed = Math.trunc(seed);
-  if (raw.logit_bias && typeof raw.logit_bias === "object" && !Array.isArray(raw.logit_bias)) {
-    out.logit_bias = raw.logit_bias as Record<string, number>;
-  }
+  const logitBias = normalizeLogitBias(raw.logit_bias);
+  if (logitBias) out.logit_bias = logitBias;
   if (typeof raw.logprobs === "boolean") out.logprobs = raw.logprobs;
   const topLogprobs = numberParam("top_logprobs");
   if (topLogprobs != null && topLogprobs >= 0) out.top_logprobs = Math.trunc(topLogprobs);
   const n = numberParam("n");
   if (n != null && n > 0) out.n = Math.trunc(n);
-  if (Array.isArray(raw.tools)) out.tools = raw.tools;
-  if (
-    raw.tool_choice === "none"
-    || raw.tool_choice === "auto"
-    || raw.tool_choice === "required"
-    || (raw.tool_choice && typeof raw.tool_choice === "object" && !Array.isArray(raw.tool_choice))
-  ) {
-    out.tool_choice = raw.tool_choice as ChatRequest["tool_choice"];
-  }
+  const tools = ToolDefinitionSchema.array().max(128).safeParse(raw.tools);
+  if (tools.success) out.tools = tools.data;
+  const toolChoice = ToolChoiceSchema.safeParse(raw.tool_choice);
+  if (toolChoice.success) out.tool_choice = toolChoice.data;
   if (typeof raw.parallel_tool_calls === "boolean") out.parallel_tool_calls = raw.parallel_tool_calls;
   const extraBody = normalizeProviderExtraBody(raw.extra_body);
   if (extraBody) {
     out.extra_body = extraBody;
   }
   return out;
+}
+
+function normalizeLogitBias(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!/^-?\d{1,12}$/.test(key)) continue;
+    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function mergeRouteDefaults(request: ChatRequest, route: LlmRoute | undefined): ChatRequest {
