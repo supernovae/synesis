@@ -160,6 +160,60 @@ describe("client payload conformance fixtures", () => {
     expect(rejected.success).toBe(false);
   });
 
+  it("rejects unknown OpenAI request and message envelope fields", () => {
+    const topLevel = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      role_override: "platform_admin",
+    });
+    expect(topLevel.success).toBe(false);
+
+    const message = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change.", tool_override: true }],
+    });
+    expect(message.success).toBe(false);
+  });
+
+  it("rejects unknown OpenAI tool and tool_choice envelope fields", () => {
+    const tool = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Use a tool." }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "read_file", parameters: { type: "object" }, risk_override: "ignore" },
+        },
+      ],
+    });
+    expect(tool.success).toBe(false);
+
+    const toolChoice = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Use a tool." }],
+      tool_choice: { type: "function", function: { name: "read_file" }, role_override: "admin" },
+    });
+    expect(toolChoice.success).toBe(false);
+  });
+
+  it("rejects unknown Claude request and tool envelope fields", () => {
+    const request = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+      role_override: "platform_admin",
+    });
+    expect(request.success).toBe(false);
+
+    const tool = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "Read", input_schema: { type: "object" }, tool_override: true }],
+    });
+    expect(tool.success).toBe(false);
+  });
+
   it("codex-cli fixture sanitizes malformed tool IDs and maps tool_choice", () => {
     const body = loadFixture("codex-cli", "openai_malformed_tool_payload.json");
     const parsed = OpenAIChatCompletionRequestSchema.safeParse(body);

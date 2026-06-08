@@ -38,7 +38,7 @@ const ToolCallSchema = z.object({
   id: z.string().optional(),
   type: z.literal("function").optional().default("function"),
   function: FunctionCallSchema,
-}).passthrough();
+}).strict();
 
 export const ChatMessageSchema = z.object({
   role: RoleSchema,
@@ -46,7 +46,7 @@ export const ChatMessageSchema = z.object({
   name: z.string().max(256).optional(),
   tool_call_id: z.string().optional(),
   tool_calls: z.array(ToolCallSchema).optional(),
-}).passthrough().transform((message) => ({
+}).strict().transform((message) => ({
   ...message,
   role: message.role === "developer" ? "system" as const : message.role,
 }));
@@ -54,10 +54,10 @@ export const ChatMessageSchema = z.object({
 export const OpenAIResponseFormatSchema = z.union([
   z.object({
     type: z.literal("text"),
-  }).passthrough(),
+  }).strict(),
   z.object({
     type: z.literal("json_object"),
-  }).passthrough(),
+  }).strict(),
   z.object({
     type: z.literal("json_schema"),
     json_schema: z.object({
@@ -65,8 +65,8 @@ export const OpenAIResponseFormatSchema = z.union([
       description: z.string().optional(),
       schema: z.record(z.string(), z.unknown()).optional(),
       strict: z.boolean().optional(),
-    }).passthrough(),
-  }).passthrough(),
+    }).strict(),
+  }).strict(),
 ]);
 
 const ToolFunctionSchema = z.object({
@@ -74,18 +74,25 @@ const ToolFunctionSchema = z.object({
   description: z.string().max(4096).optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   strict: z.boolean().optional(),
-}).passthrough();
+}).strict();
 
 const ToolDefinitionSchema = z.object({
   type: z.literal("function"),
   function: ToolFunctionSchema,
-}).passthrough();
+}).strict();
+
+const OpenAIToolChoiceObjectSchema = z.object({
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string().max(256),
+  }).strict(),
+}).strict();
 
 const ToolChoiceSchema = z.union([
   z.literal("none"),
   z.literal("auto"),
   z.literal("required"),
-  z.object({ type: z.string() }).passthrough(),
+  OpenAIToolChoiceObjectSchema,
 ]);
 
 const MAX_MESSAGES = 512;
@@ -114,7 +121,7 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   n: z.number().int().optional(),
   stream_options: z.object({
     include_usage: z.boolean().optional(),
-  }).passthrough().optional(),
+  }).strict().optional(),
   tools: z.array(ToolDefinitionSchema).max(MAX_TOOLS).optional(),
   tool_choice: ToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
@@ -132,18 +139,18 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   prompt_cache_retention: z.string().optional(),
   safety_identifier: z.string().optional(),
   verbosity: z.string().optional(),
-}).passthrough();
+}).strict();
 
 export const ClaudeMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.unknown()
-});
+}).strict();
 
 const ClaudeToolSchema = z.object({
   name: z.string().max(256),
   description: z.string().max(4096).optional(),
   input_schema: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+}).strict();
 
 const ClaudeToolChoiceSchema = z.union([
   z.object({ type: z.literal("auto") }),
@@ -170,7 +177,7 @@ export const ClaudeMessagesRequestSchema = z.object({
   reasoning_effort: z.string().optional(),
   stop_sequences: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional()
-}).passthrough();
+}).strict();
 
 export const ClaudeBootstrapPresetSchema = z.enum([
   "default",
@@ -193,7 +200,7 @@ export const ClaudeCommandExecuteRequestSchema = z.object({
   session_id: z.string().trim().optional(),
   conversation_id: z.string().trim().optional(),
   model: z.string().trim().optional(),
-}).passthrough();
+}).strict();
 
 export type OpenAIChatCompletionRequest = z.infer<typeof OpenAIChatCompletionRequestSchema>;
 export type ClaudeMessagesRequest = z.infer<typeof ClaudeMessagesRequestSchema>;
