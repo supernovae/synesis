@@ -100,4 +100,81 @@ describe("resolveTierSettings with public offerings", () => {
 
     expect(catalog.getPlannerPublicOfferings()).toEqual([]);
   });
+
+  it("sanitizes role route generation params before exposing LLM routes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            offerings: [],
+            for_service: "planner",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            roles: [
+              {
+                role: "writer-core",
+                assigned: true,
+                model: "safe-writer",
+                endpoint: "https://llm.internal/v1",
+                route_params: {
+                  max_tokens: 2048,
+                  logit_bias: {
+                    "123": -1,
+                    role_override: 100,
+                  },
+                  tools: [
+                    {
+                      type: "function",
+                      function: {
+                        name: "lookup_trace",
+                        parameters: { type: "object", properties: { query: { type: "string" } } },
+                      },
+                    },
+                  ],
+                  tool_choice: {
+                    type: "function",
+                    function: { name: "lookup_trace" },
+                    role_override: "platform_admin",
+                  },
+                  extra_body: {
+                    min_p: 0.2,
+                    custom_provider_option: "unsafe",
+                  },
+                },
+              },
+            ],
+          }),
+        }),
+    );
+
+    await catalog.refreshPublicModelCatalog(loadConfig({
+      SYNESIS_ADMIN_URL: "http://admin",
+      SYNESIS_ADMIN_INTERNAL_TOKEN: "internal-token",
+    }));
+
+    const route = catalog.getLlmRoute("writer-core");
+    expect(route?.generationParams).toMatchObject({
+      max_tokens: 2048,
+      logit_bias: { "123": -1 },
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup_trace",
+            parameters: { type: "object", properties: { query: { type: "string" } } },
+          },
+        },
+      ],
+      extra_body: { min_p: 0.2 },
+    });
+    expect(route?.generationParams?.tool_choice).toBeUndefined();
+    expect(JSON.stringify(route?.generationParams)).not.toContain("role_override");
+    expect(JSON.stringify(route?.generationParams)).not.toContain("custom_provider_option");
+  });
 });

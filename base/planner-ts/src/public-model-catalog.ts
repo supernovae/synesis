@@ -1,6 +1,7 @@
 import type { AppConfig } from "./config.js";
 import { z } from "zod";
 
+import { ToolChoiceSchema, ToolDefinitionSchema } from "./api-schemas.js";
 import { normalizeProviderExtraBody } from "./llm/extra-body.js";
 
 const PublicOfferingGenerationParamsSchema = z.object({
@@ -81,6 +82,18 @@ function normalizeRouteKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+const RouteGenerationToolsSchema = z.array(ToolDefinitionSchema).max(128);
+
+function normalizeRouteLogitBias(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!/^-?\d{1,12}$/.test(key)) continue;
+    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function generationParamsFromRecord(raw: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!raw || typeof raw !== "object") return null;
   const allowed = [
@@ -110,6 +123,15 @@ function generationParamsFromRecord(raw: Record<string, unknown> | null | undefi
     if (key === "extra_body") {
       const extraBody = normalizeProviderExtraBody(raw.extra_body);
       if (extraBody) out.extra_body = extraBody;
+    } else if (key === "logit_bias") {
+      const logitBias = normalizeRouteLogitBias(raw.logit_bias);
+      if (logitBias) out.logit_bias = logitBias;
+    } else if (key === "tools") {
+      const parsedTools = RouteGenerationToolsSchema.safeParse(raw.tools);
+      if (parsedTools.success) out.tools = parsedTools.data;
+    } else if (key === "tool_choice") {
+      const parsedToolChoice = ToolChoiceSchema.safeParse(raw.tool_choice);
+      if (parsedToolChoice.success) out.tool_choice = parsedToolChoice.data;
     } else if (raw[key] !== undefined) {
       out[key] = raw[key];
     }

@@ -109,7 +109,7 @@ const ToolFunctionSchema = z.object({
   strict: z.boolean().optional(),
 }).strict();
 
-const ToolDefinitionSchema = z.object({
+export const ToolDefinitionSchema = z.object({
   type: z.literal("function"),
   function: ToolFunctionSchema,
 }).strict();
@@ -158,7 +158,7 @@ const ToolChoiceObjectSchema = z.object({
   }).strict(),
 }).strict();
 
-const ToolChoiceSchema = z.union([
+export const ToolChoiceSchema = z.union([
   z.literal("none"),
   z.literal("auto"),
   z.literal("required"),
