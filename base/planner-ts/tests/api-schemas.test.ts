@@ -108,6 +108,31 @@ describe("planner API schemas", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("rejects unknown tool call function fields", () => {
+    const parsed = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "search",
+                arguments: "{\"query\":\"policy\"}",
+                role_override: "platform_admin",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects invented JSON Schema attributes in tool and response schemas", () => {
     const tool = ChatCompletionRequestSchema.safeParse({
       model: "Synesis",

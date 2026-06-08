@@ -83,7 +83,7 @@ const MessageContentSchema = z.union([
 const FunctionCallSchema = z.object({
   name: z.string().max(256),
   arguments: z.string().optional().default("{}"),
-});
+}).strict();
 
 const ToolCallSchema = z.object({
   id: z.string().optional(),
