@@ -85,6 +85,49 @@ describe("search route authorization", () => {
     await app.close();
   });
 
+  it("rejects unknown fields on authorized knowledge route bodies", async () => {
+    const app = buildApp(makeConfig({ SYNESIS_NORNIC_URI: "" }));
+    const search = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/search",
+      headers: { authorization: "Bearer debug-token" },
+      payload: { query: "go net/http", role_override: "admin" },
+    });
+    expect(search.statusCode).toBe(400);
+    expect(search.json()).toEqual({ error: "Request validation failed" });
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/resolve-pack",
+      headers: { authorization: "Bearer debug-token" },
+      payload: { query: "go net/http", invented_filter: "unsafe" },
+    });
+    expect(resolved.statusCode).toBe(400);
+    expect(resolved.json()).toEqual({ error: "Request validation failed" });
+
+    const bundle = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/bundle",
+      headers: { authorization: "Bearer debug-token" },
+      payload: { query: "go graceful shutdown", security_context: { role: "admin" } },
+    });
+    expect(bundle.statusCode).toBe(400);
+    expect(bundle.json()).toEqual({ error: "Request validation failed" });
+    await app.close();
+  });
+
+  it("checks knowledge route authorization before body validation", async () => {
+    const app = buildApp(makeConfig());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/knowledge/search",
+      headers: { authorization: "Bearer totally-random" },
+      payload: { query: "go net/http", role_override: "admin" },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
   it("requires authorized access for SynPack resolver and bundle routes", async () => {
     const app = buildApp(makeConfig({ SYNESIS_NORNIC_URI: "" }));
     const denied = await app.inject({

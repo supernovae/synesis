@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyRateLimit from "@fastify/rate-limit";
 import { constantTimeBearerMatch, extractBearerToken } from "@synesis/auth-contracts";
 import { Registry } from "prom-client";
+import { z } from "zod";
 import {
   ZERO_USAGE,
   PricingRegistry,
@@ -97,6 +98,67 @@ type ErrorWithMeta = Error & {
 };
 
 type RateLimitOptions = { max: number; timeWindow: string | number };
+
+const KnowledgeStringSchema = z.string().trim().max(4096);
+const KnowledgeShortStringSchema = z.string().trim().max(512);
+const KnowledgeStringArraySchema = z.array(KnowledgeShortStringSchema).max(50);
+const KnowledgeNumericSchema = z.union([
+  z.number(),
+  z.string().trim().regex(/^\d{1,6}$/),
+]);
+
+const KnowledgeRouteBodySchema = z.object({
+  query: KnowledgeStringSchema.optional(),
+  mode: z.enum(["bundle", "cards"]).optional(),
+  top_k: KnowledgeNumericSchema.optional(),
+  domain: KnowledgeShortStringSchema.optional(),
+  content_type: KnowledgeShortStringSchema.optional(),
+  language: KnowledgeShortStringSchema.optional(),
+  package_name: KnowledgeShortStringSchema.optional(),
+  symbol: KnowledgeShortStringSchema.optional(),
+  symbol_fqn: KnowledgeShortStringSchema.optional(),
+  symbol_name: KnowledgeShortStringSchema.optional(),
+  version: KnowledgeShortStringSchema.optional(),
+  version_preference: KnowledgeShortStringSchema.optional(),
+  pack_version: KnowledgeShortStringSchema.optional(),
+  pack_id: KnowledgeShortStringSchema.optional(),
+  pack_ids: KnowledgeStringArraySchema.optional(),
+  pack_partition: KnowledgeShortStringSchema.optional(),
+  topic: KnowledgeShortStringSchema.optional(),
+  task: KnowledgeShortStringSchema.optional(),
+  artifact_kind: KnowledgeShortStringSchema.optional(),
+  routing_mode: z.enum(["auto", "local", "hosted", "hybrid"]).optional(),
+  graph_depth: KnowledgeNumericSchema.optional(),
+  edge_types: KnowledgeStringArraySchema.optional(),
+  include_examples: z.boolean().optional(),
+  include_antipatterns: z.boolean().optional(),
+  include_context_cards: z.boolean().optional(),
+  include_pack_cards: z.boolean().optional(),
+  symbol_kind: KnowledgeShortStringSchema.optional(),
+  perf_tier: KnowledgeShortStringSchema.optional(),
+  corpus_class: KnowledgeShortStringSchema.optional(),
+  constraint_kind: KnowledgeShortStringSchema.optional(),
+  content_profile: KnowledgeShortStringSchema.optional(),
+  constraint_source: KnowledgeShortStringSchema.optional(),
+  golden_path_id: KnowledgeShortStringSchema.optional(),
+  scope_tags: KnowledgeStringArraySchema.optional(),
+  tags: KnowledgeStringSchema.optional(),
+  content_format: KnowledgeShortStringSchema.optional(),
+  repo_path: KnowledgeStringSchema.optional(),
+  module_path: KnowledgeStringSchema.optional(),
+  has_code: z.boolean().optional(),
+  code_language: KnowledgeShortStringSchema.optional(),
+  commit: KnowledgeShortStringSchema.optional(),
+  branch: KnowledgeShortStringSchema.optional(),
+  temporal_at: KnowledgeShortStringSchema.optional(),
+  caller_org_id: KnowledgeShortStringSchema.optional(),
+  caller_tenant_ids: KnowledgeStringArraySchema.optional(),
+  caller_acl_groups: KnowledgeStringArraySchema.optional(),
+  caller_user_id: KnowledgeShortStringSchema.optional(),
+  caller_conversation_id: KnowledgeShortStringSchema.optional(),
+}).strict();
+
+type KnowledgeRouteBody = z.infer<typeof KnowledgeRouteBodySchema>;
 
 function timeWindowMs(timeWindow: string | number): number {
   if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
@@ -249,6 +311,25 @@ function metadataFromKnowledgeBody(body: Record<string, unknown> | null): import
     has_code: typeof body?.has_code === "boolean" ? body.has_code : undefined,
     code_language: body?.code_language ? String(body.code_language) : undefined,
   };
+}
+
+function parseKnowledgeRouteBody(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): KnowledgeRouteBody | null {
+  const parsed = KnowledgeRouteBodySchema.safeParse(request.body ?? {});
+  if (parsed.success) return parsed.data;
+  request.log.warn(
+    {
+      issues: parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        code: issue.code,
+      })),
+    },
+    "knowledge_route_body_validation_failed",
+  );
+  void reply.code(400).send({ error: "Request validation failed" });
+  return null;
 }
 
 function inferPlannerModelFamily(modelId: string): string {
@@ -1234,9 +1315,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
       preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
     },
     async (request, reply) => {
-      const body = request.body as Record<string, unknown> | null;
-      const authorized = await authorizeKnowledgeRoute(request, reply, body);
+      const rawBody = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+        ? request.body as Record<string, unknown>
+        : null;
+      const authorized = await authorizeKnowledgeRoute(request, reply, rawBody);
       if (!authorized) return reply;
+      const body = parseKnowledgeRouteBody(request, reply);
+      if (!body) return reply;
       const query = optionalString(body?.query) ?? "";
       const hasResolverInput = Boolean(query || body?.language || body?.domain || body?.package_name || body?.symbol);
       if (!hasResolverInput) {
@@ -1269,9 +1354,13 @@ export function buildApp(config: AppConfig): FastifyInstance {
       preHandler: createRouteRateLimit({ max: 180, timeWindow: "1 minute" }),
     },
     async (request, reply) => {
-      const body = request.body as Record<string, unknown> | null;
-      const authorized = await authorizeKnowledgeRoute(request, reply, body);
+      const rawBody = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+        ? request.body as Record<string, unknown>
+        : null;
+      const authorized = await authorizeKnowledgeRoute(request, reply, rawBody);
       if (!authorized) return reply;
+      const body = parseKnowledgeRouteBody(request, reply);
+      if (!body) return reply;
       const query = String(body?.query ?? "").trim();
       if (!query) {
         return reply.code(400).send({ error: "query is required" });
@@ -1336,7 +1425,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
       });
     }
 
-    const body = request.body as Record<string, unknown> | null;
+    const rawBody = request.body && typeof request.body === "object" && !Array.isArray(request.body)
+      ? request.body as Record<string, unknown>
+      : null;
+    const body = parseKnowledgeRouteBody(request, reply);
+    if (!body) return reply;
     const query = String(body?.query ?? "").trim();
     if (!query) {
       return reply.code(400).send({ error: "query is required" });
@@ -1346,7 +1439,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const metaParams = metadataFromKnowledgeBody(body);
 
-    const bodyScopeHintsIgnored = hasCallerScopeHints(body);
+    const bodyScopeHintsIgnored = hasCallerScopeHints(rawBody);
     const scopeOpts = deriveKnowledgeSearchScope(auth, body, config, authzTraceId);
     if (bodyScopeHintsIgnored) {
       request.log.warn({
@@ -1358,7 +1451,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           "caller_tenant_ids",
           "caller_acl_groups",
           "caller_user_id",
-        ].filter((key) => body?.[key] !== undefined),
+        ].filter((key) => rawBody?.[key] !== undefined),
       }, "knowledge_search_body_scope_ignored");
     }
 
