@@ -51,6 +51,13 @@ def _matches_service_token(candidate: str) -> bool:
     return False
 
 
+def _bearer_token_from_authorization(header: str) -> str:
+    scheme, sep, token = header.strip().partition(" ")
+    if not sep or scheme.lower() != "bearer":
+        return ""
+    return token.strip()
+
+
 def require_internal_service_token_request(request: Request) -> ServicePrincipal:
     """Require a configured internal service token for ingest-only endpoints."""
     configured = _configured_service_tokens()
@@ -58,7 +65,7 @@ def require_internal_service_token_request(request: Request) -> ServicePrincipal
         raise HTTPException(status_code=503, detail="Internal service token is not configured")
     token = (
         request.headers.get("x-synesis-service-token", "")
-        or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        or _bearer_token_from_authorization(request.headers.get("authorization", ""))
     ).strip()
     for expected in configured:
         if hmac.compare_digest(token, expected):

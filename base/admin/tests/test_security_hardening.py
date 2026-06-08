@@ -33,6 +33,28 @@ def test_internal_service_token_accepts_configured_header(monkeypatch):
     assert principal.service == "planner"
 
 
+def test_internal_service_token_accepts_case_insensitive_bearer(monkeypatch):
+    from app.internal_auth import require_internal_service_token_request
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "svc-secret")
+    principal = require_internal_service_token_request(
+        _request([(b"authorization", b"bearer svc-secret"), (b"x-synesis-service-name", b"planner")])
+    )
+
+    assert principal.service == "planner"
+
+
+def test_internal_service_token_rejects_non_bearer_authorization(monkeypatch):
+    from app.internal_auth import require_internal_service_token_request
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "svc-secret")
+
+    with pytest.raises(HTTPException) as exc:
+        require_internal_service_token_request(_request([(b"authorization", b"Basic svc-secret")]))
+
+    assert exc.value.status_code == 401
+
+
 def test_public_https_url_blocks_private_resolution(monkeypatch):
     from app.services.outbound_security import validate_public_https_url
 
