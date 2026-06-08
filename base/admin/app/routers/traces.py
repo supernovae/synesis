@@ -7,10 +7,11 @@ End-user billing totals should use ``/api/v1/usage/me/summary`` (planner_usage_l
 import asyncio
 import logging
 import time
+from typing import Any, Literal, Self
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..auth import UserInfo, get_current_user
 from ..deps import PLANNER_URL
@@ -30,6 +31,143 @@ class TraceArchiveRequest(BaseModel):
     trace_service: str = Field(default="", max_length=32)
     dry_run: bool = True
     delete_after_archive: bool = False
+
+
+class TraceTokensBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    completion_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    total_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    cached_prompt_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    cache_creation_tokens: int | None = Field(None, ge=0, le=10_000_000_000)
+    estimated_cost_usd: float | None = Field(None, ge=0, le=1_000_000_000)
+    actual_cost_usd: float | None = Field(None, ge=0, le=1_000_000_000)
+
+
+class TraceRatesSnapshotBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_per_million: float = Field(0, ge=0, le=1_000_000)
+    output_per_million: float = Field(0, ge=0, le=1_000_000)
+    cached_input_per_million: float | None = Field(None, ge=0, le=1_000_000)
+    cache_write_input_per_million: float | None = Field(None, ge=0, le=1_000_000)
+
+
+class TraceCostBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    estimated_usd: float = Field(0, ge=0, le=1_000_000_000)
+    actual_usd: float = Field(0, ge=0, le=1_000_000_000)
+    rates_snapshot: TraceRatesSnapshotBody | None = None
+
+
+class TraceClassificationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    difficulty: float = Field(0, ge=0, le=1)
+    task_size: str = Field("", max_length=64)
+    risk_score: float = Field(0, ge=0, le=1)
+    effort_mode: str = Field("", max_length=64)
+    model_tier: str = Field("", max_length=64)
+    rag_mode: str = Field("", max_length=64)
+    plan_required: bool = False
+    show_assumptions: bool = False
+    taxonomy_key: str = Field("", max_length=128)
+    cynefin_domain: Literal["clear", "complicated", "complex", "chaotic"] | None = None
+    active_vertical: str | None = Field(None, max_length=128)
+
+
+class TraceLlmCallBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    model: str = Field("", max_length=256)
+    node: str = Field("", max_length=128)
+    role: str | None = Field(None, max_length=64)
+    prompt_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    completion_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    total_tokens: int = Field(0, ge=0, le=10_000_000_000)
+    cached_prompt_tokens: int | None = Field(None, ge=0, le=10_000_000_000)
+    latency_ms: float = Field(0, ge=0, le=86_400_000)
+    prompt_snippet: str | None = Field(None, max_length=200000)
+    completion_snippet: str | None = Field(None, max_length=200000)
+    prompt_full: str | None = Field(None, max_length=500000)
+    completion_full: str | None = Field(None, max_length=500000)
+    timestamp: float = Field(default_factory=time.time, ge=0)
+    actual_cost: float | None = Field(None, ge=0, le=1_000_000_000)
+    estimated_cost: float | None = Field(None, ge=0, le=1_000_000_000)
+
+
+class TraceSpanBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    node_name: str = Field("", max_length=128)
+    intent: str | None = Field(None, max_length=128)
+    start_time: float = Field(0, ge=0)
+    end_time: float = Field(0, ge=0)
+    latency_ms: float = Field(0, ge=0, le=86_400_000)
+    tokens_used: int = Field(0, ge=0, le=10_000_000_000)
+    confidence: float = Field(0, ge=0, le=1)
+    outcome: str = Field("", max_length=128)
+    reasoning: str | None = Field(None, max_length=20000)
+    llm_calls: list[TraceLlmCallBody] = Field(default_factory=list, max_length=100)
+    metadata: dict[str, Any] | None = Field(None, max_length=200)
+
+
+class TraceStreamingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["streaming", "non-streaming"]
+    time_to_first_token_ms: float | None = Field(None, ge=0, le=86_400_000)
+
+
+class TraceIngestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    service: Literal["planner", "yarn", "unknown"] = "unknown"
+    trace_id: str | None = Field(None, min_length=1, max_length=128)
+    request_id: str | None = Field(None, min_length=1, max_length=128)
+    authz_trace_id: str | None = Field(None, max_length=128)
+    conversation_id: str = Field("", max_length=128)
+    parent_trace_id: str = Field("", max_length=128)
+    root_trace_id: str = Field("", max_length=128)
+    timestamp: float = Field(default_factory=time.time, ge=0)
+    user_id: str = Field("", max_length=256)
+    org_id: str = Field("", max_length=256)
+    tenant_id: str = Field("", max_length=64)
+    model: str = Field("", max_length=256)
+    tokens: TraceTokensBody = Field(default_factory=TraceTokensBody)
+    cost: TraceCostBody = Field(default_factory=TraceCostBody)
+    latency_ms: float = Field(0, ge=0, le=86_400_000)
+    query_snippet: str = Field("", max_length=20000)
+    spans: list[TraceSpanBody] = Field(default_factory=list, max_length=500)
+    decision_ledger: list[Any] | None = Field(None, max_length=500)
+    sensemaking: dict[str, Any] | None = Field(None, max_length=200)
+    task_frame: dict[str, Any] | None = Field(None, max_length=200)
+    critic_result: dict[str, Any] | None = Field(None, max_length=200)
+    background_critic: dict[str, Any] | None = Field(None, max_length=200)
+    classification: TraceClassificationBody | None = None
+    difficulty: float | None = Field(None, ge=0, le=1)
+    task_type: str | None = Field(None, max_length=128)
+    domain_tags: list[str] | None = Field(None, max_length=100)
+    is_code_task: bool = False
+    has_error: bool = False
+    iteration_count: int = Field(0, ge=0, le=1000000)
+    max_iterations: int | None = Field(None, ge=0, le=1000000)
+    phase_timings: dict[str, float] | None = Field(None, max_length=100)
+    trace_context: dict[str, Any] | None = Field(None, max_length=200)
+    evidence_summary: dict[str, Any] | None = Field(None, max_length=200)
+    taxonomy: dict[str, Any] | None = Field(None, max_length=200)
+    critic_scores: dict[str, Any] | None = Field(None, max_length=200)
+    context_curation: dict[str, Any] | None = Field(None, max_length=200)
+    streaming: TraceStreamingBody | None = None
+    error: str | None = Field(None, max_length=20000)
+
+    @model_validator(mode="after")
+    def require_trace_or_request_id(self) -> Self:
+        if not (self.trace_id or self.request_id):
+            raise ValueError("trace_id or request_id is required")
+        return self
 
 
 def _ensure_org_observability(user: UserInfo) -> None:
@@ -198,39 +336,40 @@ def _verify_service_token(request: Request) -> None:
 
 
 @router.post("/ingest")
-async def ingest_trace(request: Request, body: dict = Body(...)):
+async def ingest_trace(request: Request, body: TraceIngestBody = Body(...)):
     """Accept a trace record from planner-ts or yarn-ts via fire-and-forget POST."""
     _verify_service_token(request)
+    record = body.model_dump(exclude_none=True)
 
-    service = body.get("service", "unknown")
-    trace_id = body.get("trace_id") or body.get("request_id", "")
-    tokens = body.get("tokens", {})
-    cost = body.get("cost", {})
+    service = record.get("service", "unknown")
+    trace_id = record.get("trace_id") or record.get("request_id", "")
+    tokens = record.get("tokens", {})
+    cost = record.get("cost", {})
 
     total_tokens = tokens.get("total_tokens", 0) or (
         tokens.get("prompt_tokens", 0) + tokens.get("completion_tokens", 0)
     )
 
-    classification = body.get("classification") or {}
-    difficulty = body.get("difficulty") or classification.get("difficulty", 0)
-    task_type = body.get("task_type") or classification.get("taxonomy_key", "")
-    is_code = body.get("is_code_task", False)
+    classification = record.get("classification") or {}
+    difficulty = record.get("difficulty") or classification.get("difficulty", 0)
+    task_type = record.get("task_type") or classification.get("taxonomy_key", "")
+    is_code = record.get("is_code_task", False)
     if not is_code and isinstance(task_type, str):
         is_code = task_type.startswith("code") or "programming" in task_type
-    has_error = bool(body.get("error") or body.get("has_error", False))
-    iteration_count = body.get("iteration_count", 0) or 0
+    has_error = bool(record.get("error") or record.get("has_error", False))
+    iteration_count = record.get("iteration_count", 0) or 0
 
     trace_data = {
         "trace_id": trace_id,
-        "user_id": body.get("user_id", ""),
-        "org_id": body.get("org_id", ""),
-        "tenant_id": body.get("tenant_id", ""),
-        "conversation_id": body.get("conversation_id", ""),
-        "parent_trace_id": body.get("parent_trace_id", ""),
-        "root_trace_id": body.get("root_trace_id", ""),
-        "query_snippet": body.get("query_snippet", ""),
-        "timestamp": body.get("timestamp", time.time()),
-        "total_duration_ms": body.get("latency_ms", 0),
+        "user_id": record.get("user_id", ""),
+        "org_id": record.get("org_id", ""),
+        "tenant_id": record.get("tenant_id", ""),
+        "conversation_id": record.get("conversation_id", ""),
+        "parent_trace_id": record.get("parent_trace_id", ""),
+        "root_trace_id": record.get("root_trace_id", ""),
+        "query_snippet": record.get("query_snippet", ""),
+        "timestamp": record.get("timestamp", time.time()),
+        "total_duration_ms": record.get("latency_ms", 0),
         "total_tokens": total_tokens,
         "estimated_cost_usd": cost.get("estimated_usd", 0),
         "actual_cost_usd": cost.get("actual_usd", 0),
@@ -239,7 +378,7 @@ async def ingest_trace(request: Request, body: dict = Body(...)):
         "is_code_task": is_code,
         "has_error": has_error,
         "iteration_count": iteration_count,
-        "full_record": body,
+        "full_record": record,
     }
 
     try:
