@@ -19,6 +19,82 @@ export interface PatUser extends SynesisPrincipalBase {
   authMethod?: "pat" | "oidc" | "internal";
 }
 
+export type McpPrincipalRole = "readonly" | "user" | "org_admin" | "platform_admin" | "admin" | "service";
+
+const MCP_PRINCIPAL_ROLES = new Set<McpPrincipalRole>([
+  "readonly",
+  "user",
+  "org_admin",
+  "platform_admin",
+  "admin",
+  "service",
+]);
+const SECURITY_ID_RE = /^[^\s,]{1,256}$/;
+const ORG_ID_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
+const TENANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const SCOPE_RE = /^[A-Za-z0-9][A-Za-z0-9:_.*-]{0,127}$/;
+
+function boundedDisplayString(value: unknown, maxLength: number): string {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function securityId(value: unknown, fieldName: string): string {
+  const text = boundedDisplayString(value, 256);
+  if (!text || !SECURITY_ID_RE.test(text)) {
+    throw new Error(`invalid_${fieldName}`);
+  }
+  return text;
+}
+
+function optionalOrgId(value: unknown): string {
+  const text = boundedDisplayString(value, 256);
+  if (!text) return "";
+  if (!ORG_ID_RE.test(text)) throw new Error("invalid_org_id");
+  return text;
+}
+
+function normalizeRole(value: unknown): McpPrincipalRole | null {
+  if (typeof value !== "string") return null;
+  const role = value.trim().toLowerCase();
+  return MCP_PRINCIPAL_ROLES.has(role as McpPrincipalRole) ? role as McpPrincipalRole : null;
+}
+
+function normalizeSecurityStringArray(
+  value: unknown,
+  fieldName: string,
+  pattern: RegExp,
+  maxItems: number,
+  normalize: (text: string) => string = (text) => text,
+): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`invalid_${fieldName}`);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") throw new Error(`invalid_${fieldName}`);
+    const normalized = normalize(item.trim());
+    if (!normalized) continue;
+    if (!pattern.test(normalized)) throw new Error(`invalid_${fieldName}`);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+    if (out.length > maxItems) throw new Error(`invalid_${fieldName}`);
+  }
+  return out;
+}
+
+function normalizeTenantIds(value: unknown): string[] {
+  return normalizeSecurityStringArray(value, "tenant_ids", TENANT_ID_RE, 50);
+}
+
+function normalizeTokenScopeList(value: unknown, fallback: readonly string[] = []): string[] {
+  if (value !== undefined && value !== null && !Array.isArray(value)) {
+    throw new Error("invalid_token_scopes");
+  }
+  const source = [...fallback, ...(value ?? [])];
+  return normalizeSecurityStringArray(source, "token_scopes", SCOPE_RE, 100, (scope) => scope.toLowerCase());
+}
+
 export class McpAuthResolver {
   private readonly pool: Pool | null;
   private readonly pepper: string;
@@ -100,11 +176,22 @@ export class McpAuthResolver {
       scopes: string[] | null;
       username: string | null;
     };
-    const orgId = (row.org_id ?? "").trim();
-    const tenantIds = (row.tenant_ids ?? [])
-      .map((t) => String(t).trim().slice(0, 64))
-      .filter(Boolean)
-      .slice(0, 50);
+    let userId: string;
+    let orgId: string;
+    let tenantIds: string[];
+    let role: McpPrincipalRole;
+    let tokenScopes: string[];
+    try {
+      userId = securityId(row.user_id, "user_id");
+      orgId = optionalOrgId(row.org_id);
+      tenantIds = normalizeTenantIds(row.tenant_ids);
+      const parsedRole = normalizeRole(row.role ?? "user");
+      if (!parsedRole || parsedRole === "service") return null;
+      role = parsedRole;
+      tokenScopes = normalizeTokenScopeList(row.scopes);
+    } catch {
+      return null;
+    }
     if (tenantIds.length > 0 && !orgId) return null;
 
     void this.pool
@@ -112,14 +199,15 @@ export class McpAuthResolver {
       .catch((err) => { console.warn("[auth] PAT last_used update failed:", (err as Error).message ?? err); });
 
     const patUser: PatUser = {
-      userId: row.user_id,
+      userId,
       orgId,
       tenantIds,
-      role: row.role ?? "user",
-      tokenScopes: row.scopes ?? [],
+      role,
+      tokenScopes,
       authMethod: "pat",
     };
-    if (row.username) patUser.displayName = row.username;
+    const displayName = boundedDisplayString(row.username, 256);
+    if (displayName) patUser.displayName = displayName;
     return patUser;
   }
 
@@ -137,6 +225,9 @@ export class McpAuthResolver {
       if (err instanceof OidcAuthError) {
         throw new Error(`invalid_oidc_token:${err.code}`, { cause: err });
       }
+      if (err instanceof Error && err.message.startsWith("invalid_")) {
+        throw new Error("invalid_oidc_token:invalid_claims", { cause: err });
+      }
       throw err;
     }
   }
@@ -151,21 +242,22 @@ export class McpAuthResolver {
   }
 
   private userFromOidcPrincipal(principal: OidcVerifiedPrincipal): PatUser {
-    let role = "user";
+    let role: McpPrincipalRole = "user";
     if (principal.realmRoles.includes("synesis-admin")) {
       role = "platform_admin";
     } else if (principal.realmRoles.includes("synesis-org-admin") || principal.orgRoles.includes("admin")) {
       role = "org_admin";
     }
     const user: PatUser = {
-      userId: principal.userId,
-      orgId: principal.orgId,
+      userId: securityId(principal.userId, "user_id"),
+      orgId: optionalOrgId(principal.orgId),
       tenantIds: [],
       role,
-      tokenScopes: ["mcp:invoke", "coder:oidc", ...principal.scopes],
+      tokenScopes: normalizeTokenScopeList(principal.scopes, ["mcp:invoke", "coder:oidc"]),
       authMethod: "oidc",
     };
-    if (principal.displayName) user.displayName = principal.displayName;
+    const displayName = boundedDisplayString(principal.displayName, 256);
+    if (displayName) user.displayName = displayName;
     return user;
   }
 

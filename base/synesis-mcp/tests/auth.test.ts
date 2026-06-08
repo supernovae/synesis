@@ -7,6 +7,18 @@ function resolver(): McpAuthResolver {
   return new McpAuthResolver(loadConfig({}));
 }
 
+function resolverWithPatRow(row: Record<string, unknown>): McpAuthResolver {
+  const auth = resolver();
+  const query = vi.fn(async (sql: string) => {
+    if (sql.includes("SELECT user_id")) {
+      return { rowCount: 1, rows: [row] };
+    }
+    return { rowCount: 1, rows: [] };
+  });
+  (auth as unknown as { pool: { query: typeof query } }).pool = { query };
+  return auth;
+}
+
 function user(scopes: string[]): PatUser {
   return {
     userId: "u1",
@@ -83,6 +95,64 @@ describe("McpAuthResolver", () => {
     expect(() => auth.requireCoderScope(user(["coder:execute"]))).not.toThrow();
   });
 
+  it("normalizes validated PAT identity, role, tenants, and scopes", async () => {
+    const auth = resolverWithPatRow({
+      user_id: "user-1",
+      org_id: "org-1",
+      tenant_ids: ["tenant-a", "tenant-a", "tenant_b"],
+      role: "ORG_ADMIN",
+      scopes: ["MCP:INVOKE", "coder:execute", "coder:execute"],
+      username: "  Platform Operator  ",
+    });
+
+    const resolved = await auth.resolvePat("syn-test-token");
+
+    expect(resolved).toMatchObject({
+      userId: "user-1",
+      orgId: "org-1",
+      tenantIds: ["tenant-a", "tenant_b"],
+      role: "org_admin",
+      tokenScopes: ["mcp:invoke", "coder:execute"],
+      displayName: "Platform Operator",
+      authMethod: "pat",
+    });
+  });
+
+  it("fails closed for unknown PAT roles from storage", async () => {
+    const auth = resolverWithPatRow({
+      user_id: "user-1",
+      org_id: "org-1",
+      tenant_ids: [],
+      role: "super_admin",
+      scopes: ["mcp:invoke"],
+      username: "user",
+    });
+
+    await expect(auth.resolvePat("syn-test-token")).resolves.toBeNull();
+  });
+
+  it("fails closed for malformed PAT tenant and scope fields from storage", async () => {
+    const malformedTenant = resolverWithPatRow({
+      user_id: "user-1",
+      org_id: "org-1",
+      tenant_ids: ["tenant a"],
+      role: "user",
+      scopes: ["mcp:invoke"],
+      username: "user",
+    });
+    const malformedScope = resolverWithPatRow({
+      user_id: "user-1",
+      org_id: "org-1",
+      tenant_ids: [],
+      role: "user",
+      scopes: ["mcp:invoke", "role override"],
+      username: "user",
+    });
+
+    await expect(malformedTenant.resolvePat("syn-test-token")).resolves.toBeNull();
+    await expect(malformedScope.resolvePat("syn-test-token")).resolves.toBeNull();
+  });
+
   it("can require PAT pepper when configured", () => {
     expect(() =>
       loadConfig({
@@ -145,5 +215,23 @@ describe("McpAuthResolver", () => {
       SYNESIS_OIDC_ISSUER_URL: "https://auth.example.com/realms/synesis",
     }));
     await expect(auth.resolveOidc("bad.token.value")).rejects.toThrow(/invalid_oidc_token/);
+  });
+
+  it("fails closed for hosted MCP OIDC tokens with malformed scope claims", async () => {
+    const { privateKey, jwk } = keyPair();
+    stubOidcJwks(jwk);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
+    const auth = new McpAuthResolver(loadConfig({
+      SYNESIS_OIDC_ISSUER_URL: "https://auth.example.com/realms/synesis",
+      SYNESIS_OIDC_INTERNAL_ISSUER_URL: "http://keycloak.internal/realms/synesis",
+      SYNESIS_OIDC_ALLOWED_CLIENT_IDS: "synesis-harness",
+      SYNESIS_OIDC_REQUIRED_ROLES: "synesis-user",
+    }));
+
+    await expect(auth.resolveOidc(signedJwt(privateKey, validOidcPayload({
+      scope: "openid bad/scope",
+    })))).rejects.toThrow(/invalid_oidc_token:invalid_claims/);
+
+    nowSpy.mockRestore();
   });
 });
