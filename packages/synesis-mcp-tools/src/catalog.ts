@@ -42,6 +42,7 @@ const CATALOG_JSON_SCHEMA_KEYS = new Set([
   "minLength",
   "minimum",
   "oneOf",
+  "pattern",
   "propertyNames",
   "properties",
   "required",
@@ -75,6 +76,9 @@ function closeCatalogJsonSchema(value: unknown): unknown {
     } else {
       out[key] = closeCatalogJsonSchema(item);
     }
+  }
+  if (Object.keys(out).length === 0) {
+    throw new Error("unsupported_catalog_empty_schema");
   }
 
   const hasBoundedMapSchema = isRecord(out.propertyNames) && isRecord(out.additionalProperties);

@@ -53,6 +53,7 @@ const CATALOG_JSON_SCHEMA_KEYS = new Set([
   "minLength",
   "minimum",
   "oneOf",
+  "pattern",
   "propertyNames",
   "properties",
   "required",
@@ -88,6 +89,7 @@ function assertClosedSchema(schema: unknown, path: string): void {
   }
   if (!isRecord(schema)) return;
 
+  expect(Object.keys(schema).length, `${path} must not expose an empty schema descriptor`).toBeGreaterThan(0);
   for (const key of Object.keys(schema)) {
     expect(CATALOG_JSON_SCHEMA_KEYS.has(key), `${path} should not expose unknown schema key ${key}`).toBe(true);
   }
