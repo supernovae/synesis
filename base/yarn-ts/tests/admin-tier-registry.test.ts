@@ -162,6 +162,44 @@ describe("fetchTierConfigs", () => {
     await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/invented_provider_flag/);
   });
 
+  it("rejects unknown role assignment fields from the admin registry", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "m",
+            endpoint: "",
+            security_override: "admin",
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/security_override/);
+  });
+
+  it("rejects unknown cost fields from the admin registry", async () => {
+    stubFetch(
+      { roles: [{ role: "coder-core", assigned: true, provider: "openrouter", model: "m", endpoint: "" }] },
+      {
+        costs: [
+          {
+            role: "coder-core",
+            input_per_million: 1,
+            output_per_million: 2,
+            billing_override: "free",
+          },
+        ],
+      },
+    );
+
+    await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/billing_override/);
+  });
+
   it("rejects unknown nested architecture profile keys from route_params", async () => {
     stubFetch(
       {

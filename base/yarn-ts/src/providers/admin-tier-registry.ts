@@ -155,11 +155,11 @@ const RoleSchema = z.object({
   route_params: RouteParamsSchema.nullable().optional(),
   adapter_hint: z.string().nullable().optional(),
   context_window: z.number().nullable().optional(),
-});
+}).strict();
 
 const RolesEnvelopeSchema = z.object({
   roles: z.array(RoleSchema)
-});
+}).strict();
 
 const PromptProfileSchema = z.object({
   id: z.number(),
@@ -167,7 +167,7 @@ const PromptProfileSchema = z.object({
   service: z.string(),
   content: z.string(),
   content_hash: z.string(),
-});
+}).strict();
 
 const PromptAssignmentSchema = z.object({
   id: z.number(),
@@ -175,14 +175,14 @@ const PromptAssignmentSchema = z.object({
   target_type: z.string(),
   target_value: z.string(),
   profile_id: z.number(),
-});
+}).strict();
 
 const PromptSnapshotSchema = z.object({
   service: z.string(),
   profiles: z.array(PromptProfileSchema),
   assignments: z.array(PromptAssignmentSchema),
   updated_at: z.string().nullable().optional(),
-});
+}).strict();
 
 const CostRowSchema = z.object({
   role: z.string(),
@@ -192,14 +192,12 @@ const CostRowSchema = z.object({
   /** When set, estimated cost includes cache write tokens at this $/1M; else cache_creation billed at input rate. */
   input_cache_write_per_million: z.number().nullable().optional(),
   pricing_source: z.string().optional(),
-});
+}).strict();
 
-const CostEnvelopeSchema = z
-  .object({
-    costs: z.array(CostRowSchema).optional(),
-    roles: z.array(CostRowSchema).optional()
-  })
-  .passthrough();
+const CostEnvelopeSchema = z.object({
+  costs: z.array(CostRowSchema).optional(),
+  roles: z.array(CostRowSchema).optional()
+}).strict();
 
 export type TierId = "synesis-pulse" | "synesis-core" | "synesis-horizon" | "synesis-compaction";
 
