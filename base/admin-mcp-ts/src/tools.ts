@@ -74,6 +74,20 @@ const TOOL_PROPERTY_SCHEMA_KEYS = new Set([
   "additionalProperties",
 ]);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
+  if (schemaType === "string") return typeof value === "string";
+  if (schemaType === "boolean") return typeof value === "boolean";
+  if (schemaType === "number") return typeof value === "number" && Number.isFinite(value);
+  if (schemaType === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (schemaType === "array") return Array.isArray(value);
+  if (schemaType === "object") return isRecord(value);
+  return false;
+}
+
 export class AdminMcpToolError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -404,11 +418,39 @@ function strictPropertySchema(schema: ToolJsonSchemaProperty): ToolJsonSchemaPro
   if (typeof schemaType !== "string" || !SUPPORTED_TOOL_SCHEMA_TYPES.has(schemaType)) {
     throw new Error("unsupported_tool_schema_type");
   }
+  if (schema.items !== undefined && schemaType !== "array") {
+    throw new Error("unsupported_tool_schema_items_key");
+  }
+  if (schema.properties !== undefined && schemaType !== "object") {
+    throw new Error("unsupported_tool_schema_properties_key");
+  }
+  if (schema.required !== undefined && schemaType !== "object") {
+    throw new Error("unsupported_tool_schema_required_key");
+  }
+  if (schema.additionalProperties !== undefined && (schemaType !== "object" || schema.additionalProperties !== false)) {
+    throw new Error("unsupported_tool_schema_additional_properties");
+  }
+  if (schema.enum !== undefined) {
+    if (!Array.isArray(schema.enum) || schemaType === "array" || schemaType === "object") {
+      throw new Error("unsupported_tool_schema_enum");
+    }
+    for (const enumValue of schema.enum) {
+      if (!valueMatchesSchemaType(enumValue, schemaType)) {
+        throw new Error("unsupported_tool_schema_enum_value");
+      }
+    }
+  }
+  if (schema.default !== undefined && !valueMatchesSchemaType(schema.default, schemaType)) {
+    throw new Error("unsupported_tool_schema_default_value");
+  }
   if (schemaType === "array" && !schema.items) {
     throw new Error("unsupported_tool_schema_array_without_items");
   }
-  if (schemaType === "object" && (!schema.properties || typeof schema.properties !== "object")) {
+  if (schemaType === "object" && !isRecord(schema.properties)) {
     throw new Error("unsupported_tool_schema_object_without_properties");
+  }
+  if (schema.required !== undefined && !Array.isArray(schema.required)) {
+    throw new Error("unsupported_tool_schema_required_key");
   }
   for (const requiredKey of schema.required ?? []) {
     if (typeof requiredKey !== "string" || !(requiredKey in (schema.properties ?? {}))) {
@@ -442,6 +484,12 @@ function strictInputSchema(schema: ToolInputSchema): ToolInputSchema {
   }
   if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
     throw new Error("unsupported_tool_schema_root_without_properties");
+  }
+  if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
+    throw new Error("unsupported_tool_schema_additional_properties");
+  }
+  if (schema.required !== undefined && !Array.isArray(schema.required)) {
+    throw new Error("unsupported_tool_schema_required_key");
   }
   const properties: Record<string, ToolJsonSchemaProperty> = {};
   for (const requiredKey of schema.required ?? []) {

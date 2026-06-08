@@ -281,6 +281,63 @@ describe("admin MCP tool catalog", () => {
     ).toThrow(/unsupported_tool_schema_property_key/);
   });
 
+  it("rejects malformed known MCP tool schema descriptor attributes", () => {
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {},
+        additionalProperties: true,
+      }),
+    ).toThrow(/unsupported_tool_schema_additional_properties/);
+
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          query: { type: "string", additionalProperties: false },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_additional_properties/);
+
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          query: { type: "string", properties: {} },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_properties_key/);
+
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          config: { type: "object", properties: [], additionalProperties: false } as never,
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_object_without_properties/);
+  });
+
+  it("rejects malformed MCP tool enum and default descriptors", () => {
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          role: { type: "string", enum: [{ role_override: "platform_admin" }] },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_enum_value/);
+
+    expect(() =>
+      zodInputSchemaForTool({
+        type: "object",
+        properties: {
+          enabled: { type: "boolean", default: "true" },
+        },
+      }),
+    ).toThrow(/unsupported_tool_schema_default_value/);
+  });
+
   it("rejects array MCP tool argument schemas without item definitions", () => {
     expect(() =>
       zodInputSchemaForTool({
