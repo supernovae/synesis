@@ -277,6 +277,39 @@ class PolicyCreate(BaseModel):
     priority: int = 0
 
 
+_VALID_ROUTE_GROUPS = {group.value for group in RouteGroup}
+
+
+def _normalize_policy_route_groups(
+    user: UserInfo,
+    *,
+    target_type: str,
+    route_groups: list[str] | None,
+) -> list[str] | None:
+    target = (target_type or "content").strip().lower()
+    raw_groups = route_groups or []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_groups:
+        group = str(raw).strip()
+        if not group or group in seen:
+            continue
+        seen.add(group)
+        normalized.append(group)
+    if len(normalized) > 50:
+        raise HTTPException(status_code=400, detail="route_groups may include at most 50 entries")
+    invalid = sorted(set(normalized) - _VALID_ROUTE_GROUPS)
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid route_groups: {', '.join(invalid)}")
+    if target in {"route", "both"} and not normalized:
+        raise HTTPException(status_code=400, detail="route_groups is required for route ACL policies")
+    if target == "content" and normalized:
+        raise HTTPException(status_code=400, detail="route_groups is only valid for route ACL policies")
+    if RouteGroup.platform_control.value in normalized and resolve_role(user) < Role.platform_admin:
+        raise HTTPException(status_code=403, detail="platform_control route policies require platform_admin")
+    return normalized or None
+
+
 @router.get("/policies")
 async def list_policies(
     org_id: str = Query("", description="Filter by org"),
@@ -323,6 +356,7 @@ async def create_policy(
     org_id = _target_org(_user, body.org_id)
     if scope == "platform" and resolve_role(_user) < Role.platform_admin:
         raise HTTPException(status_code=403, detail="Platform policies require platform_admin")
+    route_groups = _normalize_policy_route_groups(_user, target_type=body.target_type, route_groups=body.route_groups)
     async with async_session() as session:
         pol = AclPolicy(
             name=body.name,
@@ -331,7 +365,7 @@ async def create_policy(
             scope=scope,
             target_type=body.target_type,
             acl_groups=body.acl_groups,
-            route_groups=body.route_groups,
+            route_groups=route_groups,
             effect=body.effect,
             priority=body.priority,
             created_by=_user.username or _user.user_id,
