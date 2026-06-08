@@ -73,6 +73,46 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
     expect(result).toMatchObject({ error: "validation_error" });
   });
 
+  it("rejects unknown Terraform plan attributes before analysis", async () => {
+    const result = await dispatchSynesisTool(
+      "synesis_terraform_plan_analyze",
+      {
+        plan_json: JSON.stringify({
+          resource_changes: [
+            {
+              address: "aws_s3_bucket.logs",
+              type: "aws_s3_bucket",
+              provider_name: "registry.terraform.io/hashicorp/aws",
+              change: { actions: ["create"] },
+              run_as_admin: true,
+            },
+          ],
+        }),
+      },
+      auth,
+      deps,
+    );
+
+    expect(result).toMatchObject({ error: "validation_error" });
+  });
+
+  it("rejects unknown ECMA package metadata before analysis", async () => {
+    const result = await dispatchSynesisTool(
+      "synesis_ecma_environment_check",
+      {
+        package_json: JSON.stringify({
+          type: "module",
+          dependencies: { lodash: "^4.17.21" },
+          invented_security_role: "platform_admin",
+        }),
+      },
+      auth,
+      deps,
+    );
+
+    expect(result).toMatchObject({ error: "validation_error" });
+  });
+
   it("calls planner /v1/web/search for synesis_web_search", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }),

@@ -135,8 +135,83 @@ export const docsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_
 export const configSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 export const devDocsSearchInputSchema = knowledgeSearchInputSchema.omit({ artifact_kind: true });
 
+function parseBoundedJsonString(maxChars: number) {
+  return (value: unknown): unknown => {
+    if (typeof value !== "string") return value;
+    if (value.length > maxChars) return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  };
+}
+
+const TerraformPlanChangeSchema = z.object({
+  actions: z.array(z.enum(["no-op", "create", "read", "update", "delete"])).max(5).optional(),
+}).strict();
+
+const TerraformPlanResourceChangeSchema = z.object({
+  address: z.string().max(LIMITS.mediumStringChars).optional(),
+  type: z.string().max(LIMITS.shortStringChars).optional(),
+  provider_name: z.string().max(LIMITS.shortStringChars).optional(),
+  change: TerraformPlanChangeSchema.optional(),
+}).strict();
+
+const TerraformPlanJsonSchema = z.preprocess(
+  parseBoundedJsonString(LIMITS.maxTerraformPlanChars),
+  z.object({
+    format_version: z.string().max(LIMITS.shortStringChars).optional(),
+    terraform_version: z.string().max(LIMITS.shortStringChars).optional(),
+    resource_changes: z.array(TerraformPlanResourceChangeSchema).max(LIMITS.maxTerraformResources).optional(),
+  }).strict(),
+);
+
+const StringValueMapSchema = z.record(
+  z.string().max(LIMITS.shortStringChars),
+  z.string().max(LIMITS.mediumStringChars),
+);
+
+const EcmaCompilerOptionsSchema = z.object({
+  module: z.string().max(LIMITS.shortStringChars).optional(),
+  moduleResolution: z.string().max(LIMITS.shortStringChars).optional(),
+  strict: z.boolean().optional(),
+  noImplicitAny: z.boolean().optional(),
+}).strict();
+
+const EcmaPackageJsonSchema = z.preprocess(
+  parseBoundedJsonString(LIMITS.contextChars),
+  z.object({
+    name: z.string().max(LIMITS.shortStringChars).optional(),
+    version: z.string().max(LIMITS.shortStringChars).optional(),
+    type: z.enum(["module", "commonjs"]).optional(),
+    engines: StringValueMapSchema.optional(),
+    dependencies: StringValueMapSchema.optional(),
+    devDependencies: StringValueMapSchema.optional(),
+    optionalDependencies: StringValueMapSchema.optional(),
+    peerDependencies: StringValueMapSchema.optional(),
+    scripts: StringValueMapSchema.optional(),
+  }).strict(),
+);
+
+const EcmaTsConfigSchema = z.preprocess(
+  parseBoundedJsonString(LIMITS.contextChars),
+  z.object({
+    compilerOptions: EcmaCompilerOptionsSchema.optional(),
+  }).strict(),
+);
+
+const EcmaDenoJsonSchema = z.preprocess(
+  parseBoundedJsonString(LIMITS.contextChars),
+  z.object({
+    imports: StringValueMapSchema.optional(),
+    tasks: StringValueMapSchema.optional(),
+    compilerOptions: EcmaCompilerOptionsSchema.optional(),
+  }).strict(),
+);
+
 export const terraformPlanAnalyzeInputSchema = z.object({
-  plan_json: z.unknown(),
+  plan_json: TerraformPlanJsonSchema,
   pack_id: z.string().max(LIMITS.shortStringChars).optional(),
   top_k: z.number().int().min(1).max(LIMITS.maxTopK).optional(),
   synpack_metadata: z.object({
@@ -151,10 +226,10 @@ export const terraformPlanAnalyzeInputSchema = z.object({
 }).strict();
 
 export const ecmaEnvironmentCheckInputSchema = z.object({
-  package_json: z.unknown().optional(),
-  tsconfig_json: z.unknown().optional(),
-  jsconfig_json: z.unknown().optional(),
-  deno_json: z.unknown().optional(),
+  package_json: EcmaPackageJsonSchema.optional(),
+  tsconfig_json: EcmaTsConfigSchema.optional(),
+  jsconfig_json: EcmaTsConfigSchema.optional(),
+  deno_json: EcmaDenoJsonSchema.optional(),
   bunfig_toml: z.string().max(LIMITS.contextChars).optional(),
   lockfiles: z.array(z.string().max(LIMITS.mediumStringChars)).max(LIMITS.maxStringArrayItems).optional(),
 }).strict();
@@ -164,6 +239,6 @@ export const ecmaPackageRiskInputSchema = z.object({
   dependencies_removed: z.array(z.string().max(LIMITS.shortStringChars)).max(LIMITS.maxPackageItems).optional(),
   scripts_added: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
   scripts_changed: z.record(z.string(), z.string().max(LIMITS.mediumStringChars)).optional(),
-  package_json_before: z.unknown().optional(),
-  package_json_after: z.unknown().optional(),
+  package_json_before: EcmaPackageJsonSchema.optional(),
+  package_json_after: EcmaPackageJsonSchema.optional(),
 }).strict();
