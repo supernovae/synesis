@@ -536,6 +536,36 @@ describe("admin MCP direct invoke security helpers", () => {
     });
   });
 
+  it("invokes direct MCP tools through controlled audit logging", async () => {
+    const audit: Array<{ level: string; fields: Record<string, unknown>; message: string }> = [];
+    const result = await invokeAdminMcpToolWithControls({
+      authCtx,
+      toolContext,
+      role: "user",
+      toolName: "synesis_classify_intent",
+      args: { query: "Fix this Kubernetes deployment test failure" },
+      requestId: "req-direct",
+      surface: "admin_mcp_direct",
+      limiter: new AdminMcpConcurrencyLimiter({ maxPerUser: 1, maxGlobal: 10 }),
+      auditLog: (level, fields, message) => audit.push({ level, fields, message }),
+    });
+
+    expect(result).toMatchObject({ complexity: "simple" });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      level: "info",
+      message: "admin_tools_invoke",
+      fields: {
+        surface: "admin_mcp_direct",
+        outcome: "allowed",
+        reason: "ok",
+        tool: "synesis_classify_intent",
+        userId: "u1",
+        orgId: "o1",
+      },
+    });
+  });
+
   it("invokes streamable MCP tools through controlled audit logging", async () => {
     const audit: Array<{ level: string; fields: Record<string, unknown>; message: string }> = [];
     const result = await invokeAdminMcpToolWithControls({
