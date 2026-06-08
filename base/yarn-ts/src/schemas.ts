@@ -179,7 +179,7 @@ const OpenAIExtraBodySchema = z.object({
 const FunctionCallSchema = z.object({
   name: z.string().max(256),
   arguments: z.string().optional().default("{}"),
-});
+}).strict();
 
 const ToolCallSchema = z.object({
   id: z.string().optional(),
@@ -364,9 +364,9 @@ const ClaudeToolSchema = z.object({
 }).strict();
 
 const ClaudeToolChoiceSchema = z.union([
-  z.object({ type: z.literal("auto") }),
-  z.object({ type: z.literal("any") }),
-  z.object({ type: z.literal("tool"), name: z.string() }),
+  z.object({ type: z.literal("auto") }).strict(),
+  z.object({ type: z.literal("any") }).strict(),
+  z.object({ type: z.literal("tool"), name: z.string() }).strict(),
 ]);
 
 const ClaudeThinkingSchema = z.union([

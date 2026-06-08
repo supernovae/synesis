@@ -322,6 +322,31 @@ describe("client payload conformance fixtures", () => {
     expect(toolChoice.success).toBe(false);
   });
 
+  it("rejects unknown OpenAI tool call function fields", () => {
+    const parsed = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "read_file",
+                arguments: "{\"path\":\"src/index.ts\"}",
+                role_override: "platform_admin",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects invented JSON Schema attributes in OpenAI and Claude tool schemas", () => {
     const openai = OpenAIChatCompletionRequestSchema.safeParse({
       model: "synesis-yarn",
@@ -363,6 +388,14 @@ describe("client payload conformance fixtures", () => {
       tools: [{ name: "Read", input_schema: { type: "object" }, tool_override: true }],
     });
     expect(tool.success).toBe(false);
+
+    const toolChoice = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+      tool_choice: { type: "tool", name: "Read", role_override: "platform_admin" },
+    });
+    expect(toolChoice.success).toBe(false);
   });
 
   it("codex-cli fixture sanitizes malformed tool IDs and maps tool_choice", () => {
