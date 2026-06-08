@@ -28,7 +28,7 @@ const ToolCallSchema = z.object({
   id: z.string().optional(),
   type: z.literal("function").optional().default("function"),
   function: FunctionCallSchema,
-}).passthrough();
+}).strict();
 
 const MessageSchema = z.object({
   role: z.enum(["system", "developer", "user", "assistant", "tool"]),
@@ -36,7 +36,7 @@ const MessageSchema = z.object({
   name: z.string().max(256).optional(),
   tool_call_id: z.string().optional(),
   tool_calls: z.array(ToolCallSchema).optional(),
-}).passthrough().transform((message) => ({
+}).strict().transform((message) => ({
   ...message,
   role: message.role === "developer" ? "system" as const : message.role,
 }));
@@ -46,26 +46,39 @@ const ToolFunctionSchema = z.object({
   description: z.string().max(4096).optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   strict: z.boolean().optional(),
-}).passthrough();
+}).strict();
 
 const ToolDefinitionSchema = z.object({
   type: z.literal("function"),
   function: ToolFunctionSchema,
-}).passthrough();
+}).strict();
 
 const ResponseFormatSchema = z.object({
   type: z.string(),
-}).passthrough();
+  json_schema: z.object({
+    name: z.string().optional(),
+    description: z.string().optional(),
+    schema: z.record(z.string(), z.unknown()).optional(),
+    strict: z.boolean().optional(),
+  }).strict().optional(),
+}).strict();
 
 const StreamOptionsSchema = z.object({
   include_usage: z.boolean().optional(),
-}).passthrough();
+}).strict();
+
+const ToolChoiceObjectSchema = z.object({
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string().max(256),
+  }).strict(),
+}).strict();
 
 const ToolChoiceSchema = z.union([
   z.literal("none"),
   z.literal("auto"),
   z.literal("required"),
-  z.object({ type: z.string() }).passthrough(),
+  ToolChoiceObjectSchema,
 ]);
 
 const StringOrStringArraySchema = z.union([z.string(), z.array(z.string())]);
@@ -108,6 +121,6 @@ export const ChatCompletionRequestSchema = z.object({
   prediction: z.unknown().optional(),
   audio: z.unknown().optional(),
   service_tier: z.string().optional(),
-}).passthrough();
+}).strict();
 
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
