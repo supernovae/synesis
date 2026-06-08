@@ -3,6 +3,34 @@ import { registerHealthRoutes } from "../src/routes/health-routes.js";
 import type { PlatformRouteDependencies } from "../src/routes/platform-route-support.js";
 
 describe("health routes", () => {
+  it("keeps public health response minimal", async () => {
+    const routes = registerRoutesWithAuth(false);
+    const body = await routes.get("/health")?.({ headers: {} }, createReplyProbe());
+
+    expect(body).toEqual({ status: "ok", service: "yarn-ts" });
+  });
+
+  it("requires an internal token for detailed health", async () => {
+    const routes = registerRoutesWithAuth(false);
+    const reply = createReplyProbe();
+    await routes.get("/health/detailed")?.({ headers: {} }, reply);
+
+    expect(reply.statusCode).toBe(401);
+    expect(reply.body).toEqual({ error: { type: "auth_error", message: "Internal service token required" } });
+  });
+
+  it("returns operational health details for internal callers", async () => {
+    const routes = registerRoutesWithAuth(true);
+    const body = await routes.get("/health/detailed")?.({ headers: { authorization: "Bearer token" } }, createReplyProbe());
+
+    expect(body).toEqual({
+      status: "ok",
+      service: "yarn-ts",
+      usage_persistence_enabled: false,
+      usage_write_queue: { queued: 0 },
+    });
+  });
+
   it("requires an internal token for metrics", async () => {
     const routes = registerRoutesWithAuth(false);
     const reply = createReplyProbe();
@@ -33,7 +61,7 @@ function registerRoutesWithAuth(authorized: boolean): Map<string, (req: unknown,
   const deps = {
     app,
     usagePersistenceEnabled: false,
-    usageWriter: { getStats: () => ({}) },
+    usageWriter: { getStats: () => ({ queued: 0 }) },
     sessionStore: { ping: async () => true },
     promRegistry: {
       contentType: "text/plain; version=0.0.4",
