@@ -17,9 +17,31 @@ describe("planner /v1/web/search", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/web/search",
-      payload: { query: "synesis roadmap" },
+      payload: { query: "synesis roadmap", role_override: "admin" },
     });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("rejects unknown fields on authorized web search bodies", async () => {
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_WEB_SEARCH_ENABLED: "false",
+        SYNESIS_WEB_SEARCH_URL: "",
+      }),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/web/search",
+      headers: { authorization: "Bearer debug-token" },
+      payload: {
+        query: "synesis docs",
+        source_surface: "planner_internal",
+        policy_override: "allow_all",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Request validation failed" });
     await app.close();
   });
 
@@ -43,4 +65,3 @@ describe("planner /v1/web/search", () => {
     await app.close();
   });
 });
-

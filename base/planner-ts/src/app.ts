@@ -77,7 +77,7 @@ import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
 import { getTracer } from "./telemetry/otel.js";
 import { PromptRegistry } from "./prompt-registry.js";
 import { isLikelyClarificationAnswer } from "./clarification/clarification-answer-heuristic.js";
-import type { ScopeFilterOptions, WebSearchAttribution, WebSearchRequest, WebSearchResponse } from "./retrieval/types.js";
+import type { ScopeFilterOptions, WebSearchAttribution, WebSearchResponse } from "./retrieval/types.js";
 import { CapabilityMatrixClient } from "./capability-matrix/client.js";
 import { resolveCapabilityMatrix } from "./capability-matrix/resolver.js";
 import {
@@ -159,6 +159,31 @@ const KnowledgeRouteBodySchema = z.object({
 }).strict();
 
 type KnowledgeRouteBody = z.infer<typeof KnowledgeRouteBodySchema>;
+
+const WebSearchNumericSchema = z.union([
+  z.number(),
+  z.string().trim().regex(/^\d{1,6}(\.\d{1,6})?$/),
+]);
+
+const WebSearchRouteBodySchema = z.object({
+  query: KnowledgeStringSchema.optional(),
+  top_k: WebSearchNumericSchema.optional(),
+  profile: z.enum(["web", "code"]).optional(),
+  fetch_pages: z.boolean().optional(),
+  max_fetch_pages: WebSearchNumericSchema.optional(),
+  min_relevance: WebSearchNumericSchema.optional(),
+  source_surface: z.enum(["yarn_chat", "yarn_mcp_http", "openwebui_planner", "planner_internal", "external_api"]).optional(),
+  tool_name: KnowledgeShortStringSchema.optional(),
+  request_id: KnowledgeShortStringSchema.optional(),
+  session_key: KnowledgeShortStringSchema.optional(),
+  conversation_id: KnowledgeShortStringSchema.optional(),
+  trace_id: KnowledgeShortStringSchema.optional(),
+  caller_org_id: KnowledgeShortStringSchema.optional(),
+  caller_user_id: KnowledgeShortStringSchema.optional(),
+  caller_tenant_ids: KnowledgeStringArraySchema.optional(),
+}).strict();
+
+type WebSearchRouteBody = z.infer<typeof WebSearchRouteBodySchema>;
 
 function timeWindowMs(timeWindow: string | number): number {
   if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
@@ -327,6 +352,25 @@ function parseKnowledgeRouteBody(
       })),
     },
     "knowledge_route_body_validation_failed",
+  );
+  void reply.code(400).send({ error: "Request validation failed" });
+  return null;
+}
+
+function parseWebSearchRouteBody(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): WebSearchRouteBody | null {
+  const parsed = WebSearchRouteBodySchema.safeParse(request.body ?? {});
+  if (parsed.success) return parsed.data;
+  request.log.warn(
+    {
+      issues: parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        code: issue.code,
+      })),
+    },
+    "web_search_body_validation_failed",
   );
   void reply.code(400).send({ error: "Request validation failed" });
   return null;
@@ -1613,6 +1657,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     )) {
       return reply.code(401).send({ error: "unauthorized" });
     }
+    const body = parseWebSearchRouteBody(request, reply);
+    if (!body) return reply;
     if (!config.SYNESIS_WEB_SEARCH_ENABLED || !config.SYNESIS_WEB_SEARCH_URL) {
       const attribution: WebSearchAttribution = {
         source_surface: "planner_internal",
@@ -1638,7 +1684,6 @@ export function buildApp(config: AppConfig): FastifyInstance {
       });
     }
 
-    const body = (request.body ?? {}) as Partial<WebSearchRequest>;
     const query = String(body.query ?? "").trim();
     if (!query) {
       return reply.code(400).send({ error: "query is required" });
