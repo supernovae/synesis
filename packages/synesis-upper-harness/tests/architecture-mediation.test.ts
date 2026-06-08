@@ -114,6 +114,18 @@ describe("architecture mediation", () => {
   it("validates architecture contracts while preserving legacy input tolerance", () => {
     expect(parseArchitectureMediationModeContract({ configMode: "strict" })).toBe("aggressive");
     expect(parseArchitectureProfileSourceContract({ configSource: "raw" })).toBe("raw");
+    expect(parseArchitectureMediationModeContract({
+      headers: {
+        authorization: "Bearer ignored",
+        "content-type": "application/json",
+        "x-synesis-context-mediation": "safe",
+      },
+      extraBody: {
+        top_k: 20,
+        min_p: 0.1,
+        synesis_context_mediation: "observe",
+      },
+    })).toBe("safe");
     expect(parseModelCapabilityPresetContract("deepseek-v4-pro")).toBe("deepseek_v4");
     expect(parseSynesisMetadataContract({
       synesis: {
@@ -121,12 +133,34 @@ describe("architecture mediation", () => {
         architectureProfile: "model-registry",
       },
       request_id: "req-1",
-    })).toMatchObject({
+    })).toEqual({
       synesis: {
         contextMediation: "adaptive",
         architectureProfile: "model-registry",
       },
+      request_id: "req-1",
     });
+  });
+
+  it("rejects invented architecture metadata fields at contract boundaries", () => {
+    expect(() => parseArchitectureMediationModeContract({
+      metadata: {
+        synesis_context_mediation: "adaptive",
+        role_override: "platform_admin",
+      },
+    })).toThrow(/role_override/);
+
+    expect(() => parseArchitectureProfileSourceContract({
+      metadata: {
+        synesis_architecture_profile: "auto",
+        workspace_owner_id: "attacker",
+      },
+    })).toThrow(/workspace_owner_id/);
+
+    expect(() => parseSynesisMetadataContract({
+      synesis: { contextMediation: "safe" },
+      role_override: "platform_admin",
+    })).toThrow(/role_override/);
   });
 
   it("validates model architecture diagnostics envelopes", () => {

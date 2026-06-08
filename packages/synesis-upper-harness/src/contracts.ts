@@ -27,26 +27,75 @@ export const ArchitectureMediationModeSchema = z.enum(ARCHITECTURE_MEDIATION_MOD
 export const ArchitectureProfileSourceSchema = z.enum(ARCHITECTURE_PROFILE_SOURCES);
 export const ModelCapabilityPresetIdSchema = z.enum(MODEL_CAPABILITY_PRESET_IDS);
 
-export const SynesisMetadataSchema = z.object({
-  synesis: z.object({
-    contextMediation: z.string().optional(),
-    architectureProfile: z.string().optional(),
-  }).partial().optional(),
-}).passthrough();
+const SynesisNestedControlsSchema = z.object({
+  contextMediation: z.string().max(64).optional(),
+  architectureProfile: z.string().max(64).optional(),
+}).strict();
+
+const ArchitectureControlFieldsSchema = z.object({
+  synesis: SynesisNestedControlsSchema.optional(),
+  synesis_context_mediation: z.string().max(64).optional(),
+  synesis_memory: z.string().max(64).optional(),
+  synesis_work_packet: z.string().max(64).optional(),
+  synesis_memory_mediation: z.string().max(64).optional(),
+  synesis_architecture_mediation: z.string().max(64).optional(),
+  architecture_mediation: z.string().max(64).optional(),
+  synesis_architecture_profile: z.string().max(64).optional(),
+}).strict();
+
+const SynesisIdentifierFieldsSchema = z.object({
+  request_id: z.string().max(256).optional(),
+  trace_id: z.string().max(256).optional(),
+  session_id: z.string().max(256).optional(),
+  conversation_id: z.string().max(256).optional(),
+  synesis_conversation_id: z.string().max(256).optional(),
+}).strict();
+
+export const SynesisMetadataSchema = ArchitectureControlFieldsSchema.merge(SynesisIdentifierFieldsSchema);
+
+const HeaderValueSchema = z.union([
+  z.string().max(128),
+  z.array(z.string().max(128)).max(8),
+]);
+
+const ArchitectureHeadersSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase();
+    if (normalized === "x-synesis-context-mediation" || normalized === "x-synesis-architecture-profile") {
+      out[normalized] = item;
+    }
+  }
+  return out;
+}, z.object({
+  "x-synesis-context-mediation": HeaderValueSchema.optional(),
+  "x-synesis-architecture-profile": HeaderValueSchema.optional(),
+}).strict());
+
+const ArchitectureControlInputSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(ArchitectureControlFieldsSchema.shape)) {
+    if (raw[key] !== undefined) out[key] = raw[key];
+  }
+  return out;
+}, ArchitectureControlFieldsSchema);
 
 export const ArchitectureMediationModeInputSchema = z.object({
-  headers: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  extraBody: z.record(z.string(), z.unknown()).optional(),
-  configMode: z.string().nullable().optional(),
-}).partial();
+  headers: ArchitectureHeadersSchema.optional(),
+  metadata: ArchitectureControlFieldsSchema.optional(),
+  extraBody: ArchitectureControlInputSchema.optional(),
+  configMode: z.string().max(64).nullable().optional(),
+}).strict();
 
 export const ArchitectureProfileSourceInputSchema = z.object({
-  headers: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  extraBody: z.record(z.string(), z.unknown()).optional(),
-  configSource: z.string().nullable().optional(),
-}).partial();
+  headers: ArchitectureHeadersSchema.optional(),
+  metadata: ArchitectureControlFieldsSchema.optional(),
+  extraBody: ArchitectureControlInputSchema.optional(),
+  configSource: z.string().max(64).nullable().optional(),
+}).strict();
 
 const ModelArchitectureDiagnosticSchema = z.object({
   model_id: z.string(),
@@ -84,13 +133,15 @@ export type ModelArchitectureDiagnosticsV1 = z.infer<typeof ModelArchitectureDia
 export function parseArchitectureMediationModeContract(
   input: ArchitectureMediationModeInput = {},
 ): ArchitectureMediationModeContract {
-  return ArchitectureMediationModeSchema.parse(resolveArchitectureMediationMode(input));
+  const parsed = ArchitectureMediationModeInputSchema.parse(input);
+  return ArchitectureMediationModeSchema.parse(resolveArchitectureMediationMode(parsed));
 }
 
 export function parseArchitectureProfileSourceContract(
   input: ArchitectureProfileSourceInput = {},
 ): ArchitectureProfileSourceContract {
-  return ArchitectureProfileSourceSchema.parse(resolveArchitectureProfileSource(input));
+  const parsed = ArchitectureProfileSourceInputSchema.parse(input);
+  return ArchitectureProfileSourceSchema.parse(resolveArchitectureProfileSource(parsed));
 }
 
 export function parseModelCapabilityPresetContract(value: unknown): z.infer<typeof ModelCapabilityPresetIdSchema> | undefined {
