@@ -8,32 +8,61 @@
 import type { RecallResolution, ResolvedFinding } from "./types.js";
 import type { VerificationLoopState } from "../verification/types.js";
 
+const MAX_RECALL_TEXT_CHARS = 800;
+const MAX_RECALL_ATTR_CHARS = 128;
+
+function replaceControlChars(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function recallText(value: string | undefined, maxChars = MAX_RECALL_TEXT_CHARS): string {
+  return replaceControlChars(String(value ?? ""))
+    .replace(/=/g, ":")
+    .replace(/[<>"`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function recallAttr(value: string | undefined, fallback = "unknown"): string {
+  const sanitized = recallText(value, MAX_RECALL_ATTR_CHARS)
+    .replace(/[^A-Za-z0-9_.:/@+-]/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized || fallback;
+}
+
 /**
  * Build a synthetic deterministic response block from a fully resolved set
  * of findings. Used when recall confidence >= bypass threshold.
  */
 export function formatSyntheticResponse(resolution: RecallResolution): string {
   const lines: string[] = [
-    `<synesis_recall_bypass confidence="${resolution.confidence.toFixed(2)}" language="${resolution.language ?? "unknown"}" deterministic="true">`,
+    `<synesis_recall_bypass confidence="${resolution.confidence.toFixed(2)}" language="${recallAttr(resolution.language)}" deterministic="true">`,
     `Found ${resolution.findings.length} issue(s) with deterministic resolution:`,
     "",
   ];
 
   for (let i = 0; i < resolution.findings.length; i++) {
     const f = resolution.findings[i];
-    lines.push(`${i + 1}. ${f.message}`);
-    if (f.file) lines.push(`   File: ${f.file}`);
-    if (f.errorFamily !== "unknown") lines.push(`   Error family: ${f.errorFamily}`);
-    if (f.rootCause) lines.push(`   Root cause: ${f.rootCause}`);
+    lines.push(`${i + 1}. ${recallText(f.message)}`);
+    if (f.file) lines.push(`   File: ${recallAttr(f.file)}`);
+    if (f.errorFamily !== "unknown") lines.push(`   Error family: ${recallAttr(f.errorFamily)}`);
+    if (f.rootCause) lines.push(`   Root cause: ${recallText(f.rootCause)}`);
     if (f.recipe) {
-      lines.push(`   Fix: ${f.recipe.template}`);
-      if (f.recipe.description) lines.push(`   Detail: ${f.recipe.description}`);
+      lines.push(`   Fix: ${recallText(f.recipe.template)}`);
+      if (f.recipe.description) lines.push(`   Detail: ${recallText(f.recipe.description)}`);
       if (f.recipe.steps?.length) {
-        lines.push(`   Steps: ${f.recipe.steps.join(" → ")}`);
+        lines.push(`   Steps: ${f.recipe.steps.map((step) => recallText(step, 240)).filter(Boolean).join(" -> ")}`);
       }
-      if (f.recipe.constraints) lines.push(`   Constraints: ${f.recipe.constraints}`);
+      if (f.recipe.constraints) lines.push(`   Constraints: ${recallText(f.recipe.constraints)}`);
     }
-    if (f.action) lines.push(`   Next step: ${f.action}`);
+    if (f.action) lines.push(`   Next step: ${recallText(f.action)}`);
     lines.push("");
   }
 
@@ -62,9 +91,9 @@ export function formatEnrichmentBlock(resolution: RecallResolution): string {
 }
 
 function formatFindingHint(f: ResolvedFinding): string {
-  const parts = [`- [${f.errorFamily}]`];
-  if (f.rootCause) parts.push(`cause: ${f.rootCause}`);
-  if (f.recipe) parts.push(`fix: ${f.recipe.template}`);
+  const parts = [`- [${recallAttr(f.errorFamily)}]`];
+  if (f.rootCause) parts.push(`cause: ${recallText(f.rootCause, 240)}`);
+  if (f.recipe) parts.push(`fix: ${recallText(f.recipe.template, 240)}`);
   return parts.join(" | ");
 }
 
@@ -88,8 +117,8 @@ export function formatSelfRepairBlock(
   if (withRecipes.length > 0) {
     lines.push("Deterministic fixes available:");
     for (const f of withRecipes) {
-      lines.push(`  - [${f.errorFamily}] ${f.recipe!.template}`);
-      if (f.file) lines.push(`    File: ${f.file}`);
+      lines.push(`  - [${recallAttr(f.errorFamily)}] ${recallText(f.recipe!.template)}`);
+      if (f.file) lines.push(`    File: ${recallAttr(f.file)}`);
     }
   }
 
@@ -97,8 +126,8 @@ export function formatSelfRepairBlock(
     lines.push("");
     lines.push("Require reasoning:");
     for (const f of withoutRecipes) {
-      lines.push(`  - [${f.errorFamily}] ${f.message}`);
-      if (f.rootCause) lines.push(`    Cause: ${f.rootCause}`);
+      lines.push(`  - [${recallAttr(f.errorFamily)}] ${recallText(f.message)}`);
+      if (f.rootCause) lines.push(`    Cause: ${recallText(f.rootCause)}`);
     }
   }
 
