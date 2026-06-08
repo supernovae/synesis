@@ -12,6 +12,7 @@ import {
   isShellCommandAllowed,
   validateCollapsePlan,
   defaultShellAllowlistFromEnv,
+  parseSyntheticToolArgs,
 } from "../../src/tool-collapse/tool-call-validator.js";
 import { executeCollapsePlan, type ToolCollapseExecutor } from "../../src/tool-collapse/tool-call-executor.js";
 import { compactExecutionResults } from "../../src/tool-collapse/response-compactor.js";
@@ -218,6 +219,27 @@ describe("tool-call-validator", () => {
     if (batchOp) {
       expect(v.ok).toBe(false);
     }
+  });
+
+  it("rejects unknown synthetic tool argument fields", () => {
+    const batchRead = parseSyntheticToolArgs("synesis_batch_read", {
+      paths: ["src/a.ts"],
+      role_override: "platform_admin",
+    });
+    expect(batchRead).toMatchObject({ ok: false });
+
+    const batchSearch = parseSyntheticToolArgs("synesis_batch_search", {
+      items: [
+        { query: "foo", role_override: "platform_admin" },
+        { query: "bar" },
+      ],
+    });
+    expect(batchSearch).toMatchObject({ ok: false });
+
+    const mergePatch = parseSyntheticToolArgs("synesis_merge_patch", {
+      files: [{ path: "src/a.ts", patch: "@@\n-a\n+b", run_as_admin: true }],
+    });
+    expect(mergePatch).toMatchObject({ ok: false });
   });
 });
 

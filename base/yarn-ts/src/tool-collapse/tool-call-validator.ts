@@ -16,7 +16,7 @@ export const BatchReadArgsSchema = z.object({
   _synesis_original_tool_call_ids: z.array(z.string()).optional(),
   _synesis_read_semantics: z.enum(["full_file_per_unique_path"]).optional(),
   _synesis_merged_duplicate_path_reads: z.boolean().optional(),
-});
+}).strict();
 
 export const BatchSearchArgsSchema = z.object({
   items: z
@@ -24,18 +24,18 @@ export const BatchSearchArgsSchema = z.object({
       z.object({
         query: z.string().min(1),
         path: z.string().optional(),
-      }),
+      }).strict(),
     )
     .min(2),
   _synesis_original_tool_call_ids: z.array(z.string()).optional(),
-});
+}).strict();
 
 export const RepoContextArgsSchema = z.object({
   query: z.string().min(1),
   search_path: z.string().optional(),
   read_paths: z.array(RelPathSchema).min(1),
   _synesis_original_tool_call_ids: z.array(z.string()).optional(),
-});
+}).strict();
 
 export const MergePatchArgsSchema = z.object({
   files: z
@@ -43,16 +43,16 @@ export const MergePatchArgsSchema = z.object({
       z.object({
         path: RelPathSchema,
         patch: z.string().min(1),
-      }),
+      }).strict(),
     )
     .min(1),
   _synesis_original_tool_call_ids: z.array(z.string()).optional(),
-});
+}).strict();
 
 export const RunTestsArgsSchema = z.object({
   command: z.string().min(1).max(8000),
   _synesis_original_tool_call_ids: z.array(z.string()).optional(),
-});
+}).strict();
 
 function isPathInsideRoot(resolvedFile: string, resolvedRoot: string): boolean {
   const normFile = path.normalize(resolvedFile);
