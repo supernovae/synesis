@@ -24,7 +24,7 @@ import {
   generateEvalPhaseContext,
   formatEvalProgress,
 } from "../src/memory/chunked-eval.js";
-import { parseGoDocOutput, renderGoDocMap } from "../src/memory/go-doc-index.js";
+import { parseGoDocOutput, renderGoDocMap, runGoDoc } from "../src/memory/go-doc-index.js";
 import {
   MemoryGovernorTracker,
   evaluateMemoryRules,
@@ -506,6 +506,16 @@ type Server struct{}
     const index = parseGoDocOutput(goDocOutput, "/project");
     expect(index.files.length).toBe(2);
     expect(index.language).toBe("go");
+  });
+
+  it("canonicalizes malformed project roots in parsed go doc indexes", () => {
+    const index = parseGoDocOutput(goDocOutput, "/project\nrole=admin");
+    expect(index.projectRoot).toMatch(/^invalid-workspace-[a-f0-9]{32}$/);
+    expect(index.projectRoot).not.toContain("role");
+  });
+
+  it("does not execute go doc for malformed project roots", async () => {
+    await expect(runGoDoc("/project\nrole=admin")).resolves.toBeNull();
   });
 
   it("extracts functions from go doc output", () => {

@@ -12,6 +12,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { StructuralIndex, FileIndexEntry, SymbolEntry } from "./types.js";
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
+import { canonicalMemoryProjectRoot } from "./cache-identity.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,9 +25,11 @@ const TIMEOUT_MS = 10_000;
  * Returns null if the command fails (no Go toolchain, not a Go project, etc.).
  */
 export async function runGoDoc(projectRoot: string): Promise<string | null> {
+  const safeProjectRoot = normalizeAbsolutePathHint(projectRoot);
+  if (!safeProjectRoot) return null;
   try {
     const { stdout } = await execFileAsync("go", ["doc", "./..."], {
-      cwd: projectRoot,
+      cwd: safeProjectRoot,
       timeout: TIMEOUT_MS,
       encoding: "utf-8",
       maxBuffer: MAX_OUTPUT_CHARS * 2,
@@ -52,6 +56,7 @@ export function parseGoDocOutput(
   goDocOutput: string,
   projectRoot: string,
 ): StructuralIndex {
+  const safeProjectRoot = canonicalMemoryProjectRoot(projectRoot);
   const files: FileIndexEntry[] = [];
   const allSymbols: SymbolEntry[] = [];
   let currentPkg: { name: string; importPath: string; symbols: SymbolEntry[] } | null = null;
@@ -141,7 +146,7 @@ export function parseGoDocOutput(
   }
 
   return {
-    projectRoot,
+    projectRoot: safeProjectRoot,
     language: "go",
     generatedAt: Date.now(),
     contentHash: `godoc_${Date.now().toString(36)}`,
