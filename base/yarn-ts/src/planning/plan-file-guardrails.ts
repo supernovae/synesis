@@ -38,6 +38,33 @@ function blockedInputPreview(input: unknown): string | undefined {
   return JSON.stringify(trimmed);
 }
 
+function promptMarkerText(value: unknown, maxChars = 512): string {
+  return replaceControlCharsWithSpace(String(value ?? ""))
+    .replace(/[<>"'`]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function promptMarkerPath(value: unknown): string {
+  return promptMarkerText(value, 512)
+    .replace(/[;&|$(){}]/g, "_")
+    .replaceAll("[", "_")
+    .replaceAll("]", "_")
+    .trim() || "unknown-plan";
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
 export async function buildBlockedDiscoveryRecoverySnapshot(
   family: string,
   blocked: BlockedDiscoveryDetail[],
@@ -153,16 +180,17 @@ export function remediatePlanFileStubs(
     if (!extractedPath) return m;
     const isPlan = extractedPath.includes("/.claude/plans/") || extractedPath.includes("\\.claude\\plans\\");
     if (!isPlan) return m;
+    const safePath = promptMarkerPath(extractedPath);
     remediatedCount += 1;
     return {
       ...m,
       content: [
         `<SYNESIS_TOOL_GUARDRAIL status="guided" code="plan_file_dedup_remediation" version="1">`,
-        `file_path=${extractedPath}`,
-        `reason=plan_file_incorrectly_deduplicated`,
-        `next_action=read_plan_file_with_bash`,
+        `file_path: ${safePath}`,
+        `reason: plan_file_incorrectly_deduplicated`,
+        `next_action: read_plan_file_with_bash`,
         `[Plan file stub] A plan file was incorrectly deduplicated. You do not have the plan content.`,
-        `Use Bash(cat ${extractedPath}) to retrieve the full plan file content.`,
+        `Use Bash(cat ${safePath}) to retrieve the full plan file content.`,
         `</SYNESIS_TOOL_GUARDRAIL>`,
       ].join("\n"),
     };
@@ -262,11 +290,12 @@ export function annotatePlanFileReads(
         annotatedCount += 1;
         cachedPlanReads += 1;
         const hasContent = planPathHasFullRead.has(resolvedReadPath);
+        const safeReadPath = promptMarkerPath(resolvedReadPath);
         if (cachedPlanReads >= 3) {
           return {
             ...m,
             content: [
-              `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true" reread_count="${cachedPlanReads}" severity="critical">`,
+              `<SYNESIS_PLAN_LOADED path="${safeReadPath}" cached="true" reread_count="${cachedPlanReads}" severity="critical">`,
               `⛔ CRITICAL: You have re-read this plan file ${cachedPlanReads} times. It has NOT changed. STOP READING IT.`,
               `You are stuck in a loop. The plan content is already in this conversation.`,
               `DO NOT: re-read the plan, re-summarize completed items, search the codebase to verify completed items, or declare intent without acting.`,
@@ -278,10 +307,10 @@ export function annotatePlanFileReads(
         return {
           ...m,
           content: [
-            `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}" cached="true" reread_count="${cachedPlanReads}">`,
+            `<SYNESIS_PLAN_LOADED path="${safeReadPath}" cached="true" reread_count="${cachedPlanReads}">`,
             hasContent
               ? `The plan file is unchanged. You already have its full content from an earlier read in this conversation.`
-              : `The plan file was read previously but the content may have been pruned. Use Bash(cat ${resolvedReadPath}) once if you need to see it.`,
+              : `The plan file was read previously but the content may have been pruned. Use Bash(cat ${safeReadPath}) once if you need to see it.`,
             `Do NOT call Read on this file again. Do NOT re-read it. Do NOT say "I've already read this."`,
             hasContent
               ? `Refer to the plan content above. Identify the next INCOMPLETE task and begin working on it immediately.`
@@ -299,10 +328,11 @@ export function annotatePlanFileReads(
       if (!planFilePaths.includes(resolvedReadPath)) planFilePaths.push(resolvedReadPath);
       if (editedPlanPaths.has(resolvedReadPath)) {
         annotatedCount += 1;
+        const safeReadPath = promptMarkerPath(resolvedReadPath);
         return {
           ...m,
           content: text + "\n\n" + [
-            `<SYNESIS_PLAN_ALREADY_UPDATED path="${resolvedReadPath}">`,
+            `<SYNESIS_PLAN_ALREADY_UPDATED path="${safeReadPath}">`,
             `You already updated this plan file earlier in this conversation.`,
             `Do NOT update it again. Do NOT re-read it. The plan is current.`,
             `Proceed with the next incomplete task or ask the user what to do.`,
@@ -311,10 +341,11 @@ export function annotatePlanFileReads(
         };
       }
       annotatedCount += 1;
+      const safeReadPath = promptMarkerPath(resolvedReadPath);
       return {
         ...m,
         content: text + "\n\n" + [
-          `<SYNESIS_PLAN_LOADED path="${resolvedReadPath}">`,
+          `<SYNESIS_PLAN_LOADED path="${safeReadPath}">`,
           `You have loaded a plan file. Your IMMEDIATE next actions:`,
           `1. Parse the task list from the YAML frontmatter above (look for 'todos:' or task entries with 'status:')`,
           `2. Display a progress summary table: completed tasks vs remaining tasks with their descriptions`,
@@ -330,10 +361,11 @@ export function annotatePlanFileReads(
     if (resolvedWritePath && isPlanPath(resolvedWritePath) && lastEditIndexByPath.get(resolvedWritePath) === idx) {
       if (!planFilePaths.includes(resolvedWritePath)) planFilePaths.push(resolvedWritePath);
       annotatedCount += 1;
+      const safeWritePath = promptMarkerPath(resolvedWritePath);
       return {
         ...m,
         content: text + "\n\n" + [
-          `<SYNESIS_PLAN_UPDATED path="${resolvedWritePath}">`,
+          `<SYNESIS_PLAN_UPDATED path="${safeWritePath}">`,
           `You have updated the plan file. The edit above reflects the latest task state.`,
           `Do NOT re-read the plan file. Do NOT re-display the progress summary you already showed.`,
           `The plan is updated. Proceed with the next task or ask the user what to do next.`,
@@ -462,15 +494,16 @@ export function annotateVerificationGaps(
 
     const pkgMatch = text.match(PACKAGE_PATH_RE);
     const pkg = pkgMatch?.[1] ?? "the package";
+    const safePkg = promptMarkerPath(pkg);
     const lastSegment = pkg.includes("/") ? pkg.split("/").pop() : pkg;
-    const testFileName = `${lastSegment}_test.go`;
+    const testFileName = `${promptMarkerPath(lastSegment)}_test.go`;
 
     annotatedCount += 1;
     return {
       ...m,
       content: text + "\n\n" + [
         `<SYNESIS_VERIFICATION_GAP code="no_test_files">`,
-        `package=${pkg}`,
+        `package: ${safePkg}`,
         `There are NO test files for this package. Re-running "go test" will produce the same result.`,
         `ACTION REQUIRED: Create a test file (e.g. ${testFileName}) with test functions, then run the test command once.`,
         `Do NOT re-run "go test" until you have written a test file.`,
