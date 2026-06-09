@@ -25,6 +25,15 @@ export interface AdminMcpConcurrencyRejection {
 
 export type AdminMcpConcurrencyDecision = AdminMcpConcurrencyGrant | AdminMcpConcurrencyRejection;
 
+const SAFE_KEY_PART_RE = /^[A-Za-z0-9_.@-]{1,64}$/;
+
+function concurrencyKeyPart(label: "org" | "user", value: string, fallback: string): string {
+  const normalized = value.replace(/\0/g, "").trim() || fallback;
+  if (SAFE_KEY_PART_RE.test(normalized)) return normalized;
+  const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 32);
+  return `${label}-${digest}`;
+}
+
 export class AdminMcpConcurrencyLimiter {
   private readonly activeByUser = new Map<string, number>();
   private activeGlobal = 0;
@@ -83,9 +92,6 @@ export class AdminMcpConcurrencyLimiter {
   }
 
   private userKey(orgId: string, userId: string): string {
-    const raw = `${orgId.trim() || "no-org"}:${userId.trim() || "unknown"}`;
-    const encoded = encodeURIComponent(raw);
-    if (encoded.length <= 180) return encoded;
-    return `sha256-${crypto.createHash("sha256").update(raw).digest("hex")}`;
+    return `${concurrencyKeyPart("org", orgId, "no-org")}:${concurrencyKeyPart("user", userId, "unknown")}`;
   }
 }

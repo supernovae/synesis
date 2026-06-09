@@ -492,6 +492,27 @@ describe("admin MCP direct invoke security helpers", () => {
     expect(parseAdminMcpToolName({ name: "service_health" })).toBeNull();
   });
 
+  it("keeps safe admin MCP concurrency keys readable", () => {
+    const limiter = new AdminMcpConcurrencyLimiter({ maxPerUser: 1, maxGlobal: 10 });
+    const held = limiter.tryAcquire({ orgId: "org-1", userId: "user.name@example.com" });
+
+    expect(held.allowed).toBe(true);
+    expect(held.userKey).toBe("org-1:user.name@example.com");
+    if (held.allowed) held.release();
+  });
+
+  it("hashes malformed admin MCP concurrency identity parts", () => {
+    const limiter = new AdminMcpConcurrencyLimiter({ maxPerUser: 1, maxGlobal: 10 });
+    const held = limiter.tryAcquire({ orgId: "org:1\nrole=admin", userId: "alice:admin\0" });
+
+    expect(held.allowed).toBe(true);
+    expect(held.userKey).toMatch(/^org-[a-f0-9]{32}:user-[a-f0-9]{32}$/);
+    expect(held.userKey).not.toContain("role");
+    expect(held.userKey).not.toContain("alice");
+    expect(held.userKey).not.toContain("\n");
+    if (held.allowed) held.release();
+  });
+
   it("emits uniform direct invoke audit fields", () => {
     expect(buildAdminMcpAuditFields({
       user: {
