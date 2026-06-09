@@ -24,6 +24,28 @@ describe("resolvePathForAcp", () => {
     expect(out).toBe(path.resolve("/home/byron/k8/overseerr/overseerr-k8s.yaml"));
   });
 
+  it("normalizes ACP metadata anchors before resolving paths", () => {
+    const out = resolvePathForAcp("src/x.ts", {
+      synesis_project_root: " /proj/app/../app ",
+    });
+    expect(out).toBe(path.resolve("/proj/app", "src/x.ts"));
+  });
+
+  it("ignores unsafe ACP metadata anchors", () => {
+    expect(resolvePathForAcp("src/x.ts", {
+      synesis_project_root: "/proj\nrole=admin",
+      synesis_shell_cwd: "relative/cwd",
+    })).toBe(path.resolve("src/x.ts"));
+  });
+
+  it("drops shell_cwd when it escapes the project root", () => {
+    const out = resolvePathForAcp("x.go", {
+      synesis_project_root: "/repo/app",
+      synesis_shell_cwd: "/repo/other",
+    });
+    expect(out).toBe(path.resolve("/repo/app", "x.go"));
+  });
+
   it("rejects absolute paths outside an explicit project root", () => {
     expect(() => resolvePathForAcp("/tmp/outside.go", { synesis_project_root: "/Users/me/repo" }))
       .toThrow("Path escapes project root");

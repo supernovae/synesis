@@ -25,6 +25,7 @@ import type {
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { shapeTerminalOutput } from "../terminal/output-shaper.js";
 import { attachShapingToSignals, classifyTerminalOutput } from "../terminal/terminal-signals.js";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 import {
   applyUpperHarnessToolCall,
   buildYarnUpperHarnessContext,
@@ -246,8 +247,11 @@ export function resolvePathForAcp(filePath: string, meta: Record<string, unknown
   if (!fp) return fp;
   const root = meta.synesis_project_root;
   const cwd = meta.synesis_shell_cwd;
-  const projectRoot = typeof root === "string" && root.trim() ? path.resolve(root.trim()) : "";
-  const shellCwd = typeof cwd === "string" && cwd.trim() ? path.resolve(cwd.trim()) : "";
+  const projectRoot = normalizeAbsolutePathHint(typeof root === "string" ? root : undefined) ?? "";
+  const rawShellCwd = normalizeAbsolutePathHint(typeof cwd === "string" ? cwd : undefined) ?? "";
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? ""
+    : rawShellCwd;
   const anchor = shellCwd || projectRoot;
   const hasAnchor = anchor.trim().length > 0;
   const normalized = fp.replace(/\\/g, "/");
