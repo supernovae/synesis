@@ -1,6 +1,8 @@
 import type { PlanStage, TaskIntake } from "./task-intake.js";
 
 export type PlanNodeStatus = "pending" | "in_progress" | "done";
+const PLAN_STAGES: readonly PlanStage[] = ["discover", "implement", "verify", "finalize"];
+const PLAN_NODE_STATUSES: readonly PlanNodeStatus[] = ["pending", "in_progress", "done"];
 
 export interface PlanGraphNode {
   stage: PlanStage;
@@ -23,6 +25,40 @@ export interface PlanGraphSignal {
 
 function nowTs(): number {
   return Date.now();
+}
+
+function parsePlanStage(value: unknown): PlanStage | null {
+  return typeof value === "string" && (PLAN_STAGES as readonly string[]).includes(value) ? value as PlanStage : null;
+}
+
+function parsePlanNodeStatus(value: unknown): PlanNodeStatus | null {
+  return typeof value === "string" && (PLAN_NODE_STATUSES as readonly string[]).includes(value) ? value as PlanNodeStatus : null;
+}
+
+function parseTimestamp(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : Date.now();
+}
+
+function normalizePlanGraph(graph: PlanGraph): PlanGraph | null {
+  const nodes = graph.nodes
+    .map((node) => {
+      const stage = parsePlanStage(node.stage);
+      const status = parsePlanNodeStatus(node.status);
+      if (!stage || !status) return null;
+      return { stage, status, updatedAt: parseTimestamp(node.updatedAt) };
+    })
+    .filter((node): node is PlanGraphNode => Boolean(node));
+  if (nodes.length === 0) return null;
+  const parsedActiveStage = parsePlanStage(graph.activeStage);
+  const activeStage = parsedActiveStage && nodes.some((node) => node.stage === parsedActiveStage)
+    ? parsedActiveStage
+    : nodes[0]!.stage;
+  return {
+    sourceHash: typeof graph.sourceHash === "string" ? graph.sourceHash : "",
+    activeStage,
+    updatedAt: parseTimestamp(graph.updatedAt),
+    nodes,
+  };
 }
 
 export function createPlanGraph(intake: TaskIntake): PlanGraph {
@@ -97,20 +133,24 @@ export function isPlanComplete(graph: PlanGraph): boolean {
 }
 
 export function formatPlanGraphBlock(graph: PlanGraph): string {
+  const normalized = normalizePlanGraph(graph);
+  if (!normalized) return "";
   const lines = [
-    `<synesis_plan_graph active_stage="${graph.activeStage}">`,
-    ...graph.nodes.map((n) => `- ${n.stage}:${n.status}`),
+    `<synesis_plan_graph active_stage="${normalized.activeStage}">`,
+    ...normalized.nodes.map((n) => `- ${n.stage}:${n.status}`),
     "</synesis_plan_graph>",
   ];
   return lines.join("\n");
 }
 
 export function formatPlanProgressBlock(graph: PlanGraph): string {
-  const done = graph.nodes.filter((n) => n.status === "done").length;
-  const total = graph.nodes.length;
+  const normalized = normalizePlanGraph(graph);
+  if (!normalized) return "";
+  const done = normalized.nodes.filter((n) => n.status === "done").length;
+  const total = normalized.nodes.length;
   return [
-    `<synesis_plan_progress done="${done}" total="${total}" active="${graph.activeStage}" complete="${isPlanComplete(graph)}">`,
-    ...graph.nodes.map((n) => `  ${n.stage}: ${n.status}`),
+    `<synesis_plan_progress done="${done}" total="${total}" active="${normalized.activeStage}" complete="${isPlanComplete(normalized)}">`,
+    ...normalized.nodes.map((n) => `  ${n.stage}: ${n.status}`),
     "</synesis_plan_progress>",
   ].join("\n");
 }
@@ -132,14 +172,17 @@ export function deserializePlanGraph(data: Record<string, unknown>): PlanGraph |
   if (!data || typeof data !== "object") return null;
   const nodes = Array.isArray(data.nodes) ? data.nodes : [];
   if (nodes.length === 0) return null;
-  return {
+  return normalizePlanGraph({
     sourceHash: typeof data.sourceHash === "string" ? data.sourceHash : "",
-    activeStage: (typeof data.activeStage === "string" ? data.activeStage : "discover") as PlanStage,
-    updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
-    nodes: nodes.map((n: Record<string, unknown>) => ({
-      stage: (typeof n.stage === "string" ? n.stage : "discover") as PlanStage,
-      status: (typeof n.status === "string" ? n.status : "pending") as PlanNodeStatus,
-      updatedAt: typeof n.updatedAt === "number" ? n.updatedAt : Date.now(),
-    })),
-  };
+    activeStage: parsePlanStage(data.activeStage) ?? "discover",
+    updatedAt: parseTimestamp(data.updatedAt),
+    nodes: nodes.map((n): PlanGraphNode => {
+      const row = n && typeof n === "object" ? n as Record<string, unknown> : {};
+      return {
+        stage: row.stage as PlanStage,
+        status: row.status as PlanNodeStatus,
+        updatedAt: parseTimestamp(row.updatedAt),
+      };
+    }),
+  });
 }
