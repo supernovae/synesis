@@ -213,7 +213,7 @@ export function formatFileStateBlock(
 
   const maxFiles = Math.max(1, options.maxFiles ?? 24);
   const lines: string[] = ["<SYNESIS_FILE_STATE version=\"1\">"];
-  lines.push(`files_total=${safeNonNegativeInteger(fileState.fileCount)}`);
+  lines.push(`files_total: ${safeNonNegativeInteger(fileState.fileCount)}`);
 
   for (const path of paths.slice(0, maxFiles)) {
     const entry = fileState.filesByPath[path.raw];
@@ -221,25 +221,25 @@ export function formatFileStateBlock(
     const sourceSemantics = entry.sourceSemantics ?? { signal: "none", envelopeStatus: "none" };
     lines.push(
       [
-        "file",
-        `path=${path.safe}`,
-        `status=${parseFileStateStatus(entry.status) ?? "missing"}`,
-        `full_content_available=${entry.fullContentAvailable ? "yes" : "no"}`,
-        `summary_only=${entry.summaryOnly ? "yes" : "no"}`,
-        `stale_since_edit=${entry.staleSinceEdit ? "yes" : "no"}`,
-        `last_hash=${safeControlToken(entry.lastHash, "none", 128)}`,
-        `last_read_turn=${safeInteger(entry.lastReadTurn, -1)}`,
-        `last_edit_turn=${safeInteger(entry.lastEditTurn, -1)}`,
-        `read_returned_content=${entry.readReturnedContent ? "yes" : "no"}`,
-        `source_signal=${safeSourceSignal(sourceSemantics.signal)}`,
-        `source_status=${safeEnvelopeStatus(sourceSemantics.envelopeStatus)}`,
-        `source_reason=${safeControlToken(sourceSemantics.reason, "none", 160)}`,
+        "file:",
+        `path: ${path.safe}`,
+        `status: ${parseFileStateStatus(entry.status) ?? "missing"}`,
+        `full_content_available: ${entry.fullContentAvailable ? "yes" : "no"}`,
+        `summary_only: ${entry.summaryOnly ? "yes" : "no"}`,
+        `stale_since_edit: ${entry.staleSinceEdit ? "yes" : "no"}`,
+        `last_hash: ${safeControlToken(entry.lastHash, "none", 128)}`,
+        `last_read_turn: ${safeInteger(entry.lastReadTurn, -1)}`,
+        `last_edit_turn: ${safeInteger(entry.lastEditTurn, -1)}`,
+        `read_returned_content: ${entry.readReturnedContent ? "yes" : "no"}`,
+        `source_signal: ${safeSourceSignal(sourceSemantics.signal)}`,
+        `source_status: ${safeEnvelopeStatus(sourceSemantics.envelopeStatus)}`,
+        `source_reason: ${safeControlToken(sourceSemantics.reason, "none", 160)}`,
       ].join(";"),
     );
   }
 
   if (paths.length > maxFiles) {
-    lines.push(`truncated=${paths.length - maxFiles}`);
+    lines.push(`truncated: ${paths.length - maxFiles}`);
   }
   lines.push("</SYNESIS_FILE_STATE>");
   return lines.join("\n");

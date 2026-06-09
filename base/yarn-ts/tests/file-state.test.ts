@@ -191,11 +191,13 @@ describe("deriveFileState", () => {
 
     const block = formatFileStateBlock(fileState);
     expect(block).not.toBeNull();
-    expect(block).toContain("files_total=0");
-    expect(block).toContain("path=/repo/safe.ts");
-    expect(block).toContain("status=missing");
-    expect(block).toContain("source_signal=none");
-    expect(block).toContain("source_status=none");
+    expect(block).toContain("files_total: 0");
+    expect(block).toContain("path: /repo/safe.ts");
+    expect(block).toContain("status: missing");
+    expect(block).toContain("source_signal: none");
+    expect(block).toContain("source_status: none");
+    expect(block).not.toContain("files_total=");
+    expect(block).not.toContain("path=");
     expect(block).not.toContain("next_action=admin");
     expect(block).not.toContain("role=admin");
     expect(block).not.toContain("/repo/bad.ts");
