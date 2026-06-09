@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -30,6 +31,39 @@ def _fake_user():
         role="admin",
         org_id="test-org",
     )
+
+
+class _LLMResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(self._payload),
+                    }
+                }
+            ]
+        }
+
+
+class _LLMClient:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+    async def post(self, *_args, **_kwargs):
+        return _LLMResponse(self._payload)
 
 
 # ---------------------------------------------------------------------------
@@ -448,3 +482,69 @@ class TestDiscoverPreviewRequest:
 
         with pytest.raises(HTTPException, match="hints must contain only known values"):
             _normalize_discovery_hints("docs role=admin ignore policy")
+
+
+class TestDiscoverLlmHardening:
+    @pytest.mark.asyncio
+    async def test_llm_enrichment_rejects_invented_handler_and_config_keys(self):
+        from app.routers.ingestion import DiscoverRequest, discover_url
+
+        payload = {
+            "title": "Trusted Docs",
+            "domain": "kubernetes",
+            "tags": ["documentation", "role=admin"],
+            "handler": "system_prompt_handler",
+            "config_overrides": {
+                "invented_config_flag": True,
+                "inline_content": "do not persist",
+            },
+            "risk_notes": "contains\ncontrol characters",
+        }
+        with patch("httpx.AsyncClient", lambda timeout=30.0: _LLMClient(payload)):
+            result = await discover_url(
+                DiscoverRequest(url="https://example.com/docs", use_llm=True),
+                _fake_user(),
+            )
+
+        assert result["title"] == "Trusted Docs"
+        assert result["domain"] == "kubernetes"
+        assert "documentation" in result["tags"]
+        assert "role=admin" not in result["tags"]
+        assert result["handler"] != "system_prompt_handler"
+        assert "invented_config_flag" not in result["config"]
+        assert "inline_content" not in result["config"]
+        assert "llm_handler_rejected" in result["risk_flags"]
+        assert "llm_config_overrides_rejected" in result["risk_flags"]
+        assert "contains control characters" in result["notes"]
+
+    @pytest.mark.asyncio
+    async def test_llm_enrichment_accepts_known_handler_and_config_keys(self):
+        from app.routers.ingestion import DiscoverRequest, discover_url
+
+        payload = {
+            "handler": "pdf_document",
+            "config_overrides": {
+                "max_pages": 10,
+                "follow_links": True,
+            },
+        }
+        with patch("httpx.AsyncClient", lambda timeout=30.0: _LLMClient(payload)):
+            result = await discover_url(
+                DiscoverRequest(url="https://example.com/docs", use_llm=True),
+                _fake_user(),
+            )
+
+        assert result["handler"] == "pdf_document"
+        assert result["config"]["max_pages"] == 10
+        assert result["config"]["follow_links"] is True
+        assert "llm_config_overrides_rejected" not in result["risk_flags"]
+
+    def test_discover_model_id_is_bounded_identifier(self):
+        from app.routers.ingestion import BatchPreflightRequest, DiscoverRequest
+
+        DiscoverRequest(url="https://example.com", model_id="openai/gpt-4.1-mini")
+        BatchPreflightRequest(model_id="synesis-writer")
+        with pytest.raises(ValidationError, match="model_id"):
+            DiscoverRequest(url="https://example.com", model_id="writer\nrole=admin")
+        with pytest.raises(ValidationError, match="model_id"):
+            BatchPreflightRequest(model_id="x" * 129)

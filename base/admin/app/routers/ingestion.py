@@ -61,6 +61,25 @@ _DISCOVERY_HINT_ALIASES = {
     "documentation": "documentation",
 }
 _DISCOVERY_HINT_VALUES = frozenset(_DISCOVERY_HINT_ALIASES.values())
+_DISCOVERY_HANDLER_VALUES = frozenset(
+    {
+        "arxiv_paper",
+        "generic_text",
+        "github_code",
+        "github_markdown",
+        "github_repo",
+        "html_document",
+        "license_spdx",
+        "markdown_file",
+        "openapi_spec",
+        "pdf_document",
+        "seed_corpus",
+        "structured_data",
+        "web_page",
+    }
+)
+_MODEL_ID_PATTERN = r"^[A-Za-z0-9_.:/@-]*$"
+_DISCOVERY_TAG_PATTERN = re.compile(r"^[a-z0-9_.@/+:-]{1,64}$")
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +487,7 @@ class DiscoverRequest(BaseModel):
     url: str
     hints: str = Field("", max_length=256)
     use_llm: bool = False
-    model_id: str = ""
+    model_id: str = Field("", max_length=128, pattern=_MODEL_ID_PATTERN)
 
 
 def _normalize_discovery_hints(hints: str) -> str:
@@ -490,6 +509,28 @@ def _normalize_discovery_hints(hints: str) -> str:
         allowed = ", ".join(sorted(_DISCOVERY_HINT_VALUES))
         raise HTTPException(status_code=400, detail=f"hints must contain only known values: {allowed}")
     return " ".join(normalized)
+
+
+def _safe_llm_text(value: Any, *, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"[\r\n\t<>`]+", " ", value).strip()[:limit].strip()
+
+
+def _safe_llm_tag(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    tag = value.strip().lower()[:64]
+    return tag if _DISCOVERY_TAG_PATTERN.fullmatch(tag) else ""
+
+
+def _validated_llm_config_overrides(value: Any) -> tuple[dict[str, Any] | None, list[str]]:
+    if not isinstance(value, dict):
+        return None, []
+    try:
+        return _config_payload(IngestionConfig.model_validate(value)) or {}, []
+    except ValidationError as exc:
+        return None, _config_validation_messages(exc)
 
 
 @router.post("/discover")
@@ -560,19 +601,33 @@ async def discover_url(
                 llm_resp.raise_for_status()
                 llm_text = llm_resp.json()["choices"][0]["message"]["content"]
                 llm_data = json.loads(llm_text)
-                if isinstance(llm_data.get("title"), str) and llm_data["title"]:
-                    result["title"] = llm_data["title"]
-                if isinstance(llm_data.get("domain"), str) and llm_data["domain"]:
-                    result["domain"] = llm_data["domain"]
+                llm_title = _safe_llm_text(llm_data.get("title"), limit=512)
+                if llm_title:
+                    result["title"] = llm_title
+                llm_domain = _safe_llm_tag(llm_data.get("domain"))
+                if llm_domain:
+                    result["domain"] = llm_domain
                 if isinstance(llm_data.get("tags"), list):
-                    extra_tags = [t for t in llm_data["tags"] if t not in result["tags"]]
+                    extra_tags = [
+                        tag for tag in (_safe_llm_tag(t) for t in llm_data["tags"]) if tag and tag not in result["tags"]
+                    ][:20]
                     result["tags"].extend(extra_tags)
-                if isinstance(llm_data.get("handler"), str) and llm_data["handler"]:
-                    result["handler"] = llm_data["handler"]
-                if isinstance(llm_data.get("config_overrides"), dict):
-                    result["config"].update(llm_data["config_overrides"])
-                if isinstance(llm_data.get("risk_notes"), str) and llm_data["risk_notes"]:
-                    notes_parts.append(f"LLM: {llm_data['risk_notes']}")
+                llm_handler = _safe_llm_tag(llm_data.get("handler"))
+                if llm_handler:
+                    if llm_handler in _DISCOVERY_HANDLER_VALUES:
+                        result["handler"] = llm_handler
+                    else:
+                        result["risk_flags"].append("llm_handler_rejected")
+                        notes_parts.append("LLM handler recommendation rejected")
+                overrides, override_errors = _validated_llm_config_overrides(llm_data.get("config_overrides"))
+                if overrides is not None:
+                    result["config"].update(overrides)
+                elif override_errors:
+                    result["risk_flags"].append("llm_config_overrides_rejected")
+                    notes_parts.append("LLM config overrides rejected")
+                risk_notes = _safe_llm_text(llm_data.get("risk_notes"), limit=512)
+                if risk_notes:
+                    notes_parts.append(f"LLM: {risk_notes}")
                 result["deterministic"] = False
                 result["recommendation_reasons"].append("LLM enrichment applied")
         except Exception as exc:
@@ -637,7 +692,7 @@ class BatchPreflightRequest(BaseModel):
     status_filter: str = "pending"
     limit: int = Field(50, ge=1, le=200)
     use_llm: bool = False
-    model_id: str = ""
+    model_id: str = Field("", max_length=128, pattern=_MODEL_ID_PATTERN)
     dry_run: bool = False
 
 
