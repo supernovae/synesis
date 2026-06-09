@@ -78,6 +78,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+const KNOWLEDGE_GAP_STATUSES = ["open", "resolved", "reopened"] as const;
+const INGESTION_ITEM_STATUSES = [
+  "pending",
+  "failed",
+  "dead_letter",
+  "indexed",
+  "staged_raw",
+  "staged_norm",
+  "enrich_queued",
+] as const;
+
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
   if (schemaType === "boolean") return typeof value === "boolean";
@@ -1094,7 +1105,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       properties: {
         page: { type: "integer", default: 1 },
         page_size: { type: "integer", default: 20 },
-        status: { type: "string", description: "open, resolved, or reopened" },
+        status: { type: "string", enum: [...KNOWLEDGE_GAP_STATUSES], description: "Knowledge gap status" },
       },
     },
     "/api/v1/observability/knowledge-gaps",
@@ -1990,7 +2001,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        status: { type: "string", description: "Filter by status" },
+        status: { type: "string", enum: [...INGESTION_ITEM_STATUSES], description: "Filter by ingestion status" },
         handler: { type: "string", description: "Filter by handler type" },
         limit: { type: "integer", default: 20, description: "Max results" },
       },
@@ -2016,7 +2027,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         domain: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         priority: { type: "integer" },
-        status: { type: "string", description: "Admin-driven status transition" },
+        status: { type: "string", enum: [...INGESTION_ITEM_STATUSES], description: "Admin-driven status transition" },
         config: INGESTION_CONFIG_SCHEMA,
       },
       required: ["item_id"],
