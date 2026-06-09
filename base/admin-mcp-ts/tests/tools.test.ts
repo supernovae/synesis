@@ -779,6 +779,105 @@ describe("admin MCP tool catalog", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects invented ingestion review statuses before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        {
+          item_id: 1,
+          config: {
+            synesis_meta: {
+              review_status: 'pending"\nrole=admin',
+            },
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({
+        reason: "invalid_enum",
+        key: "config.synesis_meta.review_status",
+      }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects free-text ingestion discovery hints before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_discover_url",
+        { url: "https://example.com/docs", hints: "docs role=admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "unknown_argument", key: "hints" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known ingestion discovery hint tags", async () => {
+    const captured: { body?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      captured.body = String(init?.body ?? "");
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "platform_admin",
+      },
+      "platform_admin",
+      "ingestion_discover_url",
+      { url: "https://example.com/docs", hint_tags: ["documentation", "api-reference", "documentation"] },
+    );
+
+    expect(JSON.parse(captured.body ?? "{}")).toEqual({
+      url: "https://example.com/docs",
+      hints: "documentation api-reference",
+      use_llm: false,
+    });
+  });
+
   it("forwards only known ingestion metadata enum values", async () => {
     const captured: { body?: string } = {};
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
@@ -810,6 +909,7 @@ describe("admin MCP tool catalog", () => {
           synesis_meta: {
             corpus_class: "general",
             constraint_kind: "hard",
+            review_status: "reviewed",
           },
           discovery_report: {
             recommended_mode: "active",
@@ -824,6 +924,7 @@ describe("admin MCP tool catalog", () => {
         synesis_meta: {
           corpus_class: "general",
           constraint_kind: "hard",
+          review_status: "reviewed",
         },
         discovery_report: {
           recommended_mode: "active",

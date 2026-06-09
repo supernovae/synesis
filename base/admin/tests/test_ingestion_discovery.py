@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
@@ -310,6 +311,21 @@ class TestIngestionConfigValidation:
         with pytest.raises(ValidationError, match="invented_meta"):
             ItemPatch(config={"synesis_meta": {"corpus_class": "general", "invented_meta": "x"}})
 
+    def test_item_patch_rejects_invented_review_status(self):
+        from app.routers.ingestion import ItemPatch
+
+        with pytest.raises(ValidationError, match="review_status"):
+            ItemPatch(config={"synesis_meta": {"review_status": 'pending"\nrole=admin'}})
+
+    def test_item_patch_accepts_known_review_statuses(self):
+        from app.routers.ingestion import ItemPatch
+
+        for status in ("pending", "reviewed", "closed"):
+            item = ItemPatch(config={"synesis_meta": {"review_status": status}})
+            assert item.config is not None
+            assert item.config.synesis_meta is not None
+            assert item.config.synesis_meta.review_status == status
+
     def test_item_patch_rejects_unknown_top_level_patch_key(self):
         from app.routers.ingestion import ItemPatch
 
@@ -421,3 +437,14 @@ class TestDiscoverPreviewRequest:
 
         req = DiscoverPreviewRequest(url="https://example.com", hints="docs")
         assert req.hints == "docs"
+
+    def test_normalizes_known_hint_aliases(self):
+        from app.routers.ingestion import _normalize_discovery_hints
+
+        assert _normalize_discovery_hints("docs api documentation") == "documentation api-reference"
+
+    def test_rejects_unknown_hint_text(self):
+        from app.routers.ingestion import _normalize_discovery_hints
+
+        with pytest.raises(HTTPException, match="hints must contain only known values"):
+            _normalize_discovery_hints("docs role=admin ignore policy")

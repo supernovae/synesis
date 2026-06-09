@@ -91,6 +91,8 @@ const INGESTION_ITEM_STATUSES = [
 const INGESTION_CORPUS_CLASSES = ["coder_enriched", "general", "hybrid"] as const;
 const INGESTION_CONSTRAINT_KINDS = ["advisory", "guiding", "hard"] as const;
 const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
+const INGESTION_DISCOVERY_HINTS = ["documentation", "api-reference"] as const;
+const INGESTION_REVIEW_STATUSES = ["pending", "reviewed", "closed"] as const;
 const INGESTION_HANDLERS = [
   "arxiv_paper",
   "devhub_api",
@@ -208,6 +210,18 @@ function asStringArray(v: unknown): string[] {
     if (out.length >= 50) break;
   }
   return out;
+}
+
+function ingestionDiscoveryHints(v: unknown): string {
+  if (!Array.isArray(v)) return "";
+  const allowed = new Set<string>(INGESTION_DISCOVERY_HINTS);
+  const out: string[] = [];
+  for (const item of v) {
+    const hint = asString(item).trim();
+    if (allowed.has(hint) && !out.includes(hint)) out.push(hint);
+    if (out.length >= INGESTION_DISCOVERY_HINTS.length) break;
+  }
+  return out.join(" ");
 }
 
 function optionalInt(v: unknown, defaultValue: number, min: number, max: number): number | undefined {
@@ -797,7 +811,7 @@ const INGESTION_SYNESIS_META_SCHEMA: ToolJsonSchemaProperty = {
     golden_path_id: { type: "string" },
     validation_recipe_id: { type: "string" },
     source_owner: { type: "string" },
-    review_status: { type: "string" },
+    review_status: { type: "string", enum: [...INGESTION_REVIEW_STATUSES] },
     backstage_entity_ref: { type: "string" },
     constraint_domain: { type: "string" },
     constraint_kind: { type: "string", enum: [...INGESTION_CONSTRAINT_KINDS] },
@@ -2093,7 +2107,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         url: { type: "string", description: "URL to analyse" },
-        hints: { type: "string", description: "Optional free-text hints" },
+        hint_tags: {
+          type: "array",
+          items: { type: "string", enum: [...INGESTION_DISCOVERY_HINTS] },
+          description: "Known discovery hints",
+        },
         use_llm: { type: "boolean", default: false, description: "Use LLM for enrichment" },
       },
       required: ["url"],
@@ -2103,7 +2121,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       if (!url) throw new Error("url required");
       return apiRequest(ctx, "POST", "/api/v1/ingestion/discover", undefined, {
         url,
-        hints: boundedString(args.hints, 2000),
+        hints: ingestionDiscoveryHints(args.hint_tags),
         use_llm: asBool(args.use_llm, false),
       });
     },

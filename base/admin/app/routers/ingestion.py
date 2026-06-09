@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -53,6 +54,14 @@ _is_public_discovery_host = _ingestion_discovery.is_public_discovery_host
 _run_heuristic_discovery = _ingestion_discovery.run_heuristic_discovery
 _validate_discovery_target_url = _ingestion_discovery.validate_discovery_target_url
 
+_DISCOVERY_HINT_ALIASES = {
+    "api": "api-reference",
+    "api-reference": "api-reference",
+    "docs": "documentation",
+    "documentation": "documentation",
+}
+_DISCOVERY_HINT_VALUES = frozenset(_DISCOVERY_HINT_ALIASES.values())
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -85,7 +94,7 @@ class IngestionSynesisMeta(BaseModel):
     golden_path_id: str | None = Field(None, max_length=128)
     validation_recipe_id: str | None = Field(None, max_length=128)
     source_owner: str | None = Field(None, max_length=128)
-    review_status: str | None = Field(None, max_length=128)
+    review_status: str | None = Field(None, max_length=32, pattern="^(pending|reviewed|closed)$")
     backstage_entity_ref: str | None = Field(None, max_length=256)
     constraint_domain: str | None = Field(None, max_length=64)
     constraint_kind: str | None = Field(None, max_length=16)
@@ -457,9 +466,30 @@ async def create_source(
 
 class DiscoverRequest(BaseModel):
     url: str
-    hints: str = ""
+    hints: str = Field("", max_length=256)
     use_llm: bool = False
     model_id: str = ""
+
+
+def _normalize_discovery_hints(hints: str) -> str:
+    raw = (hints or "").strip().lower()
+    if not raw:
+        return ""
+    normalized: list[str] = []
+    rejected: list[str] = []
+    for token in re.split(r"[\s,;]+", raw):
+        if not token:
+            continue
+        mapped = _DISCOVERY_HINT_ALIASES.get(token)
+        if mapped is None:
+            rejected.append(token[:64])
+            continue
+        if mapped not in normalized:
+            normalized.append(mapped)
+    if rejected:
+        allowed = ", ".join(sorted(_DISCOVERY_HINT_VALUES))
+        raise HTTPException(status_code=400, detail=f"hints must contain only known values: {allowed}")
+    return " ".join(normalized)
 
 
 @router.post("/discover")
@@ -477,7 +507,8 @@ async def discover_url(
 
     raw_url, _parsed = _validate_discovery_target_url(raw_url)
 
-    result = await _run_heuristic_discovery(raw_url, hints=body.hints)
+    normalized_hints = _normalize_discovery_hints(body.hints)
+    result = await _run_heuristic_discovery(raw_url, hints=normalized_hints)
 
     if body.use_llm:
         import httpx
@@ -502,8 +533,8 @@ async def discover_url(
             f"Content-Type: {result.get('_content_type', '')}\n"
             f"Suggested corpus class: {result['suggested_corpus_class']}\n"
         )
-        if body.hints:
-            llm_prompt += f"User hints: {body.hints}\n"
+        if normalized_hints:
+            llm_prompt += f"User hints: {normalized_hints}\n"
 
         notes_parts = [result["notes"]] if result["notes"] else []
         try:
@@ -574,7 +605,7 @@ async def discover_url(
 
 class DiscoverPreviewRequest(BaseModel):
     url: str
-    hints: str = ""
+    hints: str = Field("", max_length=256)
 
 
 @router.post("/discover/preview")
@@ -594,7 +625,7 @@ async def discover_preview(
 
     raw_url, _parsed = _validate_discovery_target_url(raw_url)
 
-    return await _run_heuristic_discovery(raw_url, hints=body.hints)
+    return await _run_heuristic_discovery(raw_url, hints=_normalize_discovery_hints(body.hints))
 
 
 # ---------------------------------------------------------------------------
