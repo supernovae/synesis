@@ -5,6 +5,7 @@
  * @see https://agentclientprotocol.com/
  */
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
   Agent,
@@ -448,19 +449,42 @@ function closestContainingRoot(cwd: string, candidates: string[]): string | unde
 function compactAcpMetaForAudit(meta: Record<string, unknown> | null | undefined): string | undefined {
   if (!meta || typeof meta !== "object") return undefined;
   try {
-    const keys = Object.keys(meta).filter((k) => !/token|secret|password|key/i.test(k));
-    const slim: Record<string, unknown> = {};
-    for (const k of keys.slice(0, 32)) {
+    const keys = Object.keys(meta).sort();
+    let redactedKeyCount = 0;
+    let scalarCount = 0;
+    let objectCount = 0;
+    let arrayCount = 0;
+    let nullCount = 0;
+    for (const k of keys) {
+      if (/token|secret|password|key/i.test(k)) {
+        redactedKeyCount += 1;
+        continue;
+      }
       const v = meta[k];
-      if (typeof v === "string") slim[k] = truncate(v, 200);
-      else if (typeof v === "number" || typeof v === "boolean") slim[k] = v;
-      else if (v === null) slim[k] = null;
+      if (v === null) nullCount += 1;
+      else if (Array.isArray(v)) arrayCount += 1;
+      else if (typeof v === "object") objectCount += 1;
+      else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") scalarCount += 1;
     }
+    const slim = {
+      schema_version: "acp_meta_audit_v2",
+      key_count: keys.length,
+      keys_hash: hashAcpAuditKeys(keys),
+      scalar_count: scalarCount,
+      object_count: objectCount,
+      array_count: arrayCount,
+      null_count: nullCount,
+      redacted_key_count: redactedKeyCount,
+    };
     const s = JSON.stringify(slim);
     return s.length <= ACP_META_JSON_MAX ? s : `${s.slice(0, ACP_META_JSON_MAX - 1)}…`;
   } catch {
     return undefined;
   }
+}
+
+function hashAcpAuditKeys(keys: string[]): string {
+  return createHash("sha256").update(JSON.stringify(keys)).digest("hex").slice(0, 16);
 }
 
 function buildRequestMetadata(
