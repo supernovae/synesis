@@ -20,7 +20,14 @@ export interface AdapterStats {
 }
 
 function normalizeClientName(name: string): string {
-  return name.trim().toLowerCase();
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._@:+-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return normalized || "unknown";
 }
 
 function isOpenClawClientName(client: string): boolean {

@@ -9,6 +9,7 @@ import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/
 const MAX_GIT_SUMMARY = 500;
 const MAX_LABEL = 256;
 const MAX_CUTOFF = 128;
+const MAX_RUNTIME_FIELD = 128;
 const GIT_POLICY_MODES = new Set(["off", "advisory", "enforced"]);
 
 export type GitPolicyMode = "off" | "advisory" | "enforced";
@@ -96,6 +97,25 @@ function truncate(s: string, max: number): string {
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
 }
 
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code <= 31 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function promptContextScalar(value: string | undefined, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const sanitized = replaceControlCharsWithSpace(value)
+    .replace(/[<>"`=]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!sanitized) return undefined;
+  return truncate(sanitized, max);
+}
+
 function parseHeaderBool(
   headers: Record<string, string | string[] | undefined>,
   name: string,
@@ -172,20 +192,21 @@ export function parseSessionExecutionContext(
     ?? (nested?.runtime && typeof nested.runtime === "object" ? nested.runtime : undefined);
   if (rt && typeof rt === "object" && rt !== null) {
     const o = rt as Record<string, unknown>;
-    if (typeof o.platform === "string" && o.platform.trim()) platform = o.platform.trim();
-    if (typeof o.os_version === "string" && o.os_version.trim()) osVersion = o.os_version.trim();
-    if (typeof o.shell === "string" && o.shell.trim()) shell = o.shell.trim();
+    platform = promptContextScalar(typeof o.platform === "string" ? o.platform : undefined, MAX_RUNTIME_FIELD);
+    osVersion = promptContextScalar(typeof o.os_version === "string" ? o.os_version : undefined, MAX_RUNTIME_FIELD);
+    shell = promptContextScalar(typeof o.shell === "string" ? o.shell : undefined, MAX_RUNTIME_FIELD);
   }
 
   const gitRaw = metaString(metadata, "synesis_git_summary");
-  const gitSummary = gitRaw ? truncate(gitRaw, MAX_GIT_SUMMARY) : undefined;
-  const inferredGit = parseGitFactsFromSummary(gitSummary);
+  const gitSummaryRaw = gitRaw ? truncate(gitRaw, MAX_GIT_SUMMARY) : undefined;
+  const inferredGit = parseGitFactsFromSummary(gitSummaryRaw);
+  const gitSummary = promptContextScalar(gitSummaryRaw, MAX_GIT_SUMMARY);
   const gitIsRepo = metaBool(metadata, "synesis_git_is_repo")
     ?? parseHeaderBool(headers, "x-synesis-git-is-repo")
     ?? inferredGit.gitIsRepo;
-  const gitBranch = metaString(metadata, "synesis_git_branch")
+  const gitBranch = promptContextScalar(metaString(metadata, "synesis_git_branch")
     ?? headerOne(headers, "x-synesis-git-branch")
-    ?? inferredGit.gitBranch;
+    ?? inferredGit.gitBranch, MAX_LABEL);
   const gitDirty = metaBool(metadata, "synesis_git_dirty")
     ?? parseHeaderBool(headers, "x-synesis-git-dirty")
     ?? inferredGit.gitDirty;
@@ -204,10 +225,10 @@ export function parseSessionExecutionContext(
     : undefined;
 
   const labelRaw = metaString(metadata, "synesis_client_model_label");
-  const clientModelLabel = labelRaw ? truncate(labelRaw, MAX_LABEL) : undefined;
+  const clientModelLabel = promptContextScalar(labelRaw, MAX_LABEL);
 
   const cutoffRaw = metaString(metadata, "synesis_knowledge_cutoff");
-  const knowledgeCutoff = cutoffRaw ? truncate(cutoffRaw, MAX_CUTOFF) : undefined;
+  const knowledgeCutoff = promptContextScalar(cutoffRaw, MAX_CUTOFF);
 
   return {
     projectRoot,
