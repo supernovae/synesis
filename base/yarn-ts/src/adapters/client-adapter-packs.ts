@@ -19,8 +19,20 @@ export interface AdapterStats {
   byMode: Record<InteractionMode, number>;
 }
 
-function normalizeClientName(name: string): string {
-  const normalized = name
+const INTERACTION_MODES = ["ide", "cli", "background", "mcp_native"] as const satisfies readonly InteractionMode[];
+const WORKFLOWS = ["planning", "implementation", "validation", "mixed"] as const satisfies readonly AdapterPackProfile["workflow"][];
+
+function isInteractionMode(value: string | undefined): value is InteractionMode {
+  return !!value && (INTERACTION_MODES as readonly string[]).includes(value);
+}
+
+function isWorkflow(value: string | undefined): value is AdapterPackProfile["workflow"] {
+  return !!value && (WORKFLOWS as readonly string[]).includes(value);
+}
+
+function normalizeClientName(name: string | null | undefined): string {
+  const raw = typeof name === "string" ? name : "";
+  const normalized = raw
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._@:+-]+/g, "_")
@@ -70,7 +82,8 @@ export class ClientAdapterPacks {
 
   resolve(clientName: string, requestedMode?: string): AdapterPackProfile {
     const normalizedClient = normalizeClientName(clientName || "unknown");
-    const mode = (requestedMode as InteractionMode) || modeForClient(normalizedClient);
+    const inferredMode = modeForClient(normalizedClient);
+    const mode = isInteractionMode(requestedMode) ? requestedMode : inferredMode;
     const openClaw = isOpenClawClientName(normalizedClient);
     this.stats.resolutions += 1;
     this.stats.byMode[mode] += 1;
@@ -94,27 +107,34 @@ export class ClientAdapterPacks {
   getCatalog() {
     return {
       clients: KNOWN_CLIENTS,
-      modes: ["ide", "cli", "background", "mcp_native"] as InteractionMode[],
-      workflows: ["planning", "implementation", "validation", "mixed"]
+      modes: [...INTERACTION_MODES],
+      workflows: [...WORKFLOWS]
     };
   }
 
   toSystemBlock(profile: AdapterPackProfile): string {
+    const client = normalizeClientName(profile.client);
+    const family = profile.family === "openclaw" ? "openclaw" : "default";
+    const mode = isInteractionMode(profile.mode) ? profile.mode : modeForClient(client);
+    const workflow = isWorkflow(profile.workflow)
+      ? profile.workflow
+      : mode === "background" ? "planning" : mode === "cli" ? "validation" : "mixed";
+    const features = profile.features ?? {};
     const lines = [
       "<CLIENT_ADAPTER>",
-      `client=${profile.client}`,
-      `family=${profile.family}`,
-      `mode=${profile.mode}`,
-      `workflow=${profile.workflow}`,
-      `prefers_concise_errors=${profile.features.prefersConciseErrors}`,
-      `prefers_artifact_handles=${profile.features.prefersArtifactHandles}`,
-      `prefers_deterministic_policy=${profile.features.prefersDeterministicPolicy}`,
-      `strict_write_tool_governance=${profile.features.strictWriteToolGovernance}`,
+      `client: ${client}`,
+      `family: ${family}`,
+      `mode: ${mode}`,
+      `workflow: ${workflow}`,
+      `prefers_concise_errors: ${features.prefersConciseErrors === true}`,
+      `prefers_artifact_handles: ${features.prefersArtifactHandles === true}`,
+      `prefers_deterministic_policy: ${features.prefersDeterministicPolicy === true}`,
+      `strict_write_tool_governance: ${features.strictWriteToolGovernance === true}`,
       "</CLIENT_ADAPTER>",
       "",
     ];
 
-    if (profile.client.includes("cursor")) {
+    if (client.includes("cursor")) {
       lines.push(
         "<CLIENT_SPECIFIC_RULES>",
         "You are operating within Cursor. Use the native IDE context when possible.",
@@ -123,7 +143,7 @@ export class ClientAdapterPacks {
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );
-    } else if (profile.client.includes("claude-code")) {
+    } else if (client.includes("claude-code")) {
       lines.push(
         "<CLIENT_SPECIFIC_RULES>",
         "You are operating within Claude Code (CLI).",
@@ -141,7 +161,7 @@ export class ClientAdapterPacks {
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );
-    } else if (profile.client.includes("opencode")) {
+    } else if (client.includes("opencode")) {
       lines.push(
         "<CLIENT_SPECIFIC_RULES>",
         "You are operating within OpenCode.",
@@ -153,7 +173,7 @@ export class ClientAdapterPacks {
         "</CLIENT_SPECIFIC_RULES>",
         ""
       );
-    } else if (profile.client.includes("roo") || profile.client.includes("cline")) {
+    } else if (client.includes("roo") || client.includes("cline")) {
       lines.push(
         "<CLIENT_SPECIFIC_RULES>",
         "You are operating within Roo/Cline.",
@@ -166,7 +186,7 @@ export class ClientAdapterPacks {
 
     lines.push(
       "<SYNESIS_CODER_WORKFLOW>",
-      "phase_order=explore|contract|implement|verify_fast|verify_deep",
+      "phase_order: explore|contract|implement|verify_fast|verify_deep",
       "- Prefer search_code or synesis_inspect_repo to locate files/symbols, then read_file (optionally startLine/endLine) — avoid huge undirected reads.",
       "- Never edit a file before inspecting it. Search first unless the user already gave exact file and region.",
       "- Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. Make one edit, wait for the result, then make the next.",
@@ -191,7 +211,7 @@ export class ClientAdapterPacks {
 
     lines.push(
       "<SYNESIS_MODEL_SHIMS>",
-      "families=qwen|kimi|minimax|deepseek|default",
+      "families: qwen|kimi|minimax|deepseek|default",
       "- If a discovery tool call is blocked or truncated, immediately pivot to a narrower command in the same turn.",
       "- Never retry the same broad discovery call after a guardrail response.",
       "- Preferred recovery order: list_dir at project root -> scoped glob (src/*) -> search_code with explicit symbol/query.",

@@ -290,7 +290,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
 
   const lines: string[] = ["<SESSION_EXECUTION_CONTEXT>"];
   if (ctx.projectRoot) {
-    lines.push(`project_root=${ctx.projectRoot}`);
+    lines.push(`project_root: ${ctx.projectRoot}`);
     lines.push(
       "Treat project_root as the repository/workspace anchor. Create new work under it; do not nest multiple directories with the same name.",
     );
@@ -308,7 +308,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     );
   }
   if (ctx.shellCwd) {
-    lines.push(`shell_cwd=${ctx.shellCwd}`);
+    lines.push(`shell_cwd: ${ctx.shellCwd}`);
     lines.push(
       "shell_cwd is the current task directory on the client when provided; prefer editing within the existing tree under project_root when both are set.",
     );
@@ -350,17 +350,17 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     }
     lines.push("</FILE_PATH_RESOLUTION>");
   }
-  if (ctx.platform) lines.push(`platform=${ctx.platform}`);
-  if (ctx.osVersion) lines.push(`os_version=${ctx.osVersion}`);
-  if (ctx.shell) lines.push(`shell=${ctx.shell}`);
-  if (ctx.gitPolicyMode) lines.push(`git_policy_mode=${ctx.gitPolicyMode}`);
-  if (ctx.gitSummary) lines.push(`git_summary=${ctx.gitSummary}`);
-  if (ctx.gitIsRepo !== undefined) lines.push(`is_git_repo=${ctx.gitIsRepo}`);
-  if (ctx.gitBranch) lines.push(`git_branch=${ctx.gitBranch}`);
-  if (ctx.gitDirty !== undefined) lines.push(`git_dirty=${ctx.gitDirty}`);
-  if (ctx.gitHasUntracked !== undefined) lines.push(`git_has_untracked=${ctx.gitHasUntracked}`);
+  if (ctx.platform) lines.push(`platform: ${ctx.platform}`);
+  if (ctx.osVersion) lines.push(`os_version: ${ctx.osVersion}`);
+  if (ctx.shell) lines.push(`shell: ${ctx.shell}`);
+  if (ctx.gitPolicyMode) lines.push(`git_policy_mode: ${ctx.gitPolicyMode}`);
+  if (ctx.gitSummary) lines.push(`git_summary: ${ctx.gitSummary}`);
+  if (ctx.gitIsRepo !== undefined) lines.push(`is_git_repo: ${ctx.gitIsRepo}`);
+  if (ctx.gitBranch) lines.push(`git_branch: ${ctx.gitBranch}`);
+  if (ctx.gitDirty !== undefined) lines.push(`git_dirty: ${ctx.gitDirty}`);
+  if (ctx.gitHasUntracked !== undefined) lines.push(`git_has_untracked: ${ctx.gitHasUntracked}`);
   if (ctx.gitAhead !== undefined || ctx.gitBehind !== undefined) {
-    lines.push(`git_ahead_behind=${ctx.gitAhead ?? 0}/${ctx.gitBehind ?? 0}`);
+    lines.push(`git_ahead_behind: ${ctx.gitAhead ?? 0}/${ctx.gitBehind ?? 0}`);
   }
   if (ctx.gitIsRepo === true) {
     lines.push(
@@ -380,8 +380,8 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
       "No git repository detected for this workspace anchor. Scaffold normally and suggest git init only when the user asks for repository workflows.",
     );
   }
-  if (ctx.clientModelLabel) lines.push(`client_model_label=${ctx.clientModelLabel}`);
-  if (ctx.knowledgeCutoff) lines.push(`knowledge_cutoff=${ctx.knowledgeCutoff}`);
+  if (ctx.clientModelLabel) lines.push(`client_model_label: ${ctx.clientModelLabel}`);
+  if (ctx.knowledgeCutoff) lines.push(`knowledge_cutoff: ${ctx.knowledgeCutoff}`);
   lines.push("</SESSION_EXECUTION_CONTEXT>");
   return lines.join("\n");
 }
