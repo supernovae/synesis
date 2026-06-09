@@ -21,6 +21,21 @@ import { canonicalMemoryProjectRoot, safeMemoryCachePart } from "./cache-identit
 
 const REDIS_PREFIX = "yarn-ts:structural-index:";
 const CHARS_PER_TOKEN_ESTIMATE = 4;
+const STRUCTURAL_TEXT_LIMIT = 240;
+const STRUCTURAL_SIGNATURE_LIMIT = 500;
+const STRUCTURAL_FILES_LIMIT = 2000;
+const STRUCTURAL_SYMBOLS_PER_FILE_LIMIT = 200;
+const STRUCTURAL_IMPORTS_PER_FILE_LIMIT = 200;
+const SYMBOL_KINDS = new Set([
+  "function",
+  "method",
+  "type",
+  "interface",
+  "class",
+  "const",
+  "variable",
+  "module",
+]);
 
 // ---------------------------------------------------------------------------
 // Index builder
@@ -164,8 +179,8 @@ export function renderStructuralMap(
     const exportedSymbols = file.symbols.filter((s) => s.exported);
     if (exportedSymbols.length === 0 && file.imports.length === 0) continue;
 
-    const header = `\n${file.path} (${file.lines}L, ${file.language})`;
-    const sigLines = exportedSymbols.map((s) => `  ${s.signature}`);
+    const header = `\n${structuralText(file.path)} (${safeNonNegativeInt(file.lines)}L, ${structuralText(file.language)})`;
+    const sigLines = exportedSymbols.map((s) => `  ${structuralText(s.signature, STRUCTURAL_SIGNATURE_LIMIT)}`);
     const block = [header, ...sigLines].join("\n");
 
     if (chars + block.length > charBudget - 30) break;
@@ -200,7 +215,7 @@ export class ProjectStructuralIndexService {
     const raw = await this.redis.get(this.key(projectRoot));
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as StructuralIndex;
+      return normalizeStructuralIndex(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -260,4 +275,107 @@ export class ProjectStructuralIndexService {
 
 export function structuralIndexRedisKey(projectRoot: string): string {
   return `${REDIS_PREFIX}${safeMemoryCachePart(canonicalMemoryProjectRoot(projectRoot), "workspace")}`;
+}
+
+function normalizeStructuralIndex(value: unknown): StructuralIndex | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const projectRoot = canonicalMemoryProjectRoot(asString(row.projectRoot, "no-workspace"));
+  const language = structuralText(asString(row.language, "unknown"));
+  const generatedAt = safeNonNegativeInt(row.generatedAt);
+  const contentHash = structuralText(asString(row.contentHash, ""), 128);
+  const rawFiles = Array.isArray(row.files) ? row.files.slice(0, STRUCTURAL_FILES_LIMIT) : [];
+  const files: FileIndexEntry[] = [];
+  for (const rawFile of rawFiles) {
+    const file = normalizeFileIndexEntry(rawFile);
+    if (file) files.push(file);
+  }
+  return {
+    projectRoot,
+    language,
+    generatedAt,
+    contentHash,
+    files,
+    symbolRefs: normalizeSymbolRefs(row.symbolRefs),
+  };
+}
+
+function normalizeFileIndexEntry(value: unknown): FileIndexEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const path = structuralText(asString(row.path, ""), STRUCTURAL_TEXT_LIMIT);
+  if (!path) return null;
+  const rawSymbols = Array.isArray(row.symbols) ? row.symbols.slice(0, STRUCTURAL_SYMBOLS_PER_FILE_LIMIT) : [];
+  const symbols: SymbolEntry[] = [];
+  for (const rawSymbol of rawSymbols) {
+    const symbol = normalizeSymbolEntry(rawSymbol, path);
+    if (symbol) symbols.push(symbol);
+  }
+  const imports = (Array.isArray(row.imports) ? row.imports : [])
+    .map((item) => structuralText(asString(item, ""), STRUCTURAL_TEXT_LIMIT))
+    .filter(Boolean)
+    .slice(0, STRUCTURAL_IMPORTS_PER_FILE_LIMIT);
+  return {
+    path,
+    language: structuralText(asString(row.language, "unknown")),
+    lines: safeNonNegativeInt(row.lines),
+    symbols,
+    imports,
+  };
+}
+
+function normalizeSymbolEntry(value: unknown, fallbackFile: string): SymbolEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const name = structuralText(asString(row.name, ""), STRUCTURAL_TEXT_LIMIT);
+  const kind = asString(row.kind, "");
+  const signature = structuralText(asString(row.signature, ""), STRUCTURAL_SIGNATURE_LIMIT);
+  if (!name || !SYMBOL_KINDS.has(kind) || !signature) return null;
+  return {
+    name,
+    kind: kind as SymbolEntry["kind"],
+    file: structuralText(asString(row.file, fallbackFile), STRUCTURAL_TEXT_LIMIT) || fallbackFile,
+    line: safeNonNegativeInt(row.line),
+    signature,
+    exported: row.exported === true,
+  };
+}
+
+function normalizeSymbolRefs(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const refs: Record<string, number> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = structuralText(rawKey, STRUCTURAL_TEXT_LIMIT);
+    if (!key) continue;
+    refs[key] = Math.min(10_000, safeNonNegativeInt(rawValue));
+  }
+  return refs;
+}
+
+function structuralText(value: unknown, limit = STRUCTURAL_TEXT_LIMIT): string {
+  return replaceControlCharsWithSpace(String(value ?? ""))
+    .replace(/[<>]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit)
+    .trim();
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function safeNonNegativeInt(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.floor(numeric));
 }
