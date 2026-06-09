@@ -17,6 +17,10 @@ import { canonicalMemoryNamespace, canonicalMemoryProjectRoot, safeMemoryCachePa
 
 const REDIS_PREFIX = "yarn-ts:memory:";
 const DEFAULT_TTL_S = 14_400;
+const MAX_MEMORY_TOPIC_CHARS = 256;
+const MAX_MEMORY_FINDING_CHARS = 16_000;
+const MAX_MEMORY_KEY_CHARS = 512;
+const MEMORY_SCOPES = new Set<MemoryScope>(["session", "project"]);
 
 let idCounter = 0;
 function generateId(): string {
@@ -55,10 +59,10 @@ export class MemoryStore {
     const safeNamespace = canonicalMemoryNamespace(options.namespace);
     const obs: StoredObservation = {
       id: generateId(),
-      topic: topic.trim(),
-      finding: finding.trim(),
+      topic: memoryText(topic, MAX_MEMORY_TOPIC_CHARS) || "observation",
+      finding: memoryText(finding, MAX_MEMORY_FINDING_CHARS) || "empty",
       scope,
-      sessionKey,
+      sessionKey: memoryText(sessionKey, MAX_MEMORY_KEY_CHARS) || "unknown",
       projectRoot: safeProjectRoot,
       namespace: safeNamespace,
       createdAt: Date.now(),
@@ -115,15 +119,17 @@ export class MemoryStore {
       );
     }
 
-    if (!query.trim()) {
-      return allObs.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+    const safeLimit = safeLimitInt(limit, 1, this.maxEntries);
+    const safeQuery = memoryText(query, 512).toLowerCase();
+
+    if (!safeQuery) {
+      return allObs.sort((a, b) => b.createdAt - a.createdAt).slice(0, safeLimit);
     }
 
-    const q = query.toLowerCase();
     return allObs
-      .filter((o) => o.topic.toLowerCase().includes(q) || o.finding.toLowerCase().includes(q))
+      .filter((o) => o.topic.toLowerCase().includes(safeQuery) || o.finding.toLowerCase().includes(safeQuery))
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit);
+      .slice(0, safeLimit);
   }
 
   async listAll(
@@ -139,14 +145,15 @@ export class MemoryStore {
     if (this.redis) {
       try {
         const key = this.listKey(scope, effectiveScopeKey);
-        const items = await this.redis.lrange(key, 0, limit - 1);
+        const safeLimit = safeLimitInt(limit, 1, this.maxEntries);
+        const items = await this.redis.lrange(key, 0, safeLimit - 1);
         return items.map((raw) => {
-          try { return JSON.parse(raw) as StoredObservation; } catch { return null; }
+          try { return normalizeStoredObservation(JSON.parse(raw)); } catch { return null; }
         }).filter((o): o is StoredObservation => o !== null);
       } catch { /* fall through to local */ }
     }
     const cacheKey = this.cacheKey(scope, effectiveScopeKey);
-    return (this.localCache.get(cacheKey) ?? []).slice(0, limit);
+    return (this.localCache.get(cacheKey) ?? []).slice(0, safeLimitInt(limit, 1, this.maxEntries));
   }
 
   /** Count stored observations for a session (local cache, O(1)). */
@@ -182,9 +189,11 @@ export class MemoryStore {
 
   formatRecallBlock(findings: StoredObservation[]): string {
     if (findings.length === 0) return "<RECALLED_FINDINGS>No matching findings stored.</RECALLED_FINDINGS>";
-    const lines = findings.map((f) =>
-      `[${f.topic}] (${f.scope}, ${new Date(f.createdAt).toISOString().slice(0, 16)}): ${f.finding}`,
-    );
+    const lines = findings
+      .map((finding) => normalizeStoredObservation(finding))
+      .filter((finding): finding is StoredObservation => Boolean(finding))
+      .map((f) => `[${f.topic}] (${f.scope}, ${new Date(f.createdAt).toISOString().slice(0, 16)}): ${f.finding}`);
+    if (lines.length === 0) return "<RECALLED_FINDINGS>No matching findings stored.</RECALLED_FINDINGS>";
     return [
       "<RECALLED_FINDINGS>",
       ...lines,
@@ -248,7 +257,8 @@ export class MemoryStore {
         const items = await this.redis!.lrange(key, 0, this.maxEntries - 1);
         for (const raw of items) {
           try {
-            allObs.push(JSON.parse(raw) as StoredObservation);
+            const obs = normalizeStoredObservation(JSON.parse(raw));
+            if (obs) allObs.push(obs);
           } catch { /* skip malformed */ }
         }
       }
@@ -280,4 +290,57 @@ export class MemoryStore {
   private safeScopeKey(scopeKey: string): string {
     return safeMemoryCachePart(scopeKey, "unknown");
   }
+}
+
+function normalizeStoredObservation(value: unknown): StoredObservation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const scope = typeof row.scope === "string" && MEMORY_SCOPES.has(row.scope as MemoryScope)
+    ? row.scope as MemoryScope
+    : null;
+  if (!scope) return null;
+  const topic = memoryText(row.topic, MAX_MEMORY_TOPIC_CHARS);
+  const finding = memoryText(row.finding, MAX_MEMORY_FINDING_CHARS);
+  if (!topic || !finding) return null;
+  return {
+    id: memoryText(row.id, MAX_MEMORY_KEY_CHARS) || "obs_unknown",
+    topic,
+    finding,
+    scope,
+    sessionKey: memoryText(row.sessionKey, MAX_MEMORY_KEY_CHARS) || "unknown",
+    projectRoot: canonicalMemoryProjectRoot(typeof row.projectRoot === "string" ? row.projectRoot : ""),
+    namespace: canonicalMemoryNamespace(typeof row.namespace === "string" ? row.namespace : undefined),
+    createdAt: safeTimestamp(row.createdAt),
+  };
+}
+
+function memoryText(value: unknown, maxChars: number): string {
+  return replaceControlCharsWithSpace(String(value ?? ""))
+    .replace(/[<>"`]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function safeTimestamp(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.floor(numeric));
+}
+
+function safeLimitInt(value: unknown, min: number, max: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, Math.floor(numeric)));
 }
