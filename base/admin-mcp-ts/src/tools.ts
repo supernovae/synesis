@@ -120,6 +120,17 @@ const MODEL_EFFORT_MODES = ["auto", "pulse", "core", "horizon"] as const;
 const GOVERNANCE_SCOPES = ["platform", "org", "tenant", "project", "team"] as const;
 const GOVERNANCE_CATEGORIES = ["architecture", "compliance", "process", "quality", "safety", "style", "tooling"] as const;
 const OBSERVABILITY_SERVICE_FILTERS = ["planner", "yarn"] as const;
+const SECURITY_EVENT_SEVERITIES = ["low", "medium", "high"] as const;
+const SECURITY_EVENT_TYPES = [
+  "system_override_attempt",
+  "jailbreak_roleplay",
+  "context_confusion_attack",
+  "code_exec_risk",
+  "prompt_leakage_attempt",
+  "unknown",
+  "yarn_policy_reject",
+] as const;
+const SECURITY_EVENT_SERVICES = ["planner", "yarn"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -1906,9 +1917,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       properties: {
         limit: { type: "integer", default: 100 },
         before_id: { type: "integer" },
-        severity: { type: "string" },
-        event_type: { type: "string" },
-        service: { type: "string" },
+        severity: { type: "string", enum: [...SECURITY_EVENT_SEVERITIES] },
+        event_type: { type: "string", enum: [...SECURITY_EVENT_TYPES] },
+        service: { type: "string", enum: [...SECURITY_EVENT_SERVICES] },
         resolved: { type: "boolean" },
         since_hours: { type: "integer" },
       },

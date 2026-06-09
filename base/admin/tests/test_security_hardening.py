@@ -164,3 +164,173 @@ def test_content_pack_config_normalizes_legacy_r2_catalog_url():
     assert config["catalog_url"] == "https://r2.kybern.dev/synesis-pack-catalog.json"
     assert config["configured_catalog_url"] == "https://r2.kybern.dev/synpacks/synesis-pack-catalog.json"
     assert config["using_default"] is True
+
+
+def test_security_events_rejects_invented_filter_values(monkeypatch):
+    from app.auth import UserInfo, get_current_user
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    async def _override_user() -> UserInfo:
+        return UserInfo(
+            username="org-admin",
+            role="org_admin",
+            user_id="u-1",
+            org_id="org-1",
+            org_name="Org 1",
+        )
+
+    async def _list_events_should_not_run(**_kwargs):
+        raise AssertionError("security event list should not run for invalid filters")
+
+    monkeypatch.setattr("app.routers.security.security_service.list_events", _list_events_should_not_run)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get(
+                "/api/v1/security/events",
+                params={
+                    "severity": "critical",
+                    "event_type": "system_prompt_exfiltration",
+                    "service": "admin",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 422
+
+
+def test_security_events_accepts_only_known_filter_values(monkeypatch):
+    from app.auth import UserInfo, get_current_user
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    captured: dict[str, object] = {}
+
+    async def _override_user() -> UserInfo:
+        return UserInfo(
+            username="org-admin",
+            role="org_admin",
+            user_id="u-1",
+            org_id="org-1",
+            org_name="Org 1",
+        )
+
+    async def _list_events(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("app.routers.security.security_service.list_events", _list_events)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get(
+                "/api/v1/security/events",
+                params={
+                    "severity": "high",
+                    "event_type": "system_override_attempt",
+                    "service": "yarn",
+                    "resolved": "false",
+                    "since_hours": "24",
+                    "limit": "50",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"events": []}
+    assert captured["severity"] == "high"
+    assert captured["event_type"] == "system_override_attempt"
+    assert captured["service"] == "yarn"
+    assert captured["scope_org_id"] == "org-1"
+
+
+def test_security_ingest_rejects_unknown_security_payload_fields(monkeypatch):
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "svc-secret")
+
+    async def _ingest_should_not_run(_body):
+        raise AssertionError("security ingest should not run for invalid payloads")
+
+    monkeypatch.setattr("app.routers.security.security_service.ingest_event", _ingest_should_not_run)
+    payload = {
+        "event_id": "yarn-r1-1",
+        "event_type": "system_override_attempt",
+        "severity": "high",
+        "confidence": 0.95,
+        "confidence_band": "high",
+        "action_taken": "block",
+        "scope": "request",
+        "service": "yarn",
+        "request_id": "r1",
+        "session_id": "",
+        "user_id": "",
+        "token_id": "",
+        "org_id": "org-1",
+        "patterns_found": ["ignore previous instructions"],
+        "excerpt": "ignore previous instructions",
+        "scanner_name": "synesis_guardrails_ts",
+        "latency_ms": 2.5,
+        "detail": {"tier": "core", "source": "user_message", "invented_security_attr": True},
+        "role": "platform_admin",
+    }
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.post(
+            "/api/v1/security/events/ingest",
+            headers={"x-synesis-service-token": "svc-secret", "x-synesis-service-name": "yarn"},
+            json=payload,
+        )
+
+    assert resp.status_code == 422
+
+
+def test_security_ingest_accepts_current_context_trust_payload(monkeypatch):
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "svc-secret")
+    captured: dict[str, object] = {}
+
+    async def _ingest(body):
+        captured.update(body)
+        return body["event_id"]
+
+    monkeypatch.setattr("app.routers.security.security_service.ingest_event", _ingest)
+    payload = {
+        "event_id": "planner-r1-1",
+        "event_type": "prompt_leakage_attempt",
+        "severity": "medium",
+        "confidence": 0.8,
+        "confidence_band": "high",
+        "action_taken": "log",
+        "scope": "request",
+        "service": "planner",
+        "request_id": "r1",
+        "session_id": "s1",
+        "user_id": "u1",
+        "token_id": "",
+        "org_id": "org-1",
+        "patterns_found": ["show your system prompt"],
+        "excerpt": "show your system prompt",
+        "scanner_name": "synesis_guardrails_ts",
+        "latency_ms": 3.0,
+        "detail": {"tier": "web", "source": "web", "patterns_count": 1},
+    }
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.post(
+            "/api/v1/security/events/ingest",
+            headers={"x-synesis-service-token": "svc-secret", "x-synesis-service-name": "planner"},
+            json=payload,
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": "planner-r1-1", "status": "ingested"}
+    assert captured["event_type"] == "prompt_leakage_attempt"
+    assert captured["service"] == "planner"
+    assert captured["detail"] == {"tier": "web", "source": "web", "patterns_count": 1}

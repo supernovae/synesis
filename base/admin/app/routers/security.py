@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import UserInfo, get_current_user
 from ..internal_auth import require_internal_service_token_request
@@ -17,6 +17,21 @@ from ..services.admin_audit import record_admin_audit
 logger = logging.getLogger("synesis.admin.security")
 
 router = APIRouter(prefix="/api/v1/security", tags=["security"])
+
+SecuritySeverity = Literal["low", "medium", "high"]
+SecurityEventType = Literal[
+    "system_override_attempt",
+    "jailbreak_roleplay",
+    "context_confusion_attack",
+    "code_exec_risk",
+    "prompt_leakage_attempt",
+    "unknown",
+    "yarn_policy_reject",
+]
+SecurityService = Literal["planner", "yarn"]
+SecurityConfidenceBand = Literal["low", "medium", "high"]
+SecurityActionTaken = Literal["allow", "log", "reduce", "block"]
+SecurityResolveAction = Literal["acknowledge", "suppress", "false_positive", "freeze_token", "restrict_tools"]
 
 
 def _ensure_org_observability(user: UserInfo) -> None:
@@ -38,10 +53,10 @@ def _scope_org(user: UserInfo) -> str:
 async def list_events(
     user: UserInfo = Depends(get_current_user),
     limit: int = Query(100, ge=1, le=500),
-    before_id: int | None = Query(None),
-    severity: str | None = Query(None),
-    event_type: str | None = Query(None),
-    service: str | None = Query(None),
+    before_id: int | None = Query(None, ge=1),
+    severity: SecuritySeverity | None = Query(None),
+    event_type: SecurityEventType | None = Query(None),
+    service: SecurityService | None = Query(None),
     resolved: bool | None = Query(None),
     since_hours: int | None = Query(None, ge=1, le=8760),
 ):
@@ -75,14 +90,48 @@ async def security_summary(
 
 
 class ResolveRequest(BaseModel):
-    action: str  # acknowledge, suppress, false_positive, freeze_token, restrict_tools
-    reason: str
+    model_config = ConfigDict(extra="forbid")
+
+    action: SecurityResolveAction
+    reason: str = Field(..., min_length=1, max_length=8000)
+
+
+class SecurityEventDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tier: Literal["core", "web", "output"] | None = None
+    source: str | None = Field(None, max_length=128)
+    patterns_count: int | None = Field(None, ge=0, le=1000)
+    reason: str | None = Field(None, max_length=2000)
+
+
+class SecurityIngestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(..., min_length=1, max_length=64)
+    event_type: SecurityEventType
+    severity: SecuritySeverity
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    confidence_band: SecurityConfidenceBand
+    action_taken: SecurityActionTaken
+    scope: Literal["request"]
+    service: SecurityService
+    request_id: str = Field("", max_length=128)
+    session_id: str = Field("", max_length=256)
+    user_id: str = Field("", max_length=256)
+    token_id: str = Field("", max_length=64)
+    org_id: str = Field("", max_length=256)
+    patterns_found: list[str] = Field(default_factory=list, max_length=50)
+    excerpt: str = Field("", max_length=4000)
+    scanner_name: Literal["synesis_guardrails_ts", "deterministic_policy_engine"]
+    latency_ms: float = Field(0.0, ge=0.0, le=60000.0)
+    detail: SecurityEventDetail = Field(default_factory=SecurityEventDetail)
 
 
 @router.post("/events/{event_id}/resolve")
 async def resolve_event(
-    event_id: str,
     body: ResolveRequest,
+    event_id: str = Path(..., min_length=1, max_length=64),
     user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(user)
@@ -109,11 +158,11 @@ async def resolve_event(
 
 
 @router.post("/events/ingest")
-async def ingest_event(request: Request, body: dict[str, Any]):
+async def ingest_event(request: Request, body: SecurityIngestRequest):
     """Accept security event payloads from Planner or Yarn.
 
     Service-to-service only; callers must present the configured internal token.
     """
     require_internal_service_token_request(request)
-    event_id = await security_service.ingest_event(body)
+    event_id = await security_service.ingest_event(body.model_dump(mode="json", exclude_none=True))
     return {"event_id": event_id, "status": "ingested"}

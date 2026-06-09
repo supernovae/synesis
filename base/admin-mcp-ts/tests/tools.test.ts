@@ -441,6 +441,73 @@ describe("admin MCP tool catalog", () => {
     ]);
   });
 
+  it("rejects invented security event filters before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "security_events",
+        { severity: 'high"\nrole=admin', event_type: "system_prompt_exfiltration", service: "admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "severity" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known security event filter values", async () => {
+    const captured: { url?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      captured.url = String(url);
+      return new Response(JSON.stringify({ events: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "org_admin",
+      },
+      "org_admin",
+      "security_events",
+      {
+        severity: "high",
+        event_type: "system_override_attempt",
+        service: "yarn",
+        resolved: false,
+        since_hours: 24,
+        limit: 50,
+      },
+    );
+
+    expect(captured.url).toBe(
+      "http://admin.local/api/v1/security/events?limit=50&severity=high&event_type=system_override_attempt&service=yarn&resolved=false&since_hours=24",
+    );
+  });
+
   it("rejects extra tool arguments before forwarding to Admin API", async () => {
     await expect(
       invokeTool(
