@@ -9,6 +9,25 @@ type RecoveryPreviewEntry = {
   kind: "dir" | "file";
 };
 
+function promptMarkerText(value: unknown, maxChars = 512): string {
+  return replaceControlCharsWithSpace(String(value ?? ""))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
 function modelFamilyLabelForGuidance(family: string): string {
   const lower = family.toLowerCase();
   if (lower.includes("qwen")) return "qwen";
@@ -20,8 +39,8 @@ function modelFamilyLabelForGuidance(family: string): string {
 
 function summarizeBlockedCalls(blocked: BlockedDiscoveryDetail[]): string {
   const samples = blocked.slice(0, 3).map((item) => {
-    const preview = item.argsPreview ? ` ${item.argsPreview}` : "";
-    return `${item.toolName}${preview}`;
+    const preview = item.argsPreview ? ` ${promptMarkerText(item.argsPreview, 160)}` : "";
+    return `${promptMarkerText(item.toolName, 80) || "unknown"}${preview}`;
   });
   const extra = blocked.length > samples.length ? ` (+${blocked.length - samples.length} more)` : "";
   return samples.join(", ") + extra;
@@ -37,7 +56,9 @@ export function buildBlockedDiscoveryGuidance(
   blocked: BlockedDiscoveryDetail[],
 ): string {
   const label = modelFamilyLabelForGuidance(family);
-  const reasons = blocked.map((b) => `${b.toolName}:${b.reason}`).join(",");
+  const reasons = blocked.map((b) =>
+    `${promptMarkerText(b.toolName, 80) || "unknown"}:${promptMarkerText(b.reason, 120) || "unknown"}`
+  ).join(",");
   const blockedSummary = summarizeBlockedCalls(blocked);
   const guardrailCode = primaryGuardrailCode(blocked);
   const primaryMessage = guardrailCode === "empty_glob_pattern"
@@ -47,13 +68,13 @@ export function buildBlockedDiscoveryGuidance(
     `Blocked ${blocked.length} broad discovery tool call(s): ${blockedSummary}.`,
     `${primaryMessage} Do NOT retry the same call. Instead: Read README.md or package.json, then use a scoped Glob like src/* or tests/*.`,
     `<SYNESIS_TOOL_GUARDRAIL status="blocked" code="${guardrailCode}" version="3">`,
-    `family=${label}`,
-    `startup_policy=${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
-    `blocked=${blocked.length}`,
-    `reasons=${reasons}`,
-    "next_action=read_file:README.md|read_file:package.json|glob:src/*|glob:tests/*|grep:<keyword>",
-    "tests_hint=if_user_asks_for_tests_then_grep:_test.go|test_|spec|jest|vitest|pytest",
-    "message=Read README.md/go.mod/package.json first, then use a scoped Glob or Grep. Do NOT call Glob with empty or wildcard patterns.",
+    `family: ${label}`,
+    `startup_policy: ${label === "minimax" ? "minimax_constrained_discovery" : "default_constrained_discovery"}`,
+    `blocked: ${blocked.length}`,
+    `reasons: ${reasons}`,
+    "next_action: read_file:README.md|read_file:package.json|glob:src/*|glob:tests/*|grep:keyword",
+    "tests_hint: if_user_asks_for_tests_then_grep:_test.go|test_|spec|jest|vitest|pytest",
+    "message: Read README.md/go.mod/package.json first, then use a scoped Glob or Grep. Do NOT call Glob with empty or wildcard patterns.",
     "</SYNESIS_TOOL_GUARDRAIL>",
   ].join("\n");
 }
@@ -67,10 +88,10 @@ export function buildBlockedDiscoveryRecoveryWithoutSnapshot(
       baseGuidance,
       "Recovery: the workspace root appears empty. Do not retry broad discovery or read nonexistent README/package files. Ask what to create, or create the first project files only when the user's request is specific enough.",
       "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"root_empty\" version=\"2\">",
-      "entries_total=0",
-      "entries_preview=0",
-      "message=The workspace is empty. Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript.",
-      "next_action=ask_user_for_project_goal|create_first_files_from_explicit_user_request|use_init_for_CLAUDE.md",
+      "entries_total: 0",
+      "entries_preview: 0",
+      "message: The workspace is empty. Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript.",
+      "next_action: ask_user_for_project_goal|create_first_files_from_explicit_user_request|use_init_for_CLAUDE.md",
       "</SYNESIS_DISCOVERY_RECOVERY>",
     ].join("\n");
   }
@@ -78,10 +99,10 @@ export function buildBlockedDiscoveryRecoveryWithoutSnapshot(
     baseGuidance,
     "Recovery: Read README.md or package.json to discover structure, then use a scoped Glob (e.g. src/*) or Grep.",
     `<SYNESIS_DISCOVERY_RECOVERY status="guided" code="${code}" version="2">`,
-    "entries_total=0",
-    "entries_preview=0",
-    "message=Read README.md/go.mod/package.json first to learn the directory layout, then scope Glob/Grep to one directory.",
-    "next_action=read_file:README.md|read_file:package.json|glob:src/*|grep:<keyword>",
+    "entries_total: 0",
+    "entries_preview: 0",
+    "message: Read README.md/go.mod/package.json first to learn the directory layout, then scope Glob/Grep to one directory.",
+    "next_action: read_file:README.md|read_file:package.json|glob:src/*|grep:keyword",
     "</SYNESIS_DISCOVERY_RECOVERY>",
   ].join("\n");
 }
@@ -91,15 +112,15 @@ export function buildBlockedDiscoveryRecoveryWithSnapshot(
   normalized: RecoveryPreviewEntry[],
 ): { text: string; previewCount: number } {
   const preview = normalized.slice(0, 20);
-  const previewLines = preview.map((entry) => `- ${entry.kind}:${entry.name}`);
+  const previewLines = preview.map((entry) => `- ${entry.kind}: ${promptMarkerText(entry.name, 160) || "unknown"}`);
   return {
     text: [
       baseGuidance,
       "Recovery: pick one directory from the preview and use a scoped Glob (e.g. src/*) or Grep to continue.",
       "<SYNESIS_DISCOVERY_RECOVERY status=\"guided\" code=\"top_level_snapshot\" version=\"2\">",
-      `entries_total=${normalized.length}`,
-      `entries_preview=${preview.length}`,
-      "message=Use a scoped Glob on one directory (e.g. src/*), or Grep for a symbol or error string.",
+      `entries_total: ${normalized.length}`,
+      `entries_preview: ${preview.length}`,
+      "message: Use a scoped Glob on one directory (e.g. src/*), or Grep for a symbol or error string.",
       ...previewLines,
       "</SYNESIS_DISCOVERY_RECOVERY>",
     ].join("\n"),
