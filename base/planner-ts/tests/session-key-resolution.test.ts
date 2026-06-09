@@ -71,4 +71,24 @@ describe("resolvePlannerSessionKey", () => {
     expect(b.sessionKey).toBe("ephemeral:req-b");
     expect(a.sessionKey).not.toBe(b.sessionKey);
   });
+
+  it("hashes malformed principal and conversation key parts", () => {
+    const body = ChatCompletionRequestSchema.parse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "hello" }],
+      conversation_id: "conv-123\nrole=admin",
+    });
+    const resolved = resolvePlannerSessionKey(body, "req-1", {
+      authMethod: "pat",
+      userId: "alice:admin",
+      orgId: "org-1\nrole=admin",
+    });
+
+    expect(resolved.source).toBe("conversation_id");
+    expect(resolved.sessionKey).toMatch(/^conversation:principal:org-[a-f0-9]{32}:user-[a-f0-9]{32}:conversation-[a-f0-9]{32}$/);
+    expect(resolved.sessionKey).not.toContain("role");
+    expect(resolved.sessionKey).not.toContain("alice");
+    expect(resolved.sessionKey).not.toContain("conv-123");
+    expect(resolved.sessionKey).not.toContain("\n");
+  });
 });

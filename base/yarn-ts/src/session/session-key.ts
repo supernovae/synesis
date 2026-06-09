@@ -38,6 +38,9 @@ export interface SessionKeyDecision {
 function safeSessionKeyPart(value: string, fallback: string): string {
   const trimmed = value.replace(/\0/g, "").trim();
   if (!trimmed) return fallback;
+  if (!/^[A-Za-z0-9_.@-]+$/.test(trimmed)) {
+    return `${fallback}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
+  }
   const encoded = encodeURIComponent(trimmed);
   return encoded.length <= 160
     ? encoded

@@ -56,8 +56,11 @@ function identityScope(identity: PlannerSessionIdentity, requestId: string): str
 }
 
 function safeKeyPart(value: string, label: string): string {
-  const trimmed = value.trim();
+  const trimmed = value.replace(/\0/g, "").trim();
   if (!trimmed) return label;
+  if (!/^[A-Za-z0-9_.@-]+$/.test(trimmed)) {
+    return `${label}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
+  }
   const encoded = encodeURIComponent(trimmed);
   if (encoded.length <= 160) return encoded;
   return `${label}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;

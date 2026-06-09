@@ -63,10 +63,16 @@ describe("Canonical session key", () => {
     expect(key).toBe("synesis:_:anon:unknown:_");
   });
 
-  it("encodes delimiter-bearing session key parts", async () => {
+  it("hashes delimiter-bearing session key parts", async () => {
     const { buildSessionKey } = await import("../src/session/session-key.js");
-    const key = buildSessionKey("alice:admin\0", "org:1", "codex:cli", "conv:123");
-    expect(key).toBe("synesis:org%3A1:alice%3Aadmin:codex%3Acli:conv%3A123");
+    const key = buildSessionKey("alice:admin\0", "org:1", "codex:cli", "conv:123\nrole=admin");
+    expect(key).toMatch(/^synesis:_-[a-f0-9]{32}:anon-[a-f0-9]{32}:unknown-[a-f0-9]{32}:_-[a-f0-9]{32}$/);
+    expect(key).not.toContain("alice");
+    expect(key).not.toContain("org");
+    expect(key).not.toContain("codex");
+    expect(key).not.toContain("conv");
+    expect(key).not.toContain("role");
+    expect(key).not.toContain("\n");
   });
 
   it("mints a rotated key for a new implicit conversation", async () => {
