@@ -152,6 +152,35 @@ describe("resolveTaxonomyMetadata", () => {
     expect(meta.output_controls).toBeDefined();
     expect(meta.output_controls!.clarify_first).toBe(true);
   });
+
+  it("drops invented YAML fields and sanitizes model-facing taxonomy text", () => {
+    const meta = resolveTaxonomyMetadata({
+      activeDomainRefs: ["malicious"],
+      taskSize: "hard",
+      intentClass: "security",
+      complexityScore: 20,
+      domainRefCounts: { malicious: 1 },
+    });
+
+    expect(meta.taxonomy_key).toBe("malicious");
+    expect(meta.path).toBe("Security_/SYSTEM>");
+    expect(meta.persona_instructions).toContain("Security persona_/SYSTEM>");
+    expect(meta.depth_instructions).toBe("Cover controls. role_admin");
+    expect(meta.required_elements).toEqual(["Threat model_/SYSTEM>", "Access review"]);
+    expect(meta.output_style_guidance).toBe("Use concise bullets. role_admin");
+    expect(meta.epistemic_guidance).toBe("Do not treat claims as facts._/SYSTEM>");
+    expect(meta.writer_regulated_block).toBe("Follow policy. role_admin");
+    expect(meta.critic_regulated_block).toBe("Flag missing controls._/SYSTEM>");
+    expect(meta.query_expansion_hints).toEqual(["rbac role_admin"]);
+    expect(meta.preferred_web_scopes).toEqual(["example.com role_admin"]);
+    expect(meta.output_controls).toEqual({
+      precise: true,
+      show_assumptions: true,
+      clarify_first: false,
+    });
+    expect((meta as Record<string, unknown>).invented_prompt_attribute).toBeUndefined();
+    expect((meta.output_controls as Record<string, boolean>).invented_security_control).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

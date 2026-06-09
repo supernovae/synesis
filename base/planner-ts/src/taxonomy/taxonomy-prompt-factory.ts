@@ -5,8 +5,8 @@
  * node metadata from taxonomy_prompt_config.yaml.  No LLM — deterministic
  * lookup with optional embedding-based semantic cross-check.
  *
- * All raw YAML fields are forwarded so downstream nodes can access any
- * taxonomy field without plumbing changes here.
+ * YAML fields are normalized through a known taxonomy contract before they
+ * become planner metadata or model-facing prompt fragments.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -68,6 +68,10 @@ export interface TaxonomyMetadata extends Record<string, unknown> {
 let _cached: Record<string, TaxonomyNode> | null = null;
 let _cacheTs = 0;
 const DEFAULT_TTL_S = 300;
+const TEXT_LIMIT = 2000;
+const SHORT_TEXT_LIMIT = 256;
+const LIST_ITEM_LIMIT = 160;
+const OUTPUT_CONTROL_KEYS = ["precise", "show_assumptions", "clarify_first"] as const;
 
 function resolveTaxonomyPath(): string | null {
   const envPath = process.env.SYNESIS_TAXONOMY_PROMPT_CONFIG;
@@ -166,6 +170,47 @@ function selectKeywordKey(
   return { key: "generic", candidates };
 }
 
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code <= 31 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function safeTaxonomyText(value: unknown, max: number): string {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return "";
+  return replaceControlCharsWithSpace(String(value))
+    .replace(/[<"`=]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function safeTaxonomyList(value: unknown, maxItems: number, itemLimit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const text = safeTaxonomyText(item, itemLimit);
+    if (text) out.push(text);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function normalizeOutputControls(value: unknown): Record<string, boolean> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const out: Record<string, boolean> = {};
+  for (const key of OUTPUT_CONTROL_KEYS) {
+    if (typeof raw[key] === "boolean") out[key] = raw[key];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function buildMetadataFromKey(
   key: string,
   taxonomies: Record<string, TaxonomyNode>,
@@ -173,18 +218,21 @@ function buildMetadataFromKey(
 ): TaxonomyMetadata {
   const nodeCfg = taxonomies[key] ?? taxonomies.generic ?? {};
 
-  const path = String(nodeCfg.path ?? "General");
+  const path = safeTaxonomyText(nodeCfg.path, SHORT_TEXT_LIMIT) || "General";
   const rawComplexity = Number(nodeCfg.complexity ?? 0.5);
-  const persona = String(nodeCfg.persona ?? "Helpful Assistant");
-  const depthInstructions = String(nodeCfg.depth_instructions ?? "").trim();
+  const complexityBase = Number.isFinite(rawComplexity)
+    ? Math.max(0, Math.min(1, rawComplexity))
+    : 0.5;
+  const persona = safeTaxonomyText(nodeCfg.persona, TEXT_LIMIT) || "Helpful Assistant";
+  const depthInstructions = safeTaxonomyText(nodeCfg.depth_instructions, TEXT_LIMIT);
   const requiredElements = Array.isArray(nodeCfg.required_elements)
-    ? nodeCfg.required_elements.map(String)
+    ? safeTaxonomyList(nodeCfg.required_elements, 12, LIST_ITEM_LIMIT)
     : ["Direct Answer"];
   let requiredBullets = requiredElements.length;
 
   const inputComplexity = opts.complexityScore ?? 0;
-  const difficulty = inputComplexity > 0 ? Math.min(1.0, inputComplexity / 30.0) : rawComplexity;
-  const blendedComplexity = 0.4 * rawComplexity + 0.6 * difficulty;
+  const difficulty = inputComplexity > 0 ? Math.min(1.0, inputComplexity / 30.0) : complexityBase;
+  const blendedComplexity = 0.4 * complexityBase + 0.6 * difficulty;
 
   if (difficulty < 0.15) {
     requiredBullets = Math.min(requiredBullets, 2);
@@ -196,26 +244,27 @@ function buildMetadataFromKey(
   }
 
   return {
-    ...(nodeCfg as Record<string, unknown>),
     path,
     complexity_score: blendedComplexity,
     persona_instructions: personaInstructions,
     required_bullets: requiredBullets,
     required_elements: requiredElements,
     depth_instructions: depthInstructions,
-    worker_explain_tone: String(nodeCfg.worker_explain_tone ?? "").trim(),
-    discovery_prompt: String(nodeCfg.discovery_prompt ?? "").trim(),
+    worker_explain_tone: safeTaxonomyText(nodeCfg.worker_explain_tone, TEXT_LIMIT),
+    discovery_prompt: safeTaxonomyText(nodeCfg.discovery_prompt, TEXT_LIMIT),
     taxonomy_key: key,
-    query_expansion_hints: Array.isArray(nodeCfg.query_expansion_hints)
-      ? nodeCfg.query_expansion_hints.map(String).slice(0, 6)
-      : [],
-    preferred_web_scopes: Array.isArray(nodeCfg.preferred_web_scopes)
-      ? nodeCfg.preferred_web_scopes.map(String).slice(0, 3)
-      : [],
-    output_style: String(nodeCfg.output_style ?? "").trim(),
-    output_style_guidance: String(nodeCfg.output_style_guidance ?? "").trim(),
+    query_expansion_hints: safeTaxonomyList(nodeCfg.query_expansion_hints, 6, LIST_ITEM_LIMIT),
+    preferred_web_scopes: safeTaxonomyList(nodeCfg.preferred_web_scopes, 3, LIST_ITEM_LIMIT),
+    output_style: safeTaxonomyText(nodeCfg.output_style, SHORT_TEXT_LIMIT),
+    output_style_guidance: safeTaxonomyText(nodeCfg.output_style_guidance, TEXT_LIMIT),
+    epistemic_guidance: safeTaxonomyText(nodeCfg.epistemic_guidance, TEXT_LIMIT),
     regulated_domain: Boolean(nodeCfg.regulated_domain),
-    output_controls: nodeCfg.output_controls as Record<string, boolean> | undefined,
+    writer_regulated_block: safeTaxonomyText(nodeCfg.writer_regulated_block, TEXT_LIMIT),
+    critic_regulated_block: safeTaxonomyText(nodeCfg.critic_regulated_block, TEXT_LIMIT),
+    critic_assistant_systems_block: safeTaxonomyText(nodeCfg.critic_assistant_systems_block, TEXT_LIMIT),
+    router_summarizer_tone: safeTaxonomyText(nodeCfg.router_summarizer_tone, SHORT_TEXT_LIMIT),
+    output_controls: normalizeOutputControls(nodeCfg.output_controls),
+    planner_decomposition_rules: safeTaxonomyText(nodeCfg.planner_decomposition_rules, TEXT_LIMIT),
   };
 }
 
