@@ -97,6 +97,45 @@ describe("loadConfigWithPlugins (merge)", () => {
     expect(snap.domainKeywords.orchestration.minHits).toBe(2);
     expect(snap.domainKeywords.cloud_infra.minHits).toBe(1);
   });
+
+  it("sanitizes plugin ontology identifiers and prompt-facing text", () => {
+    const snap = loadConfigWithPlugins(
+      resolve(FIXTURES, "core-weights.yaml"),
+      FIXTURES,
+    );
+
+    expect(snap.complexityWeights["injected_complexity_/system"]).toBeDefined();
+    expect(snap.complexityWeights["injected_complexity_/system"].keywords).toEqual(["unsafe role_admin"]);
+    expect(snap.domainKeywords["injected_domain_/system"]).toMatchObject({
+      domain: "injected_domain_/system",
+      keywords: ["domain role_admin"],
+    });
+    expect(snap.intentClasses["injected_intent_/system"]).toMatchObject({
+      keywords: ["intent role_admin"],
+      criticBehaviorBlock: "Critic behavior_/SYSTEM> role_admin",
+    });
+    expect(snap.overrides["plan_session_/system"]).toEqual(["force plan role_admin"]);
+    expect(snap.riskVetoTriggers).toContain("veto role_admin");
+
+    const vertical = snap.verticalPrompts["injected_vertical_/system"];
+    expect(vertical).toBeDefined();
+    expect(vertical.active_domain_refs).toEqual(["injected_domain_role_admin"]);
+    expect(vertical.platform_context_aliases).toEqual(["synesis_role_admin"]);
+    expect(vertical.worker_persona_block).toBe("Worker persona_/SYSTEM> role_admin");
+    expect(vertical.planner_decomposition_rules).toBe("Planner rules_/SYSTEM> role_admin");
+    expect(vertical.critic_mode).toBe("tiered_role_admin");
+    expect(vertical.critic_tiers).toEqual({
+      basic: "Basic tier_/SYSTEM> role_admin",
+      advanced: "Advanced tier",
+      research: "Research tier",
+    });
+    expect(vertical.compliance_signals).toEqual({
+      pii: "PII signal_/SYSTEM> role_admin",
+    });
+    expect(vertical.compliance_trigger_keywords).toEqual({
+      pii: ["privacy role_admin"],
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,11 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const IDENTIFIER_LIMIT = 80;
+const TEXT_LIMIT = 2000;
+const SHORT_TEXT_LIMIT = 256;
+const LIST_ITEM_LIMIT = 160;
+const CRITIC_TIER_KEYS = ["basic", "advanced", "research"] as const;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,6 +144,57 @@ function mergeThresholds(
 // Normalizers: YAML snake_case → TS camelCase where needed
 // ---------------------------------------------------------------------------
 
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code <= 31 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function safeConfigText(value: unknown, max = TEXT_LIMIT): string {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return "";
+  return replaceControlCharsWithSpace(String(value))
+    .replace(/[<"`=]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function safeIdentifier(value: unknown, fallback = ""): string {
+  const normalized = safeConfigText(value, IDENTIFIER_LIMIT)
+    .toLowerCase()
+    .replace(/[^a-z0-9_.@/+:-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || fallback;
+}
+
+function safeStringList(value: unknown, maxItems = 64, itemLimit = LIST_ITEM_LIMIT): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const text = safeConfigText(item, itemLimit);
+    if (text) out.push(text);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function safeIdentifierList(value: unknown, maxItems = 64): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const text = safeIdentifier(item);
+    if (text) out.push(text);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
 function normalizeDomainKeywords(
   raw: Record<string, unknown>,
 ): Record<string, DomainEntry> {
@@ -146,9 +202,11 @@ function normalizeDomainKeywords(
   for (const [key, val] of Object.entries(raw)) {
     if (!val || typeof val !== "object") continue;
     const entry = val as Record<string, unknown>;
-    out[key] = {
-      domain: String(entry.domain ?? key),
-      keywords: Array.isArray(entry.keywords) ? entry.keywords.map(String) : [],
+    const safeKey = safeIdentifier(key);
+    if (!safeKey) continue;
+    out[safeKey] = {
+      domain: safeIdentifier(entry.domain ?? key, safeKey),
+      keywords: safeStringList(entry.keywords),
       minHits: Number(entry.min_hits ?? entry.minHits ?? 1),
     };
   }
@@ -160,9 +218,11 @@ function normalizeWeights(raw: Record<string, unknown>): Record<string, WeightEn
   for (const [key, val] of Object.entries(raw)) {
     if (!val || typeof val !== "object") continue;
     const entry = val as Record<string, unknown>;
-    out[key] = {
+    const safeKey = safeIdentifier(key);
+    if (!safeKey) continue;
+    out[safeKey] = {
       weight: Number(entry.weight ?? 0),
-      keywords: Array.isArray(entry.keywords) ? entry.keywords.map(String) : [],
+      keywords: safeStringList(entry.keywords),
     };
   }
   return out;
@@ -173,11 +233,13 @@ function normalizeIntentClasses(raw: Record<string, unknown>): Record<string, In
   for (const [key, val] of Object.entries(raw)) {
     if (!val || typeof val !== "object") continue;
     const entry = val as Record<string, unknown>;
-    out[key] = {
-      keywords: Array.isArray(entry.keywords) ? entry.keywords.map(String) : [],
+    const safeKey = safeIdentifier(key);
+    if (!safeKey) continue;
+    out[safeKey] = {
+      keywords: safeStringList(entry.keywords),
       inherentlyDocument: Boolean(entry.inherently_document ?? entry.inherentlyDocument),
       criticBehaviorBlock: entry.critic_behavior_block
-        ? String(entry.critic_behavior_block)
+        ? safeConfigText(entry.critic_behavior_block)
         : undefined,
     };
   }
@@ -189,10 +251,10 @@ function normalizePairings(raw: unknown): PairingEntry[] {
   return raw
     .filter((p): p is Record<string, unknown> => p && typeof p === "object")
     .map((p) => ({
-      keywords: Array.isArray(p.keywords) ? p.keywords.map(String) : [],
+      keywords: safeStringList(p.keywords),
       extra_weight: Number(p.extra_weight ?? 0),
       axis: (p.axis === "complexity" ? "complexity" : "risk") as "risk" | "complexity",
-      domain: typeof p.domain === "string" ? p.domain.trim() : undefined,
+      domain: safeIdentifier(p.domain) || undefined,
     }));
 }
 
@@ -200,7 +262,9 @@ function normalizeOverrides(raw: unknown): Record<string, string[]> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, string[]> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    out[k] = Array.isArray(v) ? v.map(String) : [];
+    const safeKey = safeIdentifier(k);
+    if (!safeKey) continue;
+    out[safeKey] = safeStringList(v);
   }
   return out;
 }
@@ -208,37 +272,36 @@ function normalizeOverrides(raw: unknown): Record<string, string[]> {
 function normalizeVerticalPrompt(raw: unknown): VerticalPrompt | null {
   if (!raw || typeof raw !== "object") return null;
   const vp = raw as Record<string, unknown>;
-  const name = String(vp.name ?? "");
+  const name = safeIdentifier(vp.name);
   if (!name) return null;
   return {
     name,
-    active_domain_refs: Array.isArray(vp.active_domain_refs)
-      ? vp.active_domain_refs.map(String)
-      : [],
-    platform_context_aliases: Array.isArray(vp.platform_context_aliases)
-      ? vp.platform_context_aliases.map(String)
-      : [],
-    worker_persona_block: vp.worker_persona_block ? String(vp.worker_persona_block).trim() : undefined,
+    active_domain_refs: safeIdentifierList(vp.active_domain_refs),
+    platform_context_aliases: safeIdentifierList(vp.platform_context_aliases),
+    worker_persona_block: vp.worker_persona_block ? safeConfigText(vp.worker_persona_block) : undefined,
     planner_decomposition_rules: vp.planner_decomposition_rules
-      ? String(vp.planner_decomposition_rules).trim()
+      ? safeConfigText(vp.planner_decomposition_rules)
       : undefined,
-    critic_mode: vp.critic_mode ? String(vp.critic_mode).trim() : undefined,
+    critic_mode: safeIdentifier(vp.critic_mode) || undefined,
     critic_tiers: vp.critic_tiers && typeof vp.critic_tiers === "object"
       ? Object.fromEntries(
-          Object.entries(vp.critic_tiers as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "").trim()]),
+          CRITIC_TIER_KEYS
+            .map((k) => [k, safeConfigText((vp.critic_tiers as Record<string, unknown>)[k])] as const)
+            .filter((entry) => entry[1]),
         )
       : undefined,
     compliance_signals: vp.compliance_signals && typeof vp.compliance_signals === "object"
       ? Object.fromEntries(
-          Object.entries(vp.compliance_signals as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")]),
+          Object.entries(vp.compliance_signals as Record<string, unknown>)
+            .map(([k, v]) => [safeIdentifier(k), safeConfigText(v, SHORT_TEXT_LIMIT)] as const)
+            .filter(([k, v]) => k && v),
         )
       : undefined,
     compliance_trigger_keywords: vp.compliance_trigger_keywords && typeof vp.compliance_trigger_keywords === "object"
       ? Object.fromEntries(
-          Object.entries(vp.compliance_trigger_keywords as Record<string, unknown>).map(([k, v]) => [
-            k,
-            Array.isArray(v) ? v.map(String) : [],
-          ]),
+          Object.entries(vp.compliance_trigger_keywords as Record<string, unknown>)
+            .map(([k, v]) => [safeIdentifier(k), safeStringList(v)] as const)
+            .filter(([k, v]) => k && v.length > 0),
         )
       : undefined,
   };
@@ -362,7 +425,7 @@ export function loadConfigWithPlugins(
       trivialBelow: Number(rt.trivial_below ?? 0.15),
     },
     brevityWeights: normalizeWeights(brevityWeights as Record<string, unknown>),
-    riskVetoTriggers: riskVetoTriggers.map(String),
+    riskVetoTriggers: safeStringList(riskVetoTriggers),
     verticalPrompts,
   };
 }
