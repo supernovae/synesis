@@ -3303,6 +3303,25 @@ export function evaluateExecutionGovernor(
   };
 }
 
+function recoveryBlockText(value: unknown, maxChars = 1000): string {
+  return replaceRecoveryControlChars(String(value ?? ""))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function replaceRecoveryControlChars(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
 export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGovernorDecision): string {
   const reason = decision.reason;
   let step1: string;
@@ -3447,12 +3466,12 @@ export function executionGovernorRecoveryRewriteBlock(decision: ExecutionGoverno
 
   return [
     "<SYNESIS_EXECUTION_RECOVERY status=\"rewrite\" version=\"2\">",
-    `matched_rules=${decision.matchedRules.join(",")}`,
-    `reason=${reason}`,
-    `step1=${step1}`,
-    `step2=${step2}`,
-    `step3=${step3}`,
-    `next_action=${decision.suggestedNextStep ?? "run one narrow verification step"}`,
+    `matched_rules: ${decision.matchedRules.map((rule) => recoveryBlockText(rule, 120)).filter(Boolean).join(",") || "none"}`,
+    `reason: ${recoveryBlockText(reason, 160) || "unknown"}`,
+    `step1: ${recoveryBlockText(step1, 1000)}`,
+    `step2: ${recoveryBlockText(step2, 1000)}`,
+    `step3: ${recoveryBlockText(step3, 1000)}`,
+    `next_action: ${recoveryBlockText(decision.suggestedNextStep ?? "run one narrow verification step", 1000)}`,
     "</SYNESIS_EXECUTION_RECOVERY>",
   ].join("\n");
 }
