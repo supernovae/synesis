@@ -8,6 +8,7 @@ import {
   GOVERNOR_PAUSE_PENDING_METADATA_KEY,
 } from "../governance/governor-pause-context.js";
 import { contextFromSessionMetadata } from "../session/workspace-context-handshake.js";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 export type HandshakeStatus = "pending" | "ready" | "unavailable";
 
@@ -21,6 +22,14 @@ export type SessionPathHints = {
   clientModelLabel?: string;
   knowledgeCutoff?: string;
 };
+
+function firstNormalizedPath(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const normalized = normalizeAbsolutePathHint(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
 
 export interface WorkspaceBoundarySessionState {
   record: { metadata: Record<string, unknown> };
@@ -68,10 +77,15 @@ export function mergeSessionPathHints<TState extends WorkspaceBoundarySessionSta
   if (!fromSession) return base;
   const coalescedRoot = fromSession.projectRoot || fromSession.cwd;
   const coalescedCwd = fromSession.cwd || fromSession.projectRoot;
+  const projectRoot = firstNormalizedPath(base.projectRoot, coalescedRoot);
+  const rawShellCwd = firstNormalizedPath(base.shellCwd, coalescedCwd);
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? null
+    : rawShellCwd;
   return {
     ...base,
-    projectRoot: base.projectRoot ?? coalescedRoot ?? null,
-    shellCwd: base.shellCwd ?? coalescedCwd ?? null,
+    projectRoot,
+    shellCwd,
     shell: base.shell ?? fromSession.shell,
     platform: base.platform ?? fromSession.os,
     osVersion: base.osVersion ?? fromSession.arch,
@@ -92,8 +106,17 @@ export function setSessionWorkspaceContext<TState extends WorkspaceBoundarySessi
   if (details?.reason) {
     state.record.metadata.workspace_context_reason = details.reason.slice(0, 300);
   }
-  if (details?.cwd) state.record.metadata.workspace_context_cwd = details.cwd;
-  if (details?.projectRoot) state.record.metadata.workspace_context_project_root = details.projectRoot;
+  const projectRoot = normalizeAbsolutePathHint(details?.projectRoot);
+  const rawCwd = normalizeAbsolutePathHint(details?.cwd);
+  const cwd = projectRoot && rawCwd && !isPathInsideRoot(rawCwd, projectRoot) ? null : rawCwd;
+  if (details && "cwd" in details) {
+    if (cwd) state.record.metadata.workspace_context_cwd = cwd;
+    else delete state.record.metadata.workspace_context_cwd;
+  }
+  if (details && "projectRoot" in details) {
+    if (projectRoot) state.record.metadata.workspace_context_project_root = projectRoot;
+    else delete state.record.metadata.workspace_context_project_root;
+  }
   if (details?.shell) state.record.metadata.workspace_context_shell = details.shell;
   if (details?.os) state.record.metadata.workspace_context_os = details.os;
   if (details?.arch) state.record.metadata.workspace_context_arch = details.arch;
@@ -135,7 +158,9 @@ export function previousWorkspaceRootFromMetadata(meta: Record<string, unknown>)
   const workspaceRoot = typeof meta.workspace_root === "string"
     ? meta.workspace_root
     : "";
-  return projectRoot.trim() || cwd.trim() || workspaceRoot.trim() || null;
+  return normalizeAbsolutePathHint(projectRoot)
+    ?? normalizeAbsolutePathHint(cwd)
+    ?? normalizeAbsolutePathHint(workspaceRoot);
 }
 
 export function clearWorkspaceScopedMetadata(meta: Record<string, unknown>): void {
@@ -244,8 +269,13 @@ export async function applyWorkspaceBoundary<TState extends WorkspaceBoundarySes
   if (inspection.root) {
     input.state.record.metadata.workspace_root = inspection.root;
   }
-  if (input.pathHints.projectRoot) input.state.record.metadata.workspace_context_project_root = input.pathHints.projectRoot;
-  if (input.pathHints.shellCwd) input.state.record.metadata.workspace_context_cwd = input.pathHints.shellCwd;
+  const projectRoot = normalizeAbsolutePathHint(input.pathHints.projectRoot);
+  const rawShellCwd = normalizeAbsolutePathHint(input.pathHints.shellCwd);
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? null
+    : rawShellCwd;
+  if (projectRoot) input.state.record.metadata.workspace_context_project_root = projectRoot;
+  if (shellCwd) input.state.record.metadata.workspace_context_cwd = shellCwd;
   input.state.record.metadata.workspace_empty = inspection.isEmpty;
   input.state.record.metadata.workspace_project_guidance_absent =
     inspection.isEmpty && inspection.projectInstructionFiles.length === 0;

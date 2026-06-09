@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 export interface WorkspaceContextInfo {
   cwd: string;
@@ -72,8 +73,9 @@ export function parseWorkspaceContextOutput(raw: string): WorkspaceContextInfo |
     const val = line.slice(eq + 1).trim();
     kv[key] = val;
   }
-  const cwd = normalizePath(kv.cwd);
-  const root = normalizePath(kv.project_root) || cwd;
+  const rawCwd = normalizeAbsolutePathHint(kv.cwd);
+  const root = normalizeAbsolutePathHint(kv.project_root) ?? rawCwd;
+  const cwd = root && rawCwd && !isPathInsideRoot(rawCwd, root) ? null : rawCwd;
   if (!cwd || !root) return null;
   const shell = sanitize(kv.shell, 200);
   const os = sanitize(kv.os, 80);
@@ -155,25 +157,26 @@ export function extractClaudeToolResult(
 }
 
 export function contextFromSessionMetadata(meta: Record<string, unknown>): SessionPathMetadataHints | null {
-  const cwd = normalizePath(String(meta.workspace_context_cwd ?? ""));
-  const projectRoot = normalizePath(String(meta.workspace_context_project_root ?? ""));
+  const projectRoot = normalizeAbsolutePathHint(
+    typeof meta.workspace_context_project_root === "string" ? meta.workspace_context_project_root : undefined,
+  );
+  const rawCwd = normalizeAbsolutePathHint(
+    typeof meta.workspace_context_cwd === "string" ? meta.workspace_context_cwd : undefined,
+  );
+  const cwd = projectRoot && rawCwd && !isPathInsideRoot(rawCwd, projectRoot)
+    ? null
+    : rawCwd;
   if (!cwd && !projectRoot) return null;
   const shell = sanitize(String(meta.workspace_context_shell ?? ""), 200);
   const os = sanitize(String(meta.workspace_context_os ?? ""), 80);
   const arch = sanitize(String(meta.workspace_context_arch ?? ""), 80);
   return {
     cwd: cwd || null,
-    projectRoot: projectRoot || null,
+    projectRoot,
     ...(shell ? { shell } : {}),
     ...(os ? { os } : {}),
     ...(arch ? { arch } : {}),
   };
-}
-
-function normalizePath(raw: string): string {
-  const t = String(raw ?? "").trim();
-  if (!t) return "";
-  return t.replace(/\0/g, "").slice(0, 2000);
 }
 
 function sanitize(raw: string, max: number): string {

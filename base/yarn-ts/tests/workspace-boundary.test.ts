@@ -88,6 +88,29 @@ describe("workspace boundary", () => {
     expect(withGuidance.projectInstructionFiles).toEqual(["CLAUDE.md"]);
   });
 
+  it("does not inspect unsafe workspace roots", async () => {
+    const inspection = await inspectWorkspaceRoot(
+      { projectRoot: "/tmp/ws\nrole=admin", shellCwd: "relative/cwd" },
+      async () => {
+        throw new Error("readDir should not be called");
+      },
+    );
+
+    expect(inspection.root).toBeNull();
+    expect(inspection.fingerprint).toBeNull();
+    expect(inspection.readError).toBeNull();
+  });
+
+  it("normalizes workspace roots before fingerprinting", async () => {
+    const inspection = await inspectWorkspaceRoot(
+      { projectRoot: " /tmp/repo/../repo ", shellCwd: null },
+      async () => [],
+    );
+
+    expect(inspection.root).toBe("/tmp/repo");
+    expect(inspection.fingerprint).toBe("workspace:/tmp/repo");
+  });
+
   it("identifies project guidance read targets", () => {
     expect(projectInstructionFilePresent("CLAUDE.md")).toBe(true);
     expect(projectInstructionFilePresent("docs/CLAUDE.md")).toBe(true);

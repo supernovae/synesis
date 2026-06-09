@@ -37,6 +37,24 @@ describe("workspace-context-handshake", () => {
     expect(parsed?.shell).toBe("/bin/zsh");
   });
 
+  it("rejects unsafe marker path payloads", () => {
+    const raw = [
+      "SYNESIS_WORKSPACE_CONTEXT_V1",
+      "cwd=/Users/me/repo\0role=admin",
+      "project_root=/Users/me/repo",
+    ].join("\n");
+    expect(parseWorkspaceContextOutput(raw)).toBeNull();
+  });
+
+  it("rejects marker cwd outside project root", () => {
+    const raw = [
+      "SYNESIS_WORKSPACE_CONTEXT_V1",
+      "cwd=/Users/me/other",
+      "project_root=/Users/me/repo",
+    ].join("\n");
+    expect(parseWorkspaceContextOutput(raw)).toBeNull();
+  });
+
   it("extracts OpenAI tool result by tool_call_id", () => {
     const result = extractOpenAIToolResult(
       [
@@ -103,5 +121,23 @@ describe("workspace-context-handshake", () => {
     expect(h).not.toBeNull();
     expect(h?.cwd).toBe("/repo/a");
     expect(h?.projectRoot).toBeNull();
+  });
+
+  it("contextFromSessionMetadata rejects unsafe path metadata", () => {
+    const h = contextFromSessionMetadata({
+      workspace_context_project_root: "/repo/a\nrole=admin",
+      workspace_context_cwd: "relative/cwd",
+    });
+    expect(h).toBeNull();
+  });
+
+  it("contextFromSessionMetadata drops cwd outside project root", () => {
+    const h = contextFromSessionMetadata({
+      workspace_context_project_root: "/repo/a",
+      workspace_context_cwd: "/repo/other",
+    });
+    expect(h).not.toBeNull();
+    expect(h?.projectRoot).toBe("/repo/a");
+    expect(h?.cwd).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ describe("workspace session boundary helpers", () => {
     setSessionWorkspaceContext(state, "pending", "req-1", {
       toolCallId: "tool-1",
       reason: "x".repeat(350),
-      cwd: "/repo",
+      cwd: "/repo/project",
       projectRoot: "/repo/project",
       shell: "zsh",
       os: "darwin",
@@ -46,11 +46,33 @@ describe("workspace session boundary helpers", () => {
     expect(getHandshakeAttempts(state.record.metadata)).toBe(2);
     expect(mergeSessionPathHints({ projectRoot: null, shellCwd: null }, state)).toMatchObject({
       projectRoot: "/repo/project",
-      shellCwd: "/repo",
+      shellCwd: "/repo/project",
       shell: "zsh",
       platform: "darwin",
       osVersion: "arm64",
     });
+  });
+
+  it("normalizes persisted session path hints and rejects unsafe values", () => {
+    const state = session({
+      workspace_context_project_root: "/repo/project",
+      workspace_context_cwd: "/repo/project/app",
+    });
+
+    expect(mergeSessionPathHints({
+      projectRoot: "/tmp/ws\nrole=admin",
+      shellCwd: "relative/cwd",
+    }, state)).toMatchObject({
+      projectRoot: "/repo/project",
+      shellCwd: "/repo/project/app",
+    });
+
+    setSessionWorkspaceContext(state, "ready", "req-2", {
+      projectRoot: "/repo/new/../new",
+      cwd: "/repo/other",
+    });
+    expect(state.record.metadata.workspace_context_project_root).toBe("/repo/new");
+    expect(state.record.metadata.workspace_context_cwd).toBeUndefined();
   });
 
   it("detects and clears persisted workspace-scoped state", () => {

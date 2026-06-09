@@ -1,9 +1,12 @@
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
+
 export const PROJECT_INSTRUCTION_FILES = [
   "CLAUDE.md",
   "AGENTS.md",
   ".cursorrules",
   ".cursor/rules",
 ] as const;
+
 const PROJECT_INSTRUCTION_FILE_SET = new Set<string>(PROJECT_INSTRUCTION_FILES);
 
 export interface WorkspacePathHints {
@@ -27,9 +30,7 @@ export interface WorkspaceBoundaryDecision {
 }
 
 export function normalizeWorkspaceRoot(value: string | null | undefined): string | null {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) return null;
-  return trimmed.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  return normalizeAbsolutePathHint(value);
 }
 
 export function workspaceRootFromHints(pathHints: WorkspacePathHints): string | null {
@@ -41,7 +42,9 @@ export function workspaceFingerprintFromRoot(root: string | null): string | null
 }
 
 export function projectInstructionFilePresent(pathValue: string | null | undefined): boolean {
-  const normalized = normalizeWorkspaceRoot(pathValue);
+  const normalized = typeof pathValue === "string"
+    ? pathValue.trim().replace(/\\/g, "/").replace(/\/+$/, "")
+    : "";
   if (!normalized) return false;
   return PROJECT_INSTRUCTION_FILES.some((name) => normalized === name || normalized.endsWith(`/${name}`));
 }
