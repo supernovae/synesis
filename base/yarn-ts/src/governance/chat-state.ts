@@ -205,39 +205,39 @@ export function formatChatStateBlock(chatState: ChatState): string | null {
   if (!hasSignal) return null;
 
   const lines: string[] = ["<SYNESIS_CHAT_STATE version=\"1\">"];
-  lines.push(`active_objective=${safeValue(chatState.activeObjective ?? "none")}`);
-  lines.push(`phase=${chatState.phase}`);
-  lines.push(`pending_user_directive=${safeValue(chatState.pendingUserDirective ?? "none")}`);
-  lines.push("directive_execution_mode=apply_directive_silently_without_repeated_acknowledgment");
-  lines.push(`last_verification_outcome=${chatState.lastVerificationOutcome}`);
-  lines.push(`completion_status=${chatState.completionStatus}`);
-  lines.push(`blockers=${safeValue(chatState.blockers.join(" | ") || "none")}`);
-  lines.push(`focus_paths=${safeValue(chatState.currentFocusPaths.join(",") || "none")}`);
-  lines.push(`unresolved_corrections=${chatState.unresolvedCorrections.length}`);
-  lines.push(`resolved_corrections=${chatState.resolvedCorrections.length}`);
+  lines.push(`active_objective: ${safeValue(chatState.activeObjective ?? "none")}`);
+  lines.push(`phase: ${chatState.phase}`);
+  lines.push(`pending_user_directive: ${safeValue(chatState.pendingUserDirective ?? "none")}`);
+  lines.push("directive_execution_mode: apply_directive_silently_without_repeated_acknowledgment");
+  lines.push(`last_verification_outcome: ${chatState.lastVerificationOutcome}`);
+  lines.push(`completion_status: ${chatState.completionStatus}`);
+  lines.push(`blockers: ${safeValue(chatState.blockers.join(" | ") || "none")}`);
+  lines.push(`focus_paths: ${safeValue(chatState.currentFocusPaths.join(",") || "none")}`);
+  lines.push(`unresolved_corrections: ${chatState.unresolvedCorrections.length}`);
+  lines.push(`resolved_corrections: ${chatState.resolvedCorrections.length}`);
 
   for (const correction of chatState.unresolvedCorrections.slice(-3)) {
     lines.push(
-      `open_correction=turn:${correction.sourceTurn};issue:${safeValue(correction.issue)};reopened:${correction.reopened ? "yes" : "no"}`,
+      `open_correction: turn:${correction.sourceTurn}; issue:${safeValue(correction.issue)}; reopened:${correction.reopened ? "yes" : "no"}`,
     );
   }
   for (const correction of chatState.resolvedCorrections.slice(-3)) {
     lines.push(
-      `resolved_correction=turn:${correction.sourceTurn};issue:${safeValue(correction.issue)};evidence:${safeValue(correction.resolutionEvidenceSummary ?? "none")}`,
+      `resolved_correction: turn:${correction.sourceTurn}; issue:${safeValue(correction.issue)}; evidence:${safeValue(correction.resolutionEvidenceSummary ?? "none")}`,
     );
   }
 
   if (chatState.lastAttemptSummary) {
     lines.push(
-      `last_attempt=kind:${chatState.lastAttemptSummary.kind};turn:${chatState.lastAttemptSummary.evidenceTurn};summary:${safeValue(chatState.lastAttemptSummary.summary)}`,
+      `last_attempt: kind:${chatState.lastAttemptSummary.kind}; turn:${chatState.lastAttemptSummary.evidenceTurn}; summary:${safeValue(chatState.lastAttemptSummary.summary)}`,
     );
   } else {
-    lines.push("last_attempt=none");
+    lines.push("last_attempt: none");
   }
 
-  lines.push(`transcript_summary=${safeValue(chatState.transcriptSummary || "none")}`);
+  lines.push(`transcript_summary: ${safeValue(chatState.transcriptSummary || "none")}`);
   lines.push(
-    `narration_residue_summary=${safeValue(chatState.narrationResidueSummary ?? "none")}`,
+    `narration_residue_summary: ${safeValue(chatState.narrationResidueSummary ?? "none")}`,
   );
   lines.push("</SYNESIS_CHAT_STATE>");
   return lines.join("\n");
@@ -665,5 +665,9 @@ function sharesIssueTokens(candidate: string, issueTokens: Set<string>): boolean
 }
 
 function safeValue(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .trim();
 }
