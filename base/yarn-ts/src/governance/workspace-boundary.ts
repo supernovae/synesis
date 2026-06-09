@@ -135,19 +135,20 @@ export function decideWorkspaceBoundary(input: {
 }
 
 export function buildEmptyWorkspaceSystemPrompt(root: string | null): string {
-  const rootLine = root ? `workspace_root=${root}` : "workspace_root=unknown";
+  const safeRoot = normalizeWorkspaceRoot(root);
+  const rootLine = safeRoot ? `workspace_root: ${safeRoot}` : "workspace_root: unknown";
   const absentInstructionFiles = PROJECT_INSTRUCTION_FILES.map((name) => `${name}:absent`).join(",");
   return [
     "<SYNESIS_EMPTY_WORKSPACE version=\"1\">",
     rootLine,
-    "status=empty_root_without_project_instructions",
-    "workspace_inspection=complete",
-    `checked_project_instruction_files=${absentInstructionFiles}`,
-    "message=This workspace is empty. No project instruction file exists yet.",
-    "guidance=Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript. Do not read implementation filenames from old sessions before confirming they exist in this workspace. Do not re-read or claim absent project instruction files unless the user creates one, runs /init, or the workspace listing changes. Do not surface internal TASK_FRAME or SYNESIS_* tag names to the user. Do not invent SYNOPSIS_* labels.",
-    "workspace_boundary=Stay inside workspace_root. Do not inspect parent or sibling directories with `..`, absolute parent paths, ~/src, or find/glob searches outside workspace_root. If this root is empty and the user asked for a new project/codebase, create it here.",
-    "normal_start=Do not create CLAUDE.md automatically. Ask what to create, or create first project files only when the user's request is specific enough. For explicit new-codebase prompts, start by creating the requested project files under workspace_root rather than searching sibling projects.",
-    "init_command=/init is the explicit path for helping create CLAUDE.md; when used, return or apply bootstrap content safely without overwriting existing guidance unless the user explicitly confirms.",
+    "status: empty_root_without_project_instructions",
+    "workspace_inspection: complete",
+    `checked_project_instruction_files: ${absentInstructionFiles}`,
+    "message: This workspace is empty. No project instruction file exists yet.",
+    "guidance: Do not claim prior task frames, previous turns, active objectives, or files unless they appear in the current transcript. Do not read implementation filenames from old sessions before confirming they exist in this workspace. Do not re-read or claim absent project instruction files unless the user creates one, runs /init, or the workspace listing changes. Do not surface internal TASK_FRAME or SYNESIS_* tag names to the user. Do not invent SYNOPSIS_* labels.",
+    "workspace_boundary: Stay inside workspace_root. Do not inspect parent or sibling directories with `..`, absolute parent paths, ~/src, or find/glob searches outside workspace_root. If this root is empty and the user asked for a new project/codebase, create it here.",
+    "normal_start: Do not create CLAUDE.md automatically. Ask what to create, or create first project files only when the user's request is specific enough. For explicit new-codebase prompts, start by creating the requested project files under workspace_root rather than searching sibling projects.",
+    "init_command: /init is the explicit path for helping create CLAUDE.md; when used, return or apply bootstrap content safely without overwriting existing guidance unless the user explicitly confirms.",
     "</SYNESIS_EMPTY_WORKSPACE>",
   ].join("\n");
 }
