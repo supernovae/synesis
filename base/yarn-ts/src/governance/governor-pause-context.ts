@@ -34,8 +34,15 @@ function compactText(value: unknown, maxChars: number): string {
   return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
-function quoted(value: unknown, maxChars: number): string {
-  return JSON.stringify(compactText(value, maxChars));
+function promptControlText(value: unknown, maxChars: number): string {
+  return compactText(value, maxChars)
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .trim();
+}
+
+function quotedPromptControl(value: unknown, maxChars: number): string {
+  return JSON.stringify(promptControlText(value, maxChars));
 }
 
 function stringArray(value: unknown): string[] {
@@ -140,7 +147,12 @@ export function buildGovernorPauseResumeBlock(
   latestUserPrompt: string,
 ): string {
   const nextActions = snapshot.next_actions
-    .map((action) => `${action.id}: ${action.label} - ${action.description}`)
+    .map((action) => {
+      const id = promptControlText(action.id, 80);
+      const label = promptControlText(action.label, 120);
+      const description = promptControlText(action.description, 240);
+      return `${id}: ${label} - ${description}`;
+    })
     .join("; ");
   const chatState = snapshot.chat_state_summary
     ? compactText(JSON.stringify(snapshot.chat_state_summary), 900)
@@ -151,22 +163,22 @@ export function buildGovernorPauseResumeBlock(
 
   return [
     `<SYNESIS_GOVERNOR_PAUSE_RECOVERY mode="summarize_and_stop" version="${GOVERNOR_PAUSE_CONTEXT_SCHEMA_VERSION}">`,
-    `user_request=${quoted(latestUserPrompt, 500)}`,
-    `instruction=${quoted("The user selected stop/summarize/status after a governor pause. Reply with a concise current-status summary only. Do not call tools, restart servers, retry commands, edit files, or restate a fresh plan.", 500)}`,
-    `surface=${quoted(snapshot.surface, 40)}`,
-    `pause_request_id=${quoted(snapshot.request_id, 160)}`,
-    `pause_reason=${quoted(snapshot.pause_reason, 120)}`,
-    `matched_rules=${quoted(snapshot.matched_rules.join(","), 400)}`,
-    `recovery_attempts_used=${quoted(snapshot.recovery_attempts_used, 40)}`,
-    `user_facing_explanation=${quoted(snapshot.user_facing_explanation, 600)}`,
-    `concrete_nudge=${quoted(snapshot.concrete_nudge, 600)}`,
-    `default_recommended_action=${quoted(snapshot.default_recommended_action, 120)}`,
-    `next_actions=${quoted(nextActions, 900)}`,
-    snapshot.question_tool_name ? `question_tool=${quoted(snapshot.question_tool_name, 120)}` : "",
-    snapshot.pause_message ? `previous_pause_message=${quoted(snapshot.pause_message, 1200)}` : "",
-    snapshot.resume_hint ? `resume_hint=${quoted(snapshot.resume_hint, 800)}` : "",
-    chatState ? `chat_state_summary=${quoted(chatState, 900)}` : "",
-    fileState ? `file_state_summary=${quoted(fileState, 900)}` : "",
+    `user_request: ${quotedPromptControl(latestUserPrompt, 500)}`,
+    `instruction: ${quotedPromptControl("The user selected stop/summarize/status after a governor pause. Reply with a concise current-status summary only. Do not call tools, restart servers, retry commands, edit files, or restate a fresh plan.", 500)}`,
+    `surface: ${quotedPromptControl(snapshot.surface, 40)}`,
+    `pause_request_id: ${quotedPromptControl(snapshot.request_id, 160)}`,
+    `pause_reason: ${quotedPromptControl(snapshot.pause_reason, 120)}`,
+    `matched_rules: ${quotedPromptControl(snapshot.matched_rules.join(","), 400)}`,
+    `recovery_attempts_used: ${quotedPromptControl(snapshot.recovery_attempts_used, 40)}`,
+    `user_facing_explanation: ${quotedPromptControl(snapshot.user_facing_explanation, 600)}`,
+    `concrete_nudge: ${quotedPromptControl(snapshot.concrete_nudge, 600)}`,
+    `default_recommended_action: ${quotedPromptControl(snapshot.default_recommended_action, 120)}`,
+    `next_actions: ${quotedPromptControl(nextActions, 900)}`,
+    snapshot.question_tool_name ? `question_tool: ${quotedPromptControl(snapshot.question_tool_name, 120)}` : "",
+    snapshot.pause_message ? `previous_pause_message: ${quotedPromptControl(snapshot.pause_message, 1200)}` : "",
+    snapshot.resume_hint ? `resume_hint: ${quotedPromptControl(snapshot.resume_hint, 800)}` : "",
+    chatState ? `chat_state_summary: ${quotedPromptControl(chatState, 900)}` : "",
+    fileState ? `file_state_summary: ${quotedPromptControl(fileState, 900)}` : "",
     "</SYNESIS_GOVERNOR_PAUSE_RECOVERY>",
   ].filter(Boolean).join("\n");
 }
