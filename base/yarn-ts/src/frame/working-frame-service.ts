@@ -4,6 +4,7 @@ import type {
   ManifestComparison,
   WorkingFrame as RichWorkingFrame,
 } from "@synesis/manifest";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 export interface FrameMessage {
   role: string;
@@ -37,6 +38,16 @@ export interface ManifestContext {
 export interface WorkingFramePathHints {
   projectRoot?: string | null;
   shellCwd?: string | null;
+}
+
+function normalizeWorkingFramePathHints(pathHints?: WorkingFramePathHints | null): WorkingFramePathHints | null {
+  if (!pathHints) return null;
+  const projectRoot = normalizeAbsolutePathHint(pathHints.projectRoot);
+  const rawShellCwd = normalizeAbsolutePathHint(pathHints.shellCwd);
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? null
+    : rawShellCwd;
+  return projectRoot || shellCwd ? { projectRoot, shellCwd } : null;
 }
 
 const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
@@ -207,12 +218,13 @@ export class WorkingFrameService {
 
   /** Emit a compact system block — adapts density to frame type. */
   toSystemBlock(frame: WorkingFrame, pathHints?: WorkingFramePathHints | null): string {
+    const normalizedPathHints = normalizeWorkingFramePathHints(pathHints);
     const lines = ["<WORKING_FRAME>"];
-    if (pathHints?.projectRoot?.trim()) {
-      lines.push(`project_root=${pathHints.projectRoot.trim()}`);
+    if (normalizedPathHints?.projectRoot) {
+      lines.push(`project_root=${normalizedPathHints.projectRoot}`);
     }
-    if (pathHints?.shellCwd?.trim()) {
-      lines.push(`shell_cwd=${pathHints.shellCwd.trim()}`);
+    if (normalizedPathHints?.shellCwd) {
+      lines.push(`shell_cwd=${normalizedPathHints.shellCwd}`);
     }
     lines.push(
       `goal=${frame.goal}`,
@@ -238,14 +250,15 @@ export class WorkingFrameService {
 
   /** Emit a rich system block for medium/large tasks with manifest context. */
   toRichSystemBlock(frame: RichWorkingFrame, pathHints?: WorkingFramePathHints | null): string {
+    const normalizedPathHints = normalizeWorkingFramePathHints(pathHints);
     const lines = [
       "<WORKING_FRAME>",
     ];
-    if (pathHints?.projectRoot?.trim()) {
-      lines.push(`project_root=${pathHints.projectRoot.trim()}`);
+    if (normalizedPathHints?.projectRoot) {
+      lines.push(`project_root=${normalizedPathHints.projectRoot}`);
     }
-    if (pathHints?.shellCwd?.trim()) {
-      lines.push(`shell_cwd=${pathHints.shellCwd.trim()}`);
+    if (normalizedPathHints?.shellCwd) {
+      lines.push(`shell_cwd=${normalizedPathHints.shellCwd}`);
     }
     lines.push(
       `goal=${frame.currentGoal}`,

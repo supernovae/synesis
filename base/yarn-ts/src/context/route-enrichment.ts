@@ -22,6 +22,7 @@ import type { AttentionPositioningService } from "./attention-positioning.js";
 import { buildResponseStyleBlock } from "../response-style.js";
 import type { SessionState } from "../state/session-state.js";
 import type { WorkflowPhase } from "../orchestration/phase-model-orchestrator.js";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 export interface EnrichResult {
   messages: Array<{ role: string; content: unknown }>;
@@ -54,6 +55,26 @@ function splitAdapterBlockForStability(adapterBlock?: string): { stable?: string
     stable: stable.join("\n").trim() || undefined,
     volatile: volatile.join("\n").trim() || undefined,
   };
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function normalizePromptPathHints(
+  pathHints?: { projectRoot: string | null; shellCwd: string | null } | null,
+): { projectRoot: string | null; shellCwd: string | null } | null {
+  if (!pathHints) return null;
+  const projectRoot = normalizeAbsolutePathHint(pathHints.projectRoot);
+  const rawShellCwd = normalizeAbsolutePathHint(pathHints.shellCwd);
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? null
+    : rawShellCwd;
+  return projectRoot || shellCwd ? { projectRoot, shellCwd } : null;
 }
 
 const TOOL_EFFICIENCY_GUIDANCE = `<TOOL_EFFICIENCY>
@@ -132,6 +153,7 @@ export function createRouteEnrichmentService(input: {
     let detectedPhase: WorkflowPhase | undefined;
     let detectedGoal: string | undefined;
     const { stable: stableAdapterBlock, volatile: volatileAdapterBlock } = splitAdapterBlockForStability(adapterBlock);
+    const normalizedPathHints = normalizePromptPathHints(pathHints);
 
     const partition = input.config.SYNESIS_YARN_STABLE_PREFIX_ENABLED
       ? input.stablePrefixService.partition(sessionKey, stableAdapterBlock, input.getPromptSnapshot(), promptContext)
@@ -145,10 +167,12 @@ export function createRouteEnrichmentService(input: {
 
     const stablePrefix = input.blockStore.intern(partition.stablePrefix);
 
-    const effectiveRoot = pathHints?.projectRoot ?? pathHints?.shellCwd;
+    const effectiveRoot = normalizedPathHints?.projectRoot ?? normalizedPathHints?.shellCwd;
     let projectContext: string | null = null;
     if (topLevelDirs && topLevelDirs.length > 0 && effectiveRoot) {
-      projectContext = input.blockStore.intern(`<PROJECT_ROOT path="${effectiveRoot}" dirs="${topLevelDirs.join(",")}" />`);
+      projectContext = input.blockStore.intern(
+        `<PROJECT_ROOT path="${escapeXmlAttribute(effectiveRoot)}" dirs="${escapeXmlAttribute(topLevelDirs.join(","))}" />`,
+      );
     }
 
     if (input.config.SYNESIS_YARN_GOVERNANCE_DISABLED) {
@@ -171,8 +195,8 @@ export function createRouteEnrichmentService(input: {
     let structuralCriticBlock: string | null = null;
 
     const wfPathHints =
-      input.config.SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME && pathHints
-        ? { projectRoot: pathHints.projectRoot, shellCwd: pathHints.shellCwd }
+      input.config.SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME && normalizedPathHints
+        ? normalizedPathHints
         : null;
 
     if (input.config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
@@ -270,10 +294,10 @@ export function createRouteEnrichmentService(input: {
     if (
       input.config.SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED
       && !structuralMapFromIncremental
-      && pathHints?.projectRoot
+      && normalizedPathHints?.projectRoot
       && projectLanguageForExt === "go"
     ) {
-      goDocOutputForExt = await runGoDoc(pathHints.projectRoot);
+      goDocOutputForExt = await runGoDoc(normalizedPathHints.projectRoot);
     }
     const extendedMemoryInjected = generateExtendedMemoryContext(input.config, {
       structuralIndex: null,
