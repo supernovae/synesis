@@ -94,6 +94,44 @@ function toStringContent(content: unknown): string {
   }
 }
 
+function promptMarkerText(value: unknown, maxChars = 512): string {
+  return replacePromptControlChars(String(value ?? ""))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function promptMarkerBlock(value: unknown, maxChars = 2400): string {
+  return replacePromptControlChars(String(value ?? "").slice(0, maxChars))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .trimEnd();
+}
+
+function promptMarkerPath(value: unknown): string {
+  return promptMarkerText(value, 512)
+    .replace(/[;&|$(){}]/g, "_")
+    .replaceAll("[", "_")
+    .replaceAll("]", "_")
+    .trim() || "unknown";
+}
+
+function replacePromptControlChars(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += (code < 0x20 && value[i] !== "\n") || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function hasArtifactHandleMarker(summary: string): boolean {
+  return /\bartifact_handle\s*[:=]/.test(summary);
+}
+
 function buildByFamilyStats(): Record<string, number> {
   const stats: Record<string, number> = { generic: 0 };
   for (const f of registeredFamilies()) stats[f] = 0;
@@ -375,7 +413,7 @@ export class ToolResultReductionService {
       }
 
       this.trackTransformation(raw.length, summary.length);
-      if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
+      if (hasArtifactHandleMarker(summary)) this.stats.artifactHandleCount += 1;
       reducedCount += 1;
 
       summary = this.appendTerminalVerificationHintForTool(m.name, m.content, summary);
@@ -575,7 +613,7 @@ export class ToolResultReductionService {
       }
 
       this.trackTransformation(raw.length, summary.length);
-      if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
+      if (hasArtifactHandleMarker(summary)) this.stats.artifactHandleCount += 1;
       reducedCount += 1;
       summary = this.appendTerminalVerificationHintForTool(m.name, m.content, summary);
       out[idx] = { ...m, content: summary };
@@ -698,7 +736,7 @@ export class ToolResultReductionService {
       }
     }
     this.trackTransformation(raw.length, summary.length);
-    if (summary.includes("artifact_handle=")) this.stats.artifactHandleCount += 1;
+    if (hasArtifactHandleMarker(summary)) this.stats.artifactHandleCount += 1;
     return this.appendTerminalVerificationHintForTool(toolName, content, summary);
   }
 
@@ -963,21 +1001,21 @@ export class ToolResultReductionService {
       try {
         const id = this.artifactStore.putToolResult(raw).id;
         this.stats.guidedTrimArtifactsStored += 1;
-        artifactLine = `artifact_handle=${id} recovery=synesis_artifact_retrieve`;
+        artifactLine = `artifact_handle: ${promptMarkerText(id, 128)} recovery: synesis_artifact_retrieve`;
       } catch {
         artifactLine = "";
       }
     }
     const linesOut = [
       `<SYNESIS_TOOL_GUARDRAIL status="truncated" code="tool_output_truncated_guided" version="1">`,
-      `tool=${toolName ?? "unknown"}`,
-      `lines_total=${lines.length}`,
-      `chars_total=${raw.length}`,
-      `lines_shown=${previewLines}`,
-      `next_action=use_more_specific_path_or_pattern`,
+      `tool: ${promptMarkerText(toolName ?? "unknown", 96)}`,
+      `lines_total: ${lines.length}`,
+      `chars_total: ${raw.length}`,
+      `lines_shown: ${previewLines}`,
+      `next_action: use_more_specific_path_or_pattern`,
       ...(artifactLine ? [artifactLine] : []),
       `[Truncated] Tool output exceeded guardrail thresholds. Showing a bounded preview; full bytes stored for retrieval when artifact_handle is present.`,
-      preview,
+      promptMarkerBlock(preview),
       "</SYNESIS_TOOL_GUARDRAIL>",
     ];
     return linesOut.join("\n");
@@ -1029,15 +1067,15 @@ export class ToolResultReductionService {
 
     return [
       `<SYNESIS_TOOL_GUARDRAIL status="task_pruned" code="task_conditioned_pruning" version="1">`,
-      `tool=${toolName ?? "unknown"}`,
-      `task_tokens=${tokens.slice(0, 8).join(",")}`,
-      `lines_total=${lines.length}`,
-      `lines_kept=${keptLines.length}`,
-      `lines_dropped=${droppedLines}`,
-      `artifact_handle=${artifact.id}`,
-      "next_action=request_artifact_handle_if_more_context_needed",
+      `tool: ${promptMarkerText(toolName ?? "unknown", 96)}`,
+      `task_tokens: ${tokens.slice(0, 8).map((token) => promptMarkerText(token, 64)).join(",")}`,
+      `lines_total: ${lines.length}`,
+      `lines_kept: ${keptLines.length}`,
+      `lines_dropped: ${droppedLines}`,
+      `artifact_handle: ${promptMarkerText(artifact.id, 128)}`,
+      "next_action: request_artifact_handle_if_more_context_needed",
       "[Task-pruned] Showing high-signal lines aligned to current task cue.",
-      ...keptLines,
+      ...keptLines.map((line) => promptMarkerBlock(line, 2000)),
       "</SYNESIS_TOOL_GUARDRAIL>",
     ].join("\n");
   }
@@ -1128,13 +1166,13 @@ export class ToolResultReductionService {
     ) {
       const pathMatch = raw.match(/path="([^"]+)"/i);
       const extractedPath = pathMatch?.[1] ?? null;
-      const catTarget = extractedPath ?? "<file_path>";
+      const catTarget = extractedPath ? promptMarkerPath(extractedPath) : "file_path";
       return [
         `<SYNESIS_TOOL_GUARDRAIL status="guided" code="read_cache_stub" version="1">`,
-        `tool=${toolName ?? "Read"}`,
-        ...(extractedPath ? [`file_path=${extractedPath}`] : []),
-        `reason=client_returned_cache_stub`,
-        `next_action=use_bash_cat_to_read_file_content`,
+        `tool: ${promptMarkerText(toolName ?? "Read", 96)}`,
+        ...(extractedPath ? [`file_path: ${catTarget}`] : []),
+        `reason: client_returned_cache_stub`,
+        `next_action: use_bash_cat_to_read_file_content`,
         `[Cache stub] The client returned "Unchanged since last read" instead of file content.`,
         `The previous read was pruned from context so you do not have the content.`,
         `Use Bash(cat ${catTarget}) to retrieve the full file content.`,
@@ -1170,11 +1208,11 @@ export class ToolResultReductionService {
     if (!isEmpty) return null;
     return [
       `<SYNESIS_TOOL_GUARDRAIL status="guided" code="empty_result_remediation" version="1">`,
-      `tool=${toolName ?? "unknown"}`,
-      "reason=empty_result",
-      "next_action=broaden_or_correct_query_then_retry_once",
+      `tool: ${promptMarkerText(toolName ?? "unknown", 96)}`,
+      "reason: empty_result",
+      "next_action: broaden_or_correct_query_then_retry_once",
       "[No results] Try a partial symbol match, broaden dir scope by one level, or list_dir first to validate path assumptions.",
-      `preview=${raw.slice(0, 240).replace(/\n/g, " ")}`,
+      `preview: ${promptMarkerText(raw, 240)}`,
       "</SYNESIS_TOOL_GUARDRAIL>",
     ].join("\n");
   }
@@ -1182,9 +1220,9 @@ export class ToolResultReductionService {
   private artifactSummary(raw: string, toolName?: string): string {
     const artifact = this.artifactStore.putToolResult(raw);
     return [
-      `<TOOL_RESULT_SUMMARY tool="${toolName ?? "unknown"}" chars="${raw.length}" truncated="true">`,
-      `artifact_handle=${artifact.id}`,
-      `preview=${artifact.preview}`,
+      `<TOOL_RESULT_SUMMARY tool="${promptMarkerText(toolName ?? "unknown", 96)}" chars="${raw.length}" truncated="true">`,
+      `artifact_handle: ${promptMarkerText(artifact.id, 128)}`,
+      `preview: ${promptMarkerBlock(artifact.preview, 1000)}`,
       "</TOOL_RESULT_SUMMARY>"
     ].join("\n");
   }
