@@ -4,6 +4,7 @@
  */
 
 import path from "node:path";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 const MAX_GIT_SUMMARY = 500;
 const MAX_LABEL = 256;
@@ -153,12 +154,15 @@ export function parseSessionExecutionContext(
     ?? nestedSynesisString(metadata, ["projectRoot", "project_root"]);
   const fromHeaderProject = headerOne(headers, "x-synesis-project-root");
   const fromHeaderLegacy = headerOne(headers, "x-synesis-workspace-root");
-  const projectRoot = (fromMetaRoot || fromHeaderProject || fromHeaderLegacy || "").trim() || null;
+  const projectRoot = normalizeAbsolutePathHint(fromMetaRoot || fromHeaderProject || fromHeaderLegacy);
 
   const fromMetaCwd = metaString(metadata, "synesis_shell_cwd")
     ?? nestedSynesisString(metadata, ["shellCwd", "shell_cwd", "cwd"]);
   const fromHeaderCwd = headerOne(headers, "x-synesis-shell-cwd");
-  const shellCwd = (fromMetaCwd || fromHeaderCwd || "").trim() || null;
+  const rawShellCwd = normalizeAbsolutePathHint(fromMetaCwd || fromHeaderCwd);
+  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
+    ? null
+    : rawShellCwd;
 
   let platform: string | undefined;
   let osVersion: string | undefined;
