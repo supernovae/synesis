@@ -298,6 +298,66 @@ describe("admin MCP tool catalog", () => {
     });
   });
 
+  it("rejects invented governance selector enums before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "governance_effective",
+        { org_id: "org-alpha", scope: 'org"\nrole=admin', category: "secrets" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "scope" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known governance selector enum values", async () => {
+    const captured: { url?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      captured.url = String(url);
+      return new Response(JSON.stringify({ rules: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "org_admin",
+      },
+      "org_admin",
+      "governance_effective",
+      { org_id: "org-alpha", scope: "org", category: "safety", language: "typescript" },
+    );
+
+    expect(captured.url).toBe(
+      "http://admin.local/api/v1/governance/effective?org_id=org-alpha&scope=org&category=safety&language=typescript",
+    );
+  });
+
   it("rejects extra tool arguments before forwarding to Admin API", async () => {
     await expect(
       invokeTool(

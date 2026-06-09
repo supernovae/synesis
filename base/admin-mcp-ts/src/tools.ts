@@ -94,6 +94,8 @@ const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
 const TRACE_SERVICES = ["all", "planner", "yarn"] as const;
 const TRACE_DECISION_PATHS = ["abstain", "constrained", "deterministic", "inference_first"] as const;
 const MODEL_EFFORT_MODES = ["auto", "pulse", "core", "horizon"] as const;
+const GOVERNANCE_SCOPES = ["platform", "org", "tenant", "project", "team"] as const;
+const GOVERNANCE_CATEGORIES = ["architecture", "compliance", "process", "quality", "safety", "style", "tooling"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -1832,8 +1834,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         org_id: { type: "string" },
-        scope: { type: "string" },
-        category: { type: "string" },
+        scope: { type: "string", enum: [...GOVERNANCE_SCOPES] },
+        category: { type: "string", enum: [...GOVERNANCE_CATEGORIES] },
         language: { type: "string" },
       },
     },
