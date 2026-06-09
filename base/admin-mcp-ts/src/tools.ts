@@ -91,6 +91,8 @@ const INGESTION_ITEM_STATUSES = [
 const INGESTION_CORPUS_CLASSES = ["coder_enriched", "general", "hybrid"] as const;
 const INGESTION_CONSTRAINT_KINDS = ["advisory", "guiding", "hard"] as const;
 const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
+const TRACE_SERVICES = ["all", "planner", "yarn"] as const;
+const TRACE_DECISION_PATHS = ["abstain", "constrained", "deterministic", "inference_first"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -827,9 +829,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         has_error: { type: "boolean", description: "Filter error traces" },
         task_type: { type: "string", description: "Filter by task type" },
         since_hours: { type: "integer", description: "If set, only traces newer than this many hours ago" },
-        trace_service: { type: "string", description: "Filter by emitter: planner, yarn, or all" },
+        trace_service: { type: "string", enum: [...TRACE_SERVICES], description: "Filter by emitter: planner, yarn, or all" },
         conversation_id: { type: "string", description: "Filter by conversation / session id" },
-        decision_path: { type: "string", description: "Filter by routing path" },
+        decision_path: { type: "string", enum: [...TRACE_DECISION_PATHS], description: "Filter by routing path" },
         tenant_id: { type: "string", description: "Optional tenant filter" },
         user_id: { type: "string", description: "Optional user id filter (within RBAC scope)" },
         org_id: { type: "string", description: "Optional org id filter (within RBAC scope)" },
