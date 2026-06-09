@@ -7,6 +7,41 @@
 
 import type { VerticalPrompt } from "../ontology/merge-plugins.js";
 
+const TEXT_LIMIT = 2000;
+const SHORT_TEXT_LIMIT = 256;
+const LIST_ITEM_LIMIT = 120;
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code <= 31 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function safeVerticalText(value: unknown, max = TEXT_LIMIT): string {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return "";
+  return replaceControlCharsWithSpace(String(value))
+    .replace(/[<"`=]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function safeVerticalList(value: unknown, maxItems = 32): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const text = safeVerticalText(item, LIST_ITEM_LIMIT).toLowerCase();
+    if (text) out.push(text);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // resolveActiveVertical
 // ---------------------------------------------------------------------------
@@ -28,10 +63,10 @@ export function resolveActiveVertical(
   let bestScore = 0;
 
   for (const [name, vp] of Object.entries(verticalPrompts)) {
-    const refList = (vp.active_domain_refs ?? []).map((r) => r.trim().toLowerCase());
+    const refList = safeVerticalList(vp.active_domain_refs);
     let score = refs.filter((r) => refList.includes(r)).length;
 
-    const aliases = (vp.platform_context_aliases ?? []).map((a) => a.trim().toLowerCase());
+    const aliases = safeVerticalList(vp.platform_context_aliases);
     if (ctx && aliases.includes(ctx)) score += 1;
 
     if (score > bestScore) {
@@ -54,7 +89,7 @@ export function getWorkerPersonaBlock(
 ): string {
   const vp = verticalPrompts[vertical];
   if (!vp) return "";
-  let base = (vp.worker_persona_block ?? "").trim();
+  let base = safeVerticalText(vp.worker_persona_block);
 
   const signals = vp.compliance_signals;
   const triggers = vp.compliance_trigger_keywords;
@@ -63,7 +98,7 @@ export function getWorkerPersonaBlock(
     const matched: string[] = [];
     for (const [key, keywords] of Object.entries(triggers)) {
       if (keywords.some((kw) => lower.includes(kw))) {
-        const text = signals[key];
+        const text = safeVerticalText(signals[key], SHORT_TEXT_LIMIT);
         if (text) matched.push(`- ${text}`);
       }
     }
@@ -87,16 +122,16 @@ export function getPlannerDecompositionRules(
 ): string {
   const vp = verticalPrompts[vertical];
   if (vp?.planner_decomposition_rules) {
-    return vp.planner_decomposition_rules.trim();
+    return safeVerticalText(vp.planner_decomposition_rules);
   }
 
   if (taxonomyMetadata) {
-    const rules = String(taxonomyMetadata.planner_decomposition_rules ?? "").trim();
+    const rules = safeVerticalText(taxonomyMetadata.planner_decomposition_rules);
     if (rules) return rules;
   }
 
   if (taxonomyKey && taxonomyKey !== vertical && taxonomyMetadata) {
-    const rules = String(taxonomyMetadata.planner_decomposition_rules ?? "").trim();
+    const rules = safeVerticalText(taxonomyMetadata.planner_decomposition_rules);
     if (rules) return rules;
   }
 
@@ -109,7 +144,7 @@ export function getCriticMode(
 ): "safety_ii" | "tiered" | "advisory" {
   const vp = verticalPrompts[vertical];
   if (!vp) return "advisory";
-  const mode = (vp.critic_mode ?? "advisory").trim().toLowerCase();
+  const mode = safeVerticalText(vp.critic_mode, SHORT_TEXT_LIMIT).toLowerCase() || "advisory";
   if (mode === "safety_ii" || mode === "tiered") return mode;
   return "advisory";
 }
@@ -124,7 +159,7 @@ export function getCriticTierPrompt(
 ): string {
   const vp = verticalPrompts[vertical];
   if (!vp?.critic_tiers) return "";
-  return (vp.critic_tiers[tier] ?? "").trim();
+  return safeVerticalText(vp.critic_tiers[tier]);
 }
 
 /**
