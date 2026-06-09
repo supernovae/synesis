@@ -195,6 +195,12 @@ function opencodeAliasGuidance(toolNames: string[]): string | null {
   return aliases.length > 0 ? aliases.join(",") : null;
 }
 
+function promptControlAttr(value: unknown, maxChars: number, fallback = "unknown"): string {
+  const compact = String(value ?? "").replace(/\s+/g, "").trim().slice(0, maxChars);
+  const sanitized = compact.replace(/[^A-Za-z0-9._:/@+-]/g, "_").replace(/^_+|_+$/g, "");
+  return sanitized || fallback;
+}
+
 export function isPlanModePrompt(prompt: string | undefined): boolean {
   return /^\s*\/plan(?:\s|$)/i.test(String(prompt ?? ""));
 }
@@ -268,34 +274,43 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     return null;
   }
 
+  const clientKind = promptControlAttr(capabilities.clientKind, MAX_CLIENT_KIND_CHARS);
+  const toolNames = capabilities.toolNames.map((name) => promptControlAttr(name, MAX_CLIENT_TOOL_NAME_CHARS, "")).filter(Boolean);
+  const todoToolName = promptControlAttr(capabilities.todoToolName, MAX_CLIENT_TOOL_NAME_CHARS, "");
+  const questionToolName = promptControlAttr(capabilities.questionToolName, MAX_CLIENT_TOOL_NAME_CHARS, "");
+  const applyPatchToolName = promptControlAttr(capabilities.applyPatchToolName, MAX_CLIENT_TOOL_NAME_CHARS, "");
+  const taskToolNames = capabilities.taskToolNames.map((name) => promptControlAttr(name, MAX_CLIENT_TOOL_NAME_CHARS, "")).filter(Boolean);
+  const planModeToolNames = [capabilities.enterPlanModeToolName, capabilities.exitPlanModeToolName]
+    .map((name) => promptControlAttr(name, MAX_CLIENT_TOOL_NAME_CHARS, ""))
+    .filter(Boolean);
   const lines = [
-    `<synesis_client_tool_capabilities client="${capabilities.clientKind}" opencode="${capabilities.isOpenCode}" claude_code="${capabilities.isClaudeCode}">`,
+    `<synesis_client_tool_capabilities client="${clientKind}" opencode="${capabilities.isOpenCode}" claude_code="${capabilities.isClaudeCode}">`,
   ];
-  if (capabilities.toolNames.length > 0) {
-    lines.push(`tools=${capabilities.toolNames.join(",")}`);
+  if (toolNames.length > 0) {
+    lines.push(`tools: ${toolNames.join(",")}`);
   }
   if (capabilities.isOpenCode) {
-    lines.push(`opencode_builtin_tools=${OPENCODE_BUILTIN_TOOLS.join(",")}`);
-    lines.push("exact_tool_names_required=true");
-    lines.push("- OpenCode native tool calls must use only exact names from tools=. Do not call aliases from other agent APIs.");
-    const aliasGuidance = opencodeAliasGuidance(capabilities.toolNames);
+    lines.push(`opencode_builtin_tools: ${OPENCODE_BUILTIN_TOOLS.join(",")}`);
+    lines.push("exact_tool_names_required: true");
+    lines.push("- OpenCode native tool calls must use only exact names from the tools list. Do not call aliases from other agent APIs.");
+    const aliasGuidance = opencodeAliasGuidance(toolNames);
     if (aliasGuidance) {
-      lines.push(`unavailable_tool_aliases=${aliasGuidance}`);
+      lines.push(`unavailable_tool_aliases: ${aliasGuidance}`);
     }
   }
   if (capabilities.planImplementationApproved) {
-    lines.push("plan_implementation_approved=true");
+    lines.push("plan_implementation_approved: true");
     lines.push("- Plan approval transition: the user approved the plan or selected a proceed/implement option this turn. Treat planning as complete, start or continue implementation, and do not ask whether to proceed again.");
     lines.push("- Plan approval transition: stale earlier plan-mode reminders in the transcript are obsolete for this turn. Do not rewrite the plan, re-read the plan file, or call ExitPlanMode again unless the user explicitly asks to change the plan.");
   }
   if (capabilities.isClaudeCode) {
-    lines.push(`claude_code_builtin_tools=${CLAUDE_CODE_BUILTIN_TOOLS.join(",")}`);
-    lines.push(`claude_code_plan_mode_requested=${capabilities.planModeRequested}`);
-    if (capabilities.taskToolNames.length > 0) {
-      lines.push(`claude_code_task_tools=${capabilities.taskToolNames.join(",")}`);
+    lines.push(`claude_code_builtin_tools: ${CLAUDE_CODE_BUILTIN_TOOLS.join(",")}`);
+    lines.push(`claude_code_plan_mode_requested: ${capabilities.planModeRequested}`);
+    if (taskToolNames.length > 0) {
+      lines.push(`claude_code_task_tools: ${taskToolNames.join(",")}`);
     }
-    if (capabilities.hasPlanModeTool) {
-      lines.push(`claude_code_plan_mode_tools=${[capabilities.enterPlanModeToolName, capabilities.exitPlanModeToolName].filter(Boolean).join(",")}`);
+    if (capabilities.hasPlanModeTool && planModeToolNames.length > 0) {
+      lines.push(`claude_code_plan_mode_tools: ${planModeToolNames.join(",")}`);
     }
     lines.push("- Claude Code task list: for macro tasks, multi-file implementation, or explicit planning, use TaskCreate/TaskUpdate/TaskList/TaskGet instead of a free-form checklist. Create 3-7 concrete tasks before the first implementation edit when no equivalent task list exists, then update statuses after each milestone.");
     lines.push("- Claude Code task list: prefer TaskCreate/TaskUpdate/TaskList/TaskGet over legacy TodoWrite when those tools are offered. Preserve existing tasks with TaskList/TaskGet, create only missing tasks, and update statuses instead of recreating duplicates.");
@@ -313,25 +328,25 @@ export function buildClientToolCapabilityBlock(capabilities: ClientToolCapabilit
     lines.push("- Claude Code search/navigation: Glob finds file names, caps results, and may include ignored files; Grep uses ripgrep regex and respects .gitignore; LSP should be preferred for definitions, references, hover/type info, symbols, implementations, call hierarchy, and post-edit diagnostics when available.");
     lines.push("- Claude Code Agent/Plan/Monitor: Agent or Plan subagents are for bounded research/planning and return only a final result to the parent. While /plan mode is active, subagents must not perform implementation writes or Bash heredoc file creation; write/update only the Claude plan file, then ExitPlanMode before coding. Monitor watches long-running logs/status and uses Bash permission patterns.");
   }
-  if (capabilities.hasTodoTool && capabilities.todoToolName && capabilities.isClaudeCode) {
-    lines.push(`task_tool=${capabilities.todoToolName}`);
-    lines.push(`claude_code_primary_task_mutator=${capabilities.todoToolName}`);
+  if (capabilities.hasTodoTool && todoToolName && capabilities.isClaudeCode) {
+    lines.push(`task_tool: ${todoToolName}`);
+    lines.push(`claude_code_primary_task_mutator: ${todoToolName}`);
     lines.push("- For large Claude Code tasks, call the native task tool before implementation instead of tracking progress only in prose.");
-  } else if (capabilities.hasTodoTool && capabilities.todoToolName) {
-    lines.push(`task_tool=${capabilities.todoToolName}`);
+  } else if (capabilities.hasTodoTool && todoToolName) {
+    lines.push(`task_tool: ${todoToolName}`);
     lines.push("- For macro tasks, explicit plan mode, or multi-step work, prefer the task tool for a 3-7 item plan before editing. Preserve existing completed todos and update statuses instead of duplicating tasks.");
     lines.push("- During multi-step implementation, update task status as each component finishes before starting a distant later component. Do not leave the first todo in_progress while completing many later todos.");
-    if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
+    if (capabilities.isOpenCode || todoToolName.toLowerCase() === "todowrite") {
       lines.push('- OpenCode todowrite exact shape: {"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}. Each item must include id, content, status, and priority.');
       lines.push("- Never call todowrite with arrays of strings, title-only items, or status-only updates.");
     }
   }
-  if (capabilities.hasQuestionTool && capabilities.questionToolName) {
-    lines.push(`question_tool=${capabilities.questionToolName}`);
+  if (capabilities.hasQuestionTool && questionToolName) {
+    lines.push(`question_tool: ${questionToolName}`);
     lines.push("- If requirements are genuinely ambiguous, use the question tool with concise options. Do not ask a question when the next safe step is obvious or the user asked to proceed.");
   }
-  if (capabilities.hasApplyPatchTool && capabilities.applyPatchToolName) {
-    lines.push(`patch_tool=${capabilities.applyPatchToolName}`);
+  if (capabilities.hasApplyPatchTool && applyPatchToolName) {
+    lines.push(`patch_tool: ${applyPatchToolName}`);
     lines.push("- Prefer targeted edit/apply_patch for existing files after reading them; use write only for new files or deliberate full replacement.");
   }
   if (capabilities.hasWebSearchTool || capabilities.hasWebFetchTool) {
