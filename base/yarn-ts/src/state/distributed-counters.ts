@@ -10,6 +10,7 @@
  */
 
 import { Redis } from "ioredis";
+import { createHash } from "node:crypto";
 import type { AppConfig } from "../config.js";
 
 export interface DistributedCounterStats {
@@ -74,6 +75,30 @@ export interface HourlyTokenWindowSnapshot {
   userTokensInWindow: number;
 }
 
+const COUNTER_KEY_PART_LIMIT = 160;
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function safeCounterKeyPart(value: unknown, fallback: string): string {
+  const raw = replaceControlCharsWithSpace(String(value ?? "")).trim();
+  if (!raw) return fallback;
+  const safe = raw
+    .replace(/[^A-Za-z0-9_.@:-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!safe) return fallback;
+  if (safe.length <= COUNTER_KEY_PART_LIMIT) return safe;
+  const digest = createHash("sha256").update(raw).digest("hex").slice(0, 32);
+  return `${safe.slice(0, 96)}-${digest}`;
+}
+
 export class DistributedCounterService {
   private readonly redis: Redis;
   private readonly repeatTtlSeconds: number;
@@ -109,7 +134,11 @@ export class DistributedCounterService {
    * Returns the new count, or null if Redis is unavailable (caller uses local fallback).
    */
   async incrRepeatCount(sessionKey: string, attemptHash: string): Promise<number | null> {
-    const key = `yarn-ts:policy:repeat:${sessionKey}:${attemptHash}`;
+    const key = [
+      "yarn-ts:policy:repeat",
+      safeCounterKeyPart(sessionKey, "unknown-session"),
+      safeCounterKeyPart(attemptHash, "unknown-attempt"),
+    ].join(":");
     try {
       this.stats.redisOps += 1;
       const val = await this.redis.eval(INCR_WITH_TTL_LUA, 1, key, String(this.repeatTtlSeconds));
@@ -126,7 +155,7 @@ export class DistributedCounterService {
    * Returns null if Redis is unavailable.
    */
   async getConsecutiveToolCalls(sessionKey: string): Promise<number | null> {
-    const key = `yarn-ts:qos:consecutive_tools:${sessionKey}`;
+    const key = `yarn-ts:qos:consecutive_tools:${safeCounterKeyPart(sessionKey, "unknown-session")}`;
     try {
       this.stats.redisOps += 1;
       const raw = await this.redis.get(key);
@@ -144,7 +173,7 @@ export class DistributedCounterService {
    * reset to 0 on any other finish reason.
    */
   async setConsecutiveToolCalls(sessionKey: string, value: number): Promise<boolean> {
-    const key = `yarn-ts:qos:consecutive_tools:${sessionKey}`;
+    const key = `yarn-ts:qos:consecutive_tools:${safeCounterKeyPart(sessionKey, "unknown-session")}`;
     try {
       this.stats.redisOps += 1;
       await this.redis.eval(SET_WITH_TTL_LUA, 1, key, String(value), String(this.consecutiveToolTtlSeconds));
@@ -163,12 +192,17 @@ export class DistributedCounterService {
   async addInputTokensAndReadHourlyWindow(
     sessionKey: string,
     userId: string,
+    orgId: string,
     inputTokens: number,
     nowMs = Date.now(),
   ): Promise<HourlyTokenWindowSnapshot | null> {
     const safeTokens = Number.isFinite(inputTokens) ? Math.max(0, Math.floor(inputTokens)) : 0;
-    const sessionCounterKey = `yarn-ts:qos:hourly_tokens:session:${sessionKey}`;
-    const userCounterKey = `yarn-ts:qos:hourly_tokens:user:${userId}`;
+    const sessionCounterKey = `yarn-ts:qos:hourly_tokens:session:${safeCounterKeyPart(sessionKey, "unknown-session")}`;
+    const userCounterKey = [
+      "yarn-ts:qos:hourly_tokens:user",
+      safeCounterKeyPart(orgId || "no-org", "no-org"),
+      safeCounterKeyPart(userId || "anon", "anon"),
+    ].join(":");
     try {
       this.stats.redisOps += 2;
       const [sessionTokens, userTokens] = await Promise.all([
@@ -205,7 +239,7 @@ export class DistributedCounterService {
   async getStateTransitionGlobalCalibrationScope(
     scopeKey: string,
   ): Promise<Record<string, unknown> | null> {
-    const key = `yarn-ts:state-transition:global:${scopeKey}`;
+    const key = `yarn-ts:state-transition:global:${safeCounterKeyPart(scopeKey, "unknown-scope")}`;
     try {
       this.stats.redisOps += 1;
       const raw = await this.redis.get(key);
@@ -224,7 +258,7 @@ export class DistributedCounterService {
     scopeKey: string,
     payload: Record<string, unknown>,
   ): Promise<boolean> {
-    const key = `yarn-ts:state-transition:global:${scopeKey}`;
+    const key = `yarn-ts:state-transition:global:${safeCounterKeyPart(scopeKey, "unknown-scope")}`;
     try {
       this.stats.redisOps += 1;
       await this.redis.set(key, JSON.stringify(payload), "EX", this.globalCalibrationTtlSeconds);

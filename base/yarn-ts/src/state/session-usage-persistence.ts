@@ -390,6 +390,7 @@ export interface HourlyTokenWindowCounter {
   addInputTokensAndReadHourlyWindow(
     sessionKey: string,
     userId: string,
+    orgId: string,
     inputTokens: number,
   ): Promise<HourlyTokenWindowSnapshot | null>;
 }
@@ -933,6 +934,7 @@ export function runHourlyTokenThrottleUpdate(
   return input.counter.addInputTokensAndReadHourlyWindow(
     input.record.sessionKey,
     input.record.userId,
+    input.record.orgId,
     input.inputTokens,
   ).then((snapshot) => {
     if (!snapshot) return;

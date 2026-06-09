@@ -114,4 +114,23 @@ describe("DistributedCounterService", () => {
 
     await svc.close();
   });
+
+  it("scopes hourly user token counters by org and normalizes Redis key parts", async () => {
+    const { DistributedCounterService } = await import("../src/state/distributed-counters.js");
+    const svc = new DistributedCounterService({
+      SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3",
+      SYNESIS_YARN_POLICY_REPEAT_ENTRY_TTL_MS: 1_800_000,
+      SYNESIS_YARN_SESSION_TTL_MS: 14_400_000,
+      SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS: 3_600_000,
+    } as never);
+
+    await svc.addInputTokensAndReadHourlyWindow("sess\n1", "user@example.com", "org\n1", 42, 60_000);
+
+    const redis = (svc as unknown as { redis: { eval: ReturnType<typeof vi.fn> } }).redis;
+    const keys = redis.eval.mock.calls.map((call: unknown[]) => call[2]);
+    expect(keys).toContain("yarn-ts:qos:hourly_tokens:session:sess_1");
+    expect(keys).toContain("yarn-ts:qos:hourly_tokens:user:org_1:user@example.com");
+
+    await svc.close();
+  });
 });

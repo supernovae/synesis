@@ -860,7 +860,7 @@ describe("session usage persistence mutation", () => {
       "state_transition_v1",
     ]);
     expect(counter.setConsecutiveToolCalls).toHaveBeenCalledWith("s1", 0);
-    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", 100);
+    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", "o1", 100);
     expect(recordSessionEvent).toHaveBeenCalledTimes(2);
     expect(metrics).toHaveBeenCalledWith("pulse", "pulse", expect.objectContaining({
       prompt_tokens: 100,
@@ -1551,7 +1551,7 @@ describe("session usage persistence mutation", () => {
       saveSession,
     });
 
-    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", 100);
+    expect(counter.addInputTokensAndReadHourlyWindow).toHaveBeenCalledWith("s1", "u1", "o1", 100);
     expect(session.metadata.hourly_tokens_session).toBe(1_500);
     expect(session.metadata.hourly_tokens_user).toBe(3_000);
     expect(recordEvent).toHaveBeenCalledTimes(2);
