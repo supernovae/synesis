@@ -48,6 +48,7 @@ describe("openAiMetadataProviderOptions", () => {
     expect(openAiMetadataProviderOptions({
       trace_id: "trace-1",
       session_id: "session-1",
+      user_id: "client-controlled-user",
       synesis_project_root: "/private/repo",
       synesis_runtime: { platform: "darwin" },
       custom_provider_option: "invented",
@@ -67,7 +68,6 @@ describe("openAiMetadataProviderOptions", () => {
     })).toEqual({
       trace_id: "trace_ role_admin",
       request_id: "42",
-      user_id: "true",
     });
   });
 });

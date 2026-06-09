@@ -224,7 +224,6 @@ const OPENAI_PROVIDER_METADATA_KEYS = new Set([
   "trace",
   "trace_id",
   "request_id",
-  "user_id",
 ]);
 
 export function openAiMetadataProviderOptions(metadata: Record<string, unknown> | undefined): Record<string, string> | undefined {
