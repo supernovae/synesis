@@ -52,6 +52,16 @@ const NETWORK_RETRY_PATTERNS: RegExp[] = [
   /\bTLS handshake failed\b/i,
 ];
 
+const TERMINAL_CLASSIFICATIONS: readonly TerminalClassification[] = [
+  "unknown",
+  "interactive_prompt",
+  "pager_detected",
+  "sudo_auth",
+  "network_retry",
+  "infinite_output_suspected",
+  "interactive_or_stalled",
+];
+
 export interface ClassifyOptions {
   shapingStats?: ShapingStats;
   killedReason?: "wall_clock_timeout";
@@ -145,23 +155,41 @@ function dedupeHints(hints: string[]): string[] {
  * Append to MCP runner summary for verification tools when classification is problematic.
  */
 export function formatTerminalVerificationHint(signals: TerminalSignals): string | null {
+  const classification = parseTerminalClassification(signals.classification);
   if (
-    signals.classification !== "interactive_or_stalled" &&
-    signals.classification !== "interactive_prompt" &&
-    signals.classification !== "sudo_auth" &&
-    signals.classification !== "pager_detected" &&
-    signals.classification !== "infinite_output_suspected" &&
-    signals.classification !== "network_retry" &&
+    classification !== "interactive_or_stalled" &&
+    classification !== "interactive_prompt" &&
+    classification !== "sudo_auth" &&
+    classification !== "pager_detected" &&
+    classification !== "infinite_output_suspected" &&
+    classification !== "network_retry" &&
     signals.killedReason !== "wall_clock_timeout"
   ) {
     return null;
   }
   const parts = [
-    `<synesis_terminal_signals classification="${signals.classification}">`,
-    ...signals.hints.map((h) => `  - ${h}`),
+    `<synesis_terminal_signals classification="${classification ?? "interactive_or_stalled"}">`,
+    ...signals.hints.map((h) => `  - ${controlText(h, 320)}`).filter((line) => line.trim() !== "-"),
     "</synesis_terminal_signals>",
   ];
   return parts.join("\n");
+}
+
+function parseTerminalClassification(value: unknown): TerminalClassification | null {
+  return typeof value === "string" && (TERMINAL_CLASSIFICATIONS as readonly string[]).includes(value)
+    ? value as TerminalClassification
+    : null;
+}
+
+function controlText(value: string, max: number): string {
+  return value
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/[<>"`]/g, "")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
 }
 
 /** Merge shaping flags into terminalSignals for API responses. */

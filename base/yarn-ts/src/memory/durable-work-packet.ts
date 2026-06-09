@@ -8,7 +8,7 @@ import {
   buildContextMediationArtifacts,
   type ContextMediationArtifacts,
 } from "./context-mediation.js";
-import type { TaskLedger } from "../task-ledger/types.js";
+import type { TaskLedger, TaskStatus } from "../task-ledger/types.js";
 
 export type WorkPacketMode = ArchitectureMediationMode;
 
@@ -57,6 +57,8 @@ type WorkPacketPhase = "planning" | "implementation" | "verification" | "repair"
 
 const MAX_TEXT = 240;
 const MAX_PACKET_CHARS = 3_800;
+const WORK_PACKET_PHASES: readonly WorkPacketPhase[] = ["planning", "implementation", "verification", "repair", "finalization"];
+const TASK_STATUSES: readonly TaskStatus[] = ["pending", "in_progress", "completed", "blocked", "obsolete", "unknown"];
 
 export function resolveWorkPacketMode(input: Pick<DurableWorkPacketInput, "metadata" | "extraBody" | "configMode">): WorkPacketMode {
   const requested = firstString(
@@ -141,11 +143,11 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput, contextArtifacts:
   const nextBestAction = inferNextBestAction(blockers, phase, pathCorrection);
 
   const sections: string[] = [
-    `<SYNESIS_CURRENT_WORK_PACKET mode="${input.modelPolicy.mediationMode}" policy_hash="${input.modelPolicy.policyHash}" active_state_hash="${contextArtifacts.activeStateHeaderHash ?? ""}">`,
-    `objective: ${objective || "unknown"}`,
-    `project_root: ${input.projectRoot || "unknown"}`,
-    `shell_cwd: ${input.shellCwd || "unknown"}`,
-    `current_phase: ${phase}`,
+    `<SYNESIS_CURRENT_WORK_PACKET mode="${controlToken(input.modelPolicy.mediationMode, "adaptive")}" policy_hash="${controlToken(input.modelPolicy.policyHash, "unknown")}" active_state_hash="${controlToken(contextArtifacts.activeStateHeaderHash ?? "", "none")}">`,
+    `objective: ${controlText(objective || "unknown", MAX_TEXT)}`,
+    `project_root: ${controlPath(input.projectRoot || "unknown")}`,
+    `shell_cwd: ${controlPath(input.shellCwd || "unknown")}`,
+    `current_phase: ${parseWorkPacketPhase(phase) ?? "implementation"}`,
   ];
   const sourceSections: string[] = ["objective", "path", "phase"];
 
@@ -153,19 +155,19 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput, contextArtifacts:
     sections.push("active_plan:");
     sourceSections.push("task_ledger");
     for (const [index, task] of tasks.entries()) {
-      sections.push(`  ${index + 1}. ${task.status}: ${trimLine(task.title, 180)}`);
+      sections.push(`  ${index + 1}. ${parseTaskStatus(task.status) ?? "unknown"}: ${controlText(task.title, 180)}`);
     }
   }
 
   if (files.length > 0) {
     sections.push("files_touched:");
     sourceSections.push("recent_files");
-    for (const file of files) sections.push(`  - ${file}`);
+    for (const file of files) sections.push(`  - ${controlPath(file)}`);
   }
 
   if (latestTool) {
     sections.push("latest_tool_truth:");
-    sections.push(`  - ${trimLine(latestTool, 320)}`);
+    sections.push(`  - ${controlText(latestTool, 320)}`);
     sourceSections.push("latest_tool_truth");
   }
 
@@ -173,7 +175,7 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput, contextArtifacts:
     sections.push("critical_fact_pins:");
     sourceSections.push("critical_fact_pins");
     for (const pin of contextArtifacts.criticalFactPins.slice(0, 8)) {
-      sections.push(`  - ${pin.id} ${pin.source}: ${trimLine(pin.text, 220)}`);
+      sections.push(`  - ${controlToken(pin.id, "pin")} ${controlToken(pin.source, "unknown")}: ${controlText(pin.text, 220)}`);
     }
   }
 
@@ -181,30 +183,30 @@ function buildDurableWorkPacket(input: DurableWorkPacketInput, contextArtifacts:
     sections.push("evidence_manifest:");
     sourceSections.push("evidence_manifest");
     for (const entry of contextArtifacts.evidenceManifest.slice(0, 8)) {
-      sections.push(`  - ${entry.blockId} ${entry.kind} digest=${entry.digest}: ${trimLine(entry.summary, 180)}`);
+      sections.push(`  - ${controlToken(entry.blockId, "block")} ${controlToken(entry.kind, "unknown")} digest=${controlToken(entry.digest, "unknown")}: ${controlText(entry.summary, 180)}`);
     }
   }
 
   if (blockers.length > 0) {
     sections.push("known_blockers:");
     sourceSections.push("known_blockers");
-    for (const blocker of blockers) sections.push(`  - ${blocker}`);
+    for (const blocker of blockers) sections.push(`  - ${controlText(blocker, 220)}`);
   }
 
   if (pathCorrection) {
     sections.push("path_correction:");
-    sections.push(`  - ${pathCorrection}`);
+    sections.push(`  - ${controlText(pathCorrection, 260)}`);
     sourceSections.push("path_correction");
   }
 
   if (doNotRepeat.length > 0) {
     sections.push("do_not_repeat:");
     sourceSections.push("do_not_repeat");
-    for (const item of doNotRepeat) sections.push(`  - ${item}`);
+    for (const item of doNotRepeat) sections.push(`  - ${controlText(item, 220)}`);
   }
 
   sections.push("next_best_action:");
-  sections.push(`  - ${nextBestAction}`);
+  sections.push(`  - ${controlText(nextBestAction, 220)}`);
   sourceSections.push("next_best_action");
   sections.push("</SYNESIS_CURRENT_WORK_PACKET>");
 
@@ -406,6 +408,44 @@ function trimLine(value: string, max: number): string {
   const oneLine = value.replace(/\s+/g, " ").trim();
   if (oneLine.length <= max) return oneLine;
   return `${oneLine.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+function controlText(value: string, max: number): string {
+  return trimLine(value, max)
+    .replace(/[<>"`]/g, "")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function controlPath(value: string): string {
+  return controlText(value, 512)
+    .replace(/[^A-Za-z0-9_./@:+ -]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .trim() || "unknown";
+}
+
+function controlToken(value: unknown, fallback: string): string {
+  const token = String(value ?? "")
+    .replace(/[<>"`=\s]/g, "_")
+    .replace(/[^A-Za-z0-9_./:@+-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 160);
+  return token || fallback;
+}
+
+function parseWorkPacketPhase(value: unknown): WorkPacketPhase | null {
+  return typeof value === "string" && (WORK_PACKET_PHASES as readonly string[]).includes(value)
+    ? value as WorkPacketPhase
+    : null;
+}
+
+function parseTaskStatus(value: unknown): TaskStatus | null {
+  return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value)
+    ? value as TaskStatus
+    : null;
 }
 
 function trimBlock(value: string, max: number): string {

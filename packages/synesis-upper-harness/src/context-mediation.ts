@@ -181,23 +181,23 @@ function buildActiveStateHeader(input: {
   objective?: string | null;
 }): string {
   const lines = [
-    `<SYNESIS_ACTIVE_STATE mode="${input.policy.mediationMode}" policy_hash="${input.policy.policyHash}">`,
-    `context_interpretation: ${input.policy.contextBudget.interpretation}`,
-    `project_root: ${input.projectRoot || "unknown"}`,
-    `shell_cwd: ${input.shellCwd || "unknown"}`,
+    `<SYNESIS_ACTIVE_STATE mode="${controlToken(input.policy.mediationMode, "adaptive")}" policy_hash="${controlToken(input.policy.policyHash, "unknown")}">`,
+    `context_interpretation: ${controlToken(input.policy.contextBudget.interpretation, "unknown")}`,
+    `project_root: ${controlPath(input.projectRoot || "unknown")}`,
+    `shell_cwd: ${controlPath(input.shellCwd || "unknown")}`,
   ];
-  if (input.objective) lines.push(`objective: ${trimLine(input.objective, 220)}`);
+  if (input.objective) lines.push(`objective: ${controlText(input.objective, 220)}`);
   lines.push(`hygiene_score: ${input.hygieneReport.hygieneScore}`);
   if (input.pins.length > 0) {
     lines.push("critical_fact_pins:");
     for (const pin of input.pins.slice(0, 12)) {
-      lines.push(`  - ${pin.id} ${pin.source}: ${trimLine(pin.text, 240)}`);
+      lines.push(`  - ${controlToken(pin.id, "pin")} ${controlToken(pin.source, "unknown")}: ${controlText(pin.text, 240)}`);
     }
   }
   if (input.manifest.length > 0) {
     lines.push("evidence_manifest:");
     for (const entry of input.manifest.slice(0, 12)) {
-      lines.push(`  - ${entry.blockId} ${entry.kind} critical=${entry.critical} digest=${entry.digest}: ${trimLine(entry.summary, 180)}`);
+      lines.push(`  - ${controlToken(entry.blockId, "block")} ${controlToken(entry.kind, "unknown")} critical=${entry.critical ? "true" : "false"} digest=${controlToken(entry.digest, "unknown")}: ${controlText(entry.summary, 180)}`);
     }
   }
   lines.push("</SYNESIS_ACTIVE_STATE>");
@@ -350,6 +350,32 @@ function shortHash(text: string): string {
 function trimLine(text: string, max: number): string {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length <= max ? line : `${line.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function controlText(text: string, max: number): string {
+  return trimLine(text, max)
+    .replace(/[<>"`]/g, "")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function controlPath(value: string): string {
+  return controlText(value, 512)
+    .replace(/[^A-Za-z0-9_./@:+ -]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .trim() || "unknown";
+}
+
+function controlToken(value: unknown, fallback: string): string {
+  const token = String(value ?? "")
+    .replace(/[<>"`=\s]/g, "_")
+    .replace(/[^A-Za-z0-9_./:@+-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 160);
+  return token || fallback;
 }
 
 function isCriticalText(text: string): boolean {

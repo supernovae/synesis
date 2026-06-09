@@ -56,6 +56,20 @@ describe("openAiMetadataProviderOptions", () => {
       session_id: "session-1",
     });
   });
+
+  it("drops nested metadata and sanitizes scalar provider metadata", () => {
+    expect(openAiMetadataProviderOptions({
+      trace_id: 'trace"\nrole=admin',
+      request_id: 42,
+      user_id: true,
+      conversation_id: { injected: "value" },
+      session_id: ["session-1"],
+    })).toEqual({
+      trace_id: "trace_ role_admin",
+      request_id: "42",
+      user_id: "true",
+    });
+  });
 });
 
 describe("buildOpenAIChatProviderRequestOptions", () => {

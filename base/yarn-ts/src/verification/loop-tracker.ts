@@ -131,17 +131,20 @@ export class VerificationLoopTracker {
 
     const latest = this.state.history[this.state.history.length - 1];
     if (!latest) return null;
+    const round = safeNonNegativeInteger(this.state.round);
+    const findingCount = safeNonNegativeInteger(latest.findingCount);
+    const resolvedCount = safeNonNegativeInteger(latest.resolvedCount);
 
     if (this.state.allResolved) {
-      return `<synesis_verification_status round="${this.state.round}" status="resolved">All verification issues resolved.</synesis_verification_status>`;
+      return `<synesis_verification_status round="${round}" status="resolved">All verification issues resolved.</synesis_verification_status>`;
     }
 
     if (this.state.stalled) {
-      return `<synesis_verification_status round="${this.state.round}" status="stalled" findings="${latest.findingCount}">Verification loop stalled — remaining issues require manual review or different approach.</synesis_verification_status>`;
+      return `<synesis_verification_status round="${round}" status="stalled" findings="${findingCount}">Verification loop stalled — remaining issues require manual review or different approach.</synesis_verification_status>`;
     }
 
     if (this.state.budgetExhausted) {
-      return `<synesis_verification_status round="${this.state.round}" status="budget_exhausted" findings="${latest.findingCount}">Verification budget exhausted (${this.maxRounds} rounds). ${latest.findingCount} issue(s) remain.</synesis_verification_status>`;
+      return `<synesis_verification_status round="${round}" status="budget_exhausted" findings="${findingCount}">Verification budget exhausted (${safeNonNegativeInteger(this.maxRounds)} rounds). ${findingCount} issue(s) remain.</synesis_verification_status>`;
     }
 
     const prevRound = this.state.history.length >= 2
@@ -149,10 +152,10 @@ export class VerificationLoopTracker {
       : undefined;
 
     const delta = prevRound
-      ? ` (was ${prevRound.findingCount}). ${latest.resolvedCount} resolved.`
+      ? ` (was ${safeNonNegativeInteger(prevRound.findingCount)}). ${resolvedCount} resolved.`
       : "";
 
-    return `<synesis_verification_status round="${this.state.round}" status="in_progress" findings="${latest.findingCount}">Verification round ${this.state.round}: ${latest.findingCount} issue(s) remain${delta}</synesis_verification_status>`;
+    return `<synesis_verification_status round="${round}" status="in_progress" findings="${findingCount}">Verification round ${round}: ${findingCount} issue(s) remain${delta}</synesis_verification_status>`;
   }
 
   reset(): void {
@@ -166,4 +169,8 @@ export class VerificationLoopTracker {
     };
     this.loopStartedAt = 0;
   }
+}
+
+function safeNonNegativeInteger(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }

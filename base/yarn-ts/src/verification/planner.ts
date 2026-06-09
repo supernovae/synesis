@@ -14,6 +14,7 @@ const PRIORITY_TOOLS = new Set([
   "tsc", "cargo", "go", "dotnet", "javac",
   "ruff", "mypy", "eslint", "clippy", "pylint",
 ]);
+const VERIFICATION_PRIORITIES: readonly PlannedVerification["priority"][] = ["required", "recommended"];
 
 export function buildVerificationPlan(
   languages: string[],
@@ -56,9 +57,13 @@ export function buildVerificationPlan(
  */
 export function formatVerificationPlanBlock(plan: VerificationPlan): string | null {
   if (plan.commands.length === 0) return null;
+  const languages = plan.languages
+    .map((language) => controlToken(language, ""))
+    .filter(Boolean)
+    .slice(0, 16);
 
   const lines: string[] = [
-    `<synesis_verification_plan languages="${plan.languages.join(",")}" max_rounds="${plan.maxRounds}">`,
+    `<synesis_verification_plan languages="${languages.join(",")}" max_rounds="${safePositiveInteger(plan.maxRounds, 3, 20)}">`,
     "After making code changes, verify using these commands:",
     "",
     "Order: run_lint / compile-style checks (run_build or language-specific) before run_test when the project compiles; fix build/type errors before chasing test failures.",
@@ -83,9 +88,10 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   if (lines[lines.length - 1] !== "") lines.push("");
 
   for (const cmd of plan.commands) {
-    const marker = cmd.priority === "required" ? "[required]" : "[recommended]";
-    lines.push(`  ${marker} ${cmd.command}`);
-    lines.push(`    ${cmd.description}`);
+    const priority = parseVerificationPriority(cmd.priority) ?? "recommended";
+    const marker = priority === "required" ? "[required]" : "[recommended]";
+    lines.push(`  ${marker} ${controlText(cmd.command, 260)}`);
+    lines.push(`    ${controlText(cmd.description, 260)}`);
   }
 
   lines.push("");
@@ -94,6 +100,39 @@ export function formatVerificationPlanBlock(plan: VerificationPlan): string | nu
   lines.push("</synesis_verification_plan>");
 
   return lines.join("\n");
+}
+
+function parseVerificationPriority(value: unknown): PlannedVerification["priority"] | null {
+  return typeof value === "string" && (VERIFICATION_PRIORITIES as readonly string[]).includes(value)
+    ? value as PlannedVerification["priority"]
+    : null;
+}
+
+function safePositiveInteger(value: unknown, fallback: number, max: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? Math.min(value, max)
+    : fallback;
+}
+
+function controlText(value: string, max: number): string {
+  return value
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/[<>"`]/g, "")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function controlToken(value: unknown, fallback: string): string {
+  const token = String(value ?? "")
+    .replace(/[<>"`=\s]/g, "_")
+    .replace(/[^A-Za-z0-9_./:@+-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return token || fallback;
 }
 
 /**

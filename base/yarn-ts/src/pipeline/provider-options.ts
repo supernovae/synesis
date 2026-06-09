@@ -231,7 +231,28 @@ export function openAiMetadataProviderOptions(metadata: Record<string, unknown> 
   if (!metadata) return undefined;
   const entries = Object.entries(metadata)
     .filter(([key]) => OPENAI_PROVIDER_METADATA_KEYS.has(key))
-    .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)] as const)
-    .filter(([, value]) => typeof value === "string" && value.length <= 512);
+    .map(([key, value]) => [key, providerMetadataScalar(value)] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function providerMetadataScalar(value: unknown): string | null {
+  let raw: string;
+  if (typeof value === "string") {
+    raw = value;
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    raw = String(value);
+  } else if (typeof value === "boolean") {
+    raw = value ? "true" : "false";
+  } else {
+    return null;
+  }
+  const sanitized = raw
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/[<>"`=]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 512)
+    .trim();
+  return sanitized || null;
 }
