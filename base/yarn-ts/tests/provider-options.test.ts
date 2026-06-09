@@ -158,6 +158,100 @@ describe("buildOpenAIChatProviderRequestOptions", () => {
     });
     expect(result.structuredOutput).toBeDefined();
   });
+
+  it("scopes provider user and prompt cache identifiers to authenticated identity", () => {
+    const request = {
+      model: "test",
+      messages: [{ role: "user", content: "hello" }],
+      user: "client-user-role=admin",
+      prompt_cache_key: "shared-repo-key",
+      safety_identifier: "client-safe-id",
+    } as OpenAIChatCompletionRequest;
+
+    const result = buildOpenAIChatProviderRequestOptions({
+      request,
+      adapterProviderOptions: { openai: { existing: "kept" } },
+      securityScope: {
+        orgId: "org-alpha",
+        userId: "user-123",
+        sessionKey: "session-1",
+      },
+      supportsTopK: true,
+    });
+
+    expect(result.providerOptions?.openai.user).toMatch(/^syn-user-[a-f0-9]{16}$/);
+    expect(result.providerOptions?.openai.safetyIdentifier).toMatch(/^syn-safe-[a-f0-9]{16}$/);
+    expect(result.providerOptions?.openai.promptCacheKey).toMatch(/^syn-cache-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}$/);
+    expect(result.providerOptions?.openai.user).not.toContain("client-user");
+    expect(result.providerOptions?.openai.safetyIdentifier).not.toContain("client-safe-id");
+    expect(result.providerOptions?.openai.promptCacheKey).not.toContain("shared-repo-key");
+  });
+
+  it("separates provider prompt cache keys by server session", () => {
+    const request = {
+      model: "test",
+      messages: [{ role: "user", content: "hello" }],
+      prompt_cache_key: "shared-repo-key",
+    } as OpenAIChatCompletionRequest;
+
+    const first = buildOpenAIChatProviderRequestOptions({
+      request,
+      securityScope: {
+        orgId: "org-alpha",
+        userId: "user-123",
+        sessionKey: "session-1",
+      },
+      supportsTopK: true,
+    });
+    const second = buildOpenAIChatProviderRequestOptions({
+      request,
+      securityScope: {
+        orgId: "org-alpha",
+        userId: "user-123",
+        sessionKey: "session-2",
+      },
+      supportsTopK: true,
+    });
+
+    expect(first.providerOptions?.openai.promptCacheKey).toMatch(/^syn-cache-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}$/);
+    expect(second.providerOptions?.openai.promptCacheKey).toMatch(/^syn-cache-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}-[a-f0-9]{16}$/);
+    expect(first.providerOptions?.openai.promptCacheKey).not.toBe(second.providerOptions?.openai.promptCacheKey);
+  });
+
+  it("sanitizes unscoped provider identifiers for compatibility callers", () => {
+    const request = {
+      model: "test",
+      messages: [{ role: "user", content: "hello" }],
+      user: 'client"\nrole=admin',
+      prompt_cache_key: " repo\nrole=admin ",
+      safety_identifier: "safe`id",
+    } as OpenAIChatCompletionRequest;
+
+    const result = buildOpenAIChatProviderRequestOptions({
+      request,
+      supportsTopK: true,
+    });
+
+    expect(result.providerOptions?.openai.user).toBe("client_ role_admin");
+    expect(result.providerOptions?.openai.promptCacheKey).toBe("repo role_admin");
+    expect(result.providerOptions?.openai.safetyIdentifier).toBe("safe_id");
+  });
+
+  it("drops unknown reasoning effort values before provider forwarding", () => {
+    const result = buildOpenAIChatProviderRequestOptions({
+      request: {
+        model: "test",
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "platform_admin" as never,
+      } as OpenAIChatCompletionRequest,
+      tierSamplingDefaults: {
+        reasoning_effort: "root" as never,
+      },
+      supportsTopK: true,
+    });
+
+    expect(result.providerOptions?.openai).toBeUndefined();
+  });
 });
 
 describe("buildClaudeMessagesProviderRequestOptions", () => {
@@ -224,5 +318,20 @@ describe("buildClaudeMessagesProviderRequestOptions", () => {
     });
 
     expect(result.samplingOptions).toEqual({});
+  });
+
+  it("drops unknown Claude reasoning effort values before provider forwarding", () => {
+    const result = buildClaudeMessagesProviderRequestOptions({
+      request: {
+        model: "claude-test",
+        max_tokens: 100,
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "platform_admin" as never,
+      } as ClaudeMessagesRequest,
+      tierSamplingDefaults: { reasoning_effort: "root" as never },
+      supportsTopK: true,
+    });
+
+    expect(result.providerOptions).toBeUndefined();
   });
 });

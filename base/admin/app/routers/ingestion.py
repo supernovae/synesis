@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -81,11 +81,54 @@ _DISCOVERY_HANDLER_VALUES = frozenset(
 _DEFAULT_INGESTION_HANDLER = "html_document"
 _MODEL_ID_PATTERN = r"^[A-Za-z0-9_.:/@-]*$"
 _DISCOVERY_TAG_PATTERN = re.compile(r"^[a-z0-9_.@/+:-]{1,64}$")
+_URL_PREFIX_SCHEMES = ("http://", "https://")
 
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
+
+def _validation_error_from_http(exc: HTTPException) -> ValueError:
+    return ValueError(str(exc.detail))
+
+
+def _normalize_config_url(value: str | None, *, field_name: str, required: bool = False) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        if required:
+            raise ValueError(f"{field_name} is required")
+        return None
+    try:
+        normalized, _parsed = _validate_discovery_target_url(raw)
+    except HTTPException as exc:
+        raise _validation_error_from_http(exc) from exc
+    return normalized
+
+
+def _normalize_config_url_prefix(value: str, *, field_name: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError(f"{field_name} entries must not be empty")
+    if len(raw) > 2048:
+        raise ValueError(f"{field_name} entries must be at most 2048 characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+        raise ValueError(f"{field_name} entries must not contain control characters")
+    if raw.lower().startswith(_URL_PREFIX_SCHEMES):
+        try:
+            normalized, _parsed = _validate_discovery_target_url(raw)
+        except HTTPException as exc:
+            raise _validation_error_from_http(exc) from exc
+        return normalized
+    if raw.startswith("/"):
+        return raw
+    raise ValueError(f"{field_name} entries must be public http(s) URLs or absolute path prefixes")
+
+
+def _normalize_config_url_prefixes(values: list[str] | None, *, field_name: str) -> list[str] | None:
+    if values is None:
+        return None
+    return [_normalize_config_url_prefix(value, field_name=field_name) for value in values]
 
 
 class IngestionDiscoveryReport(BaseModel):
@@ -135,12 +178,31 @@ class IngestionSpdxLicenseConfig(BaseModel):
     licenses_url: str = Field(..., max_length=2048)
     details_base_url: str | None = Field(None, max_length=2048)
 
+    @field_validator("licenses_url")
+    @classmethod
+    def validate_licenses_url(cls, value: str) -> str:
+        normalized = _normalize_config_url(value, field_name="spdx.licenses_url", required=True)
+        assert normalized is not None
+        return normalized
+
+    @field_validator("details_base_url")
+    @classmethod
+    def validate_details_base_url(cls, value: str | None) -> str | None:
+        return _normalize_config_url(value, field_name="spdx.details_base_url")
+
 
 class IngestionFedoraLicenseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     repo_url: str = Field(..., max_length=2048)
     common_licenses: list[str] = Field(default_factory=list, max_length=500)
+
+    @field_validator("repo_url")
+    @classmethod
+    def validate_repo_url(cls, value: str) -> str:
+        normalized = _normalize_config_url(value, field_name="fedora.repo_url", required=True)
+        assert normalized is not None
+        return normalized
 
 
 class IngestionChooseALicenseConfig(BaseModel):
@@ -188,6 +250,21 @@ class IngestionConfig(BaseModel):
     synesis_meta: IngestionSynesisMeta | None = None
     discovery_report: IngestionDiscoveryReport | None = None
     preflight_at: str | None = Field(None, max_length=64)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        return _normalize_config_url(value, field_name="config.url")
+
+    @field_validator("allowed_prefixes")
+    @classmethod
+    def validate_allowed_prefixes(cls, values: list[str] | None) -> list[str] | None:
+        return _normalize_config_url_prefixes(values, field_name="allowed_prefixes")
+
+    @field_validator("blocked_prefixes")
+    @classmethod
+    def validate_blocked_prefixes(cls, values: list[str] | None) -> list[str] | None:
+        return _normalize_config_url_prefixes(values, field_name="blocked_prefixes")
 
 
 def _config_payload(config: IngestionConfig | None) -> dict[str, Any] | None:

@@ -109,7 +109,12 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
     provider_options: input.providerOptions ?? {},
     stream: input.stream,
   };
-  const rawSerialized = stableJsonStringify(normalizedPayload);
+  const providerOptionsSummary = summarizeProviderOptions(input.providerOptions ?? {});
+  const sizingPayload = {
+    ...normalizedPayload,
+    provider_options: providerOptionsSummary,
+  };
+  const rawSerialized = stableJsonStringify(sizingPayload);
   const comparisonPayload = redactedPreviewPayload(normalizedPayload);
   const serialized = stableJsonStringify(comparisonPayload);
   const lcpChars = input.previous ? longestCommonPrefix(serialized, input.previous.serialized) : 0;
@@ -123,7 +128,7 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
     input.messages,
     input.tools,
     input.toolChoice,
-    input.providerOptions,
+    providerOptionsSummary,
     rawSerialized,
   );
   const tokenEstimate = Math.ceil(breakdown.totalChars / 4);
@@ -169,7 +174,7 @@ function redactedPreviewPayload(payload: Record<string, unknown>): Record<string
     messages: summarizeMessages(payload.messages),
     tools: summarizeOpaquePayload(payload.tools),
     tool_choice: summarizeOpaquePayload(payload.tool_choice),
-    provider_options: summarizeOpaquePayload(payload.provider_options),
+    provider_options: summarizeProviderOptions(payload.provider_options),
     stream: payload.stream === true,
   };
 }
@@ -228,6 +233,70 @@ function summarizeScalar(kind: string, value: unknown): Record<string, unknown> 
     bytes: byteSize(value),
     hash: hashUnknown(value),
   };
+}
+
+function summarizeProviderOptions(value: unknown): Record<string, unknown> {
+  const structure = providerOptionsStructure(value, 0, { visited: 0, truncated: false });
+  const text = stableJsonStringify(structure);
+  return {
+    section: "provider_options",
+    kind: providerOptionKind(value),
+    chars: text.length,
+    bytes: Buffer.byteLength(text, "utf8"),
+    structure_hash: hashUnknown(structure),
+    structure,
+  };
+}
+
+function providerOptionKind(value: unknown): "array" | "object" | "scalar" | "empty" {
+  if (value === null || value === undefined) return "empty";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "object") return "object";
+  return "scalar";
+}
+
+function providerOptionsStructure(
+  value: unknown,
+  depth: number,
+  budget: { visited: number; truncated: boolean },
+): Record<string, unknown> {
+  budget.visited += 1;
+  if (budget.visited > 120 || depth > 4) {
+    budget.truncated = true;
+    return { kind: "truncated" };
+  }
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      count: value.length,
+      truncated: budget.truncated || value.length > 12,
+      items: value.slice(0, 12).map((item) => providerOptionsStructure(item, depth + 1, budget)),
+    };
+  }
+  if (value && typeof value === "object") {
+    const row = value as Record<string, unknown>;
+    const keys = Object.keys(row).sort();
+    return {
+      kind: "object",
+      key_count: keys.length,
+      keys_hash: hashUnknown(keys),
+      truncated: budget.truncated || keys.length > 24,
+      entries: keys.slice(0, 24).map((key) => ({
+        key_hash: hashUnknown(key),
+        value: providerOptionsStructure(row[key], depth + 1, budget),
+      })),
+    };
+  }
+  if (typeof value === "string") {
+    return { kind: "string", chars: value.length, bytes: Buffer.byteLength(value, "utf8") };
+  }
+  if (typeof value === "number") {
+    return { kind: Number.isFinite(value) ? "number" : "non_finite_number" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean" };
+  }
+  return { kind: value === null || value === undefined ? "empty" : typeof value };
 }
 
 export function withUsage(

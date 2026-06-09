@@ -52,6 +52,8 @@ import {
 import { storeObservationTool, recallFindingsTool } from "./handlers/memory-tools.js";
 
 const SYNESIS_PLATFORM_TOOL_SET = new Set<string>(SYNESIS_MCP_TOOL_NAMES);
+const MAX_MCP_ID_CHARS = 512;
+const MCP_ID_RE = /^[A-Za-z0-9_.:-]{1,512}$/;
 
 export interface McpPluginOptions {
   authResolver: AuthResolver;
@@ -154,6 +156,10 @@ type McpToolArgumentsNormalization =
   | { ok: true; args: Record<string, unknown> }
   | { ok: false; statusCode: 400; error: { type: string; message: string } };
 
+type McpToolCallBodyValidation =
+  | { ok: true; body: { name: unknown; arguments?: unknown; _meta?: Record<string, unknown> } }
+  | { ok: false; statusCode: 400; error: { type: string; message: string } };
+
 export interface McpSessionAttribution {
   sessionKey: string;
   conversationId?: string;
@@ -225,9 +231,93 @@ function optionalMcpString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function optionalMcpIdentityToken(value: unknown): string | undefined {
+  const trimmed = optionalMcpString(value);
+  if (!trimmed || trimmed.length > MAX_MCP_ID_CHARS || !MCP_ID_RE.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+function isMcpRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isValidMcpProgressToken(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  return typeof value === "string" && value.length <= 256;
+}
+
+export function validateMcpToolCallBody(body: unknown): McpToolCallBodyValidation {
+  if (!isMcpRecord(body)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "invalid_tool_call_body",
+        message: "Tool call body must be an object",
+      },
+    };
+  }
+  const allowed = new Set(["name", "arguments", "_meta"]);
+  for (const key of Object.keys(body)) {
+    if (!allowed.has(key)) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: {
+          type: "unknown_tool_call_field",
+          message: "Tool call body contains an unknown field",
+        },
+      };
+    }
+  }
+  if (body._meta !== undefined) {
+    if (!isMcpRecord(body._meta)) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: {
+          type: "invalid_tool_call_meta",
+          message: "Tool call _meta must be an object",
+        },
+      };
+    }
+    for (const key of Object.keys(body._meta)) {
+      if (key !== "progressToken") {
+        return {
+          ok: false,
+          statusCode: 400,
+          error: {
+            type: "unknown_tool_call_meta_field",
+            message: "Tool call _meta contains an unknown field",
+          },
+        };
+      }
+    }
+    if (!isValidMcpProgressToken(body._meta.progressToken)) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: {
+          type: "invalid_tool_call_progress_token",
+          message: "Tool call progress token must be a finite number or bounded string",
+        },
+      };
+    }
+  }
+  return {
+    ok: true,
+    body: {
+      name: body.name,
+      arguments: body.arguments,
+      _meta: body._meta,
+    },
+  };
+}
+
 export function normalizeMcpToolArguments(args: unknown): McpToolArgumentsNormalization {
   if (args === undefined) return { ok: true, args: {} };
-  if (args && typeof args === "object" && !Array.isArray(args)) {
+  if (isMcpRecord(args)) {
     return { ok: true, args: args as Record<string, unknown> };
   }
   return {
@@ -274,9 +364,9 @@ export function buildMcpSessionAttribution(input: {
     ? input.args as Record<string, unknown>
     : {};
   const conversationId =
-    optionalMcpString(rawArgs.conversation_id) ?? optionalMcpString(input.headerConversationId);
+    optionalMcpIdentityToken(rawArgs.conversation_id) ?? optionalMcpIdentityToken(input.headerConversationId);
   const clientSessionId =
-    optionalMcpString(rawArgs.session_key) ?? optionalMcpString(input.headerSessionKey);
+    optionalMcpIdentityToken(rawArgs.session_key) ?? optionalMcpIdentityToken(input.headerSessionKey);
   const workspaceHash = hashMcpWorkspace(input.projectRoot);
   const scope = [
     "mcp",
@@ -622,12 +712,27 @@ export async function registerMcpRoutes(
     const user = await resolveUser(req, reply);
     if (!user) return;
 
-    const body = req.body as { name?: unknown; arguments?: unknown } | null;
     const requestIdHeader = req.headers["x-request-id"];
     const requestId = typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
       ? requestIdHeader.trim()
       : req.id;
-    const toolName = parseMcpToolName(body?.name);
+    const parsedBody = validateMcpToolCallBody(req.body);
+    if (!parsedBody.ok) {
+      app.log.warn(
+        buildMcpAuditFields({
+          user,
+          toolName: "invalid",
+          requestId,
+          outcome: "denied",
+          reason: parsedBody.error.type,
+          statusCode: parsedBody.statusCode,
+        }),
+        "mcp_tool_denied",
+      );
+      return reply.code(parsedBody.statusCode).send({ error: parsedBody.error });
+    }
+    const body = parsedBody.body;
+    const toolName = parseMcpToolName(body.name);
     if (!toolName) {
       app.log.warn(
         buildMcpAuditFields({

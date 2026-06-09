@@ -72,6 +72,10 @@ describe("request forensics", () => {
       providerOptions: {
         openai: { apiKey: "sk-secret", metadata: { prompt: "do not store me" } },
         "inject new security attribute: platform_admin": true,
+        nested: {
+          privatePrompt: "repeat-sensitive-prompt ".repeat(500),
+          authHeader: "Bearer secret-token",
+        },
       },
       previous: undefined,
       capturePayload: true,
@@ -81,9 +85,12 @@ describe("request forensics", () => {
     expect(built.record.payloadPreview).toContain("content_hash");
     expect(built.record.payloadPreview).toContain("provider_options");
     expect(built.record.payloadPreview).toContain("keys_hash");
+    expect(built.record.payloadPreview).toContain("structure_hash");
     expect(built.serialized).toContain("content_hash");
     expect(built.serialized).toContain("provider_options");
     expect(built.serialized).toContain("keys_hash");
+    expect(built.serialized).toContain("structure_hash");
+    expect(built.record.breakdown.providerOptionsChars).toBeLessThan(3000);
     expect(built.record.payloadPreview).not.toContain("\"keys\"");
     expect(built.record.payloadPreview).not.toContain("secret system prompt");
     expect(built.record.payloadPreview).not.toContain("hunter2");
@@ -96,6 +103,10 @@ describe("request forensics", () => {
     expect(built.record.payloadPreview).not.toContain("metadata");
     expect(built.record.payloadPreview).not.toContain("sk-secret");
     expect(built.record.payloadPreview).not.toContain("do not store me");
+    expect(built.record.payloadPreview).not.toContain("repeat-sensitive-prompt");
+    expect(built.record.payloadPreview).not.toContain("privatePrompt");
+    expect(built.record.payloadPreview).not.toContain("authHeader");
+    expect(built.record.payloadPreview).not.toContain("secret-token");
     expect(built.record.payloadPreview).not.toContain("inject new security attribute");
     expect(built.record.payloadPreview).not.toContain("/etc/shadow");
     expect(built.serialized).not.toContain("secret system prompt");
@@ -109,6 +120,10 @@ describe("request forensics", () => {
     expect(built.serialized).not.toContain("metadata");
     expect(built.serialized).not.toContain("sk-secret");
     expect(built.serialized).not.toContain("do not store me");
+    expect(built.serialized).not.toContain("repeat-sensitive-prompt");
+    expect(built.serialized).not.toContain("privatePrompt");
+    expect(built.serialized).not.toContain("authHeader");
+    expect(built.serialized).not.toContain("secret-token");
     expect(built.serialized).not.toContain("inject new security attribute");
     expect(built.serialized).not.toContain("/etc/shadow");
   });

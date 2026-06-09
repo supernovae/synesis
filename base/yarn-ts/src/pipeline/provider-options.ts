@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { jsonSchema, Output as aiOutput } from "ai";
 
 import type { PhaseAwareToolChoice } from "../governance/phase-execution-policy.js";
@@ -11,6 +12,7 @@ export interface OpenAIChatProviderRequestOptionsInput {
   tierSamplingDefaults?: ModelSamplingDefaults;
   adapterSampling?: { temperature?: number; top_p?: number };
   adapterProviderOptions?: Record<string, Record<string, unknown>>;
+  securityScope?: ProviderSecurityScope;
   supportsTopK: boolean;
 }
 
@@ -45,6 +47,14 @@ export interface ClaudeMessagesProviderRequestOptions {
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
+export interface ProviderSecurityScope {
+  orgId: string;
+  userId: string;
+  sessionKey: string;
+}
+
+const REASONING_EFFORT_VALUES = new Set(["low", "medium", "high"]);
+
 export function buildClaudeMessagesProviderRequestOptions(
   input: ClaudeMessagesProviderRequestOptionsInput,
 ): ClaudeMessagesProviderRequestOptions {
@@ -56,7 +66,7 @@ export function buildClaudeMessagesProviderRequestOptions(
   const effectiveMinP = request.min_p ?? tierSamplingDefaults?.min_p;
   const effectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
   const effectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
-  const effectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
+  const effectiveReasoningEffort = providerReasoningEffort(request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort);
   const samplingOptions = {
     ...(effectiveTemp !== undefined ? { temperature: effectiveTemp } : {}),
     ...(effectiveTopP !== undefined ? { topP: effectiveTopP } : {}),
@@ -85,7 +95,7 @@ export function buildClaudeMessagesProviderRequestOptions(
 export function buildOpenAIChatProviderRequestOptions(
   input: OpenAIChatProviderRequestOptionsInput,
 ): OpenAIChatProviderRequestOptions {
-  const { request, tierSamplingDefaults, adapterSampling, adapterProviderOptions, supportsTopK } = input;
+  const { request, tierSamplingDefaults, adapterSampling, adapterProviderOptions, securityScope, supportsTopK } = input;
   const effectiveTemp = request.temperature ?? tierSamplingDefaults?.temperature ?? adapterSampling?.temperature;
   const effectiveTopP = request.top_p ?? tierSamplingDefaults?.top_p ?? adapterSampling?.top_p;
   const effectiveTopK = supportsTopK ? (request.top_k ?? tierSamplingDefaults?.top_k) : undefined;
@@ -94,12 +104,15 @@ export function buildOpenAIChatProviderRequestOptions(
   const effectiveFrequencyPenalty = request.frequency_penalty;
   const effectiveRepetitionPenalty = request.repetition_penalty ?? tierSamplingDefaults?.repetition_penalty;
   const effectiveEnableThinking = request.enable_thinking ?? tierSamplingDefaults?.enable_thinking;
-  const effectiveReasoningEffort = request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort;
+  const effectiveReasoningEffort = providerReasoningEffort(request.reasoning_effort ?? tierSamplingDefaults?.reasoning_effort);
   const effectiveMaxCompletionTokens = request.max_completion_tokens ?? request.max_tokens;
   const effectiveLogprobs = typeof request.top_logprobs === "number"
     ? request.top_logprobs
     : request.logprobs;
   const metadataProviderOptions = openAiMetadataProviderOptions(request.metadata);
+  const providerUser = providerUserIdentifier(securityScope, request.user);
+  const providerPromptCache = providerPromptCacheKey(securityScope, request.prompt_cache_key);
+  const providerSafety = providerSafetyIdentifier(securityScope, request.safety_identifier);
   const stopSequences = typeof request.stop === "string"
     ? [request.stop]
     : (Array.isArray(request.stop) ? request.stop : undefined);
@@ -121,7 +134,7 @@ export function buildOpenAIChatProviderRequestOptions(
     ...(request.logit_bias !== undefined ? { logitBias: request.logit_bias } : {}),
     ...(effectiveLogprobs !== undefined ? { logprobs: effectiveLogprobs } : {}),
     ...(request.parallel_tool_calls !== undefined ? { parallelToolCalls: request.parallel_tool_calls } : {}),
-    ...(request.user ? { user: request.user } : {}),
+    ...(providerUser ? { user: providerUser } : {}),
     ...(request.store !== undefined ? { store: request.store } : {}),
     ...(metadataProviderOptions ? { metadata: metadataProviderOptions } : {}),
     ...(request.prediction && typeof request.prediction === "object" && !Array.isArray(request.prediction)
@@ -130,11 +143,11 @@ export function buildOpenAIChatProviderRequestOptions(
     ...(request.service_tier === "auto" || request.service_tier === "flex" || request.service_tier === "priority" || request.service_tier === "default"
       ? { serviceTier: request.service_tier }
       : {}),
-    ...(request.prompt_cache_key ? { promptCacheKey: request.prompt_cache_key } : {}),
+    ...(providerPromptCache ? { promptCacheKey: providerPromptCache } : {}),
     ...(request.prompt_cache_retention === "in_memory" || request.prompt_cache_retention === "24h"
       ? { promptCacheRetention: request.prompt_cache_retention }
       : {}),
-    ...(request.safety_identifier ? { safetyIdentifier: request.safety_identifier } : {}),
+    ...(providerSafety ? { safetyIdentifier: providerSafety } : {}),
     ...(request.verbosity === "low" || request.verbosity === "medium" || request.verbosity === "high"
       ? { textVerbosity: request.verbosity }
       : {}),
@@ -254,4 +267,58 @@ function providerMetadataScalar(value: unknown): string | null {
     .slice(0, 512)
     .trim();
   return sanitized || null;
+}
+
+function providerSafeScalar(value: unknown, max = 256): string | null {
+  let raw: string;
+  if (typeof value === "string") {
+    raw = value;
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    raw = String(value);
+  } else if (typeof value === "boolean") {
+    raw = value ? "true" : "false";
+  } else {
+    return null;
+  }
+  const sanitized = raw
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/[<>"`=]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+  return sanitized || null;
+}
+
+function providerReasoningEffort(value: unknown): "low" | "medium" | "high" | undefined {
+  return typeof value === "string" && REASONING_EFFORT_VALUES.has(value)
+    ? value as "low" | "medium" | "high"
+    : undefined;
+}
+
+function shortHash(value: unknown): string {
+  return createHash("sha256").update(providerSafeScalar(value, 512) ?? "").digest("hex").slice(0, 16);
+}
+
+function providerUserIdentifier(scope: ProviderSecurityScope | undefined, fallback: unknown): string | null {
+  if (scope?.orgId && scope.userId) {
+    return `syn-user-${shortHash(`${scope.orgId}:${scope.userId}`)}`;
+  }
+  return providerSafeScalar(fallback);
+}
+
+function providerSafetyIdentifier(scope: ProviderSecurityScope | undefined, fallback: unknown): string | null {
+  if (scope?.orgId && scope.userId) {
+    return `syn-safe-${shortHash(`${scope.orgId}:${scope.userId}`)}`;
+  }
+  return providerSafeScalar(fallback);
+}
+
+function providerPromptCacheKey(scope: ProviderSecurityScope | undefined, cacheKey: unknown): string | null {
+  const safeCacheKey = providerSafeScalar(cacheKey);
+  if (!safeCacheKey) return null;
+  if (scope?.orgId && scope.userId) {
+    return `syn-cache-${shortHash(scope.orgId)}-${shortHash(scope.userId)}-${shortHash(scope.sessionKey)}-${shortHash(safeCacheKey)}`;
+  }
+  return safeCacheKey;
 }

@@ -134,10 +134,13 @@ describe("llm client request shaping", () => {
         role: "planner",
         generationParams: {
           reasoning_effort: "low",
+          temperature: 3,
+          top_p: 1.5,
           top_k: 20,
           frequency_penalty: 0.2,
-          stop: ["END"],
-          logit_bias: { "123": -1, role_override: 100 },
+          stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
+          logit_bias: { "123": -1, "456": 101, role_override: 100 },
+          top_logprobs: 21,
           tools: [
             {
               type: "function",
@@ -163,9 +166,12 @@ describe("llm client request shaping", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("grok-4-fast");
     expect(body.reasoning_effort).toBe("low");
+    expect(body.temperature).toBe(0);
+    expect(body.top_p).toBeUndefined();
     expect(body.frequency_penalty).toBe(0.2);
-    expect(body.stop).toEqual(["END"]);
+    expect(body.stop).toBeUndefined();
     expect(body.logit_bias).toEqual({ "123": -1 });
+    expect(body.top_logprobs).toBeUndefined();
     expect(body.tools).toBeUndefined();
     expect(body.tool_choice).toBeUndefined();
     expect(body.parallel_tool_calls).toBe(false);

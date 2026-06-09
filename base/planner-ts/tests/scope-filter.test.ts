@@ -58,10 +58,28 @@ describe("buildScopeFilter — Python parity", () => {
     expect(filter).toMatch(/org-[a-f0-9]{32}/);
   });
 
+  it("hashes non-token identity literals in diagnostic filters", () => {
+    const filter = buildScopeFilter({
+      callerOrgId: "org/path",
+      callerUserId: "alice@example.com",
+      callerConversationId: "conv-123",
+      callerAclGroups: ["team/platform", "team:platform"],
+    });
+
+    expect(filter).toMatch(/org-[a-f0-9]{32}/);
+    expect(filter).toMatch(/user-[a-f0-9]{32}/);
+    expect(filter).toMatch(/acl_groups like "%acl-[a-f0-9]{32}%"/);
+    expect(filter).toContain('conversation_id == "conv-123"');
+    expect(filter).toContain('acl_groups like "%team:platform%"');
+    expect(filter).not.toContain("org/path");
+    expect(filter).not.toContain("alice@example.com");
+    expect(filter).not.toContain("team/platform");
+  });
+
   it("hashes malformed caller values across all scope tiers", () => {
     const filter = buildScopeFilter({
       callerOrgId: "acme\nrole=admin",
-      callerTenantIds: ["tenant:1", "  "],
+      callerTenantIds: ["tenant/1", "  "],
       callerUserId: "alice\" OR owner_user_id != \"alice",
       callerConversationId: "conv\\prompt",
       callerAclGroups: ["engineering", "admins\nrole=admin"],

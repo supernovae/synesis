@@ -329,6 +329,7 @@ class TestIngestionConfigValidation:
         assert item.config.max_depth == 2
         assert item.config.synesis_meta is not None
         assert item.config.synesis_meta.languages == ["python"]
+        assert item.config.allowed_prefixes == ["https://example.com/docs/"]
 
     def test_item_create_accepts_known_handler_config_keys(self):
         from app.routers.ingestion import ItemCreate
@@ -362,6 +363,55 @@ class TestIngestionConfigValidation:
         assert item.config.papers[0].id == "2005.11401"
         assert item.config.spdx is not None
         assert item.config.spdx.licenses_url == "https://example.com/licenses.json"
+
+    def test_item_create_accepts_absolute_path_crawl_prefixes(self):
+        from app.routers.ingestion import ItemCreate
+
+        item = ItemCreate(
+            uri="https://example.com/docs/",
+            config={
+                "url": "https://example.com/docs/",
+                "allowed_prefixes": ["/docs/"],
+                "blocked_prefixes": ["/internal/"],
+            },
+        )
+
+        assert item.config is not None
+        assert item.config.allowed_prefixes == ["/docs/"]
+        assert item.config.blocked_prefixes == ["/internal/"]
+
+    def test_item_create_rejects_private_fetch_url(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="URL host is not allowed"):
+            ItemCreate(uri="https://example.com/docs/", config={"url": "https://127.0.0.1/admin"})
+
+    def test_item_create_rejects_credentialed_fetch_url(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="URL credentials are not allowed"):
+            ItemCreate(uri="https://example.com/docs/", config={"url": "https://user:pass@example.com/docs"})
+
+    def test_item_create_rejects_non_public_handler_config_url(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="URL host is not allowed"):
+            ItemCreate(
+                uri="license:spdx",
+                config={
+                    "spdx": {"licenses_url": "http://169.254.169.254/latest/meta-data"},
+                    "fedora": {"repo_url": "https://example.com/fedora/"},
+                },
+            )
+
+    def test_item_create_rejects_relative_crawl_prefixes(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="absolute path prefixes"):
+            ItemCreate(
+                uri="https://example.com/docs/",
+                config={"url": "https://example.com/docs/", "allowed_prefixes": ["docs/"]},
+            )
 
     def test_item_create_rejects_unknown_config_key(self):
         from app.routers.ingestion import ItemCreate

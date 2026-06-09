@@ -48,6 +48,9 @@ interface ToolJsonSchemaProperty {
   description?: string;
   default?: unknown;
   enum?: unknown[];
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
   items?: ToolJsonSchemaProperty;
   properties?: Record<string, ToolJsonSchemaProperty>;
   required?: string[];
@@ -68,6 +71,9 @@ const TOOL_PROPERTY_SCHEMA_KEYS = new Set([
   "description",
   "default",
   "enum",
+  "pattern",
+  "minLength",
+  "maxLength",
   "items",
   "properties",
   "required",
@@ -133,6 +139,14 @@ const SECURITY_EVENT_TYPES = [
   "yarn_policy_reject",
 ] as const;
 const SECURITY_EVENT_SERVICES = ["planner", "yarn"] as const;
+const YARN_TRANSITION_EVENT_KINDS = [
+  "request_trajectory_v1",
+  "state_transition_v1",
+  "state_transition_quality_calibration_v1",
+  "state_transition_quality_global_calibration_v1",
+] as const;
+const MAX_SESSION_KEY_CANDIDATE_CHARS = 512;
+const SESSION_KEY_CANDIDATE_RE = /^[A-Za-z0-9_.:-]{1,512}$/;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -256,38 +270,40 @@ function stripWrappingQuotes(value: string): string {
   return out;
 }
 
-function buildSessionKeyCandidates(rawInput: unknown): string[] {
+export function buildSessionKeyCandidates(rawInput: unknown): string[] {
   const raw = asString(rawInput).trim();
   if (!raw) return [];
   const out: string[] = [];
   const add = (value: string) => {
     const v = value.trim();
+    if (v.length > MAX_SESSION_KEY_CANDIDATE_CHARS || !SESSION_KEY_CANDIDATE_RE.test(v)) return;
     if (!v || out.includes(v)) return;
     out.push(v);
   };
 
   const stripped = stripWrappingQuotes(raw);
-  add(stripped);
-
-  // If user pasted surrounding text, recover explicit synesis session keys.
-  for (const match of stripped.matchAll(/synesis:[^\s"'`]+/gi)) {
-    add(match[0]);
-  }
-
-  // Accept URL-encoded keys from copied links.
-  for (const value of [...out]) {
-    if (!/%[0-9a-f]{2}/i.test(value)) continue;
+  const sources = [stripped];
+  if (/%[0-9a-f]{2}/i.test(stripped)) {
     try {
-      add(decodeURIComponent(value));
+      sources.push(decodeURIComponent(stripped));
     } catch {
       // Ignore malformed encoded values.
     }
   }
 
-  // If a full key was provided, also keep just the trailing UUID conversation tail
-  // for fuzzy fallback matching against recent sessions.
-  const tailMatch = stripped.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-  if (tailMatch) add(tailMatch[0]);
+  for (const source of sources) {
+    add(source);
+
+    // If user pasted surrounding text, recover explicit synesis session keys.
+    for (const match of source.matchAll(/synesis:[A-Za-z0-9_.:-]{1,512}/gi)) {
+      add(match[0]);
+    }
+
+    // If a full key was provided, also keep just the trailing UUID conversation tail
+    // for fuzzy fallback matching against recent sessions.
+    const tailMatch = source.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    if (tailMatch) add(tailMatch[0]);
+  }
 
   return out;
 }
@@ -596,6 +612,15 @@ function zodForProperty(schema: ToolJsonSchemaProperty): z.ZodType {
   if (schema.enum) {
     out = out.refine((value) => schema.enum?.includes(value), { message: "Unsupported value" });
   }
+  if (schema.type === "string" && typeof schema.minLength === "number") {
+    out = (out as z.ZodString).min(schema.minLength);
+  }
+  if (schema.type === "string" && typeof schema.maxLength === "number") {
+    out = (out as z.ZodString).max(schema.maxLength);
+  }
+  if (schema.type === "string" && schema.pattern) {
+    out = (out as z.ZodString).regex(new RegExp(schema.pattern));
+  }
   return out;
 }
 
@@ -630,6 +655,32 @@ function validateValueAgainstSchema(
   }
   if (schema.type === "string" && typeof value !== "string") {
     throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "string" });
+  }
+  if (schema.type === "string" && typeof value === "string") {
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) {
+      throw new AdminMcpToolError("invalid_arguments", 400, {
+        reason: "string_too_short",
+        key,
+        tool,
+        minLength: schema.minLength,
+      });
+    }
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
+      throw new AdminMcpToolError("invalid_arguments", 400, {
+        reason: "string_too_long",
+        key,
+        tool,
+        maxLength: schema.maxLength,
+      });
+    }
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
+      throw new AdminMcpToolError("invalid_arguments", 400, {
+        reason: "pattern_mismatch",
+        key,
+        tool,
+        pattern: schema.pattern,
+      });
+    }
   }
   if (schema.type === "boolean" && typeof value !== "boolean") {
     throw new AdminMcpToolError("invalid_arguments", 400, { reason: "invalid_type", key, tool, expected: "boolean" });
@@ -833,37 +884,95 @@ const INGESTION_DISCOVERY_REPORT_SCHEMA: ToolJsonSchemaProperty = {
     suggested_corpus_class: { type: "string", enum: [...INGESTION_CORPUS_CLASSES] },
   },
 };
+const PUBLIC_HTTP_URL_PATTERN = "^https?://(?!(?:localhost|localhost\\.localdomain)(?::|/|$))(?!(?:127\\.|10\\.|192\\.168\\.|169\\.254\\.|0\\.|172\\.(?:1[6-9]|2\\d|3[01])\\.))[^\\s\\x00-\\x1F\\x7F@]+$";
+const INGESTION_PREFIX_PATTERN = "^(https?://(?!(?:localhost|localhost\\.localdomain)(?::|/|$))(?!(?:127\\.|10\\.|192\\.168\\.|169\\.254\\.|0\\.|172\\.(?:1[6-9]|2\\d|3[01])\\.))[^\\s\\x00-\\x1F\\x7F@]+|/[^\\x00-\\x1F\\x7F]*)$";
+const INGESTION_PUBLIC_URL_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 2048,
+  pattern: PUBLIC_HTTP_URL_PATTERN,
+};
+const INGESTION_PREFIX_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 2048,
+  pattern: INGESTION_PREFIX_PATTERN,
+};
+const INGESTION_ARXIV_PAPER_SCHEMA: ToolJsonSchemaProperty = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "string", minLength: 1, maxLength: 64 },
+    title: { type: "string", maxLength: 512 },
+  },
+  required: ["id"],
+};
+const INGESTION_SPDX_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    licenses_url: INGESTION_PUBLIC_URL_SCHEMA,
+    details_base_url: INGESTION_PUBLIC_URL_SCHEMA,
+  },
+  required: ["licenses_url"],
+};
+const INGESTION_FEDORA_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    repo_url: INGESTION_PUBLIC_URL_SCHEMA,
+    common_licenses: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } },
+  },
+  required: ["repo_url"],
+};
+const INGESTION_CHOOSEALICENSE_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    repo: { type: "string", minLength: 1, maxLength: 256 },
+    branch: { type: "string", maxLength: 128 },
+    licenses_path: { type: "string", maxLength: 512 },
+  },
+  required: ["repo"],
+};
 const INGESTION_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
   type: "object",
   additionalProperties: false,
   properties: {
-    url: { type: "string" },
-    branch: { type: "string" },
-    paths: { type: "array", items: { type: "string" } },
+    url: INGESTION_PUBLIC_URL_SCHEMA,
+    path: { type: "string", maxLength: 2048 },
+    branch: { type: "string", maxLength: 128 },
+    paths: { type: "array", items: { type: "string", maxLength: 2048 } },
     discovery: { type: "string" },
     follow_links: { type: "boolean" },
     max_depth: { type: "integer" },
     max_pages: { type: "integer" },
     respect_robots: { type: "boolean" },
     min_request_interval: { type: "number" },
-    allowed_prefixes: { type: "array", items: { type: "string" } },
-    blocked_prefixes: { type: "array", items: { type: "string" } },
+    allowed_prefixes: { type: "array", items: INGESTION_PREFIX_SCHEMA },
+    blocked_prefixes: { type: "array", items: INGESTION_PREFIX_SCHEMA },
     allow_blog: { type: "boolean" },
     disallow_dotted_first_path_segment: { type: "boolean" },
     max_sitemap_expand: { type: "integer" },
     max_links_per_page: { type: "integer" },
-    profile: { type: "string" },
-    user_agent: { type: "string" },
-    format: { type: "string" },
-    tags: { type: "array", items: { type: "string" } },
-    repo: { type: "string" },
-    language: { type: "string" },
-    context_prefix: { type: "string" },
-    inline_content: { type: "string" },
-    devhub_entity_ref: { type: "string" },
+    profile: { type: "string", maxLength: 64 },
+    user_agent: { type: "string", maxLength: 256 },
+    format: { type: "string", maxLength: 32 },
+    tags: { type: "array", items: { type: "string", maxLength: 64 } },
+    repo: { type: "string", maxLength: 256 },
+    language: { type: "string", maxLength: 32 },
+    doc_id_prefix: { type: "string", maxLength: 128 },
+    context_prefix: { type: "string", maxLength: 2000 },
+    inline_content: { type: "string", maxLength: 200000 },
+    devhub_entity_ref: { type: "string", maxLength: 256 },
+    papers: { type: "array", items: INGESTION_ARXIV_PAPER_SCHEMA },
+    spdx: INGESTION_SPDX_CONFIG_SCHEMA,
+    fedora: INGESTION_FEDORA_CONFIG_SCHEMA,
+    choosealicense: INGESTION_CHOOSEALICENSE_CONFIG_SCHEMA,
+    compat_path: { type: "string", maxLength: 2048 },
     synesis_meta: INGESTION_SYNESIS_META_SCHEMA,
     discovery_report: INGESTION_DISCOVERY_REPORT_SCHEMA,
-    preflight_at: { type: "string" },
+    preflight_at: { type: "string", maxLength: 64 },
   },
 };
 
@@ -1461,7 +1570,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         include_metadata: { type: "boolean", default: false, description: "Include full metadata_json payloads" },
         event_kinds: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", enum: [...YARN_TRANSITION_EVENT_KINDS] },
           description: "Optional event-kind allowlist",
         },
       },

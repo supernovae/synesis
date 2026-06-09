@@ -48,6 +48,109 @@ describe("planner API schemas", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("restricts Synesis planner controls to known modes and aliases", () => {
+    const accepted = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      metadata: {
+        synesis_context_mediation: "hands-off",
+        synesis_architecture_mediation: "assertive",
+        architecture_mediation: "observe",
+        synesis_architecture_profile: "model-registry",
+        synesis: {
+          contextMediation: "safe",
+          architectureProfile: "auto",
+        },
+      },
+    });
+    expect(accepted.success).toBe(true);
+
+    const inventedMediation = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      metadata: {
+        synesis_context_mediation: "role=admin",
+      },
+    });
+    expect(inventedMediation.success).toBe(false);
+
+    const inventedNestedMediation = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      metadata: {
+        synesis: {
+          contextMediation: "security_override",
+        },
+      },
+    });
+    expect(inventedNestedMediation.success).toBe(false);
+
+    const inventedProfile = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      metadata: {
+        synesis_architecture_profile: "read-secrets",
+      },
+    });
+    expect(inventedProfile.success).toBe(false);
+  });
+
+  it("rejects invented provider option enum values", () => {
+    const parsed = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      reasoning_effort: "platform_admin",
+      service_tier: "root",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("bounds provider identity, resource controls, and provider extra body", () => {
+    const oversized = "x".repeat(257);
+    const identity = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      user: oversized,
+    });
+    expect(identity.success).toBe(false);
+
+    const oversizedStop = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
+    });
+    expect(oversizedStop.success).toBe(false);
+
+    const unsafeSampling = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      max_completion_tokens: 2_000_001,
+      temperature: 3,
+      top_p: 1.5,
+      min_p: -0.1,
+      presence_penalty: -3,
+      top_logprobs: 21,
+      n: 0,
+      modalities: ["text", "admin"],
+    });
+    expect(unsafeSampling.success).toBe(false);
+
+    const invalidLogitBias = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      logit_bias: { "123": 101 },
+    });
+    expect(invalidLogitBias.success).toBe(false);
+
+    const invalidExtraBody = ChatCompletionRequestSchema.safeParse({
+      model: "Synesis",
+      messages: [{ role: "user", content: "Plan this task." }],
+      extra_body: { top_k: 1_000_001, repetition_penalty: 11 },
+    });
+    expect(invalidExtraBody.success).toBe(false);
+  });
+
   it("rejects unknown message and tool fields", () => {
     const message = ChatCompletionRequestSchema.safeParse({
       model: "Synesis",

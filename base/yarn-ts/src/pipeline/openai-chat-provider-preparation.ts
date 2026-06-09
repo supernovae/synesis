@@ -442,6 +442,11 @@ export function prepareOpenAIChatProviderRuntime(
     tierSamplingDefaults: resolvedTierConfig?.samplingDefaults as never,
     adapterProviderOptions: adapter.providerOptions?.() as Record<string, Record<string, unknown>> | undefined,
     adapterSampling: adapter.defaultSamplingParams?.(),
+    securityScope: {
+      orgId: input.identity.orgId,
+      userId: input.identity.userId,
+      sessionKey: input.sessionKey,
+    },
     supportsTopK: adapter.family !== "minimax",
   });
   const samplingOptions = providerRequestOptions.samplingOptions;

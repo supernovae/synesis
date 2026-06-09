@@ -19,7 +19,7 @@ import crypto from "node:crypto";
 
 import type { ScopeFilterOptions } from "./types.js";
 
-const SAFE_SCOPE_LITERAL_RE = /^[A-Za-z0-9_.@/-]{1,128}$/;
+const SAFE_SCOPE_LITERAL_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 export function buildScopeFilter(opts?: ScopeFilterOptions): string {
   if (!opts) return "";

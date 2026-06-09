@@ -93,9 +93,63 @@ const OpenAIMessageContentSchema = z.union([
   z.null(),
 ]);
 
+function normalizeControlValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+}
+
+const PipelineModeSchema = z.string().trim().max(32).transform(normalizeControlValue).pipe(
+  z.enum(["raw", "compat", "optimized", "governed", "workflow"]),
+);
+
+const PlanningBooleanControlSchema = z.union([
+  z.boolean(),
+  z.string().trim().max(32).transform(normalizeControlValue).pipe(
+    z.enum(["true", "false", "yes", "no", "1", "0", "on", "off"]),
+  ),
+]);
+
+const ContextMediationControlSchema = z.string().trim().max(64).transform(normalizeControlValue).pipe(
+  z.enum([
+    "off",
+    "none",
+    "disabled",
+    "disable",
+    "hands_off",
+    "passthrough",
+    "observe",
+    "observer",
+    "diagnostic",
+    "diagnostics",
+    "trace",
+    "report",
+    "safe",
+    "guarded",
+    "conservative",
+    "adapt",
+    "adaptive",
+    "auto",
+    "default",
+    "enabled",
+    "on",
+    "aggressive",
+    "strict",
+    "strong",
+    "enforced",
+    "assertive",
+    "always",
+  ]),
+);
+
+const ArchitectureProfileSourceSchema = z.string().trim().max(64)
+  .transform((value) => {
+    const normalized = normalizeControlValue(value);
+    return normalized === "model_registry" ? "model-registry" : normalized;
+  })
+  .pipe(z.enum(["raw", "none", "passthrough", "auto", "infer", "inferred", "model-registry"]));
+
 const SynesisExtraBodySchema = z.object({
-  contextMediation: z.string().max(64).optional(),
-  architectureProfile: z.string().max(64).optional(),
+  contextMediation: ContextMediationControlSchema.optional(),
+  architectureProfile: ArchitectureProfileSourceSchema.optional(),
 }).strict();
 
 const SynesisRuntimeMetadataSchema = z.object({
@@ -121,19 +175,19 @@ export const RequestMetadataSchema = z.object({
   request_id: z.string().max(256).optional(),
   user_id: z.string().max(256).optional(),
   synesis_client: z.string().max(128).optional(),
-  synesis_mode: z.string().max(32).optional(),
+  synesis_mode: PipelineModeSchema.optional(),
   synesis: SynesisExtraBodySchema.optional(),
-  synesis_planning_override: z.union([z.boolean(), z.string().max(32)]).optional(),
-  synesis_plan_mode: z.union([z.boolean(), z.string().max(32)]).optional(),
+  synesis_planning_override: PlanningBooleanControlSchema.optional(),
+  synesis_plan_mode: PlanningBooleanControlSchema.optional(),
   synesis_custom_style: z.string().max(2000).optional(),
   custom_style: z.string().max(2000).optional(),
-  synesis_context_mediation: z.string().max(64).optional(),
-  synesis_memory: z.string().max(64).optional(),
-  synesis_work_packet: z.string().max(64).optional(),
-  synesis_memory_mediation: z.string().max(64).optional(),
-  synesis_architecture_mediation: z.string().max(64).optional(),
-  architecture_mediation: z.string().max(64).optional(),
-  synesis_architecture_profile: z.string().max(64).optional(),
+  synesis_context_mediation: ContextMediationControlSchema.optional(),
+  synesis_memory: ContextMediationControlSchema.optional(),
+  synesis_work_packet: ContextMediationControlSchema.optional(),
+  synesis_memory_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_mediation: ContextMediationControlSchema.optional(),
+  architecture_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_profile: ArchitectureProfileSourceSchema.optional(),
   synesis_project_root: z.string().max(2048).optional(),
   synesis_shell_cwd: z.string().max(2048).optional(),
   synesis_runtime: SynesisRuntimeMetadataSchema.optional(),
@@ -161,19 +215,19 @@ const OpenAIExtraBodySchema = z.object({
   enable_thinking: z.boolean().optional(),
   enable_prefix_caching: z.boolean().optional(),
   synesis: SynesisExtraBodySchema.optional(),
-  synesis_planning_override: z.union([z.boolean(), z.string().max(32)]).optional(),
-  planning_override: z.union([z.boolean(), z.string().max(32)]).optional(),
-  synesis_plan_mode: z.union([z.boolean(), z.string().max(32)]).optional(),
-  plan_mode: z.union([z.boolean(), z.string().max(32)]).optional(),
+  synesis_planning_override: PlanningBooleanControlSchema.optional(),
+  planning_override: PlanningBooleanControlSchema.optional(),
+  synesis_plan_mode: PlanningBooleanControlSchema.optional(),
+  plan_mode: PlanningBooleanControlSchema.optional(),
   synesis_custom_style: z.string().max(2000).optional(),
   custom_style: z.string().max(2000).optional(),
-  synesis_context_mediation: z.string().max(64).optional(),
-  synesis_memory: z.string().max(64).optional(),
-  synesis_work_packet: z.string().max(64).optional(),
-  synesis_memory_mediation: z.string().max(64).optional(),
-  synesis_architecture_mediation: z.string().max(64).optional(),
-  architecture_mediation: z.string().max(64).optional(),
-  synesis_architecture_profile: z.string().max(64).optional(),
+  synesis_context_mediation: ContextMediationControlSchema.optional(),
+  synesis_memory: ContextMediationControlSchema.optional(),
+  synesis_work_packet: ContextMediationControlSchema.optional(),
+  synesis_memory_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_mediation: ContextMediationControlSchema.optional(),
+  architecture_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_profile: ArchitectureProfileSourceSchema.optional(),
 }).strict();
 
 const FunctionCallSchema = z.object({
@@ -260,28 +314,58 @@ const OpenAIAudioSchema = z.object({
 
 const MAX_MESSAGES = 512;
 const MAX_TOOLS = 128;
+const MAX_STOP_SEQUENCES = 16;
+const MAX_STOP_SEQUENCE_CHARS = 4096;
+const MAX_MODEL_CHARS = 256;
+const MAX_OUTPUT_TOKENS = 2_000_000;
+const MAX_LOGIT_BIAS_KEYS = 2048;
+const ProviderIdentifierSchema = z.string().max(256);
+const ReasoningEffortSchema = z.enum(["low", "medium", "high"]);
+const ServiceTierSchema = z.enum(["auto", "flex", "priority", "default"]);
+const PromptCacheRetentionSchema = z.enum(["in_memory", "24h"]);
+const TextVerbositySchema = z.enum(["low", "medium", "high"]);
+const TemperatureSchema = z.number().min(0).max(2);
+const ProbabilitySchema = z.number().min(0).max(1);
+const PenaltySchema = z.number().min(-2).max(2);
+const RepetitionPenaltySchema = z.number().min(0).max(10);
+const TopKSchema = z.number().min(0).max(1_000_000);
+const OutputTokenLimitSchema = z.number().int().min(1).max(MAX_OUTPUT_TOKENS);
+const StopSchema = z.union([
+  z.string().max(MAX_STOP_SEQUENCE_CHARS),
+  z.array(z.string().max(MAX_STOP_SEQUENCE_CHARS)).max(MAX_STOP_SEQUENCES),
+]);
+const LogitBiasSchema = z.record(z.string().min(1).max(128), z.number().min(-100).max(100))
+  .superRefine((value, ctx) => {
+    if (Object.keys(value).length > MAX_LOGIT_BIAS_KEYS) {
+      ctx.addIssue({
+        code: "custom",
+        message: `logit_bias exceeds ${MAX_LOGIT_BIAS_KEYS} entries`,
+      });
+    }
+  });
+const ModalitiesSchema = z.array(z.enum(["text", "audio"])).max(2);
 
 export const OpenAIChatCompletionRequestSchema = z.object({
-  model: z.string().default("auto"),
+  model: z.string().max(MAX_MODEL_CHARS).default("auto"),
   messages: z.array(ChatMessageSchema).min(1).max(MAX_MESSAGES),
   stream: z.boolean().optional().default(false),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  top_k: z.number().optional(),
-  min_p: z.number().optional(),
-  presence_penalty: z.number().optional(),
-  frequency_penalty: z.number().optional(),
-  repetition_penalty: z.number().optional(),
+  temperature: TemperatureSchema.optional(),
+  top_p: ProbabilitySchema.optional(),
+  top_k: TopKSchema.optional(),
+  min_p: ProbabilitySchema.optional(),
+  presence_penalty: PenaltySchema.optional(),
+  frequency_penalty: PenaltySchema.optional(),
+  repetition_penalty: RepetitionPenaltySchema.optional(),
   enable_thinking: z.boolean().optional(),
-  reasoning_effort: z.string().optional(),
-  max_tokens: z.number().optional(),
-  max_completion_tokens: z.number().optional(),
-  stop: z.union([z.string(), z.array(z.string())]).optional(),
+  reasoning_effort: ReasoningEffortSchema.optional(),
+  max_tokens: OutputTokenLimitSchema.optional(),
+  max_completion_tokens: OutputTokenLimitSchema.optional(),
+  stop: StopSchema.optional(),
   seed: z.number().int().optional(),
-  logit_bias: z.record(z.string(), z.number()).optional(),
+  logit_bias: LogitBiasSchema.optional(),
   logprobs: z.boolean().optional(),
-  top_logprobs: z.number().int().optional(),
-  n: z.number().int().optional(),
+  top_logprobs: z.number().int().min(0).max(20).optional(),
+  n: z.number().int().min(1).max(128).optional(),
   stream_options: z.object({
     include_usage: z.boolean().optional(),
   }).strict().optional(),
@@ -290,18 +374,18 @@ export const OpenAIChatCompletionRequestSchema = z.object({
   parallel_tool_calls: z.boolean().optional(),
   response_format: OpenAIResponseFormatSchema.optional(),
   extra_body: OpenAIExtraBodySchema.optional(),
-  user: z.string().optional().nullable(),
-  conversation_id: z.string().optional().nullable(),
+  user: ProviderIdentifierSchema.optional().nullable(),
+  conversation_id: ProviderIdentifierSchema.optional().nullable(),
   metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
-  modalities: z.array(z.string()).optional(),
+  modalities: ModalitiesSchema.optional(),
   prediction: OpenAIPredictionSchema.optional(),
   audio: OpenAIAudioSchema.optional(),
-  service_tier: z.string().optional(),
-  prompt_cache_key: z.string().optional(),
-  prompt_cache_retention: z.string().optional(),
-  safety_identifier: z.string().optional(),
-  verbosity: z.string().optional(),
+  service_tier: ServiceTierSchema.optional(),
+  prompt_cache_key: ProviderIdentifierSchema.optional(),
+  prompt_cache_retention: PromptCacheRetentionSchema.optional(),
+  safety_identifier: ProviderIdentifierSchema.optional(),
+  verbosity: TextVerbositySchema.optional(),
 }).strict();
 
 const ClaudeImageBlockSchema = z.object({
@@ -380,8 +464,8 @@ const ClaudeThinkingSchema = z.union([
 ]);
 
 export const ClaudeMessagesRequestSchema = z.object({
-  model: z.string(),
-  max_tokens: z.number(),
+  model: z.string().max(MAX_MODEL_CHARS),
+  max_tokens: OutputTokenLimitSchema,
   messages: z.array(ClaudeMessageSchema).min(1).max(MAX_MESSAGES),
   system: z.union([
     z.string().max(MAX_MESSAGE_CONTENT_CHARS),
@@ -391,15 +475,15 @@ export const ClaudeMessagesRequestSchema = z.object({
   tools: z.array(ClaudeToolSchema).max(MAX_TOOLS).optional(),
   tool_choice: ClaudeToolChoiceSchema.optional(),
   thinking: ClaudeThinkingSchema.optional(),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  top_k: z.number().optional(),
-  min_p: z.number().optional(),
-  presence_penalty: z.number().optional(),
-  repetition_penalty: z.number().optional(),
+  temperature: TemperatureSchema.optional(),
+  top_p: ProbabilitySchema.optional(),
+  top_k: TopKSchema.optional(),
+  min_p: ProbabilitySchema.optional(),
+  presence_penalty: PenaltySchema.optional(),
+  repetition_penalty: RepetitionPenaltySchema.optional(),
   enable_thinking: z.boolean().optional(),
-  reasoning_effort: z.string().optional(),
-  stop_sequences: z.array(z.string()).optional(),
+  reasoning_effort: ReasoningEffortSchema.optional(),
+  stop_sequences: z.array(z.string().max(MAX_STOP_SEQUENCE_CHARS)).max(MAX_STOP_SEQUENCES).optional(),
   metadata: RequestMetadataSchema.optional()
 }).strict();
 

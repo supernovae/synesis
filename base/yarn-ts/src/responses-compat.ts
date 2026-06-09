@@ -11,6 +11,23 @@ const MAX_RESPONSES_JSON_DEPTH = 24;
 const MAX_RESPONSES_JSON_ARRAY_ITEMS = 512;
 const MAX_RESPONSES_JSON_OBJECT_KEYS = 256;
 const MAX_RESPONSES_JSON_KEY_CHARS = 128;
+const MAX_RESPONSES_PROVIDER_IDENTIFIER_CHARS = 256;
+const MAX_RESPONSES_STOP_SEQUENCES = 16;
+const MAX_RESPONSES_STOP_SEQUENCE_CHARS = 4096;
+const MAX_RESPONSES_MODEL_CHARS = 256;
+const MAX_RESPONSES_OUTPUT_TOKENS = 2_000_000;
+const ResponsesProviderIdentifierSchema = z.string().max(MAX_RESPONSES_PROVIDER_IDENTIFIER_CHARS);
+const ResponsesReasoningEffortSchema = z.enum(["low", "medium", "high"]);
+const ResponsesServiceTierSchema = z.enum(["auto", "flex", "priority", "default"]);
+const ResponsesPromptCacheRetentionSchema = z.enum(["in_memory", "24h"]);
+const ResponsesTextVerbositySchema = z.enum(["low", "medium", "high"]);
+const ResponsesTemperatureSchema = z.number().min(0).max(2);
+const ResponsesProbabilitySchema = z.number().min(0).max(1);
+const ResponsesOutputTokenLimitSchema = z.number().int().min(1).max(MAX_RESPONSES_OUTPUT_TOKENS);
+const ResponsesStopSchema = z.union([
+  z.string().max(MAX_RESPONSES_STOP_SEQUENCE_CHARS),
+  z.array(z.string().max(MAX_RESPONSES_STOP_SEQUENCE_CHARS)).max(MAX_RESPONSES_STOP_SEQUENCES),
+]);
 
 type ResponsesJsonValue =
   | string
@@ -161,19 +178,19 @@ const ResponsesTextFormatSchema = z.union([
 ]);
 
 export const OpenAIResponsesRequestSchema = z.object({
-  model: z.string().default("auto"),
+  model: z.string().max(MAX_RESPONSES_MODEL_CHARS).default("auto"),
   input: z.union([
-    z.string(),
+    z.string().max(MAX_RESPONSES_CONTENT_CHARS),
     z.array(z.union([ResponsesInputMessageSchema, ResponsesFunctionCallOutputSchema])).max(MAX_RESPONSES_INPUT_ITEMS),
   ]),
-  instructions: z.string().optional(),
+  instructions: z.string().max(MAX_RESPONSES_CONTENT_CHARS).optional(),
   stream: z.boolean().optional().default(false),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  max_output_tokens: z.number().int().optional(),
-  max_tokens: z.number().int().optional(),
-  max_completion_tokens: z.number().int().optional(),
-  stop: z.union([z.string(), z.array(z.string())]).optional(),
+  temperature: ResponsesTemperatureSchema.optional(),
+  top_p: ResponsesProbabilitySchema.optional(),
+  max_output_tokens: ResponsesOutputTokenLimitSchema.optional(),
+  max_tokens: ResponsesOutputTokenLimitSchema.optional(),
+  max_completion_tokens: ResponsesOutputTokenLimitSchema.optional(),
+  stop: ResponsesStopSchema.optional(),
   seed: z.number().int().optional(),
   tools: z.array(ResponsesToolSchema).max(MAX_RESPONSES_TOOLS).optional(),
   tool_choice: ResponsesToolChoiceSchema.optional(),
@@ -183,18 +200,18 @@ export const OpenAIResponsesRequestSchema = z.object({
   }).strict().optional(),
   response_format: OpenAIResponseFormatSchema.optional(),
   reasoning: z.object({
-    effort: z.string().optional(),
+    effort: ResponsesReasoningEffortSchema.optional(),
   }).strict().optional(),
-  reasoning_effort: z.string().optional(),
+  reasoning_effort: ResponsesReasoningEffortSchema.optional(),
   metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
-  user: z.string().optional().nullable(),
-  conversation_id: z.string().optional().nullable(),
-  service_tier: z.string().optional(),
-  prompt_cache_key: z.string().optional(),
-  prompt_cache_retention: z.string().optional(),
-  safety_identifier: z.string().optional(),
-  verbosity: z.string().optional(),
+  user: ResponsesProviderIdentifierSchema.optional().nullable(),
+  conversation_id: ResponsesProviderIdentifierSchema.optional().nullable(),
+  service_tier: ResponsesServiceTierSchema.optional(),
+  prompt_cache_key: ResponsesProviderIdentifierSchema.optional(),
+  prompt_cache_retention: ResponsesPromptCacheRetentionSchema.optional(),
+  safety_identifier: ResponsesProviderIdentifierSchema.optional(),
+  verbosity: ResponsesTextVerbositySchema.optional(),
 }).strict();
 
 export type OpenAIResponsesRequest = z.infer<typeof OpenAIResponsesRequestSchema>;

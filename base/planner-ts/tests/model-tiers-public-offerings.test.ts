@@ -101,6 +101,55 @@ describe("resolveTierSettings with public offerings", () => {
     expect(catalog.getPlannerPublicOfferings()).toEqual([]);
   });
 
+  it("rejects public offerings with unsafe generation param values", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            offerings: [
+              {
+                id: 1,
+                client_model_id: "unsafe-public-model",
+                label: null,
+                effort_tier: "core",
+                connection_mode: "standalone",
+                route_via_role: null,
+                standalone_provider: "openrouter",
+                standalone_endpoint: "https://openrouter.ai/api/v1",
+                standalone_api_key_env: "OPENROUTER_API_KEY",
+                backend_model_override: null,
+                generation_params: {
+                  max_tokens: 2_000_001,
+                  temperature: 3,
+                  reasoning_effort: "platform_admin",
+                },
+                expose_planner: true,
+                expose_yarn: false,
+                is_active: true,
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+            for_service: "planner",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ roles: [] }),
+        }),
+    );
+
+    await catalog.refreshPublicModelCatalog(loadConfig({
+      SYNESIS_ADMIN_URL: "http://admin",
+      SYNESIS_ADMIN_INTERNAL_TOKEN: "internal-token",
+    }));
+
+    expect(catalog.getPlannerPublicOfferings()).toEqual([]);
+  });
+
   it("sanitizes role route generation params before exposing LLM routes", async () => {
     vi.stubGlobal(
       "fetch",
@@ -124,8 +173,15 @@ describe("resolveTierSettings with public offerings", () => {
                 endpoint: "https://llm.internal/v1",
                 route_params: {
                   max_tokens: 2048,
+                  temperature: 3,
+                  top_p: 1.2,
+                  reasoning_effort: "platform_admin",
+                  stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
+                  top_logprobs: 21,
+                  n: 0,
                   logit_bias: {
                     "123": -1,
+                    "456": 101,
                     role_override: 100,
                   },
                   tools: [
@@ -173,7 +229,14 @@ describe("resolveTierSettings with public offerings", () => {
       ],
       extra_body: { min_p: 0.2 },
     });
+    expect(route?.generationParams?.logit_bias).toEqual({ "123": -1 });
     expect(route?.generationParams?.tool_choice).toBeUndefined();
+    expect(route?.generationParams?.temperature).toBeUndefined();
+    expect(route?.generationParams?.top_p).toBeUndefined();
+    expect(route?.generationParams?.reasoning_effort).toBeUndefined();
+    expect(route?.generationParams?.stop).toBeUndefined();
+    expect(route?.generationParams?.top_logprobs).toBeUndefined();
+    expect(route?.generationParams?.n).toBeUndefined();
     expect(JSON.stringify(route?.generationParams)).not.toContain("role_override");
     expect(JSON.stringify(route?.generationParams)).not.toContain("custom_provider_option");
   });

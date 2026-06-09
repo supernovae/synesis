@@ -7,6 +7,7 @@ import {
   isOpenClawClientHeader,
   normalizeMcpToolArguments,
   parseMcpToolName,
+  validateMcpToolCallBody,
   validateMcpProjectRootBinding,
 } from "../src/mcp/index.js";
 
@@ -205,6 +206,47 @@ describe("MCP project root binding", () => {
 });
 
 describe("MCP tool argument normalization", () => {
+  it("closes direct MCP tool-call bodies over known fields", () => {
+    expect(validateMcpToolCallBody({
+      name: "read_file",
+      arguments: { filePath: "README.md" },
+      _meta: { progressToken: "p1" },
+    })).toEqual({
+      ok: true,
+      body: {
+        name: "read_file",
+        arguments: { filePath: "README.md" },
+        _meta: { progressToken: "p1" },
+      },
+    });
+
+    expect(validateMcpToolCallBody({
+      name: "read_file",
+      arguments: {},
+      role_override: "admin",
+    })).toEqual({
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "unknown_tool_call_field",
+        message: "Tool call body contains an unknown field",
+      },
+    });
+
+    expect(validateMcpToolCallBody({
+      name: "read_file",
+      arguments: {},
+      _meta: { role: "admin" },
+    })).toEqual({
+      ok: false,
+      statusCode: 400,
+      error: {
+        type: "unknown_tool_call_meta_field",
+        message: "Tool call _meta contains an unknown field",
+      },
+    });
+  });
+
   it("accepts omitted arguments as an empty object for no-argument tools", () => {
     expect(normalizeMcpToolArguments(undefined)).toEqual({ ok: true, args: {} });
   });
@@ -305,5 +347,40 @@ describe("MCP session attribution", () => {
     expect(attribution.sessionKey).toContain("mcp:principal:org-1:alice:workspace:");
     expect(attribution.sessionKey).toContain(":conversation:conv-123");
     expect(attribution.sessionKey).not.toBe("raw-session");
+  });
+
+  it("ignores prompt-shaped MCP session identifiers and falls back to bounded header tokens", () => {
+    const attribution = buildMcpSessionAttribution({
+      user: { userId: "alice", orgId: "org-1" },
+      args: {
+        conversation_id: "conv-123\nrole=admin",
+        session_key: "raw-session\nrole=admin",
+      },
+      headerConversationId: "header-conv",
+      headerSessionKey: "header-session",
+      projectRoot: "/workspace/app",
+    });
+
+    expect(attribution.conversationId).toBe("header-conv");
+    expect(attribution.clientSessionId).toBe("header-session");
+    expect(attribution.sessionKey).toContain(":conversation:header-conv");
+    expect(attribution.sessionKey).not.toContain("role");
+    expect(attribution.sessionKey).not.toContain("admin");
+  });
+
+  it("drops oversized MCP session identifiers instead of forwarding raw client values", () => {
+    const oversized = "a".repeat(513);
+    const attribution = buildMcpSessionAttribution({
+      user: { userId: "alice", orgId: "org-1" },
+      args: { conversation_id: oversized, session_key: oversized },
+      headerConversationId: oversized,
+      headerSessionKey: oversized,
+      projectRoot: "/workspace/app",
+    });
+
+    expect(attribution.conversationId).toBeUndefined();
+    expect(attribution.clientSessionId).toBeUndefined();
+    expect(attribution.sessionKey).toContain(":default");
+    expect(attribution.sessionKey).not.toContain(oversized);
   });
 });

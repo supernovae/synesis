@@ -484,6 +484,64 @@ describe("SynesisYarnAcpAgent fetch + user-visible errors", () => {
     expect(body.metadata?.synesis_project_root).toBe("/home/byron/k8");
   });
 
+  it("does not let ACP _meta project_root widen filesystem scope beyond advertised roots", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    await agent.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      _meta: {
+        project_root: "/home/byron",
+      },
+    });
+    const { sessionId } = await agent.newSession({
+      cwd: "/home/byron/k8/overseerr",
+      mcpServers: [],
+      _meta: {
+        synesis_project_root: "/home/byron",
+      },
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { metadata?: Record<string, unknown> };
+    expect(body.metadata?.synesis_shell_cwd).toBe("/home/byron/k8/overseerr");
+    expect(body.metadata?.synesis_project_root).toBeUndefined();
+  });
+
+  it("accepts ACP _meta project_root when it matches an advertised workspace root", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { conn } = mockConnection();
+    const agent = new SynesisYarnAcpAgent(conn);
+    await agent.initialize({ protocolVersion: PROTOCOL_VERSION });
+    const { sessionId } = await agent.newSession({
+      cwd: "/home/byron/k8/overseerr",
+      additionalDirectories: ["/home/byron/k8"],
+      mcpServers: [],
+      _meta: {
+        synesis_project_root: "/home/byron/k8",
+      },
+    });
+
+    await agent.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] });
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as { metadata?: Record<string, unknown> };
+    expect(body.metadata?.synesis_shell_cwd).toBe("/home/byron/k8/overseerr");
+    expect(body.metadata?.synesis_project_root).toBe("/home/byron/k8");
+  });
+
   it("prefixes Model reasoning when API returns reasoning_content (OpenAI extension)", async () => {
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(

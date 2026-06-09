@@ -135,6 +135,86 @@ describe("client payload conformance fixtures", () => {
     expect(parsed.data.parallel_tool_calls).toBe(false);
   });
 
+  it("bounds OpenAI provider identity and cache hint fields", () => {
+    const oversized = "x".repeat(257);
+    const parsed = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      user: oversized,
+      prompt_cache_key: "cache-key",
+      safety_identifier: "safe-user",
+    });
+    expect(parsed.success).toBe(false);
+
+    const cacheKey = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      prompt_cache_key: oversized,
+    });
+    expect(cacheKey.success).toBe(false);
+
+    const safetyIdentifier = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      safety_identifier: oversized,
+    });
+    expect(safetyIdentifier.success).toBe(false);
+  });
+
+  it("rejects invented OpenAI provider option enum values", () => {
+    const parsed = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      reasoning_effort: "root",
+      service_tier: "platform_admin",
+      prompt_cache_retention: "forever",
+      verbosity: "system",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unsafe OpenAI resource-control bounds", () => {
+    const oversizedStop = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
+    });
+    expect(oversizedStop.success).toBe(false);
+
+    const oversizedTokens = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      max_completion_tokens: 2_000_001,
+    });
+    expect(oversizedTokens.success).toBe(false);
+
+    const invalidSampling = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      temperature: 3,
+      top_p: 1.5,
+      min_p: -0.1,
+      frequency_penalty: 3,
+      top_logprobs: 21,
+      n: 0,
+    });
+    expect(invalidSampling.success).toBe(false);
+
+    const invalidLogitBias = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      logit_bias: { "123": 101 },
+    });
+    expect(invalidLogitBias.success).toBe(false);
+
+    const invalidModality = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      modalities: ["text", "admin"],
+    });
+    expect(invalidModality.success).toBe(false);
+  });
+
   it("rejects invented OpenAI prediction and audio attributes", () => {
     const prediction = OpenAIChatCompletionRequestSchema.safeParse({
       model: "synesis-yarn",
@@ -185,6 +265,66 @@ describe("client payload conformance fixtures", () => {
       },
     });
     expect(rejected.success).toBe(false);
+  });
+
+  it("restricts Synesis request controls to known modes and aliases", () => {
+    const accepted = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      metadata: {
+        synesis_mode: "optimized",
+        synesis_plan_mode: "on",
+        synesis_context_mediation: "hands-off",
+        synesis_memory_mediation: "assertive",
+        synesis_architecture_profile: "model-registry",
+      },
+      extra_body: {
+        planning_override: "yes",
+        architecture_mediation: "observe",
+        synesis: {
+          contextMediation: "safe",
+          architectureProfile: "auto",
+        },
+        synesis_custom_style: "Keep responses concise.",
+      },
+    });
+    expect(accepted.success).toBe(true);
+
+    const inventedMode = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      metadata: {
+        synesis_mode: "platform_admin",
+      },
+    });
+    expect(inventedMode.success).toBe(false);
+
+    const inventedMediation = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      metadata: {
+        synesis_context_mediation: "role=admin",
+      },
+    });
+    expect(inventedMediation.success).toBe(false);
+
+    const inventedPlanningFlag = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      extra_body: {
+        synesis_planning_override: "maybe_admin",
+      },
+    });
+    expect(inventedPlanningFlag.success).toBe(false);
+
+    const inventedProfile = OpenAIChatCompletionRequestSchema.safeParse({
+      model: "synesis-yarn",
+      messages: [{ role: "user", content: "Implement the change." }],
+      extra_body: {
+        synesis_architecture_profile: "read-secrets",
+      },
+    });
+    expect(inventedProfile.success).toBe(false);
   });
 
   it("rejects unknown OpenAI request and message envelope fields", () => {
@@ -272,6 +412,33 @@ describe("client payload conformance fixtures", () => {
         budget_tokens: 2048,
         service_role: "admin",
       },
+      messages: [{ role: "user", content: "Plan this task." }],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects invented Claude reasoning effort values", () => {
+    const parsed = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 1000,
+      reasoning_effort: "platform_admin",
+      messages: [{ role: "user", content: "Plan this task." }],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unsafe Claude resource-control bounds", () => {
+    const parsed = ClaudeMessagesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      max_tokens: 2_000_001,
+      temperature: 3,
+      top_p: 1.5,
+      min_p: -0.1,
+      presence_penalty: -3,
+      repetition_penalty: 11,
+      stop_sequences: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
       messages: [{ role: "user", content: "Plan this task." }],
     });
 

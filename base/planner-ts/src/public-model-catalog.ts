@@ -1,19 +1,19 @@
 import type { AppConfig } from "./config.js";
 import { z } from "zod";
 
-import { ToolChoiceSchema, ToolDefinitionSchema } from "./api-schemas.js";
-import { normalizeProviderExtraBody } from "./llm/extra-body.js";
+import { normalizeGenerationParamsFromRecord } from "./llm/generation-params.js";
 
 const PublicOfferingGenerationParamsSchema = z.object({
-  max_tokens: z.number().int().nonnegative().optional(),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  top_k: z.number().int().nonnegative().optional(),
-  min_p: z.number().optional(),
-  presence_penalty: z.number().optional(),
-  repetition_penalty: z.number().optional(),
+  max_tokens: z.number().int().min(1).max(2_000_000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  top_p: z.number().min(0).max(1).optional(),
+  top_k: z.number().int().min(0).max(1_000_000).optional(),
+  min_p: z.number().min(0).max(1).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  repetition_penalty: z.number().min(0).max(10).optional(),
   enable_thinking: z.boolean().optional(),
-  reasoning_effort: z.string().optional(),
+  reasoning_effort: z.enum(["low", "medium", "high"]).optional(),
   model_capability_preset: z.string().optional(),
 }).strict();
 
@@ -82,61 +82,9 @@ function normalizeRouteKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-const RouteGenerationToolsSchema = z.array(ToolDefinitionSchema).max(128);
-
-function normalizeRouteLogitBias(value: unknown): Record<string, number> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const out: Record<string, number> = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!/^-?\d{1,12}$/.test(key)) continue;
-    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 function generationParamsFromRecord(raw: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  if (!raw || typeof raw !== "object") return null;
-  const allowed = [
-    "max_tokens",
-    "temperature",
-    "top_p",
-    "top_k",
-    "min_p",
-    "presence_penalty",
-    "frequency_penalty",
-    "repetition_penalty",
-    "enable_thinking",
-    "reasoning_effort",
-    "stop",
-    "seed",
-    "logit_bias",
-    "logprobs",
-    "top_logprobs",
-    "n",
-    "tools",
-    "tool_choice",
-    "parallel_tool_calls",
-    "extra_body",
-  ];
-  const out: Record<string, unknown> = {};
-  for (const key of allowed) {
-    if (key === "extra_body") {
-      const extraBody = normalizeProviderExtraBody(raw.extra_body);
-      if (extraBody) out.extra_body = extraBody;
-    } else if (key === "logit_bias") {
-      const logitBias = normalizeRouteLogitBias(raw.logit_bias);
-      if (logitBias) out.logit_bias = logitBias;
-    } else if (key === "tools") {
-      const parsedTools = RouteGenerationToolsSchema.safeParse(raw.tools);
-      if (parsedTools.success) out.tools = parsedTools.data;
-    } else if (key === "tool_choice") {
-      const parsedToolChoice = ToolChoiceSchema.safeParse(raw.tool_choice);
-      if (parsedToolChoice.success) out.tool_choice = parsedToolChoice.data;
-    } else if (raw[key] !== undefined) {
-      out[key] = raw[key];
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
+  const normalized = normalizeGenerationParamsFromRecord(raw);
+  return normalized ? { ...normalized } : null;
 }
 
 function routeFromRole(role: InternalRoleAssignment): LlmRoute | null {

@@ -80,6 +80,76 @@ describe("OpenAI Responses API compatibility", () => {
     ]);
   });
 
+  it("bounds Responses provider identity and cache hint fields", () => {
+    const oversized = "x".repeat(257);
+    const user = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      user: oversized,
+      prompt_cache_key: "cache-key",
+      safety_identifier: "safe-user",
+    });
+    expect(user.success).toBe(false);
+
+    const cacheKey = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      prompt_cache_key: oversized,
+    });
+    expect(cacheKey.success).toBe(false);
+
+    const safetyIdentifier = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      safety_identifier: oversized,
+    });
+    expect(safetyIdentifier.success).toBe(false);
+  });
+
+  it("rejects invented Responses provider option enum values", () => {
+    const parsed = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      reasoning: { effort: "root" },
+      reasoning_effort: "system",
+      service_tier: "platform_admin",
+      prompt_cache_retention: "forever",
+      verbosity: "debug",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unsafe Responses resource-control bounds", () => {
+    const oversizedInput = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "x".repeat(2_000_001),
+    });
+    expect(oversizedInput.success).toBe(false);
+
+    const oversizedInstructions = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      instructions: "x".repeat(2_000_001),
+    });
+    expect(oversizedInstructions.success).toBe(false);
+
+    const oversizedStop = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
+    });
+    expect(oversizedStop.success).toBe(false);
+
+    const invalidSampling = OpenAIResponsesRequestSchema.safeParse({
+      model: "synesis-yarn",
+      input: "hello",
+      temperature: 3,
+      top_p: 1.5,
+      max_output_tokens: 2_000_001,
+    });
+    expect(invalidSampling.success).toBe(false);
+  });
+
   it("rejects non-JSON-compatible function call outputs", () => {
     const parsed = OpenAIResponsesRequestSchema.safeParse({
       model: "synesis-yarn",

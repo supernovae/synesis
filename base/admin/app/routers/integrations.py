@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import case, delete, func, select
 
 from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
@@ -14,8 +15,43 @@ from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import RouteGroup, can_access_route_group, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
+from ..services.outbound_security import validate_public_https_url
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
+
+WebSearchOutcomeFilter = Literal["", "success", "error", "empty"]
+_WEB_SEARCH_OUTCOME_VALUES = {"", "success", "error", "empty"}
+WebSearchSourceSurfaceFilter = Literal[
+    "",
+    "yarn_chat",
+    "yarn_mcp_http",
+    "openwebui_planner",
+    "planner_internal",
+    "external_api",
+    "unknown",
+]
+_WEB_SEARCH_SOURCE_SURFACE_VALUES = {
+    "",
+    "yarn_chat",
+    "yarn_mcp_http",
+    "openwebui_planner",
+    "planner_internal",
+    "external_api",
+    "unknown",
+}
+UrlPolicyAction = Literal["allow", "block", "vetted"]
+
+_FILTER_MAX_LENGTHS = {
+    "domain": 256,
+    "org_id": 256,
+    "user_id": 256,
+    "session_key": 256,
+    "request_id": 128,
+    "trace_id": 128,
+    "tool_name": 64,
+    "engine": 64,
+    "q": 256,
+}
 
 
 def _ensure_org_content_admin(user: UserInfo) -> None:
@@ -51,6 +87,23 @@ def _apply_web_search_log_scope(stmt, user: UserInfo):
     if scope.get("scope_tenant_id"):
         stmt = stmt.where(WebSearchLog.tenant_id == scope["scope_tenant_id"])
     return stmt
+
+
+def _bounded_filter(value: str, *, field_name: str, max_length: int) -> str:
+    normalized = (value or "").strip()
+    if len(normalized) > max_length:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be at most {max_length} characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
+        raise HTTPException(status_code=422, detail=f"{field_name} must not contain control characters")
+    return normalized
+
+
+def _validate_web_search_log_filters(filters: dict[str, str]) -> dict[str, str]:
+    return {
+        field_name: _bounded_filter(value, field_name=field_name, max_length=max_length)
+        for field_name, max_length in _FILTER_MAX_LENGTHS.items()
+        for value in [filters.get(field_name, "")]
+    }
 
 
 # ── MCP ──
@@ -131,20 +184,46 @@ async def web_search_stats(_user: UserInfo = Depends(get_current_user)):
 @router.get("/web-search/log")
 async def web_search_log(
     user: UserInfo = Depends(get_current_user),
-    domain: str = Query("", description="Filter by domain"),
-    outcome: str = Query("", description="Filter by outcome"),
-    source_surface: str = Query("", description="Filter by source surface"),
-    org_id: str = Query("", description="Filter by org id"),
-    user_id: str = Query("", description="Filter by user id"),
-    session_key: str = Query("", description="Filter by session key"),
-    request_id: str = Query("", description="Filter by request id"),
-    trace_id: str = Query("", description="Filter by trace id"),
-    tool_name: str = Query("", description="Filter by tool name"),
-    engine: str = Query("", description="Filter by engine"),
-    query_filter: str = Query("", alias="q", description="Substring search in query text"),
+    domain: str = Query("", max_length=256, description="Filter by domain"),
+    outcome: WebSearchOutcomeFilter = Query("", description="Filter by outcome"),
+    source_surface: WebSearchSourceSurfaceFilter = Query("", description="Filter by source surface"),
+    org_id: str = Query("", max_length=256, description="Filter by org id"),
+    user_id: str = Query("", max_length=256, description="Filter by user id"),
+    session_key: str = Query("", max_length=256, description="Filter by session key"),
+    request_id: str = Query("", max_length=128, description="Filter by request id"),
+    trace_id: str = Query("", max_length=128, description="Filter by trace id"),
+    tool_name: str = Query("", max_length=64, description="Filter by tool name"),
+    engine: str = Query("", max_length=64, description="Filter by engine"),
+    query_filter: str = Query("", alias="q", max_length=256, description="Substring search in query text"),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
 ):
+    if outcome not in _WEB_SEARCH_OUTCOME_VALUES:
+        raise HTTPException(status_code=422, detail="outcome must be a known web-search outcome")
+    if source_surface not in _WEB_SEARCH_SOURCE_SURFACE_VALUES:
+        raise HTTPException(status_code=422, detail="source_surface must be a known web-search surface")
+    filters = _validate_web_search_log_filters(
+        {
+            "domain": domain,
+            "org_id": org_id,
+            "user_id": user_id,
+            "session_key": session_key,
+            "request_id": request_id,
+            "trace_id": trace_id,
+            "tool_name": tool_name,
+            "engine": engine,
+            "q": query_filter,
+        }
+    )
+    domain = filters["domain"]
+    org_id = filters["org_id"]
+    user_id = filters["user_id"]
+    session_key = filters["session_key"]
+    request_id = filters["request_id"]
+    trace_id = filters["trace_id"]
+    tool_name = filters["tool_name"]
+    engine = filters["engine"]
+    query_filter = filters["q"]
     offset = (page - 1) * page_size
     async with async_session() as session:
         base = _apply_web_search_log_scope(select(WebSearchLog), user)
@@ -257,11 +336,18 @@ async def web_search_domain_summary(
 
 
 class PolicyCreate(BaseModel):
-    url_pattern: str
-    policy: str = "allow"
-    reason: str = ""
-    boost_factor: float = 1.0
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    url_pattern: str = Field(..., min_length=1, max_length=2048)
+    policy: UrlPolicyAction = "allow"
+    reason: str = Field("", max_length=2000)
+    boost_factor: float = Field(1.0, ge=0, le=10)
     auto_ingest: bool = False
+
+    @field_validator("url_pattern")
+    @classmethod
+    def validate_url_pattern(cls, value: str) -> str:
+        return _bounded_filter(value, field_name="url_pattern", max_length=2048)
 
 
 @router.get("/web-search/policies")
@@ -337,9 +423,16 @@ async def delete_policy(
 
 
 class IngestRequest(BaseModel):
-    url: str
-    title: str = ""
-    reason: str = ""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    url: str = Field(..., min_length=1, max_length=2048)
+    title: str = Field("", max_length=512)
+    reason: str = Field("", max_length=2000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return _bounded_filter(value, field_name="url", max_length=2048)
 
 
 @router.post("/web-search/ingest")
@@ -356,15 +449,16 @@ async def ingest_url(
 
     _ensure_platform_control(user)
 
-    gap_id = "web-ingest-" + hashlib.sha256(body.url.encode()).hexdigest()[:12]
+    normalized_url = validate_public_https_url(body.url)
+    gap_id = "web-ingest-" + hashlib.sha256(normalized_url.encode()).hexdigest()[:12]
     async with async_session() as session:
         existing = (await session.execute(select(KnowledgeGap).where(KnowledgeGap.gap_id == gap_id))).scalars().first()
         if not existing:
             session.add(
                 KnowledgeGap(
                     gap_id=gap_id,
-                    query=body.url,
-                    task_description=f"Web ingest: {body.title or body.url}",
+                    query=normalized_url,
+                    task_description=f"Web ingest: {body.title or normalized_url}",
                     platform_context="web_ingest",
                     status="open",
                     web_search_fallback=False,

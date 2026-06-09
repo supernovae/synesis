@@ -441,12 +441,38 @@ function envProjectRoot(): string | undefined {
 function closestContainingRoot(cwd: string, candidates: string[]): string | undefined {
   const absCwd = path.resolve(cwd);
   const matches = candidates
-    .map((c) => c.trim())
-    .filter(Boolean)
-    .map((c) => path.resolve(c))
+    .map((c) => normalizeAbsolutePathHint(c))
+    .filter((c): c is string => Boolean(c))
     .filter((c) => isInsideDirectory(absCwd, c));
   matches.sort((a, b) => b.length - a.length);
   return matches[0];
+}
+
+function normalizedPathHint(value: string | undefined): string | undefined {
+  return normalizeAbsolutePathHint(value) ?? undefined;
+}
+
+function workspaceRootsFromAdditionalDirectories(cwd: string, extra: string[]): string[] {
+  const absCwd = path.resolve(cwd);
+  return extra
+    .map((candidate) => normalizedPathHint(candidate))
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .filter((candidate) => isInsideDirectory(absCwd, candidate));
+}
+
+function trustedMetaProjectRoot(
+  raw: string | undefined,
+  shellCwd: string,
+  advertisedRoots: string[],
+): string | undefined {
+  const normalized = normalizedPathHint(raw);
+  if (!normalized) return undefined;
+  if (shellCwd && normalized === shellCwd) return normalized;
+  if (shellCwd && isInsideDirectory(normalized, shellCwd)) return normalized;
+  if (shellCwd && !isInsideDirectory(shellCwd, normalized)) return undefined;
+  return advertisedRoots.some((root) => normalized === root || isInsideDirectory(normalized, root))
+    ? normalized
+    : undefined;
 }
 
 /** Safe, bounded JSON snapshot for observability (no secrets). */
@@ -505,23 +531,28 @@ function buildRequestMetadata(
   applyAcpMetaHints(out, initMeta as Record<string, unknown> | null | undefined);
   applyAcpMetaHints(out, ns._meta as Record<string, unknown> | null | undefined);
 
-  const cwd = typeof ns.cwd === "string" && ns.cwd.trim() ? ns.cwd.trim() : "";
+  const cwd = normalizedPathHint(typeof ns.cwd === "string" && ns.cwd.trim() ? ns.cwd.trim() : undefined) ?? "";
   const extra = ns.additionalDirectories?.filter((d) => typeof d === "string" && d.trim()) ?? [];
   if (cwd) out.synesis_shell_cwd = cwd;
-  const explicitProjectRoot =
-    envProjectRoot()
-    ?? metaPath(ns._meta as Record<string, unknown> | null | undefined, [
+  const advertisedRoots = cwd ? workspaceRootsFromAdditionalDirectories(cwd, extra) : [];
+  const configuredProjectRoot = normalizedPathHint(envProjectRoot());
+  const metaProjectRoot = trustedMetaProjectRoot(
+    metaPath(ns._meta as Record<string, unknown> | null | undefined, [
       "synesis_project_root",
       "workspace_context_project_root",
       "project_root",
       "projectRoot",
     ])
-    ?? metaPath(initMeta as Record<string, unknown> | null | undefined, [
+      ?? metaPath(initMeta as Record<string, unknown> | null | undefined, [
       "synesis_project_root",
       "workspace_context_project_root",
       "project_root",
       "projectRoot",
-    ]);
+      ]),
+    cwd,
+    advertisedRoots,
+  );
+  const explicitProjectRoot = configuredProjectRoot ?? metaProjectRoot;
   const projectRoot = explicitProjectRoot ?? (cwd ? closestContainingRoot(cwd, extra) : undefined);
   if (projectRoot) out.synesis_project_root = projectRoot;
 

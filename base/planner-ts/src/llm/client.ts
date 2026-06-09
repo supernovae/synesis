@@ -11,7 +11,7 @@ import {
 } from "@synesis/telemetry";
 import { CircuitBreakerRegistry } from "./circuit-breaker.js";
 import { normalizeProviderExtraBody } from "./extra-body.js";
-import { ToolChoiceSchema, ToolDefinitionSchema } from "../api-schemas.js";
+import { normalizeGenerationParamsFromRecord } from "./generation-params.js";
 import { getLlmRoute, hasLlmRoutes, type LlmRoute } from "../public-model-catalog.js";
 
 export type { LlmUsage };
@@ -246,64 +246,7 @@ function validateBaseUrl(raw: string, provider: string): string {
 function resolvedGenerationParams(route: LlmRoute | undefined): Partial<ChatRequest> {
   const raw = route?.generationParams;
   if (!raw || typeof raw !== "object") return {};
-  const out: Partial<ChatRequest> = {};
-  const numberParam = (key: keyof ChatRequest): number | undefined => {
-    const value = raw[key as string];
-    const num = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : undefined;
-    return num != null && Number.isFinite(num) ? num : undefined;
-  };
-  const maxTokens = numberParam("max_tokens");
-  if (maxTokens != null && maxTokens > 0) out.max_tokens = Math.trunc(maxTokens);
-  const temperature = numberParam("temperature");
-  if (temperature != null && temperature >= 0) out.temperature = temperature;
-  const topP = numberParam("top_p");
-  if (topP != null && topP >= 0 && topP <= 1) out.top_p = topP;
-  const topK = numberParam("top_k");
-  if (topK != null && topK >= 0) out.top_k = Math.trunc(topK);
-  const minP = numberParam("min_p");
-  if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
-  const presencePenalty = numberParam("presence_penalty");
-  if (presencePenalty != null) out.presence_penalty = presencePenalty;
-  const frequencyPenalty = numberParam("frequency_penalty");
-  if (frequencyPenalty != null) out.frequency_penalty = frequencyPenalty;
-  const repetitionPenalty = numberParam("repetition_penalty");
-  if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
-  if (typeof raw.enable_thinking === "boolean") out.enable_thinking = raw.enable_thinking;
-  if (typeof raw.reasoning_effort === "string" && raw.reasoning_effort.trim()) {
-    out.reasoning_effort = raw.reasoning_effort.trim();
-  }
-  if (typeof raw.stop === "string" || (Array.isArray(raw.stop) && raw.stop.every((item) => typeof item === "string"))) {
-    out.stop = raw.stop;
-  }
-  const seed = numberParam("seed");
-  if (seed != null) out.seed = Math.trunc(seed);
-  const logitBias = normalizeLogitBias(raw.logit_bias);
-  if (logitBias) out.logit_bias = logitBias;
-  if (typeof raw.logprobs === "boolean") out.logprobs = raw.logprobs;
-  const topLogprobs = numberParam("top_logprobs");
-  if (topLogprobs != null && topLogprobs >= 0) out.top_logprobs = Math.trunc(topLogprobs);
-  const n = numberParam("n");
-  if (n != null && n > 0) out.n = Math.trunc(n);
-  const tools = ToolDefinitionSchema.array().max(128).safeParse(raw.tools);
-  if (tools.success) out.tools = tools.data;
-  const toolChoice = ToolChoiceSchema.safeParse(raw.tool_choice);
-  if (toolChoice.success) out.tool_choice = toolChoice.data;
-  if (typeof raw.parallel_tool_calls === "boolean") out.parallel_tool_calls = raw.parallel_tool_calls;
-  const extraBody = normalizeProviderExtraBody(raw.extra_body);
-  if (extraBody) {
-    out.extra_body = extraBody;
-  }
-  return out;
-}
-
-function normalizeLogitBias(value: unknown): Record<string, number> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const out: Record<string, number> = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!/^-?\d{1,12}$/.test(key)) continue;
-    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return (normalizeGenerationParamsFromRecord(raw) as Partial<ChatRequest> | undefined) ?? {};
 }
 
 function mergeRouteDefaults(request: ChatRequest, route: LlmRoute | undefined): ChatRequest {

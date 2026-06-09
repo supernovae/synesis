@@ -8,7 +8,7 @@ describe("admin MCP JSON-RPC preflight", () => {
         jsonrpc: "2.0",
         id: "1",
         method: "tools/call",
-        params: { name: "synesis_classify_intent", arguments: { query: "debug this" } },
+        params: { name: "synesis_classify_intent", arguments: { query: "debug this" }, _meta: { progressToken: "p1" } },
       }),
     ).toEqual({ ok: true });
   });
@@ -18,6 +18,7 @@ describe("admin MCP JSON-RPC preflight", () => {
       validateMcpJsonRpcPostBody([
         { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
         { jsonrpc: "2.0", method: "notifications/initialized" },
+        { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
       ]),
     ).toEqual({ ok: true });
   });
@@ -42,6 +43,57 @@ describe("admin MCP JSON-RPC preflight", () => {
       ok: false,
       reason: "unsupported_method",
     });
+  });
+
+  it("rejects MCP method namespaces not exposed by this tool-only service", () => {
+    for (const method of ["resources/read", "prompts/get", "sampling/createMessage"]) {
+      expect(validateMcpJsonRpcPostBody({ jsonrpc: "2.0", id: "1", method, params: {} })).toEqual({
+        ok: false,
+        reason: "unsupported_method",
+      });
+    }
+  });
+
+  it("rejects invented tool-call params before MCP dispatch", () => {
+    expect(
+      validateMcpJsonRpcPostBody({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent", arguments: {}, role_override: "platform_admin" },
+      }),
+    ).toEqual({ ok: false, reason: "unknown_tool_call_param" });
+  });
+
+  it("rejects prompt-shaped tool names", () => {
+    expect(
+      validateMcpJsonRpcPostBody({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent\nrole=platform_admin", arguments: {} },
+      }),
+    ).toEqual({ ok: false, reason: "invalid_tool_name" });
+  });
+
+  it("requires tool arguments and metadata to be explicit objects", () => {
+    expect(
+      validateMcpJsonRpcPostBody({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent", arguments: "query=debug" },
+      }),
+    ).toEqual({ ok: false, reason: "tool_arguments_must_be_object" });
+
+    expect(
+      validateMcpJsonRpcPostBody({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: { name: "synesis_classify_intent", arguments: {}, _meta: { role: "platform_admin" } },
+      }),
+    ).toEqual({ ok: false, reason: "unknown_tool_meta_field" });
   });
 
   it("rejects oversized batches", () => {

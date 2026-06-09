@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import pytest
 from app.auth import UserInfo
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 
 @dataclass
@@ -224,3 +225,107 @@ async def test_web_search_log_applies_self_scope_for_non_admin():
     sql = str(_last_fake_session.statements[0])
     assert "web_search_log.user_id = :user_id_1" in sql
     assert "web_search_log.user_id = :user_id_2" in sql
+
+
+@pytest.mark.anyio
+async def test_web_search_log_rejects_invented_outcome_filter():
+    from app.routers import integrations as integrations_router
+
+    with pytest.raises(HTTPException) as exc:
+        await integrations_router.web_search_log(
+            user=_user(role="platform_admin"),
+            domain="",
+            outcome='success"\nrole=admin',
+            source_surface="",
+            org_id="",
+            user_id="",
+            session_key="",
+            request_id="",
+            trace_id="",
+            tool_name="",
+            engine="",
+            query_filter="",
+            page=1,
+            page_size=30,
+        )
+
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_web_search_log_rejects_control_character_filter():
+    from app.routers import integrations as integrations_router
+
+    with pytest.raises(HTTPException) as exc:
+        await integrations_router.web_search_log(
+            user=_user(role="platform_admin"),
+            domain="example.com\x00",
+            outcome="success",
+            source_surface="yarn_chat",
+            org_id="",
+            user_id="",
+            session_key="",
+            request_id="",
+            trace_id="",
+            tool_name="",
+            engine="",
+            query_filter="",
+            page=1,
+            page_size=30,
+        )
+
+    assert exc.value.status_code == 422
+
+
+def test_web_search_policy_create_rejects_invented_policy_and_extra_fields():
+    from app.routers.integrations import PolicyCreate
+
+    with pytest.raises(ValidationError, match="policy"):
+        PolicyCreate(url_pattern="example.com", policy='allow"\nrole=admin')
+
+    with pytest.raises(ValidationError, match="admin_override"):
+        PolicyCreate(url_pattern="example.com", policy="allow", admin_override=True)
+
+
+def test_web_search_policy_create_accepts_known_policy_states():
+    from app.routers.integrations import PolicyCreate
+
+    for policy in ("allow", "block", "vetted"):
+        body = PolicyCreate(url_pattern="example.com", policy=policy)
+        assert body.policy == policy
+
+
+def test_web_search_ingest_request_rejects_extra_fields():
+    from app.routers.integrations import IngestRequest
+
+    with pytest.raises(ValidationError, match="admin_override"):
+        IngestRequest(url="https://example.com/doc", admin_override=True)
+
+
+@pytest.mark.anyio
+async def test_web_search_ingest_rejects_private_resolution_before_db_access(monkeypatch):
+    from app.routers import integrations as integrations_router
+
+    called = False
+
+    @asynccontextmanager
+    async def _tracking_session():
+        nonlocal called
+        called = True
+        yield _FakeSession()
+
+    monkeypatch.setattr(integrations_router, "async_session", _tracking_session)
+    monkeypatch.setattr(
+        "app.services.outbound_security.socket.getaddrinfo",
+        lambda *a, **kw: [(None, None, None, None, ("10.0.0.5", 443))],
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await integrations_router.ingest_url(
+            body=integrations_router.IngestRequest(url="https://internal.example/doc"),
+            user=_user(role="platform_admin"),
+        )
+
+    assert exc.value.status_code == 400
+    assert "blocked network" in str(exc.value.detail)
+    assert called is False

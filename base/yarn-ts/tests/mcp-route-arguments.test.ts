@@ -32,6 +32,47 @@ describe("Yarn MCP route argument validation", () => {
     await Promise.all(apps.splice(0).map((app) => app.close()));
   });
 
+  it("rejects unknown direct MCP tool-call body fields before dispatch", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    );
+    const { app, authResolver } = createMcpRouteHarness();
+    apps.push(app);
+    await registerMcpRoutes(app, {
+      authResolver: authResolver as never,
+      enabled: true,
+      openClawProfileEnabled: false,
+      openClawMcpAllowlistEnabled: false,
+      openClawStrictGovernanceEnabled: false,
+      toolMaxConcurrentPerCaller: 4,
+      toolMaxConcurrentGlobal: 100,
+      synesisMcpDeps: {
+        plannerBaseUrl: "http://planner.test:8080",
+        internalServiceToken: "svc",
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/mcp/tools/call",
+      headers: { authorization: "Bearer syn-test" },
+      payload: {
+        name: "synesis_search",
+        arguments: { query: "kubernetes" },
+        role_override: "admin",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        type: "unknown_tool_call_field",
+        message: "Tool call body contains an unknown field",
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects non-object Synesis platform tool arguments before dispatch", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ results: [] }), { status: 200 }),

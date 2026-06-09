@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from app.routers.traces import TraceIngestBody
+from app.routers.traces import TraceArchiveRequest, TraceIngestBody
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 
@@ -73,3 +74,49 @@ def test_trace_ingest_rejects_unknown_span_field() -> None:
                 }
             ],
         )
+
+
+def test_trace_archive_request_rejects_invented_trace_service() -> None:
+    with pytest.raises(ValidationError, match="trace_service"):
+        TraceArchiveRequest(trace_ids=["trace-1"], trace_service='planner"\nadmin=true')
+
+
+def test_trace_archive_request_rejects_invalid_trace_id() -> None:
+    with pytest.raises(ValidationError, match="control characters"):
+        TraceArchiveRequest(trace_ids=["trace-1", "bad\ntrace"])
+
+
+@pytest.mark.anyio
+async def test_trace_bulk_delete_rejects_invalid_trace_id_before_db_access() -> None:
+    from app.routers import traces as traces_router
+
+    with pytest.raises(HTTPException) as exc:
+        await traces_router.bulk_delete_traces(trace_ids=["trace-1", "bad\ntrace"])
+
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_trace_session_delete_rejects_oversized_conversation_before_store(monkeypatch) -> None:
+    from app.routers import traces as traces_router
+
+    called = False
+
+    async def _delete(_conversation_id: str) -> int:
+        nonlocal called
+        called = True
+        return 0
+
+    monkeypatch.setattr(traces_router.trace_store, "delete_traces_for_conversation", _delete)
+
+    with pytest.raises(HTTPException) as exc:
+        await traces_router.delete_traces_for_session(conversation_id="c" * 129)
+
+    assert exc.value.status_code == 422
+    assert called is False
+
+
+def test_trace_store_clean_trace_ids_does_not_truncate_to_prefix() -> None:
+    from app.services.trace_store import _clean_trace_ids
+
+    assert _clean_trace_ids(["trace-1", "trace-1" + "x" * 64, "trace-2"]) == ["trace-1", "trace-2"]

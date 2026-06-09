@@ -6,11 +6,12 @@ End-user billing totals should use ``/api/v1/usage/me/summary`` (planner_usage_l
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Literal, Self
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..auth import UserInfo, get_current_user
@@ -24,13 +25,65 @@ logger = logging.getLogger("synesis.admin.traces")
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
 
+TraceServiceFilter = Literal["", "planner", "yarn", "all"]
+_TRACE_SERVICE_VALUES = {"", "planner", "yarn", "all"}
+TraceDecisionPathFilter = Literal["", "deterministic", "constrained", "inference_first", "abstain"]
+_TRACE_DECISION_PATH_VALUES = {"", "deterministic", "constrained", "inference_first", "abstain"}
+
+_TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_TRACE_FILTER_LIMITS = {
+    "user_id": 256,
+    "user_email": 320,
+    "org_id": 256,
+    "task_type": 128,
+    "domain_tag": 128,
+    "conversation_id": 128,
+    "tenant_id": 64,
+}
+
+
+def _bounded_text_filter(value: str, *, field_name: str, max_length: int) -> str:
+    normalized = (value or "").strip()
+    if len(normalized) > max_length:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be at most {max_length} characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
+        raise HTTPException(status_code=422, detail=f"{field_name} must not contain control characters")
+    return normalized
+
+
+def _trace_identifier(value: str, *, field_name: str, max_length: int = 64) -> str:
+    normalized = _bounded_text_filter(value, field_name=field_name, max_length=max_length)
+    if not normalized:
+        raise HTTPException(status_code=422, detail=f"{field_name} is required")
+    if not _TRACE_ID_RE.fullmatch(normalized):
+        raise HTTPException(status_code=422, detail=f"{field_name} contains unsupported characters")
+    return normalized
+
+
+def _validate_trace_filter_params(values: dict[str, str]) -> dict[str, str]:
+    return {
+        field_name: _bounded_text_filter(value, field_name=field_name, max_length=max_length)
+        for field_name, max_length in _TRACE_FILTER_LIMITS.items()
+        for value in [values.get(field_name, "")]
+    }
+
 
 class TraceArchiveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     trace_ids: list[str] = Field(default_factory=list, max_length=500)
     older_than_days: int | None = Field(default=None, ge=1, le=3650)
-    trace_service: str = Field(default="", max_length=32)
+    trace_service: TraceServiceFilter = ""
     dry_run: bool = True
     delete_after_archive: bool = False
+
+    @model_validator(mode="after")
+    def validate_trace_ids(self) -> Self:
+        try:
+            self.trace_ids = [_trace_identifier(trace_id, field_name="trace_ids[]") for trace_id in self.trace_ids]
+        except HTTPException as exc:
+            raise ValueError(str(exc.detail)) from exc
+        return self
 
 
 class TraceTokensBody(BaseModel):
@@ -180,45 +233,60 @@ async def list_traces(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     has_error: bool | None = None,
-    user_id: str = "",
-    user_email: str = "",
-    org_id: str = "",
-    task_type: str = "",
+    user_id: str = Query("", max_length=256),
+    user_email: str = Query("", max_length=320),
+    org_id: str = Query("", max_length=256),
+    task_type: str = Query("", max_length=128),
     min_difficulty: float | None = None,
     max_difficulty: float | None = None,
-    domain_tag: str = "",
-    conversation_id: str = "",
+    domain_tag: str = Query("", max_length=128),
+    conversation_id: str = Query("", max_length=128),
     since: float = 0,
     until: float = 0,
     max_tokens: int | None = None,
     min_hallucinated_urls: int | None = Query(
         None, ge=1, description="Filter traces with at least N hallucinated URLs"
     ),
-    decision_path: str = Query(
+    decision_path: TraceDecisionPathFilter = Query(
         "", description="Filter by decision routing path (deterministic, constrained, inference_first, abstain)"
     ),
-    tenant_id: str = Query("", description="Filter by tenant"),
-    trace_service: str = Query(
+    tenant_id: str = Query("", max_length=64, description="Filter by tenant"),
+    trace_service: TraceServiceFilter = Query(
         "",
         description="Filter by emitter: planner (default all non-yarn), yarn, or all",
     ),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(_user)
+    if decision_path not in _TRACE_DECISION_PATH_VALUES:
+        raise HTTPException(status_code=422, detail="decision_path must be a known routing path")
+    if trace_service not in _TRACE_SERVICE_VALUES:
+        raise HTTPException(status_code=422, detail="trace_service must be a known trace service")
+    filters = _validate_trace_filter_params(
+        {
+            "user_id": user_id,
+            "user_email": user_email,
+            "org_id": org_id,
+            "task_type": task_type,
+            "domain_tag": domain_tag,
+            "conversation_id": conversation_id,
+            "tenant_id": tenant_id,
+        }
+    )
     scope = trace_scope_filters(_user)
-    effective_tenant = tenant_id or scope.get("scope_tenant_id", "")
+    effective_tenant = filters["tenant_id"] or scope.get("scope_tenant_id", "")
     return await trace_store.list_traces(
         offset=offset,
         limit=limit,
         has_error=has_error,
-        user_id=user_id,
-        user_email=user_email,
-        org_id=org_id,
-        conversation_id=conversation_id,
-        task_type=task_type,
+        user_id=filters["user_id"],
+        user_email=filters["user_email"],
+        org_id=filters["org_id"],
+        conversation_id=filters["conversation_id"],
+        task_type=filters["task_type"],
         min_difficulty=min_difficulty,
         max_difficulty=max_difficulty,
-        domain_tag=domain_tag,
+        domain_tag=filters["domain_tag"],
         since=since,
         until=until,
         max_tokens=max_tokens,
@@ -392,12 +460,16 @@ async def ingest_trace(request: Request, body: TraceIngestBody = Body(...)):
 
 
 @router.delete("/{trace_id}")
-async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_platform_admin)):
+async def delete_trace(
+    trace_id: str = Path(..., min_length=1, max_length=64),
+    _user: UserInfo = Depends(require_platform_admin),
+):
     """Delete a single trace by ID."""
     from sqlalchemy import text as sa_text
 
     from ..db.engine import async_session as db_session
 
+    trace_id = _trace_identifier(trace_id, field_name="trace_id")
     async with db_session() as session:
         result = await session.execute(sa_text("DELETE FROM traces WHERE trace_id = :tid"), {"tid": trace_id})
         await session.commit()
@@ -419,6 +491,7 @@ async def bulk_delete_traces(
 
     from ..db.engine import async_session as db_session
 
+    trace_ids = [_trace_identifier(trace_id, field_name="trace_ids[]") for trace_id in trace_ids]
     async with db_session() as session:
         result = await session.execute(
             sa_text("DELETE FROM traces WHERE trace_id = ANY(:ids)"),
@@ -452,12 +525,14 @@ async def archive_traces(
 @router.post("/purge")
 async def purge_traces(
     older_than_days: int = Query(90, ge=1, le=3650),
-    trace_service: str = Query("", max_length=32),
+    trace_service: TraceServiceFilter = Query(""),
     dry_run: bool = Query(True),
     archive_before_delete: bool = Query(False),
     user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete old trace rows, optionally archiving them to object storage first."""
+    if trace_service not in _TRACE_SERVICE_VALUES:
+        raise HTTPException(status_code=422, detail="trace_service must be a known trace service")
     try:
         return await trace_store.purge_traces(
             older_than_days=older_than_days,
@@ -472,10 +547,11 @@ async def purge_traces(
 
 @router.delete("/session/{conversation_id}")
 async def delete_traces_for_session(
-    conversation_id: str,
+    conversation_id: str = Path(..., min_length=1, max_length=128),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete all traces belonging to one conversation/session."""
+    conversation_id = _bounded_text_filter(conversation_id, field_name="conversation_id", max_length=128)
     n = await trace_store.delete_traces_for_conversation(conversation_id)
     return {"deleted": n, "conversation_id": conversation_id}
 
@@ -512,8 +588,12 @@ async def purge_trivial_traces(
 
 
 @router.get("/{trace_id}")
-async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
+async def get_trace(
+    trace_id: str = Path(..., min_length=1, max_length=64),
+    _user: UserInfo = Depends(get_current_user),
+):
     _ensure_org_observability(_user)
+    trace_id = _trace_identifier(trace_id, field_name="trace_id")
     record = await trace_store.get_trace(trace_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Trace not found")
@@ -525,11 +605,12 @@ async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
 
 @router.get("/{trace_id}/chain")
 async def get_trace_chain(
-    trace_id: str,
+    trace_id: str = Path(..., min_length=1, max_length=64),
     limit: int = Query(200, ge=1, le=1000),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(_user)
+    trace_id = _trace_identifier(trace_id, field_name="trace_id")
     data = await trace_store.get_trace_chain(trace_id, limit=limit)
     if data is None:
         raise HTTPException(status_code=404, detail="Trace not found")

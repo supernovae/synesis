@@ -128,9 +128,52 @@ const StreamOptionsSchema = z.object({
   include_usage: z.boolean().optional(),
 }).strict();
 
+function normalizeControlValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+}
+
+const ContextMediationControlSchema = z.string().trim().max(64).transform(normalizeControlValue).pipe(
+  z.enum([
+    "off",
+    "none",
+    "disabled",
+    "disable",
+    "hands_off",
+    "passthrough",
+    "observe",
+    "observer",
+    "diagnostic",
+    "diagnostics",
+    "trace",
+    "report",
+    "safe",
+    "guarded",
+    "conservative",
+    "adapt",
+    "adaptive",
+    "auto",
+    "default",
+    "enabled",
+    "on",
+    "aggressive",
+    "strict",
+    "strong",
+    "enforced",
+    "assertive",
+    "always",
+  ]),
+);
+
+const ArchitectureProfileSourceSchema = z.string().trim().max(64)
+  .transform((value) => {
+    const normalized = normalizeControlValue(value);
+    return normalized === "model_registry" ? "model-registry" : normalized;
+  })
+  .pipe(z.enum(["raw", "none", "passthrough", "auto", "infer", "inferred", "model-registry"]));
+
 const SynesisPlannerMetadataSchema = z.object({
-  contextMediation: z.string().max(64).optional(),
-  architectureProfile: z.string().max(64).optional(),
+  contextMediation: ContextMediationControlSchema.optional(),
+  architectureProfile: ArchitectureProfileSourceSchema.optional(),
 }).strict();
 
 export const RequestMetadataSchema = z.object({
@@ -145,10 +188,10 @@ export const RequestMetadataSchema = z.object({
   request_id: z.string().max(256).optional(),
   user_id: z.string().max(256).optional(),
   synesis: SynesisPlannerMetadataSchema.optional(),
-  synesis_context_mediation: z.string().max(64).optional(),
-  synesis_architecture_mediation: z.string().max(64).optional(),
-  architecture_mediation: z.string().max(64).optional(),
-  synesis_architecture_profile: z.string().max(64).optional(),
+  synesis_context_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_mediation: ContextMediationControlSchema.optional(),
+  architecture_mediation: ContextMediationControlSchema.optional(),
+  synesis_architecture_profile: ArchitectureProfileSourceSchema.optional(),
 }).strict();
 
 const ToolChoiceObjectSchema = z.object({
@@ -181,46 +224,72 @@ const AudioSchema = z.object({
   format: z.string().trim().min(1).max(32),
 }).strict();
 
-const StringOrStringArraySchema = z.union([z.string(), z.array(z.string())]);
-
 const MAX_MESSAGES = 512;
 const MAX_TOOLS = 128;
+const MAX_MODEL_CHARS = 256;
+const MAX_STOP_SEQUENCES = 16;
+const MAX_STOP_SEQUENCE_CHARS = 4096;
+const MAX_OUTPUT_TOKENS = 2_000_000;
+const MAX_LOGIT_BIAS_KEYS = 2048;
+const ProviderIdentifierSchema = z.string().max(256);
+const ReasoningEffortSchema = z.enum(["low", "medium", "high"]);
+const ServiceTierSchema = z.enum(["auto", "flex", "priority", "default"]);
+const TemperatureSchema = z.number().min(0).max(2);
+const ProbabilitySchema = z.number().min(0).max(1);
+const PenaltySchema = z.number().min(-2).max(2);
+const RepetitionPenaltySchema = z.number().min(0).max(10);
+const TopKSchema = z.number().int().min(0).max(1_000_000);
+const OutputTokenLimitSchema = z.number().int().min(1).max(MAX_OUTPUT_TOKENS);
+const StopSchema = z.union([
+  z.string().max(MAX_STOP_SEQUENCE_CHARS),
+  z.array(z.string().max(MAX_STOP_SEQUENCE_CHARS)).max(MAX_STOP_SEQUENCES),
+]);
+const LogitBiasSchema = z.record(z.string().min(1).max(128), z.number().min(-100).max(100))
+  .superRefine((value, ctx) => {
+    if (Object.keys(value).length > MAX_LOGIT_BIAS_KEYS) {
+      ctx.addIssue({
+        code: "custom",
+        message: `logit_bias exceeds ${MAX_LOGIT_BIAS_KEYS} entries`,
+      });
+    }
+  });
+const ModalitiesSchema = z.array(z.enum(["text", "audio"])).max(2);
 
 export const ChatCompletionRequestSchema = z.object({
-  model: z.string().default("Synesis"),
+  model: z.string().max(MAX_MODEL_CHARS).default("Synesis"),
   messages: z.array(MessageSchema).min(1).max(MAX_MESSAGES),
   stream: z.boolean().optional().default(false),
   stream_options: StreamOptionsSchema.optional(),
-  max_tokens: z.number().int().optional(),
-  max_completion_tokens: z.number().int().optional(),
-  temperature: z.number().optional(),
-  top_p: z.number().optional(),
-  top_k: z.number().int().optional(),
-  min_p: z.number().optional(),
-  presence_penalty: z.number().optional(),
-  frequency_penalty: z.number().optional(),
-  repetition_penalty: z.number().optional(),
-  reasoning_effort: z.string().optional(),
+  max_tokens: OutputTokenLimitSchema.optional(),
+  max_completion_tokens: OutputTokenLimitSchema.optional(),
+  temperature: TemperatureSchema.optional(),
+  top_p: ProbabilitySchema.optional(),
+  top_k: TopKSchema.optional(),
+  min_p: ProbabilitySchema.optional(),
+  presence_penalty: PenaltySchema.optional(),
+  frequency_penalty: PenaltySchema.optional(),
+  repetition_penalty: RepetitionPenaltySchema.optional(),
+  reasoning_effort: ReasoningEffortSchema.optional(),
   enable_thinking: z.boolean().optional(),
-  stop: StringOrStringArraySchema.optional(),
+  stop: StopSchema.optional(),
   seed: z.number().int().optional(),
-  logit_bias: z.record(z.string(), z.number()).optional(),
+  logit_bias: LogitBiasSchema.optional(),
   logprobs: z.boolean().optional(),
-  top_logprobs: z.number().int().optional(),
-  n: z.number().int().optional(),
+  top_logprobs: z.number().int().min(0).max(20).optional(),
+  n: z.number().int().min(1).max(128).optional(),
   tools: z.array(ToolDefinitionSchema).max(MAX_TOOLS).optional(),
   tool_choice: ToolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
   response_format: ResponseFormatSchema.optional(),
   extra_body: ProviderExtraBodySchema.optional(),
-  user: z.string().optional().nullable(),
-  conversation_id: z.string().optional().nullable(),
+  user: ProviderIdentifierSchema.optional().nullable(),
+  conversation_id: ProviderIdentifierSchema.optional().nullable(),
   metadata: RequestMetadataSchema.optional(),
   store: z.boolean().optional(),
-  modalities: z.array(z.string()).optional(),
+  modalities: ModalitiesSchema.optional(),
   prediction: PredictionSchema.optional(),
   audio: AudioSchema.optional(),
-  service_tier: z.string().optional(),
+  service_tier: ServiceTierSchema.optional(),
 }).strict();
 
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;

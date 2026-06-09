@@ -7,6 +7,7 @@ writes traces via direct Postgres inserts.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -20,6 +21,30 @@ from .archive_store import write_jsonl_archive
 logger = logging.getLogger("synesis.admin.trace_store")
 
 _TRACE_ARCHIVE_MAX = 10000
+_TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def _clean_trace_ids(trace_ids: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in trace_ids or []:
+        trace_id = (raw or "").strip()
+        if not _TRACE_ID_RE.fullmatch(trace_id) or trace_id in seen:
+            continue
+        cleaned.append(trace_id)
+        seen.add(trace_id)
+        if len(cleaned) >= 500:
+            break
+    return cleaned
+
+
+def _clean_conversation_id(conversation_id: str) -> str:
+    cleaned = (conversation_id or "").strip()
+    if not cleaned or len(cleaned) > 128:
+        return ""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in cleaned):
+        return ""
+    return cleaned
 
 
 def _trace_service_filter(service: str):
@@ -215,7 +240,7 @@ def _trace_archive_query(
     older_than_days: int | None = None,
     trace_service: str = "",
 ):
-    cleaned_ids = [tid.strip()[:64] for tid in (trace_ids or []) if tid.strip()]
+    cleaned_ids = _clean_trace_ids(trace_ids)
     q = select(Trace)
     if cleaned_ids:
         q = q.where(Trace.trace_id.in_(list(dict.fromkeys(cleaned_ids))[:500]))
@@ -335,7 +360,7 @@ async def purge_traces(
 
 
 async def delete_traces_by_ids(trace_ids: list[str]) -> int:
-    cleaned_ids = [tid.strip()[:64] for tid in dict.fromkeys(trace_ids) if tid.strip()]
+    cleaned_ids = _clean_trace_ids(trace_ids)
     if not cleaned_ids:
         return 0
     async with async_session() as session:
@@ -677,11 +702,12 @@ async def delete_traces_for_conversation(conversation_id: str) -> int:
     """Delete all traces for a chat session (admin purge)."""
     from sqlalchemy import delete
 
-    if not (conversation_id or "").strip():
+    cleaned_id = _clean_conversation_id(conversation_id)
+    if not cleaned_id:
         return 0
     async with async_session() as session:
         try:
-            r = await session.execute(delete(Trace).where(Trace.conversation_id == conversation_id.strip()[:128]))
+            r = await session.execute(delete(Trace).where(Trace.conversation_id == cleaned_id))
             await session.commit()
             return r.rowcount or 0
         except Exception:

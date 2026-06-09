@@ -6,7 +6,7 @@ import {
   type LlmRoute,
   type PublicPlannerOffering,
 } from "./public-model-catalog.js";
-import { normalizeProviderExtraBody } from "./llm/extra-body.js";
+import { normalizeGenerationParamsFromRecord } from "./llm/generation-params.js";
 import type { GenerationParams } from "./state/types.js";
 
 export type ModelTier = "auto" | "pulse" | "core" | "horizon";
@@ -97,59 +97,7 @@ function writerRoleFromOffering(o: PublicPlannerOffering): string {
 function generationParamsFromOffering(o: PublicPlannerOffering): GenerationParams | undefined {
   const raw = o.generation_params;
   if (!raw || typeof raw !== "object") return undefined;
-  const params = raw as Record<string, unknown>;
-  const out: GenerationParams = {};
-  const numberParam = (key: keyof GenerationParams): number | undefined => {
-    const value = params[key];
-    const num = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : undefined;
-    return num != null && Number.isFinite(num) ? num : undefined;
-  };
-  const maxTokens = numberParam("max_tokens");
-  if (maxTokens != null && maxTokens > 0) out.max_tokens = Math.trunc(maxTokens);
-  const temperature = numberParam("temperature");
-  if (temperature != null && temperature >= 0) out.temperature = temperature;
-  const topP = numberParam("top_p");
-  if (topP != null && topP >= 0 && topP <= 1) out.top_p = topP;
-  const topK = numberParam("top_k");
-  if (topK != null && topK >= 0) out.top_k = Math.trunc(topK);
-  const minP = numberParam("min_p");
-  if (minP != null && minP >= 0 && minP <= 1) out.min_p = minP;
-  const presencePenalty = numberParam("presence_penalty");
-  if (presencePenalty != null) out.presence_penalty = presencePenalty;
-  const frequencyPenalty = numberParam("frequency_penalty");
-  if (frequencyPenalty != null) out.frequency_penalty = frequencyPenalty;
-  const repetitionPenalty = numberParam("repetition_penalty");
-  if (repetitionPenalty != null && repetitionPenalty >= 0) out.repetition_penalty = repetitionPenalty;
-  if (typeof params.enable_thinking === "boolean") out.enable_thinking = params.enable_thinking;
-  if (typeof params.reasoning_effort === "string" && params.reasoning_effort.trim()) {
-    out.reasoning_effort = params.reasoning_effort.trim();
-  }
-  if (typeof params.stop === "string" || Array.isArray(params.stop)) out.stop = params.stop as string | string[];
-  const seed = numberParam("seed");
-  if (seed != null) out.seed = Math.trunc(seed);
-  if (typeof params.logprobs === "boolean") out.logprobs = params.logprobs;
-  const topLogprobs = numberParam("top_logprobs");
-  if (topLogprobs != null && topLogprobs >= 0) out.top_logprobs = Math.trunc(topLogprobs);
-  const n = numberParam("n");
-  if (n != null && n > 0) out.n = Math.trunc(n);
-  if (params.logit_bias && typeof params.logit_bias === "object" && !Array.isArray(params.logit_bias)) {
-    out.logit_bias = params.logit_bias as Record<string, number>;
-  }
-  if (Array.isArray(params.tools)) out.tools = params.tools;
-  if (
-    params.tool_choice === "none"
-    || params.tool_choice === "auto"
-    || params.tool_choice === "required"
-    || (params.tool_choice && typeof params.tool_choice === "object" && !Array.isArray(params.tool_choice))
-  ) {
-    out.tool_choice = params.tool_choice as GenerationParams["tool_choice"];
-  }
-  if (typeof params.parallel_tool_calls === "boolean") out.parallel_tool_calls = params.parallel_tool_calls;
-  const extraBody = normalizeProviderExtraBody(params.extra_body);
-  if (extraBody) {
-    out.extra_body = extraBody;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return normalizeGenerationParamsFromRecord(raw) as GenerationParams | undefined;
 }
 
 function modelCapabilityPresetFromOffering(o: PublicPlannerOffering): string | undefined {
