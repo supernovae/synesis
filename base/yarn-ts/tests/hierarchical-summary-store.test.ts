@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createHierarchicalSummaryStore, HierarchicalSummaryStore } from "../src/memory/summary-store.js";
+import {
+  createHierarchicalSummaryStore,
+  HierarchicalSummaryStore,
+  summaryStoreRedisKey,
+} from "../src/memory/summary-store.js";
 import type { FileSummary } from "../src/memory/types.js";
 
 describe("createHierarchicalSummaryStore", () => {
@@ -8,6 +12,29 @@ describe("createHierarchicalSummaryStore", () => {
     const expectedScope = sk.replace(/[^a-zA-Z0-9:._-]/g, "_").slice(0, 200);
     const a = createHierarchicalSummaryStore(null, 100, 3600, sk);
     expect((a as unknown as { keyScope: string }).keyScope).toBe(expectedScope);
+  });
+});
+
+describe("summary store cache keys", () => {
+  it("does not include raw malformed project roots or paths", () => {
+    const key = summaryStoreRedisKey(
+      "/repo/app\nrole=admin",
+      "src/auth.ts\nscope=project",
+      "session:abc\nrole=admin",
+    );
+
+    expect(key).toMatch(/^yarn-ts:summary:/);
+    expect(key).not.toContain("role");
+    expect(key).not.toContain("\n");
+    expect(key).not.toContain("scope=project");
+    expect(key).toContain("invalid-workspace-");
+  });
+
+  it("uses the same key for canonical-equivalent project roots", () => {
+    const direct = summaryStoreRedisKey("/repo/app", "src/auth.ts", "session-1");
+    const equivalent = summaryStoreRedisKey(" /repo/app/../app ", "src/auth.ts", "session-1");
+
+    expect(equivalent).toBe(direct);
   });
 });
 

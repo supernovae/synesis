@@ -13,6 +13,7 @@
 import type { Redis } from "ioredis";
 import type { FileSummary, SummaryLevel, SummaryStoreStats } from "./types.js";
 import { detectLanguage } from "./extractors.js";
+import { canonicalMemoryProjectRoot, safeMemoryCachePart } from "./cache-identity.js";
 
 const REDIS_PREFIX = "yarn-ts:summary:";
 const DEFAULT_TTL_S = 14_400;
@@ -281,6 +282,7 @@ export class HierarchicalSummaryStore {
     projectRoot: string,
     dirPaths: string[],
   ): Promise<FileSummary> {
+    const safeProjectRoot = canonicalMemoryProjectRoot(projectRoot);
     const dirs: FileSummary[] = [];
     for (const d of dirPaths) {
       const s = await this.getDirSummary(d, projectRoot);
@@ -290,10 +292,10 @@ export class HierarchicalSummaryStore {
     const totalFiles = dirs.reduce((n, d) => n + d.symbolCount, 0);
     const totalLines = dirs.reduce((n, d) => n + d.lineCount, 0);
     const languages = [...new Set(dirs.map((d) => d.language))];
-    const summaryText = `${projectRoot} (${dirs.length} dirs, ${totalFiles} symbols, ${totalLines}L). Languages: ${languages.join(", ")}. Directories: ${dirs.map((d) => d.path).slice(0, 10).join(", ")}`;
+    const summaryText = `${safeProjectRoot} (${dirs.length} dirs, ${totalFiles} symbols, ${totalLines}L). Languages: ${languages.join(", ")}. Directories: ${dirs.map((d) => d.path).slice(0, 10).join(", ")}`;
 
     const summary: FileSummary = {
-      path: projectRoot,
+      path: safeProjectRoot,
       level: "project",
       summary: summaryText,
       contentHash: fastHash(dirs.map((d) => d.contentHash).join(":")),
@@ -391,11 +393,15 @@ export class HierarchicalSummaryStore {
   }
 
   private key(path: string, projectRoot: string): string {
-    const scope = this.keyScope ? `${this.keyScope}:` : "";
-    const safeRoot = projectRoot.replace(/:/g, "_");
-    const safePath = path.replace(/:/g, "_");
-    return `${REDIS_PREFIX}${scope}${safeRoot}:${safePath}`;
+    return summaryStoreRedisKey(projectRoot, path, this.keyScope);
   }
+}
+
+export function summaryStoreRedisKey(projectRoot: string, path: string, keyScope = ""): string {
+  const scope = keyScope ? `${safeMemoryCachePart(keyScope, "scope")}:` : "";
+  const safeRoot = safeMemoryCachePart(canonicalMemoryProjectRoot(projectRoot), "workspace");
+  const safePath = safeMemoryCachePart(path, "path", 240);
+  return `${REDIS_PREFIX}${scope}${safeRoot}:${safePath}`;
 }
 
 /** Create a store scoped to a single session (avoids key collisions across users/conversations). */

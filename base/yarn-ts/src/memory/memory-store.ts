@@ -11,10 +11,9 @@
  * is unavailable, the in-memory layer provides graceful degradation.
  */
 
-import { createHash } from "node:crypto";
 import type { Redis } from "ioredis";
 import type { MemoryScope, MemoryStoreStats, StoredObservation } from "./types.js";
-import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
+import { canonicalMemoryNamespace, canonicalMemoryProjectRoot, safeMemoryCachePart } from "./cache-identity.js";
 
 const REDIS_PREFIX = "yarn-ts:memory:";
 const DEFAULT_TTL_S = 14_400;
@@ -23,25 +22,6 @@ let idCounter = 0;
 function generateId(): string {
   idCounter += 1;
   return `obs_${Date.now().toString(36)}_${idCounter.toString(36)}`;
-}
-
-function hashKeyPart(label: string, value: string, chars = 32): string {
-  return `${label}-${createHash("sha256").update(value).digest("hex").slice(0, chars)}`;
-}
-
-function canonicalProjectRoot(projectRoot: string): string {
-  const normalized = normalizeAbsolutePathHint(projectRoot);
-  if (normalized) return normalized;
-  const raw = projectRoot.replace(/\0/g, "").trim();
-  if (raw === "no-workspace" || /^invalid-workspace-[a-f0-9]{32}$/.test(raw)) return raw;
-  return raw ? hashKeyPart("invalid-workspace", raw) : "no-workspace";
-}
-
-function canonicalNamespace(namespace: string | undefined): string | undefined {
-  const raw = namespace?.replace(/\0/g, "").trim();
-  if (!raw) return undefined;
-  if (raw.length <= 160 && /^[A-Za-z0-9_.:@-]+$/.test(raw)) return raw;
-  return hashKeyPart("namespace", raw);
 }
 
 export class MemoryStore {
@@ -71,8 +51,8 @@ export class MemoryStore {
     projectRoot: string,
     options: { namespace?: string } = {},
   ): Promise<StoredObservation> {
-    const safeProjectRoot = canonicalProjectRoot(projectRoot);
-    const safeNamespace = canonicalNamespace(options.namespace);
+    const safeProjectRoot = canonicalMemoryProjectRoot(projectRoot);
+    const safeNamespace = canonicalMemoryNamespace(options.namespace);
     const obs: StoredObservation = {
       id: generateId(),
       topic: topic.trim(),
@@ -120,9 +100,19 @@ export class MemoryStore {
     let allObs: StoredObservation[];
 
     if (this.redis) {
-      allObs = await this.recallFromRedis(scope, sessionKey, canonicalProjectRoot(projectRoot), canonicalNamespace(options.namespace));
+      allObs = await this.recallFromRedis(
+        scope,
+        sessionKey,
+        canonicalMemoryProjectRoot(projectRoot),
+        canonicalMemoryNamespace(options.namespace),
+      );
     } else {
-      allObs = this.recallFromLocal(scope, sessionKey, canonicalProjectRoot(projectRoot), canonicalNamespace(options.namespace));
+      allObs = this.recallFromLocal(
+        scope,
+        sessionKey,
+        canonicalMemoryProjectRoot(projectRoot),
+        canonicalMemoryNamespace(options.namespace),
+      );
     }
 
     if (!query.trim()) {
@@ -142,7 +132,7 @@ export class MemoryStore {
     limit = 50,
     options: { namespace?: string } = {},
   ): Promise<StoredObservation[]> {
-    const safeNamespace = canonicalNamespace(options.namespace);
+    const safeNamespace = canonicalMemoryNamespace(options.namespace);
     const effectiveScopeKey = scope === "project"
       ? this.scopedProjectKey(scopeKey, safeNamespace)
       : scopeKey;
@@ -176,7 +166,12 @@ export class MemoryStore {
 
   /** Clear project-scoped entries (local + Redis). For testing. */
   async clearProject(projectRoot: string, options: { namespace?: string } = {}): Promise<void> {
-    const scopeKey = this.scopeKey("project", "", canonicalProjectRoot(projectRoot), canonicalNamespace(options.namespace));
+    const scopeKey = this.scopeKey(
+      "project",
+      "",
+      canonicalMemoryProjectRoot(projectRoot),
+      canonicalMemoryNamespace(options.namespace),
+    );
     this.localCache.delete(this.cacheKey("project", scopeKey));
     if (this.redis) {
       try {
@@ -271,7 +266,7 @@ export class MemoryStore {
 
   private scopedProjectKey(projectRoot: string, namespace?: string): string {
     const ns = namespace?.trim() ? namespace.trim() : "global";
-    return `${ns}:${canonicalProjectRoot(projectRoot)}`;
+    return `${ns}:${canonicalMemoryProjectRoot(projectRoot)}`;
   }
 
   private listKey(scope: MemoryScope, scopeKey: string): string {
@@ -283,9 +278,6 @@ export class MemoryStore {
   }
 
   private safeScopeKey(scopeKey: string): string {
-    const trimmed = scopeKey.replace(/\0/g, "").trim() || "unknown";
-    const encoded = encodeURIComponent(trimmed);
-    if (encoded.length <= 180) return encoded;
-    return `sha256-${createHash("sha256").update(trimmed).digest("hex")}`;
+    return safeMemoryCachePart(scopeKey, "unknown");
   }
 }

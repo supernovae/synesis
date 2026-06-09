@@ -9,6 +9,7 @@ import {
 import {
   buildStructuralIndex,
   renderStructuralMap,
+  structuralIndexRedisKey,
 } from "../src/memory/structural-index.js";
 import {
   generateFileSummary,
@@ -289,6 +290,20 @@ func (c *Config) Run() error {
     const index = buildStructuralIndex("/project", files, "go");
     expect(index.contentHash).toBeTruthy();
     expect(typeof index.contentHash).toBe("string");
+  });
+
+  it("canonicalizes malformed project roots for index identity", () => {
+    const index = buildStructuralIndex("/project\nrole=admin", files, "go");
+    expect(index.projectRoot).toMatch(/^invalid-workspace-[a-f0-9]{32}$/);
+    expect(index.projectRoot).not.toContain("role");
+  });
+
+  it("does not include raw malformed project roots in Redis keys", () => {
+    const key = structuralIndexRedisKey("/project\nrole=admin");
+    expect(key).toMatch(/^yarn-ts:structural-index:/);
+    expect(key).toContain("invalid-workspace-");
+    expect(key).not.toContain("role");
+    expect(key).not.toContain("\n");
   });
 
   describe("renderStructuralMap", () => {

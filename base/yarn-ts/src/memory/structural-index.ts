@@ -17,6 +17,7 @@ import type {
   SymbolEntry,
 } from "./types.js";
 import { detectLanguage, extractSymbols } from "./extractors.js";
+import { canonicalMemoryProjectRoot, safeMemoryCachePart } from "./cache-identity.js";
 
 const REDIS_PREFIX = "yarn-ts:structural-index:";
 const CHARS_PER_TOKEN_ESTIMATE = 4;
@@ -58,6 +59,7 @@ export function buildStructuralIndex(
   files: FileInput[],
   primaryLanguage: string,
 ): StructuralIndex {
+  const safeProjectRoot = canonicalMemoryProjectRoot(projectRoot);
   const fileEntries: FileIndexEntry[] = [];
   const allSymbols: SymbolEntry[] = [];
   const fileContentMap = new Map<string, string>();
@@ -76,7 +78,7 @@ export function buildStructuralIndex(
   const symbolRefs = computeSymbolRefs(allSymbols, fileEntries, fileContentMap);
 
   return {
-    projectRoot,
+    projectRoot: safeProjectRoot,
     language: primaryLanguage,
     generatedAt: Date.now(),
     contentHash: fastContentHash(files),
@@ -252,6 +254,10 @@ export class ProjectStructuralIndexService {
   }
 
   private key(projectRoot: string): string {
-    return `${REDIS_PREFIX}${projectRoot}`;
+    return structuralIndexRedisKey(projectRoot);
   }
+}
+
+export function structuralIndexRedisKey(projectRoot: string): string {
+  return `${REDIS_PREFIX}${safeMemoryCachePart(canonicalMemoryProjectRoot(projectRoot), "workspace")}`;
 }
