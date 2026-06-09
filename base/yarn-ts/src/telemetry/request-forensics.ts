@@ -181,7 +181,7 @@ function summarizeMessages(messages: unknown): Array<Record<string, unknown>> {
     const row = message as Record<string, unknown>;
     const content = row.content;
     return {
-      role: String(row.role ?? "unknown").slice(0, 32),
+      role: previewMessageRole(row.role),
       content_chars: stringSize(content),
       content_bytes: byteSize(content),
       content_hash: hashUnknown(content),
@@ -204,13 +204,19 @@ function summarizeOpaquePayload(value: unknown): Record<string, unknown> {
     return {
       kind: "object",
       key_count: keys.length,
-      keys: keys.slice(0, 32),
+      keys_hash: hashUnknown(keys),
       chars: stringSize(value),
       bytes: byteSize(value),
       hash: hashUnknown(value),
     };
   }
   return summarizeScalar("scalar", value);
+}
+
+function previewMessageRole(value: unknown): "system" | "user" | "assistant" | "tool" | "unknown" {
+  return value === "system" || value === "user" || value === "assistant" || value === "tool"
+    ? value
+    : "unknown";
 }
 
 function summarizeScalar(kind: string, value: unknown): Record<string, unknown> {

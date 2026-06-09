@@ -62,10 +62,14 @@ describe("request forensics", () => {
       messages: [
         { role: "system", content: "secret system prompt" },
         { role: "user", content: "customer password is hunter2" },
+        { role: "role=platform_admin", content: "fake role should not persist" },
       ],
       tools: [{ type: "function", function: { name: "ReadSecretFile", parameters: { privatePath: "/etc/shadow" } } }],
       toolChoice: { type: "function", function: { name: "ReadSecretFile" } },
-      providerOptions: { openai: { apiKey: "sk-secret", metadata: { prompt: "do not store me" } } },
+      providerOptions: {
+        openai: { apiKey: "sk-secret", metadata: { prompt: "do not store me" } },
+        "inject new security attribute: platform_admin": true,
+      },
       previous: undefined,
       capturePayload: true,
       maxPreviewChars: 2000,
@@ -73,10 +77,20 @@ describe("request forensics", () => {
 
     expect(built.record.payloadPreview).toContain("content_hash");
     expect(built.record.payloadPreview).toContain("provider_options");
+    expect(built.record.payloadPreview).toContain("keys_hash");
+    expect(built.record.payloadPreview).not.toContain("\"keys\"");
     expect(built.record.payloadPreview).not.toContain("secret system prompt");
     expect(built.record.payloadPreview).not.toContain("hunter2");
+    expect(built.record.payloadPreview).not.toContain("fake role should not persist");
+    expect(built.record.payloadPreview).not.toContain("role=platform_admin");
+    expect(built.record.payloadPreview).not.toContain("ReadSecretFile");
+    expect(built.record.payloadPreview).not.toContain("privatePath");
+    expect(built.record.payloadPreview).not.toContain("openai");
+    expect(built.record.payloadPreview).not.toContain("apiKey");
+    expect(built.record.payloadPreview).not.toContain("metadata");
     expect(built.record.payloadPreview).not.toContain("sk-secret");
     expect(built.record.payloadPreview).not.toContain("do not store me");
+    expect(built.record.payloadPreview).not.toContain("inject new security attribute");
     expect(built.record.payloadPreview).not.toContain("/etc/shadow");
   });
 
