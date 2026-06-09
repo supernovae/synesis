@@ -43,7 +43,7 @@ describe("createRequestForensicsRecorder", () => {
     const enqueueSessionEvent = vi.fn<(event: SessionEventInsert) => void>();
     const recorder = createRequestForensicsRecorder({
       mode: "full",
-      maxPreviewChars: 32,
+      maxPreviewChars: 256,
       usageWriter: { enqueueSessionEvent } as never,
     });
 
@@ -80,7 +80,7 @@ describe("createRequestForensicsRecorder", () => {
 
     expect(firstRecord?.usage?.cacheHitRatio).toBe(0.8);
     expect(second?.record.previousRequestId).toBe("req-1");
-    expect(second?.record.payloadPreview?.length).toBeLessThanOrEqual(32);
+    expect(second?.record.payloadPreview?.length).toBeLessThanOrEqual(256);
     expect(enqueueSessionEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionKey: "session-1",
@@ -91,5 +91,8 @@ describe("createRequestForensicsRecorder", () => {
         component: "yarn",
       }),
     );
+    const persisted = enqueueSessionEvent.mock.calls[0]?.[0].metadataJson as { payloadPreview?: string };
+    expect(persisted.payloadPreview).toContain("content_hash");
+    expect(persisted.payloadPreview).not.toContain("hello");
   });
 });

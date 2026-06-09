@@ -48,7 +48,36 @@ describe("request forensics", () => {
     expect(second.record.lcpRatio).toBeGreaterThan(0);
     expect(second.record.firstChangedSection).toBe("user");
     expect(second.record.payloadPreview?.length).toBeLessThanOrEqual(100);
+    expect(second.record.payloadPreview).not.toContain("build project");
+    expect(second.record.payloadPreview).not.toContain("parallel_tool_calls");
     expect(first.record.phasePolicy?.effectiveToolChoice).toBe("required");
+  });
+
+  it("redacts full-mode payload previews to structural hashes and counts", () => {
+    const built = buildRequestForensics({
+      providerModel: "synesis-core",
+      path: "/v1/chat/completions",
+      requestId: "r-redacted",
+      stream: false,
+      messages: [
+        { role: "system", content: "secret system prompt" },
+        { role: "user", content: "customer password is hunter2" },
+      ],
+      tools: [{ type: "function", function: { name: "ReadSecretFile", parameters: { privatePath: "/etc/shadow" } } }],
+      toolChoice: { type: "function", function: { name: "ReadSecretFile" } },
+      providerOptions: { openai: { apiKey: "sk-secret", metadata: { prompt: "do not store me" } } },
+      previous: undefined,
+      capturePayload: true,
+      maxPreviewChars: 2000,
+    });
+
+    expect(built.record.payloadPreview).toContain("content_hash");
+    expect(built.record.payloadPreview).toContain("provider_options");
+    expect(built.record.payloadPreview).not.toContain("secret system prompt");
+    expect(built.record.payloadPreview).not.toContain("hunter2");
+    expect(built.record.payloadPreview).not.toContain("sk-secret");
+    expect(built.record.payloadPreview).not.toContain("do not store me");
+    expect(built.record.payloadPreview).not.toContain("/etc/shadow");
   });
 
   it("attaches usage metrics and updates summary", () => {
@@ -83,4 +112,3 @@ describe("request forensics", () => {
     expect(withMetrics.summary).toContain("reduced_tokens=120");
   });
 });
-

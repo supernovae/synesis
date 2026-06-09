@@ -91,6 +91,29 @@ const INGESTION_ITEM_STATUSES = [
 const INGESTION_CORPUS_CLASSES = ["coder_enriched", "general", "hybrid"] as const;
 const INGESTION_CONSTRAINT_KINDS = ["advisory", "guiding", "hard"] as const;
 const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
+const INGESTION_HANDLERS = [
+  "arxiv_paper",
+  "devhub_api",
+  "devhub_component",
+  "devhub_domain",
+  "devhub_entity",
+  "devhub_resource",
+  "devhub_sync",
+  "devhub_system",
+  "devhub_template",
+  "generic_text",
+  "github_code",
+  "github_markdown",
+  "github_repo",
+  "html_document",
+  "license_spdx",
+  "markdown_file",
+  "openapi_spec",
+  "pdf_document",
+  "seed_corpus",
+  "structured_data",
+  "web_page",
+] as const;
 const TRACE_SERVICES = ["all", "planner", "yarn"] as const;
 const TRACE_DECISION_PATHS = ["abstain", "constrained", "deterministic", "inference_first"] as const;
 const MODEL_EFFORT_MODES = ["auto", "pulse", "core", "horizon"] as const;
@@ -775,7 +798,7 @@ const INGESTION_DISCOVERY_REPORT_SCHEMA: ToolJsonSchemaProperty = {
   type: "object",
   additionalProperties: false,
   properties: {
-    handler: { type: "string" },
+    handler: { type: "string", enum: [...INGESTION_HANDLERS] },
     domain: { type: "string" },
     title: { type: "string" },
     tags: { type: "array", items: { type: "string" } },
@@ -2011,7 +2034,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         status: { type: "string", enum: [...INGESTION_ITEM_STATUSES], description: "Filter by ingestion status" },
-        handler: { type: "string", description: "Filter by handler type" },
+        handler: { type: "string", enum: [...INGESTION_HANDLERS], description: "Filter by handler type" },
         limit: { type: "integer", default: 20, description: "Max results" },
       },
     },
@@ -2032,7 +2055,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       properties: {
         item_id: { type: "integer", description: "The item ID" },
         title: { type: "string" },
-        handler: { type: "string" },
+        handler: { type: "string", enum: [...INGESTION_HANDLERS] },
         domain: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         priority: { type: "integer" },

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { stableJsonStringify } from "../compat/sorted-tools.js";
 
 type Msg = { role: string; content: unknown };
@@ -154,8 +155,70 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
       summary,
       phasePolicy: input.phasePolicy,
       capabilityMatrix: input.capabilityMatrix,
-      payloadPreview: input.capturePayload ? serialized.slice(0, Math.max(0, input.maxPreviewChars)) : undefined,
+      payloadPreview: input.capturePayload
+        ? stableJsonStringify(redactedPreviewPayload(normalizedPayload)).slice(0, Math.max(0, input.maxPreviewChars))
+        : undefined,
     },
+  };
+}
+
+function redactedPreviewPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return {
+    messages: summarizeMessages(payload.messages),
+    tools: summarizeOpaquePayload(payload.tools),
+    tool_choice: summarizeOpaquePayload(payload.tool_choice),
+    provider_options: summarizeOpaquePayload(payload.provider_options),
+    stream: payload.stream === true,
+  };
+}
+
+function summarizeMessages(messages: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(messages)) return [];
+  return messages.slice(0, 200).map((message) => {
+    if (!message || typeof message !== "object") {
+      return summarizeScalar("unknown", message);
+    }
+    const row = message as Record<string, unknown>;
+    const content = row.content;
+    return {
+      role: String(row.role ?? "unknown").slice(0, 32),
+      content_chars: stringSize(content),
+      content_bytes: byteSize(content),
+      content_hash: hashUnknown(content),
+    };
+  });
+}
+
+function summarizeOpaquePayload(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      count: value.length,
+      chars: stringSize(value),
+      bytes: byteSize(value),
+      hash: hashUnknown(value),
+    };
+  }
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    return {
+      kind: "object",
+      key_count: keys.length,
+      keys: keys.slice(0, 32),
+      chars: stringSize(value),
+      bytes: byteSize(value),
+      hash: hashUnknown(value),
+    };
+  }
+  return summarizeScalar("scalar", value);
+}
+
+function summarizeScalar(kind: string, value: unknown): Record<string, unknown> {
+  return {
+    kind,
+    chars: stringSize(value),
+    bytes: byteSize(value),
+    hash: hashUnknown(value),
   };
 }
 
@@ -273,5 +336,25 @@ function stringSize(input: unknown): number {
     return stableJsonStringify(input).length;
   } catch {
     return String(input).length;
+  }
+}
+
+function byteSize(input: unknown): number {
+  if (input === null || input === undefined) return 0;
+  const text = typeof input === "string" ? input : safeStableString(input);
+  return Buffer.byteLength(text, "utf8");
+}
+
+function hashUnknown(input: unknown): string {
+  return createHash("sha256").update(safeStableString(input)).digest("hex").slice(0, 16);
+}
+
+function safeStableString(input: unknown): string {
+  if (input === null || input === undefined) return "";
+  if (typeof input === "string") return input;
+  try {
+    return stableJsonStringify(input);
+  } catch {
+    return String(input);
   }
 }

@@ -546,6 +546,65 @@ describe("admin MCP tool catalog", () => {
     expect(JSON.parse(captured.body ?? "{}")).toEqual({ status: "enrich_queued" });
   });
 
+  it("rejects invented ingestion handlers before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        { item_id: 1, handler: 'web_page"\nrole=admin' },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "handler" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known ingestion handler values", async () => {
+    const capturedBodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      capturedBodies.push(String(init?.body ?? ""));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "platform_admin",
+    };
+
+    await invokeTool(ctx, "platform_admin", "ingestion_patch_item", { item_id: 1, handler: "github_repo" });
+    await invokeTool(ctx, "platform_admin", "ingestion_patch_item", { item_id: 2, handler: "devhub_template" });
+
+    expect(capturedBodies.map((body) => JSON.parse(body))).toEqual([
+      { handler: "github_repo" },
+      { handler: "devhub_template" },
+    ]);
+  });
+
   it("rejects invented ingestion metadata enums before forwarding to Admin API", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     await expect(
@@ -614,6 +673,40 @@ describe("admin MCP tool catalog", () => {
       privateDetail: expect.objectContaining({
         reason: "invalid_enum",
         key: "config.discovery_report.recommended_mode",
+      }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        {
+          item_id: 1,
+          config: {
+            discovery_report: {
+              handler: "system_prompt_handler",
+            },
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({
+        reason: "invalid_enum",
+        key: "config.discovery_report.handler",
       }),
     });
     expect(fetchSpy).not.toHaveBeenCalled();
