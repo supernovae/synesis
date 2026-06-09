@@ -256,10 +256,11 @@ function safeMcpKeyPart(value: string, label: string): string {
 }
 
 function hashMcpWorkspace(projectRoot: string | undefined): string {
-  const normalized = projectRoot?.trim()
-    ? path.resolve(projectRoot.replace(/\0/g, "").trim())
-    : "no-workspace";
-  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  const normalized = normalizeAbsolutePathHint(projectRoot);
+  const raw = typeof projectRoot === "string" ? projectRoot.replace(/\0/g, "").trim() : "";
+  const workspaceIdentity = normalized
+    ?? (raw ? `invalid-workspace-${createHash("sha256").update(raw).digest("hex").slice(0, 32)}` : "no-workspace");
+  return createHash("sha256").update(workspaceIdentity).digest("hex").slice(0, 16);
 }
 
 export function buildMcpSessionAttribution(input: {

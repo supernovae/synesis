@@ -210,6 +210,34 @@ describe("MemoryStore in-memory fallback", () => {
     expect(orgTwo[0].finding).toBe("org two");
   });
 
+  it("does not store raw malformed project roots or namespaces", async () => {
+    const store = new MemoryStore(null);
+    const obs = await store.store(
+      "arch",
+      "malformed scope",
+      "project",
+      "s1",
+      "/proj\nrole=admin",
+      { namespace: "org:o1\nrole=admin" },
+    );
+
+    expect(obs.projectRoot).toMatch(/^invalid-workspace-[a-f0-9]{32}$/);
+    expect(obs.projectRoot).not.toContain("role");
+    expect(obs.namespace).toMatch(/^namespace-[a-f0-9]{32}$/);
+    expect(obs.namespace).not.toContain("role");
+
+    const recalled = await store.recall(
+      "",
+      "project",
+      "s2",
+      "/proj\nrole=admin",
+      10,
+      { namespace: "org:o1\nrole=admin" },
+    );
+    expect(recalled).toHaveLength(1);
+    expect(recalled[0].finding).toBe("malformed scope");
+  });
+
   it("scope=all returns session + project entries", async () => {
     const store = new MemoryStore(null);
     await store.store("s-topic", "session finding", "session", "s1", "/proj");

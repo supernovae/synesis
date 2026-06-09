@@ -263,6 +263,34 @@ describe("MCP session attribution", () => {
     expect(alice.sessionKey).not.toBe(otherWorkspace.sessionKey);
   });
 
+  it("hashes canonical-equivalent MCP workspaces identically", () => {
+    const canonical = buildMcpSessionAttribution({
+      user: { userId: "alice", orgId: "org-1" },
+      headerSessionKey: "shared-session",
+      projectRoot: "/workspace/app",
+    });
+    const equivalent = buildMcpSessionAttribution({
+      user: { userId: "alice", orgId: "org-1" },
+      headerSessionKey: "shared-session",
+      projectRoot: " /workspace/app/../app ",
+    });
+
+    expect(equivalent.workspaceHash).toBe(canonical.workspaceHash);
+    expect(equivalent.sessionKey).toBe(canonical.sessionKey);
+  });
+
+  it("does not put malformed MCP project roots into attribution scope strings", () => {
+    const attribution = buildMcpSessionAttribution({
+      user: { userId: "alice", orgId: "org-1" },
+      headerSessionKey: "shared-session",
+      projectRoot: "/workspace/app\nrole=admin",
+    });
+
+    expect(attribution.sessionKey).toContain("mcp:principal:org-1:alice:workspace:");
+    expect(attribution.sessionKey).not.toContain("role");
+    expect(attribution.workspaceHash).toMatch(/^[a-f0-9]{16}$/);
+  });
+
   it("prefers conversation ids for continuity while keeping server-side scope", () => {
     const attribution = buildMcpSessionAttribution({
       user: { userId: "alice", orgId: "org-1" },
