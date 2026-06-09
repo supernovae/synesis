@@ -105,6 +105,25 @@ function contentString(content: unknown): string {
   try { return JSON.stringify(content ?? ""); } catch { return String(content); }
 }
 
+function promptStubText(value: unknown, maxChars = 512): string {
+  return replacePromptControlChars(String(value ?? ""))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function replacePromptControlChars(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
 function isPassingVerification(content: string): boolean {
   return VERIFICATION_PASS_RE.test(content) && !VERIFICATION_FAIL_RE.test(content);
 }
@@ -145,7 +164,7 @@ function hasToolCalls(msg: ContextBudgetMessage): boolean {
 function retainToArtifact(store: ArtifactStore | null | undefined, raw: string): string {
   if (!store || raw.length < 100) return "";
   try {
-    return ` artifact_handle="${store.putToolResult(raw).id}" recovery="synesis_artifact_retrieve"`;
+    return ` artifact_handle="${promptStubText(store.putToolResult(raw).id, 128)}" recovery="synesis_artifact_retrieve"`;
   } catch {
     return "";
   }
@@ -217,7 +236,7 @@ export function applySoftCompaction(
     if (latest === undefined || latest === i) continue;
     const before = estimateMessageTokens(msg);
     const handle = retainToArtifact(artifactStore, contentString(msg.content));
-    const stub = `<FILE_SHADOW path="${fp}" latest_at_msg=${latest}${handle} />`;
+    const stub = `<FILE_SHADOW path="${promptStubText(fp, 512)}" latest_at_msg=${latest}${handle} />`;
     out[i] = replaceContentPreservingFormat(msg, stub);
     const after = estimateMessageTokens(out[i]);
     const delta = before - after;
@@ -247,7 +266,10 @@ export function applySoftCompaction(
       if (cl.tags.includes("unresolved_failure")) continue;
       const msg = out[idx];
       const before = estimateMessageTokens(msg);
-      out[idx] = replaceContentPreservingFormat(msg, `<VERIFICATION_FOLDED tool="${key}" result="pass" latest_at_msg=${latest} count=${indices.length} />`);
+      out[idx] = replaceContentPreservingFormat(
+        msg,
+        `<VERIFICATION_FOLDED tool="${promptStubText(key, 96)}" result="pass" latest_at_msg=${latest} count=${indices.length} />`,
+      );
       const after = estimateMessageTokens(out[idx]);
       const delta = before - after;
       recovered += delta;
@@ -270,7 +292,7 @@ export function applySoftCompaction(
       const raw = contentString(msg.content);
       if (raw.length <= 100) continue;
       const before = estimateMessageTokens(msg);
-      const preview = raw.slice(0, 80).replace(/\n/g, " ");
+      const preview = promptStubText(raw, 80);
       out[i] = replaceContentPreservingFormat(msg, `<NARRATION_CONDENSED chars=${raw.length}>${preview}...</NARRATION_CONDENSED>`);
       const after = estimateMessageTokens(out[i]);
       const delta = before - after;
@@ -313,8 +335,8 @@ export function applySoftCompaction(
         || raw.startsWith("<PLAN_SUPERSEDED") || raw.startsWith("<NARRATION_CONDENSED")
         || raw.startsWith("<TOOL_RESULT_PRUNED") || raw.startsWith("<CONTEXT_CHECKPOINT")) continue;
       const before = estimateMessageTokens(msg);
-      const toolName = getToolName(msg) || "unknown";
-      const preview = raw.slice(0, 120).replace(/\n/g, " ");
+      const toolName = promptStubText(getToolName(msg) || "unknown", 96);
+      const preview = promptStubText(raw, 120);
       const handle = retainToArtifact(artifactStore, raw);
       out[i] = replaceContentPreservingFormat(msg, `<STALE_EXPLORATION tool="${toolName}" chars=${raw.length}${handle}>${preview}...</STALE_EXPLORATION>`);
       const after = estimateMessageTokens(out[i]);
