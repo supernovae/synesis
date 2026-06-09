@@ -10,6 +10,7 @@ import {
 } from "./types.js";
 
 const RelPathSchema = z.string().min(1).max(4096);
+const WORKSPACE_ROOT_MAX_CHARS = 4096;
 
 export const BatchReadArgsSchema = z.object({
   paths: z.array(RelPathSchema).min(1),
@@ -62,6 +63,42 @@ function isPathInsideRoot(resolvedFile: string, resolvedRoot: string): boolean {
   return normFile.startsWith(prefix);
 }
 
+function isAbsoluteWorkspaceRoot(value: string): boolean {
+  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+}
+
+function isFilesystemRoot(value: string): boolean {
+  if (value.startsWith("/")) {
+    return path.posix.resolve(value) === "/";
+  }
+  if (!path.win32.isAbsolute(value)) {
+    return false;
+  }
+  const normalized = path.win32.normalize(value);
+  const parsed = path.win32.parse(normalized);
+  return normalized.toLowerCase() === parsed.root.toLowerCase();
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
+export function normalizeWorkspaceRoot(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  if (value.length > WORKSPACE_ROOT_MAX_CHARS) return null;
+  if (hasControlCharacter(value)) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!isAbsoluteWorkspaceRoot(trimmed)) return null;
+  if (isFilesystemRoot(trimmed)) return null;
+  if (trimmed.startsWith("/")) return path.posix.resolve(trimmed);
+  return path.win32.normalize(trimmed);
+}
+
 export function resolveSafePath(
   workspaceRoot: string | null,
   userPath: string,
@@ -73,9 +110,13 @@ export function resolveSafePath(
   if (!workspaceRoot) {
     return { ok: false, error: "workspace_root required for path validation" };
   }
+  const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
+  if (!normalizedRoot) {
+    return { ok: false, error: "invalid workspace_root" };
+  }
 
-  const abs = path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.normalize(path.join(workspaceRoot, trimmed));
-  const rootResolved = path.resolve(workspaceRoot);
+  const abs = path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.normalize(path.join(normalizedRoot, trimmed));
+  const rootResolved = path.resolve(normalizedRoot);
   if (!isPathInsideRoot(abs, rootResolved)) {
     return { ok: false, error: `path escapes workspace: ${userPath}` };
   }

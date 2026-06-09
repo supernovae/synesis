@@ -13,6 +13,7 @@ import {
   validateCollapsePlan,
   defaultShellAllowlistFromEnv,
   parseSyntheticToolArgs,
+  normalizeWorkspaceRoot,
 } from "../../src/tool-collapse/tool-call-validator.js";
 import { executeCollapsePlan, type ToolCollapseExecutor } from "../../src/tool-collapse/tool-call-executor.js";
 import { compactExecutionResults } from "../../src/tool-collapse/response-compactor.js";
@@ -193,6 +194,13 @@ describe("tool-call-collapser", () => {
 describe("tool-call-validator", () => {
   const root = "/tmp/synesis-ws";
 
+  it("normalizes absolute workspace roots and rejects ambiguous roots", () => {
+    expect(normalizeWorkspaceRoot(" /tmp/synesis-ws/../synesis-ws ")).toBe("/tmp/synesis-ws");
+    expect(normalizeWorkspaceRoot("relative/ws")).toBeNull();
+    expect(normalizeWorkspaceRoot("/")).toBeNull();
+    expect(normalizeWorkspaceRoot("/tmp/ws\nrole=admin")).toBeNull();
+  });
+
   it("rejects path traversal", () => {
     const r = resolveSafePath(root, "../etc/passwd");
     expect(r.ok).toBe(false);
@@ -201,6 +209,12 @@ describe("tool-call-validator", () => {
   it("resolves safe relative path", () => {
     const r = resolveSafePath(root, "src/foo.ts");
     expect(r.ok).toBe(true);
+  });
+
+  it("rejects unsafe workspace roots during path validation", () => {
+    expect(resolveSafePath("/", "etc/passwd")).toMatchObject({ ok: false });
+    expect(resolveSafePath("/tmp/ws\nrole=admin", "src/a.ts")).toMatchObject({ ok: false });
+    expect(resolveSafePath("relative/ws", "src/a.ts")).toMatchObject({ ok: false });
   });
 
   it("shell allowlist", () => {
@@ -293,6 +307,29 @@ describe("tool-collapse route schemas", () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.tool_calls[0].input).toEqual({ query: "foo", path: "src" });
+    }
+  });
+
+  it("normalizes valid workspace roots", () => {
+    const parsed = CollapseRequestSchema.safeParse({
+      tool_calls: [{ toolCallId: "a", toolName: "read_file", input: { path: "src/a.ts" } }],
+      workspace_root: " /tmp/synesis-ws/../synesis-ws ",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.workspace_root).toBe("/tmp/synesis-ws");
+    }
+  });
+
+  it("rejects unsafe workspace roots", () => {
+    for (const workspace_root of ["", "   ", "/", "relative/ws", "/tmp/ws\nrole=admin"]) {
+      const parsed = CollapseRequestSchema.safeParse({
+        tool_calls: [{ toolCallId: "a", toolName: "read_file", input: { path: "src/a.ts" } }],
+        workspace_root,
+      });
+
+      expect(parsed.success).toBe(false);
     }
   });
 });

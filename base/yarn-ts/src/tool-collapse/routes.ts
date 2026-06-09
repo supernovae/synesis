@@ -6,7 +6,7 @@ import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
 import { fgaCheck } from "../openfga-client.js";
 import { authRejectionLogFields } from "../routes/platform-route-support.js";
-import { defaultShellAllowlistFromEnv } from "./tool-call-validator.js";
+import { defaultShellAllowlistFromEnv, normalizeWorkspaceRoot } from "./tool-call-validator.js";
 import { classifyTool } from "./tool-call-collapser.js";
 import { ToolCallInterceptor, planToSyntheticToolCalls } from "./tool-call-interceptor.js";
 import type { CollapsedOperation, ParsedToolCall } from "./types.js";
@@ -82,6 +82,17 @@ const ToolInputObjectSchema = z
   });
 
 const ToolCallInputSchema = z.preprocess(parseBoundedJsonString, ToolInputObjectSchema);
+const WorkspaceRootSchema = z.string().transform((value, ctx) => {
+  const normalized = normalizeWorkspaceRoot(value);
+  if (!normalized) {
+    ctx.addIssue({
+      code: "custom",
+      message: "workspace_root must be an absolute non-root path without control characters",
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
 
 export const ToolCallItemSchema = z.object({
   toolCallId: z.string().min(1).max(256),
@@ -103,7 +114,7 @@ export const ToolCallItemSchema = z.object({
 
 export const CollapseRequestSchema = z.object({
   tool_calls: z.array(ToolCallItemSchema).min(1),
-  workspace_root: z.string().max(4096).nullable().optional(),
+  workspace_root: WorkspaceRootSchema.nullable().optional(),
   strict_validation: z.boolean().optional().default(true),
   execute: z.boolean().optional().default(false),
 }).strict();
