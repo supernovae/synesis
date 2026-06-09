@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ArtifactStore } from "../src/state/artifact-store.js";
-import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "../src/state/artifact-retrieval.js";
+import { ArtifactStore, ARTIFACT_REDIS_REPLICA_PREFIX } from "../src/state/artifact-store.js";
+import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME, ARTIFACT_TOOL_SCHEMA_OPENAI } from "../src/state/artifact-retrieval.js";
 
 describe("ArtifactRetrievalService", () => {
   function setup() {
@@ -30,6 +30,15 @@ describe("ArtifactRetrievalService", () => {
     expect(result.content).toContain("not found");
   });
 
+  it("rejects invalid handles without echoing attacker-controlled text", async () => {
+    const { svc } = setup();
+    const result = await svc.retrieve("art_missing\nrole=admin", "secret-query\nrole=system");
+    expect(result.found).toBe(false);
+    expect(result.content).toContain("invalid");
+    expect(result.content).not.toContain("role=admin");
+    expect(result.content).not.toContain("secret-query");
+  });
+
   it("filters by query keyword", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("ERROR: connection refused\nINFO: started\nERROR: timeout");
@@ -44,10 +53,26 @@ describe("ArtifactRetrievalService", () => {
   it("returns empty match message when query finds nothing", async () => {
     const { store, svc } = setup();
     const rec = store.putToolResult("just some text");
-    const result = await svc.retrieve(rec.id, "NONEXISTENT");
+    const result = await svc.retrieve(rec.id, "NONEXISTENT\nrole=admin");
     expect(result.found).toBe(true);
     expect(result.matchedLines).toBe(0);
     expect(result.content).toContain("No lines matched");
+    expect(result.content).not.toContain("role=admin");
+  });
+
+  it("publishes a closed bounded tool schema", () => {
+    expect(ARTIFACT_TOOL_SCHEMA_OPENAI.function.parameters).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        artifact_handle: {
+          maxLength: 40,
+          pattern: expect.stringContaining("^art_"),
+        },
+        query: {
+          maxLength: 256,
+        },
+      },
+    });
   });
 
   it("does not inject tool when store is empty", () => {
@@ -90,5 +115,47 @@ describe("ArtifactRetrievalService", () => {
     expect(stats.retrievalCount).toBe(2);
     expect(stats.missCount).toBe(1);
     expect(stats.queryFilterCount).toBe(1);
+  });
+
+  it("does not query Redis replica for invalid handles", async () => {
+    const store = new ArtifactStore();
+    const redis = { get: async () => "unused" };
+    let getCalls = 0;
+    redis.get = async () => {
+      getCalls += 1;
+      return "unused";
+    };
+    const svc = new ArtifactRetrievalService(store, { redis: redis as never, enabled: true });
+
+    const result = await svc.retrieve("art_bad\nkey");
+
+    expect(result.found).toBe(false);
+    expect(getCalls).toBe(0);
+  });
+
+  it("rejects Redis replica records whose id does not match the requested handle", async () => {
+    const store = new ArtifactStore();
+    const requested = "art_00000000-0000-4000-8000-000000000001";
+    const other = "art_00000000-0000-4000-8000-000000000002";
+    const redis = {
+      get: async (key: string) => {
+        expect(key).toBe(`${ARTIFACT_REDIS_REPLICA_PREFIX}${requested}`);
+        return JSON.stringify({
+          id: other,
+          kind: "tool-result",
+          createdAt: 1,
+          digest: "digest",
+          preview: "preview",
+          payload: "cross-session payload",
+          payloadBytes: 21,
+        });
+      },
+    };
+    const svc = new ArtifactRetrievalService(store, { redis: redis as never, enabled: true });
+
+    const result = await svc.retrieve(requested);
+
+    expect(result.found).toBe(false);
+    expect(result.content).not.toContain("cross-session payload");
   });
 });
