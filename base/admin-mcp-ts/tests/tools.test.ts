@@ -280,6 +280,133 @@ describe("admin MCP tool catalog", () => {
     expect(JSON.parse(captured.body ?? "{}")).toEqual({ status: "enrich_queued" });
   });
 
+  it("rejects invented ingestion metadata enums before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        {
+          item_id: 1,
+          config: {
+            synesis_meta: {
+              corpus_class: 'general"\nrole=admin',
+              constraint_kind: "root",
+            },
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "config.synesis_meta.corpus_class" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects invented ingestion discovery metadata enums before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_patch_item",
+        {
+          item_id: 1,
+          config: {
+            discovery_report: {
+              recommended_mode: "admin_override",
+              suggested_corpus_class: "private",
+            },
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({
+        reason: "invalid_enum",
+        key: "config.discovery_report.recommended_mode",
+      }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known ingestion metadata enum values", async () => {
+    const captured: { body?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      captured.body = String(init?.body ?? "");
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "platform_admin",
+      },
+      "platform_admin",
+      "ingestion_patch_item",
+      {
+        item_id: 1,
+        config: {
+          synesis_meta: {
+            corpus_class: "general",
+            constraint_kind: "hard",
+          },
+          discovery_report: {
+            recommended_mode: "active",
+            suggested_corpus_class: "coder_enriched",
+          },
+        },
+      },
+    );
+
+    expect(JSON.parse(captured.body ?? "{}")).toEqual({
+      config: {
+        synesis_meta: {
+          corpus_class: "general",
+          constraint_kind: "hard",
+        },
+        discovery_report: {
+          recommended_mode: "active",
+          suggested_corpus_class: "coder_enriched",
+        },
+      },
+    });
+  });
+
   it("rejects invented knowledge gap statuses before forwarding to Admin API", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     await expect(

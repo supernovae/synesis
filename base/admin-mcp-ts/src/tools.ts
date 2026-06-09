@@ -88,6 +88,9 @@ const INGESTION_ITEM_STATUSES = [
   "staged_norm",
   "enrich_queued",
 ] as const;
+const INGESTION_CORPUS_CLASSES = ["coder_enriched", "general", "hybrid"] as const;
+const INGESTION_CONSTRAINT_KINDS = ["advisory", "guiding", "hard"] as const;
+const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -747,7 +750,7 @@ const INGESTION_SYNESIS_META_SCHEMA: ToolJsonSchemaProperty = {
     language: { type: "string" },
     languages: { type: "array", items: { type: "string" } },
     artifact_kind: { type: "string" },
-    corpus_class: { type: "string" },
+    corpus_class: { type: "string", enum: [...INGESTION_CORPUS_CLASSES] },
     content_profile: { type: "string" },
     freshness_sla_days: { type: "integer" },
     scope_tags: { type: "array", items: { type: "string" } },
@@ -757,7 +760,7 @@ const INGESTION_SYNESIS_META_SCHEMA: ToolJsonSchemaProperty = {
     review_status: { type: "string" },
     backstage_entity_ref: { type: "string" },
     constraint_domain: { type: "string" },
-    constraint_kind: { type: "string" },
+    constraint_kind: { type: "string", enum: [...INGESTION_CONSTRAINT_KINDS] },
     constraint_source: { type: "string" },
     constraint_confidence: { type: "number" },
   },
@@ -771,9 +774,9 @@ const INGESTION_DISCOVERY_REPORT_SCHEMA: ToolJsonSchemaProperty = {
     title: { type: "string" },
     tags: { type: "array", items: { type: "string" } },
     risk_flags: { type: "array", items: { type: "string" } },
-    recommended_mode: { type: "string" },
+    recommended_mode: { type: "string", enum: [...INGESTION_DISCOVERY_MODES] },
     notes: { type: "array", items: { type: "string" } },
-    suggested_corpus_class: { type: "string" },
+    suggested_corpus_class: { type: "string", enum: [...INGESTION_CORPUS_CLASSES] },
   },
 };
 const INGESTION_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
