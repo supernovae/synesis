@@ -78,6 +78,7 @@ _DISCOVERY_HANDLER_VALUES = frozenset(
         "web_page",
     }
 )
+_DEFAULT_INGESTION_HANDLER = "html_document"
 _MODEL_ID_PATTERN = r"^[A-Za-z0-9_.:/@-]*$"
 _DISCOVERY_TAG_PATTERN = re.compile(r"^[a-z0-9_.@/+:-]{1,64}$")
 
@@ -211,6 +212,16 @@ def _validate_config_payload(config: dict[str, Any] | None) -> tuple[dict[str, A
         return None, _config_validation_messages(exc)
 
 
+def _normalize_handler(value: Any, *, allow_empty: bool = False) -> str | None:
+    raw = "" if value is None else str(value).strip().lower()
+    if not raw:
+        return None if allow_empty else _DEFAULT_INGESTION_HANDLER
+    if raw not in _DISCOVERY_HANDLER_VALUES:
+        allowed = ", ".join(sorted(_DISCOVERY_HANDLER_VALUES))
+        raise ValueError(f"handler must be one of: {allowed}")
+    return raw
+
+
 class SourceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -226,6 +237,9 @@ class SourceCreate(BaseModel):
     tenant_id: str = ""
     acl_mode: str = "open"
     acl_groups: str = ""
+
+    def model_post_init(self, __context: Any) -> None:
+        self.handler = _normalize_handler(self.handler) or _DEFAULT_INGESTION_HANDLER
 
 
 class ItemCreate(BaseModel):
@@ -246,6 +260,9 @@ class ItemCreate(BaseModel):
     priority: int = 0
     config: IngestionConfig | None = None
     source_id: int | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        self.handler = _normalize_handler(self.handler, allow_empty=True)
 
 
 class BulkImport(BaseModel):
@@ -806,7 +823,10 @@ async def list_items(
         if status:
             q = q.where(IngestionItem.status == status)
         if handler:
-            q = q.where(IngestionItem.handler == handler)
+            try:
+                q = q.where(IngestionItem.handler == _normalize_handler(handler))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         if domain:
             q = q.where(IngestionItem.domain == domain)
         if source_id is not None:
@@ -963,6 +983,10 @@ class ItemPatch(BaseModel):
     source_id: int | None = None
     status: str | None = Field(None, description="Admin-driven status transition")
 
+    def model_post_init(self, __context: Any) -> None:
+        if self.handler is not None:
+            self.handler = _normalize_handler(self.handler)
+
 
 @router.patch("/items/{item_id}")
 async def patch_item(
@@ -983,7 +1007,7 @@ async def patch_item(
         if body.title is not None:
             item.title = body.title
         if body.handler is not None:
-            item.handler = body.handler
+            item.handler = _normalize_handler(body.handler)
         if body.domain is not None:
             item.domain = body.domain
         if body.authority is not None:
@@ -2224,7 +2248,12 @@ async def bootstrap_validate(
         if not uri:
             item_errors.append("missing required field: uri")
 
-        handler = entry.get("handler")
+        handler_raw = entry.get("handler")
+        try:
+            handler = _normalize_handler(handler_raw, allow_empty=True)
+        except ValueError as exc:
+            handler = ""
+            item_errors.append(str(exc))
         title = entry.get("title", "") or ""
         domain = entry.get("domain", "") or ""
 
@@ -2329,7 +2358,13 @@ async def bootstrap_from_yaml(
                 skipped_empty += 1
                 continue
 
-            handler = entry.get("handler")
+            handler_raw = entry.get("handler")
+            try:
+                handler = _normalize_handler(handler_raw, allow_empty=True)
+            except ValueError as exc:
+                logger.info("bootstrap_entry_invalid_handler", extra={"uri": uri, "error": str(exc)})
+                skipped_invalid_config += 1
+                continue
             title = entry.get("title", "") or ""
             domain = entry.get("domain", "") or ""
             authority = entry.get("authority", "vetted") or "vetted"

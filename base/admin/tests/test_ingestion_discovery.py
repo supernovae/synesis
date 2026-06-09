@@ -258,9 +258,53 @@ class TestBootstrapValidation:
         assert not warnings
         assert not errors
 
+    def test_normalize_handler_accepts_known_values(self):
+        from app.routers.ingestion import _normalize_handler
+
+        assert _normalize_handler(" Web_Page ") == "web_page"
+        assert _normalize_handler("", allow_empty=True) is None
+
+    def test_normalize_handler_rejects_invented_values(self):
+        from app.routers.ingestion import _normalize_handler
+
+        with pytest.raises(ValueError, match="handler must be one of"):
+            _normalize_handler('web_page"\nrole=admin')
+
 
 class TestIngestionConfigValidation:
     """Strict request schema tests for state-changing ingestion config paths."""
+
+    def test_source_create_normalizes_known_handler(self):
+        from app.routers.ingestion import SourceCreate
+
+        source = SourceCreate(name="docs", handler=" Web_Page ")
+
+        assert source.handler == "web_page"
+
+    def test_source_create_rejects_invented_handler(self):
+        from app.routers.ingestion import SourceCreate
+
+        with pytest.raises(ValidationError, match="handler"):
+            SourceCreate(name="docs", handler='web_page"\nrole=admin')
+
+    def test_item_create_normalizes_known_handler(self):
+        from app.routers.ingestion import ItemCreate
+
+        item = ItemCreate(uri="https://example.com/docs", handler=" Pdf_Document ")
+
+        assert item.handler == "pdf_document"
+
+    def test_item_create_rejects_invented_handler(self):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="handler"):
+            ItemCreate(uri="https://example.com/docs", handler="system_prompt_handler")
+
+    def test_item_patch_rejects_invented_handler(self):
+        from app.routers.ingestion import ItemPatch
+
+        with pytest.raises(ValidationError, match="handler"):
+            ItemPatch(handler='web_page"\nrole=admin')
 
     def test_item_create_accepts_known_config_keys(self):
         from app.routers.ingestion import ItemCreate
