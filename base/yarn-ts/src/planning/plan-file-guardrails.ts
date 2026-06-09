@@ -11,6 +11,7 @@ import {
   type DiscoveryGuardrailRedirect,
 } from "../tool-collapse/discovery-guardrails.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 import {
   buildShadowFromContent,
   type PlanContentShadow,
@@ -43,7 +44,7 @@ export async function buildBlockedDiscoveryRecoverySnapshot(
   projectRoot: string | null | undefined,
 ): Promise<DiscoveryRecoverySnapshot> {
   const base = buildBlockedDiscoveryGuidance(family, blocked);
-  const safeRoot = typeof projectRoot === "string" ? projectRoot.trim() : "";
+  const safeRoot = normalizeAbsolutePathHint(projectRoot);
   if (!safeRoot) {
     return {
       text: buildBlockedDiscoveryRecoveryWithoutSnapshot(base, "no_project_root"),
@@ -93,7 +94,7 @@ const topLevelDirCache = new Map<string, { dirs: string[]; cachedAt: number }>()
 const TOP_LEVEL_DIR_CACHE_TTL = 120_000;
 
 export async function getCachedTopLevelDirs(projectRoot: string | null | undefined): Promise<string[]> {
-  const root = typeof projectRoot === "string" ? projectRoot.trim() : "";
+  const root = normalizeAbsolutePathHint(projectRoot);
   if (!root) return [];
   const cached = topLevelDirCache.get(root);
   if (cached && Date.now() - cached.cachedAt < TOP_LEVEL_DIR_CACHE_TTL) return cached.dirs;
