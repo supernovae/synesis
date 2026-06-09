@@ -20,6 +20,8 @@ const DEFAULT_TTL_S = 14_400;
 const CHARS_PER_TOKEN = 4;
 const MAX_MEMORY_TEXT_CHARS = 4_000;
 const MAX_MEMORY_ATTR_CHARS = 512;
+const MAX_SUMMARY_FIELD_CHARS = 1_000;
+const SUMMARY_LEVELS = new Set<SummaryLevel>(["file", "directory", "project"]);
 
 function replaceControlChars(value: string): string {
   let out = "";
@@ -386,7 +388,7 @@ export class HierarchicalSummaryStore {
     const raw = await this.redis.get(key);
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as FileSummary;
+      return normalizeFileSummary(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -413,4 +415,32 @@ export function createHierarchicalSummaryStore(
 ): HierarchicalSummaryStore {
   const scope = sessionKey.replace(/[^a-zA-Z0-9:._-]/g, "_").slice(0, 200);
   return new HierarchicalSummaryStore(redis, maxTokens, ttlSeconds, scope);
+}
+
+function normalizeFileSummary(value: unknown): FileSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const level = typeof row.level === "string" && SUMMARY_LEVELS.has(row.level as SummaryLevel)
+    ? row.level as SummaryLevel
+    : null;
+  if (!level) return null;
+  const path = memoryText(row.path, MAX_SUMMARY_FIELD_CHARS);
+  const summary = memoryText(row.summary, MAX_MEMORY_TEXT_CHARS);
+  if (!path || !summary) return null;
+  return {
+    path,
+    level,
+    summary,
+    contentHash: memoryText(row.contentHash, MAX_SUMMARY_FIELD_CHARS),
+    language: memoryText(row.language, MAX_SUMMARY_FIELD_CHARS) || "unknown",
+    symbolCount: safeSummaryInt(row.symbolCount),
+    lineCount: safeSummaryInt(row.lineCount),
+    updatedAt: safeSummaryInt(row.updatedAt),
+  };
+}
+
+function safeSummaryInt(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.floor(numeric));
 }
