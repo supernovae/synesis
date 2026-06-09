@@ -10,6 +10,7 @@ import {
   type SynesisMcpDeps,
 } from "@synesis/mcp-tools";
 import type { AuthResolver, AuthUser } from "../auth.js";
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 import { authRejectionLogFields } from "../routes/platform-route-support.js";
 import { McpConcurrencyLimiter, type McpConcurrencyRejection } from "./concurrency-limiter.js";
 import { McpToolRegistry, McpToolNotFoundError, McpToolTimeoutError, type McpToolContext } from "./tool-registry.js";
@@ -182,9 +183,8 @@ export interface McpAuditFieldInput {
 function splitAllowedProjectRoots(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(path.delimiter)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => path.resolve(entry));
+    .map((entry) => normalizeAbsolutePathHint(entry))
+    .filter((entry): entry is string => entry !== null);
 }
 
 function isPathInside(root: string, candidate: string): boolean {
@@ -311,19 +311,18 @@ export function validateMcpProjectRootBinding(
     };
   }
 
-  const requestedRoot = headerProjectRoot.replace(/\0/g, "").trim();
-  if (!path.isAbsolute(requestedRoot)) {
+  const projectRoot = normalizeAbsolutePathHint(headerProjectRoot);
+  if (!projectRoot) {
     return {
       ok: false,
       statusCode: 400,
       error: {
         type: "invalid_project_root",
-        message: "Project root must be an absolute path",
+        message: "Project root must be an absolute non-root path without control characters",
       },
     };
   }
 
-  const projectRoot = path.resolve(requestedRoot);
   if (isDeniedProjectRoot(projectRoot)) {
     return {
       ok: false,
@@ -373,7 +372,7 @@ export function validateMcpProjectRootBinding(
         },
       };
     }
-    const resolvedArgRoot = path.resolve(argProjectRoot.replace(/\0/g, "").trim());
+    const resolvedArgRoot = normalizeAbsolutePathHint(argProjectRoot);
     if (resolvedArgRoot !== projectRoot) {
       return {
         ok: false,

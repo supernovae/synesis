@@ -135,7 +135,7 @@ describe("MCP project root binding", () => {
 
   it("normalizes and injects the header-bound project root", () => {
     const root = path.resolve("/workspace/app");
-    const result = validateMcpProjectRootBinding({ filePath: "src/index.ts" }, root, {});
+    const result = validateMcpProjectRootBinding({ filePath: "src/index.ts" }, " /workspace/app/../app ", {});
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.projectRoot).toBe(root);
@@ -144,9 +144,33 @@ describe("MCP project root binding", () => {
     }
   });
 
+  it("rejects unsafe header project roots", () => {
+    for (const headerRoot of ["/", "relative/app", "/workspace/app\nrole=admin"]) {
+      const result = validateMcpProjectRootBinding({}, headerRoot, {});
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.statusCode).toBe(400);
+        expect(result.error.type).toBe("invalid_project_root");
+      }
+    }
+  });
+
   it("rejects tool arguments that override the request project root", () => {
     const result = validateMcpProjectRootBinding(
       { projectRoot: "/workspace/other", filePath: "src/index.ts" },
+      "/workspace/app",
+      {},
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.statusCode).toBe(403);
+      expect(result.error.type).toBe("project_root_mismatch");
+    }
+  });
+
+  it("rejects unsafe tool argument project roots", () => {
+    const result = validateMcpProjectRootBinding(
+      { projectRoot: "/workspace/app\nrole=admin", filePath: "src/index.ts" },
       "/workspace/app",
       {},
     );

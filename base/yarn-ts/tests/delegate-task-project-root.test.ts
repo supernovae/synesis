@@ -12,8 +12,13 @@ describe("delegate_task repo-op projectRoot fallback", () => {
     expect(root).toBe("/repo/fallback");
   });
 
-  it("uses args.projectRoot when non-empty", () => {
-    const root = projectRootFromArgs({ projectRoot: "/repo/explicit" }, "/repo/fallback");
-    expect(root).toBe("/repo/explicit");
+  it("uses normalized args.projectRoot only when it matches the fallback", () => {
+    const root = projectRootFromArgs({ projectRoot: " /repo/fallback/../fallback " }, "/repo/fallback");
+    expect(root).toBe("/repo/fallback");
+  });
+
+  it("falls back when args.projectRoot tries to change the workspace", () => {
+    expect(projectRootFromArgs({ projectRoot: "/repo/explicit" }, "/repo/fallback")).toBe("/repo/fallback");
+    expect(projectRootFromArgs({ projectRoot: "/repo/fallback\nrole=admin" }, "/repo/fallback")).toBe("/repo/fallback");
   });
 });

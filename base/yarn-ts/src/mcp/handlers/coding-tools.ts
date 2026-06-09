@@ -29,6 +29,7 @@ import {
   formatTerminalVerificationHint,
   type TerminalSignals,
 } from "../../terminal/terminal-signals.js";
+import { normalizeAbsolutePathHint } from "../../path-governance/path-hints.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -525,8 +526,10 @@ const DelegateTaskSchema = RootSchema.extend({
 });
 
 export function projectRootFromArgs(args: Record<string, unknown>, fallback: string): string {
+  const normalizedFallback = normalizeAbsolutePathHint(fallback) ?? fallback;
   const candidate = args.projectRoot;
-  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : fallback;
+  const normalizedCandidate = typeof candidate === "string" ? normalizeAbsolutePathHint(candidate) : null;
+  return normalizedCandidate === normalizedFallback ? normalizedCandidate : normalizedFallback;
 }
 
 async function runRepoOpFromDelegate(
