@@ -115,8 +115,18 @@ const MAX_WRITE_BYTES = 1_000_000;
 const MAX_LIST_ENTRIES = 2000;
 const MAX_SEARCH_RESULTS = 500;
 
+const ProjectRootSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (value) => normalizeAbsolutePathHint(value) === value,
+    "Project root must be a canonical absolute non-root path without control characters",
+  )
+  .describe("Canonical absolute project root path");
+
 const RootSchema = z.object({
-  projectRoot: z.string().min(1).describe("Absolute project root path"),
+  projectRoot: ProjectRootSchema,
 }).strict();
 
 const RelPathSchema = z
@@ -526,7 +536,10 @@ const DelegateTaskSchema = RootSchema.extend({
 });
 
 export function projectRootFromArgs(args: Record<string, unknown>, fallback: string): string {
-  const normalizedFallback = normalizeAbsolutePathHint(fallback) ?? fallback;
+  const normalizedFallback = normalizeAbsolutePathHint(fallback);
+  if (!normalizedFallback) {
+    throw new Error("Invalid fallback project root");
+  }
   const candidate = args.projectRoot;
   const normalizedCandidate = typeof candidate === "string" ? normalizeAbsolutePathHint(candidate) : null;
   return normalizedCandidate === normalizedFallback ? normalizedCandidate : normalizedFallback;

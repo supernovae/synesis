@@ -21,4 +21,8 @@ describe("delegate_task repo-op projectRoot fallback", () => {
     expect(projectRootFromArgs({ projectRoot: "/repo/explicit" }, "/repo/fallback")).toBe("/repo/fallback");
     expect(projectRootFromArgs({ projectRoot: "/repo/fallback\nrole=admin" }, "/repo/fallback")).toBe("/repo/fallback");
   });
+
+  it("fails closed when the trusted fallback projectRoot is malformed", () => {
+    expect(() => projectRootFromArgs({}, "/repo/fallback\nrole=admin")).toThrow(/Invalid fallback project root/);
+  });
 });

@@ -345,6 +345,36 @@ describe("coding tools", () => {
     expect(patchMiss.suggestedNextActions.length).toBeGreaterThan(0);
   });
 
+  it("rejects non-canonical project roots at the coding tool schema boundary", () => {
+    expect(() => readFileTool.inputSchema.parse({
+      projectRoot: "/tmp/synesis\nrole=admin",
+      filePath: "README.md",
+      maxBytes: 1000,
+    })).toThrow(/Project root must be a canonical absolute non-root path/);
+
+    expect(() => readFileTool.inputSchema.parse({
+      projectRoot: "/",
+      filePath: "README.md",
+      maxBytes: 1000,
+    })).toThrow(/Project root must be a canonical absolute non-root path/);
+
+    expect(() => readFileTool.inputSchema.parse({
+      projectRoot: "/tmp/synesis/../synesis",
+      filePath: "README.md",
+      maxBytes: 1000,
+    })).toThrow(/Project root must be a canonical absolute non-root path/);
+  });
+
+  it("accepts canonical project roots at the coding tool schema boundary", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-root-schema-"));
+    const parsed = readFileTool.inputSchema.parse({
+      projectRoot: root,
+      filePath: "README.md",
+      maxBytes: 1000,
+    });
+    expect(parsed.projectRoot).toBe(root);
+  });
+
   it("searches code with rg", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "synesis-yarn-rg-"));
     writeFileSync(path.join(root, "main.go"), "package main\n\nfunc main() {}\n", "utf8");
