@@ -1,5 +1,6 @@
 import path from "node:path";
 import { canonicalValidationToolName } from "../tool-aliases.js";
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 /**
  * Model-specific adapters for upstream LLM behavioral differences.
@@ -1298,12 +1299,13 @@ export function constrainFileToolPathToProjectRoot(
   toolName: string,
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; constrained: boolean } {
-  if (!projectRoot?.trim()) return { input, constrained: false };
+  const normalizedProjectRoot = normalizeAbsolutePathHint(projectRoot);
+  if (!normalizedProjectRoot) return { input, constrained: false };
   if (!["Write", "Read", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
   const fp = input.file_path;
   if (typeof fp !== "string" || !fp.trim()) return { input, constrained: false };
 
-  const root = path.resolve(projectRoot.trim());
+  const root = path.resolve(normalizedProjectRoot);
   const raw = fp.trim();
   const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(raw);
   const withHostSlash = maybeHostLikeNoSlash ? `/${raw}` : raw;

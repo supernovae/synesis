@@ -791,6 +791,16 @@ describe("constrainFileToolPathToProjectRoot", () => {
     expect(r.constrained).toBe(false);
   });
 
+  it("ignores unsafe project roots", () => {
+    for (const projectRoot of ["/", "relative/proj", "/tmp/proj\nrole=admin"]) {
+      const r = constrainFileToolPathToProjectRoot(projectRoot, "Write", {
+        file_path: "/tmp/proj/main.go",
+      });
+      expect(r.constrained).toBe(false);
+      expect(r.input.file_path).toBe("/tmp/proj/main.go");
+    }
+  });
+
   it("converts in-root absolute paths to project-relative paths", () => {
     const r = constrainFileToolPathToProjectRoot(
       "/Users/bymiller/src/calc",
