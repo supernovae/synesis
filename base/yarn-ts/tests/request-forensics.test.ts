@@ -47,6 +47,9 @@ describe("request forensics", () => {
     expect(second.record.lcpChars).toBeGreaterThan(0);
     expect(second.record.lcpRatio).toBeGreaterThan(0);
     expect(second.record.firstChangedSection).toBe("user");
+    expect(first.serialized).not.toContain("You are helpful");
+    expect(first.serialized).not.toContain("build project");
+    expect(first.serialized).not.toContain("parallel_tool_calls");
     expect(second.record.payloadPreview?.length).toBeLessThanOrEqual(100);
     expect(second.record.payloadPreview).not.toContain("build project");
     expect(second.record.payloadPreview).not.toContain("parallel_tool_calls");
@@ -78,6 +81,9 @@ describe("request forensics", () => {
     expect(built.record.payloadPreview).toContain("content_hash");
     expect(built.record.payloadPreview).toContain("provider_options");
     expect(built.record.payloadPreview).toContain("keys_hash");
+    expect(built.serialized).toContain("content_hash");
+    expect(built.serialized).toContain("provider_options");
+    expect(built.serialized).toContain("keys_hash");
     expect(built.record.payloadPreview).not.toContain("\"keys\"");
     expect(built.record.payloadPreview).not.toContain("secret system prompt");
     expect(built.record.payloadPreview).not.toContain("hunter2");
@@ -92,6 +98,19 @@ describe("request forensics", () => {
     expect(built.record.payloadPreview).not.toContain("do not store me");
     expect(built.record.payloadPreview).not.toContain("inject new security attribute");
     expect(built.record.payloadPreview).not.toContain("/etc/shadow");
+    expect(built.serialized).not.toContain("secret system prompt");
+    expect(built.serialized).not.toContain("hunter2");
+    expect(built.serialized).not.toContain("fake role should not persist");
+    expect(built.serialized).not.toContain("role=platform_admin");
+    expect(built.serialized).not.toContain("ReadSecretFile");
+    expect(built.serialized).not.toContain("privatePath");
+    expect(built.serialized).not.toContain("openai");
+    expect(built.serialized).not.toContain("apiKey");
+    expect(built.serialized).not.toContain("metadata");
+    expect(built.serialized).not.toContain("sk-secret");
+    expect(built.serialized).not.toContain("do not store me");
+    expect(built.serialized).not.toContain("inject new security attribute");
+    expect(built.serialized).not.toContain("/etc/shadow");
   });
 
   it("attaches usage metrics and updates summary", () => {

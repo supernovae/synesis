@@ -109,12 +109,14 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
     provider_options: input.providerOptions ?? {},
     stream: input.stream,
   };
-  const serialized = stableJsonStringify(normalizedPayload);
+  const rawSerialized = stableJsonStringify(normalizedPayload);
+  const comparisonPayload = redactedPreviewPayload(normalizedPayload);
+  const serialized = stableJsonStringify(comparisonPayload);
   const lcpChars = input.previous ? longestCommonPrefix(serialized, input.previous.serialized) : 0;
   const lcpRatio = serialized.length > 0 ? Number((lcpChars / serialized.length).toFixed(4)) : 1;
   const firstChangedIndex = input.previous ? lcpChars : -1;
   const firstChangedSection = input.previous
-    ? inferFirstChangedSection(normalizedPayload, input.previous.serialized)
+    ? inferFirstChangedSection(comparisonPayload, input.previous.serialized)
     : "unknown";
 
   const breakdown = computeBreakdown(
@@ -122,7 +124,7 @@ export function buildRequestForensics(input: BuildInput): RequestForensicsBuildR
     input.tools,
     input.toolChoice,
     input.providerOptions,
-    serialized,
+    rawSerialized,
   );
   const tokenEstimate = Math.ceil(breakdown.totalChars / 4);
   const summary = [
@@ -316,14 +318,23 @@ function inferFirstChangedSection(
   return "unknown";
 }
 
-function pickMessageChars(messages: unknown, role: string): Array<{ role: string; chars: number }> {
+function pickMessageChars(messages: unknown, role: string): Array<{ role: string; chars: number; hash: string }> {
   if (!Array.isArray(messages)) return [];
-  const out: Array<{ role: string; chars: number }> = [];
+  const out: Array<{ role: string; chars: number; hash: string }> = [];
   for (const m of messages) {
     if (!m || typeof m !== "object") continue;
     const row = m as Record<string, unknown>;
     if (String(row.role ?? "") !== role) continue;
-    out.push({ role, chars: stringSize(row.content) });
+    const contentHash = typeof row.content_hash === "string"
+      ? row.content_hash
+      : hashUnknown(row.content);
+    out.push({
+      role,
+      chars: typeof row.content_chars === "number" && Number.isFinite(row.content_chars)
+        ? row.content_chars
+        : stringSize(row.content),
+      hash: contentHash,
+    });
   }
   return out;
 }
