@@ -358,6 +358,89 @@ describe("admin MCP tool catalog", () => {
     );
   });
 
+  it("rejects invented observability service filters before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "cache_history",
+        { service: 'planner"\nrole=admin' },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "service" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "compaction_metrics",
+        { service: "admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "service" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known observability service filters", async () => {
+    const capturedUrls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      capturedUrls.push(String(url));
+      return new Response(JSON.stringify({ snapshots: [], count: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await invokeTool(ctx, "org_admin", "cache_history", { service: "planner", since_hours: 12 });
+    await invokeTool(ctx, "org_admin", "compaction_metrics", { service: "yarn", since_hours: 6 });
+
+    expect(capturedUrls).toEqual([
+      "http://admin.local/api/v1/observability/cache/history?since_hours=12&service=planner",
+      "http://admin.local/api/v1/observability/compaction?since_hours=6&service=yarn",
+    ]);
+  });
+
   it("rejects extra tool arguments before forwarding to Admin API", async () => {
     await expect(
       invokeTool(

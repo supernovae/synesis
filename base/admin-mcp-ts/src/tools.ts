@@ -96,6 +96,7 @@ const TRACE_DECISION_PATHS = ["abstain", "constrained", "deterministic", "infere
 const MODEL_EFFORT_MODES = ["auto", "pulse", "core", "horizon"] as const;
 const GOVERNANCE_SCOPES = ["platform", "org", "tenant", "project", "team"] as const;
 const GOVERNANCE_CATEGORIES = ["architecture", "compliance", "process", "quality", "safety", "style", "tooling"] as const;
+const OBSERVABILITY_SERVICE_FILTERS = ["planner", "yarn"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -1020,7 +1021,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         since_hours: { type: "integer", default: 24 },
-        service: { type: "string", description: "Optional service filter: planner or yarn" },
+        service: { type: "string", enum: [...OBSERVABILITY_SERVICE_FILTERS], description: "Optional service filter: planner or yarn" },
       },
     },
     "/api/v1/observability/cache/history",
@@ -1061,7 +1062,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         since_hours: { type: "integer", default: 24 },
-        service: { type: "string", description: "Optional service filter: planner or yarn" },
+        service: { type: "string", enum: [...OBSERVABILITY_SERVICE_FILTERS], description: "Optional service filter: planner or yarn" },
       },
     },
     "/api/v1/observability/compaction",
