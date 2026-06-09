@@ -27,6 +27,7 @@ import {
 import { isCoderClientKind } from "../session/session-key.js";
 import { extractShellWriteTargets } from "../governance/shell-write-command.js";
 import { isStandardVerificationCommand } from "../verification/command-taxonomy.js";
+import { isPathInsideRoot, normalizeAbsolutePathHint } from "./path-hints.js";
 
 export {
   buildStructuredErrorBashCommand,
@@ -58,6 +59,25 @@ export interface GovernToolCallOptions {
   sessionGitInspectionBlockCount?: number;
   /** Path sandbox policy. When set, file operations outside allowed paths are blocked. */
   pathSandboxPolicy?: PathSandboxPolicy | null;
+}
+
+interface NormalizedPathAnchors {
+  projectRoot: string | null;
+  shellCwd: string | null;
+  anchorRoot: string | null;
+}
+
+function normalizePathAnchors(projectRoot?: string | null, shellCwd?: string | null): NormalizedPathAnchors {
+  const normalizedProjectRoot = normalizeAbsolutePathHint(projectRoot);
+  const rawShellCwd = normalizeAbsolutePathHint(shellCwd);
+  const normalizedShellCwd = normalizedProjectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, normalizedProjectRoot)
+    ? null
+    : rawShellCwd;
+  return {
+    projectRoot: normalizedProjectRoot,
+    shellCwd: normalizedShellCwd,
+    anchorRoot: normalizedShellCwd ?? normalizedProjectRoot,
+  };
 }
 
 export interface PlanWriteAuditRecord {
@@ -154,6 +174,7 @@ export function governToolCall(opts: GovernToolCallOptions): GovernedToolCall {
 
 function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   const logicalName = canonicalValidationToolName(opts.toolName);
+  const pathAnchors = normalizePathAnchors(opts.projectRoot, opts.shellCwd);
   const out: GovernedToolCall = {
     toolName: opts.toolName,
     input: { ...opts.input },
@@ -177,7 +198,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = aliasRemap.input;
   }
 
-  const anchorRoot = resolvedAnchorRoot(opts.projectRoot, opts.shellCwd);
+  const anchorRoot = pathAnchors.anchorRoot;
   const unanchoredAbsoluteBlock = maybeBlockUnanchoredAbsoluteFileTool(
     logicalName,
     out.input,
@@ -255,7 +276,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = pathNorm.input;
     out.normalizedPath = true;
   }
-  const cwdPrefixRepair = repairShellCwdPrefixedFilePath(logicalName, out.input, opts.shellCwd, opts.projectRoot);
+  const cwdPrefixRepair = repairShellCwdPrefixedFilePath(logicalName, out.input, pathAnchors.shellCwd, pathAnchors.projectRoot);
   if (cwdPrefixRepair.repaired) {
     out.input = cwdPrefixRepair.input;
     out.normalizedPath = true;
@@ -263,8 +284,8 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
   const exactCwdDuplicateRecovery = maybeRecoverExactDuplicatedCwdRead(
     logicalName,
     out.input,
-    opts.shellCwd,
-    opts.projectRoot,
+    pathAnchors.shellCwd,
+    pathAnchors.projectRoot,
     opts.clientKind,
   );
   if (exactCwdDuplicateRecovery) {
@@ -413,7 +434,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
       }
     }
     if (writePath && opts.onEditTurn && opts.currentTurnIndex !== undefined) {
-      const resolvedPath = path.isAbsolute(writePath) ? writePath : path.resolve(opts.shellCwd || opts.projectRoot || "", writePath);
+      const resolvedPath = path.isAbsolute(writePath) ? writePath : path.resolve(anchorRoot || "", writePath);
       opts.onEditTurn(resolvedPath.replace(/\\/g, "/"), opts.currentTurnIndex);
     }
   }
@@ -453,7 +474,7 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
       }
       const pathDrift = opts.blockBashPathDrift
         ? detectBashPathDrift(command)
-          ?? detectDuplicatedCwdBashPath(command, opts.projectRoot, opts.shellCwd)
+          ?? detectDuplicatedCwdBashPath(command, pathAnchors.projectRoot, pathAnchors.shellCwd)
         : null;
       const dangerous = detectDangerousBash(command);
       if (pathDrift || dangerous) {
@@ -1035,13 +1056,6 @@ function maybeBlockVerificationForFailure(
   };
 }
 
-function resolvedAnchorRoot(projectRoot?: string | null, shellCwd?: string | null): string | null {
-  const cwd = (shellCwd ?? "").trim();
-  if (cwd) return cwd;
-  const root = (projectRoot ?? "").trim();
-  return root || null;
-}
-
 function repairShellCwdPrefixedFilePath(
   logicalName: string,
   input: Record<string, unknown>,
@@ -1050,7 +1064,7 @@ function repairShellCwdPrefixedFilePath(
 ): { input: Record<string, unknown>; repaired: boolean } {
   if (!["Write", "Read", "Edit", "Update"].includes(logicalName)) return { input, repaired: false };
   const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  const cwd = shellCwd?.trim() || projectRoot?.trim();
+  const { projectRoot: project, anchorRoot: cwd } = normalizePathAnchors(projectRoot, shellCwd);
   if (!raw || !cwd) return { input, repaired: false };
   if (path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
     return { input, repaired: false };
@@ -1060,7 +1074,6 @@ function repairShellCwdPrefixedFilePath(
   const rawParts = normalized.split("/").filter(Boolean);
   if (rawParts.length < 2) return { input, repaired: false };
 
-  const project = projectRoot?.trim();
   if (project) {
     const taskRel = path.relative(path.resolve(project), path.resolve(cwd)).split(path.sep).join("/");
     const taskRelParts = taskRel.split("/").filter((part) => part && part !== "." && part !== "..");
@@ -1091,7 +1104,7 @@ function maybeRecoverExactDuplicatedCwdRead(
 ): { toolName: string; input: Record<string, unknown> } | null {
   if (logicalName !== "Read") return null;
   const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  const cwd = shellCwd?.trim() || projectRoot?.trim();
+  const { anchorRoot: cwd } = normalizePathAnchors(projectRoot, shellCwd);
   if (!raw || !cwd || path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
     return null;
   }
@@ -1204,7 +1217,7 @@ function detectDuplicatedCwdBashPath(
   projectRoot?: string | null,
   shellCwd?: string | null,
 ): { reason: string; recovery?: string } | null {
-  const root = (projectRoot || shellCwd || "").trim();
+  const { anchorRoot: root } = normalizePathAnchors(projectRoot, shellCwd);
   if (!root) return null;
   const rootParts = path.resolve(root).split(path.sep).filter(Boolean);
   if (rootParts.length < 2) return null;

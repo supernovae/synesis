@@ -71,6 +71,21 @@ describe("governToolCall", () => {
     expect(out.normalizedPath).toBe(true);
   });
 
+  it("does not repair paths using an out-of-root shell_cwd", () => {
+    const out = governToolCall({
+      toolName: "Read",
+      input: { file_path: "other/config.yaml" },
+      projectRoot: "/repo/app",
+      shellCwd: "/repo/other",
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "claude-code",
+    });
+
+    expect(out.input.file_path).toBe("other/config.yaml");
+    expect(out.normalizedPath).toBe(false);
+  });
+
   it("recovers exact cwd-suffix Read paths with bounded root discovery", () => {
     const out = governToolCall({
       toolName: "Read",
@@ -272,6 +287,24 @@ describe("governToolCall", () => {
     expect(out.blockedBashDrift).toBe(true);
     expect(String(out.input.command)).toContain("duplicated working-directory path detected");
     expect(String(out.input.command)).toContain("canonical project directory");
+  });
+
+  it("does not use unsafe project roots for duplicated bash path blocking", () => {
+    const out = governToolCall({
+      toolName: "Bash",
+      input: {
+        command: "cat /home/byron/src/test/src/test/taskpulse/app.py",
+      },
+      projectRoot: "/home/byron/src/test\nrole=admin",
+      shellCwd: null,
+      enforcePathRoot: true,
+      blockBashPathDrift: true,
+      clientKind: "opencode",
+    });
+
+    expect(out.toolName).toBe("Bash");
+    expect(out.blockedBashDrift).toBeFalsy();
+    expect(out.blockedUnsafeShell).toBe(false);
   });
 
   it("allows first compound git inspection as grace for orientation", () => {
