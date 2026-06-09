@@ -70,6 +70,39 @@ describe("ToolPrefixCache.wrapExecutor", () => {
     expect(cache.getStats().readHits).toBeGreaterThanOrEqual(1);
   });
 
+  it("normalizes equivalent workspace roots into the same cache namespace", async () => {
+    const inner: ToolCollapseExecutor = {
+      batchRead: vi.fn(async () => ({ paths: ["x.ts"], contents: ["body"] })),
+      batchSearch: vi.fn(async () => ({})),
+      repoContext: vi.fn(async () => ({})),
+      mergePatch: vi.fn(async () => ({})),
+      runTests: vi.fn(async () => ({})),
+    };
+    const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
+    await cache.wrapExecutor(inner, " /tmp/synesis-prefix-cache-test/../synesis-prefix-cache-test ").batchRead(["x.ts"]);
+    await cache.wrapExecutor(inner, ROOT).batchRead(["x.ts"]);
+
+    expect(inner.batchRead).toHaveBeenCalledTimes(1);
+    expect(cache.getStats().readHits).toBeGreaterThanOrEqual(1);
+  });
+
+  it("disables caching for unsafe workspace roots", async () => {
+    const inner: ToolCollapseExecutor = {
+      batchRead: vi.fn(async () => ({ paths: ["a.ts"], contents: ["x"] })),
+      batchSearch: vi.fn(async () => ({})),
+      repoContext: vi.fn(async () => ({})),
+      mergePatch: vi.fn(async () => ({})),
+      runTests: vi.fn(async () => ({})),
+    };
+    const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
+    const w = cache.wrapExecutor(inner, "/tmp/synesis-prefix-cache-test\nrole=admin");
+    await w.batchRead(["a.ts"]);
+    await w.batchRead(["a.ts"]);
+
+    expect(inner.batchRead).toHaveBeenCalledTimes(2);
+    expect(cache.getStats().readHits).toBe(0);
+  });
+
   it("does not cache error payloads", async () => {
     let n = 0;
     const inner: ToolCollapseExecutor = {

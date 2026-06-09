@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { sortObjectKeys } from "../compat/sorted-tools.js";
+import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 import { resolveSafePath } from "../tool-collapse/tool-call-validator.js";
 import type { ToolCollapseExecutor } from "../tool-collapse/tool-call-executor.js";
 import { PrefixCacheStore } from "./PrefixCacheStore.js";
@@ -67,15 +68,15 @@ export class ToolPrefixCache {
    * @param workspaceRoot Resolved workspace from the coder client (header); null disables caching.
    */
   wrapExecutor(inner: ToolCollapseExecutor, workspaceRoot: string | null): ToolCollapseExecutor {
-    const ws = workspaceRoot?.trim() ? path.resolve(workspaceRoot.trim()) : null;
+    const ws = normalizeAbsolutePathHint(workspaceRoot);
     const ns = ws ? shaShort(ws) : null;
-    if (!ns || !workspaceRoot?.trim()) {
+    if (!ns || !ws) {
       return inner;
     }
 
     const readKey = (relPath: string): string | null => {
       const n = normRelPath(relPath);
-      const r = resolveSafePath(workspaceRoot, n);
+      const r = resolveSafePath(ws, n);
       if (!r.ok) {
         this.stats.skippedUnsafePath++;
         return null;
