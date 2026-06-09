@@ -142,7 +142,7 @@ describe("planning state helpers", () => {
       maxOutputTokens: 1400,
     }));
     expect(block).toContain('model="coder-horizon:fallback"');
-    expect(block).toContain("todo_tool=todowrite");
+    expect(block).toContain("todo_tool: todowrite");
     expect(session.record.metadata.planner_todo_packet_origin).toBe("deterministic_fallback");
     expect(session.record.metadata.planner_todo_packet_failure_kind).toBe("timeout");
     expect(session.record.metadata.planner_todo_packet_timeout_ms).toBe(12000);

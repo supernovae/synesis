@@ -145,8 +145,9 @@ export function shouldGeneratePlannerTodoPacket(options: {
 
 export function buildPlannerTodoPacketPrompt(input: PlannerTodoPacketGenerateInput): string {
   const prompt = normalizePrompt(stripSlashPlan(input.prompt), input.maxPromptChars);
-  const todoTool = input.capabilities.todoToolName ?? "none";
-  const questionTool = input.capabilities.questionToolName ?? "none";
+  const todoTool = promptControlAttr(input.capabilities.todoToolName ?? "none", 80, "none");
+  const questionTool = promptControlAttr(input.capabilities.questionToolName ?? "none", 80, "none");
+  const sourceHash = promptControlAttr(input.sourceHash, 128);
   return [
     "You are Synesis Coder Horizon acting only as a planning model.",
     "Produce a compact JSON todo packet that helps a smaller coding model execute safely.",
@@ -185,7 +186,7 @@ export function buildPlannerTodoPacketPrompt(input: PlannerTodoPacketGenerateInp
     "- If calling OpenCode todowrite, every todo object must include id, content, status, and priority. Do not pass arrays of strings or status-only updates.",
     `- Native todo tool available: ${todoTool}. Native question tool available: ${questionTool}.`,
     "",
-    `source_hash=${input.sourceHash}`,
+    `source_hash: ${sourceHash}`,
     "User request:",
     prompt || "(empty)",
   ].join("\n");
@@ -286,12 +287,15 @@ export function formatPlannerTodoPacketBlock(options: {
   const packet = normalizePlannerTodoPacket(options.packet);
   const sourceHash = promptControlAttr(options.sourceHash, 128);
   const modelId = promptControlAttr(options.modelId, 128);
+  const questionToolName = promptControlAttr(capabilities.questionToolName ?? "unavailable", 80, "unavailable");
+  const todoToolName = promptControlAttr(capabilities.todoToolName ?? "unavailable", 80, "unavailable");
+  const taskToolNames = capabilities.taskToolNames.map((name) => promptControlAttr(name, 80)).filter(Boolean);
   const lines = [
     `<synesis_planner_todo_packet source_hash="${sourceHash}" model="${modelId}" ambiguity="${packet.ambiguity}">`,
-    `objective=${packet.objective}`,
+    `objective: ${packet.objective}`,
   ];
   if (packet.questions.length > 0) {
-    lines.push(`question_tool=${capabilities.questionToolName ?? "unavailable"}`);
+    lines.push(`question_tool: ${questionToolName}`);
     lines.push("blocking_questions:");
     for (const q of packet.questions) {
       const optionsText = q.options.map((o) => `${o.label}: ${o.description}`).join(" | ");
@@ -299,25 +303,25 @@ export function formatPlannerTodoPacketBlock(options: {
     }
   }
   if (capabilities.todoToolName) {
-    lines.push(`todo_tool=${capabilities.todoToolName}`);
-    if (capabilities.isClaudeCode && capabilities.taskToolNames.length > 0) {
-      lines.push(`claude_code_task_tools=${capabilities.taskToolNames.join(",")}`);
+    lines.push(`todo_tool: ${todoToolName}`);
+    if (capabilities.isClaudeCode && taskToolNames.length > 0) {
+      lines.push(`claude_code_task_tools: ${taskToolNames.join(",")}`);
       lines.push("- Claude Code native task tracker is available. For macro or multi-file tasks, create 3-7 concrete tasks with TaskCreate when missing, then use TaskUpdate to advance statuses as each milestone completes.");
       lines.push("- Do not substitute a free-form checklist when TaskCreate/TaskUpdate are available; the native task tracker is the source of truth.");
     } else if (capabilities.isOpenCode || capabilities.todoToolName.toLowerCase() === "todowrite") {
-      lines.push('required_todowrite_shape={"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}');
+      lines.push('required_todowrite_shape: {"todos":[{"id":"todo_1","content":"Concrete task","status":"pending","priority":"high"}]}');
       lines.push("- OpenCode todowrite requires id, content, status, and priority on every todo item, including updates.");
     }
     const nextAction = capabilities.isClaudeCode && capabilities.taskToolNames.length > 0
       ? (packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_claude_task_tool" : "call_claude_task_tool")
       : (packet.questions.length > 0 && capabilities.questionToolName ? "ask_question_then_todowrite" : "call_todowrite");
-    lines.push(`next_action=${nextAction}`);
+    lines.push(`next_action: ${nextAction}`);
   } else {
-    lines.push("todo_tool=unavailable");
+    lines.push("todo_tool: unavailable");
     if (packet.questions.length > 0) {
-      lines.push(`next_action=${capabilities.questionToolName ? "ask_question_then_write_short_plan" : "ask_question_in_text_then_wait"}`);
+      lines.push(`next_action: ${capabilities.questionToolName ? "ask_question_then_write_short_plan" : "ask_question_in_text_then_wait"}`);
     } else {
-      lines.push("next_action=write_short_plan_then_execute");
+      lines.push("next_action: write_short_plan_then_execute");
     }
     lines.push("- No native todo tool was detected; use this packet as the working plan in the response before editing.");
   }
