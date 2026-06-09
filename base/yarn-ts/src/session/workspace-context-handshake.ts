@@ -180,5 +180,15 @@ export function contextFromSessionMetadata(meta: Record<string, unknown>): Sessi
 }
 
 function sanitize(raw: string, max: number): string {
-  return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+  let withoutControlChars = "";
+  for (const char of String(raw ?? "")) {
+    const code = char.charCodeAt(0);
+    withoutControlChars += code <= 31 || code === 127 ? " " : char;
+  }
+  return withoutControlChars
+    .replace(/[<>"`=]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
 }

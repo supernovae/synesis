@@ -23,6 +23,26 @@ export type SessionPathHints = {
   knowledgeCutoff?: string;
 };
 
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    out += code <= 31 || code === 127 ? " " : char;
+  }
+  return out;
+}
+
+function workspaceContextScalar(value: string | undefined, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const sanitized = replaceControlCharsWithSpace(value)
+    .replace(/[<>"`=]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+  return sanitized || undefined;
+}
+
 function firstNormalizedPath(...values: Array<string | null | undefined>): string | null {
   for (const value of values) {
     const normalized = normalizeAbsolutePathHint(value);
@@ -104,7 +124,9 @@ export function setSessionWorkspaceContext<TState extends WorkspaceBoundarySessi
     state.record.metadata.workspace_context_tool_call_id = details.toolCallId;
   }
   if (details?.reason) {
-    state.record.metadata.workspace_context_reason = details.reason.slice(0, 300);
+    const reason = workspaceContextScalar(details.reason, 300);
+    if (reason) state.record.metadata.workspace_context_reason = reason;
+    else delete state.record.metadata.workspace_context_reason;
   }
   const projectRoot = normalizeAbsolutePathHint(details?.projectRoot);
   const rawCwd = normalizeAbsolutePathHint(details?.cwd);
@@ -117,9 +139,21 @@ export function setSessionWorkspaceContext<TState extends WorkspaceBoundarySessi
     if (projectRoot) state.record.metadata.workspace_context_project_root = projectRoot;
     else delete state.record.metadata.workspace_context_project_root;
   }
-  if (details?.shell) state.record.metadata.workspace_context_shell = details.shell;
-  if (details?.os) state.record.metadata.workspace_context_os = details.os;
-  if (details?.arch) state.record.metadata.workspace_context_arch = details.arch;
+  if (details && "shell" in details) {
+    const shell = workspaceContextScalar(details.shell, 200);
+    if (shell) state.record.metadata.workspace_context_shell = shell;
+    else delete state.record.metadata.workspace_context_shell;
+  }
+  if (details && "os" in details) {
+    const os = workspaceContextScalar(details.os, 80);
+    if (os) state.record.metadata.workspace_context_os = os;
+    else delete state.record.metadata.workspace_context_os;
+  }
+  if (details && "arch" in details) {
+    const arch = workspaceContextScalar(details.arch, 80);
+    if (arch) state.record.metadata.workspace_context_arch = arch;
+    else delete state.record.metadata.workspace_context_arch;
+  }
   state.record.metadata.last_trace_id = reqId;
 }
 
