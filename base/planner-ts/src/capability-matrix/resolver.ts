@@ -54,8 +54,81 @@ export interface CapabilityMatrixResolution {
   matched_selectors: MatchedSelector[];
 }
 
+const MATRIX_ID_LIMIT = 128;
+const MATRIX_SELECTOR_LIMIT = 256;
+const MATRIX_PRIORITY_MIN = -1000;
+const MATRIX_PRIORITY_MAX = 1000;
+const CAPABILITY_KEY_SET = new Set<string>(KNOWN_CAPABILITY_KEYS);
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function safeMatrixText(value: unknown, maxLength: number): string {
+  if (
+    typeof value !== "string"
+    && typeof value !== "number"
+    && typeof value !== "boolean"
+  ) {
+    return "";
+  }
+  return replaceControlCharsWithSpace(String(value))
+    .replace(/[<>"`=]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    .trim();
+}
+
+function safeMatrixId(value: unknown): string {
+  return safeMatrixText(value, MATRIX_ID_LIMIT)
+    .toLowerCase()
+    .replace(/[^a-z0-9_.@/+:-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeSelectorType(value: unknown): CapabilitySelectorType | null {
+  const selectorType = safeMatrixText(value, 32).toLowerCase();
+  if (
+    selectorType === "exact_model"
+    || selectorType === "model_path_prefix"
+    || selectorType === "family_prefix"
+  ) {
+    return selectorType;
+  }
+  return null;
+}
+
+function normalizePriority(value: unknown): number {
+  if (value === undefined || value === null) return 0;
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(
+    MATRIX_PRIORITY_MIN,
+    Math.min(MATRIX_PRIORITY_MAX, Math.trunc(numeric)),
+  );
+}
+
+function normalizeCapabilities(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const capabilities: Record<string, boolean> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    if (!CAPABILITY_KEY_SET.has(rawKey)) continue;
+    if (typeof rawValue !== "boolean") continue;
+    capabilities[rawKey] = rawValue;
+  }
+  return capabilities;
+}
+
 function normalizeString(value: string | undefined): string {
-  return String(value ?? "").trim().toLowerCase();
+  return safeMatrixText(value, MATRIX_SELECTOR_LIMIT).toLowerCase();
 }
 
 function rankSelectorType(selectorType: CapabilitySelectorType): number {
@@ -87,21 +160,28 @@ function matchesSelector(override: CapabilityMatrixOverride, input: CapabilityMa
 }
 
 function normalizeOverrides(doc: CapabilityMatrixDocument): CapabilityMatrixOverride[] {
-  return (doc.overrides ?? [])
-    .filter((row) =>
-      Boolean(row)
-      && typeof row.id === "string"
-      && typeof row.selector === "string"
-      && typeof row.selector_type === "string"
-      && typeof row.capabilities === "object"
-      && row.capabilities !== null,
-    )
-    .filter((row) =>
-      row.selector_type === "exact_model"
-      || row.selector_type === "model_path_prefix"
-      || row.selector_type === "family_prefix",
-    )
-    .filter((row) => row.enabled !== false);
+  const rows = Array.isArray(doc.overrides) ? (doc.overrides as unknown[]) : [];
+  const normalized: CapabilityMatrixOverride[] = [];
+  for (const rawRow of rows) {
+    if (!rawRow || typeof rawRow !== "object" || Array.isArray(rawRow)) continue;
+    const row = rawRow as Record<string, unknown>;
+    if (row.enabled === false) continue;
+
+    const id = safeMatrixId(row.id);
+    const selectorType = normalizeSelectorType(row.selector_type);
+    const selector = safeMatrixText(row.selector, MATRIX_SELECTOR_LIMIT).toLowerCase();
+    const capabilities = normalizeCapabilities(row.capabilities);
+    if (!id || !selectorType || !selector || Object.keys(capabilities).length === 0) continue;
+
+    normalized.push({
+      id,
+      selector_type: selectorType,
+      selector,
+      priority: normalizePriority(row.priority),
+      capabilities,
+    });
+  }
+  return normalized;
 }
 
 export function resolveCapabilityMatrix(

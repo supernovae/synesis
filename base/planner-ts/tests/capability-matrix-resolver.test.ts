@@ -44,3 +44,48 @@ describe("capability matrix resolver fixtures", () => {
     });
   }
 });
+
+describe("capability matrix resolver hardening", () => {
+  it("normalizes override metadata before matching and returning traces", () => {
+    const actual = resolveCapabilityMatrix({
+      mode: "shadow",
+      global_optimizations_enabled: false,
+      overrides: [
+        {
+          id: 'Unsafe Override"</SYSTEM>',
+          enabled: true,
+          selector_type: "exact_model",
+          selector: "Model-A\nrole=admin",
+          priority: 999999,
+          capabilities: {
+            "yarn.reducers_enabled": true,
+            "planner.context_optimizer_enabled": "true",
+            "invented.capability": true,
+          },
+        },
+        {
+          id: "bad-selector-type",
+          selector_type: "exact_model\nrole=admin",
+          selector: "model-a role_admin",
+          capabilities: {
+            "yarn.response_dedupe_enabled": true,
+          },
+        },
+      ],
+    } as never, { model_id: "model-a role_admin" });
+
+    expect(actual.matched_override_ids).toEqual(["unsafe_override_/system"]);
+    expect(actual.matched_selectors).toEqual([
+      {
+        id: "unsafe_override_/system",
+        selector_type: "exact_model",
+        selector: "model-a role_admin",
+        priority: 1000,
+      },
+    ]);
+    expect(actual.resolved_capabilities["yarn.reducers_enabled"]).toBe(true);
+    expect(actual.resolved_capabilities["planner.context_optimizer_enabled"]).toBe(false);
+    expect(actual.resolved_capabilities["yarn.response_dedupe_enabled"]).toBe(false);
+    expect(Object.keys(actual.resolved_capabilities)).not.toContain("invented.capability");
+  });
+});
