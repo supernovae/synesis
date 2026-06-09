@@ -65,6 +65,39 @@ function uniq<T>(arr: T[]): T[] {
   return [...new Set(arr)];
 }
 
+function compactPromptText(value: unknown, maxChars: number): string {
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function promptControlText(value: unknown, maxChars: number): string {
+  return compactPromptText(value, maxChars)
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .trim();
+}
+
+function promptControlList(values: unknown[], maxCharsPerValue: number, fallback = "none"): string {
+  const rendered = values
+    .map((value) => promptControlText(value, maxCharsPerValue))
+    .filter(Boolean);
+  return rendered.length > 0 ? rendered.join(",") : fallback;
+}
+
+function promptControlPipeList(values: unknown[], maxCharsPerValue: number, fallback = "none"): string {
+  const rendered = values
+    .map((value) => promptControlText(value, maxCharsPerValue))
+    .filter(Boolean);
+  return rendered.length > 0 ? rendered.join(" | ") : fallback;
+}
+
+function controlField(name: string, value: unknown, maxChars: number): string {
+  return `${name}: ${promptControlText(value, maxChars) || "none"}`;
+}
+
 export class WorkingFrameService {
   private builtCount = 0;
   private activeFilesTotal = 0;
@@ -221,28 +254,28 @@ export class WorkingFrameService {
     const normalizedPathHints = normalizeWorkingFramePathHints(pathHints);
     const lines = ["<WORKING_FRAME>"];
     if (normalizedPathHints?.projectRoot) {
-      lines.push(`project_root=${normalizedPathHints.projectRoot}`);
+      lines.push(controlField("project_root", normalizedPathHints.projectRoot, 400));
     }
     if (normalizedPathHints?.shellCwd) {
-      lines.push(`shell_cwd=${normalizedPathHints.shellCwd}`);
+      lines.push(controlField("shell_cwd", normalizedPathHints.shellCwd, 400));
     }
     lines.push(
-      `goal=${frame.goal}`,
-      `current_phase=${frame.currentPhase}`,
-      `active_files=${frame.activeFiles.join(",") || "none"}`,
-      `pending_checks=${frame.pendingChecks.join(",") || "none"}`,
-      `constraints=${frame.constraints.join(" | ") || "none"}`,
-      `open_decisions=${frame.openDecisions.join(" | ") || "none"}`,
+      controlField("goal", frame.goal, 240),
+      controlField("current_phase", frame.currentPhase, 40),
+      `active_files: ${promptControlList(frame.activeFiles, 240)}`,
+      `pending_checks: ${promptControlList(frame.pendingChecks, 80)}`,
+      `constraints: ${promptControlPipeList(frame.constraints, 240)}`,
+      `open_decisions: ${promptControlPipeList(frame.openDecisions, 240)}`,
     );
 
     if (frame.currentPhase === "explore") {
-      lines.push("phase_directive=You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
+      lines.push("phase_directive: You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
     } else if (frame.currentPhase === "validation") {
-      lines.push("phase_directive=A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
+      lines.push("phase_directive: A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
     }
 
     lines.push(
-      "formatting_rules=Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.",
+      "formatting_rules: Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.",
       "</WORKING_FRAME>",
     );
     return lines.join("\n");
@@ -255,42 +288,42 @@ export class WorkingFrameService {
       "<WORKING_FRAME>",
     ];
     if (normalizedPathHints?.projectRoot) {
-      lines.push(`project_root=${normalizedPathHints.projectRoot}`);
+      lines.push(controlField("project_root", normalizedPathHints.projectRoot, 400));
     }
     if (normalizedPathHints?.shellCwd) {
-      lines.push(`shell_cwd=${normalizedPathHints.shellCwd}`);
+      lines.push(controlField("shell_cwd", normalizedPathHints.shellCwd, 400));
     }
     lines.push(
-      `goal=${frame.currentGoal}`,
-      `phase=${frame.phase}`,
-      `complexity=${frame.complexity}`,
-      `plan_required=${frame.planRequired}`,
-      `domain=${frame.domain || "none"}`,
-      `relevant_files=${frame.relevantFiles.join(",") || "none"}`,
+      controlField("goal", frame.currentGoal, 240),
+      controlField("phase", frame.phase, 40),
+      controlField("complexity", frame.complexity, 40),
+      controlField("plan_required", frame.planRequired, 20),
+      controlField("domain", frame.domain || "none", 120),
+      `relevant_files: ${promptControlList(frame.relevantFiles, 240)}`,
     );
     if (frame.relevantManifestFacts.length > 0) {
-      lines.push(`manifest_facts=${frame.relevantManifestFacts.join(" | ")}`);
+      lines.push(`manifest_facts: ${promptControlPipeList(frame.relevantManifestFacts, 240)}`);
     }
     if (frame.constraints.length > 0) {
-      lines.push(`constraints=${frame.constraints.join(" | ")}`);
+      lines.push(`constraints: ${promptControlPipeList(frame.constraints, 240)}`);
     }
     if (frame.validationFocus.length > 0) {
-      lines.push(`validation=${frame.validationFocus.join(",")}`);
+      lines.push(`validation: ${promptControlList(frame.validationFocus, 180)}`);
     }
     if (frame.doneCriteria.length > 0) {
-      lines.push(`done_criteria=${frame.doneCriteria.join(" | ")}`);
+      lines.push(`done_criteria: ${promptControlPipeList(frame.doneCriteria, 240)}`);
     }
     if (frame.blockers.length > 0) {
-      lines.push(`blockers=${frame.blockers.join(" | ")}`);
+      lines.push(`blockers: ${promptControlPipeList(frame.blockers, 240)}`);
     }
 
     if (frame.phase === "explore") {
-      lines.push("phase_directive=You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
+      lines.push("phase_directive: You are in the discovery phase. Your ONLY goal is to build a mental map of the codebase. Do not propose edits. Use search tools to trace data flows.");
     } else if (frame.phase === "validate") {
-      lines.push("phase_directive=A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
+      lines.push("phase_directive: A verification step failed. Before reading any more files, explicitly state 3 possible hypotheses for this failure.");
     }
 
-    lines.push("formatting_rules=Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.");
+    lines.push("formatting_rules: Cite existing code as ```startLine:endLine:filepath. Use standard markdown for new code. Use specialized edit tools (like str_replace) instead of rewriting entire files.");
     lines.push("</WORKING_FRAME>");
     return lines.join("\n");
   }
