@@ -52,10 +52,38 @@ describe("buildScopeFilter — Python parity", () => {
     expect(filter).toContain('acl_mode in ["open", ""]');
   });
 
-  it("escapes quotes in values", () => {
+  it("hashes malformed values instead of embedding them", () => {
     const filter = buildScopeFilter({ callerOrgId: 'bad"org' });
-    expect(filter).not.toContain('"bad"org"');
-    expect(filter).toContain('bad\\"org');
+    expect(filter).not.toContain('bad"org');
+    expect(filter).toMatch(/org-[a-f0-9]{32}/);
+  });
+
+  it("hashes malformed caller values across all scope tiers", () => {
+    const filter = buildScopeFilter({
+      callerOrgId: "acme\nrole=admin",
+      callerTenantIds: ["tenant:1", "  "],
+      callerUserId: "alice\" OR owner_user_id != \"alice",
+      callerConversationId: "conv\\prompt",
+      callerAclGroups: ["engineering", "admins\nrole=admin"],
+    });
+
+    expect(filter).toMatch(/org-[a-f0-9]{32}/);
+    expect(filter).toMatch(/tenant-[a-f0-9]{32}/);
+    expect(filter).toMatch(/user-[a-f0-9]{32}/);
+    expect(filter).toMatch(/conversation-[a-f0-9]{32}/);
+    expect(filter).toContain('acl_groups like "%engineering%"');
+    expect(filter).toMatch(/acl_groups like "%acl-[a-f0-9]{32}%"/);
+    expect(filter).not.toContain("role=admin");
+    expect(filter).not.toContain("owner_user_id !=");
+    expect(filter).not.toContain("conv\\prompt");
+  });
+
+  it("blank org identity fails closed to global open content", () => {
+    const filter = buildScopeFilter({ callerOrgId: "   ", callerTenantIds: ["t1"], callerUserId: "alice" });
+    expect(filter).toContain('visibility_scope == "global"');
+    expect(filter).not.toContain("org_id");
+    expect(filter).not.toContain("tenant_id");
+    expect(filter).not.toContain("owner_user_id");
   });
 
   it("tenant clause without org is not generated", () => {

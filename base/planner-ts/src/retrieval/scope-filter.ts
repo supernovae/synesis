@@ -15,7 +15,11 @@
  * restricted/private without matching groups).
  */
 
+import crypto from "node:crypto";
+
 import type { ScopeFilterOptions } from "./types.js";
+
+const SAFE_SCOPE_LITERAL_RE = /^[A-Za-z0-9_.@/-]{1,128}$/;
 
 export function buildScopeFilter(opts?: ScopeFilterOptions): string {
   if (!opts) return "";
@@ -31,31 +35,40 @@ export function buildScopeFilter(opts?: ScopeFilterOptions): string {
   const clauses: string[] = ['visibility_scope == "global"'];
 
   if (callerOrgId) {
-    const safeOrg = esc(callerOrgId).slice(0, 64);
+    const safeOrg = scopeLiteral("org", callerOrgId, 64);
+    if (!safeOrg) return `(${clauses[0]}) and acl_mode in ["open", ""]`;
     clauses.push(`(visibility_scope == "org" and org_id == "${safeOrg}")`);
 
     if (callerTenantIds?.length) {
       const safeTenants = callerTenantIds
         .slice(0, 50)
-        .map((t) => `"${esc(t).slice(0, 64)}"`)
+        .map((t) => scopeLiteral("tenant", t, 64))
+        .filter((t) => t.length > 0)
+        .map((t) => `"${t}"`)
         .join(",");
-      clauses.push(
-        `(visibility_scope == "tenant" and org_id == "${safeOrg}" and tenant_id in [${safeTenants}])`,
-      );
+      if (safeTenants) {
+        clauses.push(
+          `(visibility_scope == "tenant" and org_id == "${safeOrg}" and tenant_id in [${safeTenants}])`,
+        );
+      }
     }
 
     if (callerUserId) {
-      const safeUser = esc(callerUserId).slice(0, 64);
-      clauses.push(
-        `(visibility_scope == "user" and org_id == "${safeOrg}" and owner_user_id == "${safeUser}")`,
-      );
-
-      if (callerConversationId) {
-        const safeConv = esc(callerConversationId).slice(0, 128);
-        const nowEpoch = Math.floor(Date.now() / 1000);
+      const safeUser = scopeLiteral("user", callerUserId, 64);
+      if (safeUser) {
         clauses.push(
-          `(visibility_scope == "session" and org_id == "${safeOrg}" and owner_user_id == "${safeUser}" and conversation_id == "${safeConv}" and (expires_at_epoch <= 0 or expires_at_epoch >= ${nowEpoch}))`,
+          `(visibility_scope == "user" and org_id == "${safeOrg}" and owner_user_id == "${safeUser}")`,
         );
+
+        if (callerConversationId) {
+          const safeConv = scopeLiteral("conversation", callerConversationId, 128);
+          if (safeConv) {
+            const nowEpoch = Math.floor(Date.now() / 1000);
+            clauses.push(
+              `(visibility_scope == "session" and org_id == "${safeOrg}" and owner_user_id == "${safeUser}" and conversation_id == "${safeConv}" and (expires_at_epoch <= 0 or expires_at_epoch >= ${nowEpoch}))`,
+            );
+          }
+        }
       }
     }
   }
@@ -65,8 +78,8 @@ export function buildScopeFilter(opts?: ScopeFilterOptions): string {
   if (callerAclGroups?.length) {
     const safeGroups = callerAclGroups
       .slice(0, 100)
-      .map((g) => esc(g).slice(0, 64))
-      .filter((g) => g.trim());
+      .map((g) => scopeLiteral("acl", g, 64))
+      .filter((g) => g.length > 0);
     if (safeGroups.length > 0) {
       const groupLikes = safeGroups
         .map((g) => `acl_groups like "%${g}%"`)
@@ -78,6 +91,10 @@ export function buildScopeFilter(opts?: ScopeFilterOptions): string {
   return `${baseExpr} and acl_mode in ["open", ""]`;
 }
 
-function esc(s: string): string {
-  return s.replace(/["\\]/g, "\\$&");
+function scopeLiteral(label: "org" | "tenant" | "user" | "conversation" | "acl", value: string, maxLength: number): string {
+  const normalized = value.replace(/\0/g, "").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength && SAFE_SCOPE_LITERAL_RE.test(normalized)) return normalized;
+  const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 32);
+  return `${label}-${digest}`;
 }
