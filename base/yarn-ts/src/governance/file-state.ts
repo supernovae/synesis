@@ -15,6 +15,33 @@ export type FileStateStatus =
   | "evicted"
   | "missing";
 
+export const FILE_STATE_STATUSES: readonly FileStateStatus[] = [
+  "available",
+  "partial",
+  "unchanged",
+  "stale",
+  "evicted",
+  "missing",
+];
+
+const FILE_STATE_SOURCE_SIGNALS: readonly FileStateSourceSemantics["signal"][] = [
+  "full_content",
+  "replayed_snapshot",
+  "meta_hint_replay",
+  "targeted_read_required",
+  "snapshot_evicted",
+  "none",
+];
+
+const FILE_STATE_ENVELOPE_STATUSES: readonly FileStateSourceSemantics["envelopeStatus"][] = [
+  "ok/full_content",
+  "ok/replayed_snapshot",
+  "ok/unchanged_snapshot_still_visible",
+  "needs_targeted_read",
+  "failed/snapshot_evicted",
+  "none",
+];
+
 export interface FileStateSourceSemantics {
   signal:
     | "full_content"
@@ -82,6 +109,12 @@ export interface DeriveFileStateOptions {
   artifactShadows?: ReadonlyMap<string, ArtifactReadShadow>;
   messages?: MessageLike[];
   maxStoredContentChars?: number;
+}
+
+export function parseFileStateStatus(value: unknown): FileStateStatus | null {
+  return typeof value === "string" && (FILE_STATE_STATUSES as readonly string[]).includes(value)
+    ? value as FileStateStatus
+    : null;
 }
 
 export function deriveFileState(options: DeriveFileStateOptions): FileState {
@@ -172,30 +205,35 @@ export function formatFileStateBlock(
   fileState: FileState,
   options: FormatFileStateBlockOptions = {},
 ): string | null {
-  const paths = Object.keys(fileState.filesByPath).sort();
+  const paths = Object.keys(fileState.filesByPath)
+    .map((path) => ({ raw: path, safe: safeControlPath(path) }))
+    .filter((path): path is { raw: string; safe: string } => Boolean(path.safe))
+    .sort((a, b) => a.safe.localeCompare(b.safe));
   if (paths.length === 0) return null;
 
   const maxFiles = Math.max(1, options.maxFiles ?? 24);
   const lines: string[] = ["<SYNESIS_FILE_STATE version=\"1\">"];
-  lines.push(`files_total=${fileState.fileCount}`);
+  lines.push(`files_total=${safeNonNegativeInteger(fileState.fileCount)}`);
 
   for (const path of paths.slice(0, maxFiles)) {
-    const entry = fileState.filesByPath[path];
+    const entry = fileState.filesByPath[path.raw];
+    if (!entry) continue;
+    const sourceSemantics = entry.sourceSemantics ?? { signal: "none", envelopeStatus: "none" };
     lines.push(
       [
         "file",
-        `path=${path}`,
-        `status=${entry.status}`,
+        `path=${path.safe}`,
+        `status=${parseFileStateStatus(entry.status) ?? "missing"}`,
         `full_content_available=${entry.fullContentAvailable ? "yes" : "no"}`,
         `summary_only=${entry.summaryOnly ? "yes" : "no"}`,
         `stale_since_edit=${entry.staleSinceEdit ? "yes" : "no"}`,
-        `last_hash=${entry.lastHash ?? "none"}`,
-        `last_read_turn=${entry.lastReadTurn ?? -1}`,
-        `last_edit_turn=${entry.lastEditTurn ?? -1}`,
+        `last_hash=${safeControlToken(entry.lastHash, "none", 128)}`,
+        `last_read_turn=${safeInteger(entry.lastReadTurn, -1)}`,
+        `last_edit_turn=${safeInteger(entry.lastEditTurn, -1)}`,
         `read_returned_content=${entry.readReturnedContent ? "yes" : "no"}`,
-        `source_signal=${entry.sourceSemantics.signal}`,
-        `source_status=${entry.sourceSemantics.envelopeStatus}`,
-        `source_reason=${entry.sourceSemantics.reason ?? "none"}`,
+        `source_signal=${safeSourceSignal(sourceSemantics.signal)}`,
+        `source_status=${safeEnvelopeStatus(sourceSemantics.envelopeStatus)}`,
+        `source_reason=${safeControlToken(sourceSemantics.reason, "none", 160)}`,
       ].join(";"),
     );
   }
@@ -225,10 +263,13 @@ export function toFileStateSnapshot(
   const maxPaths = Math.max(1, options.maxPaths ?? 8);
 
   for (const [path, entry] of Object.entries(fileState.filesByPath)) {
-    statusCounts[entry.status] += 1;
-    if (entry.status === "stale" || entry.staleSinceEdit) staleFiles.push(path);
-    if (entry.status === "partial") partialFiles.push(path);
-    if (entry.status === "evicted") evictedFiles.push(path);
+    const status = parseFileStateStatus(entry.status) ?? "missing";
+    const safePath = safeControlPath(path);
+    statusCounts[status] += 1;
+    if (!safePath) continue;
+    if (status === "stale" || entry.staleSinceEdit) staleFiles.push(safePath);
+    if (status === "partial") partialFiles.push(safePath);
+    if (status === "evicted") evictedFiles.push(safePath);
   }
 
   staleFiles.sort();
@@ -331,4 +372,42 @@ function isMetaReplayReason(reason: string | undefined): boolean {
 function normalizePath(rawPath: string | undefined): string {
   const value = typeof rawPath === "string" ? rawPath.trim().replace(/\\/g, "/") : "";
   return value;
+}
+
+function safeSourceSignal(value: unknown): FileStateSourceSemantics["signal"] {
+  return typeof value === "string" && (FILE_STATE_SOURCE_SIGNALS as readonly string[]).includes(value)
+    ? value as FileStateSourceSemantics["signal"]
+    : "none";
+}
+
+function safeEnvelopeStatus(value: unknown): FileStateSourceSemantics["envelopeStatus"] {
+  return typeof value === "string" && (FILE_STATE_ENVELOPE_STATUSES as readonly string[]).includes(value)
+    ? value as FileStateSourceSemantics["envelopeStatus"]
+    : "none";
+}
+
+function safeControlPath(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (!normalized || normalized.length > 300) return "";
+  if (!/^[A-Za-z0-9._~@/+:-]+$/.test(normalized)) return "";
+  return normalized;
+}
+
+function safeControlToken(value: unknown, fallback: string, maxChars: number): string {
+  const raw = typeof value === "string" ? value : "";
+  const normalized = raw
+    .replace(/[\r\n\t;=<>"`]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars);
+  return normalized || fallback;
+}
+
+function safeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+}
+
+function safeNonNegativeInteger(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }

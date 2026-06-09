@@ -1,5 +1,9 @@
 import type { ChatStateSnapshot } from "../governance/chat-state.js";
-import type { FileStateSnapshot } from "../governance/file-state.js";
+import {
+  FILE_STATE_STATUSES,
+  type FileStateSnapshot,
+  type FileStateStatus,
+} from "../governance/file-state.js";
 import type {
   GovernorPauseChatStateSummary,
   GovernorPauseFileStateSummary,
@@ -43,6 +47,32 @@ function trimStateChannelSnippet(text: string, max = 2000): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function nonNegativeInteger(value: unknown): number {
+  const numeric = Number(value ?? 0);
+  return Number.isInteger(numeric) && numeric >= 0 ? numeric : 0;
+}
+
+function timestamp(value: unknown): number {
+  const numeric = Number(value ?? Date.now());
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : Date.now();
+}
+
+function persistedPath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (!normalized || normalized.length > 300) return null;
+  if (!/^[A-Za-z0-9._~@/+:-]+$/.test(normalized)) return null;
+  return normalized;
+}
+
+function persistedPathList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((path) => persistedPath(path))
+    .filter((path): path is string => Boolean(path))
+    .slice(0, 8);
+}
+
 export function readPersistedChatStateSnapshot(
   metadata: Record<string, unknown>,
 ): Partial<ChatStateSnapshot> | null {
@@ -82,27 +112,25 @@ export function readPersistedChatStateSnapshot(
 export function readPersistedFileStateSnapshot(metadata: Record<string, unknown>): FileStateSnapshot | null {
   const raw = metadataObject(metadata, "file_state_snapshot");
   if (!raw) return null;
-  const fileCount = Number(raw.fileCount ?? 0);
+  const fileCount = nonNegativeInteger(raw.fileCount);
   const statusCountsRaw = metadataObject(raw, "statusCounts") ?? {};
-  const staleFiles = Array.isArray(raw.staleFiles) ? raw.staleFiles.map((value) => String(value)).slice(0, 8) : [];
-  const partialFiles = Array.isArray(raw.partialFiles) ? raw.partialFiles.map((value) => String(value)).slice(0, 8) : [];
-  const evictedFiles = Array.isArray(raw.evictedFiles) ? raw.evictedFiles.map((value) => String(value)).slice(0, 8) : [];
-  const updatedAt = Number(raw.updatedAt ?? Date.now());
-  const statusCounts = {
-    available: Number(statusCountsRaw.available ?? 0),
-    partial: Number(statusCountsRaw.partial ?? 0),
-    unchanged: Number(statusCountsRaw.unchanged ?? 0),
-    stale: Number(statusCountsRaw.stale ?? 0),
-    evicted: Number(statusCountsRaw.evicted ?? 0),
-    missing: Number(statusCountsRaw.missing ?? 0),
-  };
+  const staleFiles = persistedPathList(raw.staleFiles);
+  const partialFiles = persistedPathList(raw.partialFiles);
+  const evictedFiles = persistedPathList(raw.evictedFiles);
+  const updatedAt = timestamp(raw.updatedAt);
+  const statusCounts = Object.fromEntries(
+    FILE_STATE_STATUSES.map((status) => [
+      status,
+      nonNegativeInteger(statusCountsRaw[status]),
+    ]),
+  ) as Record<FileStateStatus, number>;
   return {
-    fileCount: Number.isFinite(fileCount) ? fileCount : 0,
+    fileCount,
     statusCounts,
     staleFiles,
     partialFiles,
     evictedFiles,
-    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    updatedAt,
   };
 }
 

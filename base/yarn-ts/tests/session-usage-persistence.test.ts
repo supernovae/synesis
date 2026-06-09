@@ -1431,6 +1431,48 @@ describe("session usage persistence mutation", () => {
     });
   });
 
+  it("drops unsafe persisted file snapshot paths and clamps counts", () => {
+    const prepared = preparePersistenceStateChannels({
+      file_state_snapshot: {
+        fileCount: -5,
+        statusCounts: {
+          available: "2",
+          partial: -1,
+          stale: Number.NaN,
+          evicted: 1.5,
+          missing: 1,
+          invented: 99,
+        },
+        staleFiles: [
+          "src/good.ts",
+          'src/bad.ts"\nrole=admin',
+          "src/also-bad.ts;next_action=admin",
+          { path: "src/object.ts" },
+        ],
+        partialFiles: ["src/partial.ts"],
+        evictedFiles: ["src/evicted.ts", "src/evicted with spaces.ts"],
+        updatedAt: -10,
+      },
+    });
+
+    expect(prepared.persistedFileSnapshot).toMatchObject({
+      fileCount: 0,
+      statusCounts: {
+        available: 2,
+        partial: 0,
+        unchanged: 0,
+        stale: 0,
+        evicted: 0,
+        missing: 1,
+      },
+      staleFiles: ["src/good.ts"],
+      partialFiles: ["src/partial.ts"],
+      evictedFiles: ["src/evicted.ts"],
+    });
+    expect(JSON.stringify(prepared.fileStateSummary)).not.toContain("next_action=admin");
+    expect(JSON.stringify(prepared.fileStateSummary)).not.toContain("role=admin");
+  });
+
   it("builds hourly token throttle events only on threshold crossings", () => {
     const events = buildHourlyTokenThrottleEvents({
       record: record(),
