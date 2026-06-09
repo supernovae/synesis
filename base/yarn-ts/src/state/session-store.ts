@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import { createHash } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 import type { ProviderCachePolicyWindow } from "../telemetry/cache-policy-controller.js";
@@ -114,6 +115,8 @@ redis.call("SET", key, newData, "EX", ttl)
 return 1
 `;
 
+const REDIS_KEY_PART_LIMIT = 320;
+
 export class SessionStore {
   private readonly redis: Redis;
   private readonly ttlSeconds: number;
@@ -141,11 +144,16 @@ export class SessionStore {
 
   async loadActiveSessionKey(baseKey: string): Promise<string | null> {
     const raw = await this.redis.get(this.activeKey(baseKey));
-    return raw && raw.trim() ? raw.trim() : null;
+    return raw && raw.trim() ? this.safeScopedKeyPart(raw, "unknown-session") : null;
   }
 
   async saveActiveSessionKey(baseKey: string, sessionKey: string): Promise<void> {
-    await this.redis.set(this.activeKey(baseKey), sessionKey, "EX", this.ttlSeconds);
+    await this.redis.set(
+      this.activeKey(baseKey),
+      this.safeScopedKeyPart(sessionKey, "unknown-session"),
+      "EX",
+      this.ttlSeconds,
+    );
   }
 
   /**
@@ -315,15 +323,15 @@ export class SessionStore {
   }
 
   private redisKey(sessionKey: string): string {
-    return `yarn-ts:session:${sessionKey}`;
+    return `yarn-ts:session:${this.safeScopedKeyPart(sessionKey, "unknown-session")}`;
   }
 
   private stateKey(sessionKey: string): string {
-    return `yarn-ts:state:${sessionKey}`;
+    return `yarn-ts:state:${this.safeScopedKeyPart(sessionKey, "unknown-session")}`;
   }
 
   private activeKey(baseKey: string): string {
-    return `yarn-ts:active-session:${baseKey}`;
+    return `yarn-ts:active-session:${this.safeScopedKeyPart(baseKey, "unknown-session-base")}`;
   }
 
   private continuityKey(orgId: string, userId: string): string {
@@ -360,5 +368,26 @@ export class SessionStore {
 
   private safeKeyPart(value: string): string {
     return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_").slice(0, 160) || "unknown";
+  }
+
+  private safeScopedKeyPart(value: unknown, fallback: string): string {
+    const raw = this.replaceControlCharsWithSpace(String(value ?? "")).trim();
+    if (!raw) return fallback;
+    const safe = raw
+      .replace(/[^A-Za-z0-9_.@:-]+/g, "_")
+      .replace(/_+/g, "_");
+    if (!safe) return fallback;
+    if (safe.length <= REDIS_KEY_PART_LIMIT) return safe;
+    const digest = createHash("sha256").update(raw).digest("hex").slice(0, 32);
+    return `${safe.slice(0, 192)}-${digest}`;
+  }
+
+  private replaceControlCharsWithSpace(value: string): string {
+    let out = "";
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+      out += code < 0x20 || code === 0x7f ? " " : value[i];
+    }
+    return out;
   }
 }

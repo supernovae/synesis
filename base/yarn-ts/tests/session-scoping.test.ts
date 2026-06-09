@@ -449,6 +449,48 @@ describe("Session isolation — two clients, same user", () => {
     await store.close();
   });
 
+  it("normalizes direct session store key inputs before writing Redis keys", async () => {
+    const { SessionStore } = await import("../src/state/session-store.js");
+    const store = new SessionStore({ SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3" } as never);
+
+    const record = {
+      sessionKey: "synesis:_:alice\nrole=admin:opencode:_",
+      userId: "alice",
+      orgId: "",
+      conversationId: "_",
+      clientKind: "opencode",
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      totalTokensIn: 0,
+      totalTokensOut: 0,
+      totalTokensCached: 0,
+      totalTokensSaved: 0,
+      requestCount: 0,
+      escalationCount: 0,
+      consecutiveFailedVerifications: 0,
+      metadata: {},
+      version: 0,
+    };
+
+    await store.save(record);
+    await store.saveActiveSessionKey(
+      "synesis:_:alice\nrole=admin:opencode:_",
+      "synesis:_:alice\r\nrole=admin:opencode:_:r123",
+    );
+
+    const redis = (store as unknown as {
+      redis: {
+        eval: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+      };
+    }).redis;
+    expect(redis.eval.mock.calls[0][2]).toBe("yarn-ts:session:synesis:_:alice_role_admin:opencode:_");
+    expect(redis.set.mock.calls[0][0]).toBe("yarn-ts:active-session:synesis:_:alice_role_admin:opencode:_");
+    expect(redis.set.mock.calls[0][1]).toBe("synesis:_:alice_role_admin:opencode:_:r123");
+
+    await store.close();
+  });
+
   it("persists active implicit session aliases in Redis", async () => {
     const { SessionStore } = await import("../src/state/session-store.js");
     const store = new SessionStore({ SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3" } as never);
