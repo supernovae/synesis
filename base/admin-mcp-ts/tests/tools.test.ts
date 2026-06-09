@@ -235,6 +235,69 @@ describe("admin MCP tool catalog", () => {
     );
   });
 
+  it("rejects invented model effort modes before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "model_effort_recommend",
+        { prompt: "summarize this incident", effort_mode: "platform_admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "effort_mode" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known model effort mode values", async () => {
+    const captured: { body?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      captured.body = String(init?.body ?? "");
+      return new Response(JSON.stringify({ effort_mode: "horizon" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "org_admin",
+      },
+      "org_admin",
+      "model_effort_recommend",
+      { prompt: "summarize this incident", effort_mode: "horizon", include_frame: false, operational_health: 0.75 },
+    );
+
+    expect(JSON.parse(captured.body ?? "{}")).toEqual({
+      prompt: "summarize this incident",
+      effort_mode: "horizon",
+      include_frame: false,
+      operational_health: 0.75,
+    });
+  });
+
   it("rejects extra tool arguments before forwarding to Admin API", async () => {
     await expect(
       invokeTool(

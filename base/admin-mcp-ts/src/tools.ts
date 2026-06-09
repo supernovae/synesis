@@ -93,6 +93,7 @@ const INGESTION_CONSTRAINT_KINDS = ["advisory", "guiding", "hard"] as const;
 const INGESTION_DISCOVERY_MODES = ["active", "batch"] as const;
 const TRACE_SERVICES = ["all", "planner", "yarn"] as const;
 const TRACE_DECISION_PATHS = ["abstain", "constrained", "deterministic", "inference_first"] as const;
+const MODEL_EFFORT_MODES = ["auto", "pulse", "core", "horizon"] as const;
 
 function valueMatchesSchemaType(value: unknown, schemaType: string): boolean {
   if (schemaType === "string") return typeof value === "string";
@@ -1719,7 +1720,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         prompt: { type: "string", description: "Prompt to evaluate" },
-        effort_mode: { type: "string" },
+        effort_mode: { type: "string", enum: [...MODEL_EFFORT_MODES] },
         include_frame: { type: "boolean", default: true },
         operational_health: { type: "number" },
       },
