@@ -43,7 +43,7 @@ export function phaseFromFrame(currentPhase: "explore" | "planning" | "implement
 
 function splitAdapterBlockForStability(adapterBlock?: string): { stable?: string; volatile?: string } {
   if (!adapterBlock || !adapterBlock.trim()) return {};
-  const volatileLine = /^(git_|runtime=|session_id=|request_id=|project_root=|shell_cwd=|cwd=|pwd=|temp_|tmp_)/i;
+  const volatileLine = /^(?:git_[a-z_]+|is_git_repo|platform|os_version|shell|runtime|session_id|request_id|project_root|shell_cwd|cwd|pwd|temp_[a-z_]*|tmp_[a-z_]*|client_model_label|knowledge_cutoff)\s*(?::|=|$)/i;
   const lines = adapterBlock.split("\n");
   const stable: string[] = [];
   const volatile: string[] = [];
