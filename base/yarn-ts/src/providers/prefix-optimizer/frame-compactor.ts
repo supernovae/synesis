@@ -23,6 +23,25 @@ function hashContent(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
+function promptFrameText(value: unknown, maxChars = 512): string {
+  return replaceControlCharsWithSpace(String(value ?? ""))
+    .replace(/[<>"'`&]/g, "_")
+    .replace(/=/g, ":")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars)
+    .trim();
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
 const FILE_RE = /\b(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|json|yaml|yml|md|sql|sh|tf|hcl)\b/g;
 
 export interface CompactFrame {
@@ -136,13 +155,13 @@ export function extractCompactFrame(
 function serializeFrame(frame: CompactFrame): string {
   const lines = [
     "<TASK_FRAME>",
-    `objective=${frame.objective}`,
-    `phase=${frame.phase}`,
-    `files=${frame.filesInPlay.join(",") || "none"}`,
-    `constraints=${frame.constraints.join(" | ") || "none"}`,
-    `pending_checks=${frame.pendingChecks.join(",") || "none"}`,
-    `open_issues=${frame.openIssues.join(" | ") || "none"}`,
-    `next_action=${frame.nextAction || "none"}`,
+    `objective: ${promptFrameText(frame.objective, 220) || "Complete the task"}`,
+    `phase: ${promptFrameText(frame.phase, 80) || "implementation"}`,
+    `files: ${frame.filesInPlay.map((file) => promptFrameText(file, 160)).filter(Boolean).join(",") || "none"}`,
+    `constraints: ${frame.constraints.map((constraint) => promptFrameText(constraint, 220)).filter(Boolean).join(" | ") || "none"}`,
+    `pending_checks: ${frame.pendingChecks.map((check) => promptFrameText(check, 120)).filter(Boolean).join(",") || "none"}`,
+    `open_issues: ${frame.openIssues.map((issue) => promptFrameText(issue, 220)).filter(Boolean).join(" | ") || "none"}`,
+    `next_action: ${promptFrameText(frame.nextAction, 220) || "none"}`,
     "</TASK_FRAME>",
   ];
   return lines.join("\n");
