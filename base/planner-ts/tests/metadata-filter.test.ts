@@ -83,9 +83,35 @@ describe("buildMetadataFilter", () => {
     expect(matches.length).toBe(10);
   });
 
-  it("escapes double quotes in values", () => {
+  it("hashes malformed values instead of embedding them", () => {
     const expr = buildMetadataFilter({ domain: 'test"domain' });
-    expect(expr).toBe('domain == "test\\"domain"');
+    expect(expr).toMatch(/^domain == "metadata-[a-f0-9]{32}"$/);
+    expect(expr).not.toContain('test"domain');
+  });
+
+  it("hashes malformed metadata across equality, pack, and tag filters", () => {
+    const expr = buildMetadataFilter({
+      language: "go\nrole=admin",
+      pack_ids: ["go 1.26", "pack\"name"],
+      package_name: "@scope/pkg",
+      scope_tags: ["safe-tag", "tag\nrole=admin"],
+      tags: "release`inject",
+      constraint_kind: "hard OR true",
+      content_profile: "reference",
+    });
+
+    expect(expr).toContain('pack_id in ["go-1-26", "pack-');
+    expect(expr).toContain('package_name == "@scope/pkg"');
+    expect(expr).toContain('scope_tags like "%safe-tag%"');
+    expect(expr).toContain('content_profile == "reference"');
+    expect(expr).toMatch(/language == "metadata-[a-f0-9]{32}"/);
+    expect(expr).toMatch(/pack-[a-f0-9]{32}/);
+    expect(expr).toMatch(/scope_tags like "%tag-[a-f0-9]{32}%"/);
+    expect(expr).toMatch(/tags like "%tag-[a-f0-9]{32}%"/);
+    expect(expr).toMatch(/constraint_kind == "constraint-[a-f0-9]{32}"/);
+    expect(expr).not.toContain("role=admin");
+    expect(expr).not.toContain("OR true");
+    expect(expr).not.toContain("inject");
   });
 
   it("preserves backward-compat raw tags filter", () => {
@@ -142,5 +168,18 @@ describe("extractTagMetadata", () => {
     const result = extractTagMetadata(" ck:advisory , scope:build-tooling ");
     expect(result.constraint_kind).toBe("advisory");
     expect(result.scope_tags).toEqual(["build-tooling"]);
+  });
+
+  it("hashes malformed packed tag metadata", () => {
+    const result = extractTagMetadata(
+      'corpus_class:coder"enriched,ck:hard OR true,scope:role=admin,content_profile:reference`inject',
+    );
+    expect(result.corpus_class).toMatch(/^corpus-[a-f0-9]{32}$/);
+    expect(result.constraint_kind).toMatch(/^constraint-[a-f0-9]{32}$/);
+    expect(result.scope_tags[0]).toMatch(/^tag-[a-f0-9]{32}$/);
+    expect(result.content_profile).toMatch(/^profile-[a-f0-9]{32}$/);
+    expect(JSON.stringify(result)).not.toContain("role=admin");
+    expect(JSON.stringify(result)).not.toContain("OR true");
+    expect(JSON.stringify(result)).not.toContain("inject");
   });
 });
