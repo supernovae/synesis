@@ -40,6 +40,23 @@ function normalizePath(value: string): string {
   return value.trim().replace(/\\/g, "/");
 }
 
+function controlPath(value: unknown): string | null {
+  const normalized = typeof value === "string" ? normalizePath(value) : "";
+  if (!normalized || normalized.length > 300) return null;
+  if (!/^[A-Za-z0-9._~@/+:-]+$/.test(normalized)) return null;
+  return normalized;
+}
+
+function controlToken(value: unknown, fallback: string, maxChars: number): string {
+  const raw = typeof value === "string" ? value : "";
+  const normalized = raw
+    .replace(/[\r\n\t;=<>"'`&]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars);
+  return normalized || fallback;
+}
+
 function round(value: number): number {
   return Number(clamp01(value).toFixed(3));
 }
@@ -207,16 +224,18 @@ export function assessStateConfidence(options: AssessStateConfidenceOptions): St
 
 export function formatStateConfidenceBlock(assessment: StateConfidenceAssessment): string | null {
   if (!assessment.needsReground || !assessment.recommendedReadPath) return null;
-  const reasons = assessment.reasons.join(",") || "low_confidence";
+  const recommendedReadPath = controlPath(assessment.recommendedReadPath);
+  if (!recommendedReadPath) return null;
+  const reasons = controlToken(assessment.reasons.join(","), "low_confidence", 400);
   return [
     "<SYNESIS_STATE_CONFIDENCE version=\"1\">",
-    `chat_confidence=${assessment.chatConfidence.toFixed(3)}`,
-    `file_confidence=${assessment.fileConfidence.toFixed(3)}`,
-    `overall_confidence=${assessment.overallConfidence.toFixed(3)}`,
-    "needs_reground=yes",
-    `recommended_read_path=${assessment.recommendedReadPath}`,
-    `reasons=${reasons}`,
-    "action=Before continuing autonomous implementation, issue exactly one targeted Read for the recommended path.",
+    `chat_confidence: ${assessment.chatConfidence.toFixed(3)}`,
+    `file_confidence: ${assessment.fileConfidence.toFixed(3)}`,
+    `overall_confidence: ${assessment.overallConfidence.toFixed(3)}`,
+    "needs_reground: yes",
+    `recommended_read_path: ${recommendedReadPath}`,
+    `reasons: ${reasons}`,
+    "action: Before continuing autonomous implementation, issue exactly one targeted Read for the recommended path.",
     "</SYNESIS_STATE_CONFIDENCE>",
   ].join("\n");
 }
