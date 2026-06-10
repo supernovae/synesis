@@ -20,7 +20,7 @@ The implementation is **`base/planner-ts/`** (TypeScript, Fastify, Vercel AI SDK
 
 ## Related (outside this folder)
 
-- **User guide (operators & power users):** [../user/USERGUIDE.md](../user/USERGUIDE.md)
-- **Feature / parity tracker (engineering):** [../development/chat-planner-ts-feature-tracker.md](../development/chat-planner-ts-feature-tracker.md)
+- **User guide (operators & power users):** [../user/README.md](../user/README.md)
+- **Engineering / parity references:** [../development/README.md](../development/README.md)
 - **Platform RAG:** [../RAG.md](../RAG.md) · [../INDEXERS.md](../INDEXERS.md)
 - **Security:** [../SECURITY.md](../SECURITY.md)

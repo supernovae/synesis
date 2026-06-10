@@ -32,8 +32,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [`PI_HARNESS.md`](./PI_HARNESS.md) — Pi harness setup with OIDC against the coder frontend
 - [`qwen-stability-feedback-loop.md`](./qwen-stability-feedback-loop.md)
 - [`GIT_FIRST_POLICY_MODES.md`](./GIT_FIRST_POLICY_MODES.md)
-- [`implementation-phases.md`](./implementation-phases.md)
-- [`migration-map-from-milestones.md`](./migration-map-from-milestones.md)
+- [`../../base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md)
 
 ## Runtime & operations (moved here from `docs/` root)
 
@@ -48,15 +47,12 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 
 **Redirects at `docs/` root:** [YARN_RUNTIME.md](../YARN_RUNTIME.md) (stub) · [YARN_CONTEXT_TRUST.md](../YARN_CONTEXT_TRUST.md) (stub)
 
-## Milestone program (M1–M11, engineering archive)
+## Consolidated Feature Areas
 
-Canonical copies live under **[`docs/development/`](../development/README.md#milestone-program-m1m11)**. Quick links:
+Completed milestone notes have been merged into maintained feature docs:
 
-- [WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md](../development/WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md)
-- [VALIDATION_NORMALIZATION_M1.md](../development/VALIDATION_NORMALIZATION_M1.md)
-- [TOOL_RESULT_REDUCTION_M2.md](../development/TOOL_RESULT_REDUCTION_M2.md)
-- [DETERMINISTIC_POLICY_ENGINE_M4.md](../development/DETERMINISTIC_POLICY_ENGINE_M4.md)
-- [PHASE_MODEL_ORCHESTRATOR_M5.md](../development/PHASE_MODEL_ORCHESTRATOR_M5.md)
-- [SESSION_INTELLIGENCE_DASHBOARD_M6.md](../development/SESSION_INTELLIGENCE_DASHBOARD_M6.md)
-- [CONTEXT_OPTIMIZATION_M10.md](../development/CONTEXT_OPTIMIZATION_M10.md)
-- [SAFETY_HARDENING_M11.md](../development/SAFETY_HARDENING_M11.md)
+- Validation normalization and reducers: [`base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md)
+- Working frame, project manifest, recall, and structural index: [`context-and-recall-architecture.md`](./context-and-recall-architecture.md)
+- Model routing and phase policy: [`model-routing-and-adaptive-complexity.md`](./model-routing-and-adaptive-complexity.md)
+- Governor, pause envelope, and safety: [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md), [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md), [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
+- Verification and evals: [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)

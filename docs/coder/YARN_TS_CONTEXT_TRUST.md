@@ -2,7 +2,7 @@
 
 This document describes the trust pipeline for **yarn-ts** (`base/yarn-ts/`), the TypeScript runtime that serves OpenAI and Claude-compatible completion APIs to IDE agents (Cursor, Claude Code, Windsurf, etc.).
 
-For the unified planner/yarn defense architecture, see [`SECURITY.md`](./SECURITY.md).
+For the unified planner/yarn defense architecture, see [`SECURITY.md`](../SECURITY.md).
 
 ## Trust tiers
 

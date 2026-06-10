@@ -75,7 +75,7 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 
 | Title | Link | Why it matters here |
 |-------|------|---------------------|
-| Lost in the Middle | [arXiv:2307.03172](https://arxiv.org/abs/2307.03172) | U-shaped attention; ordering of context ([CONTEXT_OPTIMIZATION_M10.md](development/CONTEXT_OPTIMIZATION_M10.md)) |
+| Lost in the Middle | [arXiv:2307.03172](https://arxiv.org/abs/2307.03172) | U-shaped attention; ordering of context ([context and recall](coder/context-and-recall-architecture.md), [context stretch](coder/YARN_CONTEXT_STRETCH.md)) |
 
 ---
 

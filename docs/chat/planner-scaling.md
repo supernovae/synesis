@@ -38,7 +38,7 @@ Target operating envelope remains **25-50+ concurrent users** with stable latenc
 
 ### Observability baseline
 
-- Planner OTEL bootstrap + request span baseline is in place (OpenTelemetry JS SDK **2.x**, OTLP/HTTP; see [`docs/development/dependency-migrations.md`](../development/dependency-migrations.md)).
+- Planner OTEL bootstrap + request span baseline is in place (OpenTelemetry JS SDK **2.x**, OTLP/HTTP; see [`docs/development/TESTING.md`](../development/TESTING.md) for current CI/runtime validation).
 - Telemetry trace lineage fields (`conversation_id`, `parent_trace_id`, `root_trace_id`) are emitted and ingested by admin.
 
 ### Conversation continuity and follow-up handling

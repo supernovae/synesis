@@ -118,7 +118,7 @@ Objective: reduce expectation drift and improve trust when failures happen.
 Deliverables:
 - Align docs/rules with runtime behavior:
   - `docs/chat/OPENWEBUI_PHASES.md`
-  - `docs/user/USERGUIDE.md`
+  - `docs/user/README.md`
   - `.cursor/rules/sse-status-format.mdc`
   - `.cursor/rules/router-governed-evidence.mdc`
 - Add a lightweight doc-reference consistency check in CI for stale enforcement links.

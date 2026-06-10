@@ -11,12 +11,12 @@ hierarchical summaries, and memory-augmented multi-pass workflows.
 1. [Problem Statement](#problem-statement)
 2. [Prior Art](#prior-art)
 3. [Existing Building Blocks](#existing-building-blocks)
-4. [Proposed Architecture](#proposed-architecture)
+4. [Architecture](#architecture)
 5. [Architecture Diagram](#architecture-diagram)
-6. [Proposed Tool APIs](#proposed-tool-apis)
+6. [Memory Tool APIs](#memory-tool-apis)
 7. [Governor Integration](#governor-integration)
 8. [Research References](#research-references)
-9. [Implementation Phases](#implementation-phases)
+9. [Implementation Status](#implementation-status)
 
 ---
 
@@ -95,21 +95,19 @@ Yarn already has several subsystems that serve as foundations for extended memor
 
 | Subsystem | What it does | Source |
 |-----------|-------------|--------|
-| Session continuity | Extracts task, findings, decisions, files from conversations; persists across sessions | [session-continuity.ts](base/yarn-ts/src/context/session-continuity.ts) |
-| Sawtooth compaction | LLM-driven conversation summarization into `<ARCHITECTURAL_STATE>` blocks | [sawtooth-manager.ts](base/yarn-ts/src/context/sawtooth-manager.ts) |
-| Working frame | Tracks current phase, files in play, goal | [working-frame-service.ts](base/yarn-ts/src/context/working-frame-service.ts) |
+| Session continuity | Extracts task, findings, decisions, files from conversations; persists across sessions | [session-continuity.ts](../../base/yarn-ts/src/context/session-continuity.ts) |
+| Sawtooth compaction | LLM-driven conversation summarization into `<ARCHITECTURAL_STATE>` blocks | [sawtooth-manager.ts](../../base/yarn-ts/src/context/sawtooth-manager.ts) |
+| Working frame | Tracks current phase, files in play, goal | [working-frame-service.ts](../../base/yarn-ts/src/frame/working-frame-service.ts) |
 | Plan graph | Structured task/stage tracking with progress signals | Plan graph in session state |
-| Content-addressed dedup | Replaces repeated identical file reads with `<FILE_UNCHANGED>` stubs | [index.ts](base/yarn-ts/src/index.ts) |
-| Session store (Redis) | CAS-protected session records with continuity, metadata, token counters | [session-store.ts](base/yarn-ts/src/state/session-store.ts) |
-| Project manifest | File-path-based language/tool detection (Go, TS, Python, Rust) | [repo-scanner.ts](base/yarn-ts/src/manifest/repo-scanner.ts) |
-| Execution governor | Between-turn behavior controller; detects loops and injects recovery | [execution-governor.ts](base/yarn-ts/src/governance/execution-governor.ts) |
+| Content-addressed dedup | Replaces repeated identical file reads with `<FILE_UNCHANGED>` stubs | [index.ts](../../base/yarn-ts/src/index.ts) |
+| Session store (Redis) | CAS-protected session records with continuity, metadata, token counters | [session-store.ts](../../base/yarn-ts/src/state/session-store.ts) |
+| Project manifest | File-path-based language/tool detection (Go, TS, Python, Rust) | [repo-scanner.ts](../../base/yarn-ts/src/manifest/repo-scanner.ts) |
+| Execution governor | Between-turn behavior controller; detects loops and injects recovery | [execution-governor.ts](../../base/yarn-ts/src/governance/execution-governor.ts) |
 
-**What is missing:** the model has no way to hold a *compact structural
-representation* of a codebase, no way to *explicitly store and recall findings*
-across evaluation passes, and no protocol for *decomposing large validation
-tasks* into bounded sub-evaluations.
+These building blocks now feed the structural index, memory tools,
+hierarchical summaries, and chunked evaluation workflow described below.
 
-## Proposed Architecture
+## Architecture
 
 Four new layers, each building on the previous.
 
@@ -119,7 +117,7 @@ A persistent, compact representation of an entire codebase that fits in
 ~2-5% of the raw token count.
 
 **Location:** `ProjectStructuralIndexService` in
-[src/memory/structural-index.ts](base/yarn-ts/src/memory/structural-index.ts)
+[src/memory/structural-index.ts](../../base/yarn-ts/src/memory/structural-index.ts)
 
 **Behavior:**
 
@@ -130,7 +128,7 @@ A persistent, compact representation of an entire codebase that fits in
    - Import/dependency graph edges
    - Test file mapping (which test covers which source)
 2. Store as a structured JSON artifact in Redis (alongside session data in
-   [session-store.ts](base/yarn-ts/src/state/session-store.ts)).
+   [session-store.ts](../../base/yarn-ts/src/state/session-store.ts)).
 3. Inject a **token-budgeted** subset into each request's system context
    (analogous to Aider's `--map-tokens`).
 4. Use PageRank-style relevance scoring: identifiers referenced across multiple
@@ -149,7 +147,7 @@ as a repo map with zero custom parsing.
 Persistent, queryable summaries at three levels: project, directory, file.
 
 **Location:** `HierarchicalSummaryStore` in
-[src/memory/summary-store.ts](base/yarn-ts/src/memory/summary-store.ts).
+[src/memory/summary-store.ts](../../base/yarn-ts/src/memory/summary-store.ts).
 
 **Behavior:**
 
@@ -265,7 +263,7 @@ flowchart TB
   FE -->|findings| SY
 ```
 
-## Proposed Tool APIs
+## Memory Tool APIs
 
 ### StoreObservation
 
@@ -381,7 +379,7 @@ and correct inefficient memory usage patterns.
 
 These rules complement the existing `exploration_stall_no_edit`,
 `no_progress_loop`, and `plan_reread_loop` rules in
-[execution-governor.ts](base/yarn-ts/src/governance/execution-governor.ts).
+[execution-governor.ts](../../base/yarn-ts/src/governance/execution-governor.ts).
 
 ## Research References
 
@@ -399,21 +397,21 @@ These rules complement the existing `exploration_stall_no_edit`,
 - **Claude Code Subagents** (2025-2026): Context isolation via parallel
   subagents. The pattern for chunked evaluation.
 
-## Implementation Phases
+## Implementation Status
 
 ### Phase 0: Pragmatic Go Fix (implemented)
 
 `go doc ./...` output as a zero-cost structural index for Go projects in
-[go-doc-index.ts](base/yarn-ts/src/memory/go-doc-index.ts).
+[go-doc-index.ts](../../base/yarn-ts/src/memory/go-doc-index.ts).
 Parses go doc output into a `StructuralIndex` and renders a compact repo map.
 Config: `SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED`.
 
 ### Phase 1: Structural Index (implemented)
 
 - Regex-based signature extraction for Go, TypeScript, Python in
-  [extractors.ts](base/yarn-ts/src/memory/extractors.ts).
+  [extractors.ts](../../base/yarn-ts/src/memory/extractors.ts).
 - `ProjectStructuralIndexService` in
-  [structural-index.ts](base/yarn-ts/src/memory/structural-index.ts).
+  [structural-index.ts](../../base/yarn-ts/src/memory/structural-index.ts).
 - Token-budgeted rendering with PageRank-style cross-file relevance scoring.
 - Redis-backed persistence with configurable TTL.
 - Config: `SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED`,
@@ -422,10 +420,10 @@ Config: `SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED`.
 ### Phase 2: Memory Tools (implemented)
 
 - `MemoryStore` in
-  [memory-store.ts](base/yarn-ts/src/memory/memory-store.ts).
+  [memory-store.ts](../../base/yarn-ts/src/memory/memory-store.ts).
 - `StoreObservation` / `RecallFindings` with session and project scopes.
 - Governor integration in
-  [governor-integration.ts](base/yarn-ts/src/memory/governor-integration.ts):
+  [governor-integration.ts](../../base/yarn-ts/src/memory/governor-integration.ts):
   `MemoryGovernorTracker` and `evaluateMemoryRules`.
 - Config: `SYNESIS_YARN_MEMORY_TOOLS_ENABLED`,
   `SYNESIS_YARN_MEMORY_STORE_MAX_ENTRIES`.
@@ -433,7 +431,7 @@ Config: `SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED`.
 ### Phase 3: Hierarchical Summaries (implemented)
 
 - `HierarchicalSummaryStore` in
-  [summary-store.ts](base/yarn-ts/src/memory/summary-store.ts).
+  [summary-store.ts](../../base/yarn-ts/src/memory/summary-store.ts).
 - Heuristic file summaries generated on read (no LLM required).
 - Directory and project rollup summaries from children.
 - Content-hash versioning for automatic invalidation.
@@ -443,10 +441,10 @@ Config: `SYNESIS_YARN_GO_DOC_REPOMAP_ENABLED`.
 ### Phase 4: Chunked Evaluation Protocol (implemented)
 
 - Requirement extraction and `shouldChunkEval` heuristic in
-  [chunked-eval.ts](base/yarn-ts/src/memory/chunked-eval.ts).
+  [chunked-eval.ts](../../base/yarn-ts/src/memory/chunked-eval.ts).
 - Three-phase workflow: Index, Map Features, Synthesize.
 - Per-feature context generation with bounded token budgets.
 - Config: `SYNESIS_YARN_CHUNKED_EVAL_ENABLED`,
   `SYNESIS_YARN_CHUNKED_EVAL_MAX_FEATURES_PER_PASS`.
 - Integration with the Eval Gym for regression testing (see
-  [EVAL_GYM.md](docs/coder/EVAL_GYM.md)).
+  [EVAL_GYM.md](EVAL_GYM.md)).

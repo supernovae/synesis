@@ -125,7 +125,7 @@ guidance spliced into the middle of the history poisoned the cache downstream.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` | `100000` | Hard prompt token ceiling (request rejected above this) |
+| `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` | `262000` | Hard prompt token ceiling (request rejected above this) |
 | `SYNESIS_YARN_CONTEXT_BUDGET_ENABLED` | `true` | Enable tiered budget compaction |
 | `SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS` | `0` (uses hard limit) | Override ceiling per deployment |
 | `SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED` | `true` | Enable ArtifactStore writes during pruning |

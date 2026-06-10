@@ -257,10 +257,10 @@ Quick lookup for where to change each type of limit:
 
 Yarn's token and tool budgets follow a similar philosophy to the planner — scale
 with context, enforce via ledger — but substitute **interaction mode + client
-preset** for task difficulty. See
-[docs/development/CLIENT_ADAPTER_PACKS_M7.md](development/CLIENT_ADAPTER_PACKS_M7.md) for the full
-architecture: session ledger, per-turn caps, tool-output budgets, JSON presets,
-and compatibility negotiation.
+preset** for task difficulty. Client execution context is documented in
+[docs/clients/SESSION_EXECUTION_CONTEXT.md](clients/SESSION_EXECUTION_CONTEXT.md);
+tool-output reduction and reducer runtime controls are documented in
+[`base/yarn-ts/src/reduction/README.md`](../base/yarn-ts/src/reduction/README.md).
 
 ### Session budget & safety limits
 

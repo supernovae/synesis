@@ -24,6 +24,6 @@ Client-side `/compact` (Claude Code, etc.) is unchanged: Synesis only detects la
 
 ## Code
 
-- [base/yarn-ts/src/context/compaction-sensitivity.ts](../base/yarn-ts/src/context/compaction-sensitivity.ts)
-- [base/yarn-ts/src/context/sawtooth-manager.ts](../base/yarn-ts/src/context/sawtooth-manager.ts)
-- [base/yarn-ts/src/reduction/tool-result-reducer.ts](../base/yarn-ts/src/reduction/tool-result-reducer.ts)
+- [base/yarn-ts/src/context/compaction-sensitivity.ts](../../base/yarn-ts/src/context/compaction-sensitivity.ts)
+- [base/yarn-ts/src/context/sawtooth-manager.ts](../../base/yarn-ts/src/context/sawtooth-manager.ts)
+- [base/yarn-ts/src/reduction/tool-result-reducer.ts](../../base/yarn-ts/src/reduction/tool-result-reducer.ts)

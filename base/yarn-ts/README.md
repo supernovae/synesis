@@ -38,7 +38,7 @@ From this directory, `npm run verify:live` hits a running Yarn OpenAI-compatible
 
 The runtime **`SYNESIS_INTERNAL_SERVICE_TOKEN`** in this package is the **service** token Yarn uses to call the planner and other internals — not the PAT you pass to live-verify.
 
-See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/LIVE_VERIFICATION_M9.md`**. Workflow: **`yarn-live-verify.yml`**.
+See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/TESTING.md`**. Workflow: **`yarn-live-verify.yml`**.
 
 ## Important Environment Variables
 
@@ -53,8 +53,8 @@ See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/LIVE_
 - `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED` (default `true`) — block risky `mkdir && cd` duplicate-segment drift by rewriting the Bash tool call to a safe failure.
 - `SYNESIS_YARN_GIT_POLICY_MODE` (default `advisory`) — `off|advisory|enforced` repo behavior mode for prompt context and guarded git MCP preflights.
 - `SYNESIS_YARN_CONTEXT_ADMISSION_MODE` (default `hybrid`) — outbound prompt admission behavior: `advisory|hybrid|enforced`.
-- `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default `80000`) — warning threshold for estimated prompt+tool-schema input size.
-- `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default `100000`) — hard reject threshold for clearly unsafe outbound context size.
+- `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default `200000`) — warning threshold for estimated prompt+tool-schema input size.
+- `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default `262000`) — hard reject threshold for clearly unsafe outbound context size.
 - `SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED` — inject `synesis_knowledge_search` and `search_developer_docs` on non-streaming OpenAI-style requests (calls planner `POST /v1/knowledge/search`).
 - `SYNESIS_YARN_WEB_SEARCH_ENABLED` — inject `synesis_web_search` similarly (planner-backed web; `fetch_pages` is token-heavy).
 - `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.

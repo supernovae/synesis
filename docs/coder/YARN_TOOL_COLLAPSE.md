@@ -2,7 +2,7 @@
 
 Synesis Yarn can **batch, dedupe, and merge** adjacent tool calls from the model before the client executes them. Goals: fewer round-trips, less context bloat, and lower prefill churn during tool-heavy phases (e.g. Qwen3 Coder step-style `read_file` bursts).
 
-Implementation: [`base/yarn-ts/src/tool-collapse/`](../base/yarn-ts/src/tool-collapse/).
+Implementation: [`base/yarn-ts/src/tool-collapse/`](../../base/yarn-ts/src/tool-collapse/).
 
 ## Canonical safe toolset
 
@@ -23,7 +23,7 @@ If you do **not** implement synthetics, keep rewrite off and use the **plan API*
 
 ## Enablement (cluster)
 
-- **Manifest default:** [`base/yarn-ts/deployment.yaml`](../base/yarn-ts/deployment.yaml) sets `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED=true` so the plan route is available after apply.
+- **Manifest default:** [`base/yarn-ts/deployment.yaml`](../../base/yarn-ts/deployment.yaml) sets `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED=true` so the plan route is available after apply.
 - **Helm values:** set these in `workloads.yarn.env` when you need explicit overrides:
 
   - `SYNESIS_YARN_TOOL_COLLAPSE_ENABLED` (default **true** when patching)
@@ -38,7 +38,7 @@ If you do **not** implement synthetics, keep rewrite off and use the **plan API*
 When enabled **and** the client opts in per request:
 
 1. Header `x-synesis-tool-collapse: apply`
-2. A resolved workspace root for path validation: `x-synesis-project-root`, legacy `x-synesis-workspace-root`, and/or OpenAI body `metadata.synesis_project_root` (same precedence as [SESSION_EXECUTION_CONTEXT.md](clients/SESSION_EXECUTION_CONTEXT.md))
+2. A resolved workspace root for path validation: `x-synesis-project-root`, legacy `x-synesis-workspace-root`, and/or OpenAI body `metadata.synesis_project_root` (same precedence as [SESSION_EXECUTION_CONTEXT.md](../clients/SESSION_EXECUTION_CONTEXT.md))
 3. More than one external tool call in the completion
 
 Yarn may replace multiple calls with fewer **`synesis_*`** calls. Arguments include `_synesis_original_tool_call_ids` for tracing and fan-out.
@@ -94,7 +94,7 @@ We **cannot** prove collapse is correct for every possible model + workspace sta
 
 ## LLM bias (Qwen3 vs others)
 
-Patterns (step-wise `read_file`, alternating search/read) show up in **many** agentic tool-calling models, not only Qwen3 Coder. Tool **names** differ by product (`read_file` vs `filesystem.read`); we use **alias sets** in [`tool-call-collapser.ts`](../base/yarn-ts/src/tool-collapse/tool-call-collapser.ts). Expand aliases as you onboard models.
+Patterns (step-wise `read_file`, alternating search/read) show up in **many** agentic tool-calling models, not only Qwen3 Coder. Tool **names** differ by product (`read_file` vs `filesystem.read`); we use **alias sets** in [`tool-call-collapser.ts`](../../base/yarn-ts/src/tool-collapse/tool-call-collapser.ts). Expand aliases as you onboard models.
 
 ## Libraries
 
@@ -114,11 +114,11 @@ Auth: PAT + coder scope + same OpenFGA check as completions.
 Body (either shape):
 
 - `{ "tool_calls": [ { "toolCallId", "toolName", "input" } ], "workspace_root"?, "strict_validation"?, "execute"? }`
-- Or OpenAI-style `tool_calls` array (see route parser in [`routes.ts`](../base/yarn-ts/src/tool-collapse/routes.ts)).
+- Or OpenAI-style `tool_calls` array (see route parser in [`routes.ts`](../../base/yarn-ts/src/tool-collapse/routes.ts)).
 
 ## Tests
 
-[`base/yarn-ts/tests/tool-collapse/tool-collapse.test.ts`](../base/yarn-ts/tests/tool-collapse/tool-collapse.test.ts) covers batching, merge, dedupe, search batching, validation, and fallback.
+[`base/yarn-ts/tests/tool-collapse/tool-collapse.test.ts`](../../base/yarn-ts/tests/tool-collapse/tool-collapse.test.ts) covers batching, merge, dedupe, search batching, validation, and fallback.
 
 ## References
 

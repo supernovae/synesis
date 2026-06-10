@@ -30,4 +30,4 @@ Kubernetes / Keycloak / registry details: [`docs/admin/`](admin/) (e.g. [Keycloa
 
 ## Research & long-form design
 
-Product-facing reading paths: **chat/** and **coder/** hubs above. **Milestone program (M1–M11)** and the **testing inventory** live under **[development/](development/README.md)** alongside CI and parity trackers.
+Product-facing reading paths: **chat/** and **coder/** hubs above. Current engineering checks and validation commands live under **[development/](development/README.md)**.

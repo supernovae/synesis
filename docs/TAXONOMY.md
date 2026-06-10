@@ -578,4 +578,4 @@ See [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) for design, flo
 - [master_intent_weights.yaml](../base/planner-ts/config/master_intent_weights.yaml) — Full sovereign catalog
 - Vertical prompts in taxonomy plugin YAMLs — Sovereign persona injection
 - [plugins/weights/README.md](../base/planner-ts/config/plugins/weights/README.md) — Plugin format
-- [nodes.md](nodes.md) — Node flow and persona tiers
+- [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) — Node flow and planner graph

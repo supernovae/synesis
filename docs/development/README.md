@@ -1,6 +1,6 @@
 # Engineering & development documentation
 
-These pages support **contributors and operators** who work from the repository: CI, tests, migrations, milestone design history, and long-running trackers. They are **not** the primary path for end-user “connect my IDE” setup — use [`docs/user/`](../user/README.md) and [`docs/clients/`](../clients/CLIENTS.md) for that.
+These pages support **contributors and operators** who work from the repository: CI, tests, migrations, and maintained engineering runbooks. They are **not** the primary path for end-user “connect my IDE” setup — use [`docs/user/`](../user/README.md) and [`docs/clients/`](../clients/CLIENTS.md) for that.
 
 ## Testing & CI (start here)
 
@@ -12,7 +12,6 @@ From the same directory:
 |----------|---------|
 | [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) | Post-deploy checks, Makefile targets, live intent validation |
 | [CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md) | GitHub Actions variables/secrets for evaluation jobs |
-| [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) | Live verification runbook (deployed Yarn / planner checks) |
 | [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md) | Strategy + operator runbook for trust KPIs, gates, canaries, scorecards, and rollback |
 
 ## Tooling & trackers
@@ -20,29 +19,23 @@ From the same directory:
 | Document | Purpose |
 |----------|---------|
 | [UV_TOOLING.md](./UV_TOOLING.md) | Python lockfiles and `uv` usage |
-| [dependency-migrations.md](./dependency-migrations.md) | Dependency upgrade notes |
-| [chat-planner-ts-feature-tracker.md](./chat-planner-ts-feature-tracker.md) | Chat (planner-ts) capability tracker (historical rows may cite pre-TS behavior) |
 | [PLANNER_TS_SCALABILITY_RESEARCH.md](./PLANNER_TS_SCALABILITY_RESEARCH.md) | Scaling research notes |
 
-## Milestone program (M1–M11)
+Dependency and chat capability history is tracked through the current testing,
+security, and product hubs: [TESTING.md](./TESTING.md),
+[../SECURITY.md](../SECURITY.md), and [../chat/README.md](../chat/README.md).
 
-Structured milestone write-ups (historical **engineering** references; product hubs remain [`docs/chat/`](../chat/README.md) and [`docs/coder/`](../coder/README.md)):
+## Feature documentation
 
-| Milestone | Document |
-|-----------|----------|
-| M1 | [VALIDATION_NORMALIZATION_M1.md](./VALIDATION_NORMALIZATION_M1.md) |
-| M2 | [TOOL_RESULT_REDUCTION_M2.md](./TOOL_RESULT_REDUCTION_M2.md) |
-| M3 | [WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md](./WORKING_FRAME_AND_PROJECT_MANIFEST_M3.md) |
-| M4 | [DETERMINISTIC_POLICY_ENGINE_M4.md](./DETERMINISTIC_POLICY_ENGINE_M4.md) |
-| M5 | [PHASE_MODEL_ORCHESTRATOR_M5.md](./PHASE_MODEL_ORCHESTRATOR_M5.md) |
-| M6 | [SESSION_INTELLIGENCE_DASHBOARD_M6.md](./SESSION_INTELLIGENCE_DASHBOARD_M6.md) |
-| M7 | [CLIENT_ADAPTER_PACKS_M7.md](./CLIENT_ADAPTER_PACKS_M7.md) |
-| M8 | [REDUCER_REGISTRY_M8.md](./REDUCER_REGISTRY_M8.md) |
-| M9 | [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) |
-| M10 | [CONTEXT_OPTIMIZATION_M10.md](./CONTEXT_OPTIMIZATION_M10.md) |
-| M11 | [SAFETY_HARDENING_M11.md](./SAFETY_HARDENING_M11.md) |
+Milestone-era design notes have been consolidated into the current feature docs below:
 
-**Index:** [Migration map from milestones → features](../coder/migration-map-from-milestones.md) (`docs/coder/`).
+| Area | Canonical docs |
+|------|----------------|
+| Validation normalization and reducers | [`base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md) |
+| Context, manifest, recall, and structural index | [`docs/coder/context-and-recall-architecture.md`](../coder/context-and-recall-architecture.md) |
+| Model routing and phase policy | [`docs/coder/model-routing-and-adaptive-complexity.md`](../coder/model-routing-and-adaptive-complexity.md) |
+| Governor and safety controls | [`docs/coder/GOVERNOR_HARNESS.md`](../coder/GOVERNOR_HARNESS.md), [`docs/coder/safety-reliability-and-fail-safe.md`](../coder/safety-reliability-and-fail-safe.md) |
+| Verification and evals | [`docs/coder/observability-verification-and-evals.md`](../coder/observability-verification-and-evals.md), [`TESTING.md`](./TESTING.md) |
 
 ## Product-aligned doc hubs
 

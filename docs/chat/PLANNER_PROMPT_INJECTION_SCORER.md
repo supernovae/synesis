@@ -24,7 +24,7 @@ This document describes a **future, optional** layer for planner-ts — not impl
 
 1. Spike: offline evaluation on `scanner_vectors.json` + red-team sets; measure precision/recall vs. regex-only and vs. dual-signal.
 2. Ship scorer service + admin visibility before any default blocking coupling.
-3. Document operator knobs next to `SYNESIS_INJECTION_ACTION` and `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL` in [SECURITY.md](./SECURITY.md).
+3. Document operator knobs next to `SYNESIS_INJECTION_ACTION` and `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL` in [SECURITY.md](../SECURITY.md).
 
 ## References
 

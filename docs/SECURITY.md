@@ -131,7 +131,7 @@ Regex scanning is fast but coarse. Core phrases such as “ignore previous instr
 
 **Examples that may match core patterns:** “Explain why an attacker might say *ignore all previous instructions*”, pasted JSON with `[INST]`, or docs that say “override your instructions”. Use **`log`**, **dual-signal**, or both if those flows are common for your org.
 
-See also: [Optional second-stage PI scorer](./PLANNER_PROMPT_INJECTION_SCORER.md) (design only; not on the hot path by default).
+See also: [Optional second-stage PI scorer](chat/PLANNER_PROMPT_INJECTION_SCORER.md) (design only; not on the hot path by default).
 
 ### Layer 2: Trust Delimiters (Spotlighting)
 

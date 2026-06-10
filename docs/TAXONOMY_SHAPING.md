@@ -18,8 +18,10 @@ experts) by editing YAML alone.
 > **planner-ts v1 note:** The active runtime (`base/planner-ts/`) implements
 > entry classification via the `ScoringEngine` with embedded weights from
 > `intent_weights.yaml`. Full L2 taxonomy resolution (runtime YAML compilation,
-> `TaxonomyPromptFactory`, Pydantic validation) is tracked as a parity item in
-> [development/chat-planner-ts-feature-tracker.md](development/chat-planner-ts-feature-tracker.md).
+> `TaxonomyPromptFactory`, Pydantic validation) is tracked through the
+> engineering and chat documentation hubs:
+> [development/README.md](development/README.md) and
+> [chat/README.md](chat/README.md).
 > The YAML schema and extension points documented below remain the target
 > contract for both runtimes.
 

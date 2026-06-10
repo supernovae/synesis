@@ -107,7 +107,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
 | `DEFAULT_MODELS` | `Synesis Auto` | Default chat model (tier “Auto”); IDs match planner-ts |
 | `DEFAULT_PINNED_MODELS` | `Synesis Auto,Synesis Pulse,…` | Pinned tiers in the model selector for new accounts |
-| `DEFAULT_PROMPT_SUGGESTIONS` | (ConfigMap) | JSON array of new-chat prompt suggestion cards (`title` = two-line label, `content` = prompt text). Synesis merges upstream Open WebUI defaults with platform-specific prompts in [`base/webui/default-prompt-suggestions.json`](../base/webui/default-prompt-suggestions.json); injected via `open-webui-default-prompts` ConfigMap. |
+| `DEFAULT_PROMPT_SUGGESTIONS` | (ConfigMap) | JSON array of new-chat prompt suggestion cards (`title` = two-line label, `content` = prompt text). Synesis merges upstream Open WebUI defaults with platform-specific prompts in [`base/webui/default-prompt-suggestions.json`](../../base/webui/default-prompt-suggestions.json); injected via `open-webui-default-prompts` ConfigMap. |
 | `ENABLE_PERSISTENT_CONFIG` | `false` | Use Deployment env for defaults; otherwise Open WebUI stores first-boot config in SQLite and ignores later env changes (same class of issue as OAuth) |
 | `ENABLE_FOLLOW_UP_GENERATION` | `false` | Disables task-model follow-up “chips” after each assistant message (avoids extra LLM calls and trace noise); default upstream is on |
 | `ENABLE_TITLE_GENERATION` | `false` | Disables task-model chat title generation (avoids an extra LLM call); Open WebUI falls back to its default heading from the first message text |
@@ -116,7 +116,7 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 
 ### Keycloak realm roles (SSO)
 
-Production WebUI uses Keycloak OIDC with **`OAUTH_ALLOWED_ROLES`** (see [`base/webui/deployment.yaml`](../../base/webui/deployment.yaml)): users need the **`synesis-user`** or **`synesis-admin`** **realm role** in the **`synesis`** realm. Self-registration normally assigns **`synesis-user`** via realm default roles; **manually created** users may need **`synesis-user`** assigned in Keycloak. For a concise table (WebUI vs Synesis Admin vs in-app admin), see [KEYCLOAK_BOOTSTRAP.md](admin/KEYCLOAK_BOOTSTRAP.md#realm-roles-open-webui-vs-synesis-admin).
+Production WebUI uses Keycloak OIDC with **`OAUTH_ALLOWED_ROLES`** (see [`base/webui/deployment.yaml`](../../base/webui/deployment.yaml)): users need the **`synesis-user`** or **`synesis-admin`** **realm role** in the **`synesis`** realm. Self-registration normally assigns **`synesis-user`** via realm default roles; **manually created** users may need **`synesis-user`** assigned in Keycloak. For a concise table (WebUI vs Synesis Admin vs in-app admin), see [KEYCLOAK_BOOTSTRAP.md](../admin/KEYCLOAK_BOOTSTRAP.md#realm-roles-open-webui-vs-synesis-admin).
 
 **Pending vs active in Open WebUI:** Open WebUI’s own role for new users is controlled by **`DEFAULT_USER_ROLE`** (`pending`, `user`, or `admin`). Synesis sets **`DEFAULT_USER_ROLE=user`** so users who complete OIDC are not left in **pending** awaiting a WebUI admin—Keycloak has already enforced allowed realm roles. To require manual approval inside Open WebUI anyway, you would set **`DEFAULT_USER_ROLE=pending`** (not recommended when using Keycloak as the gate).
 
@@ -207,7 +207,7 @@ The dev overlay includes `openwebui-direct-planner.yaml`, which pins Open WebUI 
 
 See [OPENWEBUI_ADMIN_GUIDE.md](OPENWEBUI_ADMIN_GUIDE.md) for admin dashboard import and feedback plugin setup.
 
-**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Chat Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](FEEDBACK_API.md)). Deploy the Synesis-built `open-webui` image (`./scripts/build-images.sh --only open-webui`) so planner `run_id` is stored on assistant messages for trace correlation after sync.
+**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Chat Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](../FEEDBACK_API.md)). Deploy the Synesis-built `open-webui` image (`./scripts/build-images.sh --only open-webui`) so planner `run_id` is stored on assistant messages for trace correlation after sync.
 
 ---
 

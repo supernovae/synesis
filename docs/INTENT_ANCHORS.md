@@ -55,7 +55,7 @@ Synesis resolves "what kind of task is this?" **through frame extraction and sen
 | Research ↔ code mapping (Klein, Cynefin, JCS, LDA) | [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md) |
 | Design narrative (complexity, sensemaking, Safety-II) | [DESIGN_THEORY.md](DESIGN_THEORY.md) |
 | End-to-end pipeline, cohesion lock, query normalization | [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) |
-| Chat (planner-ts) feature tracker | [chat-planner-ts-feature-tracker.md](development/chat-planner-ts-feature-tracker.md) |
+| Chat (planner-ts) product hub | [docs/chat/README.md](chat/README.md) |
 
 ## Historical note
 

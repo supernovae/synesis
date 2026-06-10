@@ -41,6 +41,19 @@ Use the following path rules:
 - Use `synesis-core` as default balanced tier.
 - Escalate to `synesis-horizon` for high risk, complex planning, or repeated failed verification.
 
+## Phase Execution Policy
+
+Yarn has a feature-flagged phase execution policy for model families that need
+stricter phase guidance:
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED` | `false` | Enables phase-policy enforcement when the model capability matrix also allows it. |
+| `SYNESIS_YARN_PHASE_EXECUTION_POLICY_FAMILIES` | `qwen3-coder` | Comma-separated model-family allowlist for phase policy. |
+
+Provider preparation applies the policy in both OpenAI and Claude paths. The
+model capability matrix remains the final capability gate.
+
 ## Tool-Layer Compatibility
 
 Policy behavior must remain consistent across IDE, CLI, MCP, and OpenWebUI clients.

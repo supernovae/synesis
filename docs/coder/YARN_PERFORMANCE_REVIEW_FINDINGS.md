@@ -30,9 +30,9 @@ From `oc logs deployment/synesis-yarn -n synesis-yarn` (recent window), a **Clau
 ## 3. Qwen / vLLM tool-call parser alignment
 
 - Yarn’s own diagnostics recommend verifying vLLM uses **`--tool-call-parser=qwen3_coder`** when repeated tool-arg repairs appear (`base/yarn-ts/src/index.ts`, messages around `qwen3_parser_mismatch_suspected`).
-- The checked-in **self-hosted coder** manifest [`base/model-serving/deployment-vllm-coder.yaml`](base/model-serving/deployment-vllm-coder.yaml) currently sets **`--tool-call-parser=hermes`**.
+- The checked-in **self-hosted coder** manifest [`base/model-serving/deployment-vllm-coder.yaml`](../../base/model-serving/deployment-vllm-coder.yaml) currently sets **`--tool-call-parser=hermes`**.
 
-**Action for operators:** If the served weights are **Qwen3-Coder** family, confirm against [vLLM recipes](docs/VLLM_RECIPES.md) and align the parser with the model; mismatch can cause **extra repair rounds** (higher latency and tokens). If the cluster actually serves a Hermes-named model, the manifest may be intentional — **match parser to the deployed checkpoint**.
+**Action for operators:** If the served weights are **Qwen3-Coder** family, confirm against [vLLM recipes](../VLLM_RECIPES.md) and align the parser with the model; mismatch can cause **extra repair rounds** (higher latency and tokens). If the cluster actually serves a Hermes-named model, the manifest may be intentional — **match parser to the deployed checkpoint**.
 
 ## 4. OpenTelemetry (optional finer split)
 
@@ -42,9 +42,9 @@ Live deployment had **`SYNESIS_YARN_OTEL_ENABLED=false`** (OTLP endpoint not wir
 
 ## 5. Tier compare / A/B
 
-- Script: [`base/yarn-ts/scripts/tier-compare.ts`](base/yarn-ts/scripts/tier-compare.ts) — requires `SYNESIS_YARN_URL` (or `SYNESIS_YARN_EVAL_URL`) and a PAT (`SYNESIS_TEST_PAT_TOKEN` / `SYNESIS_TEST_AUTH` / `SYNESIS_TEST_TOKEN`). It runs **synthetic** `/v1/chat/completions` loads across tiers and prints avg/p95 latency plus Tier C / pruning counters.
+- Script: [`base/yarn-ts/scripts/tier-compare.ts`](../../base/yarn-ts/scripts/tier-compare.ts) — requires `SYNESIS_YARN_URL` (or `SYNESIS_YARN_EVAL_URL`) and a PAT (`SYNESIS_TEST_PAT_TOKEN` / `SYNESIS_TEST_AUTH` / `SYNESIS_TEST_TOKEN`). It runs **synthetic** `/v1/chat/completions` loads across tiers and prints avg/p95 latency plus Tier C / pruning counters.
 - **Smoke run** with a dummy URL completes and prints zeros for failed requests; **meaningful numbers** need a reachable Yarn URL and auth.
-- For qualitative A/B vs bare upstream, follow [`docs/clients/CANARY_PROMPT_PACK.md`](docs/clients/CANARY_PROMPT_PACK.md).
+- For qualitative A/B vs bare upstream, follow [`docs/clients/CANARY_PROMPT_PACK.md`](../clients/CANARY_PROMPT_PACK.md).
 
 ## 6. Concrete recommendations
 

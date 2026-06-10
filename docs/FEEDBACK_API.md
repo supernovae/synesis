@@ -119,15 +119,12 @@ synesis-admin maps most Open WebUI failures to **HTTP 502** with a **detail** st
 
 ## Open WebUI Integration
 
-### Feedback dashboard (inside Open WebUI)
+### Feedback dashboard
 
-A **Pipe plugin** adds a "Synesis Feedback" model. Use it to view **planner** stored thumbs with classification context:
-
-1. Import: **Workspace → Functions → Import Functions** → upload `integrations/openwebui-synesis-feedback/synesis_feedback_export.json`
-2. Configure: Edit the function Valves, set `synesis_planner_url` (e.g. `http://synesis-planner-ts:8080`)
-3. Use: Start a chat, select **Synesis Feedback** as model, send `show` or `show down`
-
-See `integrations/openwebui-synesis-feedback/README.md`.
+The old Open WebUI **Pipe plugin** export is not shipped in this repository.
+Use **synesis-admin → Chat Feedback → Sync from Open WebUI** to mirror native
+Open WebUI evaluations into the admin database, then review them in the admin
+UI.
 
 ### Storing planner thumbs (`POST /v1/feedback`)
 

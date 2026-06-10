@@ -31,6 +31,22 @@ flowchart TD
 - **In-memory state:** short-lived session/task context and active constraints.
 - **Executable packages:** deterministic analyzers, reducers, and policy evaluators.
 
+## Runtime Context Enrichment
+
+Yarn injects compact deterministic context before model inference so the model
+does not have to rediscover basic task and project state on every turn.
+
+| Component | Source | Config |
+|-----------|--------|--------|
+| Working frame | `base/yarn-ts/src/frame/working-frame-service.ts` | `SYNESIS_YARN_WORKING_FRAME_ENABLED=true`, `SYNESIS_YARN_FRAME_MAX_FILES=12` |
+| Project manifest | `base/yarn-ts/src/project/project-manifest-service.ts`, `base/yarn-ts/src/manifest/*` | `SYNESIS_YARN_PROJECT_MANIFEST_ENABLED=true`, `SYNESIS_YARN_MANIFEST_TEMPLATES_ENABLED=true` |
+| Structural critic | `base/yarn-ts/src/manifest/structural-critic.ts` | `SYNESIS_YARN_STRUCTURAL_CRITIC_ENABLED=true` |
+| MCP tools | `base/yarn-ts/src/mcp/` | `SYNESIS_YARN_MCP_TOOLS_ENABLED=true` |
+| Structural index | `base/yarn-ts/src/memory/structural-index.ts` | `SYNESIS_YARN_STRUCTURAL_INDEX_ENABLED=true`, `SYNESIS_YARN_STRUCTURAL_INDEX_TOKEN_BUDGET=1536` |
+
+The shared manifest contract lives in `packages/synesis-manifest/`. Runtime
+enrichment is deterministic; model calls happen after these blocks are built.
+
 ## Sensemaking Trigger
 
 Use future-backward planning when any of the following are true:

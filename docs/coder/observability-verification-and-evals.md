@@ -54,6 +54,27 @@ Language pack `VerificationCommands` wired into pipeline for deterministic verif
 
 Fix recipes from language packs matched against error patterns. Confidence-based bypass routing: high confidence -> deterministic bypass, medium -> enriched prompt, low -> passthrough to LLM.
 
+### Yarn live verification
+
+Use the Yarn live verification scripts against a deployed coder endpoint when
+changing reducers, telemetry, or OpenAI/Claude route behavior:
+
+```bash
+cd base/yarn-ts
+
+SYNESIS_YARN_EVAL_URL=https://coder.example.com \
+SYNESIS_TEST_PAT_TOKEN=syn-... \
+npm run verify:live
+
+SYNESIS_YARN_EVAL_URL=https://coder.example.com npm run verify:live:full
+SYNESIS_YARN_EVAL_URL=https://coder.example.com npm run verify:ab
+SYNESIS_YARN_EVAL_URL=https://coder.example.com npm run verify:openai-conformance
+```
+
+`verify:live` replays deterministic reducer fixtures and checks telemetry
+counter deltas. `verify:live:full` adds the Claude Messages path. `verify:ab`
+compares reducer savings profiles.
+
 ## Evaluation
 
 ### Golden-Prompt Eval Harness (Phase 18)

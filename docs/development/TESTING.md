@@ -10,11 +10,11 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
-| [`.github/workflows/lint.yml`](../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
-| [`.github/workflows/security.yml`](../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
-| [`.github/workflows/openai-compat-probe.yml`](../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
-| [`.github/workflows/quality-pipeline.yml`](../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs | Per workflow |
-| [`.github/workflows/retrieval-regression.yml`](../.github/workflows/retrieval-regression.yml) | RAG/regression against cluster inputs | Manual / scheduled |
+| [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
+| [`.github/workflows/security.yml`](../../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
+| [`.github/workflows/openai-compat-probe.yml`](../../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
+| [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs | Per workflow |
+| [`.github/workflows/retrieval-regression.yml`](../../.github/workflows/retrieval-regression.yml) | RAG/regression against cluster inputs | Manual / scheduled |
 
 **Note:** planner ontology + taxonomy YAML now lives in `base/planner-ts/config/` and is exercised by planner-ts tests.
 
@@ -391,10 +391,6 @@ Published artifacts include:
 
 ## 10. Yarn-TS Live Verification (Reducers)
 
-See [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) for the full runbook.
-
-### Quick reference
-
 ```bash
 cd base/yarn-ts
 
@@ -408,7 +404,16 @@ SYNESIS_YARN_EVAL_URL=https://… npm run verify:live:full
 SYNESIS_YARN_EVAL_URL=https://… npm run verify:ab
 ```
 
-Scenarios send deterministic tool-result payloads for each reducer family (`pytest`, `tsc`, `lint`, `git`, `search`) and assert telemetry counter movement. Reports emit structured JSON for archival. See the M9 doc for regression interpretation and CI integration plans.
+Scenarios send deterministic tool-result payloads for each reducer family (`pytest`, `tsc`, `lint`, `git`, `search`) and assert telemetry counter movement. Reports emit structured JSON for archival. Fixtures live under `base/yarn-ts/tests/fixtures/reducers/` and `base/yarn-ts/tests/fixtures/live/`.
+
+Add new reducer families through:
+
+```bash
+cd base/yarn-ts
+npm run scaffold:reducer -- <family-name>
+```
+
+Then update fixtures, unit tests, `scripts/live-verify.ts`, and `scripts/ab-reducer-compare.ts`.
 
 ---
 
@@ -420,7 +425,7 @@ Scenarios send deterministic tool-result payloads for each reducer family (`pyte
 | 2026-03-23 | §4: Planner vs Yarn OpenAI surface — implemented vs not implemented, test backlog. |
 | 2026-03-24 | §8: Validation ring (CI-to-cluster security). §9: H2 quality regression workflows + Testing Labs. |
 | 2026-03-24 | §9: Three-mode activation (PR-gated, dispatch, release). Local/CLI usage. Secrets reference. |
-| 2026-03-25 | §10: Yarn-TS live verification suite (M9) — reducer smoke tests, telemetry assertions, A-B comparison. |
+| 2026-03-25 | §10: Yarn-TS live verification suite — reducer smoke tests, telemetry assertions, A-B comparison. |
 | 2026-04-24 | Added trust-hardening references and §9.7 Harness Trust KPI lane (observe → baseline → enforce → rollback). |
 | 2026-04-24 | Expanded §9.7 with trust budget threshold flags and main/release lane enforcement notes. |
 | 2026-04-24 | Added scorecard + rollback CLI flow (power-user canaries, streak-aware hold policy, and history artifacts). |
