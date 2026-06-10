@@ -37,6 +37,14 @@ spec:
           protocol: TCP
         - port: 8080
           protocol: TCP
+    # Yarn runtime diagnostics and operations proxy
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-yarn
+      ports:
+        - port: 8000
+          protocol: TCP
     # NornicDB (synesis-rag namespace) — content graph stats, knowledge gap validation
     - to:
         - namespaceSelector:

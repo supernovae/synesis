@@ -48,7 +48,7 @@ TransitionEventKind = Literal[
 
 _YARN_URL = os.getenv(
     "SYNESIS_YARN_URL",
-    "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000",
+    os.getenv("SYNESIS_YARN_TS_URL", "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000"),
 )
 
 
