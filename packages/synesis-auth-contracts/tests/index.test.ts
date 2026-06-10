@@ -141,6 +141,21 @@ describe("@synesis/auth-contracts", () => {
     });
   });
 
+  it("defaults trusted forwarded identity to model scope when no scope header is sent", () => {
+    const forwarded = parseForwardedIdentityHeaders({
+      "x-openwebui-user-id": "user-1",
+      "x-openwebui-user-email": "user@example.com",
+    });
+
+    expect(forwarded.present).toBe(true);
+    expect(forwarded.tokenScopes).toEqual([]);
+
+    const principal = buildForwardedIdentityPrincipal(forwarded);
+    expect(principal.authMethod).toBe("internal_service");
+    expect(principal.trustedForwardedIdentity).toBe(true);
+    expect(principal.tokenScopes).toEqual(["model:readonly"]);
+  });
+
   it("rejects malformed trusted forwarded identity headers", () => {
     expect(() => parseForwardedIdentityHeaders({
       "x-openwebui-user-id": "trusted user",

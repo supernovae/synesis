@@ -66,6 +66,44 @@ describe("resolveAuthContext", () => {
     expect(auth.tokenScopes).toEqual(["model:readonly", "coder:execute"]);
   });
 
+  it("does not enter forwarded identity mode for internal service requests without forwarded headers", async () => {
+    const auth = await resolveAuthContext(
+      request({
+        authorization: "Bearer internal-token",
+      }),
+      config({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: "true",
+        SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE: "true",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "internal-token",
+      }),
+    );
+    expect(auth.authMethod).toBe("internal_service");
+    expect(auth.userId).toBe("planner-internal");
+    expect(auth.trustedForwardedIdentity).toBe(false);
+    expect(auth.tokenScopes).toEqual(["model:readonly"]);
+  });
+
+  it("defaults trusted forwarded identity to model scope when Open WebUI sends no scope header", async () => {
+    const auth = await resolveAuthContext(
+      request({
+        authorization: "Bearer internal-token",
+        "x-openwebui-user-id": "forwarded-user",
+        "x-openwebui-user-email": "forwarded@example.com",
+      }),
+      config({
+        SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "true",
+        SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS: "true",
+        SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE: "true",
+        SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: "internal-token",
+      }),
+    );
+    expect(auth.authMethod).toBe("internal_service");
+    expect(auth.userId).toBe("forwarded-user");
+    expect(auth.trustedForwardedIdentity).toBe(true);
+    expect(auth.tokenScopes).toEqual(["model:readonly"]);
+  });
+
   it("rejects untrusted malformed forwarded identity headers in strict mode", async () => {
     await expect(
       resolveAuthContext(

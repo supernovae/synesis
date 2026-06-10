@@ -25,12 +25,14 @@ export async function resolveAuthContext(request: FastifyRequest, config: AppCon
   }
 
   const internalTokenMatch = constantTimeStringMatch(token, config.SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN);
+  const forwardedIdentityPresent = hasForwardedIdentityHeaders(request.headers as HeaderMap);
   const trustedForwarded =
     Boolean(config.SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS) &&
-    internalTokenMatch;
+    internalTokenMatch &&
+    forwardedIdentityPresent;
 
   if (
-    hasForwardedIdentityHeaders(request.headers as HeaderMap) &&
+    forwardedIdentityPresent &&
     config.SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE &&
     !trustedForwarded
   ) {

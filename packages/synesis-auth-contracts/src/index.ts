@@ -320,6 +320,7 @@ export function buildForwardedIdentityPrincipal(
   forwarded: SynesisForwardedIdentity,
   fallbackScopes: readonly string[] = ["model:readonly"],
 ): SynesisPrincipal {
+  const scopes = forwarded.tokenScopes.length > 0 ? forwarded.tokenScopes : fallbackScopes;
   return {
     userId: forwarded.userId,
     userEmail: forwarded.userEmail,
@@ -327,7 +328,7 @@ export function buildForwardedIdentityPrincipal(
     tenantIds: forwarded.tenantIds,
     aclGroups: forwarded.aclGroups,
     role: "user",
-    tokenScopes: normalizeTokenScopes(forwarded.tokenScopes, fallbackScopes),
+    tokenScopes: normalizeTokenScopes(scopes, fallbackScopes),
     authMethod: "internal_service",
     authKeyId: "internal-service",
     authKeyName: "Internal service",
