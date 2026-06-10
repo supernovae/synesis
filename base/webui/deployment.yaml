@@ -24,7 +24,7 @@ spec:
       containers:
         - name: open-webui
           # Overlays (e.g. overlays/api) replace ghcr.io/open-webui/open-webui → synesis/open-webui.
-          image: ghcr.io/open-webui/open-webui:v0.9.5
+          image: ghcr.io/open-webui/open-webui:v0.9.6
           imagePullPolicy: Always
           ports:
             - name: http
@@ -118,6 +118,12 @@ spec:
             - name: ENABLE_IMAGE_GENERATION
               value: "false"
             - name: ENABLE_RAG_WEB_SEARCH
+              value: "false"
+            # Open WebUI v0.9.6 adds a KB filesystem command tool; keep it disabled for Synesis.
+            - name: ENABLE_KB_EXEC
+              value: "false"
+            # Keep retrieval collection access scoped; do not restore legacy unscoped collection behavior.
+            - name: ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS
               value: "false"
             - name: ENABLE_COMMUNITY_SHARING
               value: "false"

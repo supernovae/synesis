@@ -63,7 +63,7 @@ images:
     newTag: latest
   - name: ghcr.io/open-webui/open-webui
     newName: ghcr.io/supernovae/synesis/open-webui
-    newTag: latest
+    newTag: v0.9.6
   - name: synesis-mcp-hosted
     newName: ghcr.io/supernovae/synesis/synesis-mcp
     newTag: latest

@@ -160,8 +160,9 @@ log ""
 FAILED=()
 SUCCEEDED=()
 
-# Map base image name -> local tag for build-arg injection into consumers
-declare -A BASE_TAG_MAP
+base_image_ref() {
+    echo "$REGISTRY/$1:$TAG"
+}
 
 for entry in "${IMAGES[@]}"; do
     IFS='|' read -r name dockerfile context <<< "$entry"
@@ -180,32 +181,34 @@ for entry in "${IMAGES[@]}"; do
     # Inject BASE_IMAGE build-arg for consumer images that depend on a base
     case "$name" in
         synesis-base-ml)
-            local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
+            local_base="$(base_image_ref synesis-base-api)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
         admin|keyword-service|preprocess-service|quality-runner)
-            local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
+            local_base="$(base_image_ref synesis-base-api)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
         gliner-service|spam-service|bge-reranker)
-            local_base="${BASE_TAG_MAP[synesis-base-ml]:-$REGISTRY/synesis-base-ml:$TAG}"
+            local_base="$(base_image_ref synesis-base-ml)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
         sandbox)
-            local_base="${BASE_TAG_MAP[synesis-base-devtools]:-$REGISTRY/synesis-base-devtools:$TAG}"
+            local_base="$(base_image_ref synesis-base-devtools)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
         planner-ts|synesis-mcp|admin-mcp-ts|yarn-ts)
-            local_base="${BASE_TAG_MAP[synesis-base-node-workspace]:-$REGISTRY/synesis-base-node-workspace:$TAG}"
+            local_base="$(base_image_ref synesis-base-node-workspace)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
     esac
 
-    if ! $ENGINE build \
-        "${BUILD_ARGS[@]}" \
-        -f "$PROJECT_ROOT/$dockerfile" \
-        -t "$full_image:$TAG" \
-        "$PROJECT_ROOT/$context" 2>&1; then
+    if [[ ${#BUILD_ARGS[@]} -gt 0 ]]; then
+        build_cmd=("$ENGINE" build "${BUILD_ARGS[@]}" -f "$PROJECT_ROOT/$dockerfile" -t "$full_image:$TAG" "$PROJECT_ROOT/$context")
+    else
+        build_cmd=("$ENGINE" build -f "$PROJECT_ROOT/$dockerfile" -t "$full_image:$TAG" "$PROJECT_ROOT/$context")
+    fi
+
+    if ! "${build_cmd[@]}" 2>&1; then
         log "  FAILED: $name"
         FAILED+=("$name")
         continue
@@ -215,7 +218,6 @@ for entry in "${IMAGES[@]}"; do
         $ENGINE tag "$full_image:$TAG" "$full_image:latest"
     fi
 
-    BASE_TAG_MAP["$name"]="$full_image:$TAG"
     SUCCEEDED+=("$name")
     log "  OK: $full_image:$TAG"
 

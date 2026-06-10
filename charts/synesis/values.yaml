@@ -1328,7 +1328,7 @@ workloads:
       cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     image:
       repository: ghcr.io/supernovae/synesis/open-webui
-      tag: latest
+      tag: v0.9.6
     strategy: Recreate
     ports:
       - name: http
@@ -1365,6 +1365,10 @@ workloads:
       - name: ENABLE_API_KEYS
         value: "true"
       - name: ENABLE_OLLAMA_API
+        value: "false"
+      - name: ENABLE_KB_EXEC
+        value: "false"
+      - name: ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS
         value: "false"
       - name: WEBUI_NAME
         value: Synesis

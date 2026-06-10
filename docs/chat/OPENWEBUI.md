@@ -4,7 +4,7 @@ Synesis includes a built-in **Open WebUI** instance that provides a polished cha
 
 **Upstream from planner-ts** (separate concern): the pipeline calls hosted OpenAI-compatible API providers or self-hosted vLLM/InferenceService endpoints according to the active admin Model Registry role assignment.
 
-Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.9.5`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
+Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui:v0.9.6`, based on upstream `v0.9.6`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
 ## Helm Setup
 
@@ -113,6 +113,8 @@ The planner emits standard SSE status events during graph execution (e.g. Gather
 | `ENABLE_TITLE_GENERATION` | `false` | Disables task-model chat title generation (avoids an extra LLM call); Open WebUI falls back to its default heading from the first message text |
 | `ENABLE_TAGS_GENERATION` | `false` | Disables task-model chat tag generation, including the “Generate 1-3 broad tags…” background prompt; kept in env with persistent config disabled so upgrades cannot re-enable it from SQLite |
 | `ENABLE_OLLAMA_API` | `false` | Disabled — chat goes through planner-ts; planner reaches upstream models per admin registry routes |
+| `ENABLE_KB_EXEC` | `false` | Disables Open WebUI's knowledge-base filesystem command tool; Synesis RAG/search runs through planner-ts instead |
+| `ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS` | `false` | Keeps retrieval collection access scoped; do not restore legacy unscoped collection behavior |
 
 ### Keycloak realm roles (SSO)
 
