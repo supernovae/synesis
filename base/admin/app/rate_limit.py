@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from .request_ip import get_client_ip
+
 _DEFAULT_GLOBAL_MAX = int(os.getenv("SYNESIS_ADMIN_RATE_LIMIT_MAX", "120"))
 _DEFAULT_GLOBAL_WINDOW = int(os.getenv("SYNESIS_ADMIN_RATE_LIMIT_WINDOW_SECONDS", "60"))
 
@@ -59,10 +61,7 @@ _LAST_CLEANUP = 0.0
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return get_client_ip(request)
 
 
 def _match_config(path: str) -> tuple[str, _BucketConfig]:

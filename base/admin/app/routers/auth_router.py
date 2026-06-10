@@ -117,6 +117,7 @@ async def oauth_refresh(request: Request, response: Response, req: OidcRefreshRe
         from ..auth import SESSION_COOKIE_NAME, _hash_session_id, _is_valid_session_id
         from ..db.engine import async_session
         from ..db.models import AdminSession
+        from ..session_crypto import decrypt_session_token
 
         session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
         if not session_id or not _is_valid_session_id(session_id):
@@ -130,7 +131,11 @@ async def oauth_refresh(request: Request, response: Response, req: OidcRefreshRe
             if not row or row.revoked_at is not None or not row.refresh_token:
                 raise HTTPException(status_code=401, detail="Not authenticated")
             validate_session_csrf(request, row.csrf_token)
-            refresh_token = row.refresh_token
+            try:
+                refresh_token = decrypt_session_token(row.refresh_token)
+            except (RuntimeError, ValueError) as exc:
+                logger.warning("admin_session_refresh_token_decrypt_failed session_id=%s", row.id)
+                raise HTTPException(status_code=401, detail="Not authenticated") from exc
 
     body = {
         "grant_type": "refresh_token",

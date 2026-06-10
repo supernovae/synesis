@@ -51,6 +51,13 @@ spec:
                   name: synesis-admin-db-url
                   key: trace-url
                   optional: true
+            - name: SYNESIS_REQUIRE_PAT_PEPPER
+              value: "true"
+            - name: SYNESIS_PAT_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-pat-pepper
+                  key: pepper
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -148,7 +155,7 @@ spec:
             # ── Debug protocol ──
             # Production note: keep this false outside targeted diagnostics; it logs bounded prompt/tool snippets.
             - name: SYNESIS_YARN_DEBUG_PROTOCOL
-              value: "true"
+              value: "false"
             - name: SYNESIS_YARN_VERIFICATION_PLAN_ENABLED
               value: "true"
             - name: SYNESIS_YARN_COMPLETION_GATE_ENABLED
@@ -204,7 +211,7 @@ spec:
             - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS
               value: "80000"
             - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
-              value: "lightweight"
+              value: "off"
             # ── Eval Gym: scenario runner, session observer, training data ──
             - name: SYNESIS_YARN_EVAL_API_ENABLED
               value: "false"

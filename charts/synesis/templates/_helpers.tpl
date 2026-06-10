@@ -19,6 +19,53 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 {{- end -}}
 
+{{- define "synesis.secretLooksPlaceholder" -}}
+{{- $value := lower (trim (toString .)) -}}
+{{- if or (eq $value "") (eq $value "changeme") (contains "change-me" $value) (contains "replace_me" $value) -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.requireNonPlaceholderSecret" -}}
+{{- $root := .root -}}
+{{- if not $root.Values.global.allowInsecureDefaults -}}
+{{- $name := .name -}}
+{{- $value := .value -}}
+{{- if eq (include "synesis.secretLooksPlaceholder" $value) "true" -}}
+{{- fail (printf "%s must be set to a non-placeholder value, or set global.allowInsecureDefaults=true only for disposable local/demo renders" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.validateProductionSecrets" -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "secrets.internalServiceToken" "value" .Values.secrets.internalServiceToken) -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "secrets.webuiSecretKey" "value" .Values.secrets.webuiSecretKey) -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "secrets.openfgaAuthToken" "value" .Values.secrets.openfgaAuthToken) -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "postgres admin password" "value" (include "synesis.postgres.adminPassword" .)) -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "postgres keycloak password" "value" (include "synesis.postgres.keycloakPassword" .)) -}}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" . "name" "postgres openfga password" "value" (include "synesis.postgres.openfgaPassword" .)) -}}
+{{- range $key, $value := .Values.secrets.providerApiKeys }}
+{{- if $value }}
+{{- include "synesis.requireNonPlaceholderSecret" (dict "root" $ "name" (printf "secrets.providerApiKeys.%s" $key) "value" $value) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "synesis.validateProductionImages" -}}
+{{- if not .Values.global.allowInsecureDefaults -}}
+{{- if eq (lower (toString .Values.global.imageTag)) "latest" -}}
+{{- fail "global.imageTag must not be latest for production renders, or set global.allowInsecureDefaults=true only for disposable local/demo renders" -}}
+{{- end -}}
+{{- range $key, $workload := .Values.workloads }}
+{{- if and $workload.enabled $workload.image $workload.image.tag (eq (lower (toString $workload.image.tag)) "latest") -}}
+{{- fail (printf "workloads.%s.image.tag must not be latest for production renders, or set global.allowInsecureDefaults=true only for disposable local/demo renders" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "synesis.imagePullSecrets" -}}
 {{- $secrets := list -}}
 {{- range .Values.global.imagePullSecrets }}

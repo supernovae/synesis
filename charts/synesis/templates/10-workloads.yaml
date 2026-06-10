@@ -1,4 +1,5 @@
 {{- range $key, $workload := .Values.workloads }}
+{{- if eq $key "admin" }}{{ include "synesis.validateProductionImages" $ }}{{- end }}
 {{- if $workload.enabled }}
 {{- $ns := include "synesis.namespace" (dict "root" $ "key" $workload.namespace) -}}
 ---

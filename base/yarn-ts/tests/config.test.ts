@@ -29,6 +29,7 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS).toBe(3);
     expect(config.SYNESIS_REQUIRE_PAT_PEPPER).toBe(false);
     expect(config.SYNESIS_YARN_ALLOW_OPAQUE_BEARER).toBe(false);
+    expect(config.SYNESIS_YARN_DEBUG_PROTOCOL).toBe(false);
   });
 
   it("parses DashScope explicit cache controls", () => {

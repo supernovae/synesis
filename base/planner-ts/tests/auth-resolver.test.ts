@@ -16,6 +16,12 @@ function config(overrides: Record<string, string> = {}) {
 }
 
 describe("resolveAuthContext", () => {
+  it("fails closed when production planner auth is not enabled", () => {
+    expect(() => config({ NODE_ENV: "production", SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH: "false" })).toThrow(
+      /SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH/,
+    );
+  });
+
   it("rejects opaque bearer tokens by default", async () => {
     await expect(
       resolveAuthContext(

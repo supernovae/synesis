@@ -60,6 +60,13 @@ spec:
                   name: synesis-admin-db-url
                   key: trace-url
                   optional: true
+            - name: SYNESIS_REQUIRE_PAT_PEPPER
+              value: "true"
+            - name: SYNESIS_PAT_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-pat-pepper
+                  key: pepper
             - name: SYNESIS_OIDC_ISSUER_URL
               value: "https://auth.kybern.dev/realms/synesis"
             - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL

@@ -263,6 +263,10 @@ export type AppConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const config = EnvSchema.parse(env);
+  const production = (env.NODE_ENV ?? "").trim().toLowerCase() === "production";
+  if (production && !config.SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH) {
+    throw new Error("SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH must be true when NODE_ENV=production");
+  }
   validatePatPepperRequirement({
     patValidationEnabled: Boolean(config.SYNESIS_PLANNER_TS_ADMIN_DB_URL.trim()),
     pepper: config.SYNESIS_PAT_PEPPER,

@@ -21,6 +21,9 @@ global:
   imageTag: latest
   imagePullPolicy: Always
   imagePullSecrets: []
+  # Set true only for disposable local/demo renders that intentionally keep
+  # placeholder credentials. Production renders fail fast on known placeholders.
+  allowInsecureDefaults: false
   clusterDomain: cluster.local
   # Provider controls cloud-specific defaults. Use "auto" for best-effort
   # detection, or set explicitly to openshift, aks, eks, gke, or kubernetes.
@@ -44,6 +47,11 @@ registryCredentials:
   username: ""
   password: ""
   email: ""
+
+security:
+  # Comma-separated ingress/router CIDRs whose X-Forwarded-For values may be
+  # trusted by admin rate limiting and session audit metadata.
+  trustedProxyCidrs: ""
 
 platform:
   storage:
@@ -256,6 +264,8 @@ kv:
 secrets:
   internalServiceToken: synesis-internal-change-me
   webuiSecretKey: sk-synesis-change-me
+  adminSessionTokenKey: ""
+  patPepper: ""
   # Leave empty to have Helm generate a NornicDB password on first install and
   # reuse the existing synesis-nornicdb-auth Secret on later upgrades.
   nornicdbPassword: ""
@@ -346,11 +356,10 @@ keycloak:
     adminWebOrigins:
       - https://admin.apps.example.com
     harnessRedirectUris:
-      - http://127.0.0.1/*
-      - http://localhost/*
+      []
     harnessWebOrigins:
-      - http://127.0.0.1
-      - http://localhost
+      []
+    harnessStandardFlowEnabled: false
     harnessDeviceAuthorizationEnabled: true
   deferredBootstrap:
     # When operators.customResources.create=auto and Helm cannot see the
@@ -545,9 +554,8 @@ cloudflared:
 
 networkPolicies:
   enabled: true
-  # Baseline policies are intentionally non-disruptive: they associate every
-  # Synesis workload with a NetworkPolicy while preserving the chart's default
-  # cloud-provider and external-model access paths.
+  # Baseline policies allow Synesis namespace traffic, DNS, and public HTTPS
+  # while blocking direct egress to private/link-local networks by default.
   ingress:
     allowAll: false
     extraNamespaceNames:
@@ -555,7 +563,10 @@ networkPolicies:
       - openshift-monitoring
       - openshift-user-workload-monitoring
   egress:
-    allowAll: true
+    allowAll: false
+    allowSynesisNamespaces: true
+    allowDns: true
+    allowPublicHttps: true
 
 persistence:
   webui:
@@ -588,6 +599,22 @@ workloads:
           secretKeyRef:
             name: synesis-admin-db-url
             key: admin-url
+      - name: SYNESIS_ADMIN_SESSION_TOKEN_KEY
+        valueFrom:
+          secretKeyRef:
+            name: synesis-admin-session-token-key
+            key: key
+      - name: SYNESIS_ADMIN_REQUIRE_SESSION_TOKEN_ENCRYPTION
+        value: "true"
+      - name: SYNESIS_REQUIRE_PAT_PEPPER
+        value: "true"
+      - name: SYNESIS_PAT_PEPPER
+        valueFrom:
+          secretKeyRef:
+            name: synesis-pat-pepper
+            key: pepper
+      - name: SYNESIS_TRUSTED_PROXY_CIDRS
+        value: "{{ .Values.security.trustedProxyCidrs }}"
       - name: SYNESIS_KEYCLOAK_ISSUER_URL
         value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
       - name: SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL
@@ -756,6 +783,13 @@ workloads:
           secretKeyRef:
             name: synesis-admin-db-url
             key: trace-url
+      - name: SYNESIS_REQUIRE_PAT_PEPPER
+        value: "true"
+      - name: SYNESIS_PAT_PEPPER
+        valueFrom:
+          secretKeyRef:
+            name: synesis-pat-pepper
+            key: pepper
       - name: SYNESIS_ADMIN_INTERNAL_TOKEN
         valueFrom:
           secretKeyRef:
@@ -872,6 +906,13 @@ workloads:
           secretKeyRef:
             name: synesis-admin-db-url
             key: trace-url
+      - name: SYNESIS_REQUIRE_PAT_PEPPER
+        value: "true"
+      - name: SYNESIS_PAT_PEPPER
+        valueFrom:
+          secretKeyRef:
+            name: synesis-pat-pepper
+            key: pepper
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
         valueFrom:
           secretKeyRef:
@@ -896,7 +937,7 @@ workloads:
       - name: SYNESIS_YARN_REDUCER_PROFILE
         value: balanced
       - name: SYNESIS_YARN_DEBUG_PROTOCOL
-        value: "true"
+        value: "false"
       - name: SYNESIS_YARN_REQUEST_FORENSICS_ENABLED
         value: "true"
       - name: SYNESIS_YARN_REQUEST_FORENSICS_CAPTURE_PAYLOAD
@@ -991,7 +1032,7 @@ workloads:
       - name: SYNESIS_YARN_HISTORICAL_NORMALIZE_ENABLED
         value: "true"
       - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
-        value: lightweight
+        value: "off"
       - name: SYNESIS_YARN_SCOPE_EPOCH_INTERVAL
         value: "10"
       - name: SYNESIS_YARN_SCOPE_MESSAGE_GROWTH_THRESHOLD
@@ -1171,6 +1212,13 @@ workloads:
             name: synesis-admin-db-url
             key: trace-url
             optional: true
+      - name: SYNESIS_REQUIRE_PAT_PEPPER
+        value: "true"
+      - name: SYNESIS_PAT_PEPPER
+        valueFrom:
+          secretKeyRef:
+            name: synesis-pat-pepper
+            key: pepper
       - name: SYNESIS_OIDC_ISSUER_URL
         value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
       - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
@@ -1396,7 +1444,15 @@ workloads:
         persistentVolumeClaim:
           claimName: synesis-nornicdb-data
     podSecurityContext:
-      runAsNonRoot: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
     resources:
@@ -1603,7 +1659,15 @@ workloads:
       - name: PORT
         value: "8080"
     podSecurityContext:
-      runAsNonRoot: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
     resources:

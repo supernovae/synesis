@@ -44,7 +44,37 @@ spec:
   egress:
     - {}
   {{- else }}
-  egress: []
+  egress:
+  {{- if $root.Values.networkPolicies.egress.allowSynesisNamespaces }}
+  {{- range $peerNamespace := $root.Values.namespaces }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $peerNamespace }}
+  {{- end }}
+  {{- end }}
+  {{- if $root.Values.networkPolicies.egress.allowDns }}
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+  {{- end }}
+  {{- if $root.Values.networkPolicies.egress.allowPublicHttps }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+  {{- end }}
   {{- end }}
 {{- end }}
 {{- end }}

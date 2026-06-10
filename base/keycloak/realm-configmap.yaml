@@ -261,18 +261,10 @@ data:
           "name": "Synesis Harness Login (PKCE + Device)",
           "enabled": true,
           "publicClient": true,
-          "standardFlowEnabled": true,
+          "standardFlowEnabled": false,
           "oauth2DeviceAuthorizationGrantEnabled": true,
           "directAccessGrantsEnabled": false,
           "implicitFlowEnabled": false,
-          "redirectUris": [
-            "http://127.0.0.1/*",
-            "http://localhost/*"
-          ],
-          "webOrigins": [
-            "http://127.0.0.1",
-            "http://localhost"
-          ],
           "defaultClientScopes": [
             "openid",
             "profile",
@@ -281,8 +273,7 @@ data:
             "synesis-organization"
           ],
           "attributes": {
-            "pkce.code.challenge.method": "S256",
-            "post.logout.redirect.uris": "http://127.0.0.1/* http://localhost/*"
+            "pkce.code.challenge.method": "S256"
           }
         },
         {

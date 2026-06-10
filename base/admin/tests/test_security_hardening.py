@@ -6,8 +6,11 @@ import pytest
 from fastapi import HTTPException, Request
 
 
-def _request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
-    return Request({"type": "http", "method": "POST", "headers": headers or []})
+def _request(headers: list[tuple[bytes, bytes]] | None = None, client: tuple[str, int] | None = None) -> Request:
+    scope = {"type": "http", "method": "POST", "headers": headers or []}
+    if client is not None:
+        scope["client"] = client
+    return Request(scope)
 
 
 def test_internal_service_token_fails_closed_when_unconfigured(monkeypatch):
@@ -118,6 +121,90 @@ def test_admin_session_ids_are_strictly_opaque_cookie_values():
     assert not _is_valid_session_id("short")
     assert not _is_valid_session_id("session-id; SameSite=None")
     assert not _is_valid_session_id("session-id\r\nSet-Cookie: injected=1")
+
+
+def test_client_ip_ignores_forwarded_for_without_trusted_proxy(monkeypatch):
+    from app import request_ip
+
+    request_ip._trusted_proxy_networks.cache_clear()
+    monkeypatch.delenv("SYNESIS_TRUSTED_PROXY_CIDRS", raising=False)
+
+    try:
+        resolved = request_ip.get_client_ip(_request([(b"x-forwarded-for", b"203.0.113.7")], client=("10.0.0.10", 443)))
+    finally:
+        request_ip._trusted_proxy_networks.cache_clear()
+
+    assert resolved == "10.0.0.10"
+
+
+def test_client_ip_accepts_forwarded_for_from_trusted_proxy(monkeypatch):
+    from app import request_ip
+
+    request_ip._trusted_proxy_networks.cache_clear()
+    monkeypatch.setenv("SYNESIS_TRUSTED_PROXY_CIDRS", "10.0.0.0/24")
+
+    try:
+        resolved = request_ip.get_client_ip(
+            _request([(b"x-forwarded-for", b"203.0.113.7, 10.0.0.10")], client=("10.0.0.10", 443))
+        )
+    finally:
+        request_ip._trusted_proxy_networks.cache_clear()
+
+    assert resolved == "203.0.113.7"
+
+
+def test_session_token_crypto_encrypts_with_configured_key(monkeypatch):
+    from app import session_crypto
+
+    monkeypatch.setenv("SYNESIS_ADMIN_SESSION_TOKEN_KEY", "test-session-token-key")
+    encrypted = session_crypto.encrypt_session_token("refresh-secret")
+
+    assert encrypted != "refresh-secret"
+    assert session_crypto.is_encrypted_session_token(encrypted)
+    assert session_crypto.decrypt_session_token(encrypted) == "refresh-secret"
+
+
+def test_session_token_crypto_requires_key_when_enforced(monkeypatch):
+    from app import session_crypto
+
+    monkeypatch.delenv("SYNESIS_ADMIN_SESSION_TOKEN_KEY", raising=False)
+    monkeypatch.setenv("SYNESIS_ADMIN_REQUIRE_SESSION_TOKEN_ENCRYPTION", "true")
+
+    with pytest.raises(RuntimeError, match="SYNESIS_ADMIN_SESSION_TOKEN_KEY"):
+        session_crypto.encrypt_session_token("refresh-secret")
+
+
+def test_production_database_url_rejects_placeholder(monkeypatch):
+    from app.config_safety import require_production_database_url
+
+    monkeypatch.setenv("SYNESIS_ENV", "production")
+
+    with pytest.raises(RuntimeError, match="SYNESIS_ADMIN_DATABASE_URL"):
+        require_production_database_url(
+            "SYNESIS_ADMIN_DATABASE_URL",
+            "postgresql+asyncpg://app:changeme@synesis-admin-db-rw/synesis_admin",
+        )
+
+
+def test_security_headers_middleware_sets_browser_headers():
+    import anyio
+    from app.security_headers import SecurityHeadersMiddleware
+    from starlette.responses import Response
+
+    async def _run():
+        async def _call_next(_req):
+            return Response("ok")
+
+        middleware = SecurityHeadersMiddleware(app=lambda scope, receive, send: None)
+        return await middleware.dispatch(_request(client=("198.51.100.10", 443)), _call_next)
+
+    response = anyio.run(_run)
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["Content-Security-Policy"] == "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    assert response.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains"
 
 
 def test_admin_mcp_client_uses_internal_token_and_delegated_cookie(monkeypatch):

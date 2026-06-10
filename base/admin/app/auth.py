@@ -24,7 +24,9 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from .request_ip import get_client_ip
 from .route_validation import validate_safe_identifier
+from .session_crypto import decrypt_session_token, encrypt_session_token
 from .token_scopes import invalid_token_scopes, normalize_token_scopes
 
 logger = logging.getLogger("synesis.auth")
@@ -274,10 +276,7 @@ def _is_valid_session_id(session_id: str) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
-    if forwarded:
-        return forwarded[:128]
-    return (request.client.host if request.client else "")[:128]
+    return get_client_ip(request, default="", max_length=128)
 
 
 def _is_unsafe_method(request: Request) -> bool:
@@ -346,9 +345,9 @@ async def create_admin_session(request: Request, response, token_data: dict) -> 
         org_id=user.org_id,
         org_name=user.org_name,
         org_roles=user.org_roles,
-        access_token=access,
-        refresh_token=refresh,
-        id_token=id_token,
+        access_token=encrypt_session_token(access),
+        refresh_token=encrypt_session_token(refresh),
+        id_token=encrypt_session_token(id_token),
         user_agent=(request.headers.get("user-agent") or "")[:512],
         ip_address=_client_ip(request),
         expires_at=expires_at,
@@ -392,11 +391,11 @@ async def refresh_admin_session(request: Request, response, token_data: dict) ->
         new_csrf_token = secrets.token_hex(32)
         row.session_hash = _hash_session_id(new_session_id)
         row.csrf_token = new_csrf_token
-        row.access_token = access
+        row.access_token = encrypt_session_token(access)
         if token_data.get("refresh_token"):
-            row.refresh_token = str(token_data["refresh_token"])
+            row.refresh_token = encrypt_session_token(str(token_data["refresh_token"]))
         if token_data.get("id_token"):
-            row.id_token = str(token_data["id_token"])
+            row.id_token = encrypt_session_token(str(token_data["id_token"]))
         row.username = user.username
         row.role = user.role
         row.user_id = user.user_id
@@ -473,7 +472,12 @@ async def _verify_session_cookie(request: Request) -> UserInfo | None:
         row.last_seen_at = datetime.now(UTC)
         await session.commit()
         request.state.auth_kind = "session"
-        request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(row.access_token)
+        try:
+            access_token = decrypt_session_token(row.access_token)
+        except (RuntimeError, ValueError):
+            logger.warning("admin_session_token_decrypt_failed session_id=%s", row.id)
+            return None
+        request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(access_token)
         return _user_from_session_row(row)
 
 

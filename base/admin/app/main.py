@@ -17,6 +17,8 @@ from app.db.engine import engine
 from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
 from app.rate_limit import RateLimitMiddleware
 from app.rbac import trace_scope_filters
+from app.security_headers import SecurityHeadersMiddleware
+from app.session_crypto import assert_session_token_encryption_ready
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -26,6 +28,8 @@ from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_l
 configure_logging(service="synesis-admin")
 
 logger = logging.getLogger("synesis.admin")
+
+assert_session_token_encryption_ready()
 
 
 _background_task: asyncio.Task | None = None
@@ -155,6 +159,7 @@ app.add_middleware(
     ],
 )
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 from app.routers.acl import router as acl_router
 from app.routers.assistant import router as assistant_router

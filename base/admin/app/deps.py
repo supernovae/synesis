@@ -7,6 +7,8 @@ from functools import lru_cache
 
 import httpx
 
+from .config_safety import require_production_database_url
+
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
 NORNIC_USER = os.getenv("SYNESIS_NORNIC_USER", "neo4j")
 NORNIC_PASSWORD = os.getenv("SYNESIS_NORNIC_PASSWORD", "")
@@ -40,6 +42,7 @@ DATABASE_URL = os.getenv(
     "SYNESIS_ADMIN_DATABASE_URL",
     "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin",
 )
+require_production_database_url("SYNESIS_ADMIN_DATABASE_URL", DATABASE_URL)
 QUALITY_REPORT_PATH = os.getenv("SYNESIS_QUALITY_REPORT_PATH", "")
 CURATOR_PROPOSALS_PATH = os.getenv("SYNESIS_CURATOR_PROPOSALS_PATH", "")
 TAXONOMY_YAML_PATH = os.getenv(

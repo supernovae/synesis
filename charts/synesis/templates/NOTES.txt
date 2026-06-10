@@ -11,7 +11,12 @@ Backends:
   Kubernetes ingress: {{ and (ne (include "synesis.isOpenShift" .) "true") .Values.ingress.enabled }}
 
 Important:
-  - Replace default placeholder secrets before production use.
+  - Production renders fail on placeholder secrets and mutable "latest" image
+    tags unless global.allowInsecureDefaults=true is set for a disposable
+    local/demo render.
+  - For local browser-based harness login, explicitly set
+    keycloak.realmImport.harnessStandardFlowEnabled=true and configure
+    keycloak.realmImport.harnessRedirectUris/harnessWebOrigins for localhost.
   - If OLM installPlanApproval is Manual, approve install plans before applying
     Keycloak, CloudNativePG, or RedKey/Valkey custom resources.
   - operators.customResources.create={{ .Values.operators.customResources.create }} controls whether

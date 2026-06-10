@@ -283,14 +283,18 @@ spec:
         name: Synesis Harness Login (PKCE + Device)
         enabled: true
         publicClient: true
-        standardFlowEnabled: true
+        standardFlowEnabled: {{ .Values.keycloak.realmImport.harnessStandardFlowEnabled }}
         oauth2DeviceAuthorizationGrantEnabled: {{ .Values.keycloak.realmImport.harnessDeviceAuthorizationEnabled }}
         directAccessGrantsEnabled: false
         implicitFlowEnabled: false
+        {{- if .Values.keycloak.realmImport.harnessRedirectUris }}
         redirectUris:
           {{- toYaml .Values.keycloak.realmImport.harnessRedirectUris | nindent 10 }}
+        {{- end }}
+        {{- if .Values.keycloak.realmImport.harnessWebOrigins }}
         webOrigins:
           {{- toYaml .Values.keycloak.realmImport.harnessWebOrigins | nindent 10 }}
+        {{- end }}
         defaultClientScopes:
           - openid
           - profile
@@ -299,7 +303,9 @@ spec:
           - synesis-organization
         attributes:
           pkce.code.challenge.method: S256
+          {{- if .Values.keycloak.realmImport.harnessRedirectUris }}
           post.logout.redirect.uris: {{ join " " .Values.keycloak.realmImport.harnessRedirectUris | quote }}
+          {{- end }}
       - clientId: synesis-api
         name: Synesis API service account
         enabled: true

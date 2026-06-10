@@ -38,6 +38,10 @@ _PREFIX = "syn-"
 _TOKEN_BYTES = 24
 
 _PAT_PEPPER = os.getenv("SYNESIS_PAT_PEPPER", "")
+_REQUIRE_PAT_PEPPER = os.getenv("SYNESIS_REQUIRE_PAT_PEPPER", "false").lower() in {"1", "true", "yes", "on"}
+
+if _REQUIRE_PAT_PEPPER and not _PAT_PEPPER:
+    raise RuntimeError("SYNESIS_PAT_PEPPER is required when SYNESIS_REQUIRE_PAT_PEPPER=true")
 
 
 def generate() -> tuple[str, str, str]:

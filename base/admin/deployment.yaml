@@ -66,6 +66,22 @@ spec:
                   name: synesis-admin-db-url
                   key: admin-url
                   optional: true
+            - name: SYNESIS_ADMIN_SESSION_TOKEN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-session-token-key
+                  key: key
+            - name: SYNESIS_ADMIN_REQUIRE_SESSION_TOKEN_ENCRYPTION
+              value: "true"
+            - name: SYNESIS_REQUIRE_PAT_PEPPER
+              value: "true"
+            - name: SYNESIS_PAT_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-pat-pepper
+                  key: pepper
+            - name: SYNESIS_TRUSTED_PROXY_CIDRS
+              value: ""
             # ── Keycloak OIDC ──
             # Must match Keycloak Route host + realm (see base/keycloak/keycloak.yaml).
             # Required for browser login; PATs (syn-...) work for API/script auth regardless.

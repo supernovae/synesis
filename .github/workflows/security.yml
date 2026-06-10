@@ -371,6 +371,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+
+      - name: Check Helm production defaults fail closed
+        run: |
+          set +e
+          OUTPUT="$(helm template synesis charts/synesis 2>&1)"
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "::error::Synesis chart rendered with production-unsafe defaults."
+            exit 1
+          fi
+          if ! echo "$OUTPUT" | grep -Eq 'must not be latest|must be set to a non-placeholder value'; then
+            echo "::error::Synesis chart failed for an unexpected reason."
+            exit 1
+          fi
+          helm template synesis charts/synesis --set global.allowInsecureDefaults=true >/dev/null
 
       - name: Check for compromised LiteLLM PyPI versions
         run: |
