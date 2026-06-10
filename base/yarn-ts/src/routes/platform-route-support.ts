@@ -312,11 +312,11 @@ export async function authorizeClaudeCompatRequest(
 }
 
 export async function authorizeModelCatalogRequest(
-  deps: Pick<PlatformRouteDependencies, "app" | "authResolver">,
+  deps: Pick<PlatformRouteDependencies, "app" | "authResolver" | "userRateLimiter">,
   authorization: string | undefined,
 ): Promise<
   | { ok: true; authUser: Awaited<ReturnType<AuthResolver["resolve"]>> }
-  | { ok: false; statusCode: number; body: Record<string, unknown> }
+  | { ok: false; statusCode: number; retryAfter?: number; body: Record<string, unknown> }
 > {
   let authUser: Awaited<ReturnType<AuthResolver["resolve"]>>;
   try {
@@ -329,6 +329,21 @@ export async function authorizeModelCatalogRequest(
     deps.authResolver.requireModelReadScope(authUser);
   } catch {
     return { ok: false, statusCode: 403, body: { error: { type: "authz_error", message: "Insufficient scope for model catalog access" } } };
+  }
+  const rateResult = await deps.userRateLimiter.check(authUser.userId);
+  if (!rateResult.allowed) {
+    const retryAfterSeconds = rateResult.retryAfterSeconds ?? 0;
+    return {
+      ok: false,
+      statusCode: 429,
+      retryAfter: retryAfterSeconds,
+      body: {
+        error: {
+          type: "rate_limit_error",
+          message: `Rate limit exceeded. Retry after ${retryAfterSeconds} seconds.`,
+        },
+      },
+    };
   }
   return { ok: true, authUser };
 }

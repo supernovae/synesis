@@ -835,6 +835,7 @@ await registerNonChatRoutes({
   dedupeLayer: yarnDedupeLayer,
   toolPrefixCache: yarnToolPrefixCache,
   requireInternalToken,
+  userRateLimiter,
 });
 
 const routeDependencyGroups = buildRouteDependencyGroups({

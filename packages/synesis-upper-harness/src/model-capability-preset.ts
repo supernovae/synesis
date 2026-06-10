@@ -62,7 +62,7 @@ export function inferModelCapabilityPreset(
   if (/deepseek/.test(model) || fam === "deepseek") {
     return /v3|r1/.test(model) ? "deepseek_v3" : "deepseek_v4";
   }
-  if (/qwen3.*coder|qwen.*coder/.test(model) || fam === "qwen3-coder") return "qwen_3_coder";
+  if ((model.includes("qwen") && model.includes("coder")) || fam === "qwen3-coder") return "qwen_3_coder";
   if (/qwen/.test(model)) return "qwen_3";
   if (/kimi|moonshot|k2[.-]?[56]/.test(model) || fam === "kimi") return "kimi_k2";
   if (/glm[-_. ]?4[-_. ]?5|glm[-_. ]?45/.test(model) || fam === "glm") return "glm_4_5";

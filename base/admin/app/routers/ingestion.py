@@ -2336,9 +2336,10 @@ async def bootstrap_validate(
         handler_raw = entry.get("handler")
         try:
             handler = _normalize_handler(handler_raw, allow_empty=True)
-        except ValueError as exc:
+        except ValueError:
             handler = ""
-            item_errors.append(str(exc))
+            safe_repr = str(handler_raw)[:100] if handler_raw is not None else "(empty)"
+            item_errors.append(f"invalid handler value: {safe_repr}")
         title = entry.get("title", "") or ""
         domain = entry.get("domain", "") or ""
 

@@ -13,7 +13,10 @@ export function registerModelRoutes(deps: PlatformRouteDependencies): void {
 
   app.get("/v1/models", async (req, reply) => {
     const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
-    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
+    if (!auth.ok) {
+      if (auth.retryAfter != null) reply.header("Retry-After", String(auth.retryAfter));
+      return reply.code(auth.statusCode).send(auth.body);
+    }
     return {
       object: "list",
       data: tierRegistry.getAvailableModels(),
@@ -22,7 +25,10 @@ export function registerModelRoutes(deps: PlatformRouteDependencies): void {
 
   app.get("/v1/models/:model", async (req, reply) => {
     const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
-    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
+    if (!auth.ok) {
+      if (auth.retryAfter != null) reply.header("Retry-After", String(auth.retryAfter));
+      return reply.code(auth.statusCode).send(auth.body);
+    }
     const { model } = req.params as { model: string };
     const found = tierRegistry.getAvailableModels().find((entry) => entry.id === model);
     if (!found) {

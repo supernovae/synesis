@@ -587,7 +587,8 @@ def classify_doc_type(
     if any(seg in path for seg in ("/community", "/forum", "/discuss", "/forums")):
         return "community"
 
-    if "arxiv.org" in url or "abstract" in h1:
+    host = urlparse(url).hostname or ""
+    if host == "arxiv.org" or host.endswith(".arxiv.org") or "abstract" in h1:
         return "paper"
 
     if "/framework" in path or "framework" in title_lower:

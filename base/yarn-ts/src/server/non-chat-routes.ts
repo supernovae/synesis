@@ -7,6 +7,7 @@ import { enableObserver as enableEvalObserver } from "../eval/session-observer.j
 import { getToolRegistry, registerMcpRoutes } from "../mcp/index.js";
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
+import type { UserRateLimiterLike } from "../routes/platform-route-support.js";
 import { registerToolCollapseRoutes } from "../tool-collapse/index.js";
 
 export interface RegisterNonChatRoutesInput {
@@ -16,6 +17,7 @@ export interface RegisterNonChatRoutesInput {
   dedupeLayer: DedupeLayer | null;
   toolPrefixCache: ToolPrefixCache | null;
   requireInternalToken: (request: { headers: Record<string, unknown> }) => boolean;
+  userRateLimiter: UserRateLimiterLike;
 }
 
 export async function registerNonChatRoutes(input: RegisterNonChatRoutesInput): Promise<void> {
@@ -26,6 +28,7 @@ export async function registerNonChatRoutes(input: RegisterNonChatRoutesInput): 
     dedupeLayer,
     toolPrefixCache,
     requireInternalToken,
+    userRateLimiter,
   } = input;
 
   getToolRegistry().setTimeoutMs(config.SYNESIS_YARN_MCP_TOOL_TIMEOUT_MS);
@@ -47,6 +50,7 @@ export async function registerNonChatRoutes(input: RegisterNonChatRoutesInput): 
     config,
     dedupeLayer,
     toolPrefixCache,
+    userRateLimiter,
   });
 
   registerEvalRoutes(app, config, { requireInternalToken });

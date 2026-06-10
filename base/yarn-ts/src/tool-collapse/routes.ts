@@ -5,7 +5,7 @@ import type { AppConfig } from "../config.js";
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
 import { fgaCheck } from "../openfga-client.js";
-import { authRejectionLogFields } from "../routes/platform-route-support.js";
+import { authRejectionLogFields, type UserRateLimiterLike } from "../routes/platform-route-support.js";
 import { defaultShellAllowlistFromEnv, normalizeWorkspaceRoot } from "./tool-call-validator.js";
 import { classifyTool } from "./tool-call-collapser.js";
 import { ToolCallInterceptor, planToSyntheticToolCalls } from "./tool-call-interceptor.js";
@@ -124,6 +124,7 @@ export interface ToolCollapseRouteOptions {
   config: AppConfig;
   dedupeLayer?: DedupeLayer | null;
   toolPrefixCache?: ToolPrefixCache | null;
+  userRateLimiter?: UserRateLimiterLike | null;
 }
 
 function parseOpenAiStyleCalls(raw: unknown): ParsedToolCall[] | null {
@@ -175,6 +176,17 @@ export async function registerToolCollapseRoutes(
       opts.authResolver.requireCoderScope(authUser);
     } catch {
       return reply.code(403).send({ error: { type: "authz_error", message: "Insufficient scope" } });
+    }
+
+    if (opts.userRateLimiter) {
+      const rateResult = await opts.userRateLimiter.check(authUser.userId);
+      if (!rateResult.allowed) {
+        const retryAfterSeconds = rateResult.retryAfterSeconds ?? 0;
+        reply.header("Retry-After", String(retryAfterSeconds));
+        return reply.code(429).send({
+          error: { type: "rate_limit_error", message: `Rate limit exceeded. Retry after ${retryAfterSeconds} seconds.` },
+        });
+      }
     }
 
     const fga = await fgaCheck(`user:${authUser.userId}`, "can_invoke", "yarn_endpoint", "completions");

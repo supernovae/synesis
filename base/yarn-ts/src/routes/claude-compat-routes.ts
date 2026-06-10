@@ -30,6 +30,7 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
     recordSessionEvent,
   } = deps;
 
+  // lgtm[js/missing-rate-limiting] rate-limited inside authorizeClaudeCompatRequest
   app.get("/v1/claude/bootstrap", async (req, reply) => {
     const auth = await authorizeClaudeCompatRequest(deps, req.headers.authorization);
     if (!auth.ok) {
@@ -49,6 +50,7 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
     };
   });
 
+  // lgtm[js/missing-rate-limiting] rate-limited inside authorizeClaudeCompatRequest
   app.get("/v1/claude/model-resolution", async (req, reply) => {
     const auth = await authorizeClaudeCompatRequest(deps, req.headers.authorization);
     if (!auth.ok) {
@@ -78,6 +80,7 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
     }
   });
 
+  // lgtm[js/missing-rate-limiting] rate-limited inside authorizeClaudeCompatRequest
   app.post("/v1/claude/commands/execute", async (req, reply) => {
     const auth = await authorizeClaudeCompatRequest(deps, req.headers.authorization);
     if (!auth.ok) {
@@ -179,7 +182,10 @@ export function registerClaudeCompatRoutes(deps: PlatformRouteDependencies): voi
 
   app.get("/v1/adapter-packs", async (req, reply) => {
     const auth = await authorizeModelCatalogRequest(deps, req.headers.authorization);
-    if (!auth.ok) return reply.code(auth.statusCode).send(auth.body);
+    if (!auth.ok) {
+      if (auth.retryAfter != null) reply.header("Retry-After", String(auth.retryAfter));
+      return reply.code(auth.statusCode).send(auth.body);
+    }
     return {
       catalog: deps.clientAdapterPacks.getCatalog(),
     };

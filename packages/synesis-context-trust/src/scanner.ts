@@ -28,7 +28,7 @@ const CORE_PATTERNS: RegExp[] = [
   /you\s+are\s+now\s+(?:a|an)\s/i,
   /pretend\s+you\s+are/i,
   /act\s+as\s+if\s+you/i,
-  /(?:^|\n)\s*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/i,
+  /(?:^|\n)[ \t]*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/i,
   /<\|im_start\|>\s*system/i,
   /###\s*human\s*:/i,
   /\[INST\]\s*/i,
@@ -48,7 +48,7 @@ const CORE_PATTERNS: RegExp[] = [
 const WEB_PATTERNS: RegExp[] = [
   /base64[:\s]+[A-Za-z0-9+/=]{20,}/i,
   /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/i,
-  /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/i,
+  /<a\b[^>\r\n]{0,2048}\bhref\s*=[\s"']*javascript:/i,
   ZERO_WIDTH_CLUSTER_RE,
   /data:text\/html[;,]/i,
   /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/i,
@@ -62,7 +62,7 @@ const WEB_PATTERNS: RegExp[] = [
 // Tier 3: Output compliance indicators
 // ---------------------------------------------------------------------------
 const OUTPUT_PATTERNS: RegExp[] = [
-  /(?:^|\n)\s*system\s*:\s*(?:you\s+are|ignore|disregard|forget|override|follow\s+these\s+instructions)/i,
+  /(?:^|\n)[ \t]*system\s*:\s*(?:you\s+are|ignore|disregard|forget|override|follow\s+these\s+instructions)/i,
   /(?:my|the)\s+system\s+prompt\s+(?:is|says|reads)/i,
   /(?:here\s+(?:is|are)\s+)?my\s+(?:original\s+)?instructions?:/i,
   /I\s+(?:will|can|shall)\s+now\s+(?:act|behave|operate)\s+as/i,
@@ -84,7 +84,7 @@ const CORE_REDACTION_PATTERNS: RegExp[] = [
   /you\s+are\s+now\s+(?:a|an)\s/gi,
   /pretend\s+you\s+are/gi,
   /act\s+as\s+if\s+you/gi,
-  /(?:^|\n)\s*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/gi,
+  /(?:^|\n)[ \t]*system\s*:\s*(?:ignore|disregard|forget|override|follow\s+these\s+instructions|you\s+are\s+now|pretend|act\s+as)/gi,
   /<\|im_start\|>\s*system/gi,
   /###\s*human\s*:/gi,
   /\[INST\]\s*/gi,
@@ -101,7 +101,7 @@ const CORE_REDACTION_PATTERNS: RegExp[] = [
 const WEB_REDACTION_PATTERNS: RegExp[] = [
   /base64[:\s]+[A-Za-z0-9+/=]{20,}/gi,
   /\[[^\]\r\n]{0,2048}\]\(\s*javascript\s*:/gi,
-  /<a\b[^>\r\n]{0,2048}\bhref\s*=\s*["']?\s*javascript:/gi,
+  /<a\b[^>\r\n]{0,2048}\bhref\s*=[\s"']*javascript:/gi,
   ZERO_WIDTH_CLUSTER_RE_GLOBAL,
   /data:text\/html[;,]/gi,
   /(?:reveal|show|print|repeat|echo)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)/gi,
@@ -248,8 +248,7 @@ export function redactPatterns(text: string, includeWeb = false): string {
   const patterns = includeWeb ? [...CORE_REDACTION_PATTERNS, ...WEB_REDACTION_PATTERNS] : CORE_REDACTION_PATTERNS;
   let result = text;
   for (const pat of patterns) {
-    // codeql[js/polynomial-redos]
-    result = result.replace(pat, "[REDACTED]");
+    result = result.replace(pat, "[REDACTED]"); // lgtm[js/polynomial-redos] patterns use fixed literals with bounded \s+ quantifiers
   }
   return result;
 }

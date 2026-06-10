@@ -372,8 +372,9 @@ function controlToken(value: unknown, fallback: string): string {
   const token = String(value ?? "")
     .replace(/[<>"`=\s]/g, "_")
     .replace(/[^A-Za-z0-9_./:@+-]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
+    .split("_")
+    .filter(Boolean)
+    .join("_")
     .slice(0, 160);
   return token || fallback;
 }

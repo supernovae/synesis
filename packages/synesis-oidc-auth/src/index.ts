@@ -78,7 +78,9 @@ interface JsonWebKeySet {
 type SynesisJsonWebKey = JsonWebKey & { kid?: string; alg?: string; use?: string };
 
 function normalizeUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "");
+  let url = value.trim();
+  while (url.endsWith("/")) url = url.slice(0, -1);
+  return url;
 }
 
 function cleanList(values: string[] | undefined, fallback: string[] = []): string[] {

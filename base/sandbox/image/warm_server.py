@@ -124,7 +124,13 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
                 json.dump({"language": language, "filename": safe_filename, "trivial": trivial}, f)
 
             code_path = os.path.join(code_dir, safe_filename)
-            with open(code_path, "w") as f:
+            resolved = os.path.realpath(code_path)
+            if not resolved.startswith(os.path.realpath(code_dir) + os.sep):
+                self._respond(400, {"error": "path traversal rejected", "exit_code": 1})
+                return
+            with open(
+                resolved, "w"
+            ) as f:  # lgtm[py/path-injection] validated by basename + regex + realpath guard above
                 f.write(code)
 
             env = os.environ.copy()
