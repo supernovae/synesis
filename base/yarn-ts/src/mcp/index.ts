@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { normalizeRequestId } from "@synesis/auth-contracts";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import {
   dispatchSynesisTool,
@@ -236,6 +237,10 @@ function optionalMcpIdentityToken(value: unknown): string | undefined {
   const trimmed = optionalMcpString(value);
   if (!trimmed || trimmed.length > MAX_MCP_ID_CHARS || !MCP_ID_RE.test(trimmed)) return undefined;
   return trimmed;
+}
+
+export function normalizeMcpRequestId(value: unknown, fallback: string): string {
+  return normalizeRequestId(value, fallback, "mcp");
 }
 
 function isMcpRecord(value: unknown): value is Record<string, unknown> {
@@ -543,6 +548,19 @@ function inferTargetScope(args: unknown): "workspace" | "package" | "file" | "un
   return "unknown";
 }
 
+function auditMetaFields(prefix: "run" | "diagnostics" | "limit", fields?: Record<string, unknown>): Record<string, unknown> {
+  if (!fields) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    const normalized = key.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+    const fieldKey = normalized && normalized.length <= 64
+      ? normalized
+      : `field_${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
+    out[`${prefix}_${fieldKey}`] = value;
+  }
+  return out;
+}
+
 export function buildMcpAuditFields(input: McpAuditFieldInput): Record<string, unknown> {
   return {
     surface: "yarn_mcp_http",
@@ -565,9 +583,9 @@ export function buildMcpAuditFields(input: McpAuditFieldInput): Record<string, u
     sessionKey: input.session?.sessionKey,
     workspaceHash: input.session?.workspaceHash,
     elapsed_ms: input.elapsedMs,
-    ...(input.runMeta ?? {}),
-    ...(input.diagnosticsMeta ?? {}),
-    ...(input.limitMeta ?? {}),
+    ...auditMetaFields("run", input.runMeta),
+    ...auditMetaFields("diagnostics", input.diagnosticsMeta),
+    ...auditMetaFields("limit", input.limitMeta),
   };
 }
 
@@ -755,10 +773,7 @@ export async function registerMcpRoutes(
     const user = await resolveUser(req, reply);
     if (!user) return;
 
-    const requestIdHeader = req.headers["x-request-id"];
-    const requestId = typeof requestIdHeader === "string" && requestIdHeader.trim().length > 0
-      ? requestIdHeader.trim()
-      : req.id;
+    const requestId = normalizeMcpRequestId(req.headers["x-request-id"], req.id);
     const parsedBody = validateMcpToolCallBody(req.body);
     if (!parsedBody.ok) {
       app.log.warn(

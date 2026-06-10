@@ -6,6 +6,7 @@ import {
   filterMcpCatalogForOpenClaw,
   isOpenClawClientHeader,
   normalizeMcpToolArguments,
+  normalizeMcpRequestId,
   parseMcpToolName,
   validateMcpToolCallBody,
   validateMcpProjectRootBinding,
@@ -63,6 +64,13 @@ describe("MCP security audit fields", () => {
     expect(parseMcpToolName("x".repeat(129))).toBeNull();
   });
 
+  it("normalizes MCP request ids before audit and attribution use", () => {
+    expect(normalizeMcpRequestId("req-123._:abc", "fallback")).toBe("req-123._:abc");
+    expect(normalizeMcpRequestId("req-1\nrole=platform_admin", "fallback")).toBe("fallback");
+    expect(normalizeMcpRequestId("x".repeat(129), "fallback\nrole=admin")).toMatch(/^mcp-[a-f0-9]{32}$/);
+    expect(normalizeMcpRequestId(undefined, "fallback-id")).toBe("fallback-id");
+  });
+
   it("emits uniform caller, decision, request, profile, and session fields", () => {
     const session = buildMcpSessionAttribution({
       user,
@@ -109,10 +117,49 @@ describe("MCP security audit fields", () => {
       sessionKey: session.sessionKey,
       workspaceHash: session.workspaceHash,
       elapsed_ms: 12,
-      callerActive: 4,
-      callerLimit: 4,
-      globalActive: 25,
-      globalLimit: 100,
+      limit_callerActive: 4,
+      limit_callerLimit: 4,
+      limit_globalActive: 25,
+      limit_globalLimit: 100,
+    });
+  });
+
+  it("does not let dynamic audit metadata overwrite canonical security fields", () => {
+    const fields = buildMcpAuditFields({
+      user,
+      toolName: "run_test",
+      requestId: "req-1",
+      outcome: "allowed",
+      statusCode: 200,
+      args: { dir: "." },
+      runMeta: {
+        outcome: "denied",
+        userId: "mallory",
+        tool: "admin_tool",
+        ok: true,
+      },
+      diagnosticsMeta: {
+        orgId: "other-org",
+        structured_errors_count: 2,
+      },
+      limitMeta: {
+        requestId: "forged",
+        callerActive: 1,
+      },
+    });
+
+    expect(fields).toMatchObject({
+      outcome: "allowed",
+      userId: "alice",
+      orgId: "org-1",
+      tool: "run_test",
+      requestId: "req-1",
+      run_outcome: "denied",
+      run_userId: "mallory",
+      run_tool: "admin_tool",
+      diagnostics_orgId: "other-org",
+      limit_requestId: "forged",
+      limit_callerActive: 1,
     });
   });
 });

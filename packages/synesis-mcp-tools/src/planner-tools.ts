@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { TRUST_POLICY_COMPACT, renderUntrustedPromptBlock } from "@synesis/context-trust";
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { authHeaders, bearerForUpstream } from "./deps.js";
@@ -19,6 +20,21 @@ function extractAssistantContent(data: Record<string, unknown>): string {
   const message = first?.message as Record<string, unknown> | undefined;
   const content = message?.content;
   return typeof content === "string" ? content : "";
+}
+
+function safeLanguageLabel(language: string): string {
+  const trimmed = language.trim();
+  return /^[A-Za-z0-9_+.#-]{1,32}$/.test(trimmed) ? trimmed : "plaintext";
+}
+
+function renderCallerContextBlock(context: string, sourceId: string, contentPurpose: "code" | "context"): string {
+  return renderUntrustedPromptBlock(context, {
+    title: contentPurpose === "code" ? "## Code Under Review" : "## Context",
+    sourceType: "user_message",
+    sourceId,
+    contentPurpose,
+    maxChars: contentPurpose === "code" ? LIMITS.codeChars : LIMITS.contextChars,
+  });
 }
 
 export async function runClassify(
@@ -96,10 +112,9 @@ export async function runPlan(
       return { error: "validation_error", message: `context must be ${LIMITS.contextChars} characters or fewer` };
     }
 
-    let prompt = task;
-    if (context.trim()) {
-      prompt = `${task}\n\nContext:\n${context}`;
-    }
+    const prompt = context.trim()
+      ? `${task}\n\n${renderCallerContextBlock(context, "mcp:synesis_plan:context", "context")}`
+      : task;
 
     const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();
@@ -114,7 +129,10 @@ export async function runPlan(
         },
         body: JSON.stringify({
           model: "Synesis",
-          messages: [{ role: "user", content: prompt }],
+          messages: [
+            { role: "system", content: TRUST_POLICY_COMPACT },
+            { role: "user", content: prompt },
+          ],
           stream: false,
           max_tokens: 4096,
         }),
@@ -167,14 +185,18 @@ export async function runCritique(
       return { error: "validation_error", message: `code must be ${LIMITS.codeChars} characters or fewer` };
     }
 
+    const languageLabel = safeLanguageLabel(language);
     const systemPrompt =
       "You are a code critic. Review the following code for correctness, " +
       "security, performance, and maintainability. Identify blocking issues " +
       "and provide actionable suggestions. Be specific and reference line " +
-      "numbers where possible.\n\n" +
-      `Task: ${task}\nLanguage: ${language}`;
+      `numbers where possible.\n\n${TRUST_POLICY_COMPACT}`;
 
-    const userContent = `\`\`\`${language}\n${code}\n\`\`\``;
+    const userContent = [
+      `Task:\n${task}`,
+      `Language: ${languageLabel}`,
+      renderCallerContextBlock(code, "mcp:synesis_critique:code", "code"),
+    ].join("\n\n");
 
     const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();

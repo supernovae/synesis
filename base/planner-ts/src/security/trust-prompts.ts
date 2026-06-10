@@ -9,6 +9,8 @@ export {
   HIGH_STAKES_FLOOR,
   authorityDatamark,
   makeUntrustedEvidence,
+  renderUntrustedEvidencePromptBlock,
+  renderUntrustedPromptBlock,
   serializeStableJson,
   type AttributionV1,
 } from "@synesis/context-trust";

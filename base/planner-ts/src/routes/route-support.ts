@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { cacheKeyPart } from "@synesis/auth-contracts";
 
 export interface PlannerSessionKeyInput {
   conversation_id?: string | null;
@@ -31,7 +31,7 @@ export function resolvePlannerSessionKey(
   const conversationId = (requestBody.conversation_id ?? "").trim();
   if (conversationId.length > 0) {
     return {
-      sessionKey: `conversation:${identityScope(identity, requestId)}:${safeKeyPart(conversationId, "conversation")}`,
+      sessionKey: `conversation:${identityScope(identity, requestId)}:${cacheKeyPart(conversationId, "conversation")}`,
       source: "conversation_id",
     };
   }
@@ -46,24 +46,13 @@ export function legacyPlannerConversationSessionKeys(conversationId: string): st
 
 function identityScope(identity: PlannerSessionIdentity, requestId: string): string {
   if (identity.authMethod === "anonymous") {
-    return `anonymous:${safeKeyPart(requestId, "request")}`;
+    return `anonymous:${cacheKeyPart(requestId, "request")}`;
   }
   return [
     "principal",
-    safeKeyPart(identity.orgId?.trim() ? identity.orgId : "_", "org"),
-    safeKeyPart(identity.userId || "unknown", "user"),
+    cacheKeyPart(identity.orgId?.trim() ? identity.orgId : "_", "org"),
+    cacheKeyPart(identity.userId || "unknown", "user"),
   ].join(":");
-}
-
-function safeKeyPart(value: string, label: string): string {
-  const trimmed = value.replace(/\0/g, "").trim();
-  if (!trimmed) return label;
-  if (!/^[A-Za-z0-9_.@-]+$/.test(trimmed)) {
-    return `${label}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
-  }
-  const encoded = encodeURIComponent(trimmed);
-  if (encoded.length <= 160) return encoded;
-  return `${label}-${createHash("sha256").update(trimmed).digest("hex").slice(0, 32)}`;
 }
 
 function optionalString(value: unknown): string | undefined {

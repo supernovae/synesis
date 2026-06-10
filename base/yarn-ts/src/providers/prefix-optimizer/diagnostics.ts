@@ -136,48 +136,24 @@ export function logPrefixDiagnostics(
 
 /**
  * Diagnose exactly where two consecutive payloads diverge.
- * Logs the byte offset, a snippet of both sides around the divergence point,
- * and which segment the divergence falls in (tools vs first message vs Nth message).
+ * Logs only byte counts and the region label derived from ordered payload
+ * fingerprints. Full prompt/tool payloads are intentionally not accepted here.
  */
-export function logPrefixDivergence(
-  previousPayload: string | null,
-  currentPayload: string,
-  prefixStableBytes: number,
-  totalPayloadBytes: number,
-): void {
-  if (!previousPayload || prefixStableBytes <= 0) return;
-  if (prefixStableBytes >= Math.min(previousPayload.length, currentPayload.length)) return;
-
-  const CONTEXT = 80;
-  const offset = prefixStableBytes;
-  const prevSnippet = previousPayload.slice(Math.max(0, offset - CONTEXT), offset + CONTEXT);
-  const currSnippet = currentPayload.slice(Math.max(0, offset - CONTEXT), offset + CONTEXT);
-
-  const toolsBoundary = currentPayload.indexOf("\nmessages=");
-  let divergenceRegion: string;
-  if (toolsBoundary < 0) {
-    divergenceRegion = "unknown";
-  } else if (offset < toolsBoundary) {
-    divergenceRegion = "tools";
-  } else {
-    const msgSlice = currentPayload.slice(toolsBoundary);
-    const boundaries = [...msgSlice.matchAll(/\n<MSG_BOUNDARY>\n/g)];
-    let msgIdx = 0;
-    for (const m of boundaries) {
-      if ((m.index! + toolsBoundary) > offset) break;
-      msgIdx++;
-    }
-    divergenceRegion = `message[${msgIdx}]`;
-  }
-
+export function logPrefixDivergence(input: {
+  divergeAtByte: number;
+  currentPayloadBytes: number;
+  previousPayloadBytes: number;
+  divergenceRegion: string;
+}): void {
+  if (input.divergeAtByte <= 0) return;
+  if (input.divergeAtByte >= Math.min(input.previousPayloadBytes, input.currentPayloadBytes)) return;
   console.log(JSON.stringify({
     level: 30,
     msg: "prefix_divergence_diagnostic",
-    divergeAtByte: offset,
-    totalPayloadBytes,
-    prevPayloadBytes: previousPayload.length,
-    divergenceRegion,
-    snippetLengths: { prev: prevSnippet.length, curr: currSnippet.length },
+    divergeAtByte: input.divergeAtByte,
+    totalPayloadBytes: input.currentPayloadBytes,
+    prevPayloadBytes: input.previousPayloadBytes,
+    divergenceRegion: input.divergenceRegion,
   }));
 }
 

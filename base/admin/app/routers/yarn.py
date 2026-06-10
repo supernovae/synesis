@@ -18,7 +18,7 @@ from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import YarnReducerTelemetrySnapshot
 from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
-from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role
+from ..rbac import Role, require_caller_org_id, require_org_admin, require_platform_admin, resolve_role
 from ..route_validation import SAFE_IDENTIFIER_PATTERN, SAFE_TEXT_PATTERN, validate_safe_identifier
 from ..services import yarn_service
 from ..services.account_usage_service import account_usage_identity_candidates
@@ -82,7 +82,7 @@ def _scope(user: UserInfo) -> tuple[str, str, str]:
     if role >= Role.platform_admin:
         return "", "", ""
     if role >= Role.org_admin:
-        return "", user.org_id or "", ""
+        return "", require_caller_org_id(user, surface="org-scoped Yarn access"), ""
     tenant_ids = getattr(user, "tenant_ids", None) or []
     scope_tenant = ""
     if tenant_ids:
@@ -94,6 +94,10 @@ def _scope(user: UserInfo) -> tuple[str, str, str]:
 
 
 def _include_provider_actual(user: UserInfo) -> bool:
+    return resolve_role(user) >= Role.platform_admin
+
+
+def _include_raw_metadata(user: UserInfo) -> bool:
     return resolve_role(user) >= Role.platform_admin
 
 
@@ -127,7 +131,10 @@ async def _fetch_yarn_recent_diagnostics() -> dict:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data if isinstance(data, dict) else {"diagnostics": [], "source": "invalid"}
+        if not isinstance(data, dict):
+            return {"diagnostics": [], "source": "invalid"}
+        redacted = yarn_service._redact_yarn_metadata(data)
+        return redacted if isinstance(redacted, dict) else {"diagnostics": [], "source": "invalid"}
 
 
 async def _fetch_yarn_model_architecture_diagnostics() -> dict:
@@ -138,9 +145,12 @@ async def _fetch_yarn_model_architecture_diagnostics() -> dict:
         )
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, dict):
+            return {"schema_version": "model_architecture_diagnostics_v1", "models": [], "count": 0}
+        redacted = yarn_service._redact_yarn_metadata(data)
         return (
-            data
-            if isinstance(data, dict)
+            redacted
+            if isinstance(redacted, dict)
             else {"schema_version": "model_architecture_diagnostics_v1", "models": [], "count": 0}
         )
 
@@ -303,6 +313,7 @@ async def yarn_session_detail(
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
         include_provider_actual=_include_provider_actual(user),
+        include_metadata=_include_raw_metadata(user),
     )
     if not detail:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -376,6 +387,8 @@ async def yarn_transition_events(
     event_kinds: list[TransitionEventKind] = Query(default=[]),
     user: UserInfo = Depends(require_org_admin),
 ):
+    if include_metadata and not _include_raw_metadata(user):
+        raise HTTPException(status_code=403, detail="Requires platform_admin role to include raw metadata")
     scope_user_id, scope_org_id, _tenant_id = _scope(user)
     selected_kinds = [k.strip() for k in event_kinds if k.strip()]
     return await yarn_service.get_yarn_transition_events(
@@ -408,7 +421,7 @@ async def yarn_diagnostics(
             if resp.status_code == 404:
                 raise HTTPException(status_code=404, detail="Diagnostics snapshot not found or expired")
             resp.raise_for_status()
-            return resp.json()
+            return yarn_service._redact_yarn_metadata(resp.json())
     except HTTPException:
         raise
     except Exception as exc:

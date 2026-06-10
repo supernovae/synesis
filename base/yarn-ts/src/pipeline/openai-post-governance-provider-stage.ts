@@ -1,7 +1,7 @@
 import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
-import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import type { OpenAIChatCompletionRequest, RequestMetadata } from "../schemas.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
 import type { OpenAIGovernedStageResult } from "./openai-governed-stage.js";
 import { prepareOpenAIEnrichment } from "./openai-enrichment-preparation.js";
@@ -138,7 +138,7 @@ interface RunOpenAIPostGovernanceProviderStageInput {
   trajectoryDiagnostics: unknown;
   verificationAssessment: unknown;
   forensicsCapabilityMatrix: unknown;
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   optimizationLedger: {
     recordCacheDiagnostics(record: Record<string, unknown>): void;
     startStage(stage: string): () => void;

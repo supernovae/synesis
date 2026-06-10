@@ -1,4 +1,5 @@
 import { shouldIncludeStreamUsage, toOpenAiUsage } from "../openai-compat.js";
+import { guardModelOutputText, type ModelOutputGuardEvent } from "../security/model-output-guard.js";
 import {
   createEmptyLedger,
   extractTasksFromText,
@@ -57,6 +58,7 @@ export interface OpenAIStreamFinalizerInput {
   scrubHistoryText(text: string): { text: string; scrubbed: boolean };
   onHistoryText(text: string): void;
   onHistoryTextScrubbed?(): void;
+  onModelOutputGuardrail?(event: ModelOutputGuardEvent): void;
   endStream(): void;
   stopHeartbeat(): void;
 }
@@ -128,6 +130,7 @@ export interface OpenAIStreamFinalizerBuilderInput<TChecklist, TVerification, TP
   endStream(): void;
   stopHeartbeat(): void;
   onTaskLedgerOutputScrubbed(): void;
+  onModelOutputGuardrail?(event: ModelOutputGuardEvent): void;
 }
 
 export function createOpenAIStreamFinalizerInput<TChecklist, TVerification, TPlanGraph>(
@@ -183,6 +186,7 @@ export function createOpenAIStreamFinalizerInput<TChecklist, TVerification, TPla
     }),
     scrubHistoryText: scrubTaskLedgerOutput,
     onHistoryTextScrubbed: input.onTaskLedgerOutputScrubbed,
+    onModelOutputGuardrail: input.onModelOutputGuardrail,
     onHistoryText: (content) => {
       input.session.history.push({ role: "assistant", content });
     },
@@ -272,6 +276,11 @@ export async function finalizeOpenAIStreamCompletion(
       streamedText = scrubbed.text;
       input.onHistoryTextScrubbed?.();
     }
+    streamedText = guardModelOutputText(
+      streamedText,
+      "openai_stream_history",
+      input.onModelOutputGuardrail,
+    ).text;
     gateState.missingMust = finalized.missingMust;
     gateState.missingShould = finalized.missingShould;
     gateState.gateBlockedVerification = finalized.blockedByVerification;

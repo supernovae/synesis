@@ -1,4 +1,8 @@
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
+import {
+  guardModelOutputText,
+  type ModelOutputGuardEvent,
+} from "../security/model-output-guard.js";
 import type { ClaudeNonStreamServerWebSearchEvent } from "./claude-nonstream-response.js";
 import {
   executeClaudeNonStreamProviderLoop,
@@ -26,6 +30,7 @@ export interface ClaudeStreamKickoffPipelineInput<
   providerInput: ClaudeNonStreamProviderExecutorInput<TMessage, TResult, TForensics>;
   response: ClaudeStreamKickoffResponseWriter;
   onAssistantText(text: string): void;
+  onModelOutputGuardrail?(event: ModelOutputGuardEvent): void;
 }
 
 export interface ClaudeStreamKickoffPipelineResult {
@@ -44,7 +49,11 @@ export async function runClaudeStreamKickoffPipeline<
 ): Promise<ClaudeStreamKickoffPipelineResult> {
   const providerResult = await executeClaudeNonStreamProviderLoop(input.providerInput);
   const usage = input.providerInput.readUsage(providerResult.result.usage);
-  const finalText = providerResult.result.text ?? "";
+  const finalText = guardModelOutputText(
+    providerResult.result.text ?? "",
+    "claude_stream_kickoff_output",
+    input.onModelOutputGuardrail,
+  ).text;
   const finalCalls = providerResult.result.toolCalls ?? [];
   const externalToolCalls = finalCalls.filter(
     (toolCall) => !input.providerInput.isServerWebSearchTool(toolCall.toolName),

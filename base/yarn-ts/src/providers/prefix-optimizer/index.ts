@@ -14,6 +14,7 @@
  *   compute markers → serialize → diagnostics
  */
 
+import crypto from "node:crypto";
 import type {
   ChatMessage,
   MarkerBackend,
@@ -45,32 +46,94 @@ const DEFAULT_OPTS: PrefixOptimizerOpts = {
   enableDiagnosticLogging: true,
 };
 
-function computeSharedPrefixBytes(previousPayload: string | null, currentPayload: string): number {
-  if (!previousPayload || !currentPayload) return 0;
-  const prev = Buffer.from(previousPayload, "utf8");
-  const curr = Buffer.from(currentPayload, "utf8");
-  const max = Math.min(prev.length, curr.length);
-  let idx = 0;
-  while (idx < max && prev[idx] === curr[idx]) idx += 1;
-  return idx;
+interface ComparablePromptChunk {
+  region: string;
+  hash: string;
+  bytes: number;
 }
 
-function buildComparablePromptPayload(
+interface ComparablePromptFingerprint {
+  chunks: ComparablePromptChunk[];
+  totalBytes: number;
+}
+
+interface PromptDivergenceSummary {
+  divergeAtByte: number;
+  divergenceRegion: string;
+  previousPayloadBytes: number;
+  currentPayloadBytes: number;
+}
+
+function hashText(value: string): string {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex").slice(0, 16);
+}
+
+function chunkFingerprint(region: string, text: string): ComparablePromptChunk {
+  return {
+    region,
+    hash: hashText(text),
+    bytes: Buffer.byteLength(text, "utf8"),
+  };
+}
+
+function computeSharedPrefix(
+  previous: ComparablePromptFingerprint | null,
+  current: ComparablePromptFingerprint,
+): { bytes: number; divergence: PromptDivergenceSummary | null } {
+  if (!previous) return { bytes: 0, divergence: null };
+  const max = Math.min(previous.chunks.length, current.chunks.length);
+  let bytes = 0;
+  for (let idx = 0; idx < max; idx += 1) {
+    const prev = previous.chunks[idx];
+    const curr = current.chunks[idx];
+    if (prev.hash !== curr.hash || prev.bytes !== curr.bytes) {
+      return {
+        bytes,
+        divergence: {
+          divergeAtByte: bytes,
+          divergenceRegion: curr.region,
+          previousPayloadBytes: previous.totalBytes,
+          currentPayloadBytes: current.totalBytes,
+        },
+      };
+    }
+    bytes += curr.bytes;
+  }
+  if (previous.chunks.length !== current.chunks.length) {
+    return {
+      bytes,
+      divergence: {
+        divergeAtByte: bytes,
+        divergenceRegion: current.chunks[max]?.region ?? "end",
+        previousPayloadBytes: previous.totalBytes,
+        currentPayloadBytes: current.totalBytes,
+      },
+    };
+  }
+  return { bytes, divergence: null };
+}
+
+function buildComparablePromptFingerprint(
   messages: ChatMessage[],
   tools: ToolDefinition[] | undefined,
-): string {
+): ComparablePromptFingerprint {
   const toolsSlice = canonicalStringify(tools ?? []);
-  const messageSlice = messages
-    .map((m) => canonicalStringify(m))
-    .join("\n<MSG_BOUNDARY>\n");
-  return `tools=${toolsSlice}\nmessages=${messageSlice}`;
+  const chunks = [chunkFingerprint("tools", `tools=${toolsSlice}\nmessages=`)];
+  for (const [idx, message] of messages.entries()) {
+    const boundary = idx === 0 ? "" : "\n<MSG_BOUNDARY>\n";
+    chunks.push(chunkFingerprint(`message[${idx}]`, `${boundary}${canonicalStringify(message)}`));
+  }
+  return {
+    chunks,
+    totalBytes: chunks.reduce((sum, chunk) => sum + chunk.bytes, 0),
+  };
 }
 
 export class PrefixOptimizer {
   private readonly opts: PrefixOptimizerOpts;
   private sessionDiagnostics = new Map<string, PrefixDiagnostics>();
   private sessionMarkerIndices = new Map<string, number[]>();
-  private sessionPromptPayloads = new Map<string, string>();
+  private sessionPromptFingerprints = new Map<string, ComparablePromptFingerprint>();
 
   constructor(opts?: Partial<PrefixOptimizerOpts>) {
     this.opts = { ...DEFAULT_OPTS, ...opts };
@@ -130,10 +193,10 @@ export class PrefixOptimizer {
     );
 
     const resolvedTools = canonicalTools.length > 0 ? canonicalTools : tools;
-    const comparablePayload = buildComparablePromptPayload(rebuilt, resolvedTools);
-    const previousPayload = this.sessionPromptPayloads.get(sessionKey) ?? null;
-    const prefixStableBytes = computeSharedPrefixBytes(previousPayload, comparablePayload);
-    this.sessionPromptPayloads.set(sessionKey, comparablePayload);
+    const comparableFingerprint = buildComparablePromptFingerprint(rebuilt, resolvedTools);
+    const previousFingerprint = this.sessionPromptFingerprints.get(sessionKey) ?? null;
+    const { bytes: prefixStableBytes, divergence } = computeSharedPrefix(previousFingerprint, comparableFingerprint);
+    this.sessionPromptFingerprints.set(sessionKey, comparableFingerprint);
 
     const diagnostics = buildDiagnostics(
       segments,
@@ -148,8 +211,8 @@ export class PrefixOptimizer {
 
     if (this.opts.enableDiagnosticLogging) {
       logPrefixDiagnostics(diagnostics, previousDiag, null);
-      if (previousPayload && prefixStableBytes < comparablePayload.length) {
-        logPrefixDivergence(previousPayload, comparablePayload, prefixStableBytes, comparablePayload.length);
+      if (divergence && prefixStableBytes < comparableFingerprint.totalBytes) {
+        logPrefixDivergence(divergence);
       }
     }
 
@@ -183,7 +246,7 @@ export class PrefixOptimizer {
   evictSession(sessionKey: string): void {
     this.sessionDiagnostics.delete(sessionKey);
     this.sessionMarkerIndices.delete(sessionKey);
-    this.sessionPromptPayloads.delete(sessionKey);
+    this.sessionPromptFingerprints.delete(sessionKey);
   }
 
   /**

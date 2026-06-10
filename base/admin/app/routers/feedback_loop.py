@@ -10,13 +10,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
-from ..auth import UserInfo, get_current_user, require_admin
+from ..auth import UserInfo, require_admin
 from ..db.engine import async_session
 from ..db.models import TestingLabsResult, TestingLabsRun, YarnSessionEvent
 from ..services.eval_harness import BUILTIN_SUITES, list_suites, run_eval_suite
+from ..services.testing_labs_contract import TestingLabsTraceFilter, trace_filter_to_storage
 from ..services.testing_labs_engine import detect_regressions, execute_run
 
 router = APIRouter(prefix="/api/v1/feedback-loop", tags=["feedback-loop"])
@@ -29,25 +30,47 @@ _YARN_URL = os.getenv(
 
 
 class CreateLoopRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str = Field(..., min_length=1, max_length=256)
     description: str = Field("", max_length=4000)
     baseline_model: str = Field("", max_length=256)
     candidate_model: str = Field("synesis-agent", max_length=256)
     prompt_category: str = Field("", max_length=64)
-    trace_filter: dict[str, Any] | None = None
+    trace_filter: TestingLabsTraceFilter | None = None
     execute_now: bool = True
     wait_for_completion: bool = True
-    eval_suites: list[str] = Field(default_factory=list)
+    eval_suites: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("eval_suites", mode="after")
+    @classmethod
+    def _known_eval_suites(cls, value: list[str]) -> list[str]:
+        unknown = sorted({suite for suite in value if suite not in BUILTIN_SUITES})
+        if unknown:
+            raise ValueError(f"Unknown eval suites: {', '.join(unknown)}")
+        return value
 
 
 class RunPipelineRequest(BaseModel):
-    eval_suites: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    eval_suites: list[str] = Field(default_factory=list, max_length=20)
     auto_label: bool = True
     auto_critic_score: bool = True
     wait_for_completion: bool = True
 
+    @field_validator("eval_suites", mode="after")
+    @classmethod
+    def _known_eval_suites(cls, value: list[str]) -> list[str]:
+        unknown = sorted({suite for suite in value if suite not in BUILTIN_SUITES})
+        if unknown:
+            raise ValueError(f"Unknown eval suites: {', '.join(unknown)}")
+        return value
+
 
 class CriticScoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     overwrite: bool = False
 
 
@@ -228,7 +251,7 @@ def _dpo_pairs(run: TestingLabsRun, run_id: str, rows: list[TestingLabsResult]) 
 
 
 @router.get("/overview")
-async def feedback_loop_overview(_user: UserInfo = Depends(get_current_user)):
+async def feedback_loop_overview(_user: UserInfo = Depends(require_admin)):
     async with async_session() as session:
         runs = (
             (await session.execute(select(TestingLabsRun).order_by(TestingLabsRun.created_at.desc()).limit(20)))
@@ -254,7 +277,7 @@ async def feedback_loop_overview(_user: UserInfo = Depends(get_current_user)):
 @router.get("/runs/{run_id}")
 async def feedback_loop_run_detail(
     run_id: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         run = (
@@ -294,7 +317,7 @@ async def create_feedback_loop_run(
         baseline_model=body.baseline_model.strip(),
         candidate_model=body.candidate_model.strip(),
         prompt_category=body.prompt_category.strip(),
-        trace_filter=body.trace_filter,
+        trace_filter=trace_filter_to_storage(body.trace_filter),
         config={
             "origin": "feedback-loop",
             "eval_suites": body.eval_suites,
@@ -405,7 +428,7 @@ async def critic_score_run(
 @router.get("/runs/{run_id}/preferences")
 async def export_dpo_preferences(
     run_id: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         run = (
@@ -435,7 +458,7 @@ async def export_training_dataset(
     run_id: str,
     format: str = Query("jsonl", pattern="^(jsonl|json)$"),
     dataset_type: str = Query("trajectory", pattern="^(trajectory|dpo|rlaif|eval_gym)$"),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
         run = (
@@ -530,7 +553,7 @@ async def _eval_gym_records(run_id: str) -> list[dict[str, Any]]:
 async def list_eval_gym_events(
     event_kind: str = Query("scenario_eval_v1", pattern="^(scenario_eval_v1|live_eval_v1|eval_transcript_v1)$"),
     limit: int = Query(50, ge=1, le=500),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_admin),
 ):
     """Query eval gym events from yarn_session_events."""
     async with async_session() as session:

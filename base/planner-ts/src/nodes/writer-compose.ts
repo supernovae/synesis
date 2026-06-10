@@ -10,10 +10,8 @@ import {
 } from "../llm/client.js";
 import {
   TRUST_POLICY,
-  SANDWICH_REMINDER,
   authorityDatamark,
-  makeUntrustedEvidence,
-  serializeStableJson,
+  renderUntrustedEvidencePromptBlock,
   type AttributionV1,
 } from "../security/trust-prompts.js";
 import { sanitizeStepAction } from "../security/step-sanitizer.js";
@@ -322,7 +320,7 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
 
   const hasEvidence = Boolean(evidenceBlock);
   const wrappedEvidence = hasEvidence
-    ? `## Evidence\n${serializeStableJson(makeUntrustedEvidence(evidenceBlock, buildEvidenceAttribution(state)))}\n${SANDWICH_REMINDER}`
+    ? renderUntrustedEvidencePromptBlock(evidenceBlock, buildEvidenceAttribution(state))
     : "";
   const scaffoldParts = [planBlock, wrappedEvidence].filter(Boolean).join("\n\n");
   const userContent = scaffoldParts ? `${task}\n\n${scaffoldParts}` : task;

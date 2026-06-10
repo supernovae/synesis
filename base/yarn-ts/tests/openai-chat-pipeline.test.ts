@@ -94,6 +94,54 @@ describe("OpenAIChatPipeline ingress", () => {
     }
   });
 
+  it("rejects invented request metadata attributes before pipeline execution", () => {
+    const pipeline = new OpenAIChatPipeline();
+    const result = pipeline.prepareIngress({
+      body: {
+        model: "synesis-core",
+        messages: [{ role: "user", content: "hello" }],
+        metadata: {
+          synesis_project_root: "/repo/app",
+          role_override: "admin",
+        },
+      },
+      headers: {},
+      config: {},
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.statusCode).toBe(400);
+    expect(result.body.error.message).toContain("metadata");
+  });
+
+  it("preserves only schema-backed request metadata after ingress", () => {
+    const pipeline = new OpenAIChatPipeline();
+    const result = pipeline.prepareIngress({
+      body: {
+        model: "synesis-core",
+        messages: [{ role: "user", content: "hello" }],
+        metadata: {
+          synesis_project_root: "/repo/app",
+          synesis_shell_cwd: "/repo/app/packages/api",
+          synesis_runtime: { platform: "darwin", shell: "zsh" },
+          synesis_client: "codex",
+        },
+      },
+      headers: {},
+      config: {},
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.bodyMetadata).toEqual({
+      synesis_project_root: "/repo/app",
+      synesis_shell_cwd: "/repo/app/packages/api",
+      synesis_runtime: { platform: "darwin", shell: "zsh" },
+      synesis_client: "codex",
+    });
+  });
+
   it("resolves authenticated session identity without trusting request.user for keying", () => {
     const pipeline = new OpenAIChatPipeline();
     const result = pipeline.prepareIngress({

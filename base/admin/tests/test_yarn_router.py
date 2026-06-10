@@ -14,6 +14,8 @@ Run from ``base/admin/``::
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -65,7 +67,13 @@ async def _override_require_platform_admin():
     return u
 
 
-def _user(*, role: str, user_id: str = "test-user", username: str = "test-user"):
+def _user(
+    *,
+    role: str,
+    user_id: str = "test-user",
+    username: str = "test-user",
+    org_id: str = "org-a",
+):
     from app.auth import UserInfo
 
     return UserInfo(
@@ -73,7 +81,7 @@ def _user(*, role: str, user_id: str = "test-user", username: str = "test-user")
         username=username,
         email=f"{username}@test.local",
         role=role,
-        org_id="",
+        org_id=org_id,
         org_name="",
         org_roles=[],
     )
@@ -81,6 +89,10 @@ def _user(*, role: str, user_id: str = "test-user", username: str = "test-user")
 
 def _org_admin():
     return _user(role="org_admin")
+
+
+def _platform_admin():
+    return _user(role="platform_admin")
 
 
 class _FakeScalar:
@@ -460,6 +472,29 @@ def test_yarn_transition_events_returns_tail(client, monkeypatch):
     assert kwargs["event_kinds"] == ["state_transition_v1"]
 
 
+def test_yarn_transition_events_rejects_raw_metadata_for_org_admin(client, monkeypatch):
+    mock_tail = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_transition_events", mock_tail)
+
+    resp = client.get("/api/v1/yarn/transition-events?include_metadata=true")
+
+    assert resp.status_code == 403
+    assert "platform_admin" in resp.json()["detail"]
+    mock_tail.assert_not_awaited()
+
+
+def test_yarn_transition_events_allows_raw_metadata_for_platform_admin(client, monkeypatch):
+    _auth_ctx["user"] = _platform_admin()
+    mock_tail = AsyncMock(return_value={"events": [], "include_metadata": True})
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_transition_events", mock_tail)
+
+    resp = client.get("/api/v1/yarn/transition-events?include_metadata=true")
+
+    assert resp.status_code == 200
+    mock_tail.assert_awaited_once()
+    assert mock_tail.await_args.kwargs["include_metadata"] is True
+
+
 def test_yarn_transition_events_rejects_unknown_event_kind(client, monkeypatch):
     mock_tail = AsyncMock(return_value={})
     monkeypatch.setattr("app.services.yarn_service.get_yarn_transition_events", mock_tail)
@@ -507,6 +542,32 @@ def test_yarn_scope_preserves_valid_tenant_id():
     user = UserInfo(username="u1", role="user", user_id="u1", org_id="org-a", tenant_ids=["tenant-1"])
 
     assert _scope(user) == ("u1", "", "tenant-1")
+
+
+def test_yarn_scope_rejects_org_admin_without_org_id():
+    from app.auth import UserInfo
+    from app.routers.yarn import _scope
+
+    user = UserInfo(username="u1", role="org_admin", user_id="u1", org_id="")
+
+    with pytest.raises(HTTPException) as exc:
+        _scope(user)
+
+    assert exc.value.status_code == 403
+    assert "org_id" in exc.value.detail
+
+
+def test_yarn_scope_rejects_malformed_org_admin_org_id():
+    from app.auth import UserInfo
+    from app.routers.yarn import _scope
+
+    user = UserInfo(username="u1", role="org_admin", user_id="u1", org_id="org-a\nrole=platform_admin")
+
+    with pytest.raises(HTTPException) as exc:
+        _scope(user)
+
+    assert exc.value.status_code == 403
+    assert "org_id" in exc.value.detail
 
 
 def test_yarn_health_uses_probe_service(client, monkeypatch):
@@ -761,22 +822,167 @@ def test_yarn_session_detail_includes_events(client, monkeypatch):
                 "component": "generateText",
                 "detail": "502 Bad Gateway",
                 "request_id": "req-abc",
-                "metadata_json": None,
                 "created_at": "2026-03-28T00:30:00+00:00",
             }
         ],
     }
-    monkeypatch.setattr(
-        "app.services.yarn_service.get_yarn_session_detail",
-        AsyncMock(return_value=detail),
-    )
+    mock_detail = AsyncMock(return_value=detail)
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_session_detail", mock_detail)
     resp = client.get("/api/v1/yarn/sessions/synesis%3Aalice%3Aclaude-code%3Aconv-1")
     assert resp.status_code == 200
     body = resp.json()
     assert "events" in body
     assert len(body["events"]) == 1
     assert body["events"][0]["event_kind"] == "upstream_error"
+    assert "metadata_json" not in body["events"][0]
     assert body["session"]["client_kind"] == "claude-code"
+    assert mock_detail.await_args.kwargs["include_metadata"] is False
+
+
+def test_yarn_session_detail_allows_raw_metadata_for_platform_admin(client, monkeypatch):
+    _auth_ctx["user"] = _platform_admin()
+    mock_detail = AsyncMock(return_value={"session": {}, "requests": [], "events": []})
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_session_detail", mock_detail)
+
+    resp = client.get("/api/v1/yarn/sessions/synesis%3Aalice%3Aclaude-code%3Aconv-1")
+
+    assert resp.status_code == 200
+    assert mock_detail.await_args.kwargs["include_metadata"] is True
+
+
+def test_yarn_session_event_row_redacts_metadata_by_default():
+    from app.services.yarn_service import _redact_yarn_metadata, _yarn_session_event_row
+
+    event = SimpleNamespace(
+        id=1,
+        event_kind="state_transition_v1",
+        component="governor",
+        detail="transition",
+        request_id="req-1",
+        created_at=datetime(2026, 6, 10, tzinfo=UTC),
+        metadata_json={"prompt": "sensitive", "providerOptions": {"key": "value"}},
+    )
+
+    redacted = _yarn_session_event_row(event)
+    raw = _yarn_session_event_row(event, include_metadata=True)
+
+    assert redacted == {
+        "id": 1,
+        "event_kind": "state_transition_v1",
+        "component": "governor",
+        "detail": "transition",
+        "request_id": "req-1",
+        "created_at": "2026-06-10T00:00:00+00:00",
+    }
+    assert raw["metadata_json"]["prompt"] == {
+        "redacted": True,
+        "sha256": "294c1d09adfde168ec89af5c4b6b5706a406ad85b293b9d318614ef3f5ec8661",
+        "chars": 9,
+    }
+    assert raw["metadata_json"]["providerOptions"]["redacted"] is True
+    assert raw["metadata_json"]["providerOptions"]["type"] == "object"
+    assert raw["metadata_json"]["providerOptions"]["keys"] == ["key"]
+
+    packet = _redact_yarn_metadata(
+        {
+            "hash": "packet-hash",
+            "mode": "auto",
+            "block": "<SYSTEM>private work packet</SYSTEM>",
+            "estimated_tokens": 1200,
+            "access_token": "secret-token",
+            "summary": "private user task summary",
+            "source_sections": ["chat_state", "file_state"],
+        }
+    )
+    assert packet["hash"] == "packet-hash"
+    assert packet["mode"] == "auto"
+    assert packet["estimated_tokens"] == 1200
+    assert packet["source_sections"] == ["chat_state", "file_state"]
+    assert packet["access_token"]["redacted"] is True
+    assert packet["block"]["redacted"] is True
+    assert packet["summary"]["redacted"] is True
+
+
+def test_yarn_metadata_redaction_preserves_safe_diagnostic_metrics():
+    from app.services.yarn_service import _redact_yarn_metadata
+
+    redacted = _redact_yarn_metadata(
+        {
+            "requestId": "req-1",
+            "cacheShapePromptTokens": 1200,
+            "cacheShapeProviderOptionsHash": "provider-hash",
+            "cacheShapeProviderOptionsBytes": 180,
+            "messageCount": 3,
+            "latestUserPrompt": "private user prompt",
+            "providerOptions": {"apiKey": "secret", "temperature": 0.2},
+            "messages": [{"role": "user", "content": "private task"}],
+            "headers": {"authorization": "Bearer secret"},
+            "rawResponse": "private model output",
+            "long_safe_value": "x" * 600,
+        }
+    )
+
+    assert redacted["requestId"] == "req-1"
+    assert redacted["cacheShapePromptTokens"] == 1200
+    assert redacted["cacheShapeProviderOptionsHash"] == "provider-hash"
+    assert redacted["cacheShapeProviderOptionsBytes"] == 180
+    assert redacted["messageCount"] == 3
+    assert redacted["latestUserPrompt"]["redacted"] is True
+    assert redacted["providerOptions"]["redacted"] is True
+    assert redacted["messages"]["redacted"] is True
+    assert redacted["headers"]["redacted"] is True
+    assert redacted["rawResponse"]["redacted"] is True
+    assert redacted["long_safe_value"] == {
+        "truncated": True,
+        "sha256": "95ec2d7c00ae130a5fd2d5f8cb3d9f2d00924f71aa3c119906669bf0af1c7256",
+        "chars": 600,
+    }
+
+
+def test_yarn_diagnostics_proxy_redacts_sensitive_payload(client, monkeypatch):
+    class _Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "requestId": "req-1",
+                "cacheShapePromptTokens": 1200,
+                "cacheShapeProviderOptionsHash": "provider-hash",
+                "providerOptions": {"apiKey": "secret"},
+                "messages": [{"role": "user", "content": "private task"}],
+                "headers": {"authorization": "Bearer secret"},
+            }
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers=None):
+            assert url.endswith("/v1/diagnostics/req-1")
+            assert headers == {"Authorization": "Bearer admin-internal"}
+            return _Response()
+
+    monkeypatch.setattr("app.routers.yarn.httpx.AsyncClient", _Client)
+
+    resp = client.get("/api/v1/yarn/diagnostics/req-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["requestId"] == "req-1"
+    assert data["cacheShapePromptTokens"] == 1200
+    assert data["cacheShapeProviderOptionsHash"] == "provider-hash"
+    assert data["providerOptions"]["redacted"] is True
+    assert data["messages"]["redacted"] is True
+    assert data["headers"]["redacted"] is True
 
 
 def test_yarn_sessions_purge_dry_run(client, monkeypatch):

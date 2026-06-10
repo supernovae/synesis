@@ -14,6 +14,7 @@ from sqlalchemy import select
 from ..db.engine import async_session
 from ..db.models import TestingLabsResult, TestingLabsRun, Trace
 from ..deps import INTERNAL_SERVICE_TOKEN
+from .testing_labs_contract import parse_stored_trace_filter
 
 logger = logging.getLogger("synesis.admin.testing_labs_engine")
 
@@ -105,15 +106,19 @@ async def _extract_prompts(run_id: str) -> list[dict[str, Any]]:
 
         q = select(Trace).order_by(Trace.timestamp.desc()).limit(50)
 
-        tf = run.trace_filter or {}
-        if tf.get("since"):
-            q = q.where(Trace.timestamp >= tf["since"])
-        if tf.get("until"):
-            q = q.where(Trace.timestamp <= tf["until"])
-        if tf.get("task_type"):
-            q = q.where(Trace.task_type == tf["task_type"])
-        if tf.get("org_id"):
-            q = q.where(Trace.full_record["org_id"].astext == tf["org_id"])
+        try:
+            tf = parse_stored_trace_filter(run.trace_filter)
+        except ValueError as exc:
+            logger.warning("testing_labs_invalid_trace_filter run_id=%s error=%s", run_id, exc)
+            return []
+        if tf.since:
+            q = q.where(Trace.timestamp >= tf.since)
+        if tf.until:
+            q = q.where(Trace.timestamp <= tf.until)
+        if tf.task_type:
+            q = q.where(Trace.task_type == tf.task_type)
+        if tf.org_id:
+            q = q.where(Trace.full_record["org_id"].astext == tf.org_id)
         if run.prompt_category:
             q = q.where(Trace.task_type == run.prompt_category)
 

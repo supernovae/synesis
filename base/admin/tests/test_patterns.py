@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 # ── Model tests ──────────────────────────────────────────────────────────────
 
@@ -41,6 +42,66 @@ def test_pattern_entry_explicit_defaults():
     assert p.enabled is True
     assert p.scope == "global"
     assert p.usage_count == 0
+
+
+def test_pattern_api_schemas_reject_unknown_security_fields():
+    from app.routers.patterns import PatternCreate, PatternUpdate, PatternUsageFeedback
+
+    with pytest.raises(ValidationError):
+        PatternCreate(
+            pattern_id="py-fastapi",
+            language="python",
+            skill_family="api_endpoint",
+            code_block="def hello(): pass",
+            invented_scope="platform_admin",
+        )
+
+    with pytest.raises(ValidationError):
+        PatternUpdate(invented_trust_score=1.0)
+
+    with pytest.raises(ValidationError):
+        PatternUsageFeedback(outcome="admin")
+
+
+def test_pattern_api_schemas_reject_malformed_selectors():
+    from app.routers.patterns import PatternCreate, PatternUpdate
+
+    with pytest.raises(ValidationError, match="pattern field"):
+        PatternCreate(
+            pattern_id="py-fastapi\nrole=admin",
+            language="python",
+            skill_family="api_endpoint",
+            code_block="def hello(): pass",
+        )
+
+    with pytest.raises(ValidationError):
+        PatternCreate(
+            pattern_id="py-fastapi",
+            language="python",
+            skill_family="api_endpoint",
+            code_block="def hello(): pass",
+            scope="team",
+        )
+
+    with pytest.raises(ValidationError, match="skill_family"):
+        PatternUpdate(skill_family="api_endpoint\nrole=admin")
+
+
+def test_pattern_api_schema_allows_bounded_multiline_code_fields():
+    from app.routers.patterns import PatternCreate
+
+    model = PatternCreate(
+        pattern_id="py-fastapi",
+        language="python",
+        skill_family="api_endpoint",
+        code_block="@app.get('/health')\ndef health():\n    return {'ok': True}",
+        constraints="Use request schemas.\nReject unknown fields.",
+        test_snippet="def test_health(client):\n    assert client.get('/health').status_code == 200",
+        tags=["api", "fastapi"],
+    )
+
+    assert model.scope == "global"
+    assert "\n" in model.code_block
 
 
 def test_content_hash_consistency():

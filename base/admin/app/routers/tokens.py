@@ -32,11 +32,9 @@ from ..db.models import PersonalAccessToken
 from ..pat_crypto import generate as _generate_token
 from ..rbac import require_platform_admin
 from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
+from ..token_scopes import DEFAULT_TOKEN_SCOPES, VALID_TOKEN_SCOPES, invalid_token_scopes, normalize_token_scopes
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
-
-VALID_SCOPES = frozenset({"model:readonly", "model:readwrite", "coder:readonly", "coder:readwrite"})
-DEFAULT_SCOPES = ["model:readonly"]
 
 
 # ── Request / response models ────────────────────────────────────────────────
@@ -61,9 +59,9 @@ class TokenCreate(BaseModel):
         if v is None:
             return None
         cleaned = list(dict.fromkeys(v))
-        invalid = [s for s in cleaned if s not in VALID_SCOPES]
+        invalid = invalid_token_scopes(cleaned)
         if invalid:
-            raise ValueError(f"Invalid scopes: {invalid}. Valid: {sorted(VALID_SCOPES)}")
+            raise ValueError(f"Invalid scopes: {invalid}. Valid: {sorted(VALID_TOKEN_SCOPES)}")
         if not cleaned:
             raise ValueError("At least one scope is required")
         return cleaned
@@ -109,7 +107,7 @@ class TokenInfo(BaseModel):
 
 def _effective_scopes(raw: list[str] | None) -> list[str]:
     """Normalize DB value — legacy NULL tokens get default scopes."""
-    return list(raw) if raw else list(DEFAULT_SCOPES)
+    return normalize_token_scopes(raw)
 
 
 def _effective_tenant_ids(raw: list[str] | None) -> list[str]:
@@ -139,9 +137,14 @@ async def create_token(
 
     The plaintext token is returned in the response and is never stored.
     """
-    scopes = body.scopes or list(DEFAULT_SCOPES)
+    scopes = body.scopes or list(DEFAULT_TOKEN_SCOPES)
     tenant_ids = _effective_tenant_ids(body.tenant_ids)
-    if tenant_ids and not (user.org_id or "").strip():
+    raw_org_id = (user.org_id or "").strip()
+    try:
+        org_id = validate_safe_identifier(raw_org_id, field_name="org_id", max_length=128) if raw_org_id else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid org_id for token creation") from exc
+    if tenant_ids and not org_id:
         raise HTTPException(status_code=400, detail="tenant_ids require an organization-scoped identity")
     plaintext, token_hash, display_prefix = _generate_token()
     expires_at = datetime.now(UTC) + timedelta(days=body.expires_in_days) if body.expires_in_days else None
@@ -150,7 +153,7 @@ async def create_token(
         id=pat_id,
         user_id=user.user_id or user.username,
         username=user.username,
-        org_id=user.org_id or "",
+        org_id=org_id,
         tenant_ids=tenant_ids,
         token_hash=token_hash,
         token_prefix=display_prefix,
@@ -166,7 +169,7 @@ async def create_token(
 
     await on_pat_created(
         user_id=user.user_id or user.username,
-        org_id=user.org_id or "",
+        org_id=org_id,
         tenant_ids=tenant_ids,
         role=user.role,
         scopes=scopes,

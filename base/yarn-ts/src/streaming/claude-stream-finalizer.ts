@@ -6,6 +6,7 @@ import {
   type ClientTaskCapabilities,
   type TaskLedger,
 } from "../task-ledger/index.js";
+import { guardModelOutputText, type ModelOutputGuardEvent } from "../security/model-output-guard.js";
 import type { ClaudeStreamGateState } from "./claude-stream-components.js";
 import type { ClaudeStreamState } from "./claude-stream-state.js";
 import type { OpenAIStreamFinalizerTextResult, StreamTokenUsage } from "./openai-stream-finalizer.js";
@@ -94,6 +95,7 @@ export interface ClaudeStreamCompletionFinalizerInput<TForensics> {
   stopHeartbeat(): void;
   onHistoryText(text: string): void;
   onHistoryTextScrubbed(): void;
+  onModelOutputGuardrail?(event: ModelOutputGuardEvent): void;
 }
 
 export interface ClaudeStreamCompletionFinalizerRouteInput<TForensics> {
@@ -226,6 +228,17 @@ export function createClaudeStreamCompletionFinalizerInput<TForensics>(
         input.requestId,
       );
     },
+    onModelOutputGuardrail: (event) => {
+      input.recordSessionEvent(
+        input.sessionKey,
+        input.userId,
+        input.orgId,
+        event.eventKind,
+        event.component,
+        event.detail,
+        input.requestId,
+      );
+    },
   };
 }
 
@@ -274,6 +287,11 @@ export async function finalizeClaudeStreamCompletion<TForensics>(
       streamedText = scrubbed.text;
       input.onHistoryTextScrubbed();
     }
+    streamedText = guardModelOutputText(
+      streamedText,
+      "claude_stream_history",
+      input.onModelOutputGuardrail,
+    ).text;
     input.gate.missingMust = finalized.missingMust;
     input.gate.missingShould = finalized.missingShould;
     input.gate.blockedVerification = finalized.blockedByVerification;

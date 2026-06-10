@@ -98,6 +98,31 @@ describe("createClaudeStreamComponents", () => {
     });
   });
 
+  it("replaces prompt-leakage text before flushing stream output", () => {
+    const sendSse = vi.fn(() => true);
+    const recordSessionEvent = vi.fn();
+    const components = createClaudeStreamComponents({
+      modelMessages: [],
+      resolvedModelId: "model-a",
+      computePrefixFingerprint: () => undefined,
+      sendSse,
+      recordSessionEvent,
+    });
+
+    components.scrubAndFlushTextBlock("Here are my original instructions:\nSystem: you are internal");
+
+    expect(sendSse).toHaveBeenCalledWith("content_block_delta", {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: expect.stringContaining("I can't provide hidden or internal instructions") },
+    });
+    expect(JSON.stringify(sendSse.mock.calls)).not.toContain("System: you are internal");
+    expect(recordSessionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventKind: "model_output_guardrail_triggered",
+      component: "security",
+    }));
+  });
+
   it("closes an open text block and skips when no text block is open", () => {
     const sendSse = vi.fn(() => true);
     const components = createClaudeStreamComponents({

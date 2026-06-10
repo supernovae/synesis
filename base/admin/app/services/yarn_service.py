@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,6 +15,159 @@ from ..db.models import PersonalAccessToken, YarnSafetyEvent, YarnSession, YarnS
 from .archive_store import write_jsonl_archive
 
 logger = logging.getLogger("synesis.admin.yarn_service")
+
+_SENSITIVE_METADATA_KEY_EXACT = frozenset(
+    {
+        "body",
+        "block",
+        "content",
+        "forensics",
+        "header",
+        "headers",
+        "latestuserprompt",
+        "message",
+        "messages",
+        "modelmessages",
+        "normalizedmessages",
+        "prompt",
+        "provideroptions",
+        "provider_options",
+        "raw",
+        "rawbody",
+        "raw_body",
+        "rawpayload",
+        "raw_payload",
+        "rawrequest",
+        "raw_request",
+        "rawresponse",
+        "raw_response",
+        "request",
+        "requestbody",
+        "request_body",
+        "requestheaders",
+        "request_headers",
+        "requestpayload",
+        "request_payload",
+        "response",
+        "responsebody",
+        "response_body",
+        "responseheaders",
+        "response_headers",
+        "responsepayload",
+        "response_payload",
+        "summary",
+        "systemprompt",
+        "system_prompt",
+        "text",
+        "tracerootprompt",
+        "trace_root_prompt",
+    }
+)
+
+_SENSITIVE_METADATA_KEY_PARTS = (
+    "api_key",
+    "authorization",
+    "bearer",
+    "cookie",
+    "messages",
+    "password",
+    "prompt",
+    "provideroptions",
+    "provider_options",
+    "secret",
+)
+
+_SAFE_PROMPT_METRIC_KEY_PARTS = (
+    "bytes",
+    "count",
+    "hash",
+    "pct",
+    "percent",
+    "rate",
+    "token",
+    "tokens",
+)
+
+
+def _metadata_digest(value: object) -> str:
+    try:
+        payload = json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
+    except TypeError:
+        payload = str(value)
+    return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _redacted_metadata_marker(value: object) -> dict[str, Any]:
+    marker: dict[str, Any] = {
+        "redacted": True,
+        "sha256": _metadata_digest(value),
+    }
+    if isinstance(value, str):
+        marker["chars"] = len(value)
+    elif isinstance(value, dict):
+        marker["type"] = "object"
+        marker["keys"] = sorted(str(k) for k in value)[:25]
+    elif isinstance(value, list):
+        marker["type"] = "array"
+        marker["items"] = len(value)
+    else:
+        marker["type"] = type(value).__name__
+    return marker
+
+
+def _is_sensitive_metadata_key(key: object) -> bool:
+    normalized = str(key).replace("-", "_").lower()
+    safe_metric_key = any(part in normalized for part in _SAFE_PROMPT_METRIC_KEY_PARTS)
+    if "prompt" in normalized and safe_metric_key:
+        return False
+    if ("provideroptions" in normalized or "provider_options" in normalized) and safe_metric_key:
+        return False
+    credential_token_key = (
+        normalized == "token"
+        or normalized.endswith("_token")
+        or any(
+            token_name in normalized
+            for token_name in (
+                "access_token",
+                "api_token",
+                "auth_token",
+                "bearer_token",
+                "refresh_token",
+                "service_token",
+            )
+        )
+    )
+    if credential_token_key:
+        return True
+    if normalized in _SENSITIVE_METADATA_KEY_EXACT:
+        return True
+    return any(part in normalized for part in _SENSITIVE_METADATA_KEY_PARTS)
+
+
+def _redact_yarn_metadata(value: object, *, depth: int = 0) -> object:
+    if depth > 6:
+        return _redacted_metadata_marker(value)
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if _is_sensitive_metadata_key(key_text):
+                out[key_text] = _redacted_metadata_marker(item)
+            else:
+                out[key_text] = _redact_yarn_metadata(item, depth=depth + 1)
+        return out
+    if isinstance(value, list):
+        redacted = [_redact_yarn_metadata(item, depth=depth + 1) for item in value[:50]]
+        if len(value) > 50:
+            redacted.append({"truncated": True, "omitted_items": len(value) - 50})
+        return redacted
+    if isinstance(value, str) and len(value) > 512:
+        return {
+            "truncated": True,
+            "sha256": _metadata_digest(value),
+            "chars": len(value),
+        }
+    return value
 
 
 def _cutoff(since_hours: int) -> datetime:
@@ -39,6 +194,21 @@ def _user_display(user_id: str, username: str | None, pat_usernames: dict[str, s
     if user_id.startswith("bearer-"):
         return _masked_external_bearer(user_id)
     return user_id or "Unknown user"
+
+
+def _yarn_session_event_row(ev: object, *, include_metadata: bool = False) -> dict[str, Any]:
+    created_at = getattr(ev, "created_at", None)
+    row = {
+        "id": getattr(ev, "id", None),
+        "event_kind": getattr(ev, "event_kind", None),
+        "component": getattr(ev, "component", None),
+        "detail": getattr(ev, "detail", None),
+        "request_id": getattr(ev, "request_id", None),
+        "created_at": created_at.isoformat() if created_at else None,
+    }
+    if include_metadata:
+        row["metadata_json"] = _redact_yarn_metadata(getattr(ev, "metadata_json", None))
+    return row
 
 
 async def _pat_usernames_for(user_ids: list[str]) -> dict[str, str]:
@@ -201,6 +371,7 @@ async def get_yarn_session_detail(
     scope_user_id: str = "",
     scope_org_id: str = "",
     include_provider_actual: bool = False,
+    include_metadata: bool = False,
 ) -> dict | None:
     async with async_session() as session:
         stmt = select(YarnSession).where(YarnSession.session_key == session_key).limit(1)
@@ -307,18 +478,7 @@ async def get_yarn_session_detail(
     return {
         "session": session_row,
         "requests": request_rows,
-        "events": [
-            {
-                "id": ev.id,
-                "event_kind": ev.event_kind,
-                "component": ev.component,
-                "detail": ev.detail,
-                "request_id": ev.request_id,
-                "metadata_json": ev.metadata_json,
-                "created_at": ev.created_at.isoformat() if ev.created_at else None,
-            }
-            for ev in events
-        ],
+        "events": [_yarn_session_event_row(ev, include_metadata=include_metadata) for ev in events],
         "integrity": {
             "usage_rows_total": int(usage_rows_total),
             "session_request_count": session_request_count,
@@ -357,7 +517,11 @@ async def get_yarn_current_work_packet(
             event_stmt = event_stmt.where(YarnSessionEvent.org_id == scope_org_id)
         event_row = (await session.execute(event_stmt)).scalar_one_or_none()
 
-    packet = event_row.metadata_json if event_row and isinstance(event_row.metadata_json, dict) else None
+    packet = (
+        _redact_yarn_metadata(event_row.metadata_json)
+        if event_row and isinstance(event_row.metadata_json, dict)
+        else None
+    )
     return {
         "session_key": session_row.session_key,
         "conversation_id": session_row.conversation_id,
@@ -1795,7 +1959,7 @@ async def get_yarn_transition_events(
             "calibration_sample_count": event_view["calibration_sample_count"],
         }
         if include_metadata:
-            item["metadata_json"] = row.metadata_json
+            item["metadata_json"] = _redact_yarn_metadata(row.metadata_json)
         events.append(item)
 
     return {

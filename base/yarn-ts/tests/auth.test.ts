@@ -226,16 +226,19 @@ describe("AuthResolver", () => {
       ).not.toThrow();
     });
 
-    it("passes for user with model: scope prefix", () => {
+    it("passes for user with known model scope", () => {
       expect(() =>
-        resolver.requireCoderScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["model:write"] })
+        resolver.requireCoderScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["model:readwrite"] })
       ).not.toThrow();
     });
 
-    it("passes for user with chat: scope prefix", () => {
+    it("denies invented model/chat scope suffixes", () => {
+      expect(() =>
+        resolver.requireCoderScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["model:write"] })
+      ).toThrow("Insufficient scope");
       expect(() =>
         resolver.requireCoderScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["chat:read"] })
-      ).not.toThrow();
+      ).toThrow("Insufficient scope");
     });
 
     it("denies user with empty scopes (fail-closed)", () => {
@@ -262,13 +265,19 @@ describe("AuthResolver", () => {
       ).not.toThrow();
     });
 
-    it("passes for broader chat and coder scopes", () => {
+    it("passes for broader known chat and coder scopes", () => {
       expect(() =>
-        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["chat:read"] })
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["chat:readonly"] })
       ).not.toThrow();
       expect(() =>
         resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["coder:execute"] })
       ).not.toThrow();
+    });
+
+    it("denies invented model catalog scope suffixes", () => {
+      expect(() =>
+        resolver.requireModelReadScope({ userId: "u1", orgId: "", role: "user", authMethod: "pat", tokenScopes: ["coder:surprise"] })
+      ).toThrow("Insufficient scope");
     });
 
     it("denies unrelated scopes", () => {

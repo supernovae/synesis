@@ -1,4 +1,5 @@
 import { OpenFgaClient, CredentialsMethod } from "@openfga/sdk";
+import { canonicalSecurityId } from "@synesis/auth-contracts";
 import type { McpTsConfig } from "./config.js";
 
 let fgaClient: OpenFgaClient | null = null;
@@ -31,8 +32,9 @@ export async function fgaCheckMcpTools(userId: string): Promise<{ allowed: boole
     return { allowed: false, resolution: "openfga_not_configured" };
   }
   try {
+    const safeUserId = canonicalSecurityId(userId, "user_id");
     const response = await fgaClient.check({
-      user: `user:${userId}`,
+      user: `user:${safeUserId}`,
       relation: "can_invoke",
       object: "yarn_endpoint:completions",
     });

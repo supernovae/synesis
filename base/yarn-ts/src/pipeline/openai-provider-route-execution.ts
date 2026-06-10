@@ -1,4 +1,5 @@
 import type { AuthUser } from "../auth.js";
+import type { RequestMetadata } from "../schemas.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { OpenAIChatPipelineResult } from "./openai-chat-results.js";
@@ -88,7 +89,7 @@ interface ExecuteOpenAIProviderForRouteInput {
   orchestration: ReturnType<OpenAIChatCompletionsRouteDependencies["phaseOrchestrator"]["decide"]>;
   optimizationLedger: unknown;
   pathContext: PathContext;
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   prefetchResult: unknown;
   clientKind: string;
 }

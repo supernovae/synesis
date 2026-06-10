@@ -293,6 +293,62 @@ def test_security_events_accepts_only_known_filter_values(monkeypatch):
     assert captured["scope_org_id"] == "org-1"
 
 
+def test_security_events_rejects_org_admin_without_org_id(monkeypatch):
+    from app.auth import UserInfo, get_current_user
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    async def _override_user() -> UserInfo:
+        return UserInfo(
+            username="org-admin",
+            role="org_admin",
+            user_id="u-1",
+            org_id="",
+            org_name="",
+        )
+
+    async def _list_events_should_not_run(**_kwargs):
+        raise AssertionError("security event list must not run without org scope")
+
+    monkeypatch.setattr("app.routers.security.security_service.list_events", _list_events_should_not_run)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/security/events")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 403
+
+
+def test_security_events_rejects_malformed_org_admin_org_id(monkeypatch):
+    from app.auth import UserInfo, get_current_user
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    async def _override_user() -> UserInfo:
+        return UserInfo(
+            username="org-admin",
+            role="org_admin",
+            user_id="u-1",
+            org_id="org-1\nrole=platform_admin",
+            org_name="",
+        )
+
+    async def _list_events_should_not_run(**_kwargs):
+        raise AssertionError("security event list must not run with invalid org scope")
+
+    monkeypatch.setattr("app.routers.security.security_service.list_events", _list_events_should_not_run)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/security/events")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert resp.status_code == 403
+
+
 def test_security_ingest_rejects_unknown_security_payload_fields(monkeypatch):
     from app.main import app
     from fastapi.testclient import TestClient

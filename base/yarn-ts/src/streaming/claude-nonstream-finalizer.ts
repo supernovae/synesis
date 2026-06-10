@@ -1,3 +1,4 @@
+import { guardModelOutputText } from "../security/model-output-guard.js";
 import { scrubTaskLedgerOutput } from "../task-ledger/index.js";
 import type { OpenAIStreamFinalizerTextResult } from "./openai-stream-finalizer.js";
 
@@ -104,6 +105,17 @@ export async function finalizeClaudeNonStreamText<TChecklist, TVerification, TPl
       input.requestId,
     );
   }
+  finalText = guardModelOutputText(finalText, "claude_nonstream_output", (event) => {
+    input.recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      input.requestId,
+    );
+  }).text;
   if (finalText) {
     input.session.history.push({ role: "assistant", content: finalText });
   }

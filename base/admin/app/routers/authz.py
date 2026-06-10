@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..auth import UserInfo
 from ..rbac import require_platform_admin
+from ..services.fga_contract import (
+    fga_object,
+    fga_relation,
+    fga_subject,
+    fga_tuple_key,
+    fga_user_for_id,
+    parse_fga_object,
+)
 
 logger = logging.getLogger("synesis.admin.authz")
 
@@ -19,15 +27,49 @@ router = APIRouter(prefix="/api/v1/authz", tags=["authz"])
 
 
 class TupleWrite(BaseModel):
-    user: str = Field(..., min_length=1, description="e.g. user:alice or org:acme#member")
-    relation: str = Field(..., min_length=1)
-    object: str = Field(..., min_length=1, description="e.g. planner_endpoint:chat_completions")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    user: str = Field(..., min_length=1, max_length=320, description="e.g. user:alice or org:acme#member")
+    relation: str = Field(..., min_length=1, max_length=64)
+    object: str = Field(..., min_length=1, max_length=320, description="e.g. planner_endpoint:chat_completions")
+
+    @field_validator("user", mode="after")
+    @classmethod
+    def validate_user(cls, value: str) -> str:
+        return fga_subject(value)
+
+    @field_validator("relation", mode="after")
+    @classmethod
+    def validate_relation(cls, value: str) -> str:
+        return fga_relation(value)
+
+    @field_validator("object", mode="after")
+    @classmethod
+    def validate_object(cls, value: str) -> str:
+        return fga_object(*parse_fga_object(value))
 
 
 class CheckRequest(BaseModel):
-    user: str = Field(..., min_length=1)
-    relation: str = Field(..., min_length=1)
-    object: str = Field(..., min_length=1)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    user: str = Field(..., min_length=1, max_length=320)
+    relation: str = Field(..., min_length=1, max_length=64)
+    object: str = Field(..., min_length=1, max_length=320)
+
+    @field_validator("user", mode="after")
+    @classmethod
+    def validate_user(cls, value: str) -> str:
+        return fga_subject(value)
+
+    @field_validator("relation", mode="after")
+    @classmethod
+    def validate_relation(cls, value: str) -> str:
+        return fga_relation(value)
+
+    @field_validator("object", mode="after")
+    @classmethod
+    def validate_object(cls, value: str) -> str:
+        return fga_object(*parse_fga_object(value))
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -75,9 +117,9 @@ async def authz_status(_admin: UserInfo = Depends(require_platform_admin)):
 
 @router.get("/tuples")
 async def list_tuples(
-    user: str = "",
-    relation: str = "",
-    object: str = "",
+    user: str = Query("", max_length=320),
+    relation: str = Query("", max_length=64),
+    object: str = Query("", max_length=320),
     _admin: UserInfo = Depends(require_platform_admin),
 ):
     """List tuples matching the optional filter (user, relation, object)."""
@@ -86,6 +128,12 @@ async def list_tuples(
     client = _get_fga_client()
     if not client:
         raise HTTPException(status_code=503, detail="OpenFGA not configured")
+    try:
+        user = fga_subject(user) if user else ""
+        relation = fga_relation(relation) if relation else ""
+        object = fga_object(*parse_fga_object(object)) if object else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         from openfga_sdk import ClientReadRequest
@@ -131,7 +179,7 @@ async def write_tuple(
     from ..services.admin_audit import record_admin_audit
     from ..services.fga_tuple_writer import _write_tuples
 
-    ok = await _write_tuples([{"user": body.user, "relation": body.relation, "object": body.object}])
+    ok = await _write_tuples([fga_tuple_key(body.user, body.relation, body.object)])
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to write tuple")
     await record_admin_audit(
@@ -153,7 +201,7 @@ async def delete_tuple(
     from ..services.admin_audit import record_admin_audit
     from ..services.fga_tuple_writer import _delete_tuples
 
-    ok = await _delete_tuples([{"user": body.user, "relation": body.relation, "object": body.object}])
+    ok = await _delete_tuples([fga_tuple_key(body.user, body.relation, body.object)])
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to delete tuple")
     await record_admin_audit(
@@ -177,7 +225,8 @@ async def run_check(
     """Run an authorization check and return the result (debug tool)."""
     from ..services.authz_engine import fga_check
 
-    allowed = await fga_check(body.user, body.relation, *body.object.split(":", 1))
+    object_type, object_id = parse_fga_object(body.object)
+    allowed = await fga_check(body.user, body.relation, object_type, object_id)
     return {
         "user": body.user,
         "relation": body.relation,
@@ -191,7 +240,7 @@ async def run_check(
 
 @router.get("/user-permissions/{user_id}")
 async def user_permissions(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=256),
     _admin: UserInfo = Depends(require_platform_admin),
 ):
     """Fetch the effective FGA permissions picture for a user.
@@ -200,7 +249,10 @@ async def user_permissions(
     """
     from ..services.authz_engine import _get_fga_client, fga_check
 
-    fga_user = f"user:{user_id}"
+    try:
+        fga_user = fga_user_for_id(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     client = _get_fga_client()
 
     tuples = []

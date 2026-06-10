@@ -4,6 +4,7 @@ import {
   buildSessionKeyCandidates,
   invokeTool,
   isOrgAdminOrHigher,
+  sanitizeIngestionConfig,
   visibleToolDescriptorsForRole,
   zodInputSchemaForTool,
 } from "../src/tools.js";
@@ -160,6 +161,30 @@ describe("admin MCP tool catalog", () => {
     expect(captured.url).toBe(
       "http://admin.local/api/v1/yarn/transition-events?since_minutes=60&limit=100&after_id=0&risk_only=true&include_metadata=false&event_kinds=request_trajectory_v1&event_kinds=state_transition_v1",
     );
+  });
+
+  it("blocks raw transition metadata for org_admin before forwarding", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await expect(
+      invokeTool(ctx, "org_admin", "yarn_transition_events_tail", { include_metadata: true }),
+    ).rejects.toMatchObject({
+      code: "forbidden",
+      privateDetail: expect.objectContaining({ reason: "raw_metadata_requires_platform_admin" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe Yarn diagnostic and safety identifiers before forwarding to Admin API", async () => {
@@ -1557,6 +1582,48 @@ describe("admin MCP tool catalog", () => {
         choosealicense: { repo: "github/choosealicense.com", branch: "gh-pages", licenses_path: "_licenses" },
         compat_path: "/data/compatibility.yaml",
       },
+    });
+  });
+
+  it("sanitizes ingestion config to known backend attributes", () => {
+    expect(
+      sanitizeIngestionConfig({
+        url: "https://example.com/docs/",
+        invented_config_flag: true,
+        synesis_meta: {
+          corpus_class: "general",
+          review_status: "reviewed",
+          invented_security_attr: "platform_admin",
+        },
+        discovery_report: {
+          handler: "web_page",
+          recommended_mode: "active",
+          invented_handler: "root",
+        },
+        spdx: {
+          licenses_url: "https://example.com/licenses.json",
+          invented_url: "https://example.com/admin.json",
+        },
+        papers: [
+          { id: "2005.11401", title: "RAG", invented: true },
+        ],
+      }),
+    ).toEqual({
+      url: "https://example.com/docs/",
+      synesis_meta: {
+        corpus_class: "general",
+        review_status: "reviewed",
+      },
+      discovery_report: {
+        handler: "web_page",
+        recommended_mode: "active",
+      },
+      spdx: {
+        licenses_url: "https://example.com/licenses.json",
+      },
+      papers: [
+        { id: "2005.11401", title: "RAG" },
+      ],
     });
   });
 

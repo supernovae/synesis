@@ -150,7 +150,7 @@ describe("resolveTierSettings with public offerings", () => {
     expect(catalog.getPlannerPublicOfferings()).toEqual([]);
   });
 
-  it("sanitizes role route generation params before exposing LLM routes", async () => {
+  it("accepts only known admin route params before exposing LLM routes", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -173,35 +173,16 @@ describe("resolveTierSettings with public offerings", () => {
                 endpoint: "https://llm.internal/v1",
                 route_params: {
                   max_tokens: 2048,
-                  temperature: 3,
-                  top_p: 1.2,
-                  reasoning_effort: "platform_admin",
-                  stop: Array.from({ length: 17 }, (_, i) => `stop-${i}`),
-                  top_logprobs: 21,
-                  n: 0,
-                  logit_bias: {
-                    "123": -1,
-                    "456": 101,
-                    role_override: 100,
-                  },
-                  tools: [
-                    {
-                      type: "function",
-                      function: {
-                        name: "lookup_trace",
-                        parameters: { type: "object", properties: { query: { type: "string" } } },
-                      },
-                    },
-                  ],
-                  tool_choice: {
-                    type: "function",
-                    function: { name: "lookup_trace" },
-                    role_override: "platform_admin",
-                  },
-                  extra_body: {
-                    min_p: 0.2,
-                    custom_provider_option: "unsafe",
-                  },
+                  temperature: 0.2,
+                  top_p: 0.95,
+                  top_k: 40,
+                  min_p: 0.05,
+                  presence_penalty: 0.1,
+                  repetition_penalty: 1.05,
+                  enable_thinking: true,
+                  reasoning_effort: "medium",
+                  model_capability_preset: "qwen3_coder",
+                  api_base: "https://llm.internal/v1",
                 },
               },
             ],
@@ -217,27 +198,74 @@ describe("resolveTierSettings with public offerings", () => {
     const route = catalog.getLlmRoute("writer-core");
     expect(route?.generationParams).toMatchObject({
       max_tokens: 2048,
-      logit_bias: { "123": -1 },
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "lookup_trace",
-            parameters: { type: "object", properties: { query: { type: "string" } } },
-          },
-        },
-      ],
-      extra_body: { min_p: 0.2 },
+      temperature: 0.2,
+      top_p: 0.95,
+      top_k: 40,
+      min_p: 0.05,
+      presence_penalty: 0.1,
+      repetition_penalty: 1.05,
+      enable_thinking: true,
+      reasoning_effort: "medium",
     });
-    expect(route?.generationParams?.logit_bias).toEqual({ "123": -1 });
-    expect(route?.generationParams?.tool_choice).toBeUndefined();
-    expect(route?.generationParams?.temperature).toBeUndefined();
-    expect(route?.generationParams?.top_p).toBeUndefined();
-    expect(route?.generationParams?.reasoning_effort).toBeUndefined();
+    expect(route?.baseUrl).toBe("https://llm.internal/v1");
     expect(route?.generationParams?.stop).toBeUndefined();
+    expect(route?.generationParams?.logit_bias).toBeUndefined();
+    expect(route?.generationParams?.tools).toBeUndefined();
+    expect(route?.generationParams?.tool_choice).toBeUndefined();
+    expect(route?.generationParams?.parallel_tool_calls).toBeUndefined();
+    expect(route?.generationParams?.extra_body).toBeUndefined();
     expect(route?.generationParams?.top_logprobs).toBeUndefined();
     expect(route?.generationParams?.n).toBeUndefined();
-    expect(JSON.stringify(route?.generationParams)).not.toContain("role_override");
-    expect(JSON.stringify(route?.generationParams)).not.toContain("custom_provider_option");
+  });
+
+  it("rejects broad provider params from role route snapshots", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            offerings: [],
+            for_service: "planner",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            roles: [
+              {
+                role: "writer-horizon",
+                assigned: true,
+                model: "unsafe-writer",
+                endpoint: "https://llm.internal/v1",
+                route_params: {
+                  max_tokens: 2048,
+                  logit_bias: { "123": -1 },
+                  tools: [
+                    {
+                      type: "function",
+                      function: {
+                        name: "lookup_trace",
+                        parameters: { type: "object", properties: { query: { type: "string" } } },
+                      },
+                    },
+                  ],
+                  tool_choice: { type: "function", function: { name: "lookup_trace" } },
+                  extra_body: { min_p: 0.2 },
+                  role_override: "platform_admin",
+                },
+              },
+            ],
+          }),
+        }),
+    );
+
+    await catalog.refreshPublicModelCatalog(loadConfig({
+      SYNESIS_ADMIN_URL: "http://admin",
+      SYNESIS_ADMIN_INTERNAL_TOKEN: "internal-token",
+    }));
+
+    expect(catalog.getLlmRoute("writer-horizon")).toBeUndefined();
   });
 });

@@ -25,6 +25,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from .route_validation import validate_safe_identifier
+from .token_scopes import invalid_token_scopes, normalize_token_scopes
 
 logger = logging.getLogger("synesis.auth")
 
@@ -44,6 +45,7 @@ CSRF_HEADER_NAME = "x-synesis-csrf"
 SESSION_TTL_SECONDS = int(os.getenv("SYNESIS_ADMIN_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
 COOKIE_SECURE = os.getenv("SYNESIS_ADMIN_COOKIE_SECURE", "true").lower() not in {"0", "false", "no"}
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
+_PAT_ROLES = frozenset({"platform_admin", "admin", "org_admin", "user", "readonly", "viewer"})
 
 _jwks_client: jwt.PyJWKClient | None = None
 
@@ -207,7 +209,11 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         await session.commit()
 
         raw_scopes = getattr(pat, "scopes", None)
-        scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+        invalid_scopes = invalid_token_scopes(raw_scopes)
+        if invalid_scopes:
+            logger.warning("pat_auth_invalid_scope reason=invalid_scope_values")
+            return None
+        scopes = normalize_token_scopes(raw_scopes)
         raw_tenants = getattr(pat, "tenant_ids", None)
         tenant_ids: list[str] = []
         try:
@@ -221,14 +227,24 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         except ValueError:
             logger.warning("pat_auth_invalid_scope reason=invalid_tenant_id")
             return None
-        org_id = (getattr(pat, "org_id", "") or "").strip()
+        raw_org_id = (getattr(pat, "org_id", "") or "").strip()
+        try:
+            org_id = validate_safe_identifier(raw_org_id, field_name="org_id", max_length=128) if raw_org_id else ""
+        except ValueError:
+            logger.warning("pat_auth_invalid_scope reason=invalid_org_id")
+            return None
         if tenant_ids and not org_id:
             logger.warning("pat_auth_invalid_scope reason=tenant_ids_without_org")
+            return None
+        raw_role = str(getattr(pat, "role", "") or "")
+        role = raw_role.strip()
+        if role != raw_role or role not in _PAT_ROLES:
+            logger.warning("pat_auth_invalid_scope reason=invalid_role")
             return None
 
         return UserInfo(
             username=pat.username,
-            role=pat.role,
+            role=role,
             user_id=pat.user_id,
             email="",
             org_id=org_id,

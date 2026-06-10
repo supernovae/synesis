@@ -791,6 +791,32 @@ function validateToolArgs(tool: AdminToolDefinition, args: Record<string, unknow
   return args;
 }
 
+function sanitizeValueForSchema(value: unknown, schema: ToolJsonSchemaProperty): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (schema.type === "object") {
+    if (!isRecord(value)) return undefined;
+    const out: Record<string, unknown> = {};
+    for (const [key, nestedSchema] of Object.entries(schema.properties ?? {})) {
+      const sanitized = sanitizeValueForSchema(value[key], nestedSchema);
+      if (sanitized !== undefined) out[key] = sanitized;
+    }
+    return out;
+  }
+  if (schema.type === "array") {
+    if (!Array.isArray(value) || !schema.items) return undefined;
+    return value
+      .map((item) => sanitizeValueForSchema(item, schema.items as ToolJsonSchemaProperty))
+      .filter((item) => item !== undefined);
+  }
+  return value;
+}
+
+export function sanitizeIngestionConfig(value: unknown): Record<string, unknown> | undefined {
+  const sanitized = sanitizeValueForSchema(value, INGESTION_CONFIG_SCHEMA);
+  return isRecord(sanitized) ? sanitized : undefined;
+}
+
 async function getTransitionQuality(
   ctx: ToolContext,
   args: Record<string, unknown>,
@@ -814,6 +840,9 @@ async function getTransitionEvents(
   const afterId = asInt(args.after_id, 0, 0, Number.MAX_SAFE_INTEGER);
   const riskOnly = asBool(args.risk_only, true);
   const includeMetadata = asBool(args.include_metadata, false);
+  if (includeMetadata && roleRank(ctx.role) < ROLE_RANK.platform_admin) {
+    throw new AdminMcpToolError("forbidden", 403, { reason: "raw_metadata_requires_platform_admin" });
+  }
   const eventKinds = asStringArray(args.event_kinds);
   return apiRequest(
     ctx,
@@ -2287,7 +2316,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       if (itemId <= 0) throw new Error("item_id required");
       const patch: Record<string, unknown> = {};
       for (const key of ["title", "handler", "domain", "tags", "priority", "status", "config"]) {
-        if (args[key] !== undefined) patch[key] = args[key];
+        if (args[key] === undefined) continue;
+        patch[key] = key === "config" ? sanitizeIngestionConfig(args[key]) : args[key];
       }
       return apiRequest(ctx, "PATCH", `/api/v1/ingestion/items/${itemId}`, undefined, patch);
     },

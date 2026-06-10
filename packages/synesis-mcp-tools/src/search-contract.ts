@@ -19,10 +19,29 @@ export interface SearchAttributionInput {
   traceId?: string;
 }
 
-function optionalString(v: unknown): string | undefined {
+const SEARCH_SOURCE_SURFACE_SET = new Set<string>(SEARCH_SOURCE_SURFACES);
+const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/;
+const REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+const SESSION_KEY_RE = /^[A-Za-z0-9_.:@/-]{1,256}$/;
+const CONVERSATION_ID_RE = /^[A-Za-z0-9_.:@/-]{1,256}$/;
+const TRACE_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function optionalString(v: unknown, pattern: RegExp, maxChars: number, fieldName: string): string | undefined {
   if (v === undefined || v === null) return undefined;
   const s = String(v).trim();
-  return s.length > 0 ? s : undefined;
+  if (!s) return undefined;
+  if (s.length > maxChars || !pattern.test(s)) {
+    throw new Error(`invalid_search_attribution_${fieldName}`);
+  }
+  return s;
+}
+
+function normalizeSourceSurface(value: SearchSourceSurface | undefined, fallback: SearchSourceSurface): SearchSourceSurface {
+  if (value === undefined) return fallback;
+  if (!SEARCH_SOURCE_SURFACE_SET.has(value)) {
+    throw new Error("invalid_search_attribution_source_surface");
+  }
+  return value;
 }
 
 export function buildSearchAttributionBody(
@@ -33,17 +52,17 @@ export function buildSearchAttributionBody(
 ): Record<string, unknown> {
   const input = attribution ?? {};
   const body: Record<string, unknown> = {
-    source_surface: input.sourceSurface ?? defaultSurface,
-    tool_name: optionalString(input.toolName) ?? defaultToolName,
+    source_surface: normalizeSourceSurface(input.sourceSurface, defaultSurface),
+    tool_name: optionalString(input.toolName, TOOL_NAME_RE, 128, "tool_name") ?? defaultToolName,
   };
 
-  const requestId = optionalString(input.requestId);
+  const requestId = optionalString(input.requestId, REQUEST_ID_RE, 128, "request_id");
   if (requestId) body.request_id = requestId;
-  const sessionKey = optionalString(input.sessionKey);
+  const sessionKey = optionalString(input.sessionKey, SESSION_KEY_RE, 256, "session_key");
   if (sessionKey) body.session_key = sessionKey;
-  const conversationId = optionalString(input.conversationId);
+  const conversationId = optionalString(input.conversationId, CONVERSATION_ID_RE, 256, "conversation_id");
   if (conversationId) body.conversation_id = conversationId;
-  const traceId = optionalString(input.traceId);
+  const traceId = optionalString(input.traceId, TRACE_ID_RE, 128, "trace_id");
   if (traceId) body.trace_id = traceId;
 
   if (auth.orgId) body.caller_org_id = auth.orgId;

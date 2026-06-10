@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PrefixOptimizer } from "../../src/providers/prefix-optimizer/index.js";
@@ -13,6 +13,10 @@ const fixtureFile = resolve(
 const fixture = JSON.parse(readFileSync(fixtureFile, "utf-8"));
 
 describe("PrefixOptimizer integration", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("restructures messages with stable content first", () => {
     const optimizer = new PrefixOptimizer({ markerBackend: "none", maxMarkers: 3, enableReduction: true, enableDiagnosticLogging: false });
     const turn = fixture.turns[0];
@@ -190,6 +194,35 @@ describe("PrefixOptimizer integration", () => {
     expect(r2.diagnostics.prefixStableBytes).toBe(r1Bytes);
   });
 
+  it("does not retain prompt snippets in prefix divergence diagnostics", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const optimizer = new PrefixOptimizer({
+      markerBackend: "none",
+      maxMarkers: 0,
+      enableReduction: true,
+      enableDiagnosticLogging: true,
+    });
+    const session = "private-prefix-diagnostics";
+    const stableSystem = "SECRET_SYSTEM_PREFIX_DO_NOT_LOG\nFollow repository rules.";
+
+    optimizer.optimize([
+      { role: "system", content: stableSystem },
+      { role: "user", content: "SECRET_USER_TURN_ONE" },
+    ], undefined, session);
+    optimizer.optimize([
+      { role: "system", content: stableSystem },
+      { role: "user", content: "SECRET_USER_TURN_TWO" },
+    ], undefined, session);
+
+    const serializedLogs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(serializedLogs).toContain("prefix_divergence_diagnostic");
+    expect(serializedLogs).toContain("\"divergenceRegion\":\"message[1]\"");
+    expect(serializedLogs).not.toContain("SECRET_SYSTEM_PREFIX_DO_NOT_LOG");
+    expect(serializedLogs).not.toContain("SECRET_USER_TURN_ONE");
+    expect(serializedLogs).not.toContain("SECRET_USER_TURN_TWO");
+    expect(serializedLogs).not.toContain("Follow repository rules");
+  });
+
   it("keeps frame hash aligned to existing TASK_FRAME content", () => {
     const optimizer = new PrefixOptimizer({ markerBackend: "none", maxMarkers: 0, enableReduction: true, enableDiagnosticLogging: false });
     const messages: ChatMessage[] = [
@@ -255,8 +288,8 @@ describe("PrefixOptimizer integration", () => {
       .map((message) => String(message.content ?? ""))
       .find((content) => content.includes("<TASK_FRAME>"));
 
-    expect(taskFrame).toContain("objective=/plan Build a complete Rust workspace application.");
-    expect(taskFrame).not.toContain("objective=Plan mode is active");
+    expect(taskFrame).toContain("objective: /plan Build a complete Rust workspace application.");
+    expect(taskFrame).not.toContain("objective: Plan mode is active");
     expect(taskFrame).not.toContain("next_action=present it for your approval");
   });
 });

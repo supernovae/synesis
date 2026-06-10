@@ -1,7 +1,7 @@
 import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
-import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import type { OpenAIChatCompletionRequest, RequestMetadata } from "../schemas.js";
 import { toSessionExecutionContextSystemBlock } from "../adapters/session-execution-context.js";
 import { isPlanImplementationApprovalTurn } from "../adapters/client-tool-capabilities.js";
 import {
@@ -46,7 +46,7 @@ interface PrepareOpenAIRouteNormalizationInput {
   identity: Pick<SessionIdentity, "userId" | "orgId" | "conversationId" | "clientKind" | "displayName">;
   canonicalRequest: { protocol: string };
   pipelineMode: string;
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   headers: Record<string, string | string[] | undefined>;
   optimizationLedger: {
     recordOriginal(messages: Array<{ content?: unknown }>): void;

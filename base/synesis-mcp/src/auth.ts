@@ -1,9 +1,13 @@
 import { Pool } from "pg";
 import {
+  boundedSecurityString,
+  canonicalSecurityId,
   extractBearerToken,
-  hasAnyScope,
-  hasScopePrefix,
+  hasMcpInvokeScope,
   hashPatToken,
+  normalizeSecurityStringArray,
+  normalizeTenantIds,
+  optionalCanonicalOrgId,
   type SynesisPrincipalBase,
 } from "@synesis/auth-contracts";
 import {
@@ -29,62 +33,16 @@ const MCP_PRINCIPAL_ROLES = new Set<McpPrincipalRole>([
   "admin",
   "service",
 ]);
-const SECURITY_ID_RE = /^[^\s,]{1,256}$/;
-const ORG_ID_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
-const TENANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const SCOPE_RE = /^[A-Za-z0-9][A-Za-z0-9:_.*-]{0,127}$/;
 
 function boundedDisplayString(value: unknown, maxLength: number): string {
-  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-function securityId(value: unknown, fieldName: string): string {
-  const text = boundedDisplayString(value, 256);
-  if (!text || !SECURITY_ID_RE.test(text)) {
-    throw new Error(`invalid_${fieldName}`);
-  }
-  return text;
-}
-
-function optionalOrgId(value: unknown): string {
-  const text = boundedDisplayString(value, 256);
-  if (!text) return "";
-  if (!ORG_ID_RE.test(text)) throw new Error("invalid_org_id");
-  return text;
+  return boundedSecurityString(value, maxLength, "display_value");
 }
 
 function normalizeRole(value: unknown): McpPrincipalRole | null {
   if (typeof value !== "string") return null;
   const role = value.trim().toLowerCase();
   return MCP_PRINCIPAL_ROLES.has(role as McpPrincipalRole) ? role as McpPrincipalRole : null;
-}
-
-function normalizeSecurityStringArray(
-  value: unknown,
-  fieldName: string,
-  pattern: RegExp,
-  maxItems: number,
-  normalize: (text: string) => string = (text) => text,
-): string[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw new Error(`invalid_${fieldName}`);
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of value) {
-    if (typeof item !== "string") throw new Error(`invalid_${fieldName}`);
-    const normalized = normalize(item.trim());
-    if (!normalized) continue;
-    if (!pattern.test(normalized)) throw new Error(`invalid_${fieldName}`);
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    out.push(normalized);
-    if (out.length > maxItems) throw new Error(`invalid_${fieldName}`);
-  }
-  return out;
-}
-
-function normalizeTenantIds(value: unknown): string[] {
-  return normalizeSecurityStringArray(value, "tenant_ids", TENANT_ID_RE, 50);
 }
 
 function normalizeTokenScopeList(value: unknown, fallback: readonly string[] = []): string[] {
@@ -147,7 +105,7 @@ export class McpAuthResolver {
     if (!scopes || scopes.length === 0) {
       throw new Error("Insufficient scope for MCP access");
     }
-    if (hasAnyScope(scopes, ["coder", "mcp:invoke", "mcp:tool:*"]) || hasScopePrefix(scopes, ["coder:", "mcp:tool:"])) {
+    if (hasMcpInvokeScope(scopes)) {
       return;
     }
     throw new Error("Insufficient scope for MCP access");
@@ -182,8 +140,8 @@ export class McpAuthResolver {
     let role: McpPrincipalRole;
     let tokenScopes: string[];
     try {
-      userId = securityId(row.user_id, "user_id");
-      orgId = optionalOrgId(row.org_id);
+      userId = canonicalSecurityId(row.user_id, "user_id");
+      orgId = optionalCanonicalOrgId(row.org_id);
       tenantIds = normalizeTenantIds(row.tenant_ids);
       const parsedRole = normalizeRole(row.role ?? "user");
       if (!parsedRole || parsedRole === "service") return null;
@@ -249,8 +207,8 @@ export class McpAuthResolver {
       role = "org_admin";
     }
     const user: PatUser = {
-      userId: securityId(principal.userId, "user_id"),
-      orgId: optionalOrgId(principal.orgId),
+      userId: canonicalSecurityId(principal.userId, "user_id"),
+      orgId: optionalCanonicalOrgId(principal.orgId),
       tenantIds: [],
       role,
       tokenScopes: normalizeTokenScopeList(principal.scopes, ["mcp:invoke", "coder:oidc"]),

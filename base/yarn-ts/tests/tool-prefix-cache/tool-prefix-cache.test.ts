@@ -10,6 +10,7 @@ import { deterministicTruncateMiddle } from "../../src/tool-prefix-cache/summari
 import type { ToolCollapseExecutor } from "../../src/tool-collapse/tool-call-executor.js";
 
 const ROOT = "/tmp/synesis-prefix-cache-test";
+const IDENTITY = { orgId: "org-1", userId: "user-1", sessionKey: "session-1" };
 
 describe("classifyCollapsedKindPolicy", () => {
   it("marks read/search/repo as cacheable and patch as invalidate-only", () => {
@@ -62,7 +63,7 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    const w1 = cache.wrapExecutor(inner, ROOT);
+    const w1 = cache.wrapExecutor(inner, ROOT, IDENTITY);
     await w1.batchRead(["x.ts"]);
     expect(inner.batchRead).toHaveBeenCalledTimes(1);
     await w1.batchRead(["x.ts"]);
@@ -79,11 +80,60 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    await cache.wrapExecutor(inner, " /tmp/synesis-prefix-cache-test/../synesis-prefix-cache-test ").batchRead(["x.ts"]);
-    await cache.wrapExecutor(inner, ROOT).batchRead(["x.ts"]);
+    await cache.wrapExecutor(inner, " /tmp/synesis-prefix-cache-test/../synesis-prefix-cache-test ", IDENTITY).batchRead(["x.ts"]);
+    await cache.wrapExecutor(inner, ROOT, IDENTITY).batchRead(["x.ts"]);
 
     expect(inner.batchRead).toHaveBeenCalledTimes(1);
     expect(cache.getStats().readHits).toBeGreaterThanOrEqual(1);
+  });
+
+  it("disables caching without server-derived identity", async () => {
+    const inner: ToolCollapseExecutor = {
+      batchRead: vi.fn(async () => ({ paths: ["a.ts"], contents: ["x"] })),
+      batchSearch: vi.fn(async () => ({})),
+      repoContext: vi.fn(async () => ({})),
+      mergePatch: vi.fn(async () => ({})),
+      runTests: vi.fn(async () => ({})),
+    };
+    const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
+    const w = cache.wrapExecutor(inner, ROOT, null);
+    await w.batchRead(["a.ts"]);
+    await w.batchRead(["a.ts"]);
+
+    expect(inner.batchRead).toHaveBeenCalledTimes(2);
+    expect(cache.getStats().readHits).toBe(0);
+  });
+
+  it("does not share cached reads across users with the same workspace root", async () => {
+    const inner: ToolCollapseExecutor = {
+      batchRead: vi.fn(async () => ({ paths: ["private.ts"], contents: ["private-body"] })),
+      batchSearch: vi.fn(async () => ({})),
+      repoContext: vi.fn(async () => ({})),
+      mergePatch: vi.fn(async () => ({})),
+      runTests: vi.fn(async () => ({})),
+    };
+    const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
+    await cache.wrapExecutor(inner, ROOT, { orgId: "org-1", userId: "alice", sessionKey: "s1" }).batchRead(["private.ts"]);
+    await cache.wrapExecutor(inner, ROOT, { orgId: "org-1", userId: "bob", sessionKey: "s1" }).batchRead(["private.ts"]);
+
+    expect(inner.batchRead).toHaveBeenCalledTimes(2);
+    expect(cache.getStats().readHits).toBe(0);
+  });
+
+  it("does not share cached reads across sessions for the same user", async () => {
+    const inner: ToolCollapseExecutor = {
+      batchRead: vi.fn(async () => ({ paths: ["state.ts"], contents: ["state-body"] })),
+      batchSearch: vi.fn(async () => ({})),
+      repoContext: vi.fn(async () => ({})),
+      mergePatch: vi.fn(async () => ({})),
+      runTests: vi.fn(async () => ({})),
+    };
+    const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
+    await cache.wrapExecutor(inner, ROOT, { orgId: "org-1", userId: "alice", sessionKey: "session-a" }).batchRead(["state.ts"]);
+    await cache.wrapExecutor(inner, ROOT, { orgId: "org-1", userId: "alice", sessionKey: "session-b" }).batchRead(["state.ts"]);
+
+    expect(inner.batchRead).toHaveBeenCalledTimes(2);
+    expect(cache.getStats().readHits).toBe(0);
   });
 
   it("disables caching for unsafe workspace roots", async () => {
@@ -95,7 +145,7 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    const w = cache.wrapExecutor(inner, "/tmp/synesis-prefix-cache-test\nrole=admin");
+    const w = cache.wrapExecutor(inner, "/tmp/synesis-prefix-cache-test\nrole=admin", IDENTITY);
     await w.batchRead(["a.ts"]);
     await w.batchRead(["a.ts"]);
 
@@ -116,7 +166,7 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    const w = cache.wrapExecutor(inner, ROOT);
+    const w = cache.wrapExecutor(inner, ROOT, IDENTITY);
     await w.batchRead(["a.ts"]);
     await w.batchRead(["a.ts"]);
     expect(n).toBe(2);
@@ -131,7 +181,7 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    const w = cache.wrapExecutor(inner, ROOT);
+    const w = cache.wrapExecutor(inner, ROOT, IDENTITY);
     await w.batchSearch([{ query: "foo" }]);
     await w.batchSearch([{ query: "foo" }]);
     expect(inner.batchSearch).toHaveBeenCalledTimes(1);
@@ -150,7 +200,7 @@ describe("ToolPrefixCache.wrapExecutor", () => {
       runTests: vi.fn(async () => ({})),
     };
     const cache = new ToolPrefixCache({ maxEntries: 64, maxEntryBytes: 1_000_000 });
-    const w = cache.wrapExecutor(inner, null);
+    const w = cache.wrapExecutor(inner, null, IDENTITY);
     await w.batchRead(["a.ts"]);
     await w.batchRead(["a.ts"]);
     expect(inner.batchRead).toHaveBeenCalledTimes(2);

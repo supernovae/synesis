@@ -234,6 +234,19 @@ function adminMcpLimitMeta(decision: AdminMcpConcurrencyRejection): Record<strin
   };
 }
 
+function auditMetaFields(prefix: "limit", fields?: Record<string, unknown>): Record<string, unknown> {
+  if (!fields) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    const normalized = key.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+    const fieldKey = normalized && normalized.length <= 64
+      ? normalized
+      : `field_${crypto.createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
+    out[`${prefix}_${fieldKey}`] = value;
+  }
+  return out;
+}
+
 export function buildAdminMcpAuditFields(input: {
   user: SessionUser;
   toolName: string;
@@ -258,7 +271,7 @@ export function buildAdminMcpAuditFields(input: {
     role: input.user.role,
     requestId: input.requestId,
     elapsed_ms: input.elapsedMs,
-    ...(input.limitMeta ?? {}),
+    ...auditMetaFields("limit", input.limitMeta),
   };
 }
 

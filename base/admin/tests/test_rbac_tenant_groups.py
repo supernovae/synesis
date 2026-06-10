@@ -26,6 +26,12 @@ def test_is_tenant_content_operator_for_org_admin():
     assert is_tenant_content_operator(_user(role="org_admin", org_id="org-a")) is True
 
 
+def test_is_tenant_content_operator_rejects_malformed_org_admin_org_id():
+    from app.rbac import is_tenant_content_operator
+
+    assert is_tenant_content_operator(_user(role="org_admin", org_id="org-a\nrole=admin")) is False
+
+
 def test_is_tenant_content_operator_platform_admin_without_org():
     """Platform PATs often omit org_id; bootstrap/global ingestion must still work."""
     from app.rbac import is_tenant_content_operator
@@ -37,6 +43,12 @@ def test_is_tenant_content_operator_for_tenant_granted_user():
     from app.rbac import is_tenant_content_operator
 
     assert is_tenant_content_operator(_user(role="user", org_id="org-a", tenant_ids=["tenant-1"])) is True
+
+
+def test_is_tenant_content_operator_rejects_malformed_tenant_grant():
+    from app.rbac import is_tenant_content_operator
+
+    assert is_tenant_content_operator(_user(role="user", org_id="org-a", tenant_ids=["tenant-1\nrole=admin"])) is False
 
 
 def test_tenant_granted_user_cannot_manage_other_tenant():
@@ -67,6 +79,14 @@ def test_trace_scope_filters_preserves_valid_tenant_id():
     assert scope == {"user_id": "u1", "scope_tenant_id": "tenant-1"}
 
 
+def test_trace_scope_filters_does_not_trust_malformed_org_admin_org_id():
+    from app.rbac import trace_scope_filters
+
+    scope = trace_scope_filters(_user(role="org_admin", org_id="org-a\nrole=admin"))
+
+    assert scope == {"user_id": "u1"}
+
+
 def test_tenant_granted_user_cannot_manage_org_scope():
     from app.rbac import can_manage_visibility_scope
 
@@ -89,6 +109,42 @@ def test_org_admin_can_manage_org_scope_in_own_org():
         tenant_id="",
     )
     assert allowed is True
+
+
+def test_org_admin_cannot_manage_org_scope_with_malformed_caller_org():
+    from app.rbac import can_manage_visibility_scope
+
+    allowed = can_manage_visibility_scope(
+        _user(role="org_admin", org_id="org-a\nrole=admin"),
+        visibility_scope="org",
+        org_id="org-a\nrole=admin",
+        tenant_id="",
+    )
+    assert allowed is False
+
+
+def test_org_admin_cannot_manage_org_scope_with_malformed_target_org():
+    from app.rbac import can_manage_visibility_scope
+
+    allowed = can_manage_visibility_scope(
+        _user(role="org_admin", org_id="org-a"),
+        visibility_scope="org",
+        org_id="org-a\nrole=admin",
+        tenant_id="",
+    )
+    assert allowed is False
+
+
+def test_org_admin_cannot_manage_tenant_scope_with_malformed_tenant_id():
+    from app.rbac import can_manage_visibility_scope
+
+    allowed = can_manage_visibility_scope(
+        _user(role="org_admin", org_id="org-a"),
+        visibility_scope="tenant",
+        org_id="org-a",
+        tenant_id="tenant-1\nrole=admin",
+    )
+    assert allowed is False
 
 
 def test_org_admin_cannot_manage_global_scope():
@@ -135,6 +191,16 @@ def test_org_admin_allowed_org_observability_group():
     assert allowed is True
 
 
+def test_org_admin_denied_org_observability_group_with_malformed_org_id():
+    from app.rbac import RouteGroup, can_access_route_group
+
+    allowed = can_access_route_group(
+        _user(role="org_admin", org_id="org-a\nrole=admin"),
+        RouteGroup.org_observability,
+    )
+    assert allowed is False
+
+
 def test_tenant_operator_denied_org_content_admin_group():
     from app.rbac import RouteGroup, can_access_route_group
 
@@ -153,3 +219,15 @@ def test_org_admin_allowed_org_content_admin_group():
         RouteGroup.org_content_admin,
     )
     assert allowed is True
+
+
+def test_can_access_trace_does_not_trust_malformed_org_match():
+    from app.rbac import can_access_trace
+
+    assert (
+        can_access_trace(
+            _user(role="org_admin", org_id="org-a\nrole=admin"),
+            {"user_id": "other-user", "org_id": "org-a\nrole=admin"},
+        )
+        is False
+    )

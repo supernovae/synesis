@@ -141,13 +141,6 @@ export function injectToolCacheMarker(tools: ToolDef[]): ToolDef[] {
  * When `getMarkerIndices` is provided (optimizer active), uses those indices.
  * Otherwise falls back to legacy selectBreakpoints.
  */
-// Module-level replay cache test state (persists across closure recreation)
-let _replayBody: string | null = null;
-let _replayUrl: string | null = null;
-let _replayHeaders: Record<string, string> | null = null;
-let _replayDone = false;
-let _replayRequestCount = 0;
-
 export function createDashScopeCacheFetch(
   nativeFetch: typeof globalThis.fetch,
   maxMarkers = 3,
@@ -190,7 +183,8 @@ export function createDashScopeCacheFetch(
       const preInjectionHashes: string[] = [];
       let preMsg0Role = "";
       let preMsg0ContentType = "";
-      let preMsg0Snippet = "";
+      let preMsg0ContentHash = "";
+      let preMsg0ContentBytes = 0;
       try {
         const diagCount = Math.min(8, body.messages.length);
         for (let i = 0; i < diagCount; i++) {
@@ -202,7 +196,8 @@ export function createDashScopeCacheFetch(
           preMsg0ContentType = typeof m0.content === "string" ? "string"
             : Array.isArray(m0.content) ? "array" : typeof m0.content;
           const t = typeof m0.content === "string" ? m0.content : JSON.stringify(m0.content);
-          preMsg0Snippet = t.slice(0, 120);
+          preMsg0ContentHash = await sha256Hex16(t);
+          preMsg0ContentBytes = encoder.encode(t).byteLength;
         }
       } catch { /* ignore */ }
 
@@ -253,12 +248,12 @@ export function createDashScopeCacheFetch(
         }
       }
 
-      // Capture content snippets for first 3 messages (pre-injection)
-      const msgSnippets: string[] = [];
+      // Capture message shape for first 3 messages without retaining content.
+      const msgDiagnostics: string[] = [];
       for (let i = 0; i < Math.min(3, body.messages.length); i++) {
         const c = body.messages[i]?.content;
         const txt = typeof c === "string" ? c : JSON.stringify(c);
-        msgSnippets.push(`msg[${i}]:${body.messages[i]?.role}:${txt.length}ch:"${txt.slice(0, 80)}"`);
+        msgDiagnostics.push(`msg[${i}]:${body.messages[i]?.role}:${txt.length}ch:${await sha256Hex16(txt)}`);
       }
 
       // Capture request headers
@@ -292,12 +287,13 @@ export function createDashScopeCacheFetch(
         postInjectionHashes: postInjectionHashes.slice(0, 4),
         preMsg0Role,
         preMsg0ContentType,
-        preMsg0Snippet,
+        preMsg0ContentHash,
+        preMsg0ContentBytes,
         bodyMeta,
         toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
         leadingSystemCount,
         roleSeq,
-        msgSnippets,
+        msgDiagnostics,
         headerKeys: headerKeys.sort(),
       }));
 
@@ -335,116 +331,6 @@ export function createDashScopeCacheFetch(
         markedMsgStructures,
         toolCCInfo,
       }));
-
-      // --- Replay cache test: on 2nd request, replay the 1st request's exact body
-      //     directly via globalThis.fetch to prove DashScope caching works from
-      //     this Node.js process. Module-level state persists across closure recreation.
-      _replayRequestCount++;
-      if (!_replayDone && _replayBody && _replayUrl && _replayRequestCount >= 2) {
-        _replayDone = true;
-        (async () => {
-          try {
-            await new Promise(r => setTimeout(r, 8000));
-
-            // Test A: Replay EXACT same body (proves cache works at all)
-            const replayBodyA = JSON.parse(_replayBody!);
-            replayBodyA.stream = false;
-            delete replayBodyA.stream_options;
-            replayBodyA.max_tokens = 10;
-            const respA = await globalThis.fetch(new URL(_replayUrl!), {
-              method: "POST",
-              headers: { "Content-Type": "application/json", ..._replayHeaders! },
-              body: JSON.stringify(replayBodyA),
-            });
-            const jsonA = await respA.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
-            const rdA = jsonA?.usage?.prompt_tokens_details;
-            console.log(JSON.stringify({
-              level: 30,
-              msg: "dashscope_replay_cache_test",
-              test: "A_exact_body",
-              result: (rdA?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
-              prompt_tokens: jsonA?.usage?.prompt_tokens ?? "?",
-              cached_tokens: rdA?.cached_tokens ?? 0,
-              cache_creation: rdA?.cache_creation_input_tokens ?? 0,
-            }));
-
-            // Test B: Same prefix (msg[0] + tools) but DIFFERENT trailing messages
-            // This tells us if DashScope caches by prefix or full body
-            await new Promise(r => setTimeout(r, 2000));
-            const replayBodyB = JSON.parse(_replayBody!);
-            replayBodyB.stream = false;
-            delete replayBodyB.stream_options;
-            replayBodyB.max_tokens = 10;
-            // Keep msg[0] (system with cache_control) but replace all other messages
-            replayBodyB.messages = [
-              replayBodyB.messages[0],
-              { role: "user", content: "What is 2+2?" },
-            ];
-            const respB = await globalThis.fetch(new URL(_replayUrl!), {
-              method: "POST",
-              headers: { "Content-Type": "application/json", ..._replayHeaders! },
-              body: JSON.stringify(replayBodyB),
-            });
-            const jsonB = await respB.json() as { usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_input_tokens?: number } } };
-            const rdB = jsonB?.usage?.prompt_tokens_details;
-            console.log(JSON.stringify({
-              level: 30,
-              msg: "dashscope_replay_cache_test",
-              test: "B_prefix_only",
-              result: (rdB?.cached_tokens ?? 0) > 0 ? "CACHE_HIT" : "CACHE_MISS",
-              prompt_tokens: jsonB?.usage?.prompt_tokens ?? "?",
-              cached_tokens: rdB?.cached_tokens ?? 0,
-              cache_creation: rdB?.cache_creation_input_tokens ?? 0,
-              msgCount: 2,
-            }));
-          } catch (err) {
-            console.log(JSON.stringify({ level: 40, msg: "dashscope_replay_test_error", error: String(err) }));
-          }
-        })();
-      }
-      if (!_replayBody) {
-        _replayBody = serializedBody;
-        _replayUrl = String(input);
-        try {
-          const h: Record<string, string> = {};
-          if (init?.headers) {
-            if (init.headers instanceof Headers) {
-              init.headers.forEach((v, k) => { if (k.toLowerCase() !== "content-length") h[k] = v; });
-            } else if (!Array.isArray(init.headers)) {
-              for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
-                if (k.toLowerCase() !== "content-length") h[k] = v;
-              }
-            }
-          }
-          _replayHeaders = h;
-        } catch { _replayHeaders = {}; }
-      }
-
-      // Compare prefix bytes with saved replay body (detect subtle prefix drift)
-      if (_replayBody) {
-        const savedPrefix = _replayBody.slice(0, 500);
-        const currentPrefix = serializedBody.slice(0, 500);
-        const prefixMatch = savedPrefix === currentPrefix;
-        if (!prefixMatch) {
-          let firstDiffIdx = 0;
-          for (let i = 0; i < Math.min(savedPrefix.length, currentPrefix.length); i++) {
-            if (savedPrefix[i] !== currentPrefix[i]) { firstDiffIdx = i; break; }
-          }
-          console.log(JSON.stringify({
-            level: 30,
-            msg: "dashscope_prefix_drift_detected",
-            firstDiffIdx,
-            saved: savedPrefix.slice(Math.max(0, firstDiffIdx - 20), firstDiffIdx + 40),
-            current: currentPrefix.slice(Math.max(0, firstDiffIdx - 20), firstDiffIdx + 40),
-          }));
-        } else {
-          console.log(JSON.stringify({
-            level: 20,
-            msg: "dashscope_prefix_stable",
-            prefixBytesChecked: 500,
-          }));
-        }
-      }
 
       const resp = await nativeFetch(input, { ...init, body: serializedBody });
 

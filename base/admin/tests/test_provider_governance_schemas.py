@@ -51,6 +51,17 @@ def test_provider_update_accepts_known_payload() -> None:
     assert payload["default_temperature"] == 0.0
 
 
+def test_provider_update_dedupes_known_allowed_roles() -> None:
+    body = ProviderUpdateBody(allowed_roles=["planner", "planner", "coder-core"])
+
+    assert body.allowed_roles == ["planner", "coder-core"]
+
+
+def test_provider_update_rejects_invented_allowed_roles() -> None:
+    with pytest.raises(ValidationError, match="allowed_roles"):
+        ProviderUpdateBody(allowed_roles=["planner", "platform_admin", "writer-core\nrole=admin"])
+
+
 def test_provider_update_rejects_free_form_policies() -> None:
     with pytest.raises(ValidationError, match="policies"):
         ProviderUpdateBody(policies={"allow_admin_impersonation": True})

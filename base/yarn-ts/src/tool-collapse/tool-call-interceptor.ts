@@ -1,5 +1,6 @@
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
+import type { ToolPrefixCacheIdentity } from "../tool-prefix-cache/types.js";
 import { applyDiscoveryGuardrails } from "./discovery-guardrails.js";
 import { collapseToolCalls } from "./tool-call-collapser.js";
 import { executeCollapsePlan, type ToolCollapseExecutor } from "./tool-call-executor.js";
@@ -36,6 +37,8 @@ export interface ToolCallInterceptorOptions {
   dedupeLayer?: DedupeLayer | null;
   /** When set with a non-empty workspaceRoot and execute+executor, wraps the executor (after collapse, before run). */
   toolPrefixCache?: ToolPrefixCache | null;
+  /** Server-derived identity required before any tool result cache may be used. */
+  cacheIdentity?: ToolPrefixCacheIdentity | null;
   log?: (entry: { msg: string; data?: Record<string, unknown> }) => void;
 }
 
@@ -220,7 +223,7 @@ export class ToolCallInterceptor {
       this.opts.toolPrefixCache &&
       typeof this.opts.workspaceRoot === "string" &&
       this.opts.workspaceRoot.trim()
-        ? this.opts.toolPrefixCache.wrapExecutor(baseExecutor, this.opts.workspaceRoot)
+        ? this.opts.toolPrefixCache.wrapExecutor(baseExecutor, this.opts.workspaceRoot, this.opts.cacheIdentity ?? null)
         : baseExecutor;
     let executions = await executeCollapsePlan(plan, executor);
     if (!this.opts.execute) {

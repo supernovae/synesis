@@ -2,7 +2,7 @@ import type { AuthUser } from "../auth.js";
 import type { SessionIdentity } from "../session/session-key.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
 import type { GovernorInputMessage } from "../governance/execution-governor.js";
-import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import type { OpenAIChatCompletionRequest, RequestMetadata } from "../schemas.js";
 import { shouldRunGovernorForMode } from "./modes.js";
 import { prepareOpenAITurn } from "./openai-turn-preparation.js";
 import { prepareOpenAIContext } from "./openai-context-preparation.js";
@@ -117,7 +117,7 @@ interface PrepareOpenAIGovernedStageInput {
   requestId: string;
   request: OpenAIChatCompletionRequest;
   normalizedOpenAI: NormalizedOpenAI;
-  bodyMetadata: Record<string, unknown> | null | undefined;
+  bodyMetadata: RequestMetadata | null | undefined;
   latestUserText: { role: string; content: unknown } | undefined;
   taskCue: string;
   clientToolCapabilities: ReturnType<OpenAIChatCompletionsRouteDependencies["detectClientToolCapabilities"]>;

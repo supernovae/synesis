@@ -48,12 +48,126 @@ const TENANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const ACL_GROUP_RE = /^[A-Za-z0-9_.:@/-]{1,128}$/;
 const TOKEN_SCOPE_RE = /^[A-Za-z0-9][A-Za-z0-9:_.*-]{0,127}$/;
 const EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+const CACHE_KEY_PART_RE = /^[A-Za-z0-9_.@-]+$/;
+const REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+const CODER_ACCESS_SCOPES = new Set([
+  "coder",
+  "coder:readonly",
+  "coder:readwrite",
+  "coder:execute",
+  "coder:opaque",
+  "model:readonly",
+  "model:readwrite",
+  "chat",
+  "chat:readonly",
+  "chat:readwrite",
+]);
+
+const MODEL_READ_SCOPES = new Set([
+  "model",
+  "model:readonly",
+  "model:readwrite",
+  "coder",
+  "coder:readonly",
+  "coder:readwrite",
+  "coder:execute",
+  "chat",
+  "chat:readonly",
+  "chat:readwrite",
+]);
+
+const MCP_ACCESS_SCOPES = new Set([
+  "coder",
+  "coder:readonly",
+  "coder:readwrite",
+  "coder:execute",
+  "mcp:invoke",
+  "mcp:tool:*",
+]);
 
 function boundedHeaderString(value: unknown, maxLength: number): string {
   if (typeof value !== "string") return "";
   const text = value.trim();
   if (text.length > maxLength) throw new Error("invalid_forwarded_identity_header");
   return text;
+}
+
+function sha256Hex(value: string, chars: number): string {
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, chars);
+}
+
+export function boundedSecurityString(value: unknown, maxLength: number, fieldName = "security_value"): string {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (text.length > maxLength) throw new Error(`invalid_${fieldName}`);
+  return text;
+}
+
+export function canonicalSecurityId(value: unknown, fieldName = "security_id"): string {
+  const text = boundedSecurityString(value, 256, fieldName);
+  if (!text || !SECURITY_ID_RE.test(text)) throw new Error(`invalid_${fieldName}`);
+  return text;
+}
+
+export function optionalCanonicalOrgId(value: unknown): string {
+  const text = boundedSecurityString(value, 256, "org_id");
+  if (!text) return "";
+  if (!ORG_ID_RE.test(text)) throw new Error("invalid_org_id");
+  return text;
+}
+
+export function normalizeSecurityStringArray(
+  value: unknown,
+  fieldName: string,
+  pattern: RegExp,
+  maxItems: number,
+  normalize: (item: string) => string = (item) => item,
+): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`invalid_${fieldName}`);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") throw new Error(`invalid_${fieldName}`);
+    const item = normalize(raw.trim());
+    if (!item) continue;
+    if (!pattern.test(item)) throw new Error(`invalid_${fieldName}`);
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+    if (out.length > maxItems) throw new Error(`invalid_${fieldName}`);
+  }
+  return out;
+}
+
+export function normalizeTenantIds(value: unknown): string[] {
+  return normalizeSecurityStringArray(value, "tenant_ids", TENANT_ID_RE, 50);
+}
+
+export function cacheKeyPart(
+  value: unknown,
+  fallback: string,
+  options: { maxEncodedLength?: number; hashChars?: number; allowedPattern?: RegExp } = {},
+): string {
+  const maxEncodedLength = options.maxEncodedLength ?? 160;
+  const hashChars = options.hashChars ?? 32;
+  const allowedPattern = options.allowedPattern ?? CACHE_KEY_PART_RE;
+  const fallbackPart = fallback.trim() || "unknown";
+  const raw = typeof value === "string" ? value.replace(/\0/g, "").trim() : "";
+  if (!raw) return fallbackPart;
+  if (!allowedPattern.test(raw)) return `${fallbackPart}-${sha256Hex(raw, hashChars)}`;
+  const encoded = encodeURIComponent(raw);
+  if (encoded.length <= maxEncodedLength) return encoded;
+  return `${fallbackPart}-${sha256Hex(raw, hashChars)}`;
+}
+
+export function normalizeRequestId(value: unknown, fallback: string, prefix = "request"): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (raw && REQUEST_ID_RE.test(raw)) return raw;
+  const safeFallback = typeof fallback === "string" ? fallback.trim() : "";
+  if (safeFallback && REQUEST_ID_RE.test(safeFallback)) return safeFallback;
+  return `${prefix}-${sha256Hex(`${raw}:${safeFallback}`, 32)}`;
 }
 
 function requireHeaderPattern(value: string, pattern: RegExp, fieldName: string): string {
@@ -145,19 +259,26 @@ export function normalizeTokenScopes(value: readonly string[] | undefined, fallb
   return parseBoundedCsvList([...(value ?? fallback)], "token_scopes", TOKEN_SCOPE_RE, 100, (scope) => scope.toLowerCase());
 }
 
-export function hasScopePrefix(scopes: readonly string[] | undefined, prefixes: readonly string[]): boolean {
-  const normalizedPrefixes = prefixes.map((prefix) => prefix.trim().toLowerCase()).filter(Boolean);
-  if (normalizedPrefixes.length === 0) return false;
-  return (scopes ?? []).some((scope) => {
-    const normalizedScope = scope.trim().toLowerCase();
-    return normalizedPrefixes.some((prefix) => normalizedScope === prefix || normalizedScope.startsWith(prefix));
-  });
-}
-
 export function hasAnyScope(scopes: readonly string[] | undefined, allowedScopes: readonly string[]): boolean {
   const allowed = new Set(allowedScopes.map((scope) => scope.trim().toLowerCase()).filter(Boolean));
   if (allowed.size === 0) return false;
   return (scopes ?? []).some((scope) => allowed.has(scope.trim().toLowerCase()));
+}
+
+function hasExactScope(scopes: readonly string[] | undefined, allowed: ReadonlySet<string>): boolean {
+  return (scopes ?? []).some((scope) => allowed.has(scope.trim().toLowerCase()));
+}
+
+export function hasCoderAccessScope(scopes: readonly string[] | undefined): boolean {
+  return hasExactScope(scopes, CODER_ACCESS_SCOPES);
+}
+
+export function hasModelReadScope(scopes: readonly string[] | undefined): boolean {
+  return hasExactScope(scopes, MODEL_READ_SCOPES);
+}
+
+export function hasMcpInvokeScope(scopes: readonly string[] | undefined): boolean {
+  return hasExactScope(scopes, MCP_ACCESS_SCOPES);
 }
 
 export function firstHeaderValue(headers: HeaderMap, key: string): string {

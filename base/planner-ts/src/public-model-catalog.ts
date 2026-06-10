@@ -10,11 +10,26 @@ const PublicOfferingGenerationParamsSchema = z.object({
   top_k: z.number().int().min(0).max(1_000_000).optional(),
   min_p: z.number().min(0).max(1).optional(),
   presence_penalty: z.number().min(-2).max(2).optional(),
-  frequency_penalty: z.number().min(-2).max(2).optional(),
   repetition_penalty: z.number().min(0).max(10).optional(),
   enable_thinking: z.boolean().optional(),
   reasoning_effort: z.enum(["low", "medium", "high"]).optional(),
   model_capability_preset: z.string().optional(),
+}).strict();
+
+const RoleRouteParamsSchema = z.object({
+  model: z.string().optional(),
+  max_tokens: z.number().int().min(1).max(1_048_576).optional(),
+  temperature: z.number().min(0).max(5).optional(),
+  top_p: z.number().min(0).max(1).optional(),
+  top_k: z.number().int().min(1).max(100_000).optional(),
+  min_p: z.number().min(0).max(1).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  repetition_penalty: z.number().min(0).max(10).optional(),
+  enable_thinking: z.boolean().optional(),
+  reasoning_effort: z.enum(["none", "low", "medium", "high", "xhigh", "default"]).optional(),
+  model_capability_preset: z.string().optional(),
+  api_key: z.string().optional(),
+  api_base: z.string().optional(),
 }).strict();
 
 const PublicPlannerOfferingSchema = z.object({
@@ -52,16 +67,22 @@ export interface LlmRoute {
   generationParams?: Record<string, unknown> | null;
 }
 
-interface InternalRoleAssignment {
-  role: string;
-  assigned?: boolean;
-  model?: string;
-  served_name?: string;
-  endpoint?: string;
-  provider?: string;
-  api_key_env?: string;
-  route_params?: Record<string, unknown> | null;
-}
+const InternalRoleAssignmentSchema = z.object({
+  role: z.string(),
+  assigned: z.boolean().optional(),
+  model: z.string().optional(),
+  served_name: z.string().optional(),
+  endpoint: z.string().optional(),
+  provider: z.string().optional(),
+  api_key_env: z.string().optional(),
+  route_params: RoleRouteParamsSchema.nullable().optional(),
+}).strict();
+
+const RoleAssignmentsEnvelopeSchema = z.object({
+  roles: z.array(InternalRoleAssignmentSchema),
+}).strict();
+
+type InternalRoleAssignment = z.infer<typeof InternalRoleAssignmentSchema>;
 
 const POLL_MS = 120_000;
 
@@ -152,12 +173,10 @@ export async function refreshPublicModelCatalog(config: AppConfig): Promise<void
   }
   if (rolesRes.ok) {
     try {
-      const j = (await rolesRes.json()) as {
-        roles?: InternalRoleAssignment[];
-      };
+      const parsedRoles = RoleAssignmentsEnvelopeSchema.parse(await rolesRes.json());
       const next: Record<string, string> = {};
       const nextRoutes: Record<string, LlmRoute> = {};
-      for (const r of j.roles ?? []) {
+      for (const r of parsedRoles.roles) {
         if (r.assigned && r.model?.trim()) next[r.role] = r.model.trim();
         const route = routeFromRole(r);
         if (route) {

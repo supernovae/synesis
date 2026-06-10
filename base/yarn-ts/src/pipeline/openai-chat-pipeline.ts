@@ -1,4 +1,4 @@
-import type { OpenAIChatCompletionRequest } from "../schemas.js";
+import type { OpenAIChatCompletionRequest, RequestMetadata } from "../schemas.js";
 import { OpenAIChatCompletionRequestSchema } from "../schemas.js";
 import type { AppConfig } from "../config.js";
 import type { AuthUser } from "../auth.js";
@@ -35,7 +35,7 @@ export interface OpenAIChatIngressSuccess {
   request: OpenAIChatCompletionRequest;
   canonicalRequest: CanonicalChatRequest;
   modeResolution: PipelineModeResolution;
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   clientKind: string;
   conversationId: string;
   requestUser: unknown;
@@ -119,7 +119,7 @@ function inferOpenAiClientKindFromUserAgent(ua: string): string | null {
 
 function resolveOpenAiClientKind(
   headers: Record<string, unknown>,
-  metadata: Record<string, unknown> | null,
+  metadata: RequestMetadata | null,
 ): string {
   const explicit = headerOne(headers, "x-synesis-client");
   if (explicit) return explicit;
@@ -127,8 +127,6 @@ function resolveOpenAiClientKind(
   const candidates: unknown[] = metadata
     ? [
         metadata.synesis_client,
-        metadata.client,
-        metadata.client_name,
         metadata.synesis_acp_client_name,
       ]
     : [];
@@ -148,13 +146,20 @@ function resolveOpenAiClientKind(
 
 function resolveOpenAiConversationId(
   bodyConversationId: unknown,
-  metadata: Record<string, unknown> | null,
+  metadata: RequestMetadata | null,
   headers: Record<string, unknown>,
 ): string {
   if (typeof bodyConversationId === "string" && bodyConversationId.trim()) return bodyConversationId.trim();
 
   if (metadata) {
-    for (const key of ["synesis_conversation_id", "conversation_id", "session_id", "thread_id", "chat_id"]) {
+    const conversationKeys = [
+      "synesis_conversation_id",
+      "conversation_id",
+      "session_id",
+      "thread_id",
+      "chat_id",
+    ] satisfies Array<keyof RequestMetadata>;
+    for (const key of conversationKeys) {
       const val = metadata[key];
       if (typeof val === "string" && val.trim()) return val.trim();
     }
@@ -202,11 +207,8 @@ function resolveOpenAiDisplayName(
   return undefined;
 }
 
-function metadataFromRequest(request: OpenAIChatCompletionRequest): Record<string, unknown> | null {
-  const raw = (request as Record<string, unknown>).metadata;
-  return raw && typeof raw === "object" && !Array.isArray(raw)
-    ? raw as Record<string, unknown>
-    : null;
+function metadataFromRequest(request: OpenAIChatCompletionRequest): RequestMetadata | null {
+  return request.metadata ?? null;
 }
 
 export class OpenAIChatPipeline {

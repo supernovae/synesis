@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import UserInfo, get_current_user
 from ..internal_auth import require_internal_service_token_request
-from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role
+from ..rbac import Role, RouteGroup, can_access_route_group, require_caller_org_id, resolve_role
 from ..services import security_service
 from ..services.admin_audit import record_admin_audit
 
@@ -43,7 +43,7 @@ def _scope_org(user: UserInfo) -> str:
     role = resolve_role(user)
     if role >= Role.platform_admin:
         return ""
-    return user.org_id or ""
+    return require_caller_org_id(user, surface="org-scoped security access")
 
 
 # ── List / summary ────────────────────────────────────────────────────────────

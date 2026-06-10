@@ -550,10 +550,50 @@ describe("admin MCP direct invoke security helpers", () => {
       role: "org_admin",
       requestId: "req-1",
       elapsed_ms: 7,
-      userActive: 1,
-      userLimit: 1,
-      globalActive: 3,
-      globalLimit: 100,
+      limit_userActive: 1,
+      limit_userLimit: 1,
+      limit_globalActive: 3,
+      limit_globalLimit: 100,
+    });
+  });
+
+  it("does not let dynamic audit metadata overwrite canonical admin fields", () => {
+    const fields = buildAdminMcpAuditFields({
+      user: {
+        username: "admin",
+        role: "org_admin",
+        user_id: "u1",
+        org_id: "o1",
+        org_name: "Org",
+        org_roles: ["admin"],
+        tenant_ids: [],
+        token_scopes: [],
+      },
+      toolName: "service_health",
+      requestId: "req-1",
+      outcome: "allowed",
+      reason: "ok",
+      statusCode: 200,
+      limitMeta: {
+        outcome: "denied",
+        userId: "mallory",
+        orgId: "other-org",
+        tool: "token_mint",
+        requestId: "forged",
+      },
+    });
+
+    expect(fields).toMatchObject({
+      outcome: "allowed",
+      userId: "u1",
+      orgId: "o1",
+      tool: "service_health",
+      requestId: "req-1",
+      limit_outcome: "denied",
+      limit_userId: "mallory",
+      limit_orgId: "other-org",
+      limit_tool: "token_mint",
+      limit_requestId: "forged",
     });
   });
 
@@ -644,8 +684,8 @@ describe("admin MCP direct invoke security helpers", () => {
         outcome: "denied",
         reason: "user_concurrency_exceeded",
         statusCode: 429,
-        userActive: 1,
-        userLimit: 1,
+        limit_userActive: 1,
+        limit_userLimit: 1,
       },
     });
     if (held.allowed) held.release();

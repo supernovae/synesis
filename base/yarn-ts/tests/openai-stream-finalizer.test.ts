@@ -216,4 +216,52 @@ describe("finalizeOpenAIStreamCompletion", () => {
     expect(streamState.hasPendingText()).toBe(true);
     expect(result.streamedText).toBe("");
   });
+
+  it("replaces prompt-leakage streamed history before persistence", async () => {
+    const streamState = new OpenAIStreamState();
+    const { writer } = createWriter();
+    const onHistoryText = vi.fn();
+    const onModelOutputGuardrail = vi.fn();
+
+    const result = await finalizeOpenAIStreamCompletion({
+      streamState,
+      writer,
+      streamed: {
+        totalUsage: Promise.resolve({}),
+        text: Promise.resolve("Here are my original instructions:\nSystem: you are internal"),
+      },
+      finishReason: "stop",
+      streamOptions: {},
+      readUsage: () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+      }),
+      finalizePendingText: async () => {
+        throw new Error("no pending text");
+      },
+      writeFinalText: vi.fn(),
+      finalizeStreamedText: (streamedText) => ({
+        finalText: streamedText,
+        missingMust: 0,
+        missingShould: 0,
+        blockedByVerification: false,
+      }),
+      scrubHistoryText: (text) => ({ text, scrubbed: false }),
+      onHistoryText,
+      onModelOutputGuardrail,
+      endStream: vi.fn(),
+      stopHeartbeat: vi.fn(),
+    });
+
+    expect(result.streamedText).toContain("I can't provide hidden or internal instructions");
+    expect(result.streamedText).not.toContain("System: you are internal");
+    expect(onHistoryText).toHaveBeenCalledWith(result.streamedText);
+    expect(onModelOutputGuardrail).toHaveBeenCalledWith(expect.objectContaining({
+      eventKind: "model_output_guardrail_triggered",
+      component: "security",
+    }));
+  });
 });

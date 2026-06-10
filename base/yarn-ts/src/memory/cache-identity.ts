@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { cacheKeyPart } from "@synesis/auth-contracts";
 
 import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
@@ -22,9 +23,9 @@ export function canonicalMemoryNamespace(namespace: string | null | undefined): 
 }
 
 export function safeMemoryCachePart(value: string | null | undefined, label: string, maxEncodedLength = 180): string {
-  const raw = value?.replace(/\0/g, "").trim() || label;
-  if (!/^[A-Za-z0-9_.:@/+%-]+$/.test(raw)) return hashKeyPart(label, raw, 64);
-  const encoded = encodeURIComponent(raw);
-  if (encoded.length <= maxEncodedLength) return encoded;
-  return hashKeyPart(label, raw, 64);
+  return cacheKeyPart(value ?? "", label, {
+    maxEncodedLength,
+    hashChars: 64,
+    allowedPattern: /^[A-Za-z0-9_.:@/+%-]+$/,
+  });
 }

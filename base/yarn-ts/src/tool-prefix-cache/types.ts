@@ -23,5 +23,11 @@ export interface ToolPrefixCacheOptions {
   log?: (e: { msg: string; data?: Record<string, unknown> }) => void;
 }
 
+export interface ToolPrefixCacheIdentity {
+  orgId: string;
+  userId: string;
+  sessionKey: string;
+}
+
 /** Collapsed executor surface — matches [`ToolCollapseExecutor`](../tool-collapse/tool-call-executor.ts) ops. */
 export type CollapsedKind = CollapsedOperation["kind"];

@@ -308,6 +308,38 @@ class TestP2RoleGates:
 
         assert self._get_auth_dep(feedback_stats) is require_admin
 
+    # ── Feedback loop / training exports ──
+
+    def test_feedback_loop_overview_requires_platform_admin(self):
+        from app.auth import require_admin
+        from app.routers.feedback_loop import feedback_loop_overview
+
+        assert self._get_auth_dep(feedback_loop_overview) is require_admin
+
+    def test_feedback_loop_run_detail_requires_platform_admin(self):
+        from app.auth import require_admin
+        from app.routers.feedback_loop import feedback_loop_run_detail
+
+        assert self._get_auth_dep(feedback_loop_run_detail) is require_admin
+
+    def test_feedback_loop_preferences_export_requires_platform_admin(self):
+        from app.auth import require_admin
+        from app.routers.feedback_loop import export_dpo_preferences
+
+        assert self._get_auth_dep(export_dpo_preferences) is require_admin
+
+    def test_feedback_loop_dataset_export_requires_platform_admin(self):
+        from app.auth import require_admin
+        from app.routers.feedback_loop import export_training_dataset
+
+        assert self._get_auth_dep(export_training_dataset) is require_admin
+
+    def test_feedback_loop_eval_gym_events_requires_platform_admin(self):
+        from app.auth import require_admin
+        from app.routers.feedback_loop import list_eval_gym_events
+
+        assert self._get_auth_dep(list_eval_gym_events) is require_admin
+
     # ── Testing labs ──
 
     def test_testing_labs_list_runs_requires_platform_admin(self):

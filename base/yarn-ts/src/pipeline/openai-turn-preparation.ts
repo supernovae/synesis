@@ -1,4 +1,5 @@
 import type { SessionIdentity } from "../session/session-key.js";
+import type { RequestMetadata } from "../schemas.js";
 import { isCoderClientKind } from "../session/session-key.js";
 import type { SessionPathHints } from "../state/workspace-session-boundary.js";
 import type { OpenAIChatCompletionsRouteDependencies } from "../server/route-dependencies.js";
@@ -66,7 +67,7 @@ interface PrepareOpenAITurnInput {
   requestId: string;
   request: RequestLike;
   normalizedMessages: MessageWithToolState[];
-  bodyMetadata: Record<string, unknown> | null | undefined;
+  bodyMetadata: RequestMetadata | null | undefined;
   latestUserText: { role: string; content: unknown } | undefined;
   latestUserPrompt: string;
   clientToolCapabilities: ReturnType<OpenAIChatCompletionsRouteDependencies["detectClientToolCapabilities"]>;

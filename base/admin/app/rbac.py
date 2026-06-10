@@ -28,6 +28,8 @@ from fastapi import Depends, HTTPException
 
 from .auth import UserInfo, get_current_user
 from .route_validation import validate_safe_identifier
+from .token_scopes import has_token_scope as token_scope_matches
+from .token_scopes import has_write_scope as token_scope_allows_write
 
 
 class Role(IntEnum):
@@ -48,6 +50,27 @@ _ROLE_MAP: dict[str, Role] = {
     "readonly": Role.readonly,
     "viewer": Role.readonly,
 }
+
+
+def _safe_org_id(value: str | None, *, max_length: int = 128) -> str:
+    if not value:
+        return ""
+    try:
+        return validate_safe_identifier(value, field_name="org_id", max_length=max_length)
+    except ValueError:
+        return ""
+
+
+def _safe_tenant_ids(values: list[str] | None, *, max_length: int = 64) -> list[str]:
+    cleaned: list[str] = []
+    for raw_value in values or []:
+        try:
+            tenant_id = validate_safe_identifier(raw_value, field_name="tenant_id", max_length=max_length)
+        except ValueError:
+            continue
+        if tenant_id not in cleaned:
+            cleaned.append(tenant_id)
+    return cleaned
 
 
 def resolve_role(user: UserInfo) -> Role:
@@ -110,16 +133,31 @@ def can_access_route_group(user: UserInfo, group: RouteGroup) -> bool:
     if group == RouteGroup.org_observability:
         if role >= Role.platform_admin:
             return True
-        return role >= Role.org_admin and bool((user.org_id or "").strip())
+        return role >= Role.org_admin and bool(_safe_org_id(user.org_id))
     if group == RouteGroup.org_content_admin:
         if role >= Role.platform_admin:
             return True
-        return role >= Role.org_admin and bool((user.org_id or "").strip())
+        return role >= Role.org_admin and bool(_safe_org_id(user.org_id))
     if group == RouteGroup.tenant_content_admin:
         return is_tenant_content_operator(user)
     if group == RouteGroup.self_service:
         return role >= Role.user
     return False
+
+
+def require_caller_org_id(user: UserInfo, *, surface: str = "org-scoped access", max_length: int = 128) -> str:
+    """Return the server-derived caller org id or fail closed.
+
+    Use this before passing org-scoped service filters. An empty org filter is
+    commonly interpreted as platform/global scope by data services, so org-level
+    callers must never degrade to an empty scope silently.
+    """
+    if not user.org_id:
+        raise HTTPException(status_code=403, detail=f"{surface} requires org_id")
+    try:
+        return validate_safe_identifier(user.org_id, field_name="org_id", max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=f"Invalid org_id for {surface}") from exc
 
 
 def require_route_group(group: RouteGroup):
@@ -146,8 +184,8 @@ def is_tenant_content_operator(user: UserInfo) -> bool:
     if role >= Role.platform_admin:
         return True
     if role >= Role.org_admin:
-        return bool((user.org_id or "").strip())
-    return bool((user.org_id or "").strip() and (user.tenant_ids or []))
+        return bool(_safe_org_id(user.org_id))
+    return bool(_safe_org_id(user.org_id) and _safe_tenant_ids(user.tenant_ids))
 
 
 async def require_tenant_content_operator(user: UserInfo = Depends(get_current_user)) -> UserInfo:
@@ -169,26 +207,33 @@ def can_manage_visibility_scope(
 ) -> bool:
     """Check whether caller may create/update content with the requested scope."""
     scope = (visibility_scope or "global").strip().lower()
-    caller_org = (user.org_id or "").strip()
     role = resolve_role(user)
     if role >= Role.platform_admin:
         return True
+    caller_org = _safe_org_id(user.org_id)
     if scope == "global":
         # Global content is cross-org by design; restrict writes to platform admin.
         return False
+    raw_target_org = (org_id or "").strip()
+    if raw_target_org and not _safe_org_id(raw_target_org):
+        return False
     if scope == "org":
-        return role >= Role.org_admin and caller_org and (org_id or caller_org) == caller_org
+        target_org = _safe_org_id(raw_target_org) or caller_org
+        return role >= Role.org_admin and bool(caller_org) and target_org == caller_org
     if scope == "tenant":
         if not caller_org or not tenant_id:
             return False
-        target_org = (org_id or caller_org).strip()
+        target_org = _safe_org_id(raw_target_org) or caller_org
         if target_org != caller_org:
+            return False
+        target_tenant = _safe_tenant_ids([tenant_id])
+        if not target_tenant:
             return False
         if role >= Role.org_admin:
             return True
-        return tenant_id in set(user.tenant_ids or [])
+        return target_tenant[0] in set(_safe_tenant_ids(user.tenant_ids))
     if scope in {"user", "session"}:
-        target_org = (org_id or caller_org).strip()
+        target_org = _safe_org_id(raw_target_org) or caller_org
         return role >= Role.org_admin and bool(caller_org) and target_org == caller_org
     return False
 
@@ -204,13 +249,14 @@ def can_access_trace(user: UserInfo, trace: dict[str, Any]) -> bool:
     trace_user = trace.get("user_id", "")
     trace_org = trace.get("org_id", "")
     uid = user.user_id or user.username
-    if role >= Role.org_admin and user.org_id and trace_org == user.org_id:
+    caller_org = _safe_org_id(user.org_id)
+    if role >= Role.org_admin and caller_org and trace_org == caller_org:
         return True
     return trace_user == uid
 
 
 def has_token_scope(user: UserInfo, scope_prefix: str) -> bool:
-    """Check whether *user* has a PAT scope starting with *scope_prefix*.
+    """Check whether *user* has a known PAT scope for *scope_prefix*.
 
     JWT sessions (no token_scopes) are always allowed — scope enforcement only
     applies to PAT-authenticated calls.  Legacy PATs without scopes are treated
@@ -219,7 +265,7 @@ def has_token_scope(user: UserInfo, scope_prefix: str) -> bool:
     scopes = user.token_scopes
     if not scopes:
         return True
-    return any(s.startswith(scope_prefix) for s in scopes)
+    return token_scope_matches(scopes, scope_prefix)
 
 
 def has_write_scope(user: UserInfo, scope_prefix: str) -> bool:
@@ -227,7 +273,7 @@ def has_write_scope(user: UserInfo, scope_prefix: str) -> bool:
     scopes = user.token_scopes
     if not scopes:
         return True
-    return f"{scope_prefix}:readwrite" in scopes
+    return token_scope_allows_write(scopes, scope_prefix)
 
 
 def require_scope(scope_prefix: str):
@@ -256,8 +302,12 @@ def require_fga(object_type: str, object_id: str, relation: str):
 
     async def _dep(user: UserInfo = Depends(get_current_user)) -> UserInfo:
         from .services.authz_engine import fga_check
+        from .services.fga_contract import fga_user_for_id
 
-        fga_user = f"user:{user.user_id or user.username}"
+        try:
+            fga_user = fga_user_for_id(user.user_id or user.username)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Invalid FGA user identity") from exc
         allowed = await fga_check(fga_user, relation, object_type, object_id)
         if not allowed:
             raise HTTPException(
@@ -279,8 +329,9 @@ def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     role = resolve_role(user)
     if role >= Role.platform_admin:
         return {}
-    if role >= Role.org_admin and user.org_id:
-        return {"org_id": user.org_id}
+    caller_org = _safe_org_id(user.org_id)
+    if role >= Role.org_admin and caller_org:
+        return {"org_id": caller_org}
     uid = user.user_id or user.username
     out: dict[str, str] = {"user_id": uid}
     tenant_ids = user.tenant_ids or []

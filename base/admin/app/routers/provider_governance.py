@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user
@@ -21,14 +20,14 @@ from ..db.engine import async_session
 from ..db.models import ProviderConfig
 from ..rbac import require_platform_admin
 from ..services.admin_audit import record_admin_audit
-from ..services.provider_catalog import PROVIDER_CATALOG, default_endpoint_for_provider, get_catalog
+from ..services.provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, default_endpoint_for_provider, get_catalog
 
 logger = logging.getLogger("synesis.admin.provider_governance")
 
 router = APIRouter(prefix="/api/v1/provider-governance", tags=["provider-governance"])
 
 _KEY_RE = re.compile(r"^[a-z0-9_-]{2,64}$")
-ProviderRoleName = Annotated[str, Field(min_length=1, max_length=64)]
+KNOWN_ROLE_SET = frozenset(KNOWN_ROLES)
 
 
 class ProviderCreateBody(BaseModel):
@@ -54,7 +53,7 @@ class ProviderUpdateBody(BaseModel):
     enabled: bool | None = None
     default_max_tokens: int | None = Field(None, ge=1, le=1048576)
     default_temperature: float | None = Field(None, ge=0, le=5)
-    allowed_roles: list[ProviderRoleName] | None = Field(None, max_length=100)
+    allowed_roles: list[str] | None = Field(None, max_length=len(KNOWN_ROLES))
     notes: str | None = Field(None, max_length=4000)
     default_endpoint: str | None = Field(None, max_length=2048)
     label: str | None = Field(None, max_length=128)
@@ -63,6 +62,26 @@ class ProviderUpdateBody(BaseModel):
     needs_endpoint: bool | None = None
     placeholder: str | None = Field(None, max_length=256)
     is_local: bool | None = None
+
+    @field_validator("allowed_roles", mode="before")
+    @classmethod
+    def _validate_allowed_roles(cls, value: object) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("allowed_roles must be a list")
+        cleaned: list[str] = []
+        invalid: list[str] = []
+        for raw_role in value:
+            role = str(raw_role or "").strip()
+            if role not in KNOWN_ROLE_SET:
+                invalid.append(role)
+                continue
+            if role not in cleaned:
+                cleaned.append(role)
+        if invalid:
+            raise ValueError(f"allowed_roles must be known model roles: {sorted(KNOWN_ROLE_SET)}")
+        return cleaned
 
 
 async def seed_provider_configs() -> int:

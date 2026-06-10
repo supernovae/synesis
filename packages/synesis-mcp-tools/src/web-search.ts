@@ -99,6 +99,9 @@ export async function runWebSearch(
     }
     return payload;
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("invalid_search_attribution_")) {
+      return { error: "validation_error", message: "Invalid search attribution" };
+    }
     return requestFailure("request_failed", e);
   }
 }

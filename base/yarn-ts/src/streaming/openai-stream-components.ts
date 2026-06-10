@@ -2,6 +2,7 @@ import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-
 import { detectCacheStrategy } from "../context/provider-cache-hints.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
 import { scrubTaskLedgerOutput } from "../task-ledger/index.js";
+import { guardModelOutputText } from "../security/model-output-guard.js";
 import { OpenAIStreamResponseWriter } from "./openai-stream-response-writer.js";
 import { OpenAIStreamState } from "./openai-stream-state.js";
 import {
@@ -78,7 +79,8 @@ export function createOpenAIStreamComponents(
           detail: "Removed internal task-ledger governance from streamed OpenAI output",
         });
       }
-      writer.writeTextDelta(scrubbed.text);
+      const guarded = guardModelOutputText(scrubbed.text, "openai_stream_output", input.recordSessionEvent);
+      writer.writeTextDelta(guarded.text);
     },
   };
 }

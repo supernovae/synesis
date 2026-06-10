@@ -1,5 +1,6 @@
 import { Redis } from "ioredis";
 import { createHash } from "node:crypto";
+import { cacheKeyPart } from "@synesis/auth-contracts";
 import type { AppConfig } from "../config.js";
 import type { UserRuntimePreferences } from "../runtime/user-preferences.js";
 import type { ProviderCachePolicyWindow } from "../telemetry/cache-policy-controller.js";
@@ -367,7 +368,7 @@ export class SessionStore {
   }
 
   private safeKeyPart(value: string): string {
-    return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_").slice(0, 160) || "unknown";
+    return cacheKeyPart(value, "unknown");
   }
 
   private safeScopedKeyPart(value: unknown, fallback: string): string {

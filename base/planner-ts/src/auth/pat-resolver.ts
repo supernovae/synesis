@@ -1,5 +1,12 @@
 import { Pool } from "pg";
-import { hashPatToken, normalizeTokenScopes } from "@synesis/auth-contracts";
+import {
+  boundedSecurityString,
+  canonicalSecurityId,
+  hashPatToken,
+  normalizeTenantIds,
+  normalizeTokenScopes,
+  optionalCanonicalOrgId,
+} from "@synesis/auth-contracts";
 import type { AppConfig } from "../config.js";
 import { buildPgPoolConfig } from "../db/pg-pool-config.js";
 
@@ -16,9 +23,6 @@ export interface PatRecord {
   scopes: string[];
 }
 
-const SECURITY_ID_RE = /^[^\s,]{1,256}$/;
-const ORG_ID_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
-const TENANT_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const TOKEN_PREFIX_RE = /^[A-Za-z0-9_-]{0,32}$/;
 
 let pool: Pool | null = null;
@@ -42,41 +46,7 @@ function hashPat(token: string, pepper: string): string {
 }
 
 function boundedDisplayString(value: unknown, maxLength: number): string {
-  if (typeof value !== "string") return "";
-  const text = value.trim();
-  if (text.length > maxLength) throw new Error("invalid_display_value");
-  return text;
-}
-
-function securityId(value: unknown, fieldName: string): string {
-  const text = boundedDisplayString(value, 256);
-  if (!SECURITY_ID_RE.test(text)) throw new Error(`invalid_${fieldName}`);
-  return text;
-}
-
-function optionalOrgId(value: unknown): string {
-  const text = boundedDisplayString(value, 256);
-  if (!text) return "";
-  if (!ORG_ID_RE.test(text)) throw new Error("invalid_org_id");
-  return text;
-}
-
-function normalizeTenantIds(value: unknown): string[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) throw new Error("invalid_tenant_ids");
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of value) {
-    if (typeof raw !== "string") throw new Error("invalid_tenant_ids");
-    const tenantId = raw.trim();
-    if (!tenantId) continue;
-    if (!TENANT_ID_RE.test(tenantId)) throw new Error("invalid_tenant_ids");
-    if (seen.has(tenantId)) continue;
-    seen.add(tenantId);
-    out.push(tenantId);
-    if (out.length > 50) throw new Error("invalid_tenant_ids");
-  }
-  return out;
+  return boundedSecurityString(value, maxLength, "display_value");
 }
 
 function normalizeRole(value: unknown): PlannerPatRole | null {
@@ -133,10 +103,10 @@ export async function resolvePatFromDb(
   let scopes: string[];
   let name: string;
   try {
-    id = securityId(row.id, "pat_id");
+    id = canonicalSecurityId(row.id, "pat_id");
     tokenPrefix = normalizeTokenPrefix(row.token_prefix);
-    userId = securityId(row.user_id, "user_id");
-    orgId = optionalOrgId(row.org_id);
+    userId = canonicalSecurityId(row.user_id, "user_id");
+    orgId = optionalCanonicalOrgId(row.org_id);
     tenantIds = normalizeTenantIds(row.tenant_ids);
     const parsedRole = normalizeRole(row.role ?? "user");
     if (!parsedRole) return null;

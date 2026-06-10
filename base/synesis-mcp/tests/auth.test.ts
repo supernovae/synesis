@@ -91,8 +91,13 @@ describe("McpAuthResolver", () => {
   it("allows explicit MCP and coder scopes", () => {
     const auth = resolver();
     expect(() => auth.requireCoderScope(user(["mcp:invoke"]))).not.toThrow();
-    expect(() => auth.requireCoderScope(user(["mcp:tool:synesis_search"]))).not.toThrow();
+    expect(() => auth.requireCoderScope(user(["mcp:tool:*"]))).not.toThrow();
     expect(() => auth.requireCoderScope(user(["coder:execute"]))).not.toThrow();
+  });
+
+  it("rejects invented MCP tool scope suffixes", () => {
+    const auth = resolver();
+    expect(() => auth.requireCoderScope(user(["mcp:tool:synesis_search"]))).toThrow(/Insufficient scope/);
   });
 
   it("normalizes validated PAT identity, role, tenants, and scopes", async () => {

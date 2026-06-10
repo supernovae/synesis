@@ -2,8 +2,8 @@ import { Pool } from "pg";
 import {
   extractBearerToken,
   hashPatToken,
-  hasAnyScope,
-  hasScopePrefix,
+  hasCoderAccessScope,
+  hasModelReadScope,
   stableOpaqueBearerUserId,
   type SynesisPrincipal,
 } from "@synesis/auth-contracts";
@@ -97,7 +97,7 @@ export class AuthResolver {
     if (!scopes || scopes.length === 0) {
       throw new Error("Insufficient scope for coder access");
     }
-    if (hasAnyScope(scopes, ["coder"]) || hasScopePrefix(scopes, ["coder:", "model:", "chat:"])) return;
+    if (hasCoderAccessScope(scopes)) return;
     throw new Error("Insufficient scope for coder access");
   }
 
@@ -106,7 +106,7 @@ export class AuthResolver {
     if (!scopes || scopes.length === 0) {
       throw new Error("Insufficient scope for model catalog access");
     }
-    if (hasAnyScope(scopes, ["model", "coder", "chat"]) || hasScopePrefix(scopes, ["model:", "coder:", "chat:"])) return;
+    if (hasModelReadScope(scopes)) return;
     throw new Error("Insufficient scope for model catalog access");
   }
 

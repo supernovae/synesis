@@ -226,6 +226,15 @@ export async function runClaudeStreamKickoffRoute(input: ClaudeStreamKickoffRout
     onAssistantText: (text) => {
       input.session.history.push({ role: "assistant", content: text });
     },
+    onModelOutputGuardrail: (event) => input.recordSessionEvent(
+      input.sessionKey,
+      input.userId,
+      input.orgId,
+      event.eventKind,
+      event.component,
+      event.detail,
+      input.traceRequestId,
+    ),
   });
 
   input.onProviderComplete?.();

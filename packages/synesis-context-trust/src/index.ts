@@ -73,3 +73,10 @@ export {
   FRESHNESS_HALF_LIFE_DAYS,
   type FreshnessBoostable,
 } from "./freshness-scoring.js";
+
+export {
+  renderUntrustedPromptBlock,
+  renderUntrustedEvidencePromptBlock,
+  type RenderUntrustedPromptBlockOptions,
+  type RenderUntrustedEvidencePromptBlockOptions,
+} from "./prompt-boundary.js";

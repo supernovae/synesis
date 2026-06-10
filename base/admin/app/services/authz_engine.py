@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .fga_contract import fga_object, fga_relation, fga_subject, fga_user_for_id
+
 logger = logging.getLogger("synesis.admin.authz_engine")
 
 SYNESIS_OPENFGA_API_URL = os.getenv("SYNESIS_OPENFGA_API_URL", "")
@@ -69,19 +71,24 @@ def _get_fga_client():
 
 async def fga_check(user: str, relation: str, object_type: str, object_id: str) -> bool:
     """Run an OpenFGA check. Returns False on error or if not configured."""
+    try:
+        safe_user = fga_subject(user) if ":" in str(user or "") else fga_user_for_id(user)
+        safe_relation = fga_relation(relation)
+        safe_object = fga_object(object_type, object_id)
+    except ValueError:
+        logger.warning("openfga_check_rejected_invalid_tuple")
+        return False
     client = _get_fga_client()
     if client is None:
         return False
     try:
         from openfga_sdk import ClientCheckRequest
 
-        body = ClientCheckRequest(user=user, relation=relation, object=f"{object_type}:{object_id}")
+        body = ClientCheckRequest(user=safe_user, relation=safe_relation, object=safe_object)
         response = await client.check(body)
         return bool(getattr(response, "allowed", False))
     except Exception:
-        logger.exception(
-            "openfga_check_failed user=%s relation=%s object=%s:%s", user, relation, object_type, object_id
-        )
+        logger.exception("openfga_check_failed user=%s relation=%s object=%s", safe_user, safe_relation, safe_object)
         return False
 
 
@@ -109,7 +116,10 @@ class AuthorizationPolicyEngine:
         self._evaluations += 1
         matched: list[str] = []
 
-        fga_user = f"user:{user_id}" if user_id else ""
+        try:
+            fga_user = fga_user_for_id(user_id) if user_id else ""
+        except ValueError:
+            fga_user = ""
         if not fga_user:
             self._rejections += 1
             matched.append("deny_no_user_id")

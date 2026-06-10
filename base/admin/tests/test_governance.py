@@ -233,7 +233,7 @@ class TestConstitutionCRUD:
                 "scope": "galaxy",
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_create_constitution_invalid_maturity(self, admin_client, _mock_db):
         resp = admin_client.post(
@@ -243,7 +243,7 @@ class TestConstitutionCRUD:
                 "maturity_mode": "legendary",
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_reader_cannot_create(self, reader_client, _mock_db):
         resp = reader_client.post(
@@ -259,6 +259,11 @@ class TestConstitutionCRUD:
         assert resp.status_code == 200
         data = resp.json()
         assert data["constitutions"] == []
+
+    def test_list_constitutions_rejects_unknown_filters(self, admin_client, _mock_db):
+        assert admin_client.get("/api/v1/governance/constitutions?scope=galaxy").status_code == 422
+        assert admin_client.get("/api/v1/governance/constitutions?status=hidden").status_code == 422
+        assert admin_client.get("/api/v1/governance/constitutions?maturity_mode=legendary").status_code == 422
 
     def test_get_constitution_not_found(self, admin_client, _mock_db):
         resp = admin_client.get("/api/v1/governance/constitutions/nonexistent")
@@ -550,7 +555,7 @@ class TestClauseCRUD:
                 "constraint_kind": "hard",
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_create_clause_invalid_constraint_kind(self, admin_client, _mock_db):
         resp = admin_client.post(
@@ -560,7 +565,7 @@ class TestClauseCRUD:
                 "constraint_kind": "mandatory",
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_delete_clause(self, admin_client, _mock_db):
         clause = FakeRow(
@@ -616,7 +621,7 @@ class TestPolicyCRUD:
                 "rule_type": "magic",
             },
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_create_policy_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
         resp = admin_client.post(
@@ -667,6 +672,11 @@ class TestPolicyCRUD:
 
         resp = admin_client.delete("/api/v1/governance/policies/p-1%0Arole=admin")
         assert resp.status_code == 422
+
+    def test_policy_routes_reject_unknown_enum_filters(self, admin_client, _mock_db):
+        assert admin_client.get("/api/v1/governance/policies?scope=galaxy").status_code == 422
+        assert admin_client.get("/api/v1/governance/policies?category=secret").status_code == 422
+        assert admin_client.get("/api/v1/governance/policies?rule_type=magic").status_code == 422
 
     def test_create_feature_toggle_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
         resp = admin_client.post(
@@ -756,6 +766,10 @@ class TestEffectiveGovernance:
         resp = admin_client.get("/api/v1/governance/effective?org_id=org-1%0Arole=admin")
 
         assert resp.status_code == 422
+
+    def test_effective_rejects_unknown_enum_filters(self, admin_client, _mock_db):
+        assert admin_client.get("/api/v1/governance/effective?scope=galaxy").status_code == 422
+        assert admin_client.get("/api/v1/governance/effective?category=secret").status_code == 422
 
     def test_summary_empty(self, admin_client, _mock_db):
         _mock_db._execute_results = [

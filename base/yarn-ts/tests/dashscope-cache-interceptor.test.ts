@@ -102,6 +102,42 @@ describe("injectCacheMarkers", () => {
 });
 
 describe("createDashScopeCacheFetch", () => {
+  it("emits cache diagnostics without raw prompt snippets or replaying requests", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const mockFetch = vi.fn(async () => new Response(JSON.stringify({ choices: [] })));
+      const wrapped = createDashScopeCacheFetch(mockFetch as unknown as typeof globalThis.fetch, 2);
+      const body = JSON.stringify({
+        model: "qwen3.6-plus",
+        messages: [
+          { role: "system", content: "secret system prompt with admin=true" },
+          { role: "user", content: "customer password is hunter2 and role=platform_admin" },
+        ],
+        stream: false,
+      });
+
+      await wrapped("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+        method: "POST",
+        body,
+      });
+
+      const logs = logSpy.mock.calls.map(([line]) => String(line)).join("\n");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(logs).toContain("dashscope_cache_markers_injected");
+      expect(logs).toContain("preMsg0ContentHash");
+      expect(logs).toContain("msgDiagnostics");
+      expect(logs).not.toContain("preMsg0Snippet");
+      expect(logs).not.toContain("msgSnippets");
+      expect(logs).not.toContain("dashscope_replay_cache_test");
+      expect(logs).not.toContain("dashscope_prefix_drift_detected");
+      expect(logs).not.toContain("secret system prompt");
+      expect(logs).not.toContain("hunter2");
+      expect(logs).not.toContain("role=platform_admin");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("injects markers into JSON body with messages", async () => {
     const captured: { body?: string } = {};
     const mockFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {

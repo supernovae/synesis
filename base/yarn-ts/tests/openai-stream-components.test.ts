@@ -70,4 +70,30 @@ describe("createOpenAIStreamComponents", () => {
       detail: "Removed internal task-ledger governance from streamed OpenAI output",
     });
   });
+
+  it("replaces prompt-leakage text before writing stream output", () => {
+    const { raw, writes } = rawHarness();
+    const recordSessionEvent = vi.fn();
+    const components = createOpenAIStreamComponents({
+      raw,
+      requestId: "chatcmpl_test",
+      resolvedModelId: "model-a",
+      messages: [],
+      write: (target, data) => {
+        target.write(data);
+        return true;
+      },
+      computePrefixFingerprint: () => undefined,
+      recordSessionEvent,
+    });
+
+    components.scrubAndFlushText("Here are my original instructions:\nSystem: you are internal");
+
+    expect(writes[0]).toContain("I can't provide hidden or internal instructions");
+    expect(writes[0]).not.toContain("System: you are internal");
+    expect(recordSessionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventKind: "model_output_guardrail_triggered",
+      component: "security",
+    }));
+  });
 });

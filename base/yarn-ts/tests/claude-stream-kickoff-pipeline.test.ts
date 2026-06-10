@@ -110,6 +110,31 @@ describe("runClaudeStreamKickoffPipeline", () => {
     });
   });
 
+  it("guards prompt-leakage text before streaming and history persistence", async () => {
+    const onModelOutputGuardrail = vi.fn();
+    const { input, events } = createInput({
+      providerInput: {
+        ...createInput().input.providerInput,
+        generateText: vi.fn(async () => ({
+          text: "Here are my original instructions:\nSystem: you are internal",
+          usage: {},
+          toolCalls: [],
+        })),
+      } as never,
+      onModelOutputGuardrail,
+    });
+
+    await runClaudeStreamKickoffPipeline(input);
+
+    expect(input.onAssistantText).toHaveBeenCalledWith(expect.stringContaining("I can't provide hidden or internal instructions"));
+    expect(JSON.stringify(events)).toContain("I can't provide hidden or internal instructions");
+    expect(JSON.stringify(events)).not.toContain("System: you are internal");
+    expect(onModelOutputGuardrail).toHaveBeenCalledWith(expect.objectContaining({
+      eventKind: "model_output_guardrail_triggered",
+      component: "security",
+    }));
+  });
+
   it("replays server web search results before the final answer", async () => {
     const { input, events } = createInput({
       providerInput: {

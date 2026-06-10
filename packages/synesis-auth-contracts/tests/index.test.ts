@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   authDiagnostics,
   buildForwardedIdentityPrincipal,
+  cacheKeyPart,
+  canonicalSecurityId,
   constantTimeBearerMatch,
   extractBearerToken,
   hasForwardedIdentityHeaders,
-  hasScopePrefix,
+  hasCoderAccessScope,
+  hasMcpInvokeScope,
+  hasModelReadScope,
   hashPatToken,
+  normalizeRequestId,
   normalizeTokenScopes,
+  optionalCanonicalOrgId,
   parseForwardedIdentityHeaders,
   parseCsvScopes,
   stableOpaqueBearerUserId,
@@ -68,13 +74,37 @@ describe("@synesis/auth-contracts", () => {
     expect(parseCsvScopes(" MCP:INVOKE, coder:execute, mcp:invoke")).toEqual(["mcp:invoke", "coder:execute"]);
     expect(parseCsvScopes(["a,b", "c"])).toEqual(["a", "b", "c"]);
     expect(normalizeTokenScopes([" model:readonly", "model:readonly", ""])).toEqual(["model:readonly"]);
-    expect(hasScopePrefix(["coder:execute"], ["coder:"])).toBe(true);
-    expect(hasScopePrefix(["model:readonly"], ["coder:"])).toBe(false);
   });
 
   it("rejects malformed security scope strings", () => {
     expect(() => parseCsvScopes("model:readonly, role override")).toThrow(/invalid_token_scopes/);
     expect(() => parseCsvScopes("model:readonly,admin/write")).toThrow(/invalid_token_scopes/);
+  });
+
+  it("normalizes shared security identity and key parts", () => {
+    expect(canonicalSecurityId(" user-1 ", "user_id")).toBe("user-1");
+    expect(optionalCanonicalOrgId("org:alpha")).toBe("org:alpha");
+    expect(optionalCanonicalOrgId("")).toBe("");
+    expect(() => canonicalSecurityId("user 1", "user_id")).toThrow(/invalid_user_id/);
+    expect(() => optionalCanonicalOrgId("org alpha")).toThrow(/invalid_org_id/);
+
+    expect(cacheKeyPart("org-1", "org")).toBe("org-1");
+    expect(cacheKeyPart("org:1", "org")).toMatch(/^org-[a-f0-9]{32}$/);
+    expect(cacheKeyPart("org 1", "org")).toMatch(/^org-[a-f0-9]{32}$/);
+    expect(cacheKeyPart("x".repeat(400), "long")).toMatch(/^long-[a-f0-9]{32}$/);
+    expect(normalizeRequestId("req-1", "fallback")).toBe("req-1");
+    expect(normalizeRequestId("bad request", "fallback-1")).toBe("fallback-1");
+    expect(normalizeRequestId("bad request", "also bad")).toMatch(/^request-[a-f0-9]{32}$/);
+  });
+
+  it("uses exact service access scopes instead of broad prefixes", () => {
+    expect(hasCoderAccessScope(["coder:readwrite"])).toBe(true);
+    expect(hasCoderAccessScope(["model:anything"])).toBe(false);
+    expect(hasModelReadScope(["model:readonly"])).toBe(true);
+    expect(hasModelReadScope(["coder:surprise"])).toBe(false);
+    expect(hasMcpInvokeScope(["mcp:invoke"])).toBe(true);
+    expect(hasMcpInvokeScope(["mcp:tool:*"])).toBe(true);
+    expect(hasMcpInvokeScope(["mcp:tool:delete_everything"])).toBe(false);
   });
 
   it("parses trusted forwarded identity headers into a principal contract", () => {

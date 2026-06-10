@@ -1,5 +1,6 @@
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import { ToolCallInterceptor, defaultShellAllowlistFromEnv, planToSyntheticToolCalls } from "../tool-collapse/index.js";
+import type { ToolPrefixCacheIdentity } from "../tool-prefix-cache/types.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
 
@@ -16,6 +17,7 @@ export interface OpenAINonStreamToolCollapseInput {
   shellAllowlistEnv: string;
   dedupeLayer?: DedupeLayer | null;
   toolPrefixCache?: ToolPrefixCache | null;
+  cacheIdentity?: ToolPrefixCacheIdentity | null;
   logger: OpenAINonStreamToolCollapseLogger;
   requestId: string;
 }
@@ -40,6 +42,7 @@ export async function maybeRewriteOpenAINonStreamCollapsedToolCalls(
     executor: null,
     dedupeLayer: input.dedupeLayer,
     toolPrefixCache: input.toolPrefixCache,
+    cacheIdentity: input.cacheIdentity ?? null,
     log: ({ msg, data }) => input.logger.info({ msg, ...data }, "tool_collapse_non_stream"),
   });
   const parsedCalls = input.calls.map((tc) => ({

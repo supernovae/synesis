@@ -12,7 +12,7 @@ import {
   looksLikePartialPayload,
   stablePayloadString,
 } from "./payload-extract.js";
-import type { ToolPrefixCacheOptions, ToolPrefixCacheStats } from "./types.js";
+import type { ToolPrefixCacheIdentity, ToolPrefixCacheOptions, ToolPrefixCacheStats } from "./types.js";
 
 function shaShort(s: string, n = 16): string {
   return crypto.createHash("sha256").update(s, "utf8").digest("hex").slice(0, n);
@@ -33,10 +33,34 @@ function stableItemsKey(items: Array<{ query: string; path?: string }>): string 
   return JSON.stringify(normalized);
 }
 
+function identityScalar(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 512) return null;
+  for (const char of trimmed) {
+    const code = char.charCodeAt(0);
+    if (code <= 31 || code === 127) return null;
+  }
+  return trimmed;
+}
+
+function identityNamespace(workspaceRoot: string, identity: ToolPrefixCacheIdentity | null): string | null {
+  if (!identity) return null;
+  const orgId = identityScalar(identity.orgId);
+  const userId = identityScalar(identity.userId);
+  const sessionKey = identityScalar(identity.sessionKey);
+  if (!userId || !sessionKey) return null;
+  return shaShort(JSON.stringify(sortObjectKeys({
+    orgId: orgId ?? "",
+    sessionKey,
+    userId,
+    workspaceRoot,
+  })), 24);
+}
+
 /**
  * Shared LRU for tool results across requests. [`wrapExecutor`] scopes keys by resolved
- * `workspaceRoot` so concurrent coders do not collide; search/repo keys use a per-workspace
- * generation bumped after successful merge_patch.
+ * `workspaceRoot` plus server-derived caller/session identity so concurrent coders do not
+ * collide; search/repo keys use a per-namespace generation bumped after successful merge_patch.
  */
 export class ToolPrefixCache {
   private readonly store: PrefixCacheStore;
@@ -66,10 +90,15 @@ export class ToolPrefixCache {
   /**
    * Wraps a real executor: cache hits avoid inner calls; successful safe payloads populate the LRU.
    * @param workspaceRoot Resolved workspace from the coder client (header); null disables caching.
+   * @param identity Server-derived org/user/session identity; null disables caching.
    */
-  wrapExecutor(inner: ToolCollapseExecutor, workspaceRoot: string | null): ToolCollapseExecutor {
+  wrapExecutor(
+    inner: ToolCollapseExecutor,
+    workspaceRoot: string | null,
+    identity: ToolPrefixCacheIdentity | null,
+  ): ToolCollapseExecutor {
     const ws = normalizeAbsolutePathHint(workspaceRoot);
-    const ns = ws ? shaShort(ws) : null;
+    const ns = ws ? identityNamespace(ws, identity) : null;
     if (!ns || !ws) {
       return inner;
     }

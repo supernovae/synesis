@@ -515,6 +515,7 @@ export const ClaudeCommandExecuteRequestSchema = z.object({
 }).strict();
 
 export type OpenAIChatCompletionRequest = z.infer<typeof OpenAIChatCompletionRequestSchema>;
+export type RequestMetadata = z.infer<typeof RequestMetadataSchema>;
 export type ClaudeMessagesRequest = z.infer<typeof ClaudeMessagesRequestSchema>;
 export type ClaudeBootstrapPreset = z.infer<typeof ClaudeBootstrapPresetSchema>;
 export type ClaudeBootstrapQuery = z.infer<typeof ClaudeBootstrapQuerySchema>;

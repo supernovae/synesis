@@ -27,6 +27,7 @@ from ..services.token_economics_observability import (
     TOKEN_ECONOMICS_EVENT_KINDS,
     summarize_token_economics_events,
 )
+from ..token_scopes import has_token_scope, normalize_token_scopes
 
 logger = logging.getLogger("synesis.admin.observability")
 
@@ -862,25 +863,29 @@ class TokenFgaExplanation(BaseModel):
 @router.get("/token-fga-explain", response_model=TokenFgaExplanation)
 async def token_fga_explain(user: UserInfo = Depends(get_current_user)):
     """Explain the FGA relationship implications of the current user's token scopes."""
-    scopes = user.token_scopes or []
+    scopes = normalize_token_scopes(user.token_scopes, allow_legacy_default=False)
     explain: list[str] = []
 
-    if not scopes:
+    if not user.token_scopes:
         explain.append("JWT session: all FGA relationships apply based on user identity (no scope restriction)")
     else:
-        if any(s.startswith("model") for s in scopes):
+        if has_token_scope(scopes, "model"):
             explain.append(
                 "model scope: grants planner_endpoint:chat_completions#can_invoke + rag_catalog:default#can_read_public"
             )
-        if any(s.startswith("coder") for s in scopes):
+        if has_token_scope(scopes, "coder"):
             explain.append(
                 "coder scope: grants yarn_endpoint:completions#can_invoke + yarn_endpoint:messages#can_invoke"
             )
-        if not any(s.startswith("model") for s in scopes) and not any(s.startswith("coder") for s in scopes):
-            explain.append("token has no recognized scope prefix: FGA invocation checks will likely fail")
+        if not has_token_scope(scopes, "model") and not has_token_scope(scopes, "coder"):
+            explain.append("token has no recognized scope: FGA invocation checks will likely fail")
 
-    if user.org_id:
-        explain.append(f"org context: org:{user.org_id}#member — enables org-scoped RAG and admin access")
+    try:
+        org_id = validate_safe_identifier(user.org_id, field_name="org_id", max_length=128) if user.org_id else ""
+    except ValueError:
+        org_id = ""
+    if org_id:
+        explain.append(f"org context: org:{org_id}#member — enables org-scoped RAG and admin access")
     else:
         explain.append("no org context: solo user — FGA grants public catalog access only")
 

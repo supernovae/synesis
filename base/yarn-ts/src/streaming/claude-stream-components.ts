@@ -3,6 +3,7 @@ import {
   detectCacheStrategy,
   type CacheStrategy,
 } from "../context/provider-cache-hints.js";
+import { guardModelOutputText } from "../security/model-output-guard.js";
 import { scrubTaskLedgerOutput } from "../task-ledger/index.js";
 import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
@@ -151,7 +152,8 @@ export function createClaudeStreamComponents(
           detail: "Removed internal task-ledger governance from streamed Claude output",
         });
       }
-      flushTextBlock(scrubbed.text);
+      const guarded = guardModelOutputText(scrubbed.text, "claude_stream_output", input.recordSessionEvent);
+      flushTextBlock(guarded.text);
     },
   };
 }

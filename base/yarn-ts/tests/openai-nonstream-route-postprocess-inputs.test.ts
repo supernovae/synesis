@@ -48,6 +48,7 @@ describe("createOpenAINonStreamCollapseRouteInput", () => {
       shellAllowlistEnv: "ls,pwd",
       dedupeLayer: null,
       toolPrefixCache: null,
+      cacheIdentity: { orgId: "org-1", userId: "user-1", sessionKey: "session-1" },
       logger,
       requestId: "req_1",
     });
@@ -58,6 +59,7 @@ describe("createOpenAINonStreamCollapseRouteInput", () => {
       collapseHeader: "apply",
       workspaceRoot: "/repo",
       shellAllowlistEnv: "ls,pwd",
+      cacheIdentity: { orgId: "org-1", userId: "user-1", sessionKey: "session-1" },
       requestId: "req_1",
     });
     expect(input.logger).toBe(logger);

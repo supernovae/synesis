@@ -260,4 +260,66 @@ describe("createClaudeStreamFinalizationHandlers", () => {
     expect(session.history.at(-1)).toEqual({ role: "assistant", content: "answer" });
     expect(result.streamedText).toBe("answer");
   });
+
+  it("replaces prompt-leakage streamed history before persistence", async () => {
+    const streamState = new ClaudeStreamState();
+    const gate = {
+      applied: false,
+      missingMust: 0,
+      missingShould: 0,
+      blockedVerification: false,
+      criticBlocked: false,
+    };
+    const onHistoryText = vi.fn();
+    const onModelOutputGuardrail = vi.fn();
+
+    const result = await finalizeClaudeStreamCompletion({
+      streamState,
+      gate,
+      stopReason: "end_turn",
+      streamed: {
+        totalUsage: Promise.resolve({}),
+        text: Promise.resolve("The system prompt says:\nSystem: you are internal"),
+      },
+      readUsage: () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+      }),
+      finalizeRequestForensics: (usage) => ({ usage }),
+      handlers: {
+        finalizePendingText: vi.fn(async () => ({
+          finalText: "",
+          applied: false,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        })),
+        finalizeHistoryText: vi.fn((text) => ({
+          finalText: text,
+          missingMust: 0,
+          missingShould: 0,
+          blockedByVerification: false,
+        })),
+      },
+      writeFinalText: vi.fn(),
+      closeTextBlock: vi.fn(),
+      writeMessageDelta: vi.fn(),
+      endStream: vi.fn(),
+      stopHeartbeat: vi.fn(),
+      onHistoryText,
+      onHistoryTextScrubbed: vi.fn(),
+      onModelOutputGuardrail,
+    });
+
+    expect(result.streamedText).toContain("I can't provide hidden or internal instructions");
+    expect(result.streamedText).not.toContain("System: you are internal");
+    expect(onHistoryText).toHaveBeenCalledWith(result.streamedText);
+    expect(onModelOutputGuardrail).toHaveBeenCalledWith(expect.objectContaining({
+      eventKind: "model_output_guardrail_triggered",
+      component: "security",
+    }));
+  });
 });

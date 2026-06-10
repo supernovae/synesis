@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -39,6 +39,15 @@ VALID_RULE_TYPES = {"threshold", "escalation", "boundary", "routing", "reducer_c
 VALID_LEGACY_FEATURE_TOGGLES = {"enable_reducers", "enable_validation"}
 
 SCOPE_PRECEDENCE = {"platform": 0, "org": 1, "tenant": 2, "project": 3, "team": 4}
+
+GovernanceStatus = Literal["draft", "active", "deprecated", "archived"]
+GovernanceScope = Literal["platform", "org", "tenant", "project", "team"]
+GovernanceMaturityMode = Literal["base", "guided", "governed", "assured"]
+GovernanceCategory = Literal["safety", "compliance", "quality", "style", "architecture", "tooling", "process"]
+GovernanceConstraintKind = Literal["hard", "guiding", "advisory"]
+GovernanceRuleType = Literal["threshold", "escalation", "boundary", "routing", "reducer_config", "feature_toggle"]
+CapabilityMatrixMode = Literal["enforced", "shadow"]
+CapabilityMatrixSelectorType = Literal["exact_model", "model_path_prefix", "family_prefix"]
 
 CAPABILITY_MATRIX_KIND = "capability_matrix_v1"
 CAPABILITY_MATRIX_GLOBAL_ROW_TYPE = "global"
@@ -474,13 +483,13 @@ class ConstitutionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=256)
-    scope: str = Field("org")
+    scope: GovernanceScope = Field("org")
     scope_value: str = Field("")
     precedence: int = Field(0)
     description: str = Field("")
     provenance_source: str = Field("")
     provenance_owner: str = Field("")
-    maturity_mode: str = Field("base")
+    maturity_mode: GovernanceMaturityMode = Field("base")
     effective_from: datetime | None = None
     effective_until: datetime | None = None
 
@@ -491,7 +500,7 @@ class ConstitutionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     precedence: int | None = None
-    maturity_mode: str | None = None
+    maturity_mode: GovernanceMaturityMode | None = None
     effective_from: datetime | None = None
     effective_until: datetime | None = None
 
@@ -522,9 +531,9 @@ def _constitution_to_dict(c: GovernanceConstitution) -> dict:
 @router.get("/constitutions")
 async def list_constitutions(
     user: UserInfo = Depends(get_current_user),
-    scope: str | None = Query(None),
-    status: str | None = Query(None),
-    maturity_mode: str | None = Query(None),
+    scope: GovernanceScope | None = Query(None),
+    status: GovernanceStatus | None = Query(None),
+    maturity_mode: GovernanceMaturityMode | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -869,8 +878,8 @@ async def clone_constitution(constitution_id: str, user: UserInfo = Depends(get_
 class ClauseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    category: str = Field("quality")
-    constraint_kind: str = Field("guiding")
+    category: GovernanceCategory = Field("quality")
+    constraint_kind: GovernanceConstraintKind = Field("guiding")
     statement: str = Field("")
     machine_rule: ClauseMachineRule | None = None
     applicability: ClauseApplicability | None = None
@@ -884,8 +893,8 @@ class ClauseCreate(BaseModel):
 class ClauseUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    category: str | None = None
-    constraint_kind: str | None = None
+    category: GovernanceCategory | None = None
+    constraint_kind: GovernanceConstraintKind | None = None
     statement: str | None = None
     machine_rule: ClauseMachineRule | None = None
     applicability: ClauseApplicability | None = None
@@ -1102,12 +1111,12 @@ class PolicyDefCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=256)
     description: str = Field("", max_length=8192)
-    scope: str = Field("org")
+    scope: GovernanceScope = Field("org")
     scope_value: str = Field("", max_length=64)
     org_id: str = Field("", max_length=64)
-    category: str = Field("quality")
-    constraint_kind: str = Field("guiding")
-    rule_type: str = Field("threshold")
+    category: GovernanceCategory = Field("quality")
+    constraint_kind: GovernanceConstraintKind = Field("guiding")
+    rule_type: GovernanceRuleType = Field("threshold")
     rule_config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = Field(True)
     priority: int = Field(0, ge=-1_000_000, le=1_000_000)
@@ -1131,8 +1140,8 @@ class PolicyDefUpdate(BaseModel):
     rule_config: dict[str, Any] | None = None
     enabled: bool | None = None
     priority: int | None = Field(None, ge=-1_000_000, le=1_000_000)
-    category: str | None = None
-    constraint_kind: str | None = None
+    category: GovernanceCategory | None = None
+    constraint_kind: GovernanceConstraintKind | None = None
 
     @field_validator("name", mode="after")
     @classmethod
@@ -1166,9 +1175,9 @@ def _policy_to_dict(p: GovernancePolicyDef) -> dict:
 @router.get("/policies")
 async def list_policies(
     user: UserInfo = Depends(get_current_user),
-    scope: str | None = Query(None),
-    category: str | None = Query(None),
-    rule_type: str | None = Query(None),
+    scope: GovernanceScope | None = Query(None),
+    category: GovernanceCategory | None = Query(None),
+    rule_type: GovernanceRuleType | None = Query(None),
     org_id: str | None = Query(None, max_length=64),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -1309,8 +1318,8 @@ async def get_effective_governance(
     response: Response,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_authenticated_user),
     org_id: str | None = Query(None, max_length=64),
-    scope: str | None = Query(None),
-    category: str | None = Query(None),
+    scope: GovernanceScope | None = Query(None),
+    category: GovernanceCategory | None = Query(None),
     language: str | None = Query(None),
 ):
     """Merged active constitutions + standalone policies for a given org/scope.
@@ -1438,7 +1447,7 @@ async def get_effective_governance(
 class CapabilityMatrixGlobalUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    mode: str = Field("enforced")
+    mode: CapabilityMatrixMode = Field("enforced")
     global_optimizations_enabled: bool = Field(False)
     org_id: str = Field("", max_length=64)
 
@@ -1453,10 +1462,10 @@ class CapabilityMatrixOverrideUpsert(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=256)
     org_id: str = Field("", max_length=64)
-    scope: str = Field("platform")
+    scope: GovernanceScope = Field("platform")
     scope_value: str = Field("", max_length=64)
     enabled: bool = Field(True)
-    selector_type: str = Field(...)
+    selector_type: CapabilityMatrixSelectorType = Field(...)
     selector: str = Field(..., min_length=1, max_length=256)
     priority: int = Field(0, ge=-1_000_000, le=1_000_000)
     capabilities: dict[str, bool] = Field(default_factory=dict)

@@ -1,5 +1,6 @@
 import type { AuthUser } from "../auth.js";
 import type { AppConfig } from "../config.js";
+import type { RequestMetadata } from "../schemas.js";
 import type { SessionPhase } from "../governance/execution-governor.js";
 import type { PhaseAwareToolChoice } from "../governance/phase-execution-policy.js";
 import type { RequestForensicsRecord } from "../telemetry/request-forensics.js";
@@ -124,7 +125,7 @@ export interface PreparedOpenAIChatProviderExecutionInput {
     projectRoot?: string | null;
     shellCwd?: string | null;
   };
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   prefetchResult?: {
     matched?: boolean;
     confidence?: number;
@@ -347,6 +348,11 @@ export async function runPreparedOpenAIChatProviderExecution(
           shellAllowlistEnv: config.SYNESIS_YARN_TOOL_COLLAPSE_SHELL_ALLOWLIST,
           dedupeLayer: input.yarnDedupeLayer as never,
           toolPrefixCache: input.yarnToolPrefixCache as never,
+          cacheIdentity: {
+            orgId: scope.orgId,
+            userId: scope.userId,
+            sessionKey: scope.sessionKey,
+          },
           logger,
           requestId: scope.requestId,
         }),

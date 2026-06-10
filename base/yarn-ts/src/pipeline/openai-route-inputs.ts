@@ -1,4 +1,5 @@
 import { resolveWorkspaceRootForCollapse } from "../adapters/session-execution-context.js";
+import type { RequestMetadata } from "../schemas.js";
 import type { DedupeLayer } from "../dedupe/DedupeLayer.js";
 import type { PathSandboxPolicy } from "../path-governance/path-sandbox.js";
 import type { GovernToolCallOptions } from "../path-governance/tool-call-governance.js";
@@ -9,6 +10,7 @@ import type { OpenAIStreamFinalizerTextResult } from "../streaming/openai-stream
 import type { StreamTelemetryRouteBaseInput } from "../streaming/stream-telemetry-route-base.js";
 import type { BlockedDiscoveryDetail } from "../tool-collapse/blocked-discovery-recovery.js";
 import type { ToolPrefixCache } from "../tool-prefix-cache/ToolPrefixCache.js";
+import type { ToolPrefixCacheIdentity } from "../tool-prefix-cache/types.js";
 import type { GuardrailToolCall } from "../tools/tool-call-availability.js";
 import type { ToolArgHardeningStats } from "../governance/tool-call-observability.js";
 import type { YarnUpperHarnessContext } from "../upper-harness/bridge.js";
@@ -198,10 +200,11 @@ export interface OpenAINonStreamCollapseRouteInput {
   rewriteNonStream: boolean;
   collapseHeader: unknown;
   headers: Record<string, string | string[] | undefined>;
-  bodyMetadata: Record<string, unknown> | null;
+  bodyMetadata: RequestMetadata | null;
   shellAllowlistEnv: string;
   dedupeLayer?: DedupeLayer | null;
   toolPrefixCache?: ToolPrefixCache | null;
+  cacheIdentity: ToolPrefixCacheIdentity;
   logger: OpenAINonStreamToolCollapseLogger;
   requestId: string;
 }
@@ -217,6 +220,7 @@ export function createOpenAINonStreamCollapseRouteInput(
     shellAllowlistEnv: input.shellAllowlistEnv,
     dedupeLayer: input.dedupeLayer,
     toolPrefixCache: input.toolPrefixCache,
+    cacheIdentity: input.cacheIdentity,
     logger: input.logger,
     requestId: input.requestId,
   };

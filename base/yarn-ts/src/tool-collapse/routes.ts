@@ -208,6 +208,11 @@ export async function registerToolCollapseRoutes(
       executor: null,
       dedupeLayer: opts.dedupeLayer ?? null,
       toolPrefixCache: opts.toolPrefixCache ?? null,
+      cacheIdentity: {
+        orgId: authUser.orgId,
+        userId: authUser.userId,
+        sessionKey: String(req.id),
+      },
       log: ({ msg, data }) => app.log.info({ msg, ...data }, "tool_collapse"),
     });
 

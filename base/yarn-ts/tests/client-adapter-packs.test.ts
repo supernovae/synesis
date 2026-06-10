@@ -276,16 +276,23 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(ctx.shellCwd).toBeNull();
   });
 
-  it("accepts nested metadata.synesis path hints", () => {
+  it("ignores unsupported nested metadata.synesis path and runtime hints", () => {
     const ctx = parseSessionExecutionContext(
       {},
-      { synesis: { projectRoot: "/nested/root", shellCwd: "/nested/root/app", runtime: { platform: "darwin", shell: "zsh" } } },
+      {
+        synesis: {
+          contextMediation: "auto",
+          projectRoot: "/nested/root",
+          shellCwd: "/nested/root/app",
+          runtime: { platform: "darwin", shell: "zsh" },
+        },
+      } as never,
     );
 
-    expect(ctx.projectRoot).toBe("/nested/root");
-    expect(ctx.shellCwd).toBe("/nested/root/app");
-    expect(ctx.platform).toBe("darwin");
-    expect(ctx.shell).toBe("zsh");
+    expect(ctx.projectRoot).toBeNull();
+    expect(ctx.shellCwd).toBeNull();
+    expect(ctx.platform).toBeUndefined();
+    expect(ctx.shell).toBeUndefined();
   });
 
   it("sanitizes prompt-facing session metadata scalars", () => {

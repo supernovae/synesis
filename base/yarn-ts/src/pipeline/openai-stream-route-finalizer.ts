@@ -43,5 +43,8 @@ export function createOpenAIStreamRouteFinalizerInput<TChecklist, TVerification,
         detail: "Removed internal task-ledger governance from streamed OpenAI history",
       });
     },
+    onModelOutputGuardrail: (event) => {
+      input.recordSessionEvent(event);
+    },
   });
 }

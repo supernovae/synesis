@@ -5,6 +5,7 @@
 
 import path from "node:path";
 import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
+import type { RequestMetadata } from "../schemas.js";
 
 const MAX_GIT_SUMMARY = 500;
 const MAX_LABEL = 256;
@@ -36,6 +37,8 @@ export interface ParsedSessionExecutionContext {
   knowledgeCutoff?: string;
 }
 
+type SessionExecutionMetadata = RequestMetadata | null | undefined;
+
 function headerOne(
   headers: Record<string, string | string[] | undefined>,
   name: string,
@@ -45,33 +48,13 @@ function headerOne(
   return typeof v === "string" ? v.trim() : undefined;
 }
 
-function metaString(meta: Record<string, unknown> | null | undefined, key: string): string | undefined {
+function metaString(meta: SessionExecutionMetadata, key: keyof RequestMetadata): string | undefined {
   if (!meta) return undefined;
   const v = meta[key];
   return typeof v === "string" ? v.trim() : undefined;
 }
 
-function nestedSynesis(meta: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  const nested = meta?.synesis;
-  return nested && typeof nested === "object" && !Array.isArray(nested)
-    ? nested as Record<string, unknown>
-    : null;
-}
-
-function nestedSynesisString(
-  meta: Record<string, unknown> | null | undefined,
-  keys: string[],
-): string | undefined {
-  const nested = nestedSynesis(meta);
-  if (!nested) return undefined;
-  for (const key of keys) {
-    const v = nested[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return undefined;
-}
-
-function metaBool(meta: Record<string, unknown> | null | undefined, key: string): boolean | undefined {
+function metaBool(meta: SessionExecutionMetadata, key: keyof RequestMetadata): boolean | undefined {
   if (!meta) return undefined;
   const raw = meta[key];
   if (typeof raw === "boolean") return raw;
@@ -82,7 +65,7 @@ function metaBool(meta: Record<string, unknown> | null | undefined, key: string)
   return undefined;
 }
 
-function metaInt(meta: Record<string, unknown> | null | undefined, key: string): number | undefined {
+function metaInt(meta: SessionExecutionMetadata, key: keyof RequestMetadata): number | undefined {
   if (!meta) return undefined;
   const raw = meta[key];
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.trunc(raw));
@@ -167,17 +150,15 @@ function parseGitFactsFromSummary(summary: string | undefined): Partial<ParsedSe
  */
 export function parseSessionExecutionContext(
   headers: Record<string, string | string[] | undefined>,
-  metadata?: Record<string, unknown> | null,
+  metadata?: SessionExecutionMetadata,
   options?: ParseSessionExecutionContextOptions,
 ): ParsedSessionExecutionContext {
-  const fromMetaRoot = metaString(metadata, "synesis_project_root")
-    ?? nestedSynesisString(metadata, ["projectRoot", "project_root"]);
+  const fromMetaRoot = metaString(metadata, "synesis_project_root");
   const fromHeaderProject = headerOne(headers, "x-synesis-project-root");
   const fromHeaderLegacy = headerOne(headers, "x-synesis-workspace-root");
   const projectRoot = normalizeAbsolutePathHint(fromMetaRoot || fromHeaderProject || fromHeaderLegacy);
 
-  const fromMetaCwd = metaString(metadata, "synesis_shell_cwd")
-    ?? nestedSynesisString(metadata, ["shellCwd", "shell_cwd", "cwd"]);
+  const fromMetaCwd = metaString(metadata, "synesis_shell_cwd");
   const fromHeaderCwd = headerOne(headers, "x-synesis-shell-cwd");
   const rawShellCwd = normalizeAbsolutePathHint(fromMetaCwd || fromHeaderCwd);
   const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
@@ -187,9 +168,7 @@ export function parseSessionExecutionContext(
   let platform: string | undefined;
   let osVersion: string | undefined;
   let shell: string | undefined;
-  const nested = nestedSynesis(metadata);
-  const rt = metadata?.synesis_runtime
-    ?? (nested?.runtime && typeof nested.runtime === "object" ? nested.runtime : undefined);
+  const rt = metadata?.synesis_runtime;
   if (rt && typeof rt === "object" && rt !== null) {
     const o = rt as Record<string, unknown>;
     platform = promptContextScalar(typeof o.platform === "string" ? o.platform : undefined, MAX_RUNTIME_FIELD);
@@ -427,7 +406,7 @@ function shouldAppendPathHygieneFallback(coderClientHint: string | null | undefi
 export function appendPathContextToAdapterBlock(
   adapterBlock: string,
   headers: Record<string, string | string[] | undefined>,
-  metadata?: Record<string, unknown> | null,
+  metadata?: SessionExecutionMetadata,
   coderClientHint?: string | null,
   options?: ParseSessionExecutionContextOptions,
 ): string {
@@ -443,7 +422,7 @@ export function appendPathContextToAdapterBlock(
 /** Effective workspace root for tool-collapse path validation (metadata + headers). */
 export function resolveWorkspaceRootForCollapse(
   headers: Record<string, string | string[] | undefined>,
-  metadata?: Record<string, unknown> | null,
+  metadata?: SessionExecutionMetadata,
 ): string | null {
   return parseSessionExecutionContext(headers, metadata).projectRoot;
 }

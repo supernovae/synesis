@@ -4,19 +4,44 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from app.auth import UserInfo, get_current_user
 from app.db.engine import async_session
 from app.db.models import PatternEntry
 from app.rbac import Role, can_manage_visibility_scope, resolve_role
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from app.route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, func, select
 
 logger = logging.getLogger("synesis.admin.patterns")
 
 router = APIRouter(prefix="/api/v1/patterns", tags=["patterns"])
+
+PatternScope = Literal["global", "platform", "org"]
+PatternOutcome = Literal["pass", "fail"]
+
+
+def _validate_multiline_text(value: str | None, *, field_name: str) -> str:
+    candidate = str(value or "")
+    if "\x00" in candidate:
+        raise ValueError(f"{field_name} must not contain NUL bytes")
+    return candidate
+
+
+def _safe_query_identifier(value: str, *, field_name: str, max_length: int) -> str:
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _safe_query_text(value: str, *, field_name: str, max_length: int) -> str:
+    try:
+        return validate_safe_text(value, field_name=field_name, max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _require_admin(user: UserInfo) -> None:
@@ -51,33 +76,92 @@ def _ensure_pattern_access(user: UserInfo, row: PatternEntry, *, write: bool = F
 
 
 class PatternCreate(BaseModel):
-    pattern_id: str
-    language: str
-    skill_family: str
-    code_block: str
-    framework: str = ""
-    description: str = ""
-    constraints: str = ""
-    test_snippet: str = ""
-    tags: list[str] = []
-    org_id: str = ""
-    scope: str = "global"
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    pattern_id: str = Field(..., min_length=1, max_length=128)
+    language: str = Field(..., min_length=1, max_length=64)
+    skill_family: str = Field(..., min_length=1, max_length=128)
+    code_block: str = Field(..., min_length=1, max_length=200_000)
+    framework: str = Field("", max_length=128)
+    description: str = Field("", max_length=4096)
+    constraints: str = Field("", max_length=8192)
+    test_snippet: str = Field("", max_length=50_000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    org_id: str = Field("", max_length=64)
+    scope: PatternScope = "global"
+
+    @field_validator("pattern_id", "language", "skill_family", mode="after")
+    @classmethod
+    def validate_identifiers(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="pattern field", max_length=128)
+
+    @field_validator("org_id", mode="after")
+    @classmethod
+    def validate_org_id(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="org_id", max_length=64) if value else ""
+
+    @field_validator("framework", mode="after")
+    @classmethod
+    def validate_single_line_text(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="pattern text", max_length=128)
+
+    @field_validator("description", "constraints", "test_snippet", mode="after")
+    @classmethod
+    def validate_multiline_text(cls, value: str) -> str:
+        return _validate_multiline_text(value, field_name="pattern text")
+
+    @field_validator("tags", mode="after")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return [validate_safe_text(tag, field_name="tag", max_length=64, allow_empty=False) for tag in value]
 
 
 class PatternUpdate(BaseModel):
-    code_block: str | None = None
-    description: str | None = None
-    constraints: str | None = None
-    test_snippet: str | None = None
-    framework: str | None = None
-    skill_family: str | None = None
-    tags: list[str] | None = None
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    code_block: str | None = Field(None, min_length=1, max_length=200_000)
+    description: str | None = Field(None, max_length=4096)
+    constraints: str | None = Field(None, max_length=8192)
+    test_snippet: str | None = Field(None, max_length=50_000)
+    framework: str | None = Field(None, max_length=128)
+    skill_family: str | None = Field(None, min_length=1, max_length=128)
+    tags: list[str] | None = Field(None, max_length=50)
     enabled: bool | None = None
-    trust_score: float | None = None
+    trust_score: float | None = Field(None, ge=0.0, le=1.0)
+
+    @field_validator("skill_family", mode="after")
+    @classmethod
+    def validate_skill_family(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_identifier(value, field_name="skill_family", max_length=128)
+
+    @field_validator("framework", mode="after")
+    @classmethod
+    def validate_single_line_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="pattern text", max_length=128)
+
+    @field_validator("description", "constraints", "test_snippet", mode="after")
+    @classmethod
+    def validate_multiline_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_multiline_text(value, field_name="pattern text")
+
+    @field_validator("tags", mode="after")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return [validate_safe_text(tag, field_name="tag", max_length=64, allow_empty=False) for tag in value]
 
 
 class PatternUsageFeedback(BaseModel):
-    outcome: str = "pass"
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: PatternOutcome = "pass"
 
 
 def _hash_code(code: str) -> str:
@@ -151,6 +235,12 @@ async def list_patterns(
     offset: int = Query(0, ge=0),
     _user: UserInfo = Depends(get_current_user),
 ):
+    if language:
+        language = _safe_query_identifier(language, field_name="language", max_length=64)
+    if skill_family:
+        skill_family = _safe_query_identifier(skill_family, field_name="skill_family", max_length=128)
+    if framework:
+        framework = _safe_query_text(framework, field_name="framework", max_length=128)
     async with async_session() as session:
         q = select(PatternEntry)
         if resolve_role(_user) < Role.platform_admin:
@@ -203,7 +293,10 @@ async def pattern_stats(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.get("/{pattern_id}")
-async def get_pattern(pattern_id: str, _user: UserInfo = Depends(get_current_user)):
+async def get_pattern(
+    pattern_id: str = Path(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN),
+    _user: UserInfo = Depends(get_current_user),
+):
     async with async_session() as session:
         row = (
             await session.execute(select(PatternEntry).where(PatternEntry.pattern_id == pattern_id))
@@ -215,7 +308,11 @@ async def get_pattern(pattern_id: str, _user: UserInfo = Depends(get_current_use
 
 
 @router.patch("/{pattern_id}")
-async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = Depends(get_current_user)):
+async def update_pattern(
+    pattern_id: str = Path(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN),
+    body: PatternUpdate = Body(...),
+    user: UserInfo = Depends(get_current_user),
+):
     _require_admin(user)
     async with async_session() as session:
         row = (
@@ -251,7 +348,10 @@ async def update_pattern(pattern_id: str, body: PatternUpdate, user: UserInfo = 
 
 
 @router.delete("/{pattern_id}")
-async def delete_pattern(pattern_id: str, user: UserInfo = Depends(get_current_user)):
+async def delete_pattern(
+    pattern_id: str = Path(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN),
+    user: UserInfo = Depends(get_current_user),
+):
     _require_admin(user)
     async with async_session() as session:
         row = (
@@ -268,7 +368,10 @@ async def delete_pattern(pattern_id: str, user: UserInfo = Depends(get_current_u
 
 
 @router.post("/bulk-import")
-async def bulk_import(patterns: list[PatternCreate], user: UserInfo = Depends(get_current_user)):
+async def bulk_import(
+    patterns: list[PatternCreate] = Body(..., min_length=1, max_length=100),
+    user: UserInfo = Depends(get_current_user),
+):
     _require_admin(user)
     created = 0
     skipped = 0
@@ -333,7 +436,11 @@ async def bootstrap_patterns(user: UserInfo = Depends(get_current_user)):
 
 
 @router.post("/{pattern_id}/usage")
-async def record_usage(pattern_id: str, body: PatternUsageFeedback, _user: UserInfo = Depends(get_current_user)):
+async def record_usage(
+    pattern_id: str = Path(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN),
+    body: PatternUsageFeedback = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
     """Record usage feedback and update trust score."""
     async with async_session() as session:
         row = (

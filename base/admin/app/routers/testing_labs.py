@@ -9,13 +9,19 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from ..auth import UserInfo, require_admin
 from ..db.engine import async_session
 from ..db.models import TestingLabsResult, TestingLabsRun
 from ..services import testing_labs_engine
+from ..services.testing_labs_contract import (
+    TestingLabsRunConfig,
+    TestingLabsTraceFilter,
+    run_config_to_storage,
+    trace_filter_to_storage,
+)
 
 logger = logging.getLogger("synesis.admin.testing_labs")
 
@@ -26,17 +32,21 @@ router = APIRouter(prefix="/api/v1/testing-labs", tags=["testing-labs"])
 
 
 class CreateRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str = Field(..., min_length=1, max_length=256)
     description: str = Field("", max_length=4000)
     run_type: Literal["replay", "prompt_suite", "custom"] = "replay"
     baseline_model: str = Field("", max_length=256)
     candidate_model: str = Field("", max_length=256)
     prompt_category: str = Field("", max_length=64)
-    trace_filter: dict[str, Any] | None = None
-    config: dict[str, Any] | None = None
+    trace_filter: TestingLabsTraceFilter | None = None
+    config: TestingLabsRunConfig | None = None
 
 
 class ReviewResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     review_status: Literal["pending", "approved", "rejected", "needs_review"] = "approved"
     reviewer_note: str = Field("", max_length=8000)
 
@@ -83,8 +93,8 @@ async def create_run(
         baseline_model=body.baseline_model.strip(),
         candidate_model=body.candidate_model.strip(),
         prompt_category=body.prompt_category.strip(),
-        trace_filter=body.trace_filter,
-        config=body.config,
+        trace_filter=trace_filter_to_storage(body.trace_filter),
+        config=run_config_to_storage(body.config),
     )
 
     async with async_session() as session:
