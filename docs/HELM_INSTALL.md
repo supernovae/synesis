@@ -443,6 +443,14 @@ applied:
   must be non-placeholder values.
 - `global.allowInsecureDefaults=true` is only for disposable local/demo renders.
 
+For Open WebUI, the chart deploys the Synesis-built child image
+(`workloads.webui.image.repository=ghcr.io/supernovae/synesis/open-webui`) so
+the branded theme and middleware override are versioned with the image. Avoid
+mounting a separate middleware ConfigMap into Open WebUI; that can drift from
+the running image after an upgrade. `workloads.webui.image.tag=latest` follows
+the GitHub Actions build from this repository and is suitable only for mutable
+development deployments with `global.allowInsecureDefaults=true`.
+
 Production-facing auth and authorization defaults are set in chart values:
 
 - Planner bearer auth is required with

@@ -123,13 +123,22 @@ Every SSE stream follows this structure:
 
 Every chunk includes `id`, `object`, `created`, and `model` fields to satisfy strict SDK parsers.
 
-### Synesis extensions (non-standard SSE lines)
+### Open WebUI status side channel
 
-The planner emits additional SSE lines for Open WebUI status indicators:
+For Open WebUI deployments, planner-ts can post visible status updates to Open WebUI's native message event endpoint while keeping the answer stream strict OpenAI-compatible:
+
+- `POST /api/v1/chats/{chat_id}/messages/{message_id}/event`
+- Body: `{"type":"status","data":{"description":"...","done":false,"hidden":false}}`
+
+This path requires `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`, `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and Open WebUI chat/message metadata. If those are missing, status delivery is skipped and chat completion still succeeds.
+
+### Legacy non-standard SSE lines
+
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the old in-band status envelope mode for local debugging or custom deployments:
 
 - **Status/phase events:** `data: {"event": {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}}`
 
-**Strict OpenAI SDK parsers** should skip any `data:` line whose JSON does not have `"object": "chat.completion.chunk"`. The planner emits status updates as JSON envelopes in `data:` lines (no SSE named events required).
+Leave it unset or set to `off` for strict OpenAI SDK compatibility.
 
 ### Usage on final chunk
 

@@ -746,8 +746,10 @@ export async function directStreamPipeline(
   };
 
   const collector = ensureCollector(state);
+  void state._status_reporter?.("classifying", "started");
   collector.startSpan("entry_pipeline");
   state = await classifyEntry({ ...state, _span_collector: collector, iteration_count: 0, max_iterations: 1 });
+  void state._status_reporter?.("classifying", "done");
   collector.endSpan("entry_pipeline", {
     outcome: "direct_stream_fast_path",
     metadata: {
@@ -768,8 +770,10 @@ export async function directStreamPipeline(
     return state;
   }
 
+  void state._status_reporter?.("synthesizing", "started");
   collector.startSpan("writer");
   const result = await composeWriterDraftStream(state, onDelta);
+  void state._status_reporter?.("synthesizing", "done");
   collector.endSpan("writer", {
     outcome: "direct_stream_complete",
     tokens_used: result.usage?.total_tokens ?? 0,

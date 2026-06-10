@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { setFgaCheckOverride } from "../src/auth/openfga-client.js";
 
 beforeAll(() => { setFgaCheckOverride(() => ({ allowed: true })); });
 afterAll(() => { setFgaCheckOverride(null); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 function makeConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
@@ -103,6 +104,41 @@ describe("SSE conformance", () => {
       const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;
       return typeof delta.reasoning_content === "string";
     })).toBe(true);
+
+    await app.close();
+  });
+
+  it("posts side-channel Open WebUI statuses without adding status frames to strict SSE", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("true", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const app = buildApp(makeConfig({
+      SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL: "http://open-webui.synesis-webui.svc.cluster.local:8080",
+      SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN: "event-token",
+    }));
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      payload: {
+        model: "Synesis",
+        messages: [{ role: "user", content: "Provide planner summary" }],
+        metadata: { chat_id: "chat-1", message_id: "message-1" },
+        stream: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payloads = parseSsePayloads(response.body);
+    expect(payloads.every((payload) => payload.object === "chat.completion.chunk")).toBe(true);
+    expect(response.body).not.toContain('"event"');
+    expect(response.body).not.toContain("Preparing request...");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://open-webui.synesis-webui.svc.cluster.local:8080/api/v1/chats/chat-1/messages/message-1/event",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"type":"status"'),
+      }),
+    );
 
     await app.close();
   });

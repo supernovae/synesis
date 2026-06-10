@@ -109,6 +109,19 @@ export interface UnifiedRetrievalRequest {
   requestId?: string;
   sessionKey?: string;
   traceId?: string;
+  progressObserver?: (event: RetrievalProgressEvent) => void | Promise<void>;
+}
+
+export type RetrievalProgressPhase =
+  | "retrieving"
+  | "graph_query"
+  | "web_search"
+  | "reranking";
+
+export interface RetrievalProgressEvent {
+  phase: RetrievalProgressPhase;
+  status: "started" | "done" | "error";
+  detail?: string;
 }
 
 export interface SearchResult {

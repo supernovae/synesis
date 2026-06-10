@@ -90,6 +90,18 @@ spec:
               value: "100"
             - name: SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS
               value: "30000"
+            - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED
+              value: "true"
+            - name: SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL
+              value: "http://open-webui.synesis-webui.svc.cluster.local:8080"
+            - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-openwebui-admin-token
+                  key: token
+                  optional: true
+            - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TIMEOUT_MS
+              value: "1500"
             - name: SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH
               value: "true"
             - name: SYNESIS_REQUIRE_PAT_PEPPER

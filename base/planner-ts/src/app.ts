@@ -66,9 +66,16 @@ import {
   writeContentDelta,
   writeReasoningDelta,
   writeFinalChunk,
-  writeStatusEvent,
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
+import {
+  emitPhaseDone,
+  emitPhaseError,
+  emitPhaseStarted,
+  openWebUIContextFromConfig,
+  type PlannerStatusPhase,
+  type PlannerStatusReporter,
+} from "./streaming/status-events.js";
 import type { GenerationParams, GraphState } from "./state/types.js";
 import { shouldApplyUserInjectionMitigation } from "@synesis/context-trust";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
@@ -556,6 +563,100 @@ function resolveIncomingConversationId(
   return { id: "", source: "none" };
 }
 
+function resolveOpenWebUIEventMetadata(
+  rawBody: unknown,
+  headers: Record<string, unknown>,
+  parsedConversationId?: string | null,
+): { chatId?: string; messageId?: string; sources: Record<string, string> } {
+  const body = (rawBody && typeof rawBody === "object" && !Array.isArray(rawBody))
+    ? (rawBody as Record<string, unknown>)
+    : {};
+  const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+    ? (body.metadata as Record<string, unknown>)
+    : {};
+  const sources: Record<string, string> = {};
+
+  let chatId = optionalString(parsedConversationId);
+  if (chatId) sources.chatId = "body.conversation_id";
+  if (!chatId) {
+    for (const [source, value] of [
+      ["body.chat_id", body.chat_id],
+      ["body.metadata.chat_id", metadata.chat_id],
+      ["body.metadata.conversation_id", metadata.conversation_id],
+      ["body.metadata.synesis_conversation_id", metadata.synesis_conversation_id],
+      ["header.x-openwebui-chat-id", headers["x-openwebui-chat-id"]],
+      ["header.x-openwebui-conversation-id", headers["x-openwebui-conversation-id"]],
+      ["header.x-chat-id", headers["x-chat-id"]],
+    ] as Array<[string, unknown]>) {
+      const candidate = optionalString(value);
+      if (candidate) {
+        chatId = candidate;
+        sources.chatId = source;
+        break;
+      }
+    }
+  }
+
+  let messageId: string | undefined;
+  for (const [source, value] of [
+    ["body.message_id", body.message_id],
+    ["body.metadata.message_id", metadata.message_id],
+    ["body.metadata.parent_message_id", metadata.parent_message_id],
+    ["body.metadata.user_message_id", metadata.user_message_id],
+    ["header.x-openwebui-message-id", headers["x-openwebui-message-id"]],
+    ["header.x-message-id", headers["x-message-id"]],
+  ] as Array<[string, unknown]>) {
+    const candidate = optionalString(value);
+    if (candidate) {
+      messageId = candidate;
+      sources.messageId = source;
+      break;
+    }
+  }
+
+  return { chatId, messageId, sources };
+}
+
+function statusPhaseForGraphNode(node: string): PlannerStatusPhase {
+  switch (node) {
+    case "entry_pipeline":
+      return "classifying";
+    case "planner":
+      return "planning";
+    case "plan_gate":
+      return "validating";
+    case "router":
+      return "retrieving";
+    case "writer":
+      return "synthesizing";
+    case "critic":
+      return "critic";
+    case "final_scrubber":
+      return "validating";
+    case "respond":
+      return "streaming";
+    default:
+      return "intake";
+  }
+}
+
+function architectureControlMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const allowedKeys = [
+    "synesis",
+    "synesis_context_mediation",
+    "synesis_architecture_mediation",
+    "architecture_mediation",
+    "synesis_architecture_profile",
+  ];
+  const out: Record<string, unknown> = {};
+  for (const key of allowedKeys) {
+    if (metadata[key] !== undefined) out[key] = metadata[key];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+
 function isLikelyQuizOptionAnswer(answer: string): boolean {
   const trimmed = answer.trim();
   return /^([a-d]|[1-4])[).:]?$/i.test(trimmed);
@@ -1004,7 +1105,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     };
     const architectureMediation = resolvePlannerArchitectureMediation({
       headers: requestHeaders,
-      metadata: requestBody.metadata,
+      metadata: architectureControlMetadata(requestBody.metadata),
       extraBody: Object.keys(combinedExtraBody).length > 0 ? combinedExtraBody : requestBody.extra_body,
       requestedModel: tierSettings.requestedModel || requestBody.model,
       writerModel: resolvedWriterModel,
@@ -2302,6 +2403,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
         request.headers as Record<string, unknown>,
         body.conversation_id,
       );
+      const openWebUIEventMetadata = resolveOpenWebUIEventMetadata(
+        rawBody,
+        request.headers as Record<string, unknown>,
+        resolvedConversation.id || body.conversation_id,
+      );
       const effectiveBody: ParsedChatRequest = resolvedConversation.id
         ? { ...body, conversation_id: resolvedConversation.id }
         : body;
@@ -2535,12 +2641,30 @@ export function buildApp(config: AppConfig): FastifyInstance {
         model: responseModel,
         system_fingerprint: SYSTEM_FINGERPRINT,
       });
+      const statusContext = {
+        logger: request.log,
+        authzTraceId,
+        openWebUI: openWebUIContextFromConfig({
+          config,
+          chatId: openWebUIEventMetadata.chatId,
+          messageId: openWebUIEventMetadata.messageId,
+        }),
+        legacySse: {
+          enabled: emitLegacyStreamStatus,
+          response: reply.raw,
+        },
+      };
+      const statusReporter: PlannerStatusReporter = (phase, status, detail, error) => {
+        if (status === "done") {
+          void emitPhaseDone(statusContext, phase, detail);
+        } else if (status === "error") {
+          void emitPhaseError(statusContext, phase, error ?? detail ?? "unknown error");
+        } else {
+          void emitPhaseStarted(statusContext, phase, detail);
+        }
+      };
+      void emitPhaseStarted(statusContext, "intake");
       if (emitLegacyStreamStatus) {
-        writeStatusEvent(reply.raw, {
-          description: "Thinking…",
-          done: false,
-          detail: "Preparing request",
-        });
         writeReasoningDelta(reply.raw, {
           id: completionId,
           created,
@@ -2550,7 +2674,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
         });
       }
 
-      let finalState: GraphState = initialState;
+      const streamInitialState: GraphState = { ...initialState, _status_reporter: statusReporter };
+      let finalState: GraphState = streamInitialState;
       let streamingError: Error | undefined;
 
       try {
@@ -2581,7 +2706,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           }
         };
 
-        const directState = await directStreamPipeline(initialState, writerDeltaHandler);
+        const directState = await directStreamPipeline(streamInitialState, writerDeltaHandler);
         const usedDirectPath = directState.next_node === "respond";
 
         if (usedDirectPath) {
@@ -2596,29 +2721,19 @@ export function buildApp(config: AppConfig): FastifyInstance {
               system_fingerprint: SYSTEM_FINGERPRINT,
             });
           }
-          for await (const event of streamGraph(initialState, writerDeltaHandler)) {
+          for await (const event of streamGraph(streamInitialState, writerDeltaHandler, {
+            onNodeStart: (node) => {
+              statusReporter(statusPhaseForGraphNode(node), "started");
+            },
+            onNodeDone: (node, state) => {
+              const detail = state.error ? "Completed with fallback handling" : undefined;
+              statusReporter(statusPhaseForGraphNode(node), "done", detail);
+            },
+          })) {
             if (!isSseWritable(reply.raw)) break;
             finalState = event.state;
 
             const nextNode = event.state.next_node;
-            if (
-              emitLegacyStreamStatus &&
-              (event.node === "plan_gate" || event.node === "critic") &&
-              nextNode === "router"
-            ) {
-              writeStatusEvent(reply.raw, {
-                description: "Gathering evidence…",
-                done: false,
-                detail: "Searching sources and ranking relevance",
-              });
-            }
-            if (emitLegacyStreamStatus && event.node === "router") {
-              writeStatusEvent(reply.raw, {
-                description: "Gathering evidence…",
-                done: true,
-              });
-            }
-
             if (emitLegacyStreamStatus && event.node !== "respond") {
               writeReasoningDelta(reply.raw, {
                 id: completionId,
@@ -2704,6 +2819,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         }
 
         spawnBackgroundCritic(finalState, request.log);
+        statusReporter("complete", "done");
       } catch (err) {
         streamingError = err instanceof Error ? err : new Error(String(err));
         failureStore.record("streaming_graph", "execution_error", streamingError.message);
@@ -2711,6 +2827,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
           { authzTraceId, error: streamingError.message },
           "streaming graph execution failed",
         );
+        statusReporter("error", "error", undefined, streamingError);
         if (isSseWritable(reply.raw)) {
           writeContentDelta(reply.raw, {
             id: completionId,

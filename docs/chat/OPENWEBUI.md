@@ -6,14 +6,18 @@ Synesis includes a built-in **Open WebUI** instance that provides a polished cha
 
 Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui:v0.9.6`, based on upstream `v0.9.6`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
+Helm should deploy this Synesis image directly. Do not mount `base/webui/overrides/middleware.py` into an upstream Open WebUI pod with a standalone ConfigMap; that creates a version split between the image and the middleware override. The chart defaults pin `workloads.webui.image.repository` to `ghcr.io/supernovae/synesis/open-webui` and `workloads.webui.image.tag` to the supported Open WebUI version. During active development, CI also publishes `:latest` from this repository, so `workloads.webui.image.tag=latest` is acceptable only when `global.allowInsecureDefaults=true` is intentionally used for a mutable dev deployment.
+
 ## Helm Setup
 
 The Helm chart:
 
 1. Creates or uses the planner client API key from chart values
 2. Writes the key into the `synesis-webui` namespace as a Secret
-3. Deploys Open WebUI with the API URL and key pre-injected as environment variables
+3. Deploys the Synesis-built Open WebUI image with the API URL and key pre-injected as environment variables
 4. Exposes Open WebUI through your cluster edge (Ingress/Route/Gateway) with your configured hostname
+
+The chart also configures the Open WebUI production defaults Synesis depends on: Keycloak OIDC, disabled local signup/login, API keys enabled for admin feedback sync, default Synesis model pins, writable `STATIC_DIR`, writable cache/home volumes, disabled Open WebUI-native RAG/web-search/code execution features, and forwarded user/session headers to planner-ts.
 
 On first visit, create an admin account. The `synesis-agent` model is available immediately.
 
@@ -97,7 +101,7 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 
 ## Phase/Status Display
 
-The planner emits standard SSE status events during graph execution (e.g. Gathering evidence…, Plan ready: N sections). Open WebUI displays these in its **native** status area; do not use a custom Synesis Progress pipe. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details, production behavior, and troubleshooting.
+The planner streams answers as strict OpenAI-compatible SSE and posts visible phase updates to Open WebUI's native message event endpoint when chat/message metadata and an Open WebUI event token are configured. Open WebUI displays these in its **native** status area; do not use a custom Synesis Progress pipe. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details, production behavior, and troubleshooting.
 
 ## Configuration
 
@@ -154,7 +158,18 @@ The CSS uses `html.dark` / `html.light` classes (set by Open WebUI's theme switc
 
 ### `Permission denied: '/app/backend/open_webui/static/...'` in pod logs
 
-The container runs **non-root**; the image’s bundled static directory is not writable. Set **`STATIC_DIR`** to a writable path on the PVC (e.g. `/app/backend/data/static`) — Synesis does this in `base/webui/deployment.yaml`. Open WebUI copies assets from the read-only build into that directory at startup.
+The image’s bundled static directory may be read-only under hardened Kubernetes/OpenShift security contexts. Set **`STATIC_DIR`** to a writable path on the PVC (e.g. `/app/backend/data/static`) — Synesis does this in `base/webui/deployment.yaml` and the Helm chart. Open WebUI copies assets from the read-only build into that directory at startup.
+
+### Open WebUI pod crashes after rollout
+
+If logs show an import error from `/app/backend/open_webui/utils/middleware.py`, verify the pod is running the Synesis child image, not an upstream image plus an old ConfigMap-mounted middleware override:
+
+```bash
+oc get deployment/open-webui -n synesis-webui -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+oc get deployment/open-webui -n synesis-webui -o jsonpath='{range .spec.template.spec.volumes[*]}{.name}{":"}{.configMap.name}{"\n"}{end}'
+```
+
+The image should be `ghcr.io/supernovae/synesis/open-webui:<tag>`. There should not be a standalone `middleware-override` ConfigMap volume in normal Helm-managed deployments.
 
 ### Auth page shows only “Sign in to Synesis” — no Keycloak button
 

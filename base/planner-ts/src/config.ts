@@ -47,6 +47,13 @@ const EnvSchema = z.object({
   SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS: z
     .enum(["off", "openwebui-data"])
     .default("off"),
+  SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL: z.string().default(""),
+  SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN: z.string().default(""),
+  SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TIMEOUT_MS: z.coerce.number().default(1500),
   /** Writer: trivial fast-path policy target (tokens). */
   SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET: z.coerce.number().default(2048),
   /** Writer: scaled budget at difficulty 0 (tokens). */

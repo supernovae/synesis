@@ -28,6 +28,11 @@ export interface NodeTransitionEvent {
   state: GraphState;
 }
 
+export interface GraphLifecycleCallbacks {
+  onNodeStart?: (node: GraphNodeName, state: GraphState) => void | Promise<void>;
+  onNodeDone?: (node: GraphNodeName, state: GraphState) => void | Promise<void>;
+}
+
 function nodeTimeoutMs(): number {
   const raw = Number(process.env.SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS ?? 60000);
   if (!Number.isFinite(raw) || raw <= 0) return 60000;
@@ -137,13 +142,16 @@ function nextGraphNode(nodeName: GraphNodeName, state: GraphState): GraphNodeNam
 async function* executeGraph(
   state: GraphState,
   writerFn: (state: GraphEnvelope) => Promise<GraphEnvelope>,
+  callbacks: GraphLifecycleCallbacks = {},
 ): AsyncGenerator<NodeTransitionEvent> {
   let nodeName: GraphNodeName | null = "entry_pipeline";
   let envelope: GraphEnvelope = { data: state };
   const maxSteps = 64;
 
   for (let step = 0; nodeName && step < maxSteps; step += 1) {
+    await callbacks.onNodeStart?.(nodeName, envelope.data);
     envelope = await runGraphNode(nodeName, envelope, writerFn);
+    await callbacks.onNodeDone?.(nodeName, envelope.data);
     yield { node: nodeName, state: envelope.data };
     nodeName = nextGraphNode(nodeName, envelope.data);
   }
@@ -176,13 +184,14 @@ export async function invokeGraph(state: GraphState): Promise<GraphState> {
 export async function* streamGraph(
   state: GraphState,
   onWriterDelta: (delta: StreamDelta) => void,
+  callbacks: GraphLifecycleCallbacks = {},
 ): AsyncGenerator<NodeTransitionEvent> {
   const streamingWriter = async (envelope: GraphEnvelope): Promise<GraphEnvelope> => ({
     data: await writerNodeStreaming(envelope.data, onWriterDelta),
   });
 
   let lastState = state;
-  for await (const event of executeGraph(state, streamingWriter)) {
+  for await (const event of executeGraph(state, streamingWriter, callbacks)) {
     lastState = event.state;
     yield event;
   }

@@ -134,7 +134,6 @@ from open_webui.env import (
     GLOBAL_LOG_LEVEL,
     ENABLE_CHAT_RESPONSE_BASE64_IMAGE_URL_CONVERSION,
     CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE,
-    CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES,
     BYPASS_MODEL_ACCESS_CONTROL,
     ENABLE_REALTIME_CHAT_SAVE,
     ENABLE_QUERIES_CACHE,
@@ -144,6 +143,20 @@ from open_webui.env import (
     FORWARD_SESSION_INFO_HEADER_MESSAGE_ID,
     ENABLE_RESPONSES_API_STATEFUL,
 )
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+try:
+    from open_webui.env import CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES
+except ImportError:
+    CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = _env_int("CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES", 3)
+
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.constants import TASKS
 

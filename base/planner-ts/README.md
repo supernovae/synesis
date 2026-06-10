@@ -59,7 +59,9 @@ This service is the TypeScript planner runtime.
 - SSE decoupling and cleanup:
   - centralized SSE writer helpers in `src/streaming/sse.ts`
   - phase mapping + content chunking in `src/streaming/phases.ts`
-  - streaming emits OpenAI-compatible `chat.completion.chunk` frames by default; `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables legacy OpenWebUI status/reasoning data events
+  - streaming emits OpenAI-compatible `chat.completion.chunk` frames by default
+  - Open WebUI status updates post through `src/streaming/status-events.ts` when `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`, `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and chat/message metadata are present
+  - `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables legacy OpenWebUI status/reasoning data events for debugging
 - API decoupling:
   - Fastify app construction moved to `src/app.ts` (`buildApp(config)`)
   - `src/index.ts` is now a thin runtime bootstrap wrapper

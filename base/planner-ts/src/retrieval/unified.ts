@@ -315,9 +315,17 @@ export async function retrieveUnified(
     temporalAt,
     graphDepth,
     edgeTypes,
+    progressObserver,
   } = request;
 
   const t0 = performance.now();
+  const notify = (phase: import("./types.js").RetrievalProgressPhase, status: "started" | "done" | "error", detail?: string) => {
+    try {
+      void progressObserver?.({ phase, status, detail });
+    } catch {
+      /* progress observers are best-effort */
+    }
+  };
   const codeIntent = isCodeIntent(query);
   let ragDegraded = false;
   let webDegraded = false;
@@ -331,6 +339,8 @@ export async function retrieveUnified(
   );
 
   // Phase 1: Parallel RAG + web
+  notify("retrieving", "started");
+  notify("graph_query", "started", settings.rag.graphDepth > 0 ? "NornicDB vector search with graph expansion" : "NornicDB vector search");
   const ragPromise = retrieveContext(query, settings.rag, {
     collections,
     topK: overfetch,
@@ -341,15 +351,20 @@ export async function retrieveUnified(
     temporalAt,
     graphDepth,
     edgeTypes,
+  }).then((results) => {
+    notify("graph_query", "done", `${results.length} candidate${results.length === 1 ? "" : "s"} retrieved`);
+    return results;
   }).catch((err) => {
     ragDegraded = true;
     degradationNotes.push(`RAG failed: ${err instanceof Error ? err.message : String(err)}`);
+    notify("graph_query", "error", "RAG retrieval degraded");
     return [] as RagResult[];
   });
 
   let webPromise: Promise<SearchResult[]> | null = null;
   if (webEnabled) {
     const effectiveWebQuery = webQuery || query.slice(0, 120);
+    notify("web_search", "started");
     webPromise = searchAndProcess(effectiveWebQuery, settings.web, {
       maxFetchPages: forceWeb ? 4 : undefined,
       attribution: {
@@ -363,9 +378,13 @@ export async function retrieveUnified(
         caller_user_id: callerUserId,
         caller_tenant_ids: callerTenantIds,
       },
+    }).then((results) => {
+      notify("web_search", "done", `${results.length} result${results.length === 1 ? "" : "s"} returned`);
+      return results;
     }).catch((err) => {
       webDegraded = true;
       degradationNotes.push(`Web failed: ${err instanceof Error ? err.message : String(err)}`);
+      notify("web_search", "error", "Web retrieval degraded");
       return [] as SearchResult[];
     });
   }
@@ -435,6 +454,7 @@ export async function retrieveUnified(
   }
 
   // Phase 4: RRF merge
+  notify("reranking", "started", "Merging and scoring retrieved evidence");
   let merged = rrfMerge(ragUnified, webUnified, settings.rrfK);
 
   // Phase 4b: Taxonomy domain hint boost
@@ -447,6 +467,7 @@ export async function retrieveUnified(
   // Phase 5: Adaptive top-k
   let final = adaptiveTopK(merged, topK, settings.adaptiveGapMultiplier);
   final = bucketizeCoderResults(final, topK, codeIntent);
+  notify("reranking", "done", `${final.length} source${final.length === 1 ? "" : "s"} selected`);
 
   // Phase 5b–5d: Cohesion lock pipeline
   let cohesionLock: CohesionLockData | null = null;
@@ -474,6 +495,7 @@ export async function retrieveUnified(
   }
 
   const totalMs = performance.now() - t0;
+  notify("retrieving", "done", `${final.length} source${final.length === 1 ? "" : "s"} ready`);
 
   return {
     results: final,

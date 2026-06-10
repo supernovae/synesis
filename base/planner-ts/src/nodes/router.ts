@@ -219,6 +219,13 @@ export async function runRouter(
         requestId: state.authz_trace_id,
         sessionKey: state.conversation_id ? `conversation:${state.conversation_id}` : undefined,
         traceId: state.authz_trace_id,
+        progressObserver: (event) => {
+          const status =
+            event.status === "started" ? "started"
+            : event.status === "done" ? "done"
+            : "error";
+          void state._status_reporter?.(event.phase, status, event.detail);
+        },
       };
 
       const bundle: RetrievalBundle = await client.retrieveUnified(unifiedRequest);

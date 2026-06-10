@@ -153,4 +153,5 @@ export interface GraphState {
   injection_scan_result?: { detected: boolean; patterns_found: string[]; source: string };
   _span_collector?: SpanCollector;
   _prompt_snapshot?: PromptSnapshot | null;
+  _status_reporter?: import("../streaming/status-events.js").PlannerStatusReporter;
 }
