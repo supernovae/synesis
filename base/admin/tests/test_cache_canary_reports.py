@@ -60,7 +60,7 @@ def _report(generated_at: str = "2026-05-22T12:00:00Z") -> dict:
 def test_summarize_cache_canary_report_surfaces_live_warning():
     summary = summarize_cache_canary_report(
         _report(),
-        path="/tmp/cache-canary.json",
+        path="/tmp/cache-canary.json",  # nosec B108 — test fixture path
         stale_hours=24,
         now=datetime(2026, 5, 22, 13, 0, tzinfo=UTC),
     )
@@ -86,7 +86,7 @@ def test_summarize_cache_canary_report_marks_stale_and_failed():
 
     summary = summarize_cache_canary_report(
         report,
-        path="/tmp/cache-canary.json",
+        path="/tmp/cache-canary.json",  # nosec B108 — test fixture path
         stale_hours=24,
         now=datetime(2026, 5, 22, 13, 0, tzinfo=UTC),
     )
