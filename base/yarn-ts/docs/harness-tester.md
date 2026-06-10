@@ -13,6 +13,11 @@ It is intentionally not a second proxy, tracer, sandbox, or eval framework. It r
 
 It does not claim benchmark quality or use an LLM grader in v1. A run only passes when validation evidence exists.
 
+For release gating, use the governor regression/canary scorecard lane documented
+in [TESTING.md](../../../docs/development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability).
+Harness Tester is the local task runner and evidence collector; the scorecard
+lane is the CI policy surface for baseline deltas and rollout hold decisions.
+
 ## First-Class Languages
 
 The initial suite includes small fixtures for:

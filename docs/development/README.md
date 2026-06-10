@@ -12,7 +12,7 @@ From the same directory:
 |----------|---------|
 | [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) | Post-deploy checks, Makefile targets, live intent validation |
 | [CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md) | GitHub Actions variables/secrets for evaluation jobs |
-| [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md) | Strategy + operator runbook for trust KPIs, gates, canaries, scorecards, and rollback |
+| [TESTING.md#97-harness-trust-kpi-lane-coder-reliability](./TESTING.md#97-harness-trust-kpi-lane-coder-reliability) | Governor trust KPIs, canaries, scorecards, and rollout hold policy |
 
 ## Tooling & trackers
 

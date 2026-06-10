@@ -64,6 +64,49 @@ See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/TESTI
 - `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT` (default `10`) — deterministic session-hash canary percentage when mode is `canary`.
 - `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS` (default `3`) — marker cap passed to the prefix optimizer and DashScope endpoint adapter.
 
+## Markdown response style
+
+Yarn has a runtime response-style layer for making final assistant text easier
+to read in IDEs and chat clients. This is a Yarn behavior, not a client setup
+contract, so operators configure it on the coder deployment.
+
+`SYNESIS_YARN_RESPONSE_STYLE_MODE` controls how much Yarn does:
+
+| Mode | Behavior | Use when |
+|---|---|---|
+| `off` | No style prompt and no final markdown cleanup. | A client or upstream model prompt already owns all response formatting. |
+| `guidance` | Adds a `<RESPONSE_STYLE>` system block with markdown guidance. | Default. Gives models consistent formatting instructions without rewriting final text. |
+| `guardrail` | Adds guidance and applies small final-text cleanup. | Use when models often return malformed markdown, unclosed fences, or cramped headings. |
+
+The built-in guidance asks the model to:
+
+- use concise headings when sections help scanning;
+- use fenced code blocks for commands and code;
+- prefer bullets for steps/options and tables only for comparisons;
+- keep paragraphs short;
+- use Mermaid diagrams for architecture or process flows when
+  `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID=true`.
+
+`guardrail` mode intentionally performs formatting-only changes:
+
+- normalizes heading spacing;
+- fixes bullet marker spacing;
+- closes an unbalanced fenced code block.
+
+It does not rewrite tool calls, change request semantics, or re-author the
+assistant answer.
+
+Operators can replace the default style block through the Admin prompt library
+by creating a node prompt profile with `target_type = "node"` and
+`target_value = "response_style"`. When present, that prompt body replaces the
+built-in markdown style body while preserving the same `<RESPONSE_STYLE>` frame.
+
+Validation:
+
+```bash
+npm test --workspace synesis-yarn-ts -- response-style.test.ts openai-nonstream-finalizer.test.ts claude-nonstream-finalizer.test.ts claude-stream-finalizer.test.ts attention-positioning.test.ts stable-prefix.test.ts
+```
+
 ## OpenAI and Claude: model reasoning (thinking)
 
 Yarn forwards **extended thinking** from the model to each client in the shape that protocol expects:

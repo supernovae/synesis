@@ -2,7 +2,7 @@
 
 This document is the **inventory** of how we validate Synesis: what runs automatically, what needs secrets or live APIs, and where to extend coverage. Use it when adding features or tuning CI.
 
-**Related:** [OPENAI_COMPAT_PROBING.md](../chat/OPENAI_COMPAT_PROBING.md) (HTTP probe + streaming `usage` semantics), [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets), [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md) (strategy-to-execution plan for trust KPI hardening).
+**Related:** [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets), [CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md) (GitHub variables and secrets for validation jobs).
 
 ---
 
@@ -42,6 +42,28 @@ python3 scripts/synesis_openai_capability_probe.py
 python3 scripts/synesis_openai_capability_probe.py --strict
 ```
 
+The same script can probe a reachable Yarn coder host:
+
+```bash
+export SYNESIS_PROBE_YARN_URL=https://<coder-host>
+python3 scripts/synesis_openai_capability_probe.py
+```
+
+In CI, `.github/workflows/openai-compat-probe.yml` maps repository variables
+`SYNESIS_PLANNER_EVAL_URL` / `SYNESIS_YARN_EVAL_URL` and secret
+`SYNESIS_TEST_PAT_TOKEN` into the same probe. The workflow is optional and
+`continue-on-error: true`; it is not a merge gate.
+
+The probe validates:
+
+- `GET /v1/models` returns OpenAI-style model objects with `id`, `object`, `created`, and `owned_by`.
+- `POST /v1/chat/completions` non-stream returns OpenAI-style completion fields when a token is configured.
+- Non-stream `usage` includes `prompt_tokens`, `completion_tokens`, and `total_tokens` when available.
+
+For streaming, OpenAI-compatible `usage` should appear on the final SSE chunk
+only when the request includes `stream_options: { "include_usage": true }`.
+Planner follows that behavior.
+
 ---
 
 ## 3. Yarn-ts (`base/yarn-ts`)
@@ -61,7 +83,7 @@ Legend: **Yes** = implemented and should have contract tests; **Partial** = subs
 
 | Capability | Planner | Yarn | Tests / notes |
 |------------|---------|------|----------------|
-| `GET /v1/models` | Yes — OpenAI Model core fields + optional `description` | Yes — `synesis-yarn` model | planner-ts Vitest; yarn-ts Vitest / integration tests; probe checks shape |
+| `GET /v1/models` | Yes — OpenAI Model core fields + optional `description` | Yes — `synesis-yarn` model | planner-ts Vitest; yarn-ts Vitest / integration tests; optional probe checks shape |
 | `POST /v1/chat/completions` non-stream | Yes | Yes | Vitest suites in each runtime; optional live scripts |
 | `POST /v1/chat/completions` stream (SSE) | Yes — Synesis status events in-stream; final chunk `usage` only if `stream_options.include_usage` | Yes — tool streaming via SSE chunks | planner-ts streaming tests; yarn-ts stream handler tests |
 | Response `usage` (non-stream) | Yes — `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_prompt_tokens` | Yes — aggregated usage dict on final non-stream | Assert keys in planner-ts tests; optional live validation |
@@ -114,9 +136,16 @@ We do **not** clone or run OpenAI’s full upstream suites against Synesis in CI
 
 **Practical next steps (backlog):**
 
-1. Maintain a short checklist in this doc (or in `docs/chat/OPENAI_COMPAT_PROBING.md`) mapping **cookbook recipes** → **implemented?** → **test file**.
+1. Maintain a short checklist in this doc mapping **cookbook recipes** → **implemented?** → **test file**.
 2. Optional dev dependency: run a **minimal** subset of `openai` Python client calls against a **local** planner in a non-CI script (similar to the probe, but using the official client for serialization parity).
 3. Keep **CI** bounded: mocked `TestClient` tests + ruff; live and SDK-heavy checks stay manual or optional workflows.
+
+### Open Harness note
+
+[Open Harness](https://github.com/jeffrschneider/OpenHarness) conformance tests
+exercise Open Harness MAPI adapters such as Claude Code and Goose. They are not
+a generic "point at `/v1/chat/completions`" regression suite for Synesis. Use
+them for ecosystem awareness, not as a Synesis CI gate.
 
 ---
 
@@ -314,24 +343,47 @@ python benchmarks/retrieval/bench_hybrid.py \
 
 ### 9.7 Harness Trust KPI Lane (Coder Reliability)
 
-Use this lane to detect and stop quality drift in long-session coding workflows.
+Use this lane to detect and stop quality drift in long-session coding
+workflows. This is the canonical operator reference for governor regression
+budgets, power-user canaries, scorecards, and rollout hold decisions.
 
-Minimum rollout sequence:
+The lane preserves four behavior goals:
 
-1. **Observe:** add KPI fields to trajectory/eval outputs, no blocking.
-2. **Baseline:** run nightly against known-good baseline artifacts.
-3. **Enforce:** fail main/release lanes when trust red-line deltas are exceeded.
-4. **Rollback:** hold rollout and revert harness config/prompt deltas after consecutive breaches.
+- **Helpfulness:** enough read/research behavior before edits, fewer premature completion claims.
+- **Efficiency:** fewer repeated-command loops and broad rewrites.
+- **Consistency:** stable governor intervention and pass-rate behavior across deploys.
+- **Transparency:** scorecard artifacts explain why a lane is proceeding or held.
 
 Primary implementation surfaces:
 
 - Runtime telemetry: `base/yarn-ts/src/index.ts`
 - Budget logic: `base/yarn-ts/src/eval/regression-budget.ts`
 - Budget script: `base/yarn-ts/scripts/eval-regression-budget.ts`
-- Scenario suite: `base/yarn-ts/src/eval/scenarios/governor-regression.ts`
-- Main/release lanes: `.github/workflows/yarn-governor-eval-tiers.yml`
+- Regression scenarios: `base/yarn-ts/src/eval/scenarios/governor-regression.ts`
+- Power-user canaries: `base/yarn-ts/src/eval/scenarios/power-user-canary.ts`
+- Scorecard builder: `base/yarn-ts/scripts/eval-harness-scorecard.ts`
+- Rollback evaluator: `base/yarn-ts/scripts/eval-rollback-policy.ts`
+- CI lanes: `.github/workflows/yarn-governor-eval-tiers.yml`
 
-Canonical strategy and acceptance criteria: [HARNESS_TRUST_HARDENING.md](./HARNESS_TRUST_HARDENING.md).
+Budgeted KPIs:
+
+| KPI | Source | Budget behavior |
+|-----|--------|-----------------|
+| `passRate` | Governor regression scenario results | Fails when candidate drops more than `maxPassRateDrop` |
+| `avgScore` | Scenario scoring | Fails when candidate drops more than `maxScoreDrop` |
+| `interventionRate` | Governor rule firings | Fails when intervention rate rises more than configured threshold |
+| `repeatedCommandAnomalyRate` | Eval turn anomalies | Fails when repeated tool/content loops rise |
+| `avgTurnsToResolution` | Scenario turn count | Fails when resolution loops grow too much |
+| `readEditRatio` | Tool-call mix in eval turns | Fails when read-before-edit behavior drops too far |
+| `wholeWriteRatio` | Tool-call mix in eval turns | Fails when whole-file rewrites rise too much |
+| `prematureStopSignalRate` | Governor rules such as completion-without-verification | Fails when premature-stop signals rise |
+
+Minimum rollout sequence:
+
+1. **Observe:** add or review KPI fields in trajectory/eval outputs without blocking.
+2. **Baseline:** run against a known-good `SYNESIS_EVAL_BASELINE_JSON` artifact.
+3. **Enforce:** fail main/release lanes when trust red-line deltas are exceeded.
+4. **Rollback:** hold rollout and revert harness config/prompt deltas after consecutive breaches.
 
 Budget script supports trust KPI thresholds:
 
@@ -373,6 +425,7 @@ npm run eval:rollback -- \
 
 Workflow automation (`.github/workflows/yarn-governor-eval-tiers.yml`):
 
+- `governor-pr-fast`: PR gate for API contract hardening plus governor unit/smoke tests.
 - `governor-nightly`: generates canary scorecard + rollback decision in advisory mode (no enforced hold).
 - `governor-main`: enforces hold policy when red-line breaches persist for the configured streak threshold.
 - `governor-prerelease`: enforces hold policy on release lane before promotion.

@@ -29,6 +29,14 @@ See [Cloudflare Edge Hardening](../CLOUDFLARE_EDGE_HARDENING.md) for WAF, tunnel
 
 ## Tool results and debugging
 
+OpenAI-compatible HTTPS clients should use normal Chat Completions tool fields:
+request `tools` / `tool_choice`, assistant `tool_calls`, and follow-up
+`role: "tool"` messages. Yarn normalizes common OpenAI-compatible client shapes
+from Cursor, VS Code extensions, Roo/OpenCode-style clients, Codex CLI-style
+payloads, Windsurf, and small homegrown harnesses into the same internal tool
+pipeline. Claude Code is the exception: it should use the Anthropic Messages
+route documented in [CLAUDECODE.md](CLAUDECODE.md).
+
 Workspace MCP tools such as `run_build`, `run_test`, and `run_lint` return **structured fields** (`summary`, `errorLines`, `errors`, `nextActions`, capped `stdout`/`stderr`) so models can target fixes without pasting full logs. For **complete** command output (e.g. long `go test` traces), rely on the **client transcript** or local terminal where the agent ran the command—server logs may not include every byte of stderr. Use request/correlation IDs from responses when correlating with Yarn logs.
 
 For Claude/OpenAI session stalls tied to tool-call resume history, use the Yarn upstream diagnostics playbook in [Claude Code with Synesis Coder](CLAUDECODE.md#upstream-error-playbook-vercel-ai-sdk).

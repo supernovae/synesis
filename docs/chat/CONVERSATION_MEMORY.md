@@ -15,18 +15,27 @@ Synesis keeps **per-conversation** state in the **planner** so the agent can res
 | **L1** | In-process `MemorySessionStore` | Recent turns, deterministic checkpoint, pending clarification snapshot | **No** — all L1 data is lost on rollout/restart |
 | **L2 (Redis)** | Optional `RedisSessionStore` | Same session payload as L1, stored with TTL and compare-and-swap updates | **Yes**, within TTL |
 
-**Not implemented yet:** The `_on_evict` hook on L1 turn eviction is still a **stub** (debug log only). A future design could summarize evicted turns and upsert session-scoped memory into NornicDB (`conversation_memory_v1` or similar) for long-horizon memory — see [Future work](#future-work-user-expectations-and-recommended-changes).
+**Not implemented today:** Conversation memory is active session state only. It
+does not write durable turn history or semantic long-horizon memory to NornicDB,
+Postgres, object storage, or pgvector. Older turns are represented only by the
+deterministic checkpoint block after compaction, then the raw recent tail is
+kept in the session store.
 
 ---
 
 ## Memory scope key (`memory_scope`)
 
-Current `planner-ts` session state uses a single key:
+Current `planner-ts` session state uses a scoped key:
 
-- **`conversation:{conversation_id}`** — if a conversation id is present.
+- **`conversation:principal:{org}:{user}:{conversation_id}`** — authenticated request with a conversation id.
+- **`conversation:anonymous:{request_id}:{conversation_id}`** — anonymous request with a conversation id.
 - **`ephemeral:{request_id}`** — if no conversation id is present.
 
-So **multi-chat clients must send a stable `conversation_id` per chat** for cross-turn continuity. Without it, planner memory and pending clarification state are intentionally per-request and do not bleed across chats.
+So **multi-chat clients must send a stable `conversation_id` per chat** for
+cross-turn continuity. Without it, planner memory and pending clarification
+state are intentionally per-request and do not bleed across chats. Authenticated
+scoping prevents two users with the same frontend chat id from sharing planner
+memory.
 
 **User id resolution order** (first match wins, for auth/attribution rather than session keying):
 
@@ -48,7 +57,7 @@ So **multi-chat clients must send a stable `conversation_id` per chat** for cros
 
 1. **Recent turn history** — user/assistant turns recorded after each response, capped by `SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY`.
 2. **Structured checkpoint** — deterministic `<SESSION_STATE>` with conversation arc, active domains, topic threads, and user facts/preferences after compaction.
-3. **Pending clarification** — original task, clarification prompt/options, assumptions, and timestamps so a short follow-up can be merged back into the original request.
+3. **Pending clarification** — original task, clarification prompt/options, and assumptions so a short follow-up can be merged back into the original request.
 
 **Eviction / caps:**
 
@@ -78,6 +87,7 @@ Redis stores the same `SessionData` payload as the in-memory backend under `SYNE
 | `SYNESIS_PLANNER_TS_SESSION_CHECKPOINT_INCLUDE_RECENT` | `false` | Include verbatim recent exchanges in checkpoints; off by default for OpenWebUI-style clients |
 | `SYNESIS_PLANNER_TS_CONTEXT_SELECTION_ENABLED` | `true` | Trim input transcript so the latest user turn remains primary |
 | `SYNESIS_PLANNER_TS_CONTEXT_RECENT_TURNS` | `2` | Recent user/assistant turns retained for normal continuity |
+| `SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT` | `24` | Hard cap used by the context optimizer after session checkpoint injection |
 | `SYNESIS_PLANNER_TS_REDIS_URL` | `""` | Redis session backend; empty means in-memory only |
 
 ---
@@ -113,7 +123,7 @@ Users often expect **saved conversations** to:
 1. **Survive restarts** — Set `SYNESIS_PLANNER_TS_REDIS_URL` for TTL-bound session continuity; longer saved-chat history still needs product-level durable turn storage.
 2. **Stay isolated per chat** — Handled when `conversation_id` is wired end-to-end from the UI/proxy.
 3. **Resume exactly where they left off** — Redis helps for active session checkpoints and pending clarification; general “scroll back through last week” needs **durable turn storage**.
-4. **Not lose “old” context when the window slides** — Today, turns beyond max history or TTL are dropped after deterministic checkpointing, with no semantic retrieval.
+4. **Not lose “old” context when the window slides** — Today, turns beyond max history or TTL are dropped after deterministic checkpointing, with no semantic retrieval or durable transcript reload.
 
 **Recommended directions (engineering):**
 

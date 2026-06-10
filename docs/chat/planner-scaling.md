@@ -1,105 +1,177 @@
-# Planner TS Scaling and Production Status
+# Planner Scaling And Runtime Controls
 
-## Purpose
+This is the operator reference for scaling `planner-ts`, the Synesis chat
+frontend in `base/planner-ts/`.
 
-This document tracks the **current** scaling/reliability state of `planner-ts` and the objective TODOs for production hardening.
+Use Kubernetes resources, replicas, HPA, and upstream model capacity as the
+primary scaling controls. Use planner runtime knobs for request admission,
+timeouts, retries, and graceful failure behavior. Do not treat app knobs as a
+replacement for CPU/memory limits, pod count, Redis session storage, or provider
+throughput.
 
-This is the only planner in scope. No Python planner migration/deprecation plan is tracked here.
+## What Scales Where
 
-Target operating envelope remains **25-50+ concurrent users** with stable latency/error behavior.
+| Layer | Controls | What It Solves |
+|-------|----------|----------------|
+| Kubernetes capacity | `workloads.plannerTs.replicas`, CPU/memory requests and limits, optional HPA | More pods and enough memory/CPU for concurrent requests. |
+| Session continuity | `SYNESIS_PLANNER_TS_REDIS_URL`, Redis TTL/CAS settings | Multi-replica sessions, clarification state, and conversation checkpoints survive pod changes. |
+| Request throttling | Fastify global rate limit, per-user rate limit, edge/WAF rate limits | Abuse control and burst shaping before model calls start. |
+| Stream admission | `SYNESIS_PLANNER_TS_STREAM_*` | Per-pod live SSE stream limits and bounded queueing. |
+| LLM resilience | LLM timeout, retry, circuit breaker | Slow or failing upstream model routes fail predictably instead of tying up pods indefinitely. |
+| Graph safety | Node timeouts | Individual planner graph nodes return controlled errors instead of hanging the request. |
 
-## Current State (Implemented)
+## Helm Deployment Controls
 
-### Runtime resilience
+Planner chart settings live under `workloads.plannerTs` in
+[`charts/synesis/values.yaml`](../../charts/synesis/values.yaml).
 
-- LLM retry + circuit breaker is implemented in `base/planner-ts/src/llm/client.ts` and `base/planner-ts/src/llm/circuit-breaker.ts`.
-- Per-node timeout enforcement is implemented in `base/planner-ts/src/graph.ts`.
-- Dedicated writer-node timeout support is implemented (writer-specific timeout config in planner config/graph flow).
-- User rate limiting is implemented and enforced in `base/planner-ts/src/middleware/user-rate-limit.ts` and `base/planner-ts/src/app.ts`.
-- Stream admission control is implemented and enforced in `base/planner-ts/src/middleware/stream-admission.ts` and `base/planner-ts/src/app.ts`.
+Important deployment-level controls:
 
-### Health, readiness, and diagnostics
+| Helm Path | Default | Notes |
+|-----------|---------|-------|
+| `workloads.plannerTs.replicas` | `2` | Safe for more than one pod when Redis is configured. |
+| `workloads.plannerTs.resources.requests.cpu` | `500m` | Scheduler reservation. Increase if pods are CPU-throttled during classification/writer work. |
+| `workloads.plannerTs.resources.requests.memory` | `1Gi` | Scheduler reservation. Increase for large streamed responses or heavy retrieval context. |
+| `workloads.plannerTs.resources.limits.cpu` | `2` | CPU cap. Too low can increase p95 latency. |
+| `workloads.plannerTs.resources.limits.memory` | `4Gi` | Memory cap. Keep above observed high-water mark plus safety margin. |
+| `workloads.plannerTs.autoscaling.enabled` | `false` | Enable only after metrics-server is present and load behavior has been tested. |
+| `workloads.plannerTs.autoscaling.minReplicas` | `2` | Lower bound when HPA is enabled. |
+| `workloads.plannerTs.autoscaling.maxReplicas` | `4` | Upper bound when HPA is enabled. |
+| `workloads.plannerTs.podDisruptionBudget.enabled` | `false` | Enable for production maintenance safety. |
 
-- Liveness endpoint: `/health`.
-- Dependency readiness endpoint: `/health/readiness`.
-- Additional operational diagnostics are exposed via dependency and failure health surfaces in planner-ts.
-- Deployment probes are aligned to the readiness/liveness split.
+Recommended production posture:
 
-### Multi-pod/session safety
+- Keep `replicas >= 2`.
+- Keep Redis configured for planner sessions.
+- Enable the PDB once the cluster has enough nodes to honor it.
+- Enable HPA only after load testing confirms CPU tracks saturation well enough for your workload.
+- Scale upstream model serving capacity with planner replicas; extra planner pods do not help if every pod bottlenecks on the same model endpoint.
 
-- Redis session-store conflict-safe mutation path exists (WATCH/MULTI retry loop).
-- Redis key enumeration path uses `SCAN` instead of `KEYS`.
-- In-memory fallback has explicit session-cap/eviction behavior.
+## Runtime Knobs
 
-### Kubernetes scaling posture
+These variables are exposed in the Helm `workloads.plannerTs.env` list and can
+be overridden in a values file.
 
-- Planner HPA/PDB manifests are present and wired in planner kustomization.
-- Network policy has fail-closed baseline hardening (no broad fail-open egress defaults).
+### LLM Call Resilience
 
-### Observability baseline
+| Variable | Default | Meaning | Tuning Guidance |
+|----------|---------|---------|-----------------|
+| `SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS` | `300000` | Hard timeout for upstream LLM calls. | Keep longer than expected writer generations, but shorter than ingress/load-balancer idle timeouts. |
+| `SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS` | `3` | Maximum attempts for retryable model failures. | Lower if providers bill failed attempts or if failures are usually deterministic. |
+| `SYNESIS_PLANNER_TS_LLM_RETRY_BASE_DELAY_MS` | `1000` | Base delay before retry. | Increase for providers that need more recovery time after 429/5xx. |
+| `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Failures before opening a breaker for a route. | Lower to fail fast on fragile providers; raise only if transient failure rates are normal. |
+| `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_MS` | `60000` | Time before trying half-open probes. | Match provider recovery characteristics. |
+| `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_HALF_OPEN_MAX` | `1` | Concurrent probe calls while half-open. | Keep small to avoid stampeding a recovering provider. |
 
-- Planner OTEL bootstrap + request span baseline is in place (OpenTelemetry JS SDK **2.x**, OTLP/HTTP; see [`docs/development/TESTING.md`](../development/TESTING.md) for current CI/runtime validation).
-- Telemetry trace lineage fields (`conversation_id`, `parent_trace_id`, `root_trace_id`) are emitted and ingested by admin.
+The circuit breaker is in-memory per pod. It protects each pod from repeatedly
+calling a failing upstream, but it is not a cluster-wide breaker.
 
-### Conversation continuity and follow-up handling
+### Graph Node Timeouts
 
-- Conversation ID fallback capture is implemented on planner ingress for OpenWebUI-style calls (body/metadata/header fallback sources).
-- Clarification follow-up merge is implemented (original task + clarification answer merged for replanning).
-- Short quiz-option follow-up handling is implemented (`a)`, `b)`, etc.) by merging prior assistant quiz context before planning.
+| Variable | Default | Meaning | Tuning Guidance |
+|----------|---------|---------|-----------------|
+| `SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS` | `60000` | Timeout for planner graph nodes such as entry, planner, router, critic, and final scrubber. | Raise only when real router/model calls need it; otherwise short timeouts keep failures contained. |
+| `SYNESIS_PLANNER_TS_WRITER_NODE_TIMEOUT_MS` | `180000` | Writer-specific timeout for long answer generation. | Keep below outer LLM timeout and ingress idle timeout. |
 
-## Objective TODO (post-v1.0)
+When a node times out, the graph records an error and routes to `respond`
+instead of leaving the request hanging.
 
-These items are not blocking for the v1.0 security tag. They are tracked here for future load-testing and observability hardening.
+### Rate Limits
 
-1. Run and publish repeatable load gates at 25/35/50 concurrency (stream + non-stream), with pass/fail thresholds on p95 latency and error rate.
-2. Finalize OTEL propagation consistency across planner, yarn, mcp, and admin (`traceparent`/request correlation end-to-end validation, not just baseline spans).
-3. Add/expand regression tests for short-answer conversational follow-ups (quiz-style, clarification-style, and other context-dependent one-token replies).
-4. Validate and tune default admission/rate/timeouts per environment from measured production-like load, then lock environment-specific baselines.
-5. Add dashboard/alert definitions for stream queue pressure, breaker-open rate, admission rejects, and dependency-health degradation.
+| Variable | Default | Meaning | Scope |
+|----------|---------|---------|-------|
+| `SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_MAX` | `1200` | Fastify global request limit. | Per pod |
+| `SYNESIS_PLANNER_TS_GLOBAL_RATE_LIMIT_WINDOW` | `1 minute` | Global limiter window. | Per pod |
+| `SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS` | `30` | User-scoped sliding-window request limit. | Per pod |
+| `SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS` | `60000` | User limiter window. | Per pod |
 
-## Explicit Non-Goals (Current)
+These are origin-side controls. For hard public-internet quotas, also configure
+edge or gateway rate limits because pod-local counters multiply with replica
+count.
 
-- No prompt-level or retrieval-response caching rollout in planner-ts in this effort.
-- No Redis/Postgres infrastructure provisioning/HA topology design in this document.
+### Stream Admission
 
-## Load Verification Harness
+| Variable | Default | Meaning | Tuning Guidance |
+|----------|---------|---------|-----------------|
+| `SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT` | `50` | Max active streaming responses per pod. | Set from memory, provider concurrency, and p95 stream duration. Total capacity is roughly replicas times this value. |
+| `SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX` | `100` | Max queued streaming requests per pod once active slots are full. | Keep bounded; a large queue hides overload and increases user-visible latency. |
+| `SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS` | `30000` | Max time a streaming request waits for admission. | Keep below client/proxy timeout expectations. |
+
+When the queue is full or times out, planner returns a rate/capacity error with
+`Retry-After` instead of accepting unbounded work.
+
+## Redis And Multi-Replica Safety
+
+Redis is required for reliable multi-pod sessions. Planner stores conversation
+history, checkpoints, pending clarification, and session metadata in Redis with
+CAS (`WATCH`/`MULTI`) retry behavior.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `SYNESIS_PLANNER_TS_REDIS_URL` | from Helm secret | Redis URL. Required for meaningful `replicas > 1`. |
+| `SYNESIS_PLANNER_TS_REDIS_KEY_PREFIX` | `synesis:planner:session:` | Key prefix for planner sessions. |
+| `SYNESIS_PLANNER_TS_REDIS_SESSION_TTL_S` | `14400` | Redis session TTL, 4 hours. |
+| `SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS` | `5000` | In-memory fallback cap when Redis is not configured. |
+| `SYNESIS_PLANNER_TS_REDIS_CAS_MAX_RETRIES` | `5` | Conflict retry count for concurrent session updates. |
+
+Without Redis, keep planner to one replica or accept that conversation memory
+and clarification continuity are pod-local.
+
+## Health And Observability
+
+| Endpoint | Auth | Use |
+|----------|------|-----|
+| `/health` | none | Liveness. |
+| `/health/readiness` | none | Readiness; checks dependencies such as Redis. |
+| `/metrics` | none by default deployment | Prometheus scrape target. |
+| `/health/detailed` | internal service token | Operational diagnostics: Redis, LLM resilience, prompt library, capability matrix, rate/admission stats, dependency health. |
+
+Watch these signals during load tests:
+
+- p95/p99 latency for stream and non-stream requests.
+- 429/admission rejections and `Retry-After` frequency.
+- Stream queue depth and queue timeouts.
+- LLM circuit breaker open/half-open counts.
+- Redis readiness failures or CAS retries.
+- Provider-side rate limits and model-server saturation.
+- Pod CPU throttling, memory high-water marks, restarts, and OOM kills.
+
+## Load Verification
+
+Run against a local port-forward or a non-production deployment:
 
 ```bash
 cd base/planner-ts
 
-# 25 concurrent users (non-stream)
 PLANNER_URL=http://localhost:8080 \
 PLANNER_MODEL="Synesis Auto" \
 PLANNER_BEARER_TOKEN="<token>" \
 npm run load:verify -- --concurrency 25 --requests 250 --stream false
 
-# 50 concurrent users (streaming)
 PLANNER_URL=http://localhost:8080 \
 PLANNER_MODEL="Synesis Auto" \
 PLANNER_BEARER_TOKEN="<token>" \
 npm run load:verify -- --concurrency 50 --requests 500 --stream true
 ```
 
-Treat non-zero error rate or unstable p95/p99 under sustained load as release blockers.
+Treat sustained non-zero error rate, repeated admission timeouts, OOM kills, or
+unstable p95/p99 latency as a tuning signal. Increase Kubernetes capacity first
+when pods are saturated. Lower app admission limits when pods stay healthy but
+providers or clients time out. Tune retries and circuit breakers when upstream
+model failures dominate.
 
-## Production Knob Baseline
+## What Not To Tune First
 
-- `SYNESIS_PLANNER_TS_LLM_RETRY_MAX_ATTEMPTS=3`
-- `SYNESIS_PLANNER_TS_LLM_RETRY_BASE_DELAY_MS=1000`
-- `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5`
-- `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_MS=60000`
-- `SYNESIS_PLANNER_TS_LLM_CIRCUIT_BREAKER_HALF_OPEN_MAX=1`
-- `SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS=60000`
-- `SYNESIS_PLANNER_TS_RATE_LIMIT_WINDOW_MS=60000`
-- `SYNESIS_PLANNER_TS_RATE_LIMIT_MAX_REQUESTS=30`
-- `SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT=50`
-- `SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX=100`
-- `SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS=30000`
+- Do not raise stream queues to mask insufficient pods or provider capacity.
+- Do not raise node/LLM timeouts above ingress or client idle timeouts.
+- Do not rely on pod-local rate limits as your only internet-facing abuse
+  control.
+- Do not run multiple planner replicas without Redis unless conversation memory
+  loss is acceptable.
 
-Tune from measured telemetry, not ad hoc edits.
+## Related Docs
 
-## Reference
-
-- **Scaling architecture (both services):** [`docs/SCALING.md`](../SCALING.md) — pod lifecycle, session state persistence, HPA/PDB, Redis key layout
-- Observability source of truth: `docs/OBSERVABILITY.md`
-- Historical research notes: [PLANNER_TS_SCALABILITY_RESEARCH.md](../development/PLANNER_TS_SCALABILITY_RESEARCH.md)
+- [SCALING.md](../SCALING.md) — cross-service session and Kubernetes lifecycle model.
+- [PLANNER_MEMORY_LIFECYCLE.md](PLANNER_MEMORY_LIFECYCLE.md) — planner Redis session lifecycle and cache policy.
+- [PLANNER_OPENAI_COMPATIBILITY.md](PLANNER_OPENAI_COMPATIBILITY.md) — planner API behavior and streaming semantics.
+- [OBSERVABILITY.md](../OBSERVABILITY.md) — metrics and tracing.

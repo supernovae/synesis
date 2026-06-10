@@ -1,112 +1,234 @@
-# Session execution context (Synesis ↔ coder clients)
+# Session Execution Context
 
-Frozen contract for **machine-readable** workspace and runtime hints on coder API requests. Yarn-ts merges this into a `<SESSION_EXECUTION_CONTEXT>` system fragment so models anchor paths; optional enforcement can constrain file-tool paths when `project_root` is known.
+Session execution context is the client-to-Yarn contract for describing where a coding session is running: the workspace root, the current shell directory, runtime hints, and optional git state.
 
-## Transport
+This exists because OpenAI Chat Completions and Anthropic Messages are model APIs, not IDE protocols. They do not define standard fields for "the user's project root", "the current terminal directory", "the active git branch", or "the shell this client is using". Those details usually live in the local client, editor, terminal, or agent harness. Yarn needs a small explicit metadata layer so server-side prompt guidance, path guards, tool behavior, telemetry, and session continuity can agree on the same workspace facts.
 
-Clients may send **HTTP headers**, **`metadata` on Anthropic `/v1/messages`**, and/or **OpenAI body `metadata`** (passthrough). Precedence for each field is **metadata first**, then header.
+## Why It Matters
 
-### `project_root` (immutable session anchor)
+Without a reliable execution context, coding models tend to make expensive path mistakes:
 
-| Source | Key |
-|--------|-----|
-| Header | `x-synesis-project-root` |
-| Header (alias) | `x-synesis-workspace-root` — same meaning; kept for backward compatibility |
-| Metadata | `synesis_project_root` (string) |
-| Metadata (nested) | `synesis.projectRoot` or `synesis.project_root` (string) |
+- They prepend the workspace folder name to file-tool paths even when tools already resolve from that folder.
+- They create nested duplicate directories such as `repo/repo/...`.
+- They infer package or module names from host paths instead of project metadata.
+- They read guessed files in empty workspaces before confirming what exists.
+- They run build/test commands from the wrong shell directory.
 
-Resolution order: `synesis_project_root` / nested `synesis.*` → `x-synesis-project-root` → `x-synesis-workspace-root`.
+Yarn uses this context to add a `<SESSION_EXECUTION_CONTEXT>` system block, enforce file-tool path boundaries when configured, recover session path hints across turns, and give guarded git workflows accurate repo state.
 
-### `shell_cwd` (mutable execution directory)
+## Source Priority
 
-| Source | Key |
-|--------|-----|
-| Header | `x-synesis-shell-cwd` |
-| Metadata | `synesis_shell_cwd` (string) |
-| Metadata (nested) | `synesis.shellCwd`, `synesis.shell_cwd`, or `synesis.cwd` (string) |
+Yarn can learn workspace context from several places. Explicit client metadata is the preferred source.
 
-### Optional runtime (model tone / debugging)
+| Source | Reliability | How Yarn Uses It |
+|--------|-------------|------------------|
+| Request `metadata` | Best | Flat `synesis_*` fields are parsed directly from OpenAI-compatible or Anthropic-compatible request metadata. |
+| HTTP headers | Best | Used when metadata is absent. Useful for reverse proxies and clients that cannot alter request bodies. |
+| ACP bridge metadata | Best | The Synesis ACP bridge converts ACP session `cwd`, `additionalDirectories`, and safe `_meta` hints into the flat Yarn metadata keys. |
+| Client system-message extraction | Fallback | Yarn can parse common environment blocks such as `Workspace Path:`, `Working directory:`, `OS Version:`, and `Shell:` from prior client messages. |
+| Persisted session metadata | Fallback | Once a workspace context is known, Yarn can rehydrate it from session metadata on later turns. |
+| Prior tool evidence | Last resort | Yarn can infer a root from a successful `pwd`, an absolute `cd`, or a duplicated absolute path shown in a file error. |
+| `<PATH_HYGIENE>` fallback | Guardrail only | If no facts are known for a coder client, Yarn adds generic path hygiene guidance. This block does not contain real workspace facts. |
 
-| Source | Key |
-|--------|-----|
-| Metadata object | `synesis_runtime` with optional string fields: `platform`, `os_version`, `shell` |
-| Metadata object (nested) | `synesis.runtime` with optional string fields: `platform`, `os_version`, `shell` |
+Synthetic workspace handshakes are currently disabled by default in Yarn. Clients should not rely on Yarn automatically asking the model to run `pwd` or `git rev-parse`; send metadata or headers whenever the client knows the workspace.
 
-### Optional short strings (truncate client-side; yarn-ts caps length)
+## Core Concepts
 
-| Metadata key | Max length (server) | Purpose |
-|----------------|---------------------|---------|
-| `synesis_git_summary` | 500 | Short git status / branch summary |
-| `synesis_client_model_label` | 256 | Display-only client model name |
-| `synesis_knowledge_cutoff` | 128 | Knowledge cutoff label if known |
+`project_root` is the stable workspace or repository boundary for the session. It should be an absolute path and should not change during a session unless the user actually moves to a different project.
 
-### Optional structured git facts (preferred over summary parsing)
+`shell_cwd` is the current execution directory for shell commands and client-native file tools. It may be the same as `project_root` or a subdirectory inside it. Yarn drops `shell_cwd` if it is outside `project_root`.
 
-| Source | Key | Type |
-|--------|-----|------|
-| Header | `x-synesis-git-is-repo` | boolean-ish (`true/false/1/0/yes/no`) |
-| Header | `x-synesis-git-branch` | string |
-| Header | `x-synesis-git-dirty` | boolean-ish |
-| Header | `x-synesis-git-has-untracked` | boolean-ish |
-| Header | `x-synesis-git-ahead` | integer |
-| Header | `x-synesis-git-behind` | integer |
-| Metadata | `synesis_git_is_repo` | boolean or boolean-like string |
-| Metadata | `synesis_git_branch` | string |
-| Metadata | `synesis_git_dirty` | boolean or boolean-like string |
-| Metadata | `synesis_git_has_untracked` | boolean or boolean-like string |
-| Metadata | `synesis_git_ahead` | integer or numeric string |
-| Metadata | `synesis_git_behind` | integer or numeric string |
+`synesis_runtime` is optional prompt/debug context about the client runtime. It is not a security boundary.
 
-When structured facts are missing, yarn-ts can infer best-effort branch/ahead/behind/dirty hints from `synesis_git_summary` (for example `git status -sb` style output).
+Git facts are optional. Structured git fields are preferred, but Yarn can infer branch, dirty, untracked, ahead, and behind hints from a short `git status -sb` style summary.
 
-## Yarn-ts behavior
+## Transport Contract
 
-- When any field resolves non-empty, yarn-ts appends `<SESSION_EXECUTION_CONTEXT>…</SESSION_EXECUTION_CONTEXT>` after `<CLIENT_ADAPTER>` (replacing the legacy standalone `<WORKSPACE_ROOT>` block).
-- Path policy lines (no nested duplicate folder names, file tools relative to `project_root`, shell `cd` semantics) are included when `project_root` is set. When only `shell_cwd` is set (no `project_root`), yarn-ts still adds a short duplicate-segment warning.
-- Yarn also parses common coder system-message environment blocks, including OpenCode-style `Working directory:` and `Workspace root folder:` lines, before workspace boundary and tool sandbox decisions.
-- For coder clients with **no** resolved path anchors and an available Bash tool, Yarn performs a one-shot synthetic workspace handshake: it asks the client to run a read-only `pwd` / `git rev-parse --show-toplevel` probe, stores the result as session context, and then continues the request with `<SESSION_EXECUTION_CONTEXT>`.
-- If **no** session fields resolve and a handshake cannot run, yarn-ts appends a `<PATH_HYGIENE>` fallback for coder clients so models still see cwd/nesting/rm-safety nudges until a proxy or hook adds real roots.
-- Optional env `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME=true` (default): `project_root` / `shell_cwd` are also echoed inside `<WORKING_FRAME>` when provided.
-- Optional env `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE=true` (default **true**): Read/Write/Edit/Update `file_path` values are constrained to resolve under `project_root` (or `shell_cwd` when `project_root` is absent) across coder routes (string prefix check after `path.resolve`).
-- Optional env `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED=true` (default **true**): blocks risky `mkdir && cd` duplicate-segment drift by rewriting the Bash call to a safe error command.
-- Optional env `SYNESIS_YARN_GIT_POLICY_MODE=off|advisory|enforced` (default **advisory**): adds explicit repo-mode guidance into `<SESSION_EXECUTION_CONTEXT>` and is consumed by guarded git MCP tools (`git_add_guarded`, `git_commit_guarded`) for stricter preflight behavior in `enforced`.
-- Clients should still provide `project_root` and `shell_cwd` anchors directly via headers or metadata on every request when possible; the synthetic handshake is a fallback for coder clients that omit them.
+Send flat metadata keys when possible. Metadata wins over headers for `project_root` and `shell_cwd`.
 
-## Client implementation notes
+### Workspace Paths
 
-- **ACP bridge (`synesis-yarn-acp`):** uses **`POST /v1/chat/completions`** with OpenAI body **`metadata`** (no extra headers required). It sets **`synesis_shell_cwd`** from the ACP session **`cwd`**, **`synesis_project_root`** from the first **`additionalDirectories`** entry or **`cwd`**, **`synesis_client_model_label`** from **`initialize.clientInfo`**, and merges supported **`_meta`** hints (`platform`, `os`, `os_version`, `shell`, nested `synesis_runtime`, optional `synesis_git_summary`) into the same keys as table-driven clients. Request header **`x-synesis-client`: `synesis-acp`** identifies the bridge in logs and adapter resolution.
-- **Claude Code:** the stock CLI does not add these fields. Typical pattern: a **small reverse proxy** in front of `ANTHROPIC_BASE_URL` that copies the upstream request and adds `x-synesis-project-root` / `x-synesis-shell-cwd` from the machine environment (or from a sidecar file updated by a [SessionStart hook](https://code.claude.com/docs/en/hooks)). A maintained **hook + proxy** bundle lives at repo root **[`clients/claude-code/`](../../clients/claude-code/)** (see [CLAUDECODE.md](CLAUDECODE.md)). See [CLAUDECODE.md](CLAUDECODE.md) for Bash containment (`PreToolUse`).
-- **Other IDEs:** the same header/metadata names apply; many stacks use a small reverse proxy in front of the OpenAI or Anthropic base URL.
+| Field | Metadata Key | Header Key | Notes |
+|-------|--------------|------------|-------|
+| Project root | `synesis_project_root` | `x-synesis-project-root` | Absolute non-root path. |
+| Project root alias | n/a | `x-synesis-workspace-root` | Legacy header alias. Used only when `x-synesis-project-root` is absent. |
+| Shell cwd | `synesis_shell_cwd` | `x-synesis-shell-cwd` | Absolute path. Ignored when outside `project_root`. |
 
-### Example proxy sketch (Node.js)
+Use the flat keys above for direct Yarn requests. Older nested forms such as `synesis.projectRoot` are not part of the current direct request contract. Some bridge-specific `_meta` inputs, such as ACP `_meta`, may be normalized before Yarn sends the request to itself, but clients and proxies should emit the flat keys.
 
-Illustrative only — adapt TLS, auth forwarding, and error handling for production.
+### Runtime Hints
 
-```js
-// Forward POST /v1/messages to REAL_ANTHROPIC_BASE, adding path headers from env.
-import http from "node:http";
-import { request as httpRequest } from "node:http";
-const UPSTREAM = process.env.REAL_ANTHROPIC_BASE || "http://127.0.0.1:8080";
-const ROOT = process.env.SYNESIS_PROJECT_ROOT || "";
-const CWD = process.env.SYNESIS_SHELL_CWD || "";
-const server = http.createServer((req, res) => {
-  if (req.method !== "POST" || !req.url?.startsWith("/v1/")) {
-    res.writeHead(404); res.end(); return;
-  }
-  const chunks = [];
-  req.on("data", (c) => chunks.push(c));
-  req.on("end", () => {
-    const body = Buffer.concat(chunks);
-    const u = new URL(req.url, "http://localhost");
-    const opt = { hostname: new URL(UPSTREAM).hostname, port: new URL(UPSTREAM).port || 80, path: u.pathname + u.search, method: "POST", headers: { ...req.headers, host: new URL(UPSTREAM).host } };
-    if (ROOT) opt.headers["x-synesis-project-root"] = ROOT;
-    if (CWD) opt.headers["x-synesis-shell-cwd"] = CWD;
-    const p = httpRequest(opt, (up) => { res.writeHead(up.statusCode || 502, up.headers); up.pipe(res); });
-    p.on("error", () => { res.writeHead(502); res.end(); });
-    p.end(body);
-  });
-});
-server.listen(3009, () => console.log("proxy on :3009"));
+Runtime hints are metadata-only.
+
+| Metadata Key | Type | Purpose |
+|--------------|------|---------|
+| `synesis_runtime.platform` | string | Short platform label, for example `darwin`, `linux`, or `win32`. |
+| `synesis_runtime.os_version` | string | Human-readable OS version when the client knows it. |
+| `synesis_runtime.shell` | string | Shell path or shell name, for example `/bin/zsh`. |
+
+### Git Hints
+
+Structured git facts can be sent as metadata or headers.
+
+| Fact | Metadata Key | Header Key |
+|------|--------------|------------|
+| Is git repo | `synesis_git_is_repo` | `x-synesis-git-is-repo` |
+| Branch | `synesis_git_branch` | `x-synesis-git-branch` |
+| Dirty worktree | `synesis_git_dirty` | `x-synesis-git-dirty` |
+| Has untracked files | `synesis_git_has_untracked` | `x-synesis-git-has-untracked` |
+| Ahead count | `synesis_git_ahead` | `x-synesis-git-ahead` |
+| Behind count | `synesis_git_behind` | `x-synesis-git-behind` |
+
+Boolean headers accept common boolean-like values such as `true`, `false`, `1`, `0`, `yes`, and `no`. Ahead/behind values are parsed as non-negative integers.
+
+When structured facts are unavailable, clients may send:
+
+| Metadata Key | Server Cap | Purpose |
+|--------------|------------|---------|
+| `synesis_git_summary` | 500 chars | Short git status summary, usually `git status -sb`. |
+| `synesis_client_model_label` | 256 chars | Display/debug label for the client model. |
+| `synesis_knowledge_cutoff` | 128 chars | Client-known knowledge cutoff label. |
+
+## Normalization And Safety
+
+Yarn normalizes path hints before using them:
+
+- Paths must be strings, absolute, non-empty, non-root, free of control characters, and no longer than the server limit.
+- POSIX paths are resolved with POSIX semantics; Windows absolute paths are normalized with Windows semantics.
+- `shell_cwd` is retained only when it is inside `project_root` or when no `project_root` is known.
+- Prompt-visible scalar fields are sanitized so they cannot inject XML-like system block boundaries.
+- Git summaries are truncated and sanitized before prompt insertion.
+
+These fields improve model behavior and server-side guardrails, but they are not authorization by themselves. Access control still depends on the authenticated user, route authorization, MCP/tool validation, file-tool governance, and the deployment sandbox.
+
+## What Yarn Does With It
+
+When any session execution field resolves, Yarn appends:
+
+```text
+<SESSION_EXECUTION_CONTEXT>
+project_root: /repo/project
+shell_cwd: /repo/project/packages/api
+...
+</SESSION_EXECUTION_CONTEXT>
 ```
 
-Run with `SYNESIS_PROJECT_ROOT=$(git rev-parse --show-toplevel)` and `SYNESIS_SHELL_CWD=$PWD` before starting Claude Code, and `export ANTHROPIC_BASE_URL=http://127.0.0.1:3009`.
+When path facts are present, Yarn also includes a `<FILE_PATH_RESOLUTION>` section that tells models how client-native file tools resolve paths. The practical rule is:
+
+- Use paths relative to `shell_cwd` when `shell_cwd` is set.
+- Otherwise use paths relative to `project_root`.
+- Do not prepend `project_root` or `shell_cwd` to a relative file path.
+- Do not guess sibling checkout names or parent directories.
+
+Yarn also uses session execution context for:
+
+- Rehydrating workspace hints from persisted session metadata.
+- Blocking or rewriting risky file and shell tool calls when path governance is enabled.
+- Resolving project-bound MCP tool arguments.
+- Adding git policy guidance when `SYNESIS_YARN_GIT_POLICY_MODE` is `advisory` or `enforced`.
+- Optionally echoing path hints inside `<WORKING_FRAME>` for model continuity.
+
+If no path facts are known and the client is recognized as a coder harness such as Claude Code, OpenCode, or Synesis ACP, Yarn adds `<PATH_HYGIENE>` instead. That fallback contains generic advice only; it does not prove where the user's files are.
+
+## Client Integration Patterns
+
+### ACP Bridge
+
+The Synesis ACP bridge sends `POST /v1/chat/completions` with OpenAI-style body `metadata`.
+
+It sets:
+
+- `synesis_shell_cwd` from ACP `newSession.cwd`.
+- `synesis_project_root` from `SYNESIS_PROJECT_ROOT`, trusted ACP `_meta`, the closest containing `additionalDirectories` entry, or `cwd`.
+- `synesis_client_model_label` from ACP client information.
+- Safe runtime and git hints from ACP `_meta`.
+
+The bridge also uses the same metadata for ACP filesystem RPC path resolution.
+
+### Claude Code
+
+Claude Code hooks cannot add HTTP headers or request `metadata` to outbound `/v1/messages` calls. The maintained integration in [`clients/claude-code/`](../../clients/claude-code/) therefore uses two pieces:
+
+- `synesis-context-hook.sh` writes `.claude/synesis-context.json` on `SessionStart` and `CwdChanged`.
+- `synesis-anthropic-proxy.mjs` listens locally, reads that sidecar file, and merges the flat `synesis_*` keys into each request body.
+
+The hook can add `additionalContext` to the transcript, but transcript text is not a substitute for request metadata. Metadata is what Yarn can parse before building adapter blocks, route enrichment, and path-governance decisions.
+
+### Other Clients And Proxies
+
+For OpenAI-compatible clients, add the flat fields to request body `metadata` at the adapter or reverse-proxy layer. For Anthropic-compatible clients, add request `metadata` when the SDK and endpoint preserve it; otherwise inject the fields in a local proxy before the request reaches Yarn.
+
+Some upstream SDKs and gateways drop unknown provider fields. Verify that the request reaching Yarn still contains the metadata or headers.
+
+## Examples
+
+### OpenAI-Compatible Body
+
+```json
+{
+  "model": "synesis-coder",
+  "messages": [
+    { "role": "user", "content": "Run the tests for the API package." }
+  ],
+  "metadata": {
+    "synesis_project_root": "/Users/alex/src/shop",
+    "synesis_shell_cwd": "/Users/alex/src/shop/packages/api",
+    "synesis_runtime": {
+      "platform": "darwin",
+      "os_version": "macOS 15.5",
+      "shell": "/bin/zsh"
+    },
+    "synesis_git_summary": "## main...origin/main [ahead 1]\n M packages/api/src/server.ts"
+  }
+}
+```
+
+### Anthropic-Compatible Body
+
+```json
+{
+  "model": "synesis-coder",
+  "max_tokens": 4096,
+  "messages": [
+    { "role": "user", "content": "Fix the failing route test." }
+  ],
+  "metadata": {
+    "synesis_project_root": "/home/alex/work/synesis",
+    "synesis_shell_cwd": "/home/alex/work/synesis/base/yarn-ts",
+    "synesis_git_is_repo": true,
+    "synesis_git_branch": "main",
+    "synesis_git_dirty": true
+  }
+}
+```
+
+### Headers
+
+```http
+x-synesis-project-root: /home/alex/work/synesis
+x-synesis-shell-cwd: /home/alex/work/synesis/base/yarn-ts
+x-synesis-git-is-repo: true
+x-synesis-git-branch: main
+x-synesis-git-dirty: true
+```
+
+## Relevant Configuration
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` | `true` | Echoes `project_root` and `shell_cwd` inside `<WORKING_FRAME>` when present. |
+| `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` | `true` | Constrains file-tool paths to the known project root or shell cwd. |
+| `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED` | `true` | Blocks duplicate-segment shell path drift patterns. |
+| `SYNESIS_YARN_GIT_POLICY_MODE` | `advisory` | Adds git workflow guidance and can tighten guarded git tool behavior when set to `enforced`. |
+
+## Troubleshooting
+
+If Yarn ignores `shell_cwd`, confirm it is absolute and inside `synesis_project_root`.
+
+If a client sends nested metadata and no context appears, switch to the flat `synesis_project_root` and `synesis_shell_cwd` keys.
+
+If the model still duplicates workspace paths, inspect the actual request that reaches Yarn. The most common cause is a proxy or SDK dropping `metadata`.
+
+If Yarn blocks an absolute file path with `missing_workspace_context_absolute_path`, send explicit metadata or headers. Prior tool evidence can help later turns, but it is not a reliable substitute for a client-supplied workspace root.
+
+If Claude Code shows only transcript-level additional context, make sure the local proxy is running and that `.claude/synesis-context.json` is being merged into the HTTP request body.

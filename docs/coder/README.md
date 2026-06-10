@@ -49,10 +49,9 @@ Research anchors are collected in
 - [`admin-control-plane-and-constitutions.md`](./admin-control-plane-and-constitutions.md)
 - [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
 - [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)
-- [`../development/HARNESS_TRUST_HARDENING.md`](../development/HARNESS_TRUST_HARDENING.md)
 - [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md)
 - [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md)
-- [`PI_HARNESS.md`](./PI_HARNESS.md) — Pi harness setup with OIDC against the coder frontend
+- [`../clients/PI.md`](../clients/PI.md) — Pi harness setup with OIDC against the coder frontend
 - [`qwen-stability-feedback-loop.md`](./qwen-stability-feedback-loop.md)
 - [`GIT_FIRST_POLICY_MODES.md`](./GIT_FIRST_POLICY_MODES.md)
 - [`../../base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md)
@@ -68,6 +67,7 @@ Research anchors are collected in
 - [YARN_SESSION_DEBUGGING.md](./YARN_SESSION_DEBUGGING.md) — troubleshooting
 - [YARN_COST_ANALYSIS.md](./YARN_COST_ANALYSIS.md) — cost notes
 - [YARN_PERFORMANCE_REVIEW_FINDINGS.md](./YARN_PERFORMANCE_REVIEW_FINDINGS.md) — performance review
+- [../../base/yarn-ts/README.md#markdown-response-style](../../base/yarn-ts/README.md#markdown-response-style) — markdown response style modes and operator override
 
 ## Consolidated Feature Areas
 
@@ -77,4 +77,4 @@ Completed milestone notes have been merged into maintained feature docs:
 - Working frame, project manifest, recall, and structural index: [`context-and-recall-architecture.md`](./context-and-recall-architecture.md)
 - Model routing and phase policy: [`model-routing-and-adaptive-complexity.md`](./model-routing-and-adaptive-complexity.md)
 - Governor, pause envelope, and safety: [`GOVERNOR_HARNESS.md`](./GOVERNOR_HARNESS.md), [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md), [`safety-reliability-and-fail-safe.md`](./safety-reliability-and-fail-safe.md)
-- Verification and evals: [`observability-verification-and-evals.md`](./observability-verification-and-evals.md)
+- Verification and evals: [`observability-verification-and-evals.md`](./observability-verification-and-evals.md), [`../development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability`](../development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability)

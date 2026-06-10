@@ -40,6 +40,11 @@ Claude Code speaks Anthropic Messages format and should target:
 `yarn-ts` also exposes OpenAI-compatible endpoints (`/v1/chat/completions`) for
 other coder clients, but Claude Code should stay on `/v1/messages`.
 
+Yarn accepts Claude Code's native Anthropic tool shape: assistant
+`tool_use` blocks followed by user `tool_result` blocks. The route normalizes
+that history into Yarn's canonical tool pipeline before tier routing and model
+adapter processing, so Claude Code does not need OpenAI-style `tool_calls`.
+
 ## Extended thinking / reasoning (streaming)
 
 When the upstream model emits separate reasoning (Vercel AI SDK **reasoning** stream parts), Yarn maps that to the Anthropic **Messages** SSE shape your client expects:

@@ -4,7 +4,7 @@ Single-source reference for all token budgets, context limits, and temperature
 settings across the Synesis pipeline. Use this when tuning throughput, diagnosing
 truncation, or auditing model behavior.
 
-Last updated: 2026-03-28
+Last updated: 2026-06-10
 
 ---
 
@@ -13,34 +13,24 @@ Last updated: 2026-03-28
 Budgets scale with **difficulty** (0.0–1.0, set by the entry classifier). The
 formula is always `base + difficulty × (max − base)` unless noted.
 
-### Writer (synthesis / final answer)
-
-| Setting | Value | File |
-|---|---|---|
-| `trivial_writer_budget` | 768 | `config.py` |
-| `writer_budget_base` | 2,048 | `config.py` |
-| `writer_budget_max` | 32,768 | `config.py` |
-
-- **Trivial** (difficulty < 0.15): 768 tokens via direct-stream fast-path
-- **Easy** (difficulty 0.0): 2,048 tokens
-- **Hard** (difficulty 1.0): 32,768 tokens
-
-Scaling: `scaled_writer_budget(d) = 2048 + d × (32768 − 2048)`
-
 ### planner-ts (`base/planner-ts`)
 
 Pure scaling lives in [`base/planner-ts/src/budgets.ts`](../base/planner-ts/src/budgets.ts); defaults are loaded via [`loadConfig`](../base/planner-ts/src/config.ts) (`SYNESIS_PLANNER_TS_*`). The entry classifier applies **tier ceilings** from [`model-tiers.ts`](../base/planner-ts/src/model-tiers.ts): `min(scaled_budget, tier.writerMaxTokens)` (and likewise for critic) so named tiers can cap output below the global curve.
 
 | Setting (env) | Default | Notes |
 |---|---|---|
-| `SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET` | 768 | Trivial fast-path writer |
+| `SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET` | 2,048 | Trivial fast-path writer |
 | `SYNESIS_PLANNER_TS_WRITER_BUDGET_BASE` | 2,048 | Scaled writer at difficulty 0 |
 | `SYNESIS_PLANNER_TS_WRITER_BUDGET_MAX` | 32,768 | Scaled writer at difficulty 1 (before tier clamp) |
 | `SYNESIS_PLANNER_TS_CRITIC_BUDGET_BASE` | 800 | Critic linear scale |
 | `SYNESIS_PLANNER_TS_CRITIC_BUDGET_MAX` | 4,000 | Critic scale endpoint before global clamp |
 | `SYNESIS_PLANNER_TS_CRITIC_MAX_TOKENS` | 4,096 | Hard ceiling on critic `max_tokens` |
-| `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 2,000 | LLM JSON plan output (base; adaptive scaling may raise) |
+| `SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS` | 4,096 | LLM JSON plan output (base; adaptive scaling may raise) |
 | `SYNESIS_PLANNER_TS_LLM_TIMEOUT_MS` | 300,000 | LLM HTTP timeout (ms) |
+
+Writer scaling: `scaled_writer_budget(d) = 2048 + d × (32768 − 2048)`,
+unless the task is classified as trivial, in which case
+`SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET` is used.
 
 ### Adaptive planner budget
 
@@ -49,11 +39,11 @@ JSON truncation on complex prompts while keeping simple tasks efficient.
 
 | Condition | Budget boost | Cumulative example |
 |---|---|---|
-| Base | 2,000 | 2,000 |
-| `difficulty >= 0.7` | +800 | 2,800 |
-| `cynefin_domain` ∈ {complex, chaotic} | +800 | 3,600 |
-| `difficulty >= 0.85` | +400 | 4,000 |
-| **Hard ceiling** | **4,096** | — |
+| Base | 4,096 | 4,096 |
+| `difficulty >= 0.7` | +800 | 4,896 |
+| `cynefin_domain` ∈ {complex, chaotic} | +800 | 5,696 |
+| `difficulty >= 0.85` | +400 | 6,096 |
+| **Hard ceiling** | **8,192** | — |
 
 Implemented in `computeAdaptivePlannerCap()` in
 [`llm-planner.ts`](../base/planner-ts/src/nodes/llm-planner.ts). The effective
@@ -61,8 +51,9 @@ cap (not the static env default) is reported in planner span `budgetSpanMetadata
 so traces accurately reflect what was sent to the LLM.
 
 **Why:** A complex architecture prompt classified as `chaotic` with difficulty
-0.92 previously hit 98.9% budget utilization at 1,200 tokens, truncating JSON
-mid-object. The adaptive cap gives it 4,000 tokens — same model, valid output.
+0.92 previously hit 98.9% budget utilization with a smaller cap, truncating JSON
+mid-object. The adaptive cap gives hard tasks extra room while still bounding
+latency.
 
 **Trace metadata** (see [`pipeline.ts`](../base/planner-ts/src/pipeline.ts), [`budgets.ts`](../base/planner-ts/src/budgets.ts) `budgetSpanMetadata`):
 
@@ -83,24 +74,6 @@ Use `budget_utilization` to detect under-use (wasted headroom) or near-saturatio
 **Provider routes:** Each request’s effective generation limit is the minimum of the planner node budget, the role assignment's configured `max_tokens`, and the upstream provider limit.
 
 Planner ontology and taxonomy YAML assets live in `base/planner-ts/config/`; runtime budget behavior is implemented in `base/planner-ts/src/`.
-
-
-### Executor (text-mode responses)
-
-| Setting | Value | File |
-|---|---|---|
-| `_MIN_BUDGET` | 1,024 | `writer.py` (hardcoded) |
-| `_MAX_BUDGET` | 16,384 | `writer.py` (hardcoded) |
-| Plan-required floor (difficulty ≥ 0.6) | 8,192 | `writer.py` |
-| Plan-required floor (difficulty < 0.6) | 4,096 | `writer.py` |
-| Default floor (no plan) | 1,536 | `writer.py` |
-| Brevity cap (low difficulty) | 1,536 | `writer.py` |
-| Social acknowledgment | 256 | `writer.py` |
-
-Scaling: `token_budget = 1024 + (16384 − 1024) × difficulty^1.5`
-
-The exponent (1.5) keeps moderate prompts lean — the headroom primarily
-benefits prompts above ~0.6 difficulty.
 
 ### Section Workers
 

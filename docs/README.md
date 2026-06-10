@@ -22,7 +22,7 @@ This tree is organized by **audience** and **product surface**. Implementation c
 - **Coder runtime:** [`base/yarn-ts/README.md`](../base/yarn-ts/README.md) · [Coder doc index](coder/README.md).
 - **Connect a client:** [Client overview](clients/CLIENTS.md) · [Claude Code → coder](clients/CLAUDECODE.md).
 - **Develop & test:** [Development index](development/README.md).
-- **Harness trust strategy:** [Trust hardening plan](development/HARNESS_TRUST_HARDENING.md).
+- **Coder eval gates:** [Harness trust KPI lane](development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability).
 - **Security posture:** [Security controls](SECURITY.md) · [Security todo tracker](security_todo.md).
 - **Project positioning:** [Comparison notes](COMPARISON.md).
 
