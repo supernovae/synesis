@@ -66,8 +66,7 @@ Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.checkov.
 
 The **Security Scan** workflow applies narrow **pip-audit `ignore-vuln` entries only to the affected matrix jobs** when OSV reports an advisory against the current locked package but does not provide a fixed PyPI version. These are not global suppressions.
 
-- **admin / PyJWT**: locked to `pyjwt==2.12.1`, the latest release and the release that includes the critical-header validation fix. OSV still reports `PYSEC-2025-183` with no fixed version. Remove the ignore when OSV metadata no longer flags `2.12.1`.
-- **base-ml and gliner-service / torch + transformers**: locked to current `torch==2.12.0` and `transformers==5.11.0`. OSV reports `PYSEC-2025-189` through `PYSEC-2025-197`, `PYSEC-2025-210`, `PYSEC-2026-139`, `PYSEC-2025-211` through `PYSEC-2025-218`, and `CVE-2025-3000` with no fixed versions for the resolved PyPI release. These images are ML runtime images; downgrade would not reduce risk without a known fixed release. Remove individual ignores as patched releases become available.
+- **base-ml and gliner-service / torch**: locked to current `torch==2.12.0` and `transformers==5.11.0`. OSV currently reports `CVE-2025-3000` against `torch==2.12.0` with no fixed PyPI version. These images are ML runtime images; downgrade would not reduce risk without a known fixed release. Remove the ignore when a patched release becomes available.
 
 ### Python dependency lockfiles and hash verification
 
@@ -90,11 +89,11 @@ The script compiles in dependency order: `base-api` first, then `base-ml` (const
 
 **pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver entirely. This eliminates the `ResolutionImpossible` errors previously seen with complex dependency trees (e.g. crawl4ai in the indexer).
 
-### crawl4ai and unclecode-litellm (transitive, unused)
+### crawl4ai and unclecode-litellm
 
-Crawl4AI pulls **unclecode-litellm** (a fork of litellm used by crawl4ai's LLM extraction features). The Synesis indexer **does not use** LLM extraction -- it uses only `AsyncWebCrawler` for browser-based HTML retrieval. The `unclecode-litellm` package is **stripped post-install** in the indexer Dockerfile (`uv pip uninstall --system unclecode-litellm`).
+Crawl4AI is pinned in `base/rag/indexer/requirements.txt` and refreshed through `scripts/lock-deps.sh indexer`. It pulls **unclecode-litellm** (a fork of litellm used by crawl4ai's LLM extraction features). The Synesis indexer **does not use** LLM extraction -- it uses only `AsyncWebCrawler` for browser-based HTML retrieval. The `unclecode-litellm` package is **stripped post-install** in the indexer Dockerfile (`uv pip uninstall --system unclecode-litellm`).
 
-**Assessment**: `unclecode-litellm==1.81.13` is a standalone PyPI package that does **not** depend on the compromised main `litellm` package. Its code is never imported or executed by indexer code paths. The litellm PyPI compromise ([GitHub #24518](https://github.com/BerriAI/litellm/issues/24518)) does not affect the indexer. See `docs/LITELLM.md` for the full analysis.
+**Assessment**: `unclecode-litellm==1.81.13` is a standalone PyPI package that does **not** depend on the compromised main `litellm` package. Its code is never imported or executed by indexer code paths. The litellm PyPI compromise ([GitHub #24518](https://github.com/BerriAI/litellm/issues/24518)) does not affect the indexer. The Security Scan workflow also checks lockfiles for compromised main `litellm` package indicators.
 
 ## Known Acceptances (Development Phase)
 

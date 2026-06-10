@@ -61,6 +61,7 @@ SERVICES=(
 
     # Tier 2: services on base-api
     "admin|base/admin|base-api"
+    "ast-mcp|base/ast-mcp|base-api"
     "preprocess-service|base/rag/preprocess-service|base-api"
     "mcp|base/mcp|base-api"
 

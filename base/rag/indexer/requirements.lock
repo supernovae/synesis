@@ -544,9 +544,9 @@ courlan==1.4.0 \
     --hash=sha256:ad1dbdefd912ca7238d4607dc855df5df097f56bac175dd662c84eed3802f49e \
     --hash=sha256:fbbac7b7fcde2195ea08e707609503c81cf39c891e8d26cdb1fed4585782d63d
     # via trafilatura
-crawl4ai==0.8.8 \
-    --hash=sha256:3fc8657e30a61b770bd253d5d9314074b650e3b31d8765ae299e68ff0765d64f \
-    --hash=sha256:d2c97f2e184a0d32635911b4122be93143d6cbb92bdd9237394200c9f43e2a0b
+crawl4ai==0.8.9 \
+    --hash=sha256:00a3c97b9492a694f24fa66bc80b9f1533e5637745dc0e30914c88aac52763e3 \
+    --hash=sha256:7836cfc9d81ed7fc646d614e984402c336e5a682462f3d92ff37de121a4244d6
     # via -r base/rag/indexer/requirements.txt
 cryptography==48.0.1 \
     --hash=sha256:08a597acce1ff37f347400087776599e2348a3a8bc53b44120e463cd274efe4a \
