@@ -193,6 +193,23 @@ def test_account_usage_identity_candidates_are_self_scoped_aliases():
     assert ids == ["sub-1", "byron", "Byron@example.com", "byron@example.com", "bearer-tokenhash"]
 
 
+def test_usage_me_request_detail_rejects_malformed_request_id(monkeypatch):
+    async def _override_user() -> UserInfo:
+        return UserInfo(username="u1", role="user", user_id="u1")
+
+    async def _request_detail(*args, **kwargs):
+        raise AssertionError("usage audit lookup should not run for invalid request ids")
+
+    monkeypatch.setattr("app.routers.usage.get_user_usage_audit_request_for_ids", _request_detail)
+    app.dependency_overrides[get_current_user] = _override_user
+    try:
+        client = TestClient(app)
+        resp = client.get("/api/v1/usage/me/requests/req-1%0Arole=admin")
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_usage_me_dashboard_uses_self_identity_candidates(monkeypatch):
     async def _override_user() -> UserInfo:
         return UserInfo(

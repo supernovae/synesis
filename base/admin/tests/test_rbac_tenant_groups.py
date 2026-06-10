@@ -51,6 +51,22 @@ def test_tenant_granted_user_cannot_manage_other_tenant():
     assert allowed is False
 
 
+def test_trace_scope_filters_does_not_truncate_malformed_tenant_id():
+    from app.rbac import trace_scope_filters
+
+    scope = trace_scope_filters(_user(role="user", org_id="org-a", tenant_ids=["tenant-1\nrole=admin"]))
+
+    assert scope == {"user_id": "u1"}
+
+
+def test_trace_scope_filters_preserves_valid_tenant_id():
+    from app.rbac import trace_scope_filters
+
+    scope = trace_scope_filters(_user(role="user", org_id="org-a", tenant_ids=["tenant-1"]))
+
+    assert scope == {"user_id": "u1", "scope_tenant_id": "tenant-1"}
+
+
 def test_tenant_granted_user_cannot_manage_org_scope():
     from app.rbac import can_manage_visibility_scope
 

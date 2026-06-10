@@ -6,6 +6,7 @@ import {
   dispatchSynesisTool,
   getSynesisPlatformCatalog,
   SYNESIS_MCP_TOOL_NAMES,
+  validateSynesisToolArgs,
   type SynesisMcpAuth,
   type SynesisMcpDeps,
 } from "@synesis/mcp-tools";
@@ -580,6 +581,48 @@ function mcpConcurrencyLimitMeta(decision: McpConcurrencyRejection): Record<stri
   };
 }
 
+function validationIssues(error: unknown): Array<{ path: string; message: string }> {
+  if (!error || typeof error !== "object" || !("issues" in error)) return [];
+  const issues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.map((issue) => {
+    if (!issue || typeof issue !== "object") return { path: "", message: "Invalid value" };
+    const row = issue as { path?: unknown; message?: unknown };
+    const path = Array.isArray(row.path) ? row.path.map(String).join(".") : "";
+    const message = typeof row.message === "string" ? row.message : "Invalid value";
+    return { path, message };
+  });
+}
+
+function mcpToolValidationError(error: unknown): { type: string; message: string; issues?: Array<{ path: string; message: string }> } {
+  if (error && typeof error === "object" && "error" in error) {
+    const row = error as { error?: unknown; message?: unknown; issues?: unknown };
+    const issues = Array.isArray(row.issues)
+      ? row.issues
+          .map((issue) => {
+            if (!issue || typeof issue !== "object") return null;
+            const item = issue as { path?: unknown; message?: unknown };
+            return {
+              path: typeof item.path === "string" ? item.path : "",
+              message: typeof item.message === "string" ? item.message : "Invalid value",
+            };
+          })
+          .filter((issue): issue is { path: string; message: string } => issue !== null)
+      : undefined;
+    return {
+      type: typeof row.error === "string" ? row.error : "validation_error",
+      message: typeof row.message === "string" ? row.message : "Invalid tool arguments",
+      ...(issues && issues.length > 0 ? { issues } : {}),
+    };
+  }
+  const issues = validationIssues(error);
+  return {
+    type: "validation_error",
+    message: "Invalid tool arguments",
+    ...(issues.length > 0 ? { issues } : {}),
+  };
+}
+
 const registry = new McpToolRegistry();
 registry.register(classifyProjectTool);
 registry.register(inspectRepoTool);
@@ -764,7 +807,6 @@ export async function registerMcpRoutes(
           statusCode: 403,
           openClawClient,
           agentFlow,
-          args: toolArguments,
         }),
         "mcp_tool_denied",
       );
@@ -786,7 +828,6 @@ export async function registerMcpRoutes(
           statusCode: 403,
           openClawClient,
           agentFlow,
-          args: toolArguments,
         }),
         "mcp_tool_denied",
       );
@@ -808,7 +849,6 @@ export async function registerMcpRoutes(
           statusCode: 403,
           openClawClient,
           agentFlow,
-          args: toolArguments,
         }),
         "mcp_tool_denied",
       );
@@ -839,6 +879,84 @@ export async function registerMcpRoutes(
       return reply.code(normalizedToolArguments.statusCode).send({ error: normalizedToolArguments.error });
     }
 
+    let validatedPlatformArgs: Record<string, unknown> | undefined;
+    let validatedNativeArgs: unknown;
+    let validatedProjectRoot = "";
+    if (SYNESIS_PLATFORM_TOOL_SET.has(toolName)) {
+      const parsedArgs = validateSynesisToolArgs(toolName, normalizedToolArguments.args);
+      if (!parsedArgs.ok) {
+        app.log.warn(
+          buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "denied",
+            reason: typeof parsedArgs.error.error === "string" ? parsedArgs.error.error : "validation_error",
+            statusCode: 400,
+            openClawClient,
+            agentFlow,
+            args: normalizedToolArguments.args,
+          }),
+          "mcp_tool_denied",
+        );
+        return reply.code(400).send({ error: mcpToolValidationError(parsedArgs.error) });
+      }
+      validatedPlatformArgs = parsedArgs.args;
+    } else {
+      const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(toolName)
+        ? validateMcpProjectRootBinding(normalizedToolArguments.args, req.headers["x-synesis-project-root"])
+        : null;
+      if (projectRootValidation && !projectRootValidation.ok) {
+        app.log.warn(
+          buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "denied",
+            reason: projectRootValidation.error.type,
+            statusCode: projectRootValidation.statusCode,
+            openClawClient,
+            agentFlow,
+            args: normalizedToolArguments.args,
+          }),
+          "mcp_tool_denied",
+        );
+        return reply.code(projectRootValidation.statusCode).send({ error: projectRootValidation.error });
+      }
+      validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
+      const candidateNativeArgs = projectRootValidation?.ok ? projectRootValidation.args : normalizedToolArguments.args;
+      const parsedArgs = registry.parseArgs(toolName, candidateNativeArgs);
+      if (!parsedArgs.ok) {
+        const notFound = parsedArgs.error instanceof McpToolNotFoundError;
+        const statusCode = notFound ? 404 : 400;
+        const reason = notFound ? "tool_not_found" : "validation_error";
+        app.log.warn(
+          buildMcpAuditFields({
+            user,
+            toolName,
+            requestId,
+            outcome: "denied",
+            reason,
+            statusCode,
+            openClawClient,
+            agentFlow,
+            args: candidateNativeArgs,
+          }),
+          "mcp_tool_denied",
+        );
+        return reply.code(statusCode).send({
+          error: notFound
+            ? { type: "not_found", message: parsedArgs.error.message }
+            : mcpToolValidationError(parsedArgs.error),
+        });
+      }
+      validatedNativeArgs = parsedArgs.args;
+    }
+
+    const auditArgs = SYNESIS_PLATFORM_TOOL_SET.has(toolName)
+      ? validatedPlatformArgs
+      : validatedNativeArgs;
+
     const concurrencyDecision = toolConcurrencyLimiter.tryAcquire({
       orgId: user.orgId,
       userId: user.userId,
@@ -854,7 +972,7 @@ export async function registerMcpRoutes(
           statusCode: 429,
           openClawClient,
           agentFlow,
-          args: toolArguments,
+          args: auditArgs,
           limitMeta: mcpConcurrencyLimitMeta(concurrencyDecision),
         }),
         "mcp_tool_denied",
@@ -872,7 +990,7 @@ export async function registerMcpRoutes(
     try {
       let result: unknown;
       if (SYNESIS_PLATFORM_TOOL_SET.has(toolName)) {
-        const rawArgs = normalizedToolArguments.args;
+        const rawArgs = validatedPlatformArgs ?? {};
         mcpSession = buildMcpSessionAttribution({
           user,
           args: rawArgs,
@@ -883,44 +1001,24 @@ export async function registerMcpRoutes(
         const isWebSearchTool = toolName === "synesis_web_search" || toolName === "web_search";
         const mcpArgs = isWebSearchTool
           ? {
-              ...rawArgs,
-              source_surface: "yarn_mcp_http",
-              tool_name: "synesis_web_search",
-              request_id: requestId,
-              session_key: mcpSession.sessionKey,
-              conversation_id: mcpSession.conversationId,
-              trace_id: requestId,
+              searchAttribution: {
+                sourceSurface: "yarn_mcp_http" as const,
+                toolName: "synesis_web_search",
+                requestId,
+                sessionKey: mcpSession.sessionKey,
+                conversationId: mcpSession.conversationId,
+                traceId: requestId,
+              },
             }
-          : rawArgs;
+          : {};
         result = await dispatchSynesisTool(
           toolName,
-          mcpArgs,
+          rawArgs,
           synesisAuthForRequest(user, req),
           opts.synesisMcpDeps,
+          mcpArgs,
         );
       } else {
-        const projectRootValidation = PROJECT_BOUND_MCP_TOOLS.has(toolName)
-          ? validateMcpProjectRootBinding(normalizedToolArguments.args, req.headers["x-synesis-project-root"])
-          : null;
-        if (projectRootValidation && !projectRootValidation.ok) {
-          app.log.warn(
-            buildMcpAuditFields({
-              user,
-              toolName,
-              requestId,
-              outcome: "denied",
-              reason: projectRootValidation.error.type,
-              statusCode: projectRootValidation.statusCode,
-              openClawClient,
-              agentFlow,
-              args: toolArguments,
-            }),
-            "mcp_tool_denied",
-          );
-          return reply.code(projectRootValidation.statusCode).send({ error: projectRootValidation.error });
-        }
-        const validatedProjectRoot = projectRootValidation?.ok ? projectRootValidation.projectRoot : "";
-        const validatedToolArgs = projectRootValidation?.ok ? projectRootValidation.args : normalizedToolArguments.args;
         mcpSession = buildMcpSessionAttribution({
           user,
           headerSessionKey: req.headers["x-synesis-session-key"],
@@ -933,7 +1031,7 @@ export async function registerMcpRoutes(
           userId: user.userId,
           orgId: user.orgId,
         };
-        result = await registry.call(toolName, validatedToolArgs, toolCtx);
+        result = await registry.call(toolName, validatedNativeArgs, toolCtx);
       }
       const elapsed = Math.round(performance.now() - start);
       const runMeta =
@@ -971,7 +1069,7 @@ export async function registerMcpRoutes(
           agentFlow,
           session: mcpSession,
           elapsedMs: elapsed,
-          args: toolArguments,
+          args: auditArgs,
           runMeta,
           diagnosticsMeta,
         }),
@@ -993,7 +1091,7 @@ export async function registerMcpRoutes(
             agentFlow,
             session: mcpSession,
             elapsedMs: elapsed,
-            args: toolArguments,
+            args: auditArgs,
           }),
           "mcp_tool_denied",
         );
@@ -1015,7 +1113,7 @@ export async function registerMcpRoutes(
             agentFlow,
             session: mcpSession,
             elapsedMs: elapsed,
-            args: toolArguments,
+            args: auditArgs,
           }),
           "mcp_tool_timeout",
         );
@@ -1038,7 +1136,7 @@ export async function registerMcpRoutes(
             agentFlow,
             session: mcpSession,
             elapsedMs: elapsed,
-            args: toolArguments,
+            args: auditArgs,
           }),
         },
         "mcp_tool_error",

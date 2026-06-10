@@ -80,3 +80,65 @@ def test_acl_policy_route_groups_are_normalized_and_deduplicated():
         target_type="both",
         route_groups=["org_content_admin", " org_content_admin ", "org_observability"],
     ) == ["org_content_admin", "org_observability"]
+
+
+def test_acl_group_create_rejects_extra_and_malformed_org_id():
+    from app.routers.acl import GroupCreate
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="admin_override"):
+        GroupCreate(name="Engineering", admin_override=True)
+
+    with pytest.raises(ValidationError, match="org_id"):
+        GroupCreate(name="Engineering", org_id="org-1\nrole=admin")
+
+
+def test_acl_member_add_rejects_control_characters():
+    from app.routers.acl import MemberAdd
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="user_id"):
+        MemberAdd(user_id="member-1\nrole=admin")
+
+
+def test_acl_policy_create_rejects_malformed_acl_group_id():
+    from app.routers.acl import PolicyCreate
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="acl_groups"):
+        PolicyCreate(name="Policy", acl_groups=["grp-1\nrole=admin"])
+
+
+@pytest.mark.anyio
+async def test_acl_routes_reject_malformed_ids_before_db_access():
+    from app.routers import acl
+
+    with pytest.raises(HTTPException) as group_exc:
+        await acl.add_member(group_id="grp-1\nrole=admin", body=acl.MemberAdd(user_id="member-1"), _user=_org_admin())
+
+    assert group_exc.value.status_code == 422
+
+    with pytest.raises(HTTPException) as user_exc:
+        await acl.remove_member(group_id="grp-1", user_id="member-1\nrole=admin", _user=_org_admin())
+
+    assert user_exc.value.status_code == 422
+
+    with pytest.raises(HTTPException) as effective_exc:
+        await acl.effective_permissions(user_id="member-1\nrole=admin", _user=_org_admin())
+
+    assert effective_exc.value.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_acl_list_routes_reject_malformed_org_filter_before_db_access():
+    from app.routers import acl
+
+    with pytest.raises(HTTPException) as group_exc:
+        await acl.list_groups(org_id="org-1\nrole=admin", _user=_org_admin())
+
+    assert group_exc.value.status_code == 422
+
+    with pytest.raises(HTTPException) as policy_exc:
+        await acl.list_policies(org_id="org-1\nrole=admin", _user=_org_admin())
+
+    assert policy_exc.value.status_code == 422

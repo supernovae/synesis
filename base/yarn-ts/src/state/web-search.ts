@@ -86,18 +86,17 @@ export class WebSearchService {
       tenantIds: context?.tenantIds ?? [],
     };
 
-    const requestArgs: Record<string, unknown> = {
-      ...args,
-      source_surface: context?.sourceSurface ?? "yarn_chat",
-      tool_name: context?.toolName ?? WEB_SEARCH_TOOL_NAME,
-    };
-    if (context?.requestId) requestArgs.request_id = context.requestId;
-    if (context?.sessionKey) requestArgs.session_key = context.sessionKey;
-    if (context?.conversationId) requestArgs.conversation_id = context.conversationId;
-    if (context?.traceId) requestArgs.trace_id = context.traceId;
-
     try {
-      const raw = await dispatchSynesisTool(WEB_SEARCH_TOOL_NAME, requestArgs, auth, this.deps);
+      const raw = await dispatchSynesisTool(WEB_SEARCH_TOOL_NAME, args, auth, this.deps, {
+        searchAttribution: {
+          sourceSurface: context?.sourceSurface ?? "yarn_chat",
+          toolName: context?.toolName ?? WEB_SEARCH_TOOL_NAME,
+          requestId: context?.requestId,
+          sessionKey: context?.sessionKey,
+          conversationId: context?.conversationId,
+          traceId: context?.traceId,
+        },
+      });
       const parsed = raw as Record<string, unknown>;
       if (parsed && typeof parsed === "object" && "error" in parsed) {
         this.errorCount++;
@@ -137,4 +136,3 @@ export class WebSearchService {
     };
   }
 }
-

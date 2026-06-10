@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
 from ..rbac import Role, can_access_trace, resolve_role
+from ..route_validation import validate_safe_identifier
 from ..services import trace_store
 from ..services.admin_mcp_ts_client import (
     invoke_admin_mcp_tool,
@@ -123,6 +124,20 @@ def _trace_context_text(trace: dict, span_index: int | None = None) -> str:
     return "\n".join(parts)
 
 
+def _clean_org_headers(org_headers: dict[str, str] | None) -> dict[str, str]:
+    if not org_headers:
+        return {}
+    cleaned: dict[str, str] = {}
+    for header_name in ("x-synesis-org-id", "x-active-org-id"):
+        value = str(org_headers.get(header_name, "") or "").strip()
+        if value:
+            try:
+                cleaned[header_name] = validate_safe_identifier(value, field_name=header_name, max_length=128)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return cleaned
+
+
 def _planner_headers(auth_header: str = "", org_headers: dict[str, str] | None = None) -> dict[str, str]:
     h: dict[str, str] = {"Content-Type": "application/json"}
     if auth_header:
@@ -131,8 +146,7 @@ def _planner_headers(auth_header: str = "", org_headers: dict[str, str] | None =
         h["Authorization"] = f"Bearer {INTERNAL_SERVICE_TOKEN}"
         h["x-synesis-service-token"] = INTERNAL_SERVICE_TOKEN
         h["x-synesis-service-name"] = "synesis-admin"
-    if org_headers:
-        h.update(org_headers)
+    h.update(_clean_org_headers(org_headers))
     return h
 
 
@@ -366,10 +380,12 @@ async def _assistant_chat_impl(
     csrf_token = (request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "") if request else ""
     org_headers: dict[str, str] = {}
     if request:
+        raw_org_headers: dict[str, str] = {}
         for header_name in ("x-synesis-org-id", "x-active-org-id"):
             value = (request.headers.get(header_name) or "").strip()
             if value:
-                org_headers[header_name] = value
+                raw_org_headers[header_name] = value
+        org_headers = _clean_org_headers(raw_org_headers)
 
     if trace_id and support_mode:
         context = (context or "") + "\n\n(trace_id context is only available in Admin Assistant mode.)"

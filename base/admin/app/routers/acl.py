@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, func, select
 
 from ..auth import UserInfo, get_current_user
@@ -19,6 +19,7 @@ from ..rbac import (
     require_platform_admin,
     resolve_role,
 )
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
 from ..services.admin_audit import record_admin_audit
 
 router = APIRouter(prefix="/api/v1/acl", tags=["acl"])
@@ -30,10 +31,42 @@ def _ensure_org_content_admin(user: UserInfo) -> None:
 
 
 def _target_org(user: UserInfo, requested: str = "") -> str:
-    org_id = (requested or user.org_id or "").strip()
+    try:
+        org_id = (
+            validate_safe_identifier(requested, field_name="org_id", max_length=64)
+            if requested
+            else validate_safe_identifier(user.org_id, field_name="org_id", max_length=64)
+            if user.org_id
+            else ""
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not can_manage_visibility_scope(user, visibility_scope="org", org_id=org_id):
         raise HTTPException(status_code=403, detail="Not authorized for org scope")
     return org_id
+
+
+def _safe_group_id(value: str, *, field_name: str = "group_id") -> str:
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _safe_user_id(value: str, *, field_name: str = "user_id") -> str:
+    try:
+        return validate_safe_text(value, field_name=field_name, max_length=256, allow_empty=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _safe_org_filter(value: str, *, field_name: str = "org_id") -> str:
+    if not value:
+        return ""
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _ensure_group_access(user: UserInfo, group: AclGroup) -> None:
@@ -49,10 +82,29 @@ def _ensure_group_access(user: UserInfo, group: AclGroup) -> None:
 
 
 class GroupCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str = Field(..., min_length=1, max_length=256)
-    description: str = ""
+    description: str = Field("", max_length=8192)
     org_id: str = Field("", max_length=64)
-    keycloak_group_path: str | None = None
+    keycloak_group_path: str | None = Field(None, max_length=512)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("org_id", mode="after")
+    @classmethod
+    def validate_org_id(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="org_id", max_length=64) if value else ""
+
+    @field_validator("keycloak_group_path", mode="after")
+    @classmethod
+    def validate_keycloak_group_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="keycloak_group_path", max_length=512, allow_empty=False)
 
 
 class GroupInfo(BaseModel):
@@ -68,10 +120,11 @@ class GroupInfo(BaseModel):
 
 @router.get("/groups")
 async def list_groups(
-    org_id: str = Query("", description="Filter by org"),
+    org_id: str = Query("", max_length=64, description="Filter by org"),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    org_id = _safe_org_filter(org_id)
     async with async_session() as session:
         q = select(AclGroup).order_by(AclGroup.name)
         caller_org = (_user.org_id or "").strip()
@@ -137,9 +190,10 @@ async def create_group(
 
 @router.delete("/groups/{group_id}")
 async def delete_group(
-    group_id: str,
+    group_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(require_platform_admin),
 ):
+    group_id = _safe_group_id(group_id)
     async with async_session() as session:
         row = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not row:
@@ -163,15 +217,23 @@ async def delete_group(
 
 
 class MemberAdd(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     user_id: str = Field(..., min_length=1, max_length=256)
+
+    @field_validator("user_id", mode="after")
+    @classmethod
+    def validate_user_id(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="user_id", max_length=256, allow_empty=False)
 
 
 @router.get("/groups/{group_id}/members")
 async def list_members(
-    group_id: str,
+    group_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    group_id = _safe_group_id(group_id)
     async with async_session() as session:
         rows = (
             (await session.execute(select(AclGroupMember).where(AclGroupMember.group_id == group_id))).scalars().all()
@@ -189,11 +251,12 @@ async def list_members(
 
 @router.post("/groups/{group_id}/members", status_code=201)
 async def add_member(
-    group_id: str,
-    body: MemberAdd,
+    group_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
+    body: MemberAdd = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    group_id = _safe_group_id(group_id)
     async with async_session() as session:
         grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not grp:
@@ -230,11 +293,13 @@ async def add_member(
 
 @router.delete("/groups/{group_id}/members/{user_id}")
 async def remove_member(
-    group_id: str,
-    user_id: str,
+    group_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
+    user_id: str = Path(..., min_length=1, max_length=256),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    group_id = _safe_group_id(group_id)
+    user_id = _safe_user_id(user_id)
     async with async_session() as session:
         grp = (await session.execute(select(AclGroup).where(AclGroup.group_id == group_id))).scalar_one_or_none()
         if not grp:
@@ -266,15 +331,39 @@ async def remove_member(
 
 
 class PolicyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str = Field(..., min_length=1, max_length=256)
-    description: str = ""
-    org_id: str = ""
+    description: str = Field("", max_length=8192)
+    org_id: str = Field("", max_length=64)
     scope: str = Field("org", pattern="^(platform|org|tenant)$")
     target_type: str = Field("content", pattern="^(content|route|both)$")
-    acl_groups: list[str] | None = None
-    route_groups: list[str] | None = None
+    acl_groups: list[str] | None = Field(None, max_length=50)
+    route_groups: list[str] | None = Field(None, max_length=50)
     effect: str = Field("allow", pattern="^(allow|deny)$")
-    priority: int = 0
+    priority: int = Field(0, ge=-1_000_000, le=1_000_000)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("org_id", mode="after")
+    @classmethod
+    def validate_org_id(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="org_id", max_length=64) if value else ""
+
+    @field_validator("acl_groups", mode="after")
+    @classmethod
+    def validate_acl_groups(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        out: list[str] = []
+        for value in values:
+            group_id = validate_safe_identifier(value, field_name="acl_groups[]", max_length=64)
+            if group_id not in out:
+                out.append(group_id)
+        return out or None
 
 
 _VALID_ROUTE_GROUPS = {group.value for group in RouteGroup}
@@ -312,10 +401,11 @@ def _normalize_policy_route_groups(
 
 @router.get("/policies")
 async def list_policies(
-    org_id: str = Query("", description="Filter by org"),
+    org_id: str = Query("", max_length=64, description="Filter by org"),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_content_admin(_user)
+    org_id = _safe_org_filter(org_id)
     async with async_session() as session:
         q = select(AclPolicy).order_by(AclPolicy.priority.desc(), AclPolicy.name)
         if org_id:
@@ -385,7 +475,7 @@ async def create_policy(
 
 @router.delete("/policies/{policy_id}")
 async def delete_policy(
-    policy_id: int,
+    policy_id: int = Path(..., ge=1),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     async with async_session() as session:
@@ -411,11 +501,12 @@ async def delete_policy(
 
 @router.get("/effective-permissions/{user_id}")
 async def effective_permissions(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=256),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Show which ACL groups and policies apply to a given user."""
     _ensure_org_content_admin(_user)
+    user_id = _safe_user_id(user_id)
     async with async_session() as session:
         memberships = (
             (await session.execute(select(AclGroupMember).where(AclGroupMember.user_id == user_id))).scalars().all()

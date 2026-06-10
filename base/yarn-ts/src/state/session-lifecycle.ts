@@ -146,17 +146,69 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
     return decision.sessionKey;
   }
 
+  function sessionRecordMatchesIdentity(record: SessionRecord, key: string, identity: SessionIdentity): boolean {
+    if (record.sessionKey !== key) return false;
+    if (record.userId !== identity.userId && !(record.userId === "anon" && identity.userId !== "anon")) return false;
+    if (record.orgId !== identity.orgId) return false;
+    if (record.clientKind !== identity.clientKind) return false;
+    if (record.conversationId !== identity.conversationId) return false;
+    return true;
+  }
+
   async function getSessionState(key: string, identity: SessionIdentity): Promise<SessionState> {
     const existing = sessions.get(key);
     if (existing) {
-      existing.record.lastActiveAt = Date.now();
-      if (existing.record.userId === "anon" && identity.userId !== "anon") {
-        existing.record.userId = identity.userId;
-        existing.record.orgId = identity.orgId;
+      if (sessionRecordMatchesIdentity(existing.record, key, identity)) {
+        existing.record.lastActiveAt = Date.now();
+        if (existing.record.userId === "anon" && identity.userId !== "anon") {
+          existing.record.userId = identity.userId;
+          existing.record.orgId = identity.orgId;
+        }
+        return existing;
       }
-      return existing;
+      sessions.delete(key);
+      logger.warn(
+        {
+          sessionKey: key,
+          recordUserId: existing.record.userId,
+          recordOrgId: existing.record.orgId,
+          identityUserId: identity.userId,
+          identityOrgId: identity.orgId,
+        },
+        "session_identity_mismatch_evicted_in_memory",
+      );
     }
-    const loaded = await sessionStore.load(key);
+    const loadedRecord = await sessionStore.load(key);
+    const loaded = loadedRecord && sessionRecordMatchesIdentity(loadedRecord, key, identity) ? loadedRecord : null;
+    if (loadedRecord && !loaded) {
+      logger.warn(
+        {
+          sessionKey: key,
+          recordSessionKey: loadedRecord.sessionKey,
+          recordUserId: loadedRecord.userId,
+          recordOrgId: loadedRecord.orgId,
+          identityUserId: identity.userId,
+          identityOrgId: identity.orgId,
+        },
+        "session_identity_mismatch_ignored_persisted_record",
+      );
+      recordSessionEvent(
+        key,
+        identity.userId,
+        identity.orgId,
+        "session_identity_mismatch",
+        "getSessionState",
+        "Ignored persisted session record with mismatched identity",
+        identity.sessionRequestId,
+        {
+          record_session_key: loadedRecord.sessionKey,
+          record_user_id: loadedRecord.userId,
+          record_org_id: loadedRecord.orgId,
+          record_client_kind: loadedRecord.clientKind,
+          record_conversation_id: loadedRecord.conversationId,
+        },
+      );
+    }
     const record: SessionRecord = loaded ?? {
       sessionKey: key,
       userId: identity.userId,

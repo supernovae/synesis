@@ -125,6 +125,67 @@ describe("Canonical session key", () => {
     expect(decision.reason).toBe("active_alias");
   });
 
+  it("rejects persisted active aliases outside the caller scoped base key", async () => {
+    const { resolveSessionKey } = await import("../src/session/session-key.js");
+    const saved: Array<[string, string]> = [];
+    const decision = await resolveSessionKey({
+      identity: {
+        userId: "alice",
+        orgId: "org-1",
+        clientKind: "opencode",
+        conversationId: "",
+      },
+      nowMs: 3000,
+      inactivityRotationMs: 30 * 60 * 1000,
+      activeByBaseKey: new Map(),
+      loadRecord: vi.fn().mockResolvedValue({
+        sessionKey: "synesis:org-1:bob:opencode:_:r1000",
+        userId: "bob",
+        orgId: "org-1",
+        clientKind: "opencode",
+        conversationId: "",
+        lastActiveAt: 2999,
+      }),
+      loadActiveSessionKey: vi.fn().mockResolvedValue("synesis:org-1:bob:opencode:_:r1000"),
+      saveActiveSessionKey: vi.fn((baseKey: string, sessionKey: string) => {
+        saved.push([baseKey, sessionKey]);
+        return Promise.resolve();
+      }),
+    });
+
+    expect(decision.sessionKey).toBe("synesis:org-1:alice:opencode:_:r3000");
+    expect(decision.reason).toBe("new_implicit_conversation");
+    expect(saved).toEqual([["synesis:org-1:alice:opencode:_", decision.sessionKey]]);
+  });
+
+  it("rejects active aliases whose loaded record belongs to another identity", async () => {
+    const { resolveSessionKey } = await import("../src/session/session-key.js");
+    const decision = await resolveSessionKey({
+      identity: {
+        userId: "alice",
+        orgId: "org-1",
+        clientKind: "opencode",
+        conversationId: "",
+      },
+      nowMs: 4000,
+      inactivityRotationMs: 30 * 60 * 1000,
+      activeByBaseKey: new Map(),
+      loadRecord: vi.fn().mockResolvedValue({
+        sessionKey: "synesis:org-1:alice:opencode:_:r1000",
+        userId: "bob",
+        orgId: "org-1",
+        clientKind: "opencode",
+        conversationId: "",
+        lastActiveAt: 3999,
+      }),
+      loadActiveSessionKey: vi.fn().mockResolvedValue("synesis:org-1:alice:opencode:_:r1000"),
+      saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(decision.sessionKey).toBe("synesis:org-1:alice:opencode:_:r4000");
+    expect(decision.reason).toBe("new_implicit_conversation");
+  });
+
   it("rotates an active implicit alias when the incoming coder transcript is fresh", async () => {
     const { resolveSessionKey } = await import("../src/session/session-key.js");
     const activeByBaseKey = new Map([["synesis:_:alice:opencode:_", "synesis:_:alice:opencode:_:r1000"]]);
@@ -370,6 +431,86 @@ describe("Fresh implicit session bootstrap", () => {
     expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_CONTINUITY>");
     expect(state.history.map((m) => m.content).join("\n")).toContain("<SESSION_RECALL");
     expect(state.history.map((m) => m.content).join("\n")).toContain("categorizer.py");
+  });
+
+  it("ignores persisted session records that do not match the caller identity", async () => {
+    const { createSessionLifecycleHelpers } = await import("../src/state/session-lifecycle.js");
+    const { SessionContinuityService } = await import("../src/context/session-continuity.js");
+
+    const recordSessionEvent = vi.fn();
+    const helpers = createSessionLifecycleHelpers({
+      config: {
+        SYNESIS_YARN_SESSION_CONTINUITY_ENABLED: false,
+        SYNESIS_YARN_SESSION_CARRY_FORWARD_BOOTSTRAP_ENABLED: false,
+        SYNESIS_YARN_CROSS_CONVERSATION_RECALL_ENABLED: false,
+        SYNESIS_YARN_RECALL_MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
+        SYNESIS_YARN_SESSION_INACTIVITY_ROTATION_MS: 30 * 60 * 1000,
+      } as never,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      sessions: new Map(),
+      rotatedSessionByBaseKey: new Map(),
+      sessionStore: {
+        load: vi.fn().mockResolvedValue({
+          sessionKey: "synesis:org-1:alice:opencode:conv-1",
+          userId: "bob",
+          orgId: "org-1",
+          conversationId: "conv-1",
+          clientKind: "opencode",
+          createdAt: 1,
+          lastActiveAt: 1,
+          totalTokensIn: 100,
+          totalTokensOut: 0,
+          totalTokensCached: 0,
+          totalTokensSaved: 0,
+          requestCount: 10,
+          escalationCount: 0,
+          consecutiveFailedVerifications: 0,
+          metadata: {},
+          version: 7,
+        }),
+        loadSessionState: vi.fn().mockResolvedValue(null),
+        loadContinuity: vi.fn().mockResolvedValue(null),
+        loadActiveSessionKey: vi.fn().mockResolvedValue(null),
+        saveActiveSessionKey: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      sessionContinuity: new SessionContinuityService(),
+      usageWriter: { loadLatestContinuity: vi.fn().mockResolvedValue(null) } as never,
+      tierRegistry: { getTierConfig: vi.fn() },
+      sawtooth: {} as never,
+      metrics: {
+        compactionTotal: { inc: vi.fn() },
+        sessionCheckpointTotal: { inc: vi.fn() },
+        compactionCharsSaved: { inc: vi.fn() },
+      },
+      createDiffStats: () => ({}) as never,
+      resetRecoveryCounters: vi.fn(),
+      clearImplicitSessionResources: vi.fn(),
+      getFileSnapshotRegistry: () => ({ markCompaction: vi.fn() }),
+      getContentDedup: () => ({ reset: vi.fn() }),
+      recordSessionEvent,
+    });
+
+    const state = await helpers.getSessionState("synesis:org-1:alice:opencode:conv-1", {
+      userId: "alice",
+      orgId: "org-1",
+      clientKind: "opencode",
+      conversationId: "conv-1",
+      sessionRequestId: "req-1",
+    });
+
+    expect(state.record.userId).toBe("alice");
+    expect(state.record.requestCount).toBe(0);
+    expect(state.record.version).toBe(0);
+    expect(recordSessionEvent).toHaveBeenCalledWith(
+      "synesis:org-1:alice:opencode:conv-1",
+      "alice",
+      "org-1",
+      "session_identity_mismatch",
+      "getSessionState",
+      "Ignored persisted session record with mismatched identity",
+      "req-1",
+      expect.objectContaining({ record_user_id: "bob" }),
+    );
   });
 });
 

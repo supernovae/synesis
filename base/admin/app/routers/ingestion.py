@@ -34,6 +34,7 @@ from ..rbac import (
     require_tenant_content_operator,
     resolve_role,
 )
+from ..route_validation import validate_safe_identifier, validate_safe_text
 from ..services import ingestion_discovery as _ingestion_discovery
 from ..services.admin_audit import record_admin_audit
 from ..services.nornic_service import (
@@ -453,12 +454,18 @@ def _normalize_and_authorize_scope(
     acl_groups: str = "",
 ) -> tuple[str, str, str, str, str]:
     scope = (visibility_scope or "global").strip().lower()
-    target_org = (org_id or "").strip()[:64]
-    target_tenant = (tenant_id or "").strip()[:64]
-    acl_m = (acl_mode or "open").strip().lower()[:16]
+    try:
+        target_org = validate_safe_identifier(org_id, field_name="org_id", max_length=64) if org_id else ""
+        target_tenant = validate_safe_identifier(tenant_id, field_name="tenant_id", max_length=64) if tenant_id else ""
+        acl_m = validate_safe_text(acl_mode or "open", field_name="acl_mode", max_length=16).lower()
+        acl_g = validate_safe_text(acl_groups or "", field_name="acl_groups", max_length=1024)
+        caller_org = (
+            validate_safe_identifier(user.org_id, field_name="caller_org_id", max_length=64) if user.org_id else ""
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if acl_m not in ("open", "restricted", "private"):
         raise HTTPException(status_code=400, detail="acl_mode must be one of: open, restricted, private")
-    acl_g = (acl_groups or "").strip()[:1024]
     if acl_m in ("restricted", "private") and not acl_g:
         raise HTTPException(status_code=400, detail=f"acl_mode={acl_m} requires at least one acl_groups entry")
     if scope not in {"global", "org", "tenant", "user", "session"}:
@@ -466,6 +473,8 @@ def _normalize_and_authorize_scope(
             status_code=400,
             detail="visibility_scope must be one of: global, org, tenant, user, session",
         )
+    if scope == "tenant" and not target_tenant:
+        raise HTTPException(status_code=400, detail="tenant_id is required for tenant visibility scope")
     if not can_manage_visibility_scope(
         user,
         visibility_scope=scope,
@@ -473,7 +482,6 @@ def _normalize_and_authorize_scope(
         tenant_id=target_tenant,
     ):
         raise HTTPException(status_code=403, detail="Not authorized for requested visibility scope")
-    caller_org = (user.org_id or "").strip()[:64]
     if scope == "global":
         return scope, "", "", acl_m, acl_g
     if scope == "org":

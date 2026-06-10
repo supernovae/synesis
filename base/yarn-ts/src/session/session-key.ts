@@ -15,6 +15,10 @@ export interface SessionIdentity {
 export interface SessionKeyRecord {
   sessionKey: string;
   lastActiveAt: number;
+  userId?: string;
+  orgId?: string;
+  conversationId?: string;
+  clientKind?: string;
 }
 
 export interface ResolveSessionKeyOptions {
@@ -144,6 +148,31 @@ export function buildRotatedSessionKey(baseKey: string, nowMs: number): string {
   return `${baseKey}:r${nowMs}`;
 }
 
+function activeSessionKeyBelongsToBase(sessionKey: string, baseKey: string): boolean {
+  return sessionKey === baseKey || sessionKey.startsWith(`${baseKey}:r`);
+}
+
+function optionalRecordString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function recordMatchesIdentity(record: SessionKeyRecord, sessionKey: string, baseKey: string, identity: SessionIdentity): boolean {
+  if (record.sessionKey !== sessionKey) return false;
+  if (!activeSessionKeyBelongsToBase(sessionKey, baseKey)) return false;
+
+  const recordUserId = optionalRecordString(record.userId);
+  if (recordUserId !== null && recordUserId !== identity.userId && !(recordUserId === "anon" && identity.userId !== "anon")) {
+    return false;
+  }
+  const recordOrgId = optionalRecordString(record.orgId);
+  if (recordOrgId !== null && recordOrgId !== identity.orgId) return false;
+  const recordClientKind = optionalRecordString(record.clientKind);
+  if (recordClientKind !== null && recordClientKind !== identity.clientKind) return false;
+  const recordConversationId = optionalRecordString(record.conversationId);
+  if (recordConversationId !== null && recordConversationId !== identity.conversationId) return false;
+  return true;
+}
+
 export async function resolveSessionKey(options: ResolveSessionKeyOptions): Promise<SessionKeyDecision> {
   const baseKey = buildSessionKey(
     options.identity.userId,
@@ -156,8 +185,10 @@ export async function resolveSessionKey(options: ResolveSessionKeyOptions): Prom
   }
 
   const isActive = async (sessionKey: string): Promise<boolean> => {
+    if (!activeSessionKeyBelongsToBase(sessionKey, baseKey)) return false;
     const record = await options.loadRecord(sessionKey);
     if (!record) return false;
+    if (!recordMatchesIdentity(record, sessionKey, baseKey, options.identity)) return false;
     return options.nowMs - record.lastActiveAt <= options.inactivityRotationMs;
   };
 

@@ -57,7 +57,9 @@ def _patch_outbound_dns(monkeypatch):
 def admin_client():
     from app.auth import UserInfo, get_current_user
     from app.main import app
+    from app.rate_limit import _buckets
 
+    _buckets.clear()
     _auth_ctx["user"] = UserInfo(
         username="testadmin",
         role="org_admin",
@@ -70,6 +72,7 @@ def admin_client():
     app.dependency_overrides[get_current_user] = _make_user_override()
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.pop(get_current_user, None)
+    _buckets.clear()
 
 
 # ── Fake DB helpers ──────────────────────────────────────────────────────────
@@ -118,6 +121,7 @@ class FakeSession:
     def __init__(self):
         self.added = []
         self._execute_results = []
+        self.execute_count = 0
 
     def add(self, obj):
         self.added.append(obj)
@@ -134,6 +138,7 @@ class FakeSession:
             obj.updated_at = datetime.now(UTC)
 
     async def execute(self, stmt):
+        self.execute_count += 1
         if self._execute_results:
             return self._execute_results.pop(0)
         return FakeResult()
@@ -352,6 +357,27 @@ class TestSyncEngine:
         assert meta["content_profile"] == "procedural"
         assert meta["constraint_kind"] == "guiding"
 
+    def test_entity_to_synesis_meta_rejects_unknown_constraint_kind(self):
+        from app.services.catalog_client import _parse_entity
+        from app.services.devhub_sync import _entity_to_synesis_meta
+
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {
+                    "name": "react-app",
+                    "annotations": {
+                        "synesis.io/constraint-kind": "grant-admin",
+                        "synesis.io/scope-tags": "org:one\nignore-control",
+                    },
+                },
+                "spec": {},
+            }
+        )
+        meta = _entity_to_synesis_meta("conn-1", e)
+        assert meta["constraint_kind"] == "guiding"
+        assert "\n" not in meta["scope_tags"]
+
     def test_entity_to_synesis_meta_component(self):
         from app.services.catalog_client import _parse_entity
         from app.services.devhub_sync import _entity_to_synesis_meta
@@ -394,6 +420,31 @@ class TestSyncEngine:
         assert fields["config"]["synesis_meta"]["golden_path_id"] == "go-svc"
         assert fields["org_id"] == "org-1"
         assert len(fields["content_hash"]) == 16
+
+    def test_devhub_clause_id_hashes_unsafe_entity_names(self):
+        from app.services.catalog_client import _parse_entity
+        from app.services.devhub_sync import _safe_devhub_clause_id
+
+        connector = FakeRow(connector_id="devhub-abc123")
+        e = _parse_entity(
+            {
+                "kind": "Template",
+                "metadata": {"name": "name/with/path"},
+                "spec": {},
+            }
+        )
+        clause_id = _safe_devhub_clause_id(connector, e)
+        assert clause_id.startswith("devhub-devhub-abc123-")
+        assert len(clause_id) <= 64
+        assert "/" not in clause_id
+
+    def test_governance_annotation_helpers_allow_only_known_values(self):
+        from app.services.devhub_sync import _safe_constraint_kind, _safe_governance_category
+
+        assert _safe_constraint_kind("hard") == "hard"
+        assert _safe_constraint_kind("make-admin") == "guiding"
+        assert _safe_governance_category("safety") == "safety"
+        assert _safe_governance_category("unknown") == "architecture"
 
 
 # ── Governance bridge unit tests ─────────────────────────────────────────────
@@ -503,7 +554,42 @@ class TestDeveloperHubAPI:
                 "/api/v1/developer-hub/connectors",
                 json={"name": "Bad", "base_url": "https://example.com", "auth_type": "kerberos"},
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
+
+    def test_create_connector_rejects_unsupported_oauth(self, admin_client):
+        fake_sess = FakeSession()
+
+        @asynccontextmanager
+        async def mock_session():
+            yield fake_sess
+
+        with patch("app.routers.developer_hub.async_session", mock_session):
+            resp = admin_client.post(
+                "/api/v1/developer-hub/connectors",
+                json={"name": "Bad", "base_url": "https://example.com", "auth_type": "oauth"},
+            )
+        assert resp.status_code == 422
+        assert fake_sess.execute_count == 0
+
+    def test_create_connector_rejects_unknown_fields(self, admin_client):
+        fake_sess = FakeSession()
+
+        @asynccontextmanager
+        async def mock_session():
+            yield fake_sess
+
+        with patch("app.routers.developer_hub.async_session", mock_session):
+            resp = admin_client.post(
+                "/api/v1/developer-hub/connectors",
+                json={
+                    "name": "Bad",
+                    "base_url": "https://example.com",
+                    "auth_type": "none",
+                    "role": "platform_admin",
+                },
+            )
+        assert resp.status_code == 422
+        assert fake_sess.execute_count == 0
 
     def test_create_connector_invalid_entity_kind(self, admin_client):
         fake_sess = FakeSession()
@@ -517,7 +603,7 @@ class TestDeveloperHubAPI:
                 "/api/v1/developer-hub/connectors",
                 json={"name": "Bad", "base_url": "https://example.com", "entity_kinds": ["InvalidKind"]},
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_list_connectors(self, admin_client):
         row = self._make_connector_row()
@@ -538,6 +624,18 @@ class TestDeveloperHubAPI:
         assert data["total"] == 1
         assert len(data["connectors"]) == 1
         assert data["connectors"][0]["connector_id"] == "devhub-test123"
+
+    def test_list_connectors_rejects_malformed_org_filter_before_db(self, admin_client):
+        fake_sess = FakeSession()
+
+        @asynccontextmanager
+        async def mock_session():
+            yield fake_sess
+
+        with patch("app.routers.developer_hub.async_session", mock_session):
+            resp = admin_client.get("/api/v1/developer-hub/connectors?org_id=org-1%0Arole=admin")
+        assert resp.status_code == 422
+        assert fake_sess.execute_count == 0
 
     def test_get_connector(self, admin_client):
         row = self._make_connector_row()
@@ -562,8 +660,20 @@ class TestDeveloperHubAPI:
             yield fake_sess
 
         with patch("app.routers.developer_hub.async_session", mock_session):
-            resp = admin_client.get("/api/v1/developer-hub/connectors/nonexistent")
+            resp = admin_client.get("/api/v1/developer-hub/connectors/devhub-missing")
         assert resp.status_code == 404
+
+    def test_get_connector_rejects_malformed_id_before_db(self, admin_client):
+        fake_sess = FakeSession()
+
+        @asynccontextmanager
+        async def mock_session():
+            yield fake_sess
+
+        with patch("app.routers.developer_hub.async_session", mock_session):
+            resp = admin_client.get("/api/v1/developer-hub/connectors/not-a-devhub-id")
+        assert resp.status_code == 422
+        assert fake_sess.execute_count == 0
 
     def test_update_connector(self, admin_client):
         row = self._make_connector_row(name="Updated Hub")
@@ -622,7 +732,7 @@ class TestDeveloperHubAPI:
             yield fake_sess
 
         with patch("app.routers.developer_hub.async_session", mock_session):
-            resp = admin_client.delete("/api/v1/developer-hub/connectors/nonexistent")
+            resp = admin_client.delete("/api/v1/developer-hub/connectors/devhub-missing")
         assert resp.status_code == 404
 
     def test_get_cache_empty(self, admin_client):
@@ -644,6 +754,7 @@ class TestDeveloperHubAPI:
             "entities": [
                 {"kind": "Template", "metadata": {"name": "t1"}},
                 {"kind": "Component", "metadata": {"name": "c1"}},
+                {"kind": "MadeUpKind", "metadata": {"name": "ignored"}},
             ],
             "synced_at": "2026-03-30T00:00:00Z",
         }
@@ -660,8 +771,9 @@ class TestDeveloperHubAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["has_cache"] is True
-        assert data["entity_count"] == 2
+        assert data["entity_count"] == 3
         assert "Template" in data["entity_kinds"]
+        assert "MadeUpKind" not in data["entity_kinds"]
 
 
 # ── SyncResult / PreviewItem model tests ─────────────────────────────────────

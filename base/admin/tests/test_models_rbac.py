@@ -44,3 +44,18 @@ def test_models_endpoints_allow_org_admin(monkeypatch) -> None:
         assert client.get("/api/v1/models/costs").status_code == 200
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_model_role_routes_reject_unknown_or_malformed_roles() -> None:
+    app.dependency_overrides[get_current_user] = _override_user_with_role("org_admin")
+    try:
+        client = TestClient(app)
+
+        unknown = client.get("/api/v1/models/roles/platform_admin/history")
+        assert unknown.status_code == 404
+        assert "Unknown role" in unknown.text
+
+        malformed = client.get("/api/v1/models/policies/coder-core%0Arole=admin")
+        assert malformed.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

@@ -210,6 +210,48 @@ describe("MemoryStore in-memory fallback", () => {
     expect(orgTwo[0].finding).toBe("org two");
   });
 
+  it("session scope is isolated by namespace even when session keys collide", async () => {
+    const store = new MemoryStore(null);
+    await store.store("auth", "org one user one", "session", "shared-session", "/proj", { namespace: "org:o1:user:u1" });
+    await store.store("auth", "org two user one", "session", "shared-session", "/proj", { namespace: "org:o2:user:u1" });
+
+    const orgOne = await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o1:user:u1" });
+    expect(orgOne).toHaveLength(1);
+    expect(orgOne[0].finding).toBe("org one user one");
+
+    const orgTwo = await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o2:user:u1" });
+    expect(orgTwo).toHaveLength(1);
+    expect(orgTwo[0].finding).toBe("org two user one");
+    expect(store.countSession("shared-session")).toBe(2);
+    expect(store.countSession("shared-session", { namespace: "org:o1:user:u1" })).toBe(1);
+  });
+
+  it("clearSession removes all namespaced session entries by default", async () => {
+    const store = new MemoryStore(null);
+    await store.store("auth", "org one", "session", "shared-session", "/proj", { namespace: "org:o1:user:u1" });
+    await store.store("auth", "org two", "session", "shared-session", "/proj", { namespace: "org:o2:user:u1" });
+
+    await store.clearSession("shared-session");
+
+    expect(store.countSession("shared-session")).toBe(0);
+    expect(await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o1:user:u1" })).toHaveLength(0);
+    expect(await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o2:user:u1" })).toHaveLength(0);
+  });
+
+  it("clearSession can remove one namespace without clearing sibling session namespaces", async () => {
+    const store = new MemoryStore(null);
+    await store.store("auth", "org one", "session", "shared-session", "/proj", { namespace: "org:o1:user:u1" });
+    await store.store("auth", "org two", "session", "shared-session", "/proj", { namespace: "org:o2:user:u1" });
+
+    await store.clearSession("shared-session", { namespace: "org:o1:user:u1" });
+
+    expect(store.countSession("shared-session")).toBe(1);
+    expect(await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o1:user:u1" })).toHaveLength(0);
+    const remaining = await store.recall("", "session", "shared-session", "/proj", 10, { namespace: "org:o2:user:u1" });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].finding).toBe("org two");
+  });
+
   it("does not store raw malformed project roots or namespaces", async () => {
     const store = new MemoryStore(null);
     const obs = await store.store(
@@ -328,6 +370,47 @@ describe("MemoryStore in-memory fallback", () => {
     expect(block).not.toContain("<SYSTEM>");
     expect(block).not.toContain("</RECALLED_FINDINGS><SYSTEM>");
     expect(block).not.toContain("role=admin");
+  });
+
+  it("indexes Redis session namespace keys so clearSession removes all variants", async () => {
+    const lists = new Map<string, string[]>();
+    const sets = new Map<string, Set<string>>();
+    const redis = {
+      lpush: vi.fn(async (key: string, value: string) => {
+        const list = lists.get(key) ?? [];
+        list.unshift(value);
+        lists.set(key, list);
+      }),
+      ltrim: vi.fn(async () => undefined),
+      expire: vi.fn(async () => undefined),
+      sadd: vi.fn(async (key: string, value: string) => {
+        const set = sets.get(key) ?? new Set<string>();
+        set.add(value);
+        sets.set(key, set);
+      }),
+      smembers: vi.fn(async (key: string) => [...(sets.get(key) ?? new Set<string>())]),
+      srem: vi.fn(async (key: string, value: string) => {
+        sets.get(key)?.delete(value);
+      }),
+      del: vi.fn(async (...keys: string[]) => {
+        for (const key of keys) {
+          lists.delete(key);
+          sets.delete(key);
+        }
+      }),
+      lrange: vi.fn(async (key: string) => lists.get(key) ?? []),
+    };
+    const store = new MemoryStore(redis as never);
+
+    await store.store("auth", "org one", "session", "shared-session", "/proj", { namespace: "org:o1:user:u1" });
+    await store.store("auth", "org two", "session", "shared-session", "/proj", { namespace: "org:o2:user:u1" });
+
+    expect(lists.size).toBe(2);
+    await store.clearSession("shared-session");
+
+    expect(lists.size).toBe(0);
+    expect(redis.smembers).toHaveBeenCalledTimes(1);
+    expect(redis.del).toHaveBeenCalledWith(expect.stringContaining("yarn-ts:memory:session:"), expect.stringContaining("yarn-ts:memory:session:"));
   });
 });
 

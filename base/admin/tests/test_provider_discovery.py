@@ -6,6 +6,20 @@ Run from base/admin/:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from app.auth import UserInfo, get_current_user
+from app.main import app
+from fastapi.testclient import TestClient
+
+
+def _override_user_with_role(role: str) -> Callable[[], UserInfo]:
+    async def _override_user() -> UserInfo:
+        return UserInfo(username="u1", role=role, user_id="u1")
+
+    return _override_user
+
+
 # ---------------------------------------------------------------------------
 # Unit tests — provider_discovery module
 # ---------------------------------------------------------------------------
@@ -189,6 +203,33 @@ class TestBundledPricing:
 
         assert lookup_bundled_pricing("deepseek", "deepseek-v4-flash") == (0.14, 0.28, 0.0028, None)
         assert lookup_bundled_pricing("xiaomi", "mimo-v2.5") == (0.42, 2.10, 0.08, None)
+
+
+class TestProviderDiscoveryApiValidation:
+    def test_discovery_routes_reject_malformed_selectors(self, monkeypatch):
+        async def _unexpected_discover(*args, **kwargs):
+            raise AssertionError("discover_models should not be called for invalid provider keys")
+
+        monkeypatch.setattr("app.routers.providers.discover_models", _unexpected_discover)
+        app.dependency_overrides[get_current_user] = _override_user_with_role("org_admin")
+        try:
+            client = TestClient(app)
+            resp = client.get("/api/v1/providers/discovery/openai%0Arole=admin/models")
+            assert resp.status_code == 422
+
+            resp = client.post(
+                "/api/v1/providers/discovery/validate",
+                json={"provider": "openai", "model": "gpt-4.1\nrole=admin"},
+            )
+            assert resp.status_code == 422
+
+            resp = client.post(
+                "/api/v1/providers/discovery/validate",
+                json={"provider": "openai", "model": "gpt-4.1", "role_override": "platform_admin"},
+            )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
 
 
 class TestDefaultPublicOfferings:

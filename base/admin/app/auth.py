@@ -24,6 +24,8 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from .route_validation import validate_safe_identifier
+
 logger = logging.getLogger("synesis.auth")
 
 # ── Keycloak configuration ───────────────────────────────────────────────────
@@ -44,6 +46,16 @@ COOKIE_SECURE = os.getenv("SYNESIS_ADMIN_COOKIE_SECURE", "true").lower() not in 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 
 _jwks_client: jwt.PyJWKClient | None = None
+
+
+def _normalize_org_selector(value: str, *, field_name: str = "org_id") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return validate_safe_identifier(raw, field_name=field_name, max_length=128)
+    except ValueError as exc:
+        raise jwt.InvalidTokenError(str(exc)) from exc
 
 
 def _get_jwks_client() -> jwt.PyJWKClient:
@@ -89,10 +101,10 @@ def _parse_org_claim(payload: dict, requested_org_id: str = "") -> tuple[str, st
     if not org_map:
         return "", "", []
 
-    selected = requested_org_id.strip()
+    selected = _normalize_org_selector(requested_org_id, field_name="requested_org_id")
     if not selected:
         for claim_key in ("synesis_active_org_id", "active_org_id", "org_id"):
-            raw = str(payload.get(claim_key) or "").strip()
+            raw = _normalize_org_selector(str(payload.get(claim_key) or ""), field_name=claim_key)
             if raw:
                 selected = raw
                 break
@@ -107,6 +119,7 @@ def _parse_org_claim(payload: dict, requested_org_id: str = "") -> tuple[str, st
 
     if len(org_map) == 1:
         org_id, org_data = next(iter(org_map.items()))
+        org_id = _normalize_org_selector(org_id, field_name="org_id")
         raw_roles = org_data.get("roles", [])
         roles = [str(r) for r in raw_roles] if isinstance(raw_roles, list) else []
         return org_id, str(org_data.get("name", "")), roles
@@ -196,7 +209,18 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         raw_scopes = getattr(pat, "scopes", None)
         scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
         raw_tenants = getattr(pat, "tenant_ids", None)
-        tenant_ids = [str(t).strip()[:64] for t in (raw_tenants or []) if str(t).strip()][:50]
+        tenant_ids: list[str] = []
+        try:
+            for raw_tenant_id in raw_tenants or []:
+                tenant_id = validate_safe_identifier(raw_tenant_id, field_name="tenant_id", max_length=64)
+                if tenant_id not in tenant_ids:
+                    tenant_ids.append(tenant_id)
+            if len(tenant_ids) > 50:
+                logger.warning("pat_auth_invalid_scope reason=too_many_tenant_ids")
+                return None
+        except ValueError:
+            logger.warning("pat_auth_invalid_scope reason=invalid_tenant_id")
+            return None
         org_id = (getattr(pat, "org_id", "") or "").strip()
         if tenant_ids and not org_id:
             logger.warning("pat_auth_invalid_scope reason=tenant_ids_without_org")
@@ -465,9 +489,7 @@ async def get_current_user(
     # 2. Keycloak JWKS validation
     if KEYCLOAK_ISSUER:
         try:
-            requested_org_id = (
-                request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or ""
-            ).strip()[:128]
+            requested_org_id = request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or ""
             user = _verify_keycloak_token(token, requested_org_id=requested_org_id)
             request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(token)
             return user

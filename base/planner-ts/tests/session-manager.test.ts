@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "../src/context/session-manager.js";
+import { MemorySessionStore } from "../src/context/session-store.js";
 
 describe("SessionManager", () => {
   it("injects checkpoint block into incoming messages", async () => {
@@ -114,5 +115,49 @@ describe("SessionManager", () => {
 
     expect(checkpoint).toContain("User stated facts/preferences:");
     expect(checkpoint).toMatch(/using React/i);
+  });
+
+  it("ignores stored session data whose embedded key does not match the requested key", async () => {
+    const store = new MemorySessionStore();
+    (store as unknown as { sessions: Map<string, unknown> }).sessions.set(
+      "conversation:principal:org-1:alice:conv-1",
+      {
+        key: "conversation:principal:org-1:bob:conv-1",
+        lastSeenAt: Date.now(),
+        history: [{ role: "user", content: "bob private context" }],
+      },
+    );
+    const manager = new SessionManager({
+      enabled: true,
+      maxHistory: 20,
+      checkpointEveryMessages: 2,
+      ttlMs: 100000,
+      store,
+    });
+
+    const enriched = await manager.enrichIncomingMessages(
+      "conversation:principal:org-1:alice:conv-1",
+      [{ role: "user", content: "next" }],
+    );
+
+    expect(enriched).toEqual([{ role: "user", content: "next" }]);
+    expect(await store.get("conversation:principal:org-1:alice:conv-1")).toBeUndefined();
+  });
+
+  it("canonicalizes session writes to the requested key", async () => {
+    const store = new MemorySessionStore();
+    await store.set(
+      "conversation:principal:org-1:alice:conv-1",
+      {
+        key: "conversation:principal:org-1:bob:conv-1",
+        lastSeenAt: Date.now(),
+        history: [{ role: "user", content: "alice context" }],
+      },
+      100000,
+    );
+
+    const stored = await store.get("conversation:principal:org-1:alice:conv-1");
+    expect(stored?.key).toBe("conversation:principal:org-1:alice:conv-1");
+    expect(stored?.history).toEqual([{ role: "user", content: "alice context" }]);
   });
 });

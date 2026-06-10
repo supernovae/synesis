@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUsageTelemetryFetch } from "../src/providers/usage-telemetry-fetch.js";
-import { resetCacheDebugTraceState } from "../src/telemetry/cache-debug-trace.js";
+import {
+  buildCacheDebugRequestSnapshot,
+  resetCacheDebugTraceState,
+} from "../src/telemetry/cache-debug-trace.js";
 
 describe("createUsageTelemetryFetch", () => {
   afterEach(() => {
@@ -126,6 +129,17 @@ describe("createUsageTelemetryFetch", () => {
     const serializedLogs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(serializedLogs).not.toContain("SECRET_PROMPT_DO_NOT_LOG");
     expect(serializedLogs).not.toContain("stable rule");
+    expect(serializedLogs).not.toContain("first turn");
+    const snapshot = buildCacheDebugRequestSnapshot(JSON.stringify({
+      stream: false,
+      messages: [
+        { role: "system", content: stableSystem },
+        { role: "user", content: "first turn" },
+      ],
+    }));
+    expect(snapshot).not.toHaveProperty("payload");
+    expect(JSON.stringify(snapshot)).not.toContain("SECRET_PROMPT_DO_NOT_LOG");
+    expect(JSON.stringify(snapshot)).not.toContain("first turn");
     const trace = logSpy.mock.calls
       .map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
       .find((record) => record.msg === "provider_cache_debug_trace");
@@ -206,5 +220,68 @@ describe("createUsageTelemetryFetch", () => {
     });
     expect(Number(traces[1]?.shared_prefix_bytes)).toBeGreaterThan(4_000);
     expect(Number(traces[1]?.first_divergence_message_index)).toBe(1);
+  });
+
+  it("classifies volatile system-prefix changes without retaining request payload text", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    let requestId = "req-1";
+    const wrapped = createUsageTelemetryFetch(
+      async () => new Response(JSON.stringify({
+        id: "chatcmpl-test",
+        choices: [],
+        usage: {
+          prompt_tokens: 8_000,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        provider: "openrouter",
+        tier: "synesis-core",
+        model: "qwen/test",
+        cacheDebugTraceMode: "hashed",
+        getCacheDebugTraceContext: () => ({
+          sessionKey: "volatile-session",
+          requestId,
+          clientKind: "codex-cli",
+        }),
+      },
+    );
+
+    await wrapped("https://example.test/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: false,
+        messages: [
+          { role: "system", content: `Current date: 2026-06-08\n${"stable rule\n".repeat(500)}` },
+          { role: "user", content: "first turn" },
+        ],
+      }),
+    });
+    requestId = "req-2";
+    await wrapped("https://example.test/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: false,
+        messages: [
+          { role: "system", content: `Current date: 2026-06-09\n${"stable rule\n".repeat(500)}` },
+          { role: "user", content: "second turn" },
+        ],
+      }),
+    });
+
+    const serializedLogs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(serializedLogs).not.toContain("Current date: 2026-06-08");
+    expect(serializedLogs).not.toContain("Current date: 2026-06-09");
+    const traces = logSpy.mock.calls
+      .map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
+      .filter((record) => record.msg === "provider_cache_debug_trace");
+    expect(traces[1]).toMatchObject({
+      request_id: "req-2",
+      cache_miss_reason: "volatile_metadata_in_prefix",
+    });
   });
 });

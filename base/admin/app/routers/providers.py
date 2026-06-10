@@ -9,13 +9,14 @@ import time
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import ProviderConfig
+from ..route_validation import MODEL_ID_PATTERN, PROVIDER_KEY_PATTERN
 from ..services.admin_audit import record_admin_audit
 from ..services.provider_catalog import PROVIDER_CATALOG, default_endpoint_for_provider, get_catalog
 from ..services.provider_discovery import (
@@ -46,6 +47,13 @@ KNOWN_PROVIDERS = {p.api_key_env: p.label for p in PROVIDER_CATALOG.values() if 
 
 # Only catalog env var names may be set via PUT /keys/{name} (same list as Model Registry provider picklist).
 _ALLOWED_KEY_ENV_NAMES = frozenset(KNOWN_PROVIDERS.keys())
+
+
+class ProviderDiscoveryValidateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(..., min_length=1, max_length=64, pattern=PROVIDER_KEY_PATTERN)
+    model: str = Field(..., min_length=1, max_length=256, pattern=MODEL_ID_PATTERN)
 
 
 def _k8s_base() -> str:
@@ -367,8 +375,8 @@ async def discovery_supported(_user=Depends(get_current_user)):
 
 @router.get("/discovery/{provider_key}/models")
 async def discovery_models(
-    provider_key: str,
-    bypass_cache: bool = False,
+    provider_key: str = Path(..., min_length=1, max_length=64, pattern=PROVIDER_KEY_PATTERN),
+    bypass_cache: bool = Query(False),
     _user=Depends(get_current_user),
 ):
     """Fetch available models from a provider's API.
@@ -382,9 +390,9 @@ async def discovery_models(
 
 @router.get("/discovery/{provider_key}/defaults")
 async def discovery_defaults(
-    provider_key: str,
-    model_id: str = "",
-    context_window: int | None = None,
+    provider_key: str = Path(..., min_length=1, max_length=64, pattern=PROVIDER_KEY_PATTERN),
+    model_id: str = Query("", max_length=256, pattern=r"^[^\x00-\x1F\x7F]*$"),
+    context_window: int | None = Query(None, ge=1, le=10_000_000),
     _user=Depends(get_current_user),
 ):
     """Get recommended route defaults for a provider + model pair."""
@@ -394,13 +402,11 @@ async def discovery_defaults(
 
 @router.post("/discovery/validate")
 async def discovery_validate(
-    body: dict,
+    body: ProviderDiscoveryValidateBody = Body(...),
     _user=Depends(get_current_user),
 ):
     """Validate a model ID for a given provider and return hints."""
-    provider_key = body.get("provider", "")
-    model_id = body.get("model", "")
-    return validate_model_id(provider_key, model_id)
+    return validate_model_id(body.provider, body.model)
 
 
 @router.get("/keys")

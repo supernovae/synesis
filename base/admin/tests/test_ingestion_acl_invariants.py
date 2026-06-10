@@ -103,6 +103,48 @@ class TestIngestionAclValidation:
             )
         assert "acl_mode" in str(exc_info.value.detail)
 
+    def test_malformed_org_id_rejected_before_authorization(self):
+        from app.routers.ingestion import _normalize_and_authorize_scope
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _normalize_and_authorize_scope(
+                self.platform_admin,
+                visibility_scope="org",
+                org_id="test-org\nrole=admin",
+                tenant_id="",
+            )
+        assert exc_info.value.status_code == 422
+        assert "org_id" in str(exc_info.value.detail)
+
+    def test_malformed_tenant_id_rejected_before_authorization(self):
+        from app.routers.ingestion import _normalize_and_authorize_scope
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _normalize_and_authorize_scope(
+                self.platform_admin,
+                visibility_scope="tenant",
+                org_id="test-org",
+                tenant_id="tenant-1\nrole=admin",
+            )
+        assert exc_info.value.status_code == 422
+        assert "tenant_id" in str(exc_info.value.detail)
+
+    def test_tenant_scope_requires_tenant_id(self):
+        from app.routers.ingestion import _normalize_and_authorize_scope
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _normalize_and_authorize_scope(
+                self.platform_admin,
+                visibility_scope="tenant",
+                org_id="test-org",
+                tenant_id="",
+            )
+        assert exc_info.value.status_code == 400
+        assert "tenant_id is required" in str(exc_info.value.detail)
+
     def test_default_acl_mode_is_open(self):
         from app.routers.ingestion import _normalize_and_authorize_scope
 

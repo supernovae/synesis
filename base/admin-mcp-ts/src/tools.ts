@@ -80,6 +80,15 @@ const TOOL_PROPERTY_SCHEMA_KEYS = new Set([
   "additionalProperties",
 ]);
 
+function safeTextSchema(maxLength: number, minLength = 0): ToolJsonSchemaProperty {
+  return {
+    type: "string",
+    ...(minLength > 0 ? { minLength } : {}),
+    maxLength,
+    pattern: "^[^\\x00-\\x1F\\x7F]*$",
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -139,6 +148,33 @@ const SECURITY_EVENT_TYPES = [
   "yarn_policy_reject",
 ] as const;
 const SECURITY_EVENT_SERVICES = ["planner", "yarn"] as const;
+const WEB_SEARCH_OUTCOMES = ["success", "error", "empty"] as const;
+const WEB_SEARCH_SOURCE_SURFACES = [
+  "yarn_chat",
+  "yarn_mcp_http",
+  "openwebui_planner",
+  "planner_internal",
+  "external_api",
+  "unknown",
+] as const;
+const MODEL_ROLES = [
+  "router",
+  "planner",
+  "writer",
+  "writer-pulse",
+  "writer-core",
+  "writer-horizon",
+  "ambiguity-scorer",
+  "critic",
+  "coder-pulse",
+  "coder-core",
+  "coder-horizon",
+  "coder-compaction",
+  "coder-normalizer",
+  "summarizer",
+  "indexer-enrich",
+  "vision",
+] as const;
 const YARN_TRANSITION_EVENT_KINDS = [
   "request_trajectory_v1",
   "state_transition_v1",
@@ -852,21 +888,21 @@ const INGESTION_SYNESIS_META_SCHEMA: ToolJsonSchemaProperty = {
   type: "object",
   additionalProperties: false,
   properties: {
-    language: { type: "string" },
-    languages: { type: "array", items: { type: "string" } },
-    artifact_kind: { type: "string" },
+    language: safeTextSchema(32),
+    languages: { type: "array", items: safeTextSchema(32) },
+    artifact_kind: safeTextSchema(32),
     corpus_class: { type: "string", enum: [...INGESTION_CORPUS_CLASSES] },
-    content_profile: { type: "string" },
+    content_profile: safeTextSchema(32),
     freshness_sla_days: { type: "integer" },
-    scope_tags: { type: "array", items: { type: "string" } },
-    golden_path_id: { type: "string" },
-    validation_recipe_id: { type: "string" },
-    source_owner: { type: "string" },
+    scope_tags: { type: "array", items: safeTextSchema(64) },
+    golden_path_id: safeTextSchema(128),
+    validation_recipe_id: safeTextSchema(128),
+    source_owner: safeTextSchema(128),
     review_status: { type: "string", enum: [...INGESTION_REVIEW_STATUSES] },
-    backstage_entity_ref: { type: "string" },
-    constraint_domain: { type: "string" },
+    backstage_entity_ref: safeTextSchema(256),
+    constraint_domain: safeTextSchema(64),
     constraint_kind: { type: "string", enum: [...INGESTION_CONSTRAINT_KINDS] },
-    constraint_source: { type: "string" },
+    constraint_source: safeTextSchema(64),
     constraint_confidence: { type: "number" },
   },
 };
@@ -875,12 +911,12 @@ const INGESTION_DISCOVERY_REPORT_SCHEMA: ToolJsonSchemaProperty = {
   additionalProperties: false,
   properties: {
     handler: { type: "string", enum: [...INGESTION_HANDLERS] },
-    domain: { type: "string" },
-    title: { type: "string" },
-    tags: { type: "array", items: { type: "string" } },
-    risk_flags: { type: "array", items: { type: "string" } },
+    domain: safeTextSchema(128),
+    title: safeTextSchema(512),
+    tags: { type: "array", items: safeTextSchema(64) },
+    risk_flags: { type: "array", items: safeTextSchema(128) },
     recommended_mode: { type: "string", enum: [...INGESTION_DISCOVERY_MODES] },
-    notes: { type: "array", items: { type: "string" } },
+    notes: { type: "array", items: safeTextSchema(512) },
     suggested_corpus_class: { type: "string", enum: [...INGESTION_CORPUS_CLASSES] },
   },
 };
@@ -902,8 +938,8 @@ const INGESTION_ARXIV_PAPER_SCHEMA: ToolJsonSchemaProperty = {
   type: "object",
   additionalProperties: false,
   properties: {
-    id: { type: "string", minLength: 1, maxLength: 64 },
-    title: { type: "string", maxLength: 512 },
+    id: safeTextSchema(64, 1),
+    title: safeTextSchema(512),
   },
   required: ["id"],
 };
@@ -921,7 +957,7 @@ const INGESTION_FEDORA_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
   additionalProperties: false,
   properties: {
     repo_url: INGESTION_PUBLIC_URL_SCHEMA,
-    common_licenses: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } },
+    common_licenses: { type: "array", items: safeTextSchema(128, 1) },
   },
   required: ["repo_url"],
 };
@@ -929,9 +965,9 @@ const INGESTION_CHOOSEALICENSE_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
   type: "object",
   additionalProperties: false,
   properties: {
-    repo: { type: "string", minLength: 1, maxLength: 256 },
-    branch: { type: "string", maxLength: 128 },
-    licenses_path: { type: "string", maxLength: 512 },
+    repo: safeTextSchema(256, 1),
+    branch: safeTextSchema(128),
+    licenses_path: safeTextSchema(512),
   },
   required: ["repo"],
 };
@@ -940,10 +976,10 @@ const INGESTION_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
   additionalProperties: false,
   properties: {
     url: INGESTION_PUBLIC_URL_SCHEMA,
-    path: { type: "string", maxLength: 2048 },
-    branch: { type: "string", maxLength: 128 },
-    paths: { type: "array", items: { type: "string", maxLength: 2048 } },
-    discovery: { type: "string" },
+    path: safeTextSchema(2048),
+    branch: safeTextSchema(128),
+    paths: { type: "array", items: safeTextSchema(2048) },
+    discovery: safeTextSchema(64),
     follow_links: { type: "boolean" },
     max_depth: { type: "integer" },
     max_pages: { type: "integer" },
@@ -955,25 +991,68 @@ const INGESTION_CONFIG_SCHEMA: ToolJsonSchemaProperty = {
     disallow_dotted_first_path_segment: { type: "boolean" },
     max_sitemap_expand: { type: "integer" },
     max_links_per_page: { type: "integer" },
-    profile: { type: "string", maxLength: 64 },
-    user_agent: { type: "string", maxLength: 256 },
-    format: { type: "string", maxLength: 32 },
-    tags: { type: "array", items: { type: "string", maxLength: 64 } },
-    repo: { type: "string", maxLength: 256 },
-    language: { type: "string", maxLength: 32 },
-    doc_id_prefix: { type: "string", maxLength: 128 },
-    context_prefix: { type: "string", maxLength: 2000 },
-    inline_content: { type: "string", maxLength: 200000 },
-    devhub_entity_ref: { type: "string", maxLength: 256 },
+    profile: safeTextSchema(64),
+    user_agent: safeTextSchema(256),
+    format: safeTextSchema(32),
+    tags: { type: "array", items: safeTextSchema(64) },
+    repo: safeTextSchema(256),
+    language: safeTextSchema(32),
+    doc_id_prefix: safeTextSchema(128),
+    context_prefix: safeTextSchema(2000),
+    inline_content: safeTextSchema(200000),
+    devhub_entity_ref: safeTextSchema(256),
     papers: { type: "array", items: INGESTION_ARXIV_PAPER_SCHEMA },
     spdx: INGESTION_SPDX_CONFIG_SCHEMA,
     fedora: INGESTION_FEDORA_CONFIG_SCHEMA,
     choosealicense: INGESTION_CHOOSEALICENSE_CONFIG_SCHEMA,
-    compat_path: { type: "string", maxLength: 2048 },
+    compat_path: safeTextSchema(2048),
     synesis_meta: INGESTION_SYNESIS_META_SCHEMA,
     discovery_report: INGESTION_DISCOVERY_REPORT_SCHEMA,
-    preflight_at: { type: "string", maxLength: 64 },
+    preflight_at: safeTextSchema(64),
   },
+};
+const TRACE_ID_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 64,
+  pattern: "^[A-Za-z0-9_.:-]+$",
+};
+const IDENTIFIER_64_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 64,
+  pattern: "^[A-Za-z0-9_.:-]+$",
+};
+const IDENTIFIER_128_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 128,
+  pattern: "^[A-Za-z0-9_.:-]+$",
+};
+const MODEL_ID_256_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 256,
+  pattern: "^[^\\x00-\\x1F\\x7F]*$",
+};
+const MODEL_ROLE_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  enum: [...MODEL_ROLES],
+};
+const SAFE_TEXT_64_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  maxLength: 64,
+  pattern: "^[^\\x00-\\x1F\\x7F]*$",
+};
+const SAFE_TEXT_128_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  maxLength: 128,
+  pattern: "^[^\\x00-\\x1F\\x7F]*$",
+};
+const SAFE_TEXT_256_SCHEMA: ToolJsonSchemaProperty = {
+  type: "string",
+  maxLength: 256,
+  pattern: "^[^\\x00-\\x1F\\x7F]*$",
 };
 
 const TOOL_DEFINITIONS: AdminToolDefinition[] = [
@@ -988,14 +1067,14 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         limit: { type: "integer", default: 20, description: "Max results (max 100)" },
         offset: { type: "integer", default: 0, description: "Pagination offset" },
         has_error: { type: "boolean", description: "Filter error traces" },
-        task_type: { type: "string", description: "Filter by task type" },
+        task_type: { ...SAFE_TEXT_128_SCHEMA, description: "Filter by task type" },
         since_hours: { type: "integer", description: "If set, only traces newer than this many hours ago" },
         trace_service: { type: "string", enum: [...TRACE_SERVICES], description: "Filter by emitter: planner, yarn, or all" },
-        conversation_id: { type: "string", description: "Filter by conversation / session id" },
+        conversation_id: { ...SAFE_TEXT_128_SCHEMA, description: "Filter by conversation / session id" },
         decision_path: { type: "string", enum: [...TRACE_DECISION_PATHS], description: "Filter by routing path" },
-        tenant_id: { type: "string", description: "Optional tenant filter" },
-        user_id: { type: "string", description: "Optional user id filter (within RBAC scope)" },
-        org_id: { type: "string", description: "Optional org id filter (within RBAC scope)" },
+        tenant_id: { ...SAFE_TEXT_64_SCHEMA, description: "Optional tenant filter" },
+        user_id: { ...SAFE_TEXT_256_SCHEMA, description: "Optional user id filter (within RBAC scope)" },
+        org_id: { ...SAFE_TEXT_256_SCHEMA, description: "Optional org id filter (within RBAC scope)" },
       },
     },
     invoke: async (ctx, args) => {
@@ -1006,11 +1085,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         has_error: typeof args.has_error === "boolean" ? args.has_error : undefined,
         task_type: boundedString(args.task_type, 128),
         trace_service: boundedString(args.trace_service, 32),
-        conversation_id: boundedString(args.conversation_id, 256),
+        conversation_id: boundedString(args.conversation_id, 128),
         decision_path: boundedString(args.decision_path, 128),
         tenant_id: boundedString(args.tenant_id, 64),
-        user_id: boundedString(args.user_id, 128),
-        org_id: boundedString(args.org_id, 128),
+        user_id: boundedString(args.user_id, 256),
+        org_id: boundedString(args.org_id, 256),
         since: sinceHours > 0 ? nowUnixSeconds() - sinceHours * 3600 : undefined,
       });
     },
@@ -1021,11 +1100,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     min_role: "org_admin",
     inputSchema: {
       type: "object",
-      properties: { trace_id: { type: "string", description: "The trace ID to look up" } },
+      properties: { trace_id: { ...TRACE_ID_SCHEMA, description: "The trace ID to look up" } },
       required: ["trace_id"],
     },
     invoke: async (ctx, args) => {
-      const traceId = boundedString(args.trace_id, 256);
+      const traceId = boundedString(args.trace_id, 64);
       if (!traceId) throw new Error("trace_id required");
       return apiRequest(ctx, "GET", `/api/v1/traces/${encodeURIComponent(traceId)}`);
     },
@@ -1046,7 +1125,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         since_hours: { type: "integer", default: 24, description: "Start of window in hours ago" },
-        org_id: { type: "string", description: "Optional org filter" },
+        org_id: { ...SAFE_TEXT_256_SCHEMA, description: "Optional org filter" },
       },
     },
     invoke: async (ctx, args) => {
@@ -1100,9 +1179,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Natural language search query" },
+        query: { ...safeTextSchema(4000, 1), description: "Natural language search query" },
         top_k: { type: "integer", default: 5, description: "Max results" },
-        domain: { type: "string", description: "Optional domain filter" },
+        domain: { ...safeTextSchema(128), description: "Optional domain filter" },
       },
       required: ["query"],
     },
@@ -1123,7 +1202,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "The developer query to classify" },
+        query: { ...safeTextSchema(8000, 1), description: "The developer query to classify" },
       },
       required: ["query"],
     },
@@ -1155,10 +1234,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        query: { type: "string", description: "The question that had no good answer" },
-        context: { type: "string", description: "What the user was trying to do" },
-        language: { type: "string", description: "Optional language or technology label" },
-        platform_context: { type: "string", description: "Optional platform/domain context" },
+        query: { ...safeTextSchema(2000, 1), description: "The question that had no good answer" },
+        context: { ...safeTextSchema(2000), description: "What the user was trying to do" },
+        language: { ...safeTextSchema(32), description: "Optional language or technology label" },
+        platform_context: { ...safeTextSchema(64), description: "Optional platform/domain context" },
       },
       required: ["query"],
     },
@@ -1236,8 +1315,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        language: { type: "string" },
-        error_type: { type: "string" },
+        language: safeTextSchema(64),
+        error_type: safeTextSchema(128),
         page: { type: "integer", default: 1 },
         page_size: { type: "integer", default: 20 },
       },
@@ -1257,7 +1336,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "org_admin",
     {
       type: "object",
-      properties: { failure_id: { type: "string", description: "Failure identifier" } },
+      properties: { failure_id: { ...IDENTIFIER_128_SCHEMA, description: "Failure identifier" } },
       required: ["failure_id"],
     },
     (args) => `/api/v1/observability/failures/${encodeURIComponent(boundedString(args.failure_id, 128))}`,
@@ -1330,7 +1409,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     min_role: "org_admin",
     inputSchema: {
       type: "object",
-      properties: { session_key: { type: "string", description: "Yarn session key" } },
+      properties: { session_key: { ...safeTextSchema(MAX_SESSION_KEY_CANDIDATE_CHARS, 1), description: "Yarn session key" } },
       required: ["session_key"],
     },
     invoke: async (ctx, args) => {
@@ -1369,7 +1448,12 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     min_role: "org_admin",
     inputSchema: {
       type: "object",
-      properties: { session_key: { type: "string", description: "Yarn session key or copied session tail" } },
+      properties: {
+        session_key: {
+          ...safeTextSchema(MAX_SESSION_KEY_CANDIDATE_CHARS, 1),
+          description: "Yarn session key or copied session tail",
+        },
+      },
       required: ["session_key"],
     },
     invoke: async (ctx, args) => {
@@ -1466,10 +1550,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "org_admin",
     {
       type: "object",
-      properties: { request_id: { type: "string", description: "Yarn request id" } },
+      properties: { request_id: { ...IDENTIFIER_128_SCHEMA, description: "Yarn request id" } },
       required: ["request_id"],
     },
-    (args) => `/api/v1/yarn/diagnostics/${encodeURIComponent(boundedString(args.request_id, 256))}`,
+    (args) => `/api/v1/yarn/diagnostics/${encodeURIComponent(boundedString(args.request_id, 128))}`,
   ),
   getTool("yarn_health", "Direct health probe of the Yarn service.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/health"),
   getTool("yarn_runtime_telemetry", "Yarn runtime telemetry from /health/telemetry.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/runtime-telemetry"),
@@ -1496,7 +1580,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         page: { type: "integer", default: 1 },
         page_size: { type: "integer", default: 50 },
         since_hours: { type: "integer", default: 24 },
-        event_kind: { type: "string" },
+        event_kind: IDENTIFIER_64_SCHEMA,
       },
     },
     "/api/v1/yarn/safety-events",
@@ -1504,7 +1588,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       page: asInt(args.page, 1, 1, 10_000),
       page_size: asInt(args.page_size, 50, 1, 200),
       since_hours: asInt(args.since_hours, 24, 1, 720),
-      event_kind: boundedString(args.event_kind, 128),
+      event_kind: boundedString(args.event_kind, 64),
     }),
   ),
   getTool("yarn_diagnostics_recent", "Recent Yarn request diagnostics snapshots.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/diagnostics/recent"),
@@ -1523,7 +1607,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         focus: {
-          type: "string",
+          ...safeTextSchema(1000),
           description: "Optional operator focus, such as cache misses, tool schema churn, or slow stages.",
         },
       },
@@ -1879,7 +1963,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        prompt: { type: "string", description: "Prompt to evaluate" },
+        prompt: { ...safeTextSchema(12000, 1), description: "Prompt to evaluate" },
         effort_mode: { type: "string", enum: [...MODEL_EFFORT_MODES] },
         include_frame: { type: "boolean", default: true },
         operational_health: { type: "number" },
@@ -1903,7 +1987,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "org_admin",
     {
       type: "object",
-      properties: { role: { type: "string", description: "Model role" } },
+      properties: { role: { ...MODEL_ROLE_SCHEMA, description: "Model role" } },
       required: ["role"],
     },
     (args) => `/api/v1/models/policies/${encodeURIComponent(boundedString(args.role, 128))}`,
@@ -1914,7 +1998,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "org_admin",
     {
       type: "object",
-      properties: { role: { type: "string", description: "Model role" } },
+      properties: { role: { ...MODEL_ROLE_SCHEMA, description: "Model role" } },
       required: ["role"],
     },
     (args) => `/api/v1/models/roles/${encodeURIComponent(boundedString(args.role, 128))}/history`,
@@ -1928,7 +2012,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        provider_key: { type: "string" },
+        provider_key: IDENTIFIER_64_SCHEMA,
         bypass_cache: { type: "boolean", default: false },
       },
       required: ["provider_key"],
@@ -1943,8 +2027,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        provider_key: { type: "string" },
-        model_id: { type: "string" },
+        provider_key: IDENTIFIER_64_SCHEMA,
+        model_id: MODEL_ID_256_SCHEMA,
         context_window: { type: "integer" },
       },
       required: ["provider_key"],
@@ -1962,8 +2046,8 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        provider: { type: "string" },
-        model: { type: "string" },
+        provider: IDENTIFIER_64_SCHEMA,
+        model: MODEL_ID_256_SCHEMA,
       },
       required: ["provider", "model"],
     },
@@ -1979,7 +2063,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "org_admin",
     {
       type: "object",
-      properties: { provider_key: { type: "string" } },
+      properties: { provider_key: IDENTIFIER_64_SCHEMA },
       required: ["provider_key"],
     },
     (args) => `/api/v1/provider-governance/${encodeURIComponent(boundedString(args.provider_key, 64))}`,
@@ -1991,10 +2075,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        org_id: { type: "string" },
+        org_id: SAFE_TEXT_256_SCHEMA,
         scope: { type: "string", enum: [...GOVERNANCE_SCOPES] },
         category: { type: "string", enum: [...GOVERNANCE_CATEGORIES] },
-        language: { type: "string" },
+        language: SAFE_TEXT_64_SCHEMA,
       },
     },
     "/api/v1/governance/effective",
@@ -2011,7 +2095,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "user",
     {
       type: "object",
-      properties: { org_id: { type: "string" } },
+      properties: { org_id: SAFE_TEXT_256_SCHEMA },
     },
     "/api/v1/governance/capability-matrix/effective",
     (args) => ({ org_id: boundedString(args.org_id, 128) }),
@@ -2074,17 +2158,17 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     {
       type: "object",
       properties: {
-        domain: { type: "string" },
-        outcome: { type: "string" },
-        source_surface: { type: "string" },
-        org_id: { type: "string" },
-        user_id: { type: "string" },
-        session_key: { type: "string" },
-        request_id: { type: "string" },
-        trace_id: { type: "string" },
-        tool_name: { type: "string" },
-        engine: { type: "string" },
-        q: { type: "string" },
+        domain: safeTextSchema(256),
+        outcome: { type: "string", enum: [...WEB_SEARCH_OUTCOMES] },
+        source_surface: { type: "string", enum: [...WEB_SEARCH_SOURCE_SURFACES] },
+        org_id: SAFE_TEXT_256_SCHEMA,
+        user_id: SAFE_TEXT_256_SCHEMA,
+        session_key: safeTextSchema(256),
+        request_id: IDENTIFIER_128_SCHEMA,
+        trace_id: IDENTIFIER_128_SCHEMA,
+        tool_name: IDENTIFIER_128_SCHEMA,
+        engine: IDENTIFIER_64_SCHEMA,
+        q: safeTextSchema(256),
         page: { type: "integer", default: 1 },
         page_size: { type: "integer", default: 30 },
       },
@@ -2188,10 +2272,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       type: "object",
       properties: {
         item_id: { type: "integer", description: "The item ID" },
-        title: { type: "string" },
+        title: safeTextSchema(512),
         handler: { type: "string", enum: [...INGESTION_HANDLERS] },
-        domain: { type: "string" },
-        tags: { type: "array", items: { type: "string" } },
+        domain: safeTextSchema(128),
+        tags: { type: "array", items: safeTextSchema(64) },
         priority: { type: "integer" },
         status: { type: "string", enum: [...INGESTION_ITEM_STATUSES], description: "Admin-driven status transition" },
         config: INGESTION_CONFIG_SCHEMA,
@@ -2215,7 +2299,7 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        url: { type: "string", description: "URL to analyse" },
+        url: { ...INGESTION_PUBLIC_URL_SCHEMA, description: "URL to analyse" },
         hint_tags: {
           type: "array",
           items: { type: "string", enum: [...INGESTION_DISCOVERY_HINTS] },

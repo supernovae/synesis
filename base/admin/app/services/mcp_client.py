@@ -8,6 +8,7 @@ import time
 import httpx
 
 from ..deps import ADMIN_MCP_URL, INTERNAL_SERVICE_TOKEN, MCP_URL
+from ..route_validation import validate_safe_identifier
 from .admin_mcp_ts_client import build_delegated_cookie_header
 
 logger = logging.getLogger("synesis.admin.mcp")
@@ -130,7 +131,7 @@ async def get_admin_mcp_tools(
         for key in ("x-synesis-org-id", "x-active-org-id"):
             value = str(org_headers.get(key, "") or "").strip()
             if value:
-                headers[key] = value
+                headers[key] = validate_safe_identifier(value, field_name=key, max_length=128)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{ADMIN_MCP_URL.rstrip('/')}/v1/admin-tools", headers=headers, timeout=10.0)

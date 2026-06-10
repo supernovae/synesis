@@ -8,16 +8,18 @@ import time
 import uuid
 from asyncio import Lock, create_task
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, func, select, update
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import Failure, KnowledgeGap, YarnSessionEvent
 from ..rbac import Role, effective_role, require_org_admin
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
 from ..services import prometheus_client_svc as prom
 from ..services.cache_canary_reports import load_cache_canary_report
 from ..services.health_prober import probe_all
@@ -29,6 +31,10 @@ from ..services.token_economics_observability import (
 logger = logging.getLogger("synesis.admin.observability")
 
 router = APIRouter(prefix="/api/v1/observability", tags=["observability"])
+
+KnowledgeGapStatus = Literal["open", "resolved", "reopened"]
+KnowledgeGapStatusFilter = Literal["", "open", "resolved", "reopened"]
+KnowledgeGapBulkAction = Literal["resolve", "reopen", "purge"]
 
 _HEALTH_CACHE_TTL_SECONDS = 15.0
 _health_cache_lock = Lock()
@@ -276,7 +282,7 @@ async def failure_stats(_user: UserInfo = Depends(require_org_admin)):
 
 @router.get("/failures/{failure_id}")
 async def failure_detail(
-    failure_id: str,
+    failure_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(get_current_user),
 ):
     async with async_session() as session:
@@ -300,18 +306,28 @@ async def failure_detail(
 
 @router.delete("/failures/{failure_id}")
 async def delete_failure(
-    failure_id: str,
+    failure_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
-        stmt = delete(Failure).where(Failure.failure_id == failure_id[:64])
+        stmt = delete(Failure).where(Failure.failure_id == failure_id)
         result = await session.execute(stmt)
         await session.commit()
-    return {"deleted": int(result.rowcount or 0), "failure_id": failure_id[:64]}
+    return {"deleted": int(result.rowcount or 0), "failure_id": failure_id}
 
 
 class FailureBulkDeleteRequest(BaseModel):
-    failure_ids: list[str]
+    failure_ids: list[str] = Field(..., min_length=1, max_length=500)
+
+    @field_validator("failure_ids")
+    @classmethod
+    def validate_failure_ids(cls, values: list[str]) -> list[str]:
+        out: list[str] = []
+        for value in values:
+            failure_id = validate_safe_identifier(value, field_name="failure_id", max_length=64)
+            if failure_id not in out:
+                out.append(failure_id)
+        return out
 
 
 @router.post("/failures/bulk-delete")
@@ -319,9 +335,7 @@ async def bulk_delete_failures(
     req: FailureBulkDeleteRequest,
     _user: UserInfo = Depends(require_admin),
 ):
-    ids = [str(x)[:64] for x in req.failure_ids if str(x).strip()]
-    if not ids:
-        return {"deleted": 0, "requested": 0}
+    ids = req.failure_ids
     async with async_session() as session:
         stmt = delete(Failure).where(Failure.failure_id.in_(ids))
         result = await session.execute(stmt)
@@ -367,10 +381,27 @@ def _gap_to_dict(g: KnowledgeGap) -> dict:
 
 
 class KnowledgeGapReportRequest(BaseModel):
-    query: str
-    context: str = ""
-    language: str = ""
-    platform_context: str = "generic"
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    query: str = Field(..., min_length=1, max_length=2000)
+    context: str = Field("", max_length=2000)
+    language: str = Field("", max_length=32)
+    platform_context: str = Field("generic", max_length=64)
+
+    @field_validator("query", "context", mode="after")
+    @classmethod
+    def validate_prompt_adjacent_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("language", mode="after")
+    @classmethod
+    def validate_language(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="language", max_length=32)
+
+    @field_validator("platform_context", mode="after")
+    @classmethod
+    def validate_platform_context(cls, value: str) -> str:
+        return validate_safe_text(value or "generic", field_name="platform_context", max_length=64) or "generic"
 
 
 @router.post("/knowledge-gaps/report")
@@ -392,8 +423,8 @@ async def report_knowledge_gap(
         task_description=context[:2000],
         collections_queried="",
         max_score=0.0,
-        platform_context=(req.platform_context or "generic").strip()[:64] or "generic",
-        language=(req.language or "").strip()[:32],
+        platform_context=req.platform_context or "generic",
+        language=req.language,
         status="open",
         web_search_fallback=False,
         timestamp=now,
@@ -414,7 +445,7 @@ async def knowledge_gaps(
     _user: UserInfo = Depends(require_org_admin),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: str = Query("", description="Filter by status: open, resolved, reopened"),
+    status: KnowledgeGapStatusFilter = Query("", description="Filter by status: open, resolved, reopened"),
 ):
     """List queries where RAG confidence was below threshold, signaling corpus gaps."""
     offset = (page - 1) * page_size
@@ -479,46 +510,55 @@ async def knowledge_gap_stats(_user: UserInfo = Depends(require_org_admin)):
 
 
 class GapResolveRequest(BaseModel):
-    resolution_note: str = ""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    resolution_note: str = Field("", max_length=8192)
+
+    @field_validator("resolution_note", mode="after")
+    @classmethod
+    def validate_resolution_note(cls, value: str) -> str:
+        return value.strip()
 
 
 @router.post("/knowledge-gaps/{chunk_id}/resolve")
 async def resolve_gap(
-    chunk_id: str,
+    chunk_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     req: GapResolveRequest | None = None,
     user: UserInfo = Depends(require_admin),
 ):
     """Mark a knowledge gap as resolved/satisfied."""
+    gap_id = validate_safe_identifier(chunk_id, field_name="chunk_id", max_length=64)
     note = req.resolution_note if req else ""
     now = float(time.time())
     async with async_session() as session:
         stmt = (
             update(KnowledgeGap)
-            .where(KnowledgeGap.gap_id == chunk_id[:64])
+            .where(KnowledgeGap.gap_id == gap_id)
             .values(
                 status="resolved",
                 resolved_at=now,
                 resolved_by=user.username[:128],
-                resolution_note=note[:8192],
+                resolution_note=note,
             )
         )
         result = await session.execute(stmt)
         await session.commit()
     if result.rowcount and result.rowcount > 0:
-        return {"status": "resolved", "chunk_id": chunk_id}
+        return {"status": "resolved", "chunk_id": gap_id}
     return {"error": "failed to update status"}
 
 
 @router.post("/knowledge-gaps/{chunk_id}/reopen")
 async def reopen_gap(
-    chunk_id: str,
+    chunk_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(require_admin),
 ):
     """Reopen a previously resolved knowledge gap."""
+    gap_id = validate_safe_identifier(chunk_id, field_name="chunk_id", max_length=64)
     async with async_session() as session:
         stmt = (
             update(KnowledgeGap)
-            .where(KnowledgeGap.gap_id == chunk_id[:64])
+            .where(KnowledgeGap.gap_id == gap_id)
             .values(
                 status="reopened",
                 resolved_at=0.0,
@@ -529,27 +569,45 @@ async def reopen_gap(
         result = await session.execute(stmt)
         await session.commit()
     if result.rowcount and result.rowcount > 0:
-        return {"status": "reopened", "chunk_id": chunk_id}
+        return {"status": "reopened", "chunk_id": gap_id}
     return {"error": "failed to update status"}
 
 
 @router.delete("/knowledge-gaps/{chunk_id}")
 async def purge_gap(
-    chunk_id: str,
+    chunk_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(require_admin),
 ):
     """Permanently delete a knowledge gap and its status record."""
+    gap_id = validate_safe_identifier(chunk_id, field_name="chunk_id", max_length=64)
     async with async_session() as session:
-        stmt = delete(KnowledgeGap).where(KnowledgeGap.gap_id == chunk_id[:64])
+        stmt = delete(KnowledgeGap).where(KnowledgeGap.gap_id == gap_id)
         await session.execute(stmt)
         await session.commit()
-    return {"status": "purged", "chunk_id": chunk_id}
+    return {"status": "purged", "chunk_id": gap_id}
 
 
 class GapBulkActionRequest(BaseModel):
-    gap_ids: list[str]
-    action: str
-    resolution_note: str = ""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    gap_ids: list[str] = Field(..., min_length=1, max_length=500)
+    action: KnowledgeGapBulkAction
+    resolution_note: str = Field("", max_length=8192)
+
+    @field_validator("gap_ids", mode="after")
+    @classmethod
+    def validate_gap_ids(cls, values: list[str]) -> list[str]:
+        out: list[str] = []
+        for value in values:
+            gap_id = validate_safe_identifier(value, field_name="gap_id", max_length=64)
+            if gap_id not in out:
+                out.append(gap_id)
+        return out
+
+    @field_validator("resolution_note", mode="after")
+    @classmethod
+    def validate_bulk_resolution_note(cls, value: str) -> str:
+        return value.strip()
 
 
 @router.post("/knowledge-gaps/bulk-action")
@@ -557,7 +615,7 @@ async def bulk_action_gaps(
     req: GapBulkActionRequest,
     user: UserInfo = Depends(require_admin),
 ):
-    ids = [str(x)[:64] for x in req.gap_ids if str(x).strip()]
+    ids = req.gap_ids
     if not ids:
         return {"updated": 0, "requested": 0, "action": req.action}
     now = float(time.time())
@@ -570,7 +628,7 @@ async def bulk_action_gaps(
                     status="resolved",
                     resolved_at=now,
                     resolved_by=user.username[:128],
-                    resolution_note=req.resolution_note[:8192],
+                    resolution_note=req.resolution_note,
                 )
             )
         elif req.action == "reopen":
@@ -583,8 +641,6 @@ async def bulk_action_gaps(
             result = await session.execute(delete(KnowledgeGap).where(KnowledgeGap.gap_id.in_(ids)))
             await session.commit()
             return {"updated": int(result.rowcount or 0), "requested": len(ids), "action": req.action}
-        else:
-            return {"updated": 0, "requested": len(ids), "action": req.action, "error": "unsupported_action"}
         result = await session.execute(stmt)
         await session.commit()
     return {"updated": int(result.rowcount or 0), "requested": len(ids), "action": req.action}
@@ -592,7 +648,7 @@ async def bulk_action_gaps(
 
 @router.delete("/knowledge-gaps")
 async def purge_gaps(
-    status: str = Query("resolved"),
+    status: KnowledgeGapStatus = Query("resolved"),
     _user: UserInfo = Depends(require_admin),
 ):
     async with async_session() as session:
@@ -603,8 +659,10 @@ async def purge_gaps(
 
 
 class GapValidateRequest(BaseModel):
-    score_threshold: float = 0.6
-    max_gaps: int = 200
+    model_config = ConfigDict(extra="forbid")
+
+    score_threshold: float = Field(0.6, ge=0, le=1)
+    max_gaps: int = Field(200, ge=1, le=1000)
 
 
 class GapValidateResponse(BaseModel):
@@ -709,7 +767,7 @@ async def validate_knowledge_gaps(
                 async with async_session() as session:
                     stmt = (
                         update(KnowledgeGap)
-                        .where(KnowledgeGap.gap_id == chunk_id[:64])
+                        .where(KnowledgeGap.gap_id == chunk_id)
                         .values(
                             status="resolved",
                             resolved_at=float(time.time()),

@@ -236,15 +236,20 @@ function summarizeScalar(kind: string, value: unknown): Record<string, unknown> 
 }
 
 function summarizeProviderOptions(value: unknown): Record<string, unknown> {
-  const structure = providerOptionsStructure(value, 0, { visited: 0, truncated: false });
-  const text = stableJsonStringify(structure);
+  const stats = collectProviderOptionStats(value);
   return {
     section: "provider_options",
     kind: providerOptionKind(value),
-    chars: text.length,
-    bytes: Buffer.byteLength(text, "utf8"),
-    structure_hash: hashUnknown(structure),
-    structure,
+    chars: stringSize(value),
+    bytes: byteSize(value),
+    structure_hash: hashUnknown(stats.fingerprint),
+    node_count: stats.nodeCount,
+    object_count: stats.objectCount,
+    array_count: stats.arrayCount,
+    scalar_count: stats.scalarCount,
+    max_depth: stats.maxDepth,
+    max_width: stats.maxWidth,
+    truncated: stats.truncated,
   };
 }
 
@@ -255,48 +260,68 @@ function providerOptionKind(value: unknown): "array" | "object" | "scalar" | "em
   return "scalar";
 }
 
-function providerOptionsStructure(
-  value: unknown,
-  depth: number,
-  budget: { visited: number; truncated: boolean },
-): Record<string, unknown> {
-  budget.visited += 1;
-  if (budget.visited > 120 || depth > 4) {
-    budget.truncated = true;
-    return { kind: "truncated" };
+interface ProviderOptionStats {
+  nodeCount: number;
+  objectCount: number;
+  arrayCount: number;
+  scalarCount: number;
+  maxDepth: number;
+  maxWidth: number;
+  truncated: boolean;
+  fingerprint: Array<Record<string, unknown>>;
+}
+
+function collectProviderOptionStats(value: unknown): ProviderOptionStats {
+  const stats: ProviderOptionStats = {
+    nodeCount: 0,
+    objectCount: 0,
+    arrayCount: 0,
+    scalarCount: 0,
+    maxDepth: 0,
+    maxWidth: 0,
+    truncated: false,
+    fingerprint: [],
+  };
+  visitProviderOptionValue(value, 0, stats);
+  return stats;
+}
+
+function visitProviderOptionValue(value: unknown, depth: number, stats: ProviderOptionStats): void {
+  stats.nodeCount += 1;
+  stats.maxDepth = Math.max(stats.maxDepth, depth);
+  if (stats.nodeCount > 120 || depth > 4) {
+    stats.truncated = true;
+    stats.fingerprint.push({ depth, kind: "truncated" });
+    return;
   }
   if (Array.isArray(value)) {
-    return {
-      kind: "array",
-      count: value.length,
-      truncated: budget.truncated || value.length > 12,
-      items: value.slice(0, 12).map((item) => providerOptionsStructure(item, depth + 1, budget)),
-    };
+    stats.arrayCount += 1;
+    stats.maxWidth = Math.max(stats.maxWidth, value.length);
+    stats.fingerprint.push({ depth, kind: "array", count: value.length });
+    if (value.length > 12) stats.truncated = true;
+    for (const item of value.slice(0, 12)) visitProviderOptionValue(item, depth + 1, stats);
+    return;
   }
   if (value && typeof value === "object") {
     const row = value as Record<string, unknown>;
     const keys = Object.keys(row).sort();
-    return {
-      kind: "object",
-      key_count: keys.length,
-      keys_hash: hashUnknown(keys),
-      truncated: budget.truncated || keys.length > 24,
-      entries: keys.slice(0, 24).map((key) => ({
-        key_hash: hashUnknown(key),
-        value: providerOptionsStructure(row[key], depth + 1, budget),
-      })),
-    };
+    stats.objectCount += 1;
+    stats.maxWidth = Math.max(stats.maxWidth, keys.length);
+    stats.fingerprint.push({ depth, kind: "object", key_count: keys.length, keys_hash: hashUnknown(keys) });
+    if (keys.length > 24) stats.truncated = true;
+    for (const key of keys.slice(0, 24)) visitProviderOptionValue(row[key], depth + 1, stats);
+    return;
   }
-  if (typeof value === "string") {
-    return { kind: "string", chars: value.length, bytes: Buffer.byteLength(value, "utf8") };
-  }
-  if (typeof value === "number") {
-    return { kind: Number.isFinite(value) ? "number" : "non_finite_number" };
-  }
-  if (typeof value === "boolean") {
-    return { kind: "boolean" };
-  }
-  return { kind: value === null || value === undefined ? "empty" : typeof value };
+  stats.scalarCount += 1;
+  stats.fingerprint.push({ depth, kind: providerOptionScalarKind(value), chars: typeof value === "string" ? value.length : undefined });
+}
+
+function providerOptionScalarKind(value: unknown): string {
+  if (typeof value === "string") return "string";
+  if (typeof value === "number") return Number.isFinite(value) ? "number" : "non_finite_number";
+  if (typeof value === "boolean") return "boolean";
+  if (value === null || value === undefined) return "empty";
+  return typeof value;
 }
 
 export function withUsage(

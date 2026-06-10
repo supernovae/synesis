@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from ..auth import UserInfo, get_current_user
 from ..rbac import Role, RouteGroup, can_access_route_group, resolve_role, trace_scope_filters
+from ..route_validation import SAFE_IDENTIFIER_PATTERN
 from ..services.account_usage_service import account_usage_identity_candidates, build_account_usage_dashboard
 from ..services.planner_usage_service import aggregate_planner_usage_period, planner_usage_time_series
 from ..services.trace_store import aggregate_traces_period, trace_time_series
@@ -212,13 +213,13 @@ async def usage_me_requests(
 @router.get("/me/requests/{request_id}")
 async def usage_me_request_detail(
     request: Request,
-    request_id: str,
+    request_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(get_current_user),
 ):
     """Privacy-safe request audit detail for one authenticated user's request."""
     if resolve_role(user) < Role.user:
         raise HTTPException(status_code=403, detail="Authentication required")
-    row = await get_user_usage_audit_request_for_ids(_account_usage_user_ids(user, request), request_id[:64])
+    row = await get_user_usage_audit_request_for_ids(_account_usage_user_ids(user, request), request_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Usage request not found")
     return row

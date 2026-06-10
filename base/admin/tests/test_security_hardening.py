@@ -44,6 +44,25 @@ def test_internal_service_token_accepts_case_insensitive_bearer(monkeypatch):
     assert principal.service == "planner"
 
 
+def test_internal_service_token_rejects_malformed_service_name(monkeypatch):
+    from app.internal_auth import require_internal_service_token_request
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "svc-secret")
+
+    with pytest.raises(HTTPException) as exc:
+        require_internal_service_token_request(
+            _request(
+                [
+                    (b"x-synesis-service-token", b"svc-secret"),
+                    (b"x-synesis-service-name", b"planner\nrole=admin"),
+                ]
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert "service_name" in str(exc.value.detail)
+
+
 def test_internal_service_token_rejects_non_bearer_authorization(monkeypatch):
     from app.internal_auth import require_internal_service_token_request
 
@@ -119,6 +138,33 @@ def test_admin_mcp_client_uses_internal_token_and_delegated_cookie(monkeypatch):
     assert headers["x-synesis-delegated-csrf"] == "b" * 64
     assert headers["x-active-org-id"] == "org-1"
     assert "Authorization" not in headers
+
+
+def test_admin_mcp_client_rejects_malformed_org_header(monkeypatch):
+    from app.services import admin_mcp_ts_client
+
+    monkeypatch.setattr(admin_mcp_ts_client, "INTERNAL_SERVICE_TOKEN", "internal-secret")
+
+    with pytest.raises(ValueError, match="x-active-org-id"):
+        admin_mcp_ts_client._base_headers("", {"x-active-org-id": "org-1\nrole=admin"})
+
+
+def test_assistant_planner_headers_reject_malformed_org_header():
+    from app.routers.assistant import _planner_headers
+
+    with pytest.raises(HTTPException) as exc:
+        _planner_headers("", {"x-synesis-org-id": "org-1\nrole=admin"})
+
+    assert exc.value.status_code == 422
+
+
+def test_integrations_org_headers_reject_malformed_org_header():
+    from app.routers.integrations import _clean_org_headers
+
+    with pytest.raises(HTTPException) as exc:
+        _clean_org_headers({"x-synesis-org-id": "org-1\nrole=admin"})
+
+    assert exc.value.status_code == 422
 
 
 def test_admin_mcp_audit_argument_redaction():

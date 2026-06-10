@@ -9,8 +9,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, func, select, update
 
 from ..auth import UserInfo, get_current_user
@@ -24,6 +24,7 @@ from ..db.models import (
 )
 from ..internal_auth import ServicePrincipal, require_service_or_authenticated_user
 from ..rbac import Role, can_manage_visibility_scope, resolve_role
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
 
 logger = logging.getLogger("synesis.admin.governance")
 
@@ -86,22 +87,46 @@ def _scope_for_rbac(scope: str) -> str:
     return "global" if scope == "platform" else scope
 
 
+def _safe_optional_org_id(value: str | None, *, field_name: str = "org_id") -> str:
+    if not value:
+        return ""
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _safe_policy_id(value: str, *, field_name: str = "policy_id") -> str:
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _safe_capability_selector(value: str, *, field_name: str = "selector") -> str:
+    try:
+        return validate_safe_text(value, field_name=field_name, max_length=256, allow_empty=False)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 def _normalize_governance_scope(
     user: UserInfo, scope: str, scope_value: str = "", org_id: str = ""
 ) -> tuple[str, str, str]:
     normalized_scope = (scope or "org").strip().lower()
     if normalized_scope not in VALID_SCOPES:
         raise HTTPException(400, f"Invalid scope: {normalized_scope}")
-    target_org = (org_id or scope_value or user.org_id or "").strip()
+    target_org = _safe_optional_org_id(org_id or scope_value or user.org_id or "")
     if resolve_role(user) < Role.platform_admin:
         normalized_scope = "org"
-        target_org = (user.org_id or "").strip()
+        target_org = _safe_optional_org_id(user.org_id or "")
         scope_value = target_org
     elif normalized_scope == "org" and not target_org:
         raise HTTPException(400, "org_id or scope_value is required for org scope")
     if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
         raise HTTPException(403, "Not authorized for governance scope")
-    return normalized_scope, (scope_value or target_org).strip(), target_org
+    normalized_scope_value = _safe_optional_org_id(scope_value or target_org, field_name="scope_value")
+    return normalized_scope, normalized_scope_value, target_org
 
 
 def _ensure_constitution_access(user: UserInfo, row: GovernanceConstitution, *, write: bool = False) -> None:
@@ -202,9 +227,7 @@ def _normalize_capability_matrix_rule_config(raw: dict[str, Any]) -> dict[str, A
         selector_type = str(raw.get("selector_type", "")).strip().lower()
         if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES:
             raise HTTPException(400, f"Invalid selector_type: {selector_type}")
-        selector = str(raw.get("selector", "")).strip()
-        if not selector:
-            raise HTTPException(400, "rule_config.selector is required")
+        selector = _safe_capability_selector(str(raw.get("selector", "") or ""))
         version = raw.get("version", 1)
         if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise HTTPException(400, "rule_config.version must be a positive integer")
@@ -290,6 +313,7 @@ def _to_capability_override(policy: GovernancePolicyDef) -> dict[str, Any] | Non
 async def _fetch_capability_matrix_rows(
     session, org_id: str | None = None
 ) -> tuple[GovernancePolicyDef | None, list[dict[str, Any]]]:
+    org_id = _safe_optional_org_id(org_id)
     q = select(GovernancePolicyDef).where(
         GovernancePolicyDef.rule_type == "feature_toggle",
     )
@@ -379,7 +403,7 @@ async def _canonical_capability_selectors(session) -> dict[str, set[str]]:
 
 
 async def _ensure_selector_is_canonical(session, selector_type: str, selector: str) -> None:
-    selector_value = selector.strip()
+    selector_value = _safe_capability_selector(selector)
     selector_sets = await _canonical_capability_selectors(session)
     valid_values = selector_sets.get(selector_type, set())
     if not valid_values:
@@ -414,6 +438,8 @@ async def _ensure_no_selector_conflict(
     org_id: str,
     exclude_policy_id: str | None = None,
 ) -> None:
+    org_id = _safe_optional_org_id(org_id)
+    selector = _safe_capability_selector(selector)
     q = select(GovernancePolicyDef).where(GovernancePolicyDef.rule_type == "feature_toggle")
     if org_id:
         q = q.where((GovernancePolicyDef.org_id == "") | (GovernancePolicyDef.org_id == org_id))
@@ -1072,31 +1098,48 @@ async def delete_clause(clause_id: str, user: UserInfo = Depends(get_current_use
 
 
 class PolicyDefCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     name: str = Field(..., min_length=1, max_length=256)
-    description: str = Field("")
+    description: str = Field("", max_length=8192)
     scope: str = Field("org")
-    scope_value: str = Field("")
-    org_id: str = Field("")
+    scope_value: str = Field("", max_length=64)
+    org_id: str = Field("", max_length=64)
     category: str = Field("quality")
     constraint_kind: str = Field("guiding")
     rule_type: str = Field("threshold")
     rule_config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = Field(True)
-    priority: int = Field(0)
+    priority: int = Field(0, ge=-1_000_000, le=1_000_000)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("scope_value", "org_id", mode="after")
+    @classmethod
+    def validate_scope_selectors(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="scope selector", max_length=64) if value else ""
 
 
 class PolicyDefUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    name: str | None = None
-    description: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=256)
+    description: str | None = Field(None, max_length=8192)
     rule_config: dict[str, Any] | None = None
     enabled: bool | None = None
-    priority: int | None = None
+    priority: int | None = Field(None, ge=-1_000_000, le=1_000_000)
     category: str | None = None
     constraint_kind: str | None = None
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
 
 
 def _policy_to_dict(p: GovernancePolicyDef) -> dict:
@@ -1126,10 +1169,11 @@ async def list_policies(
     scope: str | None = Query(None),
     category: str | None = Query(None),
     rule_type: str | None = Query(None),
-    org_id: str | None = Query(None),
+    org_id: str | None = Query(None, max_length=64),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    org_id = _safe_optional_org_id(org_id)
     async with async_session() as session:
         q = select(GovernancePolicyDef)
         if resolve_role(user) < Role.platform_admin:
@@ -1187,8 +1231,13 @@ async def create_policy(body: PolicyDefCreate, user: UserInfo = Depends(get_curr
 
 
 @router.put("/policies/{policy_id}")
-async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = Depends(get_current_user)):
+async def update_policy(
+    policy_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
+    body: PolicyDefUpdate = Body(...),
+    user: UserInfo = Depends(get_current_user),
+):
     _require_governance_admin(user)
+    policy_id = _safe_policy_id(policy_id)
 
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
@@ -1227,8 +1276,12 @@ async def update_policy(policy_id: str, body: PolicyDefUpdate, user: UserInfo = 
 
 
 @router.delete("/policies/{policy_id}")
-async def delete_policy(policy_id: str, user: UserInfo = Depends(get_current_user)):
+async def delete_policy(
+    policy_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
+    user: UserInfo = Depends(get_current_user),
+):
     _require_governance_admin(user)
+    policy_id = _safe_policy_id(policy_id)
 
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
@@ -1255,7 +1308,7 @@ async def get_effective_governance(
     request: Request,
     response: Response,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_authenticated_user),
-    org_id: str | None = Query(None),
+    org_id: str | None = Query(None, max_length=64),
     scope: str | None = Query(None),
     category: str | None = Query(None),
     language: str | None = Query(None),
@@ -1265,6 +1318,7 @@ async def get_effective_governance(
     Returns a flat, prioritized list of active rules. Supports ETag for
     efficient polling by runtime consumers (Yarn, Planner, MCP-TS).
     """
+    org_id = _safe_optional_org_id(org_id)
     capability_matrix_payload: dict[str, Any]
     async with async_session() as session:
         cq = select(GovernanceConstitution).where(GovernanceConstitution.status == "active")
@@ -1382,25 +1436,47 @@ async def get_effective_governance(
 
 
 class CapabilityMatrixGlobalUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     mode: str = Field("enforced")
     global_optimizations_enabled: bool = Field(False)
-    org_id: str = Field("")
+    org_id: str = Field("", max_length=64)
+
+    @field_validator("org_id", mode="after")
+    @classmethod
+    def validate_org_id(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="org_id", max_length=64) if value else ""
 
 
 class CapabilityMatrixOverrideUpsert(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    name: str | None = None
-    org_id: str = Field("")
+    name: str | None = Field(None, min_length=1, max_length=256)
+    org_id: str = Field("", max_length=64)
     scope: str = Field("platform")
-    scope_value: str = Field("")
+    scope_value: str = Field("", max_length=64)
     enabled: bool = Field(True)
     selector_type: str = Field(...)
     selector: str = Field(..., min_length=1, max_length=256)
-    priority: int = Field(0)
+    priority: int = Field(0, ge=-1_000_000, le=1_000_000)
     capabilities: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("org_id", "scope_value", mode="after")
+    @classmethod
+    def validate_scope_selectors(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="scope selector", max_length=64) if value else ""
+
+    @field_validator("selector", mode="after")
+    @classmethod
+    def validate_selector(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="selector", max_length=256, allow_empty=False)
 
 
 @router.get("/capability-matrix/effective")
@@ -1408,8 +1484,9 @@ async def get_effective_capability_matrix(
     request: Request,
     response: Response,
     _principal: ServicePrincipal | UserInfo = Depends(require_service_or_authenticated_user),
-    org_id: str | None = Query(None),
+    org_id: str | None = Query(None, max_length=64),
 ):
+    org_id = _safe_optional_org_id(org_id)
     async with async_session() as session:
         global_row, overrides = await _fetch_capability_matrix_rows(session, org_id)
     payload = {
@@ -1440,8 +1517,9 @@ async def upsert_capability_matrix_global(
     mode = str(body.mode).strip().lower()
     if mode not in CAPABILITY_MATRIX_MODES:
         raise HTTPException(400, f"Invalid mode: {body.mode}")
+    org_id = _safe_optional_org_id(body.org_id)
     async with async_session() as session:
-        global_row, _ = await _fetch_capability_matrix_rows(session, body.org_id or None)
+        global_row, _ = await _fetch_capability_matrix_rows(session, org_id or None)
         if global_row is None:
             global_row = GovernancePolicyDef(
                 policy_id=str(uuid.uuid4()),
@@ -1449,7 +1527,7 @@ async def upsert_capability_matrix_global(
                 description="Global posture for model capability matrix",
                 scope="platform",
                 scope_value="",
-                org_id=body.org_id,
+                org_id=org_id,
                 category="tooling",
                 constraint_kind="hard",
                 rule_type="feature_toggle",
@@ -1462,7 +1540,7 @@ async def upsert_capability_matrix_global(
         global_row.enabled = True
         global_row.scope = "platform"
         global_row.scope_value = ""
-        global_row.org_id = body.org_id
+        global_row.org_id = org_id
         global_row.rule_type = "feature_toggle"
         global_row.rule_config = {
             "kind": CAPABILITY_MATRIX_KIND,
@@ -1480,7 +1558,7 @@ async def upsert_capability_matrix_global(
                 f"Updated capability matrix global posture mode={mode}",
                 {
                     "policy_id": global_row.policy_id,
-                    "org_id": body.org_id,
+                    "org_id": org_id,
                     "mode": mode,
                     "global_optimizations_enabled": bool(body.global_optimizations_enabled),
                 },
@@ -1506,20 +1584,27 @@ async def create_capability_matrix_override(
         raise HTTPException(400, f"Invalid selector_type: {body.selector_type}")
     if body.scope not in VALID_SCOPES:
         raise HTTPException(400, f"Invalid scope: {body.scope}")
+    selector = _safe_capability_selector(body.selector)
+    org_id = _safe_optional_org_id(body.org_id)
     capabilities = _normalize_capability_key_map(body.capabilities)
     policy_id = str(uuid.uuid4())
-    policy_name = (body.name or f"Capability Override: {selector_type}:{body.selector.strip()}").strip()[:256]
+    policy_name = validate_safe_text(
+        body.name or f"Capability Override: {selector_type}:{selector}",
+        field_name="name",
+        max_length=256,
+        allow_empty=False,
+    )
     async with async_session() as session:
         await _ensure_selector_is_canonical(
             session,
             selector_type=selector_type,
-            selector=body.selector.strip(),
+            selector=selector,
         )
         await _ensure_no_selector_conflict(
             session,
             selector_type=selector_type,
-            selector=body.selector.strip(),
-            org_id=body.org_id,
+            selector=selector,
+            org_id=org_id,
         )
         row = GovernancePolicyDef(
             policy_id=policy_id,
@@ -1527,7 +1612,7 @@ async def create_capability_matrix_override(
             description="Capability matrix override row",
             scope=body.scope,
             scope_value=body.scope_value,
-            org_id=body.org_id,
+            org_id=org_id,
             category="tooling",
             constraint_kind="hard",
             rule_type="feature_toggle",
@@ -1536,7 +1621,7 @@ async def create_capability_matrix_override(
                 "row_type": CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE,
                 "version": 1,
                 "selector_type": selector_type,
-                "selector": body.selector.strip(),
+                "selector": selector,
                 "priority": int(body.priority),
                 "capabilities": capabilities,
             },
@@ -1550,13 +1635,13 @@ async def create_capability_matrix_override(
                 user,
                 "governance.capability_matrix.override.create",
                 "ok",
-                f"Created capability matrix override {selector_type}:{body.selector.strip()}",
+                f"Created capability matrix override {selector_type}:{selector}",
                 {
                     "policy_id": policy_id,
                     "selector_type": selector_type,
-                    "selector": body.selector.strip(),
+                    "selector": selector,
                     "priority": int(body.priority),
-                    "org_id": body.org_id,
+                    "org_id": org_id,
                 },
             )
         )
@@ -1570,16 +1655,19 @@ async def create_capability_matrix_override(
 
 @router.put("/capability-matrix/overrides/{policy_id}")
 async def upsert_capability_matrix_override(
-    policy_id: str,
-    body: CapabilityMatrixOverrideUpsert,
+    policy_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
+    body: CapabilityMatrixOverrideUpsert = Body(...),
     user: UserInfo = Depends(get_current_user),
 ):
     _require_platform_admin(user)
+    policy_id = _safe_policy_id(policy_id)
     selector_type = str(body.selector_type).strip().lower()
     if selector_type not in CAPABILITY_MATRIX_SELECTOR_TYPES:
         raise HTTPException(400, f"Invalid selector_type: {body.selector_type}")
     if body.scope not in VALID_SCOPES:
         raise HTTPException(400, f"Invalid scope: {body.scope}")
+    selector = _safe_capability_selector(body.selector)
+    org_id = _safe_optional_org_id(body.org_id)
     capabilities = _normalize_capability_key_map(body.capabilities)
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
@@ -1591,22 +1679,25 @@ async def upsert_capability_matrix_override(
         await _ensure_selector_is_canonical(
             session,
             selector_type=selector_type,
-            selector=body.selector.strip(),
+            selector=selector,
         )
         await _ensure_no_selector_conflict(
             session,
             selector_type=selector_type,
-            selector=body.selector.strip(),
-            org_id=body.org_id,
+            selector=selector,
+            org_id=org_id,
             exclude_policy_id=policy_id,
         )
-        existing.name = (
-            body.name or existing.name or f"Capability Override: {selector_type}:{body.selector.strip()}"
-        ).strip()[:256]
+        existing.name = validate_safe_text(
+            body.name or existing.name or f"Capability Override: {selector_type}:{selector}",
+            field_name="name",
+            max_length=256,
+            allow_empty=False,
+        )
         existing.description = "Capability matrix override row"
         existing.scope = body.scope
         existing.scope_value = body.scope_value
-        existing.org_id = body.org_id
+        existing.org_id = org_id
         existing.category = "tooling"
         existing.constraint_kind = "hard"
         existing.rule_type = "feature_toggle"
@@ -1617,7 +1708,7 @@ async def upsert_capability_matrix_override(
             "row_type": CAPABILITY_MATRIX_OVERRIDE_ROW_TYPE,
             "version": 1,
             "selector_type": selector_type,
-            "selector": body.selector.strip(),
+            "selector": selector,
             "priority": int(body.priority),
             "capabilities": capabilities,
         }
@@ -1627,13 +1718,13 @@ async def upsert_capability_matrix_override(
                 user,
                 "governance.capability_matrix.override.update",
                 "ok",
-                f"Updated capability matrix override {selector_type}:{body.selector.strip()}",
+                f"Updated capability matrix override {selector_type}:{selector}",
                 {
                     "policy_id": policy_id,
                     "selector_type": selector_type,
-                    "selector": body.selector.strip(),
+                    "selector": selector,
                     "priority": int(body.priority),
-                    "org_id": body.org_id,
+                    "org_id": org_id,
                 },
             )
         )
@@ -1647,10 +1738,11 @@ async def upsert_capability_matrix_override(
 
 @router.delete("/capability-matrix/overrides/{policy_id}")
 async def delete_capability_matrix_override(
-    policy_id: str,
+    policy_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(get_current_user),
 ):
     _require_platform_admin(user)
+    policy_id = _safe_policy_id(policy_id)
     async with async_session() as session:
         q = select(GovernancePolicyDef).where(GovernancePolicyDef.policy_id == policy_id)
         existing = (await session.execute(q)).scalar_one_or_none()

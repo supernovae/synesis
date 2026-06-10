@@ -32,6 +32,7 @@ import {
   patchIntegritySchema,
 } from "./cve-license-docs-patch.js";
 import type { z } from "zod/v4";
+import type { SearchAttributionInput } from "./search-contract.js";
 
 export const SYNESIS_MCP_TOOL_NAMES = [
   "synesis_search",
@@ -59,6 +60,10 @@ export const SYNESIS_MCP_TOOL_NAMES = [
 ] as const;
 
 export type SynesisMcpToolName = (typeof SYNESIS_MCP_TOOL_NAMES)[number];
+
+export interface DispatchSynesisToolOptions {
+  searchAttribution?: SearchAttributionInput;
+}
 
 const TOOL_INPUT_SCHEMAS: Record<SynesisMcpToolName, z.ZodType> = {
   synesis_search: knowledgeSearchInputSchema,
@@ -109,64 +114,76 @@ export function normalizeSynesisToolArgs(args: unknown): { ok: true; args: Recor
   };
 }
 
+export function validateSynesisToolArgs(
+  name: string,
+  args: unknown,
+): { ok: true; args: Record<string, unknown> } | { ok: false; error: Record<string, unknown> } {
+  if (!Object.prototype.hasOwnProperty.call(TOOL_INPUT_SCHEMAS, name)) {
+    return {
+      ok: false,
+      error: { error: "unknown_tool", message: `Unknown tool: ${name}` },
+    };
+  }
+  const normalizedArgs = normalizeSynesisToolArgs(args);
+  if (!normalizedArgs.ok) return normalizedArgs;
+
+  const parsedArgs = TOOL_INPUT_SCHEMAS[name as SynesisMcpToolName].safeParse(normalizedArgs.args);
+  if (!parsedArgs.success) {
+    return { ok: false, error: validationError(parsedArgs.error.issues) };
+  }
+  return { ok: true, args: parsedArgs.data as Record<string, unknown> };
+}
+
 export async function dispatchSynesisTool(
   name: string,
   args: unknown,
   auth: SynesisMcpAuth,
   deps: SynesisMcpDeps,
+  options?: DispatchSynesisToolOptions,
 ): Promise<unknown> {
-  if (!Object.prototype.hasOwnProperty.call(TOOL_INPUT_SCHEMAS, name)) {
-    return { error: "unknown_tool", message: `Unknown tool: ${name}` };
-  }
-  const toolName = name as SynesisMcpToolName;
-  const normalizedArgs = normalizeSynesisToolArgs(args);
-  if (!normalizedArgs.ok) return normalizedArgs.error;
-
-  const parsedArgs = TOOL_INPUT_SCHEMAS[toolName].safeParse(normalizedArgs.args);
-  if (!parsedArgs.success) {
-    return validationError(parsedArgs.error.issues);
-  }
+  const parsedArgs = validateSynesisToolArgs(name, args);
+  if (!parsedArgs.ok) return parsedArgs.error;
 
   switch (name) {
     case "synesis_search":
     case "synesis_knowledge_search":
-      return runKnowledgeSearch(parsedArgs.data as Record<string, unknown>, auth, deps, undefined);
+      return runKnowledgeSearch(parsedArgs.args, auth, deps, undefined);
     case "synesis_resolve_pack":
-      return runResolvePack(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runResolvePack(parsedArgs.args, auth, deps);
     case "synesis_context_bundle":
-      return runContextBundle(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runContextBundle(parsedArgs.args, auth, deps);
     case "synesis_web_search":
-      return runWebSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "synesis_web_search");
+      return runWebSearch(parsedArgs.args, auth, deps, "synesis_web_search", options?.searchAttribution);
     case "web_search":
-      return runWebSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "synesis_web_search");
+      return runWebSearch(parsedArgs.args, auth, deps, "synesis_web_search", options?.searchAttribution);
     case "synesis_code_search":
-      return runKnowledgeSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "code");
+      return runKnowledgeSearch(parsedArgs.args, auth, deps, "code");
     case "synesis_docs_search":
-      return runKnowledgeSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "docs");
+      return runKnowledgeSearch(parsedArgs.args, auth, deps, "docs");
     case "search_developer_docs":
-      return runKnowledgeSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "docs");
+      return runKnowledgeSearch(parsedArgs.args, auth, deps, "docs");
     case "synesis_config_search":
-      return runKnowledgeSearch(parsedArgs.data as Record<string, unknown>, auth, deps, "config");
+      return runKnowledgeSearch(parsedArgs.args, auth, deps, "config");
     case "synesis_classify":
-      return runClassify(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runClassify(parsedArgs.args, auth, deps);
     case "synesis_plan":
-      return runPlan(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runPlan(parsedArgs.args, auth, deps);
     case "synesis_critique":
-      return runCritique(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runCritique(parsedArgs.args, auth, deps);
     case "synesis_cve_check":
-      return runCveCheck(parsedArgs.data as Record<string, unknown>);
+      return runCveCheck(parsedArgs.args);
     case "synesis_license_check":
-      return runLicenseCheck(parsedArgs.data as Record<string, unknown>);
+      return runLicenseCheck(parsedArgs.args);
     case "synesis_docs_lookup":
-      return runDocsLookup(parsedArgs.data as Record<string, unknown>);
+      return runDocsLookup(parsedArgs.args);
     case "synesis_patch_integrity":
-      return runPatchIntegrity(parsedArgs.data as Record<string, unknown>);
+      return runPatchIntegrity(parsedArgs.args);
     case "synesis_terraform_plan_analyze":
-      return runTerraformPlanAnalyze(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runTerraformPlanAnalyze(parsedArgs.args, auth, deps);
     case "synesis_ecma_environment_check":
-      return runEcmaEnvironmentCheck(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runEcmaEnvironmentCheck(parsedArgs.args, auth, deps);
     case "synesis_ecma_package_risk_analyze":
-      return runEcmaPackageRiskAnalyze(parsedArgs.data as Record<string, unknown>, auth, deps);
+      return runEcmaPackageRiskAnalyze(parsedArgs.args, auth, deps);
     default:
       return { error: "unknown_tool", message: `Unknown tool: ${name}` };
   }

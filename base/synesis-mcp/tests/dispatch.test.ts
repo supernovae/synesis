@@ -134,9 +134,15 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
 
     await dispatchSynesisTool(
       "synesis_web_search",
-      { query: "latest release notes", source_surface: "yarn_chat", request_id: "req-1" },
+      { query: "latest release notes" },
       auth,
       deps,
+      {
+        searchAttribution: {
+          sourceSurface: "yarn_chat",
+          requestId: "req-1",
+        },
+      },
     );
 
     expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/web/search");
@@ -146,6 +152,22 @@ describe("dispatchSynesisTool (shared with Yarn)", () => {
     expect(body.tool_name).toBe("synesis_web_search");
     expect(body.request_id).toBe("req-1");
     expect(body.caller_org_id).toBe("o1");
+  });
+
+  it("rejects caller-controlled web-search attribution fields before execution", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [], query: "q", total: 0 }), { status: 200 }),
+    );
+
+    const result = await dispatchSynesisTool(
+      "synesis_web_search",
+      { query: "latest release notes", source_surface: "external_api", request_id: "attacker-req" },
+      auth,
+      deps,
+    );
+
+    expect(result).toMatchObject({ error: "validation_error" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("routes critique through planner instead of a direct critic endpoint", async () => {

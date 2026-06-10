@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from .auth import UserInfo, get_current_user
 from .rbac import Role, resolve_role
+from .route_validation import validate_safe_identifier
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -74,7 +75,11 @@ def require_internal_service_token_request(request: Request) -> ServicePrincipal
 
 
 def _service_name_from_request(request: Request) -> str:
-    return (request.headers.get("x-synesis-service-name") or "internal").strip()[:128]
+    raw = (request.headers.get("x-synesis-service-name") or "internal").strip()
+    try:
+        return validate_safe_identifier(raw, field_name="service_name", max_length=128)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 async def require_service_or_platform_admin(

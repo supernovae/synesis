@@ -6,10 +6,11 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -18,6 +19,7 @@ from ..db.engine import async_session
 from ..db.models import YarnReducerTelemetrySnapshot
 from ..deps import ASSISTANT_MODEL, INTERNAL_SERVICE_TOKEN, PLANNER_URL
 from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, SAFE_TEXT_PATTERN, validate_safe_identifier
 from ..services import yarn_service
 from ..services.account_usage_service import account_usage_identity_candidates
 from ..services.archive_store import ArchiveConfigError
@@ -37,6 +39,12 @@ from ..services.yarn_reducer_history import (
 logger = logging.getLogger("synesis.admin.yarn")
 
 router = APIRouter(prefix="/api/v1/yarn", tags=["yarn"])
+TransitionEventKind = Literal[
+    "request_trajectory_v1",
+    "state_transition_v1",
+    "state_transition_quality_calibration_v1",
+    "state_transition_quality_global_calibration_v1",
+]
 
 _YARN_URL = os.getenv(
     "SYNESIS_YARN_URL",
@@ -76,7 +84,12 @@ def _scope(user: UserInfo) -> tuple[str, str, str]:
     if role >= Role.org_admin:
         return "", user.org_id or "", ""
     tenant_ids = getattr(user, "tenant_ids", None) or []
-    scope_tenant = (tenant_ids[0].strip()[:64]) if tenant_ids else ""
+    scope_tenant = ""
+    if tenant_ids:
+        try:
+            scope_tenant = validate_safe_identifier(tenant_ids[0], field_name="tenant_id", max_length=64)
+        except ValueError:
+            scope_tenant = ""
     return user.user_id or user.username, "", scope_tenant
 
 
@@ -265,7 +278,7 @@ async def yarn_sessions(
 
 @router.get("/sessions/current-work-packet")
 async def yarn_current_work_packet(
-    session_key: str = Query(..., min_length=1),
+    session_key: str = Query(..., min_length=1, max_length=512, pattern=SAFE_TEXT_PATTERN),
     user: UserInfo = Depends(require_org_admin),
 ):
     scope_user_id, scope_org_id, _tenant_id = _scope(user)
@@ -281,7 +294,7 @@ async def yarn_current_work_packet(
 
 @router.get("/sessions/{session_key:path}")
 async def yarn_session_detail(
-    session_key: str,
+    session_key: str = Path(..., min_length=1, max_length=512, pattern=SAFE_TEXT_PATTERN),
     user: UserInfo = Depends(require_org_admin),
 ):
     scope_user_id, scope_org_id, _tenant_id = _scope(user)
@@ -360,7 +373,7 @@ async def yarn_transition_events(
     after_id: int = Query(0, ge=0),
     risk_only: bool = Query(True),
     include_metadata: bool = Query(False),
-    event_kinds: list[str] = Query(default=[]),
+    event_kinds: list[TransitionEventKind] = Query(default=[]),
     user: UserInfo = Depends(require_org_admin),
 ):
     scope_user_id, scope_org_id, _tenant_id = _scope(user)
@@ -382,7 +395,7 @@ async def yarn_transition_events(
 
 @router.get("/diagnostics/{request_id}")
 async def yarn_diagnostics(
-    request_id: str,
+    request_id: str = Path(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(require_org_admin),
 ):
     """Proxy diagnostics snapshot from Yarn service's Redis cache."""
@@ -610,7 +623,7 @@ async def yarn_safety_events(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     since_hours: int = Query(24, ge=1, le=720),
-    event_kind: str | None = Query(None),
+    event_kind: str | None = Query(None, min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(require_org_admin),
 ):
     scope_user_id, scope_org_id, _tenant_id = _scope(user)

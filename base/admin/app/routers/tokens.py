@@ -21,8 +21,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,7 @@ from ..db.engine import get_session
 from ..db.models import PersonalAccessToken
 from ..pat_crypto import generate as _generate_token
 from ..rbac import require_platform_admin
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
 
@@ -42,10 +43,17 @@ DEFAULT_SCOPES = ["model:readonly"]
 
 
 class TokenCreate(BaseModel):
-    name: str
-    expires_in_days: int | None = None
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(..., min_length=1, max_length=256)
+    expires_in_days: int | None = Field(None, ge=1, le=3650)
     scopes: list[str] | None = None
     tenant_ids: list[str] | None = None
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _validate_name(_cls, value: str) -> str:
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
 
     @field_validator("scopes", mode="before")
     @classmethod
@@ -65,8 +73,11 @@ class TokenCreate(BaseModel):
     def _validate_tenant_ids(_cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
-        cleaned = [str(t).strip()[:64] for t in v if str(t).strip()]
-        cleaned = list(dict.fromkeys(cleaned))
+        cleaned: list[str] = []
+        for raw_tenant_id in v:
+            tenant_id = validate_safe_identifier(raw_tenant_id, field_name="tenant_id", max_length=64)
+            if tenant_id not in cleaned:
+                cleaned.append(tenant_id)
         if len(cleaned) > 50:
             raise ValueError("At most 50 tenant_ids are allowed")
         return cleaned
@@ -102,7 +113,17 @@ def _effective_scopes(raw: list[str] | None) -> list[str]:
 
 
 def _effective_tenant_ids(raw: list[str] | None) -> list[str]:
-    return [str(t).strip()[:64] for t in (raw or []) if str(t).strip()][:50]
+    cleaned: list[str] = []
+    for raw_tenant_id in raw or []:
+        try:
+            tenant_id = validate_safe_identifier(raw_tenant_id, field_name="tenant_id", max_length=64)
+        except ValueError:
+            continue
+        if tenant_id not in cleaned:
+            cleaned.append(tenant_id)
+        if len(cleaned) >= 50:
+            break
+    return cleaned
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -195,7 +216,7 @@ async def list_tokens(
 
 @router.delete("/{token_id}", status_code=204)
 async def revoke_token(
-    token_id: str,
+    token_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     user: UserInfo = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

@@ -38,6 +38,7 @@ export class MemoryStore {
   };
   /** In-memory write-through cache, keyed by scope:scopeKey. */
   private readonly localCache = new Map<string, StoredObservation[]>();
+  private readonly localSessionCacheKeys = new Map<string, Set<string>>();
 
   constructor(
     private readonly redis: Redis | null,
@@ -57,19 +58,21 @@ export class MemoryStore {
   ): Promise<StoredObservation> {
     const safeProjectRoot = canonicalMemoryProjectRoot(projectRoot);
     const safeNamespace = canonicalMemoryNamespace(options.namespace);
+    const safeSessionKey = canonicalMemorySessionKey(sessionKey);
     const obs: StoredObservation = {
       id: generateId(),
       topic: memoryText(topic, MAX_MEMORY_TOPIC_CHARS) || "observation",
       finding: memoryText(finding, MAX_MEMORY_FINDING_CHARS) || "empty",
       scope,
-      sessionKey: memoryText(sessionKey, MAX_MEMORY_KEY_CHARS) || "unknown",
+      sessionKey: safeSessionKey,
       projectRoot: safeProjectRoot,
       namespace: safeNamespace,
       createdAt: Date.now(),
     };
 
-    const scopeKey = this.scopeKey(scope, sessionKey, safeProjectRoot, safeNamespace);
+    const scopeKey = this.scopeKey(scope, safeSessionKey, safeProjectRoot, safeNamespace);
     const cacheKey = this.cacheKey(scope, scopeKey);
+    if (scope === "session") this.trackSessionCacheKey(safeSessionKey, cacheKey);
     this.localPush(cacheKey, obs);
 
     if (this.redis) {
@@ -79,6 +82,11 @@ export class MemoryStore {
         await this.redis.lpush(redisKey, raw);
         await this.redis.ltrim(redisKey, 0, this.maxEntries - 1);
         await this.redis.expire(redisKey, this.ttlSeconds);
+        if (scope === "session") {
+          const indexKey = this.sessionIndexKey(safeSessionKey);
+          await this.redis.sadd(indexKey, redisKey);
+          await this.redis.expire(indexKey, this.ttlSeconds);
+        }
       } catch {
         /* Redis failure — local cache still has it */
       }
@@ -106,14 +114,14 @@ export class MemoryStore {
     if (this.redis) {
       allObs = await this.recallFromRedis(
         scope,
-        sessionKey,
+        canonicalMemorySessionKey(sessionKey),
         canonicalMemoryProjectRoot(projectRoot),
         canonicalMemoryNamespace(options.namespace),
       );
     } else {
       allObs = this.recallFromLocal(
         scope,
-        sessionKey,
+        canonicalMemorySessionKey(sessionKey),
         canonicalMemoryProjectRoot(projectRoot),
         canonicalMemoryNamespace(options.namespace),
       );
@@ -141,7 +149,7 @@ export class MemoryStore {
     const safeNamespace = canonicalMemoryNamespace(options.namespace);
     const effectiveScopeKey = scope === "project"
       ? this.scopedProjectKey(scopeKey, safeNamespace)
-      : scopeKey;
+      : this.scopedSessionKey(scopeKey, safeNamespace);
     if (this.redis) {
       try {
         const key = this.listKey(scope, effectiveScopeKey);
@@ -157,16 +165,44 @@ export class MemoryStore {
   }
 
   /** Count stored observations for a session (local cache, O(1)). */
-  countSession(sessionKey: string): number {
-    return (this.localCache.get(this.cacheKey("session", sessionKey)) ?? []).length;
+  countSession(sessionKey: string, options: { namespace?: string } = {}): number {
+    const safeSessionKey = canonicalMemorySessionKey(sessionKey);
+    const safeNamespace = canonicalMemoryNamespace(options.namespace);
+    if (safeNamespace) {
+      return (this.localCache.get(this.cacheKey("session", this.scopedSessionKey(safeSessionKey, safeNamespace))) ?? []).length;
+    }
+    const keys = this.localSessionCacheKeys.get(safeSessionKey);
+    if (!keys) return 0;
+    let total = 0;
+    for (const key of keys) total += this.localCache.get(key)?.length ?? 0;
+    return total;
   }
 
   /** Clear session-scoped entries (local + Redis). */
-  async clearSession(sessionKey: string): Promise<void> {
-    this.localCache.delete(this.cacheKey("session", sessionKey));
+  async clearSession(sessionKey: string, options: { namespace?: string } = {}): Promise<void> {
+    const safeSessionKey = canonicalMemorySessionKey(sessionKey);
+    const safeNamespace = canonicalMemoryNamespace(options.namespace);
+    if (safeNamespace) {
+      const cacheKey = this.cacheKey("session", this.scopedSessionKey(safeSessionKey, safeNamespace));
+      this.localCache.delete(cacheKey);
+      this.untrackSessionCacheKey(safeSessionKey, cacheKey);
+    } else {
+      const keys = this.localSessionCacheKeys.get(safeSessionKey);
+      for (const key of keys ?? []) this.localCache.delete(key);
+      this.localSessionCacheKeys.delete(safeSessionKey);
+    }
     if (this.redis) {
       try {
-        await this.redis.del(this.listKey("session", sessionKey));
+        if (safeNamespace) {
+          const redisKey = this.listKey("session", this.scopedSessionKey(safeSessionKey, safeNamespace));
+          await this.redis.del(redisKey);
+          await this.redis.srem(this.sessionIndexKey(safeSessionKey), redisKey);
+        } else {
+          const indexKey = this.sessionIndexKey(safeSessionKey);
+          const keys = await this.redis.smembers(indexKey);
+          if (keys.length > 0) await this.redis.del(...keys);
+          await this.redis.del(indexKey);
+        }
       } catch { /* best effort */ }
     }
   }
@@ -270,13 +306,34 @@ export class MemoryStore {
 
   private scopeKey(scope: MemoryScope, sessionKey: string, projectRoot: string, namespace?: string): string {
     return scope === "session"
-      ? sessionKey
+      ? this.scopedSessionKey(sessionKey, namespace)
       : this.scopedProjectKey(projectRoot, namespace);
+  }
+
+  private scopedSessionKey(sessionKey: string, namespace?: string): string {
+    const ns = namespace?.trim() ? namespace.trim() : "global";
+    return `${ns}:${canonicalMemorySessionKey(sessionKey)}`;
   }
 
   private scopedProjectKey(projectRoot: string, namespace?: string): string {
     const ns = namespace?.trim() ? namespace.trim() : "global";
     return `${ns}:${canonicalMemoryProjectRoot(projectRoot)}`;
+  }
+
+  private trackSessionCacheKey(sessionKey: string, cacheKey: string): void {
+    let keys = this.localSessionCacheKeys.get(sessionKey);
+    if (!keys) {
+      keys = new Set();
+      this.localSessionCacheKeys.set(sessionKey, keys);
+    }
+    keys.add(cacheKey);
+  }
+
+  private untrackSessionCacheKey(sessionKey: string, cacheKey: string): void {
+    const keys = this.localSessionCacheKeys.get(sessionKey);
+    if (!keys) return;
+    keys.delete(cacheKey);
+    if (keys.size === 0) this.localSessionCacheKeys.delete(sessionKey);
   }
 
   private listKey(scope: MemoryScope, scopeKey: string): string {
@@ -290,6 +347,14 @@ export class MemoryStore {
   private safeScopeKey(scopeKey: string): string {
     return safeMemoryCachePart(scopeKey, "unknown");
   }
+
+  private sessionIndexKey(sessionKey: string): string {
+    return `${REDIS_PREFIX}session-index:${this.safeScopeKey(sessionKey)}`;
+  }
+}
+
+function canonicalMemorySessionKey(sessionKey: string | null | undefined): string {
+  return memoryText(sessionKey, MAX_MEMORY_KEY_CHARS) || "unknown";
 }
 
 function normalizeStoredObservation(value: unknown): StoredObservation | null {

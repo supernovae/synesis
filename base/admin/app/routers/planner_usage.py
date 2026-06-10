@@ -6,9 +6,10 @@ import logging
 from typing import Literal, Self
 
 from fastapi import APIRouter, Body, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from ..internal_auth import require_internal_service_token_request
+from ..route_validation import validate_optional_safe_identifier, validate_safe_text
 from ..services.planner_usage_service import upsert_metering_row
 
 logger = logging.getLogger("synesis.admin.planner_usage_router")
@@ -60,6 +61,41 @@ class PlannerMeteringBody(BaseModel):
     latency_ms: float = Field(0, ge=0, le=86_400_000)
     has_error: bool = False
 
+    @field_validator("request_id", "trace_id", mode="after")
+    @classmethod
+    def validate_metering_id(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_identifier(value, field_name=info.field_name, max_length=64)
+
+    @field_validator("user_id", "org_id", mode="after")
+    @classmethod
+    def validate_account_dimension(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=256)
+
+    @field_validator("tenant_id", mode="after")
+    @classmethod
+    def validate_tenant_id(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=64)
+
+    @field_validator("conversation_id", mode="after")
+    @classmethod
+    def validate_conversation_id(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("model", "auth_key_name", mode="after")
+    @classmethod
+    def validate_long_text(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=256)
+
+    @field_validator("auth_method", "auth_key_prefix", mode="after")
+    @classmethod
+    def validate_short_text(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=32)
+
+    @field_validator("auth_key_id", mode="after")
+    @classmethod
+    def validate_auth_key_id(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
     @model_validator(mode="after")
     def require_request_or_trace_id(self) -> Self:
         if not (self.request_id or self.trace_id):
@@ -73,5 +109,5 @@ async def ingest_planner_metering(request: Request, body: PlannerMeteringBody = 
     require_internal_service_token_request(request)
     record = body.model_dump(exclude_none=True)
     await upsert_metering_row(record)
-    rid = (record.get("request_id") or record.get("trace_id") or "")[:64]
+    rid = record.get("request_id") or record.get("trace_id") or ""
     return {"status": "ok", "request_id": rid}

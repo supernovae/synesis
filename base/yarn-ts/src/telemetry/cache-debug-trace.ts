@@ -60,24 +60,26 @@ interface CacheDebugRequestSnapshot {
   sessionKey: string;
   requestId: string;
   clientKind: string;
-  payload: string;
   bodyHash: string;
   payloadBytes: number;
   messageHashes: string[];
   systemPrefixHashes: string[];
+  systemPrefixContentBytes: number[];
   firstMessageHashes: string[];
   toolsetHash: string;
   messageCount: number;
   toolCount: number;
   stablePrefixBytes: number;
+  volatilePrefixMetadata: boolean;
 }
 
 interface PreviousCacheDebugSnapshot {
   requestId: string;
-  payload: string;
   messageHashes: string[];
   systemPrefixHashes: string[];
+  systemPrefixContentBytes: number[];
   toolsetHash: string;
+  volatilePrefixMetadata: boolean;
 }
 
 const previousBySession = new Map<string, PreviousCacheDebugSnapshot>();
@@ -118,15 +120,6 @@ function canonicalHash(value: unknown): string {
   return hashText(stableJsonStringify(value));
 }
 
-function sharedPrefixBytes(previous: string, current: string): number {
-  const prev = Buffer.from(previous, "utf8");
-  const curr = Buffer.from(current, "utf8");
-  const max = Math.min(prev.length, curr.length);
-  let idx = 0;
-  while (idx < max && prev[idx] === curr[idx]) idx += 1;
-  return idx;
-}
-
 function firstChangedMessageIndex(previous: string[], current: string[]): number {
   const max = Math.max(previous.length, current.length);
   for (let idx = 0; idx < max; idx += 1) {
@@ -137,6 +130,32 @@ function firstChangedMessageIndex(previous: string[], current: string[]): number
 
 function containsVolatilePrefixMetadata(raw: string): boolean {
   return /\b(today'?s date|current date|cwd|working directory|project root|shell cwd|workspace|timestamp|time zone|timezone)\b/i.test(raw);
+}
+
+function contentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return stableJsonStringify(value);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function sharedStablePrefixBytes(
+  previous: PreviousCacheDebugSnapshot | undefined,
+  current: CacheDebugRequestSnapshot,
+): number {
+  if (!previous) return 0;
+  const max = Math.min(previous.systemPrefixHashes.length, current.systemPrefixHashes.length);
+  let shared = 0;
+  for (let idx = 0; idx < max; idx += 1) {
+    if (previous.systemPrefixHashes[idx] !== current.systemPrefixHashes[idx]) break;
+    shared += Math.min(
+      previous.systemPrefixContentBytes[idx] ?? 0,
+      current.systemPrefixContentBytes[idx] ?? 0,
+    );
+  }
+  return shared;
 }
 
 export function buildCacheDebugRequestSnapshot(
@@ -162,11 +181,17 @@ export function buildCacheDebugRequestSnapshot(
     return `${idx}:${messageRole(message)}:${messageHashes[idx] ?? ""}:${bytes}`;
   });
   const systemPrefixHashes: string[] = [];
+  const systemPrefixContentBytes: number[] = [];
   let stablePrefixBytes = 0;
+  let volatilePrefixMetadata = false;
   for (const message of messages) {
     if (messageRole(message) !== "system") break;
+    const content = (message as Record<string, unknown>).content;
+    const bytes = contentBytes(content);
     systemPrefixHashes.push(canonicalHash(message));
-    stablePrefixBytes += contentBytes((message as Record<string, unknown>).content);
+    systemPrefixContentBytes.push(bytes);
+    stablePrefixBytes += bytes;
+    volatilePrefixMetadata = volatilePrefixMetadata || containsVolatilePrefixMetadata(contentText(content));
   }
   const toolsetHash = tools.length > 0 ? `${tools.length}:${canonicalHash(tools)}` : "0:empty";
 
@@ -174,16 +199,17 @@ export function buildCacheDebugRequestSnapshot(
     sessionKey,
     requestId,
     clientKind,
-    payload: bodyText,
     bodyHash: hashText(bodyText),
     payloadBytes: Buffer.byteLength(bodyText, "utf8"),
     messageHashes,
     systemPrefixHashes,
+    systemPrefixContentBytes,
     firstMessageHashes,
     toolsetHash,
     messageCount: messages.length,
     toolCount: tools.length,
     stablePrefixBytes,
+    volatilePrefixMetadata,
   };
 }
 
@@ -203,10 +229,12 @@ function classifyCacheMissReason(
   if (previous.toolsetHash !== snapshot.toolsetHash) return "toolset_changed";
   const firstSystemChange = firstChangedMessageIndex(previous.systemPrefixHashes, snapshot.systemPrefixHashes);
   if (firstSystemChange >= 0) {
-    return containsVolatilePrefixMetadata(snapshot.payload) ? "volatile_metadata_in_prefix" : "system_prefix_changed";
+    return snapshot.volatilePrefixMetadata || previous.volatilePrefixMetadata
+      ? "volatile_metadata_in_prefix"
+      : "system_prefix_changed";
   }
-  const sharedBytes = sharedPrefixBytes(previous.payload, snapshot.payload);
-  if (sharedBytes >= Math.min(previous.payload.length, snapshot.payload.length, snapshot.stablePrefixBytes)) {
+  const sharedBytes = sharedStablePrefixBytes(previous, snapshot);
+  if (sharedBytes >= snapshot.stablePrefixBytes) {
     return "provider_cache_ttl_or_routing";
   }
   return "provider_no_cache_hit";
@@ -231,7 +259,7 @@ export function buildAndRememberCacheDebugTrace(
   },
 ): CacheDebugTraceRecord {
   const previous = previousBySession.get(params.snapshot.sessionKey);
-  const sharedBytes = previous ? sharedPrefixBytes(previous.payload, params.snapshot.payload) : 0;
+  const sharedBytes = sharedStablePrefixBytes(previous, params.snapshot);
   const firstMessageIndex = previous
     ? firstChangedMessageIndex(previous.messageHashes, params.snapshot.messageHashes)
     : -1;
@@ -269,10 +297,11 @@ export function buildAndRememberCacheDebugTrace(
 
   previousBySession.set(params.snapshot.sessionKey, {
     requestId: params.snapshot.requestId,
-    payload: params.snapshot.payload,
     messageHashes: params.snapshot.messageHashes,
     systemPrefixHashes: params.snapshot.systemPrefixHashes,
+    systemPrefixContentBytes: params.snapshot.systemPrefixContentBytes,
     toolsetHash: params.snapshot.toolsetHash,
+    volatilePrefixMetadata: params.snapshot.volatilePrefixMetadata,
   });
   prunePreviousSnapshots();
   return record;

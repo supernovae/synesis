@@ -11,6 +11,7 @@ import httpx
 
 from ..auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from ..deps import ADMIN_MCP_URL, INTERNAL_SERVICE_TOKEN
+from ..route_validation import validate_safe_identifier
 
 logger = logging.getLogger("synesis.admin.mcp.ts_client")
 
@@ -58,7 +59,7 @@ def _clean_org_headers(org_headers: dict[str, str] | None) -> dict[str, str]:
     for key in ("x-synesis-org-id", "x-active-org-id"):
         value = str(org_headers.get(key, "") or "").strip()
         if value:
-            out[key] = value
+            out[key] = validate_safe_identifier(value, field_name=key, max_length=128)
     return out
 
 

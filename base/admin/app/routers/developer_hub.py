@@ -6,26 +6,33 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, update
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import AdminAuditEvent, DevHubConnector
 from ..rbac import Role, RouteGroup, can_access_route_group, can_manage_visibility_scope, resolve_role
+from ..route_validation import SAFE_IDENTIFIER_PATTERN, validate_safe_identifier, validate_safe_text
 from ..services.outbound_security import validate_public_https_url
 
 logger = logging.getLogger("synesis.admin.developer_hub")
 
 router = APIRouter(prefix="/api/v1/developer-hub", tags=["developer-hub"])
 
-VALID_AUTH_TYPES = {"none", "bearer", "oauth"}
+ConnectorAuthType = Literal["none", "bearer"]
+ConnectorScope = Literal["global", "org", "tenant", "platform"]
+ConnectorEntityKind = Literal["Template", "Component", "API", "System", "Domain", "Resource", "Group", "User"]
+
+VALID_AUTH_TYPES = {"none", "bearer"}
 VALID_ENTITY_KINDS = {"Template", "Component", "API", "System", "Domain", "Resource", "Group", "User"}
 DEFAULT_ENTITY_KINDS = ["Template", "Component", "API", "System"]
 VALID_SCOPES = {"global", "org", "tenant", "platform"}
 _ENV_REF_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,255}$")
+CONNECTOR_ID_PATTERN = r"^devhub-[A-Za-z0-9_-]{1,57}$"
 
 
 def _audit(user: UserInfo, action: str, status: str, summary: str, detail: dict | None = None) -> AdminAuditEvent:
@@ -75,20 +82,93 @@ def _scope_for_rbac(scope: str) -> str:
     return "global" if scope in {"global", "platform"} else scope
 
 
+def _safe_connector_id(value: str, *, field_name: str = "connector_id") -> str:
+    try:
+        connector_id = validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not re.fullmatch(CONNECTOR_ID_PATTERN, connector_id):
+        raise HTTPException(422, f"{field_name} must be a devhub connector id")
+    return connector_id
+
+
+def _safe_optional_org_id(value: str | None, *, field_name: str = "org_id") -> str:
+    if not value:
+        return ""
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=64)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _safe_scope_value(scope: str, value: str | None, *, field_name: str = "scope_value") -> str:
+    if not value:
+        return ""
+    max_length = 64 if scope in {"org", "tenant"} else 256
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _normalize_entity_kinds(entity_kinds: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for kind in entity_kinds or DEFAULT_ENTITY_KINDS:
+        if kind not in VALID_ENTITY_KINDS:
+            raise HTTPException(400, f"Invalid entity kind: {kind}")
+        if kind not in cleaned:
+            cleaned.append(kind)
+    if not cleaned:
+        raise HTTPException(400, "At least one entity kind is required")
+    return cleaned
+
+
+def _cached_entity_kinds(snapshot: object) -> list[str]:
+    if not isinstance(snapshot, dict):
+        return []
+    entities = snapshot.get("entities")
+    if not isinstance(entities, list):
+        return []
+    kinds: list[str] = []
+    for entity in entities[:1000]:
+        if not isinstance(entity, dict):
+            continue
+        kind = entity.get("kind")
+        if kind not in VALID_ENTITY_KINDS:
+            continue
+        if kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
+def _cached_synced_at(snapshot: object) -> str | None:
+    if not isinstance(snapshot, dict):
+        return None
+    raw = snapshot.get("synced_at")
+    if raw is None:
+        return None
+    try:
+        return validate_safe_text(str(raw), field_name="synced_at", max_length=64)
+    except ValueError:
+        return None
+
+
 def _normalize_connector_scope(user: UserInfo, scope: str, org_id: str, scope_value: str) -> tuple[str, str, str]:
     normalized_scope = (scope or "org").strip().lower()
     if normalized_scope not in VALID_SCOPES:
         raise HTTPException(400, f"scope must be one of {sorted(VALID_SCOPES)}")
-    target_org = (org_id or scope_value or user.org_id or "").strip()
+    target_org = _safe_optional_org_id(
+        org_id or (scope_value if normalized_scope == "org" else "") or user.org_id or ""
+    )
     if not can_manage_visibility_scope(user, visibility_scope=_scope_for_rbac(normalized_scope), org_id=target_org):
         raise HTTPException(403, "Not authorized for connector scope")
     if resolve_role(user) < Role.platform_admin:
-        target_org = (user.org_id or "").strip()
+        target_org = _safe_optional_org_id(user.org_id or "")
         normalized_scope = "org"
         scope_value = target_org
     elif normalized_scope == "org" and not target_org:
         raise HTTPException(400, "org_id is required for org-scoped connectors")
-    return normalized_scope, target_org, (scope_value or target_org).strip()
+    return normalized_scope, target_org, _safe_scope_value(normalized_scope, scope_value or target_org)
 
 
 def _validate_auth_config(auth_type: str, auth_token_ref: str) -> str:
@@ -119,33 +199,77 @@ def _ensure_can_manage_connector(user: UserInfo, row: DevHubConnector) -> None:
         raise HTTPException(403, "Not authorized for connector scope")
 
 
+def _connector_id_path(
+    connector_id: str = Path(..., min_length=8, max_length=64, pattern=CONNECTOR_ID_PATTERN),
+) -> str:
+    return _safe_connector_id(connector_id)
+
+
 # ---------------------------------------------------------------------------
 # Request / response schemas
 # ---------------------------------------------------------------------------
 
 
 class ConnectorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str = Field(..., min_length=1, max_length=256)
     base_url: str = Field(..., min_length=1, max_length=512)
-    description: str = Field("")
-    auth_type: str = Field("none")
-    auth_token_ref: str = Field("")
-    entity_kinds: list[str] | None = None
+    description: str = Field("", max_length=4000)
+    auth_type: ConnectorAuthType = Field("none")
+    auth_token_ref: str = Field("", max_length=256)
+    entity_kinds: list[ConnectorEntityKind] | None = Field(None, max_length=8)
     sync_interval_minutes: int = Field(0, ge=0, le=10080)
-    org_id: str = Field("")
-    scope: str = Field("org")
-    scope_value: str = Field("")
+    org_id: str = Field("", max_length=64)
+    scope: ConnectorScope = Field("org")
+    scope_value: str = Field("", max_length=256)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("description", mode="after")
+    @classmethod
+    def _validate_description(cls, value: str) -> str:
+        return validate_safe_text(value, field_name="description", max_length=4000)
+
+    @field_validator("org_id", mode="after")
+    @classmethod
+    def _validate_org_id(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="org_id", max_length=64) if value else ""
+
+    @field_validator("scope_value", mode="after")
+    @classmethod
+    def _validate_scope_value(cls, value: str) -> str:
+        return validate_safe_identifier(value, field_name="scope_value", max_length=256) if value else ""
 
 
 class ConnectorUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    base_url: str | None = None
-    auth_type: str | None = None
-    auth_token_ref: str | None = None
-    entity_kinds: list[str] | None = None
-    sync_interval_minutes: int | None = None
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str | None = Field(None, min_length=1, max_length=256)
+    description: str | None = Field(None, max_length=4000)
+    base_url: str | None = Field(None, min_length=1, max_length=512)
+    auth_type: ConnectorAuthType | None = None
+    auth_token_ref: str | None = Field(None, max_length=256)
+    entity_kinds: list[ConnectorEntityKind] | None = Field(None, max_length=8)
+    sync_interval_minutes: int | None = Field(None, ge=0, le=10080)
     enabled: bool | None = None
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="name", max_length=256, allow_empty=False)
+
+    @field_validator("description", mode="after")
+    @classmethod
+    def _validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_safe_text(value, field_name="description", max_length=4000)
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +284,7 @@ async def create_connector(
 ):
     _ensure_connector_admin(user)
     auth_token_ref = _validate_auth_config(body.auth_type, body.auth_token_ref)
-    entity_kinds = body.entity_kinds or list(DEFAULT_ENTITY_KINDS)
-    for k in entity_kinds:
-        if k not in VALID_ENTITY_KINDS:
-            raise HTTPException(400, f"Invalid entity kind: {k}")
+    entity_kinds = _normalize_entity_kinds(body.entity_kinds)
 
     url = validate_public_https_url(body.base_url, field_name="base_url")
     scope, org_id, scope_value = _normalize_connector_scope(user, body.scope, body.org_id, body.scope_value)
@@ -193,22 +314,23 @@ async def create_connector(
 @router.get("/connectors")
 async def list_connectors(
     user: UserInfo = Depends(get_current_user),
-    org_id: str | None = Query(None),
+    org_id: str | None = Query(None, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     enabled: bool | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     _ensure_connector_admin(user)
+    org_filter = _safe_optional_org_id(org_id) if org_id is not None else None
     async with async_session() as session:
         q = select(DevHubConnector)
         role = resolve_role(user)
         if role < Role.platform_admin:
             caller_org = (user.org_id or "").strip()
             q = q.where(DevHubConnector.org_id == caller_org)
-        if org_id is not None:
-            if role < Role.platform_admin and org_id != (user.org_id or "").strip():
+        if org_filter is not None:
+            if role < Role.platform_admin and org_filter != (user.org_id or "").strip():
                 raise HTTPException(403, "Not authorized for connector org")
-            q = q.where(DevHubConnector.org_id == org_id)
+            q = q.where(DevHubConnector.org_id == org_filter)
         if enabled is not None:
             q = q.where(DevHubConnector.enabled == enabled)
         q = q.order_by(DevHubConnector.updated_at.desc()).limit(limit).offset(offset)
@@ -218,8 +340,8 @@ async def list_connectors(
         count_q = select(func.count(DevHubConnector.id))
         if role < Role.platform_admin:
             count_q = count_q.where(DevHubConnector.org_id == (user.org_id or "").strip())
-        if org_id is not None:
-            count_q = count_q.where(DevHubConnector.org_id == org_id)
+        if org_filter is not None:
+            count_q = count_q.where(DevHubConnector.org_id == org_filter)
         if enabled is not None:
             count_q = count_q.where(DevHubConnector.enabled == enabled)
         total = (await session.execute(count_q)).scalar() or 0
@@ -229,7 +351,7 @@ async def list_connectors(
 
 @router.get("/connectors/{connector_id}")
 async def get_connector(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     _ensure_connector_admin(user)
@@ -245,8 +367,8 @@ async def get_connector(
 
 @router.patch("/connectors/{connector_id}")
 async def update_connector(
-    connector_id: str,
     body: ConnectorUpdate,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     _ensure_connector_admin(user)
@@ -284,12 +406,9 @@ async def update_connector(
                 auth_type = existing.auth_type
         updates["auth_token_ref"] = _validate_auth_config(auth_type, body.auth_token_ref)
     if body.entity_kinds is not None:
-        for k in body.entity_kinds:
-            if k not in VALID_ENTITY_KINDS:
-                raise HTTPException(400, f"Invalid entity kind: {k}")
-        updates["entity_kinds"] = body.entity_kinds
+        updates["entity_kinds"] = _normalize_entity_kinds(body.entity_kinds)
     if body.sync_interval_minutes is not None:
-        updates["sync_interval_minutes"] = max(0, min(body.sync_interval_minutes, 10080))
+        updates["sync_interval_minutes"] = body.sync_interval_minutes
     if body.enabled is not None:
         updates["enabled"] = body.enabled
 
@@ -324,7 +443,7 @@ async def update_connector(
 
 @router.delete("/connectors/{connector_id}")
 async def delete_connector(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     from sqlalchemy import delete as sa_delete
@@ -347,7 +466,7 @@ async def delete_connector(
 
 @router.post("/connectors/{connector_id}/sync")
 async def trigger_sync(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     """Trigger a sync from the configured Developer Hub instance."""
@@ -383,7 +502,7 @@ async def trigger_sync(
 
 @router.get("/connectors/{connector_id}/sync/preview")
 async def preview_sync(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     """Dry-run sync showing what would be created/updated."""
@@ -417,7 +536,7 @@ async def preview_sync(
 
 @router.get("/connectors/{connector_id}/cache")
 async def get_connector_cache(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     """Inspect the cached entity snapshot for a connector."""
@@ -434,19 +553,20 @@ async def get_connector_cache(
     if not snapshot:
         return {"connector_id": connector_id, "has_cache": False, "entities": [], "synced_at": None}
 
-    entities = snapshot.get("entities", [])
+    entities = snapshot.get("entities", []) if isinstance(snapshot, dict) else []
+    entity_kinds = _cached_entity_kinds(snapshot)
     return {
         "connector_id": connector_id,
         "has_cache": True,
-        "entity_count": len(entities),
-        "synced_at": snapshot.get("synced_at"),
-        "entity_kinds": list({e.get("kind", "") for e in entities}),
+        "entity_count": len(entities) if isinstance(entities, list) else 0,
+        "synced_at": _cached_synced_at(snapshot),
+        "entity_kinds": entity_kinds,
     }
 
 
 @router.post("/connectors/{connector_id}/test")
 async def test_connector(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     """Test connection to a Backstage/Developer Hub instance."""
@@ -477,7 +597,7 @@ async def test_connector(
 
 @router.get("/connectors/{connector_id}/health")
 async def connector_health(
-    connector_id: str,
+    connector_id: str = Depends(_connector_id_path),
     user: UserInfo = Depends(get_current_user),
 ):
     """Combined health status: connectivity + sync freshness."""

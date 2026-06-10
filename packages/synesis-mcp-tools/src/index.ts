@@ -19,11 +19,14 @@ export {
 } from "./cve-license-docs-patch.js";
 export {
   dispatchSynesisTool,
+  validateSynesisToolArgs,
   SYNESIS_MCP_TOOL_NAMES,
+  type DispatchSynesisToolOptions,
   type SynesisMcpToolName,
 } from "./dispatch.js";
 export {
   SEARCH_SOURCE_SURFACES,
+  type SearchAttributionInput,
   type SearchSourceSurface,
   buildSearchAttributionBody,
 } from "./search-contract.js";

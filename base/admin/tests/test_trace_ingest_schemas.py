@@ -62,6 +62,16 @@ def test_trace_ingest_rejects_unknown_nested_token_field() -> None:
         TraceIngestBody(trace_id="trace-1", tokens={"total_tokens": 10, "token_admin": True})
 
 
+def test_trace_ingest_rejects_malformed_trace_identifier() -> None:
+    with pytest.raises(ValidationError, match="trace_id"):
+        TraceIngestBody(trace_id="trace-1\nrole=admin")
+
+
+def test_trace_ingest_rejects_oversized_org_dimension() -> None:
+    with pytest.raises(ValidationError, match="org_id"):
+        TraceIngestBody(trace_id="trace-1", org_id="o" * 65)
+
+
 def test_trace_ingest_rejects_unknown_span_field() -> None:
     with pytest.raises(ValidationError, match="tool_override"):
         TraceIngestBody(
@@ -74,6 +84,31 @@ def test_trace_ingest_rejects_unknown_span_field() -> None:
                 }
             ],
         )
+
+
+def test_trace_ingest_rejects_unsafe_nested_observability_payload() -> None:
+    with pytest.raises(ValidationError, match="trace_context"):
+        TraceIngestBody(
+            trace_id="trace-1",
+            trace_context={"providerOptions": {"admin\nrole": "platform_admin"}},
+        )
+
+
+def test_trace_ingest_rejects_deep_nested_observability_payload() -> None:
+    with pytest.raises(ValidationError, match="nesting depth"):
+        TraceIngestBody(
+            trace_id="trace-1",
+            trace_context={"a": {"b": {"c": {"d": {"e": "too-deep"}}}}},
+        )
+
+
+def test_trace_ingest_accepts_bounded_observability_payload() -> None:
+    body = TraceIngestBody(
+        trace_id="trace-1",
+        trace_context={"cache": {"shape_hash": "abc123", "provider_options_bytes": 42}},
+    )
+
+    assert body.trace_context == {"cache": {"shape_hash": "abc123", "provider_options_bytes": 42}}
 
 
 def test_trace_archive_request_rejects_invented_trace_service() -> None:

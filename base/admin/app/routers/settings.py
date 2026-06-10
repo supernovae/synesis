@@ -3,11 +3,12 @@
 import logging
 import os
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import UserInfo, get_current_user
 from ..rbac import require_platform_admin
+from ..route_validation import require_known_model_role_path
 from ..services.admin_audit import record_admin_audit
 from ..services.infra_pricing import (
     delete_infra_config,
@@ -80,8 +81,8 @@ async def list_infra_costs(_user: UserInfo = Depends(get_current_user)):
 
 @router.put("/infra-costs/{role}")
 async def set_infra_cost(
-    role: str = Path(..., min_length=1, max_length=64),
     body: InfraCostConfigBody = Body(...),
+    role: str = Depends(require_known_model_role_path),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Create or update infra cost config for a role."""
@@ -100,7 +101,7 @@ async def set_infra_cost(
 
 @router.delete("/infra-costs/{role}")
 async def remove_infra_cost(
-    role: str = Path(..., min_length=1, max_length=64),
+    role: str = Depends(require_known_model_role_path),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete infra cost config for a role."""

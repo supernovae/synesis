@@ -52,6 +52,14 @@ export class McpToolRegistry {
     return entries;
   }
 
+  parseArgs(name: string, args: unknown): { ok: true; args: unknown } | { ok: false; error: McpToolNotFoundError | z.ZodError } {
+    const tool = this.tools.get(name);
+    if (!tool) return { ok: false, error: new McpToolNotFoundError(name) };
+    const parsed = tool.inputSchema.safeParse(args);
+    if (!parsed.success) return { ok: false, error: parsed.error };
+    return { ok: true, args: parsed.data };
+  }
+
   async call(name: string, args: unknown, context?: McpToolContext): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) throw new McpToolNotFoundError(name);

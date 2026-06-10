@@ -13,6 +13,7 @@ from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, User
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import RouteGroup, can_access_route_group, trace_scope_filters
+from ..route_validation import validate_safe_identifier
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 from ..services.outbound_security import validate_public_https_url
@@ -39,6 +40,20 @@ _WEB_SEARCH_SOURCE_SURFACE_VALUES = {
     "external_api",
     "unknown",
 }
+
+
+def _clean_org_headers(org_headers: dict[str, str]) -> dict[str, str]:
+    cleaned: dict[str, str] = {}
+    for header_name in ("x-synesis-org-id", "x-active-org-id"):
+        value = str(org_headers.get(header_name, "") or "").strip()
+        if value:
+            try:
+                cleaned[header_name] = validate_safe_identifier(value, field_name=header_name, max_length=128)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return cleaned
+
+
 UrlPolicyAction = Literal["allow", "block", "vetted"]
 
 _FILTER_MAX_LENGTHS = {
@@ -134,10 +149,12 @@ async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_
     session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
     csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) or "").strip()
     csrf_token = (request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "").strip()
-    org_headers = {
-        "x-synesis-org-id": (request.headers.get("x-synesis-org-id") or "").strip(),
-        "x-active-org-id": (request.headers.get("x-active-org-id") or "").strip(),
-    }
+    org_headers = _clean_org_headers(
+        {
+            "x-synesis-org-id": request.headers.get("x-synesis-org-id") or "",
+            "x-active-org-id": request.headers.get("x-active-org-id") or "",
+        }
+    )
     ts_tools = await get_admin_mcp_tools(
         auth_header,
         org_headers,

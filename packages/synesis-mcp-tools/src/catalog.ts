@@ -134,7 +134,7 @@ export function getSynesisPlatformCatalog(): SynesisPlatformCatalogEntry[] {
     {
       name: "synesis_web_search",
       description:
-        "Web search with attribution context. Use when evidence is likely outside the indexed Synesis corpora.",
+        "Web search with server-owned attribution context. Use when evidence is likely outside the indexed Synesis corpora.",
       inputSchema: zodToJsonSchema(webSearchInputSchema),
     },
     {

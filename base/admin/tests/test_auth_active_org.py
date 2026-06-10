@@ -44,6 +44,14 @@ def test_parse_org_claim_multi_org_with_requested_org():
     assert org_roles == ["admin"]
 
 
+def test_parse_org_claim_rejects_malformed_requested_org():
+    from app.auth import _parse_org_claim
+
+    payload = {"organization": {"org-a": {"name": "Org A", "roles": ["member"]}}}
+    with pytest.raises(jwt.InvalidTokenError, match="requested_org_id"):
+        _parse_org_claim(payload, requested_org_id="org-a\nrole=admin")
+
+
 def test_parse_org_claim_honors_active_org_claim():
     from app.auth import _parse_org_claim
 
@@ -58,3 +66,17 @@ def test_parse_org_claim_honors_active_org_claim():
     assert org_id == "org-b"
     assert org_name == "Org B"
     assert org_roles == ["admin"]
+
+
+def test_parse_org_claim_rejects_malformed_active_org_claim():
+    from app.auth import _parse_org_claim
+
+    payload = {
+        "active_org_id": "org-b\nrole=admin",
+        "organization": {
+            "org-a": {"name": "Org A", "roles": ["member"]},
+            "org-b": {"name": "Org B", "roles": ["admin"]},
+        },
+    }
+    with pytest.raises(jwt.InvalidTokenError, match="active_org_id"):
+        _parse_org_claim(payload)

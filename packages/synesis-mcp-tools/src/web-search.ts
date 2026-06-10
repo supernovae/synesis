@@ -1,7 +1,7 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
 import { authHeaders, bearerForUpstream } from "./deps.js";
-import { buildSearchAttributionBody } from "./search-contract.js";
+import { buildSearchAttributionBody, type SearchAttributionInput } from "./search-contract.js";
 import { LIMITS, boundedString, boundedStringArray, clampInt, requestFailure, sanitizeUpstreamError } from "./tool-utils.js";
 
 const SEARCH_TIMEOUT_MS = 30_000;
@@ -28,6 +28,7 @@ function buildWebSearchBody(
   args: Record<string, unknown>,
   auth: SynesisMcpAuth,
   toolName: string,
+  attribution?: SearchAttributionInput,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     query: String(args.query ?? "").trim().slice(0, LIMITS.queryChars),
@@ -46,7 +47,7 @@ function buildWebSearchBody(
   if (minRelevance !== undefined) body.min_relevance = minRelevance;
   const preferredDomains = boundedStringArray(args.preferred_domains);
   if (preferredDomains) body.preferred_domains = preferredDomains;
-  Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", toolName));
+  Object.assign(body, buildSearchAttributionBody(attribution, auth, "planner_internal", toolName));
   return body;
 }
 
@@ -55,6 +56,7 @@ export async function runWebSearch(
   auth: SynesisMcpAuth,
   deps: SynesisMcpDeps,
   toolName = "synesis_web_search",
+  attribution?: SearchAttributionInput,
 ): Promise<unknown> {
   try {
     const query = String(args.query ?? "").trim();
@@ -64,7 +66,7 @@ export async function runWebSearch(
     if (query.length > LIMITS.queryChars) {
       return { error: "validation_error", message: `query must be ${LIMITS.queryChars} characters or fewer` };
     }
-    const body = buildWebSearchBody(args, auth, toolName);
+    const body = buildWebSearchBody(args, auth, toolName, attribution);
     const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);

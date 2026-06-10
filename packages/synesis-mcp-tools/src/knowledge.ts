@@ -153,7 +153,7 @@ function buildSearchBody(
   const goldenPathId = optionalString(args.golden_path_id);
   if (goldenPathId !== undefined) body.golden_path_id = goldenPathId;
 
-  Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", "synesis_knowledge_search"));
+  Object.assign(body, buildSearchAttributionBody(undefined, auth, "planner_internal", "synesis_knowledge_search"));
 
   return body;
 }
@@ -166,7 +166,7 @@ function buildResolverBody(args: Record<string, unknown>, auth: SynesisMcpAuth):
   }
   const topK = clampInt(args.top_k, 1, LIMITS.maxTopK);
   if (topK !== undefined) body.top_k = topK;
-  Object.assign(body, buildSearchAttributionBody(args, auth, "planner_internal", "synesis_resolve_pack"));
+  Object.assign(body, buildSearchAttributionBody(undefined, auth, "planner_internal", "synesis_resolve_pack"));
   return body;
 }
 

@@ -10,6 +10,15 @@ export const SEARCH_SOURCE_SURFACES = [
 
 export type SearchSourceSurface = (typeof SEARCH_SOURCE_SURFACES)[number];
 
+export interface SearchAttributionInput {
+  sourceSurface?: SearchSourceSurface;
+  toolName?: string;
+  requestId?: string;
+  sessionKey?: string;
+  conversationId?: string;
+  traceId?: string;
+}
+
 function optionalString(v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined;
   const s = String(v).trim();
@@ -17,23 +26,24 @@ function optionalString(v: unknown): string | undefined {
 }
 
 export function buildSearchAttributionBody(
-  args: Record<string, unknown>,
+  attribution: SearchAttributionInput | undefined,
   auth: SynesisMcpAuth,
   defaultSurface: SearchSourceSurface,
-  toolName: string,
+  defaultToolName: string,
 ): Record<string, unknown> {
+  const input = attribution ?? {};
   const body: Record<string, unknown> = {
-    source_surface: optionalString(args.source_surface) ?? defaultSurface,
-    tool_name: optionalString(args.tool_name) ?? toolName,
+    source_surface: input.sourceSurface ?? defaultSurface,
+    tool_name: optionalString(input.toolName) ?? defaultToolName,
   };
 
-  const requestId = optionalString(args.request_id);
+  const requestId = optionalString(input.requestId);
   if (requestId) body.request_id = requestId;
-  const sessionKey = optionalString(args.session_key);
+  const sessionKey = optionalString(input.sessionKey);
   if (sessionKey) body.session_key = sessionKey;
-  const conversationId = optionalString(args.conversation_id);
+  const conversationId = optionalString(input.conversationId);
   if (conversationId) body.conversation_id = conversationId;
-  const traceId = optionalString(args.trace_id);
+  const traceId = optionalString(input.traceId);
   if (traceId) body.trace_id = traceId;
 
   if (auth.orgId) body.caller_org_id = auth.orgId;

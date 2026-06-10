@@ -6,18 +6,25 @@ End-user billing totals should use ``/api/v1/usage/me/summary`` (planner_usage_l
 
 import asyncio
 import logging
-import re
 import time
 from typing import Any, Literal, Self
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from ..auth import UserInfo, get_current_user
 from ..deps import PLANNER_URL
 from ..internal_auth import require_internal_service_token_request
 from ..rbac import RouteGroup, can_access_route_group, can_access_trace, require_platform_admin, trace_scope_filters
+from ..route_validation import (
+    SAFE_IDENTIFIER_PATTERN,
+    validate_observability_payload,
+    validate_optional_safe_identifier,
+    validate_optional_safe_text,
+    validate_safe_identifier,
+    validate_safe_text,
+)
 from ..services import trace_store
 from ..services.archive_store import ArchiveConfigError
 
@@ -30,11 +37,10 @@ _TRACE_SERVICE_VALUES = {"", "planner", "yarn", "all"}
 TraceDecisionPathFilter = Literal["", "deterministic", "constrained", "inference_first", "abstain"]
 _TRACE_DECISION_PATH_VALUES = {"", "deterministic", "constrained", "inference_first", "abstain"}
 
-_TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _TRACE_FILTER_LIMITS = {
     "user_id": 256,
     "user_email": 320,
-    "org_id": 256,
+    "org_id": 64,
     "task_type": 128,
     "domain_tag": 128,
     "conversation_id": 128,
@@ -43,21 +49,17 @@ _TRACE_FILTER_LIMITS = {
 
 
 def _bounded_text_filter(value: str, *, field_name: str, max_length: int) -> str:
-    normalized = (value or "").strip()
-    if len(normalized) > max_length:
-        raise HTTPException(status_code=422, detail=f"{field_name} must be at most {max_length} characters")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
-        raise HTTPException(status_code=422, detail=f"{field_name} must not contain control characters")
-    return normalized
+    try:
+        return validate_safe_text(value, field_name=field_name, max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _trace_identifier(value: str, *, field_name: str, max_length: int = 64) -> str:
-    normalized = _bounded_text_filter(value, field_name=field_name, max_length=max_length)
-    if not normalized:
-        raise HTTPException(status_code=422, detail=f"{field_name} is required")
-    if not _TRACE_ID_RE.fullmatch(normalized):
-        raise HTTPException(status_code=422, detail=f"{field_name} contains unsupported characters")
-    return normalized
+    try:
+        return validate_safe_identifier(value, field_name=field_name, max_length=max_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _validate_trace_filter_params(values: dict[str, str]) -> dict[str, str]:
@@ -130,6 +132,23 @@ class TraceClassificationBody(BaseModel):
     cynefin_domain: Literal["clear", "complicated", "complex", "chaotic"] | None = None
     active_vertical: str | None = Field(None, max_length=128)
 
+    @field_validator(
+        "task_size",
+        "effort_mode",
+        "model_tier",
+        "rag_mode",
+        "taxonomy_key",
+        mode="after",
+    )
+    @classmethod
+    def validate_classification_text(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("active_vertical", mode="after")
+    @classmethod
+    def validate_optional_classification_text(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_text(value, field_name=info.field_name, max_length=128)
+
 
 class TraceLlmCallBody(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -150,6 +169,21 @@ class TraceLlmCallBody(BaseModel):
     actual_cost: float | None = Field(None, ge=0, le=1_000_000_000)
     estimated_cost: float | None = Field(None, ge=0, le=1_000_000_000)
 
+    @field_validator("model", mode="after")
+    @classmethod
+    def validate_model(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=256)
+
+    @field_validator("node", mode="after")
+    @classmethod
+    def validate_node(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("role", mode="after")
+    @classmethod
+    def validate_role(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_text(value, field_name=info.field_name, max_length=64)
+
 
 class TraceSpanBody(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -165,6 +199,21 @@ class TraceSpanBody(BaseModel):
     reasoning: str | None = Field(None, max_length=20000)
     llm_calls: list[TraceLlmCallBody] = Field(default_factory=list, max_length=100)
     metadata: dict[str, Any] | None = Field(None, max_length=200)
+
+    @field_validator("node_name", "outcome", mode="after")
+    @classmethod
+    def validate_span_text(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("intent", mode="after")
+    @classmethod
+    def validate_optional_span_text(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None, info: ValidationInfo) -> dict[str, Any] | None:
+        return validate_observability_payload(value, field_name=info.field_name)
 
 
 class TraceStreamingBody(BaseModel):
@@ -216,6 +265,71 @@ class TraceIngestBody(BaseModel):
     streaming: TraceStreamingBody | None = None
     error: str | None = Field(None, max_length=20000)
 
+    @field_validator("trace_id", "request_id", "authz_trace_id", mode="after")
+    @classmethod
+    def validate_trace_token(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_identifier(value, field_name=info.field_name, max_length=64)
+
+    @field_validator("parent_trace_id", "root_trace_id", mode="after")
+    @classmethod
+    def validate_optional_trace_token_text(cls, value: str, info: ValidationInfo) -> str:
+        if not value:
+            return ""
+        return validate_safe_identifier(value, field_name=info.field_name, max_length=64)
+
+    @field_validator("conversation_id", mode="after")
+    @classmethod
+    def validate_conversation_id(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("user_id", mode="after")
+    @classmethod
+    def validate_user_id(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=256)
+
+    @field_validator("org_id", "tenant_id", mode="after")
+    @classmethod
+    def validate_org_dimension(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=64)
+
+    @field_validator("model", mode="after")
+    @classmethod
+    def validate_trace_model(cls, value: str, info: ValidationInfo) -> str:
+        return validate_safe_text(value, field_name=info.field_name, max_length=256)
+
+    @field_validator("task_type", mode="after")
+    @classmethod
+    def validate_task_type(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return validate_optional_safe_text(value, field_name=info.field_name, max_length=128)
+
+    @field_validator("domain_tags", mode="after")
+    @classmethod
+    def validate_domain_tags(cls, value: list[str] | None, info: ValidationInfo) -> list[str] | None:
+        if value is None:
+            return None
+        return [
+            validate_safe_text(tag, field_name=f"{info.field_name}[]", max_length=128, allow_empty=False)
+            for tag in value
+        ]
+
+    @field_validator(
+        "decision_ledger",
+        "sensemaking",
+        "task_frame",
+        "critic_result",
+        "background_critic",
+        "phase_timings",
+        "trace_context",
+        "evidence_summary",
+        "taxonomy",
+        "critic_scores",
+        "context_curation",
+        mode="after",
+    )
+    @classmethod
+    def validate_observability_maps(cls, value: Any, info: ValidationInfo) -> Any:
+        return validate_observability_payload(value, field_name=info.field_name)
+
     @model_validator(mode="after")
     def require_trace_or_request_id(self) -> Self:
         if not (self.trace_id or self.request_id):
@@ -235,7 +349,7 @@ async def list_traces(
     has_error: bool | None = None,
     user_id: str = Query("", max_length=256),
     user_email: str = Query("", max_length=320),
-    org_id: str = Query("", max_length=256),
+    org_id: str = Query("", max_length=64),
     task_type: str = Query("", max_length=128),
     min_difficulty: float | None = None,
     max_difficulty: float | None = None,
@@ -314,7 +428,7 @@ async def trace_stats(_user: UserInfo = Depends(get_current_user)):
 async def trace_decision_analytics(
     since: float = Query(0, description="Unix timestamp start (default: 24h ago)"),
     until: float = Query(0, description="Unix timestamp end (default: now)"),
-    org_id: str = Query("", description="Filter by org"),
+    org_id: str = Query("", max_length=64, description="Filter by org"),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Decision-path, recall, and verification analytics aggregated from trace JSONB."""
@@ -461,7 +575,7 @@ async def ingest_trace(request: Request, body: TraceIngestBody = Body(...)):
 
 @router.delete("/{trace_id}")
 async def delete_trace(
-    trace_id: str = Path(..., min_length=1, max_length=64),
+    trace_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete a single trace by ID."""
@@ -589,7 +703,7 @@ async def purge_trivial_traces(
 
 @router.get("/{trace_id}")
 async def get_trace(
-    trace_id: str = Path(..., min_length=1, max_length=64),
+    trace_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     _user: UserInfo = Depends(get_current_user),
 ):
     _ensure_org_observability(_user)
@@ -605,7 +719,7 @@ async def get_trace(
 
 @router.get("/{trace_id}/chain")
 async def get_trace_chain(
-    trace_id: str = Path(..., min_length=1, max_length=64),
+    trace_id: str = Path(..., min_length=1, max_length=64, pattern=SAFE_IDENTIFIER_PATTERN),
     limit: int = Query(200, ge=1, le=1000),
     _user: UserInfo = Depends(get_current_user),
 ):

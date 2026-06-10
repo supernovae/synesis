@@ -18,6 +18,7 @@ from ..db.models import (
     IngestionItem,
     IngestionSource,
 )
+from ..route_validation import validate_safe_identifier, validate_safe_text
 from .catalog_client import CatalogClient, CatalogClientError, CatalogEntity
 
 logger = logging.getLogger("synesis.admin.devhub_sync")
@@ -89,6 +90,62 @@ _KIND_TO_CONTENT_PROFILE: dict[str, str] = {
     "Resource": "reference",
 }
 
+VALID_GOVERNANCE_CATEGORIES = {"safety", "compliance", "quality", "style", "architecture", "tooling", "process"}
+VALID_CONSTRAINT_KINDS = {"hard", "guiding", "advisory"}
+
+
+def _safe_external_text(value: Any, *, field_name: str, max_length: int, allow_empty: bool = True) -> str:
+    candidate = " ".join(str(value or "").split())
+    try:
+        return validate_safe_text(candidate, field_name=field_name, max_length=max_length, allow_empty=allow_empty)
+    except ValueError:
+        if allow_empty:
+            return ""
+        raise
+
+
+def _safe_external_identifier(value: Any, *, field_name: str, max_length: int) -> str:
+    return validate_safe_identifier(str(value or ""), field_name=field_name, max_length=max_length)
+
+
+def _safe_optional_external_identifier(value: Any, *, field_name: str, max_length: int) -> str | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return _safe_external_identifier(value, field_name=field_name, max_length=max_length)
+    except ValueError:
+        logger.warning("devhub_sync_invalid_annotation field=%s", field_name)
+        return None
+
+
+def _safe_constraint_kind(value: Any) -> str:
+    candidate = str(value or "guiding").strip().lower()
+    if candidate not in VALID_CONSTRAINT_KINDS:
+        logger.warning("devhub_sync_invalid_annotation field=constraint_kind value=%s", candidate[:64])
+        return "guiding"
+    return candidate
+
+
+def _safe_governance_category(value: Any) -> str:
+    candidate = str(value or "architecture").strip().lower()
+    if candidate not in VALID_GOVERNANCE_CATEGORIES:
+        logger.warning("devhub_sync_invalid_annotation field=category value=%s", candidate[:64])
+        return "architecture"
+    return candidate
+
+
+def _safe_devhub_clause_id(connector: DevHubConnector, entity: CatalogEntity) -> str:
+    connector_token = _safe_external_identifier(connector.connector_id, field_name="connector_id", max_length=64)
+    try:
+        name_token = _safe_external_identifier(entity.metadata.name, field_name="entity_name", max_length=32)
+        candidate = f"devhub-{connector_token}-{name_token}"
+        if len(candidate) <= 64:
+            return candidate
+    except ValueError:
+        pass
+    digest = hashlib.sha256(f"{connector_token}:{entity.entity_ref}".encode()).hexdigest()[:16]
+    return f"devhub-{connector_token[:40]}-{digest}"
+
 
 def _entity_content_hash(entity: CatalogEntity) -> str:
     payload = json.dumps(entity.to_dict(), sort_keys=True, default=str)
@@ -117,11 +174,14 @@ def _entity_to_synesis_meta(connector_id: str, entity: CatalogEntity) -> dict[st
     }
     if entity.kind == "Template":
         meta["golden_path_id"] = entity.metadata.name
-    for key in ("synesis.io/constraint-kind", "synesis.io/scope-tags"):
-        val = entity.metadata.annotations.get(key)
-        if val:
-            clean_key = key.replace("synesis.io/", "").replace("-", "_")
-            meta[clean_key] = val
+    constraint_kind = entity.metadata.annotations.get("synesis.io/constraint-kind")
+    if constraint_kind:
+        meta["constraint_kind"] = _safe_constraint_kind(constraint_kind)
+    scope_tags = entity.metadata.annotations.get("synesis.io/scope-tags")
+    if scope_tags:
+        safe_scope_tags = _safe_external_text(scope_tags, field_name="scope_tags", max_length=256)
+        if safe_scope_tags:
+            meta["scope_tags"] = safe_scope_tags
     return meta
 
 
@@ -409,20 +469,37 @@ async def _bridge_governance(
 
     async with async_session() as session:
         for tmpl in templates:
-            constitution_id = tmpl.metadata.annotations.get(GOVERNANCE_ANNOTATION)
+            constitution_id = _safe_optional_external_identifier(
+                tmpl.metadata.annotations.get(GOVERNANCE_ANNOTATION),
+                field_name="constitution_id",
+                max_length=64,
+            )
             if not constitution_id:
                 continue
 
-            clause_id = f"devhub-{connector.connector_id}-{tmpl.metadata.name}"
-            constraint_kind = tmpl.metadata.annotations.get(CONSTRAINT_KIND_ANNOTATION, "guiding")
-            category = tmpl.metadata.annotations.get(CATEGORY_ANNOTATION, "architecture")
-            recipe_id = tmpl.metadata.annotations.get(RECIPE_ANNOTATION)
+            clause_id = _safe_devhub_clause_id(connector, tmpl)
+            constraint_kind = _safe_constraint_kind(tmpl.metadata.annotations.get(CONSTRAINT_KIND_ANNOTATION))
+            category = _safe_governance_category(tmpl.metadata.annotations.get(CATEGORY_ANNOTATION))
+            recipe_id = _safe_optional_external_identifier(
+                tmpl.metadata.annotations.get(RECIPE_ANNOTATION),
+                field_name="validation_recipe_id",
+                max_length=128,
+            )
 
-            description = tmpl.metadata.description or tmpl.metadata.title or tmpl.metadata.name
+            description = _safe_external_text(
+                tmpl.metadata.description or tmpl.metadata.title or tmpl.metadata.name,
+                field_name="statement",
+                max_length=4000,
+            ) or _safe_external_text(tmpl.entity_ref, field_name="statement", max_length=4000, allow_empty=False)
             spec_params = tmpl.spec.get("parameters")
             if spec_params:
-                param_summary = json.dumps(spec_params, default=str)[:500]
-                description = f"{description}\n\nTemplate parameters: {param_summary}"
+                param_summary = _safe_external_text(
+                    json.dumps(spec_params, default=str)[:500],
+                    field_name="template_parameters",
+                    max_length=500,
+                )
+                if param_summary:
+                    description = f"{description} Template parameters: {param_summary}"[:4500]
 
             existing = (
                 await session.execute(select(GovernanceClause).where(GovernanceClause.clause_id == clause_id))

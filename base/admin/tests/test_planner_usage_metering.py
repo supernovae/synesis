@@ -57,6 +57,16 @@ def test_planner_metering_body_requires_request_or_trace_id() -> None:
         PlannerMeteringBody(model="synesis-agent")
 
 
+def test_planner_metering_body_rejects_malformed_request_id() -> None:
+    with pytest.raises(ValidationError, match="request_id"):
+        PlannerMeteringBody(request_id="test-meter-req-0\nrole=admin", model="synesis-agent")
+
+
+def test_planner_metering_body_rejects_control_characters_in_account_dimensions() -> None:
+    with pytest.raises(ValidationError, match="user_id"):
+        PlannerMeteringBody(request_id="test-meter-req-0", user_id="u1\norg=admin")
+
+
 def test_planner_metering_rates_reject_unknown_field() -> None:
     with pytest.raises(ValidationError, match="provider_secret"):
         PlannerMeteringRatesSnapshot(
@@ -96,6 +106,27 @@ def test_planner_metering_ingest_requires_token_when_configured(client: TestClie
         )
         assert r2.status_code == 200
         assert r2.json().get("status") == "ok"
+
+
+def test_planner_metering_ingest_rejects_invalid_body_before_persistence(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    token = "test-service-token"
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", token)
+    monkeypatch.delenv("SYNESIS_INTERNAL_SERVICE_TOKENS", raising=False)
+    payload = {
+        "request_id": "test-meter-req-3\nrole=admin",
+        "model": "synesis-agent",
+    }
+    with patch("app.routers.planner_usage.upsert_metering_row", new_callable=AsyncMock) as upsert:
+        r = client.post(
+            "/api/v1/planner/usage/metering",
+            json=payload,
+            headers={"x-synesis-service-token": token},
+        )
+
+    assert r.status_code == 422
+    upsert.assert_not_called()
 
 
 def test_planner_metering_ingest_accepts_case_insensitive_bearer(client: TestClient, monkeypatch: pytest.MonkeyPatch):

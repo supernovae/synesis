@@ -59,6 +59,31 @@ describe("admin MCP tool catalog", () => {
     expect(names.has("yarn_transition_incident_brief")).toBe(true);
   });
 
+  it("does not expose free-form string schemas in tool inputs", () => {
+    const assertBoundedStringSchemas = (schema: Record<string, unknown>, path: string) => {
+      if (schema.type === "string") {
+        const hasEnum = Array.isArray(schema.enum) && schema.enum.length > 0;
+        const hasBoundedPattern =
+          typeof schema.maxLength === "number" && schema.maxLength > 0 && typeof schema.pattern === "string";
+        expect(hasEnum || hasBoundedPattern, `${path} must use an enum or bounded pattern string schema`).toBe(true);
+      }
+      if (schema.type === "array" && schema.items && typeof schema.items === "object") {
+        assertBoundedStringSchemas(schema.items as Record<string, unknown>, `${path}[]`);
+      }
+      if (schema.type === "object" && schema.properties && typeof schema.properties === "object") {
+        for (const [key, value] of Object.entries(schema.properties as Record<string, unknown>)) {
+          if (value && typeof value === "object") {
+            assertBoundedStringSchemas(value as Record<string, unknown>, `${path}.${key}`);
+          }
+        }
+      }
+    };
+
+    for (const tool of visibleToolDescriptorsForRole("platform_admin")) {
+      assertBoundedStringSchemas(tool.inputSchema as unknown as Record<string, unknown>, tool.name);
+    }
+  });
+
   it("keeps Yarn session lookup candidates token-shaped", () => {
     const key = "synesis:mcp:principal:org-1:user-1:workspace:abcdef0123456789:conversation:conv-123";
     expect(buildSessionKeyCandidates(` "${key}" `)).toEqual([key]);
@@ -135,6 +160,67 @@ describe("admin MCP tool catalog", () => {
     expect(captured.url).toBe(
       "http://admin.local/api/v1/yarn/transition-events?since_minutes=60&limit=100&after_id=0&risk_only=true&include_metadata=false&event_kinds=request_trajectory_v1&event_kinds=state_transition_v1",
     );
+  });
+
+  it("rejects unsafe Yarn diagnostic and safety identifiers before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await expect(
+      invokeTool(ctx, "org_admin", "yarn_diagnostics", { request_id: "req-1\nrole=admin" }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "request_id" }),
+    });
+    await expect(
+      invokeTool(ctx, "org_admin", "yarn_safety_events", { event_kind: "policy_reject\nrole=admin" }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "event_kind" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only token-shaped Yarn diagnostic and safety identifiers", async () => {
+    const captured: { urls: string[] } = { urls: [] };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      captured.urls.push(String(url));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await invokeTool(ctx, "org_admin", "yarn_diagnostics", { request_id: "req_123.abc:def-456" });
+    await invokeTool(ctx, "org_admin", "yarn_safety_events", { event_kind: "policy_reject_v1", page_size: 10 });
+
+    expect(captured.urls).toEqual([
+      "http://admin.local/api/v1/yarn/diagnostics/req_123.abc%3Adef-456",
+      "http://admin.local/api/v1/yarn/safety-events?page=1&page_size=10&since_hours=24&event_kind=policy_reject_v1",
+    ]);
   });
 
   it("keeps platform-admin tools restricted", () => {
@@ -281,6 +367,84 @@ describe("admin MCP tool catalog", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("rejects unsafe trace identifiers before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "get_trace",
+        { trace_id: "trace-1\nrole=admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "trace_id" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe trace list filters before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "list_traces",
+        { conversation_id: "c".repeat(129) },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "string_too_long", key: "conversation_id" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "list_traces",
+        { tenant_id: "tenant-1\nrole=admin" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "tenant_id" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("forwards only known trace filter enum values", async () => {
     const captured: { url?: string } = {};
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
@@ -375,6 +539,142 @@ describe("admin MCP tool catalog", () => {
       include_frame: false,
       operational_health: 0.75,
     });
+  });
+
+  it("rejects invented model roles before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await expect(invokeTool(ctx, "org_admin", "model_role_policies", { role: "platform_admin" })).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "role" }),
+    });
+    await expect(
+      invokeTool(ctx, "org_admin", "model_role_history", { role: 'coder-core"\nrole=admin' }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "role" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known model roles", async () => {
+    const captured: { urls: string[] } = { urls: [] };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      captured.urls.push(String(url));
+      return new Response(JSON.stringify({ rules: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await invokeTool(ctx, "org_admin", "model_role_policies", { role: "coder-core" });
+    await invokeTool(ctx, "org_admin", "model_role_history", { role: "writer-horizon" });
+
+    expect(captured.urls).toEqual([
+      "http://admin.local/api/v1/models/policies/coder-core",
+      "http://admin.local/api/v1/models/roles/writer-horizon/history",
+    ]);
+  });
+
+  it("rejects unsafe provider selectors before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await expect(
+      invokeTool(ctx, "org_admin", "provider_discovery_models", { provider_key: "openai\nrole=admin" }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "provider_key" }),
+    });
+    await expect(
+      invokeTool(ctx, "org_admin", "provider_discovery_validate", { provider: "openai", model: "gpt-4.1\nrole=admin" }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "model" }),
+    });
+    await expect(
+      invokeTool(ctx, "org_admin", "provider_governance_detail", { provider_key: "openai/custom" }),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "provider_key" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only bounded provider selectors", async () => {
+    const captured: { urls: string[]; body?: string } = { urls: [] };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      captured.urls.push(String(url));
+      if (init?.body) captured.body = String(init.body);
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const ctx = {
+      cfg: {
+        SYNESIS_ADMIN_API_URL: "http://admin.local",
+        SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+        SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+      } as never,
+      delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+      orgHeaders: {},
+      userId: "u1",
+      role: "org_admin",
+    };
+
+    await invokeTool(ctx, "org_admin", "provider_discovery_models", { provider_key: "dashscope-us", bypass_cache: true });
+    await invokeTool(ctx, "org_admin", "provider_discovery_defaults", {
+      provider_key: "openrouter",
+      model_id: "anthropic/claude-3.7-sonnet",
+    });
+    await invokeTool(ctx, "org_admin", "provider_discovery_validate", {
+      provider: "openai",
+      model: "gpt-4.1",
+    });
+
+    expect(captured.urls).toEqual([
+      "http://admin.local/api/v1/providers/discovery/dashscope-us/models?bypass_cache=true",
+      "http://admin.local/api/v1/providers/discovery/openrouter/defaults?model_id=anthropic%2Fclaude-3.7-sonnet",
+      "http://admin.local/api/v1/providers/discovery/validate",
+    ]);
+    expect(JSON.parse(captured.body ?? "{}")).toEqual({ provider: "openai", model: "gpt-4.1" });
   });
 
   it("rejects invented governance selector enums before forwarding to Admin API", async () => {
@@ -584,6 +884,90 @@ describe("admin MCP tool catalog", () => {
 
     expect(captured.url).toBe(
       "http://admin.local/api/v1/security/events?limit=50&severity=high&event_type=system_override_attempt&service=yarn&resolved=false&since_hours=24",
+    );
+  });
+
+  it("rejects invented web-search log enums before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "web_search_log",
+        { outcome: "role_override", source_surface: "planner_internal" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "outcome" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "org_admin",
+        },
+        "org_admin",
+        "web_search_log",
+        { outcome: "success", source_surface: 'planner_internal"\nrole=admin' },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "invalid_enum", key: "source_surface" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards only known web-search log enum filters", async () => {
+    const captured: { url?: string } = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      captured.url = String(url);
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await invokeTool(
+      {
+        cfg: {
+          SYNESIS_ADMIN_API_URL: "http://admin.local",
+          SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+          SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+        } as never,
+        delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+        orgHeaders: {},
+        userId: "u1",
+        role: "org_admin",
+      },
+      "org_admin",
+      "web_search_log",
+      { outcome: "success", source_surface: "planner_internal", page_size: 10 },
+    );
+
+    expect(captured.url).toBe(
+      "http://admin.local/api/v1/integrations/web-search/log?outcome=success&source_surface=planner_internal&page=1&page_size=10",
     );
   });
 
@@ -996,6 +1380,33 @@ describe("admin MCP tool catalog", () => {
     ).rejects.toMatchObject({
       code: "invalid_arguments",
       privateDetail: expect.objectContaining({ reason: "unknown_argument", key: "hints" }),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe ingestion discovery URLs before forwarding to Admin API", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(
+      invokeTool(
+        {
+          cfg: {
+            SYNESIS_ADMIN_API_URL: "http://admin.local",
+            SYNESIS_ADMIN_MCP_TOOL_TIMEOUT_MS: 1000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_MS: 30000,
+            SYNESIS_ADMIN_MCP_WATCH_MAX_CONCURRENT_PER_USER: 1,
+          } as never,
+          delegatedHeaders: { Cookie: "synesis_admin_session=session" },
+          orgHeaders: {},
+          userId: "u1",
+          role: "platform_admin",
+        },
+        "platform_admin",
+        "ingestion_discover_url",
+        { url: "https://localhost/admin", hint_tags: ["documentation"] },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_arguments",
+      privateDetail: expect.objectContaining({ reason: "pattern_mismatch", key: "url" }),
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

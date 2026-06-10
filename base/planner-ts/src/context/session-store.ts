@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import { createHash } from "node:crypto";
 
 type Role = "system" | "user" | "assistant" | "tool";
 export type ChatMessage = { role: Role; content: string };
@@ -32,6 +33,75 @@ export interface SessionStore {
   disconnect(): Promise<void>;
 }
 
+const SESSION_STORE_KEY_PART_LIMIT = 320;
+const VALID_MESSAGE_ROLES = new Set<Role>(["system", "user", "assistant", "tool"]);
+
+function safeSessionStoreKeyPart(value: string): string {
+  const raw = replaceControlCharsWithSpace(value).trim();
+  if (!raw) return "unknown";
+  const safe = raw.replace(/[^A-Za-z0-9_.@:-]+/g, "_").replace(/_+/g, "_");
+  if (!safe) return "unknown";
+  if (safe.length <= SESSION_STORE_KEY_PART_LIMIT) return safe;
+  const digest = createHash("sha256").update(raw).digest("hex").slice(0, 32);
+  return `${safe.slice(0, 192)}-${digest}`;
+}
+
+function replaceControlCharsWithSpace(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    out += code < 0x20 || code === 0x7f ? " " : value[i];
+  }
+  return out;
+}
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.role === "string"
+    && VALID_MESSAGE_ROLES.has(row.role as Role)
+    && typeof row.content === "string";
+}
+
+function isPendingClarification(value: unknown): value is NonNullable<SessionData["pendingClarification"]> {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.question === "string"
+    && Array.isArray(row.options)
+    && row.options.every((item) => typeof item === "string")
+    && Array.isArray(row.assumptions)
+    && row.assumptions.every((item) => typeof item === "string")
+    && (row.originalTaskDescription === undefined || typeof row.originalTaskDescription === "string");
+}
+
+function normalizeSessionData(key: string, raw: unknown): SessionData | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  if (row.key !== key) return undefined;
+  if (!Number.isFinite(Number(row.lastSeenAt))) return undefined;
+  if (!Array.isArray(row.history) || !row.history.every(isChatMessage)) return undefined;
+  if (row.checkpointBlock !== undefined && typeof row.checkpointBlock !== "string") return undefined;
+  if (row.pendingClarification !== undefined && !isPendingClarification(row.pendingClarification)) return undefined;
+  const normalized: SessionData = {
+    key,
+    lastSeenAt: Number(row.lastSeenAt),
+    history: row.history,
+  };
+  if (typeof row.checkpointBlock === "string") normalized.checkpointBlock = row.checkpointBlock;
+  if (isPendingClarification(row.pendingClarification)) {
+    normalized.pendingClarification = row.pendingClarification;
+  }
+  return normalized;
+}
+
+function canonicalSessionData(key: string, data: SessionData): SessionData {
+  return {
+    ...data,
+    key,
+    history: data.history.filter(isChatMessage),
+  };
+}
+
 export class MemorySessionStore implements SessionStore {
   readonly backend = "memory" as const;
   private readonly sessions = new Map<string, SessionData>();
@@ -42,12 +112,15 @@ export class MemorySessionStore implements SessionStore {
   }
 
   async get(key: string): Promise<SessionData | undefined> {
-    return this.sessions.get(key);
+    const existing = this.sessions.get(key);
+    const normalized = normalizeSessionData(key, existing);
+    if (!normalized && existing) this.sessions.delete(key);
+    return normalized;
   }
 
   async set(key: string, data: SessionData, _ttlMs: number): Promise<void> {
     this.evictIfNeeded(key);
-    this.sessions.set(key, data);
+    this.sessions.set(key, canonicalSessionData(key, data));
   }
 
   async mutate(
@@ -55,7 +128,8 @@ export class MemorySessionStore implements SessionStore {
     _ttlMs: number,
     mutator: (current: SessionData | undefined) => SessionData,
   ): Promise<SessionData> {
-    const next = mutator(this.sessions.get(key));
+    const current = await this.get(key);
+    const next = canonicalSessionData(key, mutator(current));
     this.evictIfNeeded(key);
     this.sessions.set(key, next);
     return next;
@@ -119,7 +193,7 @@ export class RedisSessionStore implements SessionStore {
   }
 
   private fullKey(key: string): string {
-    return `${this.prefix}${key}`;
+    return `${this.prefix}${safeSessionStoreKeyPart(key)}`;
   }
 
   async connect(): Promise<void> {
@@ -131,7 +205,7 @@ export class RedisSessionStore implements SessionStore {
     const raw = await this.client.get(this.fullKey(key));
     if (!raw) return undefined;
     try {
-      return JSON.parse(raw) as SessionData;
+      return normalizeSessionData(key, JSON.parse(raw));
     } catch {
       return undefined;
     }
@@ -139,7 +213,7 @@ export class RedisSessionStore implements SessionStore {
 
   async set(key: string, data: SessionData, ttlMs: number): Promise<void> {
     const ttlSec = Math.max(1, Math.ceil(ttlMs / 1000));
-    await this.client.set(this.fullKey(key), JSON.stringify(data), "EX", ttlSec);
+    await this.client.set(this.fullKey(key), JSON.stringify(canonicalSessionData(key, data)), "EX", ttlSec);
   }
 
   async mutate(
@@ -157,12 +231,12 @@ export class RedisSessionStore implements SessionStore {
       let current: SessionData | undefined;
       if (raw) {
         try {
-          current = JSON.parse(raw) as SessionData;
+          current = normalizeSessionData(key, JSON.parse(raw));
         } catch {
           current = undefined;
         }
       }
-      const next = mutator(current);
+      const next = canonicalSessionData(key, mutator(current));
       const tx = this.client.multi();
       tx.set(fullKey, JSON.stringify(next), "EX", ttlSec);
       const result = await tx.exec();

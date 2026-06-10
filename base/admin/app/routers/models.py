@@ -17,6 +17,7 @@ from ..db.models import ModelPolicy, Trace
 from ..deps import PLANNER_URL
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import Role, require_org_admin, require_platform_admin, resolve_role, trace_scope_filters
+from ..route_validation import require_known_model_role_path
 from ..services import prometheus_client_svc as prom
 from ..services import public_model_offerings as public_offerings_svc
 from ..services.admin_audit import record_admin_audit
@@ -588,13 +589,11 @@ async def prompts_snapshot_internal(
 
 @router.put("/roles/{role}")
 async def assign_model_to_role(
-    role: str,
     body: RoleAssignmentBody,
+    role: str = Depends(require_known_model_role_path),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Assign a provider + model to a role.  Deactivates the previous assignment."""
-    if role not in KNOWN_ROLES:
-        raise HTTPException(400, f"Unknown role: {role}. Valid: {', '.join(KNOWN_ROLES)}")
     data = body.model_dump()
 
     try:
@@ -641,12 +640,10 @@ async def assign_model_to_role(
 
 @router.delete("/roles/{role}")
 async def remove_role_assignment(
-    role: str,
+    role: str = Depends(require_known_model_role_path),
     _user: UserInfo = Depends(require_platform_admin),
 ):
     """Deactivate the model assignment for a role."""
-    if role not in KNOWN_ROLES:
-        raise HTTPException(400, f"Unknown role: {role}")
     result = await deactivate_role(role)
     if result is None:
         raise HTTPException(404, f"No active assignment for role: {role}")
@@ -662,7 +659,7 @@ async def remove_role_assignment(
 
 @router.get("/roles/{role}/history")
 async def role_history(
-    role: str,
+    role: str = Depends(require_known_model_role_path),
     _user: UserInfo = Depends(require_org_admin),
     days: int = Query(90, ge=1, le=365),
 ):
@@ -1640,10 +1637,11 @@ async def list_model_policies(_user: UserInfo = Depends(require_org_admin)):
 
 
 @router.get("/policies/{role}")
-async def get_role_policies(role: str, _user: UserInfo = Depends(require_org_admin)):
+async def get_role_policies(
+    role: str = Depends(require_known_model_role_path),
+    _user: UserInfo = Depends(require_org_admin),
+):
     """Ordered rules for one role."""
-    if role not in KNOWN_ROLES:
-        raise HTTPException(404, f"Unknown role: {role}")
     try:
         async with async_session() as session:
             rows = (
@@ -1677,13 +1675,11 @@ async def get_role_policies(role: str, _user: UserInfo = Depends(require_org_adm
 
 @router.put("/policies/{role}")
 async def put_role_policies(
-    role: str,
     rules: list[ModelPolicyRuleBody] = Body(..., max_length=100),
+    role: str = Depends(require_known_model_role_path),
     user: UserInfo = Depends(require_platform_admin),
 ):
     """Replace all rules for a role atomically."""
-    if role not in KNOWN_ROLES:
-        raise HTTPException(404, f"Unknown role: {role}")
     rules_data = [rule.model_dump(exclude_none=True) for rule in rules]
 
     async with async_session() as session:
@@ -1716,12 +1712,10 @@ async def put_role_policies(
 
 @router.delete("/policies/{role}")
 async def delete_role_policies(
-    role: str,
+    role: str = Depends(require_known_model_role_path),
     user: UserInfo = Depends(require_platform_admin),
 ):
     """Remove all rules for a role (reverts to static default)."""
-    if role not in KNOWN_ROLES:
-        raise HTTPException(404, f"Unknown role: {role}")
     async with async_session() as session:
         async with session.begin():
             await session.execute(

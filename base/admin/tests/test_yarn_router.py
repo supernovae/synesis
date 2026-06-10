@@ -460,6 +460,55 @@ def test_yarn_transition_events_returns_tail(client, monkeypatch):
     assert kwargs["event_kinds"] == ["state_transition_v1"]
 
 
+def test_yarn_transition_events_rejects_unknown_event_kind(client, monkeypatch):
+    mock_tail = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_transition_events", mock_tail)
+
+    resp = client.get("/api/v1/yarn/transition-events?event_kinds=role_override")
+
+    assert resp.status_code == 422
+    mock_tail.assert_not_awaited()
+
+
+def test_yarn_selector_routes_reject_malformed_identifiers(client, monkeypatch):
+    mock_safety = AsyncMock(return_value={})
+    mock_session = AsyncMock(return_value={})
+    monkeypatch.setattr("app.services.yarn_service.list_yarn_safety_events", mock_safety)
+    monkeypatch.setattr("app.services.yarn_service.get_yarn_session_detail", mock_session)
+
+    diagnostics = client.get("/api/v1/yarn/diagnostics/req-1%0Arole=admin")
+    assert diagnostics.status_code == 422
+
+    safety = client.get("/api/v1/yarn/safety-events?event_kind=policy_reject%0Arole=admin")
+    assert safety.status_code == 422
+    mock_safety.assert_not_awaited()
+
+    packet = client.get("/api/v1/yarn/sessions/current-work-packet?session_key=session-1%0Arole=admin")
+    assert packet.status_code == 422
+
+    session = client.get(f"/api/v1/yarn/sessions/{'a' * 513}")
+    assert session.status_code == 422
+    mock_session.assert_not_awaited()
+
+
+def test_yarn_scope_does_not_truncate_malformed_tenant_id():
+    from app.auth import UserInfo
+    from app.routers.yarn import _scope
+
+    user = UserInfo(username="u1", role="user", user_id="u1", org_id="org-a", tenant_ids=["tenant-1\nadmin=true"])
+
+    assert _scope(user) == ("u1", "", "")
+
+
+def test_yarn_scope_preserves_valid_tenant_id():
+    from app.auth import UserInfo
+    from app.routers.yarn import _scope
+
+    user = UserInfo(username="u1", role="user", user_id="u1", org_id="org-a", tenant_ids=["tenant-1"])
+
+    assert _scope(user) == ("u1", "", "tenant-1")
+
+
 def test_yarn_health_uses_probe_service(client, monkeypatch):
     probe_result = {
         "name": "synesis-yarn",

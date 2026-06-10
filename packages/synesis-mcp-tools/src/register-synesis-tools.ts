@@ -130,7 +130,7 @@ export function registerSynesisMcpTools(
     "synesis_web_search",
     {
       description:
-        "Web search with standard attribution fields. Use when evidence is likely outside the indexed Synesis corpora.",
+        "Web search with server-owned attribution. Use when evidence is likely outside the indexed Synesis corpora.",
       inputSchema: webSearchInputSchema,
     },
     auth,

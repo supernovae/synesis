@@ -113,6 +113,50 @@ describe("Yarn MCP route argument validation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects caller-controlled platform attribution fields before dispatch", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    );
+    const { app, authResolver } = createMcpRouteHarness();
+    apps.push(app);
+    await registerMcpRoutes(app, {
+      authResolver: authResolver as never,
+      enabled: true,
+      openClawProfileEnabled: false,
+      openClawMcpAllowlistEnabled: false,
+      openClawStrictGovernanceEnabled: false,
+      toolMaxConcurrentPerCaller: 4,
+      toolMaxConcurrentGlobal: 100,
+      synesisMcpDeps: {
+        plannerBaseUrl: "http://planner.test:8080",
+        internalServiceToken: "svc",
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/mcp/tools/call",
+      headers: { authorization: "Bearer syn-test" },
+      payload: {
+        name: "synesis_web_search",
+        arguments: {
+          query: "kubernetes",
+          source_surface: "external_api",
+          request_id: "attacker-req",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        type: "validation_error",
+        message: "Invalid tool arguments",
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects non-object project-bound tool arguments before handler execution", async () => {
     const { app, authResolver } = createMcpRouteHarness();
     apps.push(app);

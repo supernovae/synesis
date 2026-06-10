@@ -208,14 +208,18 @@ export class ProjectStructuralIndexService {
   constructor(
     private readonly redis: Redis | null,
     private readonly ttlSeconds: number,
+    private readonly keyScope: string = "",
   ) {}
 
   async get(projectRoot: string): Promise<StructuralIndex | null> {
     if (!this.redis) return null;
+    const expectedRoot = canonicalMemoryProjectRoot(projectRoot);
     const raw = await this.redis.get(this.key(projectRoot));
     if (!raw) return null;
     try {
-      return normalizeStructuralIndex(JSON.parse(raw));
+      const index = normalizeStructuralIndex(JSON.parse(raw));
+      if (!index || index.projectRoot !== expectedRoot) return null;
+      return index;
     } catch {
       return null;
     }
@@ -269,12 +273,13 @@ export class ProjectStructuralIndexService {
   }
 
   private key(projectRoot: string): string {
-    return structuralIndexRedisKey(projectRoot);
+    return structuralIndexRedisKey(projectRoot, this.keyScope);
   }
 }
 
-export function structuralIndexRedisKey(projectRoot: string): string {
-  return `${REDIS_PREFIX}${safeMemoryCachePart(canonicalMemoryProjectRoot(projectRoot), "workspace")}`;
+export function structuralIndexRedisKey(projectRoot: string, keyScope = ""): string {
+  const scope = keyScope ? `${safeMemoryCachePart(keyScope, "scope")}:` : "";
+  return `${REDIS_PREFIX}${scope}${safeMemoryCachePart(canonicalMemoryProjectRoot(projectRoot), "workspace")}`;
 }
 
 function normalizeStructuralIndex(value: unknown): StructuralIndex | null {

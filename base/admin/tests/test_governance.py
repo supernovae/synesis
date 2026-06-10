@@ -97,6 +97,7 @@ def reader_client():
 @pytest.fixture()
 def platform_admin_client():
     from app.auth import UserInfo, get_current_user
+    from app.internal_auth import require_service_or_authenticated_user
     from app.main import app
 
     _auth_ctx["user"] = UserInfo(
@@ -109,8 +110,10 @@ def platform_admin_client():
         acl_groups=[],
     )
     app.dependency_overrides[get_current_user] = _make_user_override()
+    app.dependency_overrides[require_service_or_authenticated_user] = _make_user_override()
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(require_service_or_authenticated_user, None)
 
 
 # ── Mock DB session ──────────────────────────────────────────────────────────
@@ -639,6 +642,32 @@ class TestPolicyCRUD:
         assert resp.status_code == 400
         assert "max_tool_calls" in resp.json()["detail"]
 
+    def test_policy_schema_rejects_malformed_scope_selectors(self):
+        from app.routers.governance import PolicyDefCreate
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="scope selector"):
+            PolicyDefCreate(name="Bad", org_id="org-1\nrole=admin")
+
+        with pytest.raises(ValidationError, match="scope selector"):
+            PolicyDefCreate(name="Bad", scope_value="org-1\nrole=admin")
+
+    def test_policy_routes_reject_malformed_selectors_before_db(self, admin_client, _mock_db):
+        resp = admin_client.post(
+            "/api/v1/governance/policies",
+            json={"name": "Bad", "org_id": "org-1\nrole=admin"},
+        )
+        assert resp.status_code == 422
+
+        resp = admin_client.get("/api/v1/governance/policies?org_id=org-1%0Arole=admin")
+        assert resp.status_code == 422
+
+        resp = admin_client.put("/api/v1/governance/policies/p-1%0Arole=admin", json={"name": "Bad"})
+        assert resp.status_code == 422
+
+        resp = admin_client.delete("/api/v1/governance/policies/p-1%0Arole=admin")
+        assert resp.status_code == 422
+
     def test_create_feature_toggle_rejects_unknown_rule_config_key(self, admin_client, _mock_db):
         resp = admin_client.post(
             "/api/v1/governance/policies",
@@ -723,6 +752,11 @@ class TestEffectiveGovernance:
         assert data["rules"] == []
         assert data["total"] == 0
 
+    def test_effective_rejects_malformed_org_filter(self, admin_client, _mock_db):
+        resp = admin_client.get("/api/v1/governance/effective?org_id=org-1%0Arole=admin")
+
+        assert resp.status_code == 422
+
     def test_summary_empty(self, admin_client, _mock_db):
         _mock_db._execute_results = [
             FakeResult(items=[]),
@@ -737,6 +771,58 @@ class TestEffectiveGovernance:
 
 
 class TestCapabilityMatrixCanonicalSelectors:
+    def test_capability_matrix_schemas_reject_malformed_selectors(self):
+        from app.routers.governance import CapabilityMatrixGlobalUpdate, CapabilityMatrixOverrideUpsert
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="org_id"):
+            CapabilityMatrixGlobalUpdate(org_id="org-1\nrole=admin")
+
+        with pytest.raises(ValidationError, match="scope selector"):
+            CapabilityMatrixOverrideUpsert(
+                selector_type="exact_model",
+                selector="synesis-coder",
+                org_id="org-1\nrole=admin",
+            )
+
+        with pytest.raises(ValidationError, match="selector"):
+            CapabilityMatrixOverrideUpsert(
+                selector_type="exact_model",
+                selector="synesis-coder\nrole=admin",
+            )
+
+    def test_capability_matrix_routes_reject_malformed_selectors_before_db(self, platform_admin_client, _mock_db):
+        resp = platform_admin_client.get("/api/v1/governance/capability-matrix/effective?org_id=org-1%0Arole=admin")
+        assert resp.status_code == 422
+
+        resp = platform_admin_client.put(
+            "/api/v1/governance/capability-matrix/global",
+            json={"org_id": "org-1\nrole=admin"},
+        )
+        assert resp.status_code == 422
+
+        resp = platform_admin_client.post(
+            "/api/v1/governance/capability-matrix/overrides",
+            json={
+                "selector_type": "exact_model",
+                "selector": "synesis-coder\nrole=admin",
+                "scope": "platform",
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+        )
+        assert resp.status_code == 422
+
+        resp = platform_admin_client.put(
+            "/api/v1/governance/capability-matrix/overrides/cm-override-1%0Arole=admin",
+            json={
+                "selector_type": "exact_model",
+                "selector": "synesis-coder",
+                "scope": "platform",
+                "capabilities": {"yarn.reducers_enabled": True},
+            },
+        )
+        assert resp.status_code == 422
+
     def test_create_override_rejects_non_canonical_selector(self, platform_admin_client, _mock_db):
         deployment = FakeRow(
             id=1,

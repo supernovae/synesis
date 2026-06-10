@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import Depends, HTTPException
 
 from .auth import UserInfo, get_current_user
+from .route_validation import validate_safe_identifier
 
 
 class Role(IntEnum):
@@ -284,7 +285,9 @@ def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     out: dict[str, str] = {"user_id": uid}
     tenant_ids = user.tenant_ids or []
     if tenant_ids and role < Role.org_admin:
-        tid = str(tenant_ids[0]).strip()[:64]
-        if tid:
+        try:
+            tid = validate_safe_identifier(tenant_ids[0], field_name="tenant_id", max_length=64)
             out["scope_tenant_id"] = tid
+        except ValueError:
+            pass
     return out

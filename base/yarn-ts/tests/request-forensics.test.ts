@@ -126,6 +126,29 @@ describe("request forensics", () => {
     expect(built.serialized).not.toContain("secret-token");
     expect(built.serialized).not.toContain("inject new security attribute");
     expect(built.serialized).not.toContain("/etc/shadow");
+
+    const preview = JSON.parse(built.record.payloadPreview ?? "{}") as Record<string, unknown>;
+    const previewProviderOptions = preview.provider_options as Record<string, unknown>;
+    expect(previewProviderOptions.section).toBe("provider_options");
+    expect(previewProviderOptions.kind).toBe("object");
+    expect(previewProviderOptions.structure_hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(previewProviderOptions.node_count).toBeGreaterThan(0);
+    expect(previewProviderOptions.object_count).toBeGreaterThan(0);
+    expect(previewProviderOptions.scalar_count).toBeGreaterThan(0);
+    expect(previewProviderOptions).not.toHaveProperty("structure");
+    expect(previewProviderOptions).not.toHaveProperty("entries");
+    expect(previewProviderOptions).not.toHaveProperty("items");
+    expect(previewProviderOptions).not.toHaveProperty("keys_hash");
+    expect(previewProviderOptions).not.toHaveProperty("key_hash");
+
+    const serialized = JSON.parse(built.serialized) as Record<string, unknown>;
+    const serializedProviderOptions = serialized.provider_options as Record<string, unknown>;
+    expect(serializedProviderOptions.structure_hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(serializedProviderOptions).not.toHaveProperty("structure");
+    expect(serializedProviderOptions).not.toHaveProperty("entries");
+    expect(serializedProviderOptions).not.toHaveProperty("items");
+    expect(serializedProviderOptions).not.toHaveProperty("keys_hash");
+    expect(serializedProviderOptions).not.toHaveProperty("key_hash");
   });
 
   it("attaches usage metrics and updates summary", () => {
