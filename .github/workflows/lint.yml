@@ -159,12 +159,15 @@ jobs:
         with:
           node-version: "24"
 
-      # Root install + build shared package so `file:../../packages/synesis-mcp-tools` resolves with dist/*.d.ts.
+      # Root install + build shared packages so workspace/file dependencies resolve with dist/*.d.ts.
       - name: Install root workspace dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build synesis-mcp-tools
-        run: npm run build -w packages/synesis-mcp-tools
+      - name: Build Synesis MCP workspace dependencies
+        run: |
+          npm run build -w packages/synesis-auth-contracts
+          npm run build -w packages/synesis-oidc-auth
+          npm run build -w packages/synesis-mcp-tools
 
       - name: Install dependencies
         working-directory: base/synesis-mcp
