@@ -21,7 +21,7 @@ Protocol (Tier 2)::
 The module is **stdlib-only** so it can be COPY'd into minimal container
 images (sandbox, warm pool) that have no pip-installed packages.
 
-See ``docs/PRODUCTION_SECURITY.md`` for deployment guidance and
+See ``docs/SANDBOX.md`` for warm-pool deployment guidance and
 ``.cursor/rules/service-to-service-auth.mdc`` for the development standard.
 """
 

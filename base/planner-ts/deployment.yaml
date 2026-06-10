@@ -159,7 +159,9 @@ spec:
             - name: SYNESIS_NORNIC_DATABASE
               value: "nornic"
             - name: SYNESIS_RAG_AUTHZ_MODE
-              value: "audit"
+              value: "enforce"
+            - name: SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER
+              value: "false"
             - name: SYNESIS_WEB_SEARCH_ENABLED
               value: "true"
             - name: SYNESIS_WEB_SEARCH_URL

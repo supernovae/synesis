@@ -1,90 +1,108 @@
-# Frame-Aware Session Compaction
+# Session And Frame Compaction
 
-Replaces the lossy truncation summarizer in `planner-ts` with a structured, machine-readable checkpoint that preserves conversational context across long sessions.
+Synesis has several independent compaction paths. This document is the
+operator reference for the current split between chat session memory, Yarn
+coder context management, and client-owned transcript compaction.
 
-## What problem this solves
+## Current Scope
 
-Before:
-- Session history was compacted by truncating the last 20 messages to 240 characters each
-- This was lossy: user preferences, topic threads, and conversation mode were discarded
-- Long tutoring/debugging sessions degraded over time as early context vanished
-- The LLM received a flat list of truncated strings — no structure to reason over
+| Surface | Primary code | Default | Purpose |
+|---|---|---|---|
+| Planner chat session memory | `base/planner-ts/src/config.ts`, `docs/chat/CONVERSATION_MEMORY.md` | Planner-controlled | Preserves selected chat continuity for OpenAI-style chat sessions. |
+| Yarn context budget manager | `base/yarn-ts/src/pipeline/*provider-preparation.ts`, `base/yarn-ts/src/reduction/context-retention.ts` | Enabled | Keeps outbound model prompts under the configured context budget. |
+| Yarn sawtooth checkpoints | `base/yarn-ts/src/state/session-lifecycle.ts`, `base/yarn-ts/src/context/sawtooth-manager.ts` | Minimal mode | Consolidates Synesis session state after long tool trajectories. |
+| Transcript pruning | `base/yarn-ts/src/reduction/transcript-pruning.ts`, `base/yarn-ts/src/reduction/tool-result-reducer.ts` | Enabled | Replaces old or oversized tool results with bounded stubs and optional artifact handles. |
+| Client compaction detection | `base/yarn-ts/src/pipeline/claude-messages-route-preparation.ts`, `base/yarn-ts/src/pipeline/openai-route-transcript-stabilization.ts` | Enabled by route logic | Detects large incoming transcript drops and resets dedupe/file snapshot state. |
+| Model compaction sensitivity | `base/yarn-ts/src/context/compaction-sensitivity.ts`, `docs/coder/COMPACTION_SENSITIVITY.md` | Model-profile based | Adjusts compaction/reducer behavior for models that are sensitive to aggressive summarization. |
 
-After:
-- Compaction produces a structured checkpoint containing domain profile, topic threads, user facts, and conversation arc
-- The LLM receives a machine-readable `<SESSION_STATE>` block that preserves durable context without restating recent answers by default
-- Zero LLM cost: the compaction is entirely deterministic, using the domain profiler already in the codebase
+The old planner-only structured checkpoint design has moved out of this
+document. Planner chat memory is now documented in
+`docs/chat/CONVERSATION_MEMORY.md`.
 
-## What was implemented
+## Design Rules
 
-### Core compaction logic
+1. Client harnesses own their own transcript compaction.
+2. Yarn compaction defaults to `minimal` so Claude Code, Cursor, Codex, and
+   similar clients can manage their visible context without Synesis fighting the
+   client.
+3. Synesis may still compact its own server-side session state, tool outputs,
+   and file snapshots to keep requests bounded and recoverable.
+4. Lossy server-side reductions should keep recovery handles where possible.
+5. Aggressive compaction is opt-in for raw API clients or clients with weak
+   context management.
 
-- `base/planner-ts/src/context/session-manager.ts`
-  - `buildStructuredCheckpoint(history)` — orchestrates the four extraction passes
-  - `extractTopics(history)` — scans history in 4-message windows, detecting dominant domain shifts to produce topic threads with `active`/`resolved` status and turn ranges
-  - `extractUserFacts(userMessages)` — pulls declarative statements containing personal context (e.g., "I'm using React", "I prefer functional components") into a deduplicated list (up to 12 facts)
-  - `detectConversationArc(allText)` — classifies the session as `tutoring`, `debugging`, `coding`, `exploration`, `analysis`, or `general`
-  - `renderCheckpoint(checkpoint, recentHistory)` — produces the `<SESSION_STATE>` block consumed by planner and writer; recent exchanges are opt-in
+The `/v1/claude/commands/execute` compatibility command for `compact` applies
+to Synesis session state only. It does not rewrite a Claude Code client
+summary. Incoming client-side compaction is treated as an external transcript
+change: Synesis detects the drop, resets dedupe state, and records the
+compaction event.
 
-### Domain profiling (reused, not new)
+## Yarn Configuration
 
-- `base/planner-ts/src/nodes/domain-profile.ts`
-  - `buildDomainProfile(text)` — weighted domain extraction based on Data-Frame theory (Klein et al. 2007)
-  - Returns `DomainProfile` with weighted domains and frame coherence (`focused`/`composite`/`diffuse`)
+These are existing Yarn environment variables. The Helm chart and base
+deployment set the safe defaults explicitly so operators can override them in
+one place.
 
-### Tests
+| Variable | Default | Recommended production setting | Notes |
+|---|---:|---:|---|
+| `SYNESIS_YARN_CONTEXT_BUDGET_ENABLED` | `true` | `true` | Enables proactive budget management before provider calls. |
+| `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE` | `minimal` | `minimal` | Use `aggressive` only for clients that do not manage context well. |
+| `SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS` | `0` | `0` | `0` means use the route hard-token admission ceiling. |
+| `SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE` | `10000` | `10000` | Reserved from the context ceiling for model output. |
+| `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS` | `12` | `12` | In `minimal` mode, automatic checkpoint thresholds are relaxed before compaction. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_ENABLED` | `true` | `true` | Keeps stale tool results from dominating the prompt. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TURNS` | `5` | `5` | Recent turns retained at higher fidelity. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_KEEP_TOOL_RESULTS` | `25` | `25` | Recent tool results retained at full fidelity. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS` | `60000` | `80000` in manifests | Character budget for pruned transcript content. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS` | `400` | `400` | Maximum content included in a replacement stub. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS` | `2000` | `2000` | Maximum retained assistant text when condensing old turns. |
+| `SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED` | `true` | `true` | Stores superseded tool bytes in the artifact store and includes recovery handles. |
+| `SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS` | `8000` | `8000` | Bounds fallback text if structured compaction fails. |
+| `SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED` | `false` | `false` | Durable Yarn cross-session memory remains opt-in. |
+| `SYNESIS_YARN_ARTIFACT_RETRIEVAL_ENABLED` | `false` | `false` | Keeps artifact retrieval tooling disabled unless explicitly needed. |
 
-- `base/planner-ts/tests/session-manager.test.ts`
-  - Added tests for structured checkpoint content (domains, arc, coherence, recent exchanges)
-  - Added tests for user fact/preference extraction surviving compaction
+## Recommended Profiles
 
-## Checkpoint format
-
-The rendered `<SESSION_STATE>` block contains five sections:
-
-```
-<SESSION_STATE>
-Conversation arc: tutoring (12 turns)
-Active domains: general(55%), web_frontend(30%), ml_ai(15%) [coherence: composite]
-Topic threads:
-  - general [resolved] (turns 0-3)
-  - web_frontend [active] (turns 4-11)
-User stated facts/preferences:
-  - I'm using React and TypeScript
-  - I prefer functional components
-Recent exchanges:
-  [user]: Help me study vocabulary: write a sentence...
-  [assistant]: Sure! Fill in the blank: The ______ was...
-  [user]: B) hesitation
-  [assistant]: Correct! Hesitation means a pause before action.
-</SESSION_STATE>
-```
-
-| Section | Source | Purpose |
+| Profile | Use case | Settings |
 |---|---|---|
-| Conversation arc | Pattern matching on history text | Tells the LLM to maintain mode (quiz, debug, explore) |
-| Active domains | `buildDomainProfile` over full history | Weighted domain context so the LLM knows the subject area |
-| Topic threads | 4-message window domain shift detection | Structured map of what was discussed and what's still live |
-| User facts | Declarative statement extraction from user messages | Preferences and constraints that survive compaction |
-| Recent exchanges | Last 6 messages, lightly truncated | Opt-in verbatim context for clients that do not already send chat history |
+| Client-owned context | Claude Code, Cursor, Codex, or other harnesses with their own compaction | Keep `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE=minimal`, transcript pruning enabled, artifact retention enabled, conversation memory disabled. |
+| Weak client or raw API | Clients that keep appending full transcripts and do not compact themselves | Set `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE=aggressive` after testing with the target model and workflow. |
+| Diagnostics | Investigating suspected context loss | Temporarily lower thresholds in a non-production environment or enable bounded debug protocol. Do not leave verbose prompt/tool logging enabled in production. |
 
-## Theoretical basis
+## Operational Behavior
 
-- **Data-Frame theory** (Klein, Moon & Hoffman 2006): sensemaking as fitting data into frames. The domain profiler builds a weighted frame over the conversation, and frame coherence tells us whether the session maps to a single domain or is cross-cutting.
-- **Cynefin framework** (Snowden & Boone 2007): frame coherence maps to domain complexity — `focused` sessions are obvious/complicated, `composite` sessions need multi-expert treatment, and `diffuse` sessions may need probing.
+```mermaid
+flowchart TD
+  A[Client request] --> B{Transcript shrank sharply?}
+  B -- yes --> C[Record external_compaction_detected]
+  C --> D[Reset dedupe and file snapshot compaction state]
+  B -- no --> E[Keep route transcript state]
+  D --> F[Apply context budget policy]
+  E --> F
+  F --> G{Over budget?}
+  G -- no --> H[Send provider request]
+  G -- yes --> I[Prune transcript and reduce tool outputs]
+  I --> J{Still over budget?}
+  J -- no --> H
+  J -- yes --> K[Use sawtooth/session checkpoint according to mode]
+  K --> H
+```
 
-## Design decisions
+In `minimal` mode, Yarn avoids early heavy compaction and relies on safe
+dedupe, pruning, and provider admission limits first. In `aggressive` mode,
+Yarn applies heavier reductions earlier.
 
-| Decision | Rationale |
-|---|---|
-| Deterministic, no LLM call | Zero latency cost, zero token cost; runs synchronously during `recordTurn` |
-| Reuse `buildDomainProfile` | Already proven in entry-classifier and sensemaking; single source of truth for domain detection |
-| 4-message topic windows | Balances granularity vs. noise; matches typical user-assistant exchange pairs |
-| Cap at 12 user facts | Prevents checkpoint bloat in very long sessions while retaining the most recent preferences |
-| Recent verbatim exchanges disabled by default | OpenAI-style clients such as OpenWebUI already send chat history; duplicating answers in the checkpoint can make older turns too salient |
+## Validation
 
-## Expansion paths
+Run the focused Yarn tests after changing compaction behavior:
 
-1. **Async LLM-powered compaction** — use `synesis-summarizer` to produce richer structured checkpoints for sessions exceeding ~30 turns, at the cost of one summarization call
-2. **Context drift scoring** — compute a `context_drift_score` from topic thread diversity and suggest starting a new conversation when context is wandering
-3. **Cross-session memory** — persist extracted user facts to a longer-lived store (Redis/Postgres) so preferences carry across conversations
+```bash
+npm test --workspace synesis-yarn-ts -- compaction-sensitivity.test.ts sawtooth-manager.test.ts openai-route-transcript-stabilization.test.ts claude-command-compat.test.ts transcript-pruning.test.ts tool-result-reducer.test.ts
+```
+
+Run repository doc validation after changing this document or references:
+
+```bash
+python3 scripts/check-doc-reference-integrity.py
+git diff --check
+```

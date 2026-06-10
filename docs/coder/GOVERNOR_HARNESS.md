@@ -5,6 +5,7 @@ The execution governor is the between-turn behavior controller in Yarn. It analy
 **Owner:** `base/yarn-ts/src/governance/execution-governor.ts`
 **Feature flag:** `SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED` (default `true`)
 **Soft-fail flag:** `SYNESIS_YARN_EXECUTION_GOVERNOR_SOFT_FAIL_ENABLED` (injects recovery instead of returning an error)
+**Global bypass:** `SYNESIS_YARN_GOVERNANCE_DISABLED` disables governor and related governance preparation.
 
 ## Architecture
 
@@ -26,6 +27,114 @@ The governor runs **after** message normalization / reduction and **before** mod
 
 When recovery escalation reaches hard stop, Yarn now emits a transport-agnostic pause contract (`synesis_governor_pause`) alongside human-readable text. See [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md) for schema and integration guidance.
 
+## Phase Model
+
+The governor uses a deterministic tool-event phase model. It does not trust
+LLM narration as proof of progress.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Explore: investigation intent and no edits
+    [*] --> Edit: default coding turn
+
+    Explore --> Explore: bounded discovery/read calls
+    Explore --> Edit: first successful edit
+
+    Edit --> Edit: edit retries or more writes
+    Edit --> Verify: build/test/lint command after edit
+    Edit --> Report: completion claim tail
+
+    Verify --> Verify: repeated verification commands
+    Verify --> Edit: another file edit
+    Verify --> Finalize: green and relevant verification
+
+    Report --> Edit: follow-up fix needed
+    Report --> Finalize: task update, commit, or done path
+
+    Finalize --> Edit: new user requirement
+```
+
+| Phase | Primary meaning | Common intervention |
+|-------|-----------------|---------------------|
+| `explore` | Read/search work before implementation | Stop repeated broad discovery and require a concrete hypothesis or edit |
+| `edit` | File changes or edit recovery | Require follow-through after stated intent; block stale or stub-based writes |
+| `verify` | Build/test/lint evidence gathering | Prevent repeated verification without edits; require targeted verification |
+| `report` | Summarize outcome or update task state | Prevent more exploration after sufficient evidence |
+| `finalize` | Completion path | Block false-green or stale-context completion claims |
+
+Chat-state phases in traces use a separate vocabulary
+(`interpret`, `inspect`, `edit`, `verify`, `recover`, `finalize`). Use the
+governor phase for rule decisions and the chat phase for user-visible task
+state. See [`../CODER_AGENT_ITERATION_PLAYBOOK.md`](../CODER_AGENT_ITERATION_PLAYBOOK.md)
+for the status and snapshot reference.
+
+## Decision Pipeline
+
+```mermaid
+flowchart TD
+    A[Request arrives] --> B[Normalize transcript<br/>reduce tool results + apply read snapshots]
+    B --> C[Build artifact shadows<br/>from FileSnapshotRegistry]
+    C --> D[Extract command events]
+    D --> E[Compute evidence delta<br/>failure signatures + diagnostic counts]
+    E --> F[Infer governor phase]
+    F --> G[Compute transition guards<br/>stale read, partial context, false green]
+    G --> H[Evaluate phase-allowed rules]
+
+    H -->|no pause| I[Allow provider call]
+    H -->|pause rule| J[Recovery path]
+    J --> K{Concrete progress this turn?}
+    K -->|yes| L[Decrement recovery streak]
+    K -->|hold| M[Hold streak]
+    K -->|no| N[Increment streak<br/>evidence delta adjusted]
+    L --> O{Hard-stop threshold hit?}
+    M --> O
+    N --> O
+    O -->|no| P[Inject recovery block<br/>restrict tools]
+    O -->|yes| Q[Emit synesis_governor_pause<br/>soft-fail response]
+    P --> I
+```
+
+## Healthy Failure-Repair Loop
+
+```mermaid
+flowchart LR
+    T1[Run targeted test/build] --> T2[Failure with concrete signal]
+    T2 --> T3[Read relevant file/context once]
+    T3 --> T4[Make one focused edit]
+    T4 --> T5[Run narrow verification]
+    T5 --> T6{Pass?}
+    T6 -->|no| T3
+    T6 -->|yes| T7[Report or finalize]
+```
+
+When the model keeps rerunning verification without an edit, rules such as
+`verification_fail_repeat_block`,
+`verification_same_failure_signature_replay`, and
+`verification_stall_no_edit` steer it back to focused editing instead of
+allowing endless test loops.
+
+## Transition Guards
+
+Transition guards block unsafe phase transitions without adding new phases.
+
+```mermaid
+flowchart TD
+    S[Artifact shadows computed] --> G1{Changed file stale?}
+    G1 -->|yes| TG1[needs_fresh_read]
+    G1 -->|no| G2{Changed file partial?}
+    G2 -->|yes| TG2[partial_context]
+    G2 -->|no| G3{Green verification?}
+    G3 -->|no| PASS[No blocking guard]
+    G3 -->|yes| G4{Verification scope covers changed files?}
+    G4 -->|yes| PASS
+    G4 -->|no| TG3[needs_relevant_verification<br/>false_green_suspected]
+
+    TG1 --> BLOCK[completion_blocked]
+    TG3 --> BLOCK
+    TG2 --> WARN[Advisory warning]
+    BLOCK --> DEMOTE[Demote finalize to verify]
+```
+
 ## Core Data Types
 
 ```typescript
@@ -35,13 +144,25 @@ interface ExecutionGovernorDecision {
   suggestedNextStep?: string;
   matchedRules: string[];
   telemetry: {
+    phase: SessionPhase;
     repeatedTestCommands: number;
+    repeatedAskUserPrompts?: number;
     repeatedReadSearchCalls: number;
     repeatedBroadDiscoveryCalls: number;
     totalBroadDiscoveryCalls: number;
     broadTestRepeat: boolean;
     noEditEvidence: boolean;
     trailingVerificationRunLength: number;
+    trailingExplorationRunLength?: number;
+    trailingProductiveCount?: number;
+    hasPlanInContext?: boolean;
+    hasPlanEdit?: boolean;
+    planReadCount?: number;
+    planCachedRereadCount?: number;
+    activeGuards?: TransitionGuard[];
+    repeatedAssistantIntroEdges?: number;
+    planRecoveryDiscoveryGraceActive?: boolean;
+    recoveryDiscoveryMomentum?: boolean;
   };
 }
 ```
@@ -532,7 +653,6 @@ step-by-step instructions.
 
 ## Related Documentation
 
-- [GOVERNOR_STATE_GRAPH.md](./GOVERNOR_STATE_GRAPH.md) -- visual state/loop map for governor phases and escalation
 - [EVAL_GYM.md](EVAL_GYM.md) -- integrated exerciser, observer, and training data pipeline
 - [observability-verification-and-evals.md](observability-verification-and-evals.md) -- trace analytics and eval harness
 - [qwen-stability-feedback-loop.md](qwen-stability-feedback-loop.md) -- closed-loop training pipeline and trajectory contract

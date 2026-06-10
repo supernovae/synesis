@@ -1,8 +1,10 @@
-# Security Posture — Prompt Injection Hardening
+# Security Posture
 
 Synesis employs defense-in-depth against prompt injection across both **planner-ts** (RAG-grounded knowledge pipeline) and **yarn-ts** (IDE/agent completion runtime). Both runtimes share a unified trust envelope based on `TrustPacketV1` JSON packets from the `@synesis/context-trust` shared package.
 
 For internet exposure and edge controls, see [`docs/CLOUDFLARE_EDGE_HARDENING.md`](./CLOUDFLARE_EDGE_HARDENING.md). For yarn-ts specifics, see [`docs/coder/YARN_TS_CONTEXT_TRUST.md`](./coder/YARN_TS_CONTEXT_TRUST.md).
+
+Open work is tracked separately in [`security_todo.md`](security_todo.md). Keep that file limited to actionable, retirable security tasks; when all items are complete, delete it and update this document.
 
 ## Threat Model
 
@@ -14,6 +16,70 @@ Synesis processes untrusted content from four sources:
 4. **MCP / tool responses** — external tool outputs in IDE agent flows
 
 Any of these can carry indirect prompt injection payloads — instructions embedded in data that attempt to hijack LLM behavior. Neither planner's pipeline graph nor yarn's transcript processing provides inherent isolation between content sources, making defense at each boundary critical.
+
+## Current Security Claims And Operator Verification
+
+This table lists security claims that are currently backed by code or
+configuration. Use the verification column for operator checks and release
+evidence.
+
+| Claim | Evidence in repo | Operator verification |
+|---|---|---|
+| Prompt-injection scanner detections are centrally visible. | `packages/synesis-context-trust/src/security-ingest.ts`, `base/admin/app/routers/security.py`, `base/admin/app/services/security_service.py`, `base/admin/alembic/versions/026_security_events.py` | Admin UI: **Security -> Events**. API: `GET /api/v1/security/summary?since_hours=24` and `GET /api/v1/security/events?resolved=false`. |
+| Security event ingestion is service-to-service only. | `base/admin/app/routers/security.py` calls `require_internal_service_token_request()` on `POST /api/v1/security/events/ingest`. | Verify `SYNESIS_INTERNAL_SERVICE_TOKEN` / `SYNESIS_INTERNAL_SERVICE_TOKENS` are set for admin and emitting services. Requests without the internal token should receive 401/403. |
+| Security event list/summary APIs are org-scoped for non-platform admins. | `base/admin/app/routers/security.py` uses `RouteGroup.org_observability`, `resolve_role()`, and `_scope_org()`. | Admin UI should show only the caller org for org admins. Platform admins can view all orgs. |
+| RAG retrieval uses deterministic authz metadata, not semantic filtering. | `base/planner-ts/src/retrieval/rag-client.ts`, `base/rag/indexer/app/nornic_writer.py`, `base/planner-ts/src/config.ts` default `SYNESIS_RAG_AUTHZ_MODE=enforce`. | Confirm planner deployment has `SYNESIS_RAG_AUTHZ_MODE=enforce` and OpenFGA config populated. Review retrieval logs by `authz_trace_id`. |
+| OIDC JWT validation checks issuer, RS256 signature, expiration, allowed client, and required role. | `packages/synesis-oidc-auth/src/index.ts`; tests in `packages/synesis-oidc-auth/tests/index.test.ts`. | Confirm `SYNESIS_OIDC_ISSUER_URL`, optional internal issuer URL, `SYNESIS_OIDC_ALLOWED_CLIENT_IDS`, and `SYNESIS_OIDC_REQUIRED_ROLES` match the deployment realm/client. |
+| PAT hashing can be required to use a pepper. | `packages/synesis-auth-contracts/src/index.ts` (`hashPatToken`, `validatePatPepperRequirement`), deployment env `SYNESIS_REQUIRE_PAT_PEPPER=true`. | Confirm `SYNESIS_PAT_PEPPER` comes from a Kubernetes Secret and startup fails when PAT validation is enabled without it. |
+| Tool/search inputs are bounded before dispatch. | `packages/synesis-mcp-tools/src/knowledge-schemas.ts`, `packages/synesis-mcp-tools/src/web-search-schemas.ts`, `packages/synesis-mcp-tools/src/tool-utils.ts`. | Run shared package tests and reject requests with unknown keys, excessive `top_k`, excessive graph depth, or oversized strings. |
+| Agent orchestration artifacts and worker packets are strict Zod contracts. | `packages/synesis-agent-orchestration/src/schemas.ts`. | Run `npm test -w @synesis/agent-orchestration` if tests are added; current validation path is `npm run typecheck -w @synesis/agent-orchestration`. |
+| Model architecture diagnostics are schema-validated before use. | `packages/synesis-upper-harness/src/contracts.ts`, tests in `packages/synesis-upper-harness/tests/architecture-mediation.test.ts`. | Query model architecture diagnostics in admin/coder flows and ensure malformed diagnostics fail validation instead of being silently trusted. |
+
+## Schema Hardening
+
+Synesis uses schema validation at security-sensitive boundaries. The strongest
+schema boundary is used where attacker-controlled JSON becomes tool arguments,
+admin ingest payloads, agent artifacts, model diagnostics, or public catalog
+configuration.
+
+### Zod 4 shared contracts
+
+Node services and shared packages are aligned on Zod 4.x through workspace
+dependencies and root `package.json` overrides. The repo rule
+`.cursor/rules/npm-monorepo-consistency.mdc` explicitly rejects new Zod 3
+dependencies on new code paths.
+
+| Boundary | Schema files | Hardening behavior |
+|---|---|---|
+| Trust envelope | `packages/synesis-context-trust/src/trust-packet.ts` | Enumerates trust levels, source types, retrieval channels, policy decisions, and bounds fields such as `source_id` and `imperative_likelihood`. Serialized with deterministic key order. |
+| MCP knowledge/search tools | `packages/synesis-mcp-tools/src/knowledge-schemas.ts`, `packages/synesis-mcp-tools/src/web-search-schemas.ts` | `.strict()` object schemas reject unknown tool arguments. Inputs are bounded by shared `LIMITS`: query size, `top_k`, graph depth, string arrays, Terraform plan size, resource count, and fetch-page count. |
+| Upper harness controls and diagnostics | `packages/synesis-upper-harness/src/contracts.ts` | `.strict()` schemas allow only known metadata/header controls; preprocessors copy only recognized header/body keys before parsing. Diagnostics validate schema version, model count, architecture flags, and bounded reason strings. |
+| Agent orchestration artifacts | `packages/synesis-agent-orchestration/src/schemas.ts` | `.strict()` worker plans, task packets, decision records, trace events, and discriminated artifact envelopes. Budgets and line numbers must be positive integers; confidence is bounded 0-1. |
+| Public model offerings | `base/planner-ts/src/public-model-catalog.ts` | Strict public schemas limit exposed model fields and generation parameters; internal role assignment records are parsed separately. |
+| Project manifest/working frame | `packages/synesis-manifest/src/schemas.ts` | Zod enums and bounded structured schemas normalize generated manifest and working-frame data. |
+
+### Python/Pydantic admin contracts
+
+The Admin API uses Pydantic `ConfigDict(extra="forbid")` on security-sensitive
+ingest and triage requests:
+
+| Boundary | File | Hardening behavior |
+|---|---|---|
+| Security event ingest | `base/admin/app/routers/security.py` | Rejects unknown fields, constrains event type, severity, confidence, service name, excerpt length, patterns count, and detail shape. |
+| Security event resolution | `base/admin/app/routers/security.py` | Rejects unknown fields and constrains triage action plus reason length. |
+
+### Shared auth contracts
+
+Authentication and authorization normalization is centralized in
+`@synesis/auth-contracts` and `@synesis/oidc-auth`:
+
+| Package | Current responsibility |
+|---|---|
+| `@synesis/auth-contracts` | Header parsing, forwarded identity normalization, scope normalization, constant-time token comparison, PAT hashing, PAT pepper requirement checks, cache-key safe identifiers, and auth diagnostics. |
+| `@synesis/oidc-auth` | OIDC compact JWT parsing, RS256-only signature verification, JWKS caching, issuer check, expiration/nbf validation, allowed client checks, required role checks, and org claim extraction. |
+
+This package split keeps shared safety behavior out of individual services and
+reduces drift between planner, Yarn, MCP, and admin integrations.
 
 ## Trust Envelope — TrustPacketV1
 
@@ -282,12 +348,16 @@ Domain filtering is supported via the `domain` query parameter.
 
 ## Known Limitations
 
-- **Pattern-based scanning is not exhaustive.** Novel injection techniques can bypass regex patterns. Defense-in-depth (multiple layers) mitigates this.
-- **Core user-message scanning can false-positive on discussion or quotes.** Mitigations: `SYNESIS_INJECTION_ACTION=log`, `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL=true`, or accepting occasional `[REDACTED]` in `reduce` mode (see Layer 1 table above).
-- **Trust policies depend on model compliance.** Smaller or less instruction-tuned models may not reliably follow trust policy directives. Use models with strong instruction-following capabilities.
-- **Sandwich defense effectiveness varies by model.** Most effective with models that attend well to recent context.
-- **Index-time scanning does not cover all obfuscation.** Sophisticated attacks using steganography or semantic-level injection may not be caught by regex patterns alone.
-- **Attribution metadata requires current graph schema fields.** Documents indexed before the current NornicDB schema will have `scan_signals`, `review_trace_id`, `effective_at_epoch`, `acl_group_ids`, or `authz_object_id` as empty/zero until reindexed. The `ingested_at` field is carried through when present.
+Known limitations are tracked as actionable items in
+[`security_todo.md`](security_todo.md). Current themes:
+
+- Pattern-based scanning remains bypassable by novel or semantic attacks.
+- Core user-message scanning can false-positive on quoted attack strings.
+- Trust policies and sandwich reminders still depend on model compliance.
+- Legacy RAG content must be reindexed to populate current attribution and
+  authz metadata.
+- Some schemas intentionally allow forward-compatible parsing instead of
+  strict rejection; strictness decisions are tracked in the todo file.
 
 ## Files
 
@@ -304,6 +374,13 @@ Domain filtering is supported via the `domain` query parameter.
 | `packages/synesis-context-trust/src/operational-policy.ts` | Trust policy text, sandwich reminder, datamark helpers |
 | `packages/synesis-context-trust/src/security-ingest.ts` | Fire-and-forget security event ingest client |
 | `packages/synesis-context-trust/src/freshness-scoring.ts` | Shared freshness scoring (`freshnessScore`, `freshnessBoost`) for all RAG consumers |
+| `packages/synesis-auth-contracts/src/index.ts` | Shared auth identity, scope, PAT, token comparison, and forwarded identity helpers |
+| `packages/synesis-oidc-auth/src/index.ts` | Shared OIDC verifier for RS256 JWT validation and claim checks |
+| `packages/synesis-mcp-tools/src/knowledge-schemas.ts` | Strict Zod schemas for knowledge/RAG tool inputs |
+| `packages/synesis-mcp-tools/src/web-search-schemas.ts` | Strict Zod schema for web search tool input |
+| `packages/synesis-upper-harness/src/contracts.ts` | Strict Zod contracts for model architecture controls and diagnostics |
+| `packages/synesis-agent-orchestration/src/schemas.ts` | Strict Zod contracts for planner/worker/reviewer artifacts |
+| `packages/synesis-manifest/src/schemas.ts` | Shared project manifest and working-frame schemas |
 
 ### Planner-ts
 

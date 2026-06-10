@@ -5,7 +5,7 @@
 # copies with envFrom optional: true.
 #
 # Create/update via:
-#   Admin UI → Settings → Provider Keys
+#   Admin UI → Providers & API keys
 #   oc create secret generic provider-api-keys \
 #     --from-literal=PROVIDER_API_KEY=... \
 #     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -

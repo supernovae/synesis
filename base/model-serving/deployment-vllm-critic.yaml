@@ -10,7 +10,9 @@
 # critic on the router pod via prompt-based CoT). The synesis-critic Service
 # selector is patched to target the router pod in the dev overlay.
 #
-# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=critic
+# Prerequisites: model weights available on the configured PVC subPath or
+# equivalent operator-managed model source, with the critic role assigned in
+# Admin Model Registry.
 ---
 apiVersion: v1
 kind: Service

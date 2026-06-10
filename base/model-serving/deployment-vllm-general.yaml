@@ -8,7 +8,9 @@
 #   medium: Qwen3-32B BF16 or larger MoE → needs FP8 or TP=2
 #   large:  Qwen3-235B-A22B FP8, TP=2
 #
-# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=general
+# Prerequisites: model weights available on the configured PVC subPath or
+# equivalent operator-managed model source, with the general role assigned in
+# Admin Model Registry.
 ---
 apiVersion: v1
 kind: Service

@@ -10,8 +10,9 @@ Model routing is now DB-first through Synesis Admin:
   - Assign role -> provider/model in Model Registry
   - Runtime routes read directly from the admin registry
 
-For model downloads use:
-  ./scripts/run-model-pipeline.sh --role=<role> --model-repo=<hf-repo>
+Self-hosted vLLM model weight management is operator-owned pending a
+first-class model manager. The retired KFP model-download flow has been
+removed.
 
 For deployment verification use:
   - Admin UI: Models -> Model Registry / Providers

@@ -32,7 +32,7 @@ From `oc logs deployment/synesis-yarn -n synesis-yarn` (recent window), a **Clau
 - Yarn’s own diagnostics recommend verifying vLLM uses **`--tool-call-parser=qwen3_coder`** when repeated tool-arg repairs appear (`base/yarn-ts/src/index.ts`, messages around `qwen3_parser_mismatch_suspected`).
 - The checked-in **self-hosted coder** manifest [`base/model-serving/deployment-vllm-coder.yaml`](../../base/model-serving/deployment-vllm-coder.yaml) currently sets **`--tool-call-parser=hermes`**.
 
-**Action for operators:** If the served weights are **Qwen3-Coder** family, confirm against [vLLM recipes](../VLLM_RECIPES.md) and align the parser with the model; mismatch can cause **extra repair rounds** (higher latency and tokens). If the cluster actually serves a Hermes-named model, the manifest may be intentional — **match parser to the deployed checkpoint**.
+**Action for operators:** If the served weights are **Qwen3-Coder** family, confirm against current upstream vLLM documentation and align the parser with the model; mismatch can cause **extra repair rounds** (higher latency and tokens). If the cluster actually serves a Hermes-named model, the manifest may be intentional — **match parser to the deployed checkpoint**.
 
 ## 4. OpenTelemetry (optional finer split)
 

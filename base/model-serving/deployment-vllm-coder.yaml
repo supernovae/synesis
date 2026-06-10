@@ -9,10 +9,10 @@
 #   medium: Qwen3-Coder-Next-FP8 (~46 GB), 2x L40S, TP=2, 65K ctx
 #   large:  Qwen3-Coder-Next-FP8, 2x GPU, TP=2, HPA replicas=2-4
 #
-# The base deployment serves whatever model is downloaded to the PVC.
-# Run: ./scripts/run-model-pipeline.sh --role=coder --profile=<small|medium|large>
+# The base deployment serves the model available from the configured PVC subPath
+# or equivalent operator-managed model source.
 #
-# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=coder
+# Prerequisites: coder role assigned in Admin Model Registry.
 ---
 apiVersion: v1
 kind: Service

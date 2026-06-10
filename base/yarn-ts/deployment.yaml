@@ -64,6 +64,8 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
+            - name: SYNESIS_YARN_ALLOW_OPAQUE_BEARER
+              value: "false"
             - name: SYNESIS_OIDC_ISSUER_URL
               value: "https://auth.kybern.dev/realms/synesis"
             - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
@@ -90,8 +92,16 @@ spec:
               value: "200000"
             - name: SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS
               value: "262000"
+            - name: SYNESIS_YARN_CONTEXT_BUDGET_ENABLED
+              value: "true"
             - name: SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE
               value: "minimal"
+            - name: SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS
+              value: "0"
+            - name: SYNESIS_YARN_CONTEXT_BUDGET_OUTPUT_RESERVE
+              value: "10000"
+            - name: SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS
+              value: "12"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_ENABLED
               value: "true"
             - name: SYNESIS_YARN_HOURLY_TOKEN_THROTTLE_WINDOW_MS
@@ -210,6 +220,16 @@ spec:
               value: "25"
             - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_BUDGET_CHARS
               value: "80000"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_STUB_MAX_CHARS
+              value: "400"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ASSISTANT_CONDENSE_CHARS
+              value: "2000"
+            - name: SYNESIS_YARN_TRANSCRIPT_PRUNE_ARTIFACT_RETENTION_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_COMPACTION_FALLBACK_MAX_CHARS
+              value: "8000"
+            - name: SYNESIS_YARN_CONVERSATION_MEMORY_ENABLED
+              value: "false"
             - name: SYNESIS_YARN_REQUEST_FORENSICS_MODE
               value: "off"
             # ── Eval Gym: scenario runner, session observer, training data ──

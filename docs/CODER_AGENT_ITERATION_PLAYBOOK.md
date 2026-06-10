@@ -1,189 +1,207 @@
-# Coder Agent Iteration Playbook
+# Coder Status, Snapshots, and Tracing Reference
 
-Use this document as the durable, repo-tracked source of truth for incremental agent quality work across Cursor restarts.
+This document is the operator and developer reference for Yarn coder status,
+snapshots, and tracing. It replaces the old iteration playbook; implementation
+backlogs and dated progress notes should live in issues or plans, not in this
+reference.
 
-## Why this exists
+Yarn is the TypeScript coder runtime in `base/yarn-ts/`. It serves
+OpenAI-compatible and Claude-compatible coding traffic, records per-request
+usage and trace data, emits session events, and feeds the Admin Yarn
+observability pages.
 
-- Keep long-running improvements chunked and auditable.
-- Avoid losing context when sessions end.
-- Tie every change to measurable outcomes (real users + synthetic canaries).
+## Canonical Sources
 
-## Current focus
+| Area | Source |
+|------|--------|
+| Runtime | `base/yarn-ts/` |
+| Coder docs index | `docs/coder/README.md` |
+| Architecture | `docs/coder/YARN_TS_SAWTOOTH_ARCHITECTURE.md` |
+| Governor phases, diagrams, and verification telemetry | `docs/coder/GOVERNOR_HARNESS.md`, `docs/coder/observability-verification-and-evals.md` |
+| Governor pause contract | `docs/coder/GOVERNOR_PAUSE_ENVELOPE.md` |
+| Eval and replay telemetry | `docs/coder/EVAL_GYM.md` |
+| Admin Yarn aggregation | `base/admin/app/services/yarn_service.py` |
 
-- Phase 0 complete: guardrail prompt + trajectory event foundation.
-- Phase 1 complete (initial scope): structured `errors[]` diagnostics for `run_*` with fallback `errorLines`.
-- Phase 2 active: telemetry quality and admin visibility loop.
-- Next: language parser expansion (Python, then Rust).
+## Data Flow
 
-## Status snapshot (2026-04-04)
+1. A coder request enters Yarn through the OpenAI-compatible or
+   Claude-compatible route.
+2. Yarn resolves the model tier from Admin registry data and provider keys.
+3. Route preparation derives state from the current request, prior session
+   metadata, tool history, and file snapshots.
+4. The provider call runs through policy, reducer, governor, and telemetry
+   layers.
+5. Finalization writes usage, trace, session metadata, and session events.
+6. Admin reads Yarn tables and trace records to render Yarn Overview,
+   diagnostics, cost, and event drilldown views.
 
-- Implemented trajectory event emission (`request_trajectory_v1`) with tool sequence, verification, edit, and outcome metadata.
-- Added structured diagnostics extraction for `run_*` tool outputs (`errors[]`, `errorLines`, compact summary).
-- Added patch failure anatomy on `apply_patch` (`ok`, `reason`, `suggestedNextActions`, `contextHint`).
-- Exposed trajectory intelligence in admin Yarn Overview:
-  - `first_pass_verify_rate`
-  - `verification_stall_rate`
-  - `blind_retry_rate`
-  - `patch_ratio`
-  - `structured_error_coverage`
-  - `trajectory_bucket_counts`
-- Wired parser coverage into trajectory metadata emission:
-  - `verification.structured_errors_count`
-  - `verification.diagnostic_lines_count`
-  - `verification.structured_error_coverage`
-- Added completion-quality enforcement:
-  - completion gate blocks finalization when verification remains red
-  - bounded cleanup pass guidance is emitted on blocked completion
-  - deterministic pre-finalization critic gate with optional LLM fallback
-- Added KPI/alert support:
-  - `completion_gate_blocked_rate`
-  - `critic_block_rate`
-  - SQL alert pack: `docs/clients/YARN_KPI_ALERT_PACK.md`
-- Validation run status:
-  - `base/yarn-ts`: `npm run -s typecheck` passed.
-  - `base/admin/frontend`: build passed after telemetry UI additions.
+## Status Vocabularies
 
-## Resume protocol (every session)
+Yarn has several status vocabularies. They are intentionally separate because
+they describe different things.
 
-1. Read this file, `docs/STAFF_CODER_RESEARCH_TRACKER.md`, and the latest section in `docs/clients/CANARY_PROMPT_PACK.md`.
-2. Run a quick state check:
-   - `git status --short --branch`
-   - latest 5 commits on `main`
-3. Pick exactly one chunk from the backlog below.
-4. Implement + test + build.
-5. Update this file:
-   - mark chunk status
-   - note KPI expectation
-   - add commit hash and date
+| Vocabulary | Values | Meaning | Source |
+|------------|--------|---------|--------|
+| Chat phase | `interpret`, `inspect`, `edit`, `verify`, `recover`, `finalize` | Semantic task state inferred from transcript and prior snapshot | `base/yarn-ts/src/governance/chat-state.ts` |
+| Governor session phase | `explore`, `edit`, `verify`, `report`, `finalize` | Tool/event phase used by governor rules | `base/yarn-ts/src/governance/execution-governor.ts` |
+| Completion status | `in_progress`, `blocked`, `ready_to_finalize`, `complete_claimed` | Whether the assistant can safely claim completion | `base/yarn-ts/src/governance/chat-state.ts` |
+| Verification outcome | `pass`, `fail`, `unknown` | Latest verification result inferred from tool output | `base/yarn-ts/src/governance/chat-state.ts` |
+| File status | `available`, `partial`, `unchanged`, `stale`, `evicted`, `missing` | Per-file context freshness and completeness | `base/yarn-ts/src/governance/file-state.ts` |
 
-## Chunk backlog
+Use the chat phase when explaining user-visible task state. Use the governor
+phase when debugging policy decisions, pauses, and repeated tool loops.
 
-### C1 - Parser coverage metrics (done)
+## Snapshot Types
 
-- Add `structured_errors_count`, `diagnostic_lines_count`, `structured_error_coverage` to `mcp_tool_call` logs.
-- Add canary run field guidance for those metrics.
-- Expected impact: visibility into parser quality by language/preset.
-- Implementation pointers:
-  - `base/yarn-ts/src/mcp/index.ts` (mcp tool call diagnostics metadata + coverage calculation)
-  - `docs/clients/CANARY_PROMPT_PACK.md` (canary run fields)
-- Resume commands:
-  - `rg "structured_errors_count|diagnostic_lines_count|structured_error_coverage" base/yarn-ts/src/mcp/index.ts`
-  - `rg "structured_error_coverage|diagnostic_lines_count" docs/clients/CANARY_PROMPT_PACK.md`
-  - `npm run -s test --workspace=base/yarn-ts`
+Snapshots are compact state summaries. They are not full transcripts or full
+file contents.
 
-### C1b - Admin trajectory exposure (done)
+| Snapshot | Stored fields | Purpose |
+|----------|---------------|---------|
+| `chat_state_snapshot` | active objective, chat phase, pending directive, completion status, last verification outcome, correction counts, transcript summary, timestamp | Preserve task continuity across turns and restarts |
+| `file_state_snapshot` | file count, status counts, stale files, partial files, evicted files, timestamp | Preserve context freshness without carrying full file bodies |
+| `state_transition_v1` | previous/current state, changed fields, quality label/score, calibration metadata, training row | Explain whether a turn moved the session forward, stalled, or regressed |
 
-- Aggregate trajectory quality fields from `request_trajectory_v1` in admin service.
-- Render trajectory KPIs and bucket distribution on Yarn Overview.
-- Expected impact: operate from dashboard instead of raw logs.
-- Implementation pointers:
-  - `base/admin/app/services/yarn_service.py` (trajectory aggregates in `get_yarn_intelligence`)
-  - `base/admin/frontend/src/api/hooks.ts` (`YarnIntelligence` contract)
-  - `base/admin/frontend/src/pages/yarn/YarnOverview.tsx` (new KPI rows + trajectory bucket card)
-- Resume commands:
-  - `rg "trajectory_events|first_pass_verify_rate|structured_error_coverage|trajectory_bucket_counts" base/admin/app/services/yarn_service.py`
-  - `rg "trajectory_events|structured_error_coverage|trajectory_bucket_counts" base/admin/frontend/src/api/hooks.ts`
-  - `rg "First-pass verify rate|Structured parser coverage|Trajectory Buckets" base/admin/frontend/src/pages/yarn/YarnOverview.tsx`
-  - `npm run -s build --prefix base/admin/frontend`
+`prepareProtocolPauseState()` writes `chat_state_snapshot` and
+`file_state_snapshot` into session metadata before building governor pause
+payloads. Trace finalization copies summarized state into `trace_context` so the
+Admin trace view can show the same state without loading raw session metadata.
 
-### C1c - Trajectory parser coverage emission (done)
+## Trace Records
 
-- Compute diagnostics from tool-result messages and persist coverage in trajectory verification block.
-- Keep backward compatibility: defaults to `0`/`1` semantics when diagnostics are absent.
-- Expected impact: dashboard parser coverage reflects request-level behavior directly.
-- Implementation pointers:
-  - `base/yarn-ts/src/index.ts` (`inferTrajectoryDiagnosticsFromMessages` and trajectory metadata emission)
-  - `base/yarn-ts/src/mcp/handlers/command-diagnostics.ts` (structured diagnostics extraction primitives)
-  - `base/yarn-ts/src/mcp/handlers/coding-tools.ts` (`run_*` outputs include `errors[]` + `errorLines`)
-- Resume commands:
-  - `rg "inferTrajectoryDiagnosticsFromMessages|structured_error_coverage|structured_errors_count|diagnostic_lines_count" base/yarn-ts/src/index.ts`
-  - `rg "extractStructuredErrors|StructuredDiagnostic" base/yarn-ts/src/mcp/handlers/command-diagnostics.ts`
-  - `rg "errors:|errorLines|RunPresetResult" base/yarn-ts/src/mcp/handlers/coding-tools.ts`
-  - `npm run -s typecheck --workspace=base/yarn-ts`
+Yarn trace records are built during request finalization and emitted to the
+Admin trace pipeline. A trace should be treated as the request-level accounting
+record.
 
-### C2 - Python diagnostics parser (done)
+Important fields:
 
-- Expand structured extractor for:
-  - pytest summary / assertion patterns
-  - Python traceback (`File "...", line N`) + exception message
-- Tests:
-  - parser unit tests for traceback and pytest failures
-  - ensure fallback to `errorLines` remains stable
-- Expected impact: higher targeted fix rate for Python runs.
-- Resume commands:
-  - `rg "extractStructuredErrors|StructuredDiagnostic|kind:" base/yarn-ts/src/mcp/handlers/command-diagnostics.ts`
-  - `rg "python|pytest|traceback|File .* line" base/yarn-ts/tests`
-  - `rg "run_test|run_build|errors:|errorLines" base/yarn-ts/src/mcp/handlers/coding-tools.ts`
-  - `npm run -s test --workspace=base/yarn-ts -- command-diagnostics`
-  - `npm run -s typecheck --workspace=base/yarn-ts`
+| Field | Meaning |
+|-------|---------|
+| `trace_id` / `request_id` | Request identifier for this turn |
+| `conversation_id` | Yarn session key |
+| `parent_trace_id` / `root_trace_id` | Cross-turn lineage |
+| `model` | Client-visible trace model |
+| `trace_context.resolved_backend_model` | Provider/backend model selected for execution |
+| `trace_context.registry_tier_id` | Admin registry tier used by Yarn |
+| `trace_context.chat_state` | Compact chat-state summary |
+| `trace_context.file_state` | Compact file-state summary |
+| `trace_context.state_transition` | Transition quality summary |
+| `tokens` / `cost` / `latency_ms` | Usage, cost, and timing |
+| `optimization_ledger` | Prefix/cache/reduction metadata |
 
-### C3 - Rust diagnostics parser (done)
+Implementation references:
 
-- Parse `cargo`/`rustc` lines into `errors[]` (`file`, `line`, `column`, message).
-- Add tests and sample fixtures.
-- Expected impact: improved file/line targeting for Rust loops.
-- Resume commands:
-  - `rg "extractStructuredErrors|StructuredDiagnostic" base/yarn-ts/src/mcp/handlers/command-diagnostics.ts`
-  - `rg "rust|cargo|rustc" base/yarn-ts/src base/yarn-ts/tests`
-  - `rg "structured_error_coverage|structured_errors_count|diagnostic_lines_count" base/yarn-ts/src/index.ts`
-  - `npm run -s test --workspace=base/yarn-ts -- command-diagnostics`
-  - `npm run -s typecheck --workspace=base/yarn-ts`
+- Trace construction: `base/yarn-ts/src/state/session-usage-persistence.ts`
+- Trace assertions: `base/yarn-ts/tests/session-usage-persistence.test.ts`
 
-### C4 - Trajectory DQ checks in CI/ops script
+## Session Events
 
-- Add script/query pack for DQ checks from plan (`DQ1`-`DQ4`).
-- Optional: nightly or weekly automation.
-- Expected impact: prevent decisions based on bad telemetry.
+Session events are written to `yarn_session_events` and drive event drilldowns,
+training-data exports, and some Admin Yarn metrics.
 
-## KPI targets (rolling)
+| Event kind | Producer | Use |
+|------------|----------|-----|
+| `request_trajectory_v1` | Yarn finalization | Main request trajectory: workflow, tools, edits, verification, cost, outcome, governor, state channels, training signals |
+| `state_transition_v1` | State transition ledger | Detailed state delta and quality assessment |
+| `state_transition_quality_calibration_v1` | State transition ledger | Local threshold calibration when enough evidence shifts the decision boundary |
+| `state_transition_quality_global_calibration_v1` | State transition ledger | Org/model-level calibration updates |
+| `execution_governor_evaluated` | Execution governor | Rule evaluation, matched rules, pause decision, and counters |
+| `scenario_eval_v1` | Eval gym | Scored scenario result |
+| `eval_transcript_v1` | Eval session observer | Turn-by-turn live transcript for eval analysis |
+| `live_eval_v1` | Eval session observer | Live anomaly alert when issues are detected |
 
-- `first_pass_verify_rate`: upward trend by bucket.
-- `tokens_to_green_p90`: downward trend.
-- `patch_ratio` (micro/repo): keep above 0.60.
-- `structured_error_coverage`: increasing trend per language over time.
+`request_trajectory_v1` is the broadest event. Its metadata includes:
 
-## Decision log template
+- `workflow`: decision path, phase, escalation, matched policy rules
+- `tools`: sequence, counts by kind, retries, blind retries
+- `edits`: read/write counts, patch ratio, whole-write ratio
+- `verification`: verification steps, first-pass result, structured diagnostic
+  coverage, completion/critic blocks
+- `cost`: tokens, cache ratio, latency, token-economics metadata
+- `outcome`: success/failure state and failure stage
+- `governor`: pause, reason, matched rules, governor telemetry
+- `state_channels`: chat, file, objective, confidence, and transition summaries
+- `training_signals`: compact labels for quality analysis and fine-tuning
 
-For each chunk, append:
+## Admin Metrics
 
-- Date:
-- Chunk ID:
-- Hypothesis:
-- KPI expected:
-- Guardrails:
-- Result:
-- Commit:
-- Rollback trigger (if any):
+The Admin Yarn Overview aggregates `yarn_usage_log`, `yarn_sessions`, and
+`yarn_session_events`. The frontend contract is `YarnIntelligence` in
+`base/admin/frontend/src/api/hooks.ts`.
 
-## Decision log
+Key trajectory metrics:
 
-- Date: 2026-04-04
-- Chunk ID: C1b
-- Hypothesis: Exposing trajectory KPIs in admin will make weekly review actionable without log spelunking.
-- KPI expected: faster detection of first-pass regressions and stall/blind-retry spikes.
-- Guardrails: no schema breaks; tolerate missing trajectory fields.
-- Result: completed; metrics visible on Yarn Overview and bucket distribution added.
-- Commit: uncommitted in working tree
-- Rollback trigger (if any): dashboard/API query latency regression or malformed aggregation values.
+| Metric | Meaning |
+|--------|---------|
+| `trajectory_events` | Count of `request_trajectory_v1` events in the window |
+| `first_pass_verify_rate` | Share of trajectories where first verification passed |
+| `verification_stall_rate` | Share of trajectories flagged as stalled during verification |
+| `blind_retry_rate` | Share of trajectories with repeated retries lacking new evidence |
+| `patch_ratio` | Patch-style edits versus whole-file writes |
+| `structured_error_coverage` | Structured diagnostics divided by diagnostic lines |
+| `completion_gate_blocked_rate` | Share blocked by completion gate |
+| `critic_block_rate` | Share blocked by critic gate |
+| `trajectory_bucket_counts` | Distribution by task bucket |
+| `state_transition_quality` | Forward/stalled/regressed/reground quality rollup |
 
-- Date: 2026-04-04
-- Chunk ID: C1c
-- Hypothesis: Emitting parser coverage in trajectory metadata enables consistent KPI tracking per request.
-- KPI expected: reliable `structured_error_coverage` trend line over time.
-- Guardrails: fallback behavior preserved when parser misses; coverage defaults are safe.
-- Result: completed; trajectory verification now includes structured count, diagnostic count, and coverage.
-- Commit: uncommitted in working tree
-- Rollback trigger (if any): malformed payloads causing persistence errors or downstream query failures.
+## Debugging Queries
 
-## Safety rules
+Use these patterns when investigating a coder turn. Adjust table/schema names
+for the target environment.
 
-- Do not weaken deterministic policy protection for repeat loops.
-- Keep fallback behavior:
-  - `errorLines` still present when parser misses.
-  - no hard dependency on `errors[]` existing.
-- Prefer additive telemetry fields over schema-breaking changes.
+Latest events for a request:
 
-## Companion docs
+```sql
+SELECT created_at, event_kind, component, detail, metadata_json
+FROM yarn_session_events
+WHERE request_id = '<request-id>'
+ORDER BY created_at ASC;
+```
 
-- `docs/STAFF_CODER_RESEARCH_TRACKER.md` (research basis + implementation ledger + anti-perfection guardrails)
-- `docs/clients/HARNESS_POWER_CLI.md` (operator CLI quickstart for KPI/session/canary loops)
+Recent trajectories with verification or governor issues:
+
+```sql
+SELECT created_at, request_id, detail, metadata_json->'verification' AS verification,
+       metadata_json->'governor' AS governor,
+       metadata_json->'training_signals' AS training_signals
+FROM yarn_session_events
+WHERE event_kind = 'request_trajectory_v1'
+  AND (
+    metadata_json->'verification'->>'stalled' = 'true'
+    OR metadata_json->'governor'->>'pause' = 'true'
+    OR metadata_json->'verification'->>'completion_gate_blocked' = 'true'
+  )
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
+State transition quality for a session:
+
+```sql
+SELECT created_at, request_id,
+       metadata_json->'quality' AS quality,
+       metadata_json->'delta' AS delta
+FROM yarn_session_events
+WHERE session_key = '<session-key>'
+  AND event_kind = 'state_transition_v1'
+ORDER BY created_at ASC;
+```
+
+## Interpreting Common States
+
+| Symptom | Likely meaning | Check next |
+|---------|----------------|------------|
+| `completion_status=blocked` | Yarn detected unresolved correction, failed verification, or completion guard | `chat_state_snapshot`, governor rules, latest verification step |
+| `file_state.statusCounts.stale > 0` | File content in context may predate an edit | `file_state_snapshot.staleFiles`; rerun targeted read before final answer |
+| `verification.stalled=true` | Repeated verification did not produce new progress | Tool sequence, `governor.telemetry.trailingVerificationRunLength` |
+| High `blind_retry_rate` | Model repeated actions without new evidence | Tool sequence and `training_signals.no_edit_evidence` |
+| Low `structured_error_coverage` | Tool output had diagnostics, but parser did not extract structured errors | `base/yarn-ts/src/mcp/handlers/command-diagnostics.ts` |
+| `state_transition_quality_label=regressed` | Current turn degraded confidence or state continuity | `state_transition_v1.metadata_json.quality.reasons` |
+
+## Related Docs
+
+- `docs/coder/observability-verification-and-evals.md`
+- `docs/coder/GOVERNOR_HARNESS.md`
+- `docs/coder/GOVERNOR_PAUSE_ENVELOPE.md`
+- `docs/coder/EVAL_GYM.md`
+- `docs/coder/TOKEN_ECONOMICS_HARDENING.md`

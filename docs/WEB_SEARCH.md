@@ -216,7 +216,7 @@ All web search settings are environment variables (prefixed `SYNESIS_`):
 - **Unified retrieval** registers when `SYNESIS_EMBEDDER_URL` is set **or** `SYNESIS_WEB_SEARCH_URL` is non-empty.
 - **Helm values:** configure planner retrieval endpoints under `workloads.plannerTs.env` in your chart values file.
 - **URL overrides:** `SYNESIS_EMBEDDER_URL`, `SYNESIS_NORNIC_URI`, `SYNESIS_WEB_SEARCH_URL`, and `SYNESIS_WEB_SEARCH_ENABLED`.
-- **Admin `web_search_log`:** Secret `synesis-admin-db-url` / `admin-url` in `synesis-planner`. See [DEPLOY_SECRETS.md](DEPLOY_SECRETS.md).
+- **Admin `web_search_log`:** Secret `synesis-admin-db-url` / `admin-url` in `synesis-planner`. See [Helm install](HELM_INSTALL.md#secrets-and-provider-keys).
 - **Verify:** `GET /debug/retrieval-config` with internal bearer token — `unified_retrieval_client_registered`, `web_search_url`, `embedder_url`.
 
 ## Resilience

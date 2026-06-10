@@ -17,12 +17,14 @@ This tree is organized by **audience** and **product surface**. Implementation c
 
 ## Quick links
 
-- **New operators:** [README](../README.md) (repository overview) → [Helm install](HELM_INSTALL.md) or [Deployment / secrets](DEPLOY_SECRETS.md) as needed.
+- **New operators:** [README](../README.md) (repository overview) → [Helm install](HELM_INSTALL.md).
 - **Chat pipeline:** [Workflow](chat/WORKFLOW_PLANNER.MD) · [Open WebUI](chat/OPENWEBUI.md) · [OpenAI compatibility](chat/PLANNER_OPENAI_COMPATIBILITY.md).
 - **Coder runtime:** [`base/yarn-ts/README.md`](../base/yarn-ts/README.md) · [Coder doc index](coder/README.md).
 - **Connect a client:** [Client overview](clients/CLIENTS.md) · [Claude Code → coder](clients/CLAUDECODE.md).
 - **Develop & test:** [Development index](development/README.md).
 - **Harness trust strategy:** [Trust hardening plan](development/HARNESS_TRUST_HARDENING.md).
+- **Security posture:** [Security controls](SECURITY.md) · [Security todo tracker](security_todo.md).
+- **Project positioning:** [Comparison notes](COMPARISON.md).
 
 ## Admin-only
 

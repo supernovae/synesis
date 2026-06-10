@@ -15,6 +15,29 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - **Fail-safe behavior:** when confidence is low, abstain, ask for more evidence, or escalate model tier.
 - **Top-down plus bottom-up:** centralized governance complements local `AGENTS.md` and rule files.
 
+## Coder Design Goals
+
+Coder should behave like a senior engineering assistant: finish scoped work
+end-to-end when the environment allows it, verify meaningful changes before
+claiming completion, repair avoidable failures, and report concrete blockers
+when it cannot proceed. The runtime should make that behavior the easiest path
+through deterministic interfaces, durable state, bounded verification loops, and
+clear telemetry.
+
+Design constraints:
+
+- Prefer small, reviewable patches without lowering the quality bar.
+- Treat "done" as request satisfied plus relevant verification, not just a
+  successful model response.
+- Prefer deterministic harness rules and structured diagnostics over larger
+  prompts when behavior can be made explicit.
+- Keep retries, cleanup, and critic passes bounded so quality enforcement does
+  not become an infinite loop.
+- Use telemetry and eval outcomes to promote, adjust, or roll back behavior.
+
+Research anchors are collected in
+[`AWESOME_PAPERS.MD`](../AWESOME_PAPERS.MD#agent-coding-and-interfaces-selected-non-arxiv).
+
 ## Document Map
 
 - [`constraint-governance.md`](./constraint-governance.md)
@@ -41,11 +64,10 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 - [YARN_OPENAI_COMPAT_AND_VALUE_ADD.md](./YARN_OPENAI_COMPAT_AND_VALUE_ADD.md) — OpenAI compatibility (retired-path notice + pointer to `base/yarn-ts`)
 - [YARN_TOOL_COLLAPSE.md](./YARN_TOOL_COLLAPSE.md) — tool-call batching
 - [TOKEN_ECONOMICS_HARDENING.md](./TOKEN_ECONOMICS_HARDENING.md) — provider-cache economics, telemetry, and validation
+- [../CODER_AGENT_ITERATION_PLAYBOOK.md](../CODER_AGENT_ITERATION_PLAYBOOK.md) — coder status, snapshots, tracing, and Admin metric reference
 - [YARN_SESSION_DEBUGGING.md](./YARN_SESSION_DEBUGGING.md) — troubleshooting
 - [YARN_COST_ANALYSIS.md](./YARN_COST_ANALYSIS.md) — cost notes
 - [YARN_PERFORMANCE_REVIEW_FINDINGS.md](./YARN_PERFORMANCE_REVIEW_FINDINGS.md) — performance review
-
-**Redirects at `docs/` root:** [YARN_RUNTIME.md](../YARN_RUNTIME.md) (stub) · [YARN_CONTEXT_TRUST.md](../YARN_CONTEXT_TRUST.md) (stub)
 
 ## Consolidated Feature Areas
 

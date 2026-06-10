@@ -1,6 +1,6 @@
 # Synesis Performance Notes
 
-Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD). Model roles are managed in admin Model Registry and resolved directly by runtime consumers. **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
+Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD). Model roles are managed in admin Model Registry and resolved directly by runtime consumers.
 
 ---
 
@@ -57,7 +57,7 @@ Legacy curator tier fields are retired for planner-ts. Writer and critic budget 
 
 ## Prefix-aware prompts
 
-Put **static** system content first and **per-request** suffix + user messages last so vLLM prefix caching can hit where enabled ([`deployment-vllm-*.yaml`](../base/model-serving/) + [VLLM_RECIPES.md](VLLM_RECIPES.md)). Layering (L0/L1/L2): [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md).
+Put **static** system content first and **per-request** suffix + user messages last so prefix caching can hit where enabled by the deployed model runtime. Layering (L0/L1/L2): [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md).
 
 ---
 
@@ -72,7 +72,5 @@ Put **static** system content first and **per-request** suffix + user messages l
 
 ## References
 
-- [VLLM_RECIPES.md](VLLM_RECIPES.md)
 - [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD)
-- [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md)
 - [base/planner-ts/src/config.ts](../base/planner-ts/src/config.ts)

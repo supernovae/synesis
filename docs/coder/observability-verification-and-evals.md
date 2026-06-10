@@ -146,6 +146,22 @@ Primary implementation:
 - **Safety:** token/latency regressions, excessive loop indicators, hard-stop incidence
 - **Regression:** baseline vs candidate verdict/latency/token/decision-path degradation
 
+### Coder Behavior KPIs
+
+Use these KPIs to judge whether coder behavior is improving without creating
+perfection loops:
+
+| KPI | Desired movement | Notes |
+|-----|------------------|-------|
+| `first_pass_verify_rate` | Up | More tasks pass relevant verification before repair |
+| `tokens_to_green_p90` | Down | Lower tail cost to reach a verified state |
+| `patch_ratio` | Up | Prefer targeted edits over broad rewrites; current target is at least 0.60 where applicable |
+| `structured_error_coverage` | Up | More failures have parsed file/line/message diagnostics |
+| `verification_stall_rate` | Down | Fewer repeated checks without new evidence |
+| `blind_retry_rate` | Down | Fewer retries without reading the failure context |
+| `completion_gate_blocked_rate` | Interpreted with pass/fail quality | Rising can be good during rollout if it catches false-green completions; sustained high rates require triage |
+| `critic_block_rate` | Interpreted with outcome labels | Use with false-positive review and task success rate |
+
 ### Case Format
 
 Each eval case includes:

@@ -83,13 +83,14 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 
 | Title | Link | Why it matters here |
 |-------|------|---------------------|
-| Qwen3-Coder-Next technical report | [arXiv HTML](https://arxiv.org/html/2603.00729v1) | vLLM / tool-call notes ([VLLM_RECIPES.md](VLLM_RECIPES.md)) |
+| Qwen3-Coder-Next technical report | [arXiv HTML](https://arxiv.org/html/2603.00729v1) | Tool-call format and parser behavior for coder models |
 
 ---
 
 ## Agent coding and interfaces (selected non-arXiv)
 
-High-signal **systems and product writeups** referenced from [STAFF_CODER_RESEARCH_TRACKER.md](STAFF_CODER_RESEARCH_TRACKER.md):
+High-signal **systems and product writeups** that inform coder design goals,
+interface contracts, verification loops, and bounded critic behavior:
 
 | Source | Link |
 |--------|------|

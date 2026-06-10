@@ -182,4 +182,4 @@ Admin UI dashboard will visualize these metrics (Phase 3).
 
 ---
 
-Back to [README](../../README.md) | See also: [Coder docs](README.md) · [Runtime redirect](../YARN_RUNTIME.md)
+Back to [README](../../README.md) | See also: [Coder docs](README.md) · [Yarn runtime](../../base/yarn-ts/README.md)

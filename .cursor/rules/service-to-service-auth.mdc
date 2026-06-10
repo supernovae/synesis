@@ -43,6 +43,5 @@ Network policies are defense-in-depth, not the sole security boundary.
 ## Future: ambient service mesh
 
 The current library-based approach is appropriate for the current service count (~8).
-If the fleet grows to 20+ services, consider Istio ambient mesh (sidecar-less L4 mTLS)
-for transport-layer auth, keeping Tier 2 HMAC signing as defense-in-depth for execution
-services. See `docs/PRODUCTION_SECURITY.md` for the mesh adoption roadmap.
+If the fleet grows to 20+ services, consider a service mesh for transport-layer
+auth, keeping Tier 2 HMAC signing as defense-in-depth for execution services.

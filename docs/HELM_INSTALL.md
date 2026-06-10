@@ -56,9 +56,9 @@ and RedKey-compatible servers use the same client protocol and URI scheme.
 - Kubernetes or OpenShift cluster.
 - `helm` and `kubectl` or `oc`.
 - Container registry access for the Synesis images.
-- Provider API keys for hosted model providers, configured after install in
-  Admin -> Providers & API keys or bootstrapped intentionally through Helm
-  values.
+- Provider API keys for hosted model providers. Configure these after install
+  in Admin -> Providers & API keys; use Helm bootstrap values only when your
+  platform requires non-interactive first boot.
 - For OpenShift routes, a real route domain and hostnames for API, admin, chat,
   coder, and Keycloak.
 
@@ -98,6 +98,43 @@ At minimum, change:
 - every placeholder under `secrets`
 - Postgres passwords or external Postgres connection details
 - `kv.redkey.url` or `kv.external.url`
+
+## Secrets and provider keys
+
+Helm owns deployment bootstrap secrets and namespace-local runtime Secrets. Use
+your values file for infrastructure credentials and service tokens that must
+exist before the Admin service starts.
+
+| Secret | Namespace(s) | Source of truth | Purpose |
+|--------|--------------|-----------------|---------|
+| `synesis-internal-service-auth` | Synesis service namespaces | Helm `secrets.internalServiceToken` | Service-to-service bearer token |
+| `webui-api-key` | `synesis-webui` | Helm `secrets.webuiSecretKey` | Open WebUI secret/API key used for planner authentication |
+| `synesis-admin-session-token-key` | `synesis-admin` | Helm generated or `secrets.adminSessionTokenKey` | Admin session signing key |
+| `synesis-pat-pepper` | Admin, planner, Yarn namespaces | Helm generated or `secrets.patPepper` | Personal access token hashing pepper |
+| `synesis-admin-db-url` | Admin, planner, Yarn namespaces | Helm Postgres values | Admin and trace database URLs |
+| `synesis-redis` | RAG, planner, Yarn namespaces | Helm KV values | Redis/Valkey URL |
+| `synesis-nornicdb-auth` | Admin, planner, RAG namespaces | Helm generated or `secrets.nornicdbPassword` | NornicDB credentials |
+| `provider-api-keys` | Gateway, planner, Yarn namespaces | Admin -> Providers & API keys | Hosted model provider credentials |
+
+Provider API keys are intentionally separate from normal deployment secrets.
+The chart creates the `provider-api-keys` Secret so planner and Yarn can mount
+it, but the default `secrets.providerApiKeys` value is empty. Add and rotate
+provider keys in Admin -> Providers & API keys; the Admin backend updates the
+Secret and refreshes direct runtime consumers.
+
+Use `secrets.providerApiKeys` only for intentional bootstrap automation. Values
+placed there are Helm-managed and can be reconciled back onto the cluster on
+future `helm upgrade` runs.
+
+Personal access tokens (`syn-*`) are application data in Postgres, not
+Kubernetes Secrets. They are not changed by Helm upgrades.
+
+Admin archive storage is configured on the Admin API deployment. Set
+`SYNESIS_ADMIN_ARCHIVE_S3_BUCKET` plus optional
+`SYNESIS_ADMIN_ARCHIVE_S3_PREFIX` and
+`SYNESIS_ADMIN_ARCHIVE_S3_ENDPOINT_URL`; provide credentials with workload
+identity, IRSA, or the cluster's normal S3-compatible credential mechanism. See
+[admin archive storage](admin/ADMIN_ARCHIVE_STORAGE.md).
 
 ## Option A: AKS with Azure managed services
 
@@ -394,6 +431,47 @@ kubectl apply --dry-run=server -f /tmp/synesis.yaml
 
 If CRDs are not installed yet, server-side dry-run will fail on those custom
 resources. Install or disable the relevant operator-backed resources first.
+
+## Production safety defaults
+
+The chart is intended to make unsafe production renders fail before anything is
+applied:
+
+- `global.imageTag` and enabled workload image tags must not be `latest`.
+- Required bootstrap secrets such as `secrets.internalServiceToken`,
+  `secrets.webuiSecretKey`, `secrets.openfgaAuthToken`, and Postgres passwords
+  must be non-placeholder values.
+- `global.allowInsecureDefaults=true` is only for disposable local/demo renders.
+
+Production-facing auth and authorization defaults are set in chart values:
+
+- Planner bearer auth is required with
+  `SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH=true`.
+- Forwarded identity is trusted only when the request bearer matches the
+  internal service token.
+- `SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE=true` rejects untrusted
+  forwarded identity headers.
+- `SYNESIS_RAG_AUTHZ_MODE=enforce` enables RAG authorization enforcement.
+- `SYNESIS_REQUIRE_PAT_PEPPER=true` and `SYNESIS_PAT_PEPPER` are set on
+  services that validate personal access tokens.
+- `SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER=false` and
+  `SYNESIS_YARN_ALLOW_OPAQUE_BEARER=false` keep public entrypoints on PAT or
+  OIDC identities.
+
+Before exposing a release, validate the rendered manifests with your production
+values:
+
+```bash
+helm template synesis ./charts/synesis -f my-synesis-values.yaml >/tmp/synesis.yaml
+rg -n 'SYNESIS_RAG_AUTHZ_MODE|SYNESIS_.*ALLOW_OPAQUE_BEARER|SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH' /tmp/synesis.yaml
+kubectl apply --dry-run=server -f /tmp/synesis.yaml
+```
+
+The `rg` output should show `SYNESIS_RAG_AUTHZ_MODE=enforce`,
+`SYNESIS_*_ALLOW_OPAQUE_BEARER=false`, and
+`SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH=true`. Use
+`docs/CLOUDFLARE_EDGE_HARDENING.md` or your ingress controller's rate-limit
+annotations for internet-facing edge throttling.
 
 ## Verify the install
 

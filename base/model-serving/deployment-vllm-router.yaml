@@ -13,7 +13,9 @@
 # thinking mode. This avoids the "people-pleaser" equivocation that smaller
 # models exhibit with chain-of-thought.
 #
-# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=router
+# Prerequisites: model weights available on the configured PVC subPath or
+# equivalent operator-managed model source, with the router role assigned in
+# Admin Model Registry.
 ---
 apiVersion: v1
 kind: Service

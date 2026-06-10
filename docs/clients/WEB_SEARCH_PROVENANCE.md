@@ -66,4 +66,4 @@ The reference deployment wires this from the `synesis-admin-db-url` secret (`adm
 
 The **Anthropic `POST /v1/messages`** path on Yarn does **not** currently inject or execute server-side `synesis_web_search` (no tool-result loop there). For SearXNG-backed search from Claude Code over HTTPS, configure **MCP** so the model calls `synesis_web_search` / `web_search`, or use the OpenAI chat path where server-side web search is enabled.
 
-See also [Claude Code compatibility](../claude_code_compat.md) (MCP vs tool-search policy) and [HTTPS-first clients](ACP_HTTP_CLIENTS.md).
+See also [Claude Code with Synesis Coder](CLAUDECODE.md) (MCP vs tool-search policy) and [HTTPS-first clients](ACP_HTTP_CLIENTS.md).

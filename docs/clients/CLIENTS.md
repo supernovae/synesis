@@ -60,4 +60,4 @@ Use these terms in user docs and product-facing setup instructions.
 - [HTTPS-first clients (no ACP)](ACP_HTTP_CLIENTS.md) — Cursor, VS Code agents, Roo, etc.
 - [Structured clarification metadata](SYNESIS_CLARIFICATION.md)
 - [Chat OpenAI compatibility (planner-ts)](../chat/PLANNER_OPENAI_COMPATIBILITY.md)
-- [Yarn runtime details](../YARN_RUNTIME.md)
+- [Yarn runtime details](../../base/yarn-ts/README.md)

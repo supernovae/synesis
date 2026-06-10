@@ -244,5 +244,4 @@ can call explicitly.
 - [Synesis Claude Code hook + proxy (repo `clients/claude-code/`)](../../clients/claude-code/README.md)
 - [Session execution context contract](SESSION_EXECUTION_CONTEXT.md)
 - [Client setup overview](CLIENTS.md)
-- [Claude compatibility design note](../claude_code_compat.md)
-- [Yarn TS runtime](../YARN_RUNTIME.md)
+- [Yarn TS runtime](../../base/yarn-ts/README.md)
