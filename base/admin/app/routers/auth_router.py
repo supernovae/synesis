@@ -134,7 +134,7 @@ async def oauth_refresh(request: Request, response: Response, req: OidcRefreshRe
             try:
                 refresh_token = decrypt_session_token(row.refresh_token)
             except (RuntimeError, ValueError) as exc:
-                logger.warning("admin_session_refresh_token_decrypt_failed session_id=%s", row.id)
+                logger.warning("admin_session_refresh_token_decrypt_failed")
                 raise HTTPException(status_code=401, detail="Not authenticated") from exc
 
     body = {

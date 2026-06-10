@@ -40,9 +40,9 @@ cuda-pathfinder==1.5.5 \
 cuda-toolkit==13.0.2 \
     --hash=sha256:b198824cf2f54003f50d64ada3a0f184b42ca0846c1c94192fa269ecd97a66eb
     # via torch
-filelock==3.29.2 \
-    --hash=sha256:779d2f5443b584750c6b90457abffd49235bfb0e66ce82ef5a680867e518ca1c \
-    --hash=sha256:f5d3feb44b2b8824832587543af5226822fe86baf086678ede47aa177fe47ca5
+filelock==3.29.3 \
+    --hash=sha256:7fc1b3f39cf172fd8203812043c57b8a65aef9969f38b6704f628b881f761a84 \
+    --hash=sha256:e58333029cc9b925f39aad59b1d8f0a1ad836af4e60d7217f4a4dba87461261d
     # via huggingface-hub, torch
 fsspec==2026.4.0 \
     --hash=sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2 \
@@ -646,9 +646,9 @@ tqdm==4.68.2 \
     --hash=sha256:89c230e8dbc67c7615c142487111222f878c77427ea09549960f62389e258add \
     --hash=sha256:d4240441fb5353290b87d6a85968c9decc131a99b8c7faa28269d829de669ede
     # via huggingface-hub, transformers
-transformers==5.10.2 \
-    --hash=sha256:8a669db546f82c7c3618cb46ceb0f0afd89292bc70f319c058f8332ec63e268d \
-    --hash=sha256:f9a44b9c8ca9ab1156b467f574d832ea066284299c2fd0ed84641ccb592751fc
+transformers==5.11.0 \
+    --hash=sha256:06d0a34eab529955f8e704b530663c7d6bd6f9c7a9e47a05cddb4a44e7b6566b \
+    --hash=sha256:1dbecade5b8a09bdf3e9e8fdfc9d312cb9eccf5a201080dc894b373f0f3eb5f4
     # via -r base/images/base-ml/requirements.txt
 triton==3.7.0 \
     --hash=sha256:18a160de426fd99f92b0baf509045360afbd3bfaa0b4a5171dde800ec9f09684 \

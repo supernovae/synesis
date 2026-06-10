@@ -475,7 +475,7 @@ async def _verify_session_cookie(request: Request) -> UserInfo | None:
         try:
             access_token = decrypt_session_token(row.access_token)
         except (RuntimeError, ValueError):
-            logger.warning("admin_session_token_decrypt_failed session_id=%s", row.id)
+            logger.warning("admin_session_token_decrypt_failed")
             return None
         request.state.yarn_bearer_user_id = yarn_bearer_user_id_for_token(access_token)
         return _user_from_session_row(row)

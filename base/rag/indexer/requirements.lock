@@ -699,9 +699,9 @@ fastuuid==0.14.0 \
     --hash=sha256:f54d5b36c56a2d5e1a31e73b950b28a0d83eb0c37b91d10408875a5a29494bad \
     --hash=sha256:f74631b8322d2780ebcf2d2d75d58045c3e9378625ec51865fe0b5620800c39d
     # via unclecode-litellm
-filelock==3.29.2 \
-    --hash=sha256:779d2f5443b584750c6b90457abffd49235bfb0e66ce82ef5a680867e518ca1c \
-    --hash=sha256:f5d3feb44b2b8824832587543af5226822fe86baf086678ede47aa177fe47ca5
+filelock==3.29.3 \
+    --hash=sha256:7fc1b3f39cf172fd8203812043c57b8a65aef9969f38b6704f628b881f761a84 \
+    --hash=sha256:e58333029cc9b925f39aad59b1d8f0a1ad836af4e60d7217f4a4dba87461261d
     # via huggingface-hub
 frozenlist==1.8.0 \
     --hash=sha256:0325024fe97f94c41c08872db482cf8ac4800d80e79222c6b0b7b162d5b13686 \
@@ -1603,9 +1603,9 @@ numpy==2.4.6 \
     --hash=sha256:f407cb6b8e9d6d8c626bc73c945db1706035af8fd632295547bf1c9e46d092d6 \
     --hash=sha256:f74a575920ab21fe304421a3fc28793d82e299cae9eccb37084e9fc7f3617c20
     # via alphashape, crawl4ai, rank-bm25, scipy, shapely, trimesh
-openai==2.41.0 \
-    --hash=sha256:20cc7952e8501c7e5773dd2ef7be437bae9cb549044902e1041a83a54516e375 \
-    --hash=sha256:db5c362acd6604b84f076abbefa66826ea4b46ecba2954ed866e6a149a1352c0
+openai==2.41.1 \
+    --hash=sha256:23d617a0432457ad844973bee8f540be9da90894f7c5686852d2d365da058f57 \
+    --hash=sha256:a939565f350cb7443cb843b801b88c716ac8024b492fb94ca269d5f6b1bbefd6
     # via unclecode-litellm
 packaging==26.2 \
     --hash=sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e \

@@ -185,18 +185,7 @@ jobs:
               --ignore-vuln PYSEC-2025-216
               --ignore-vuln PYSEC-2025-217
               --ignore-vuln PYSEC-2025-218
-            )
-          fi
-          # Indexer: nltk/joblib are transitively pulled by crawl4ai; OSV lists no
-          # fixed PyPI version for the current findings.
-          # See .github/SECURITY.md — remove when patched versions are published.
-          if [ "${{ matrix.name }}" = "indexer" ]; then
-            ignore_args+=(
-              --ignore-vuln CVE-2026-33230
-              --ignore-vuln CVE-2026-33231
-              --ignore-vuln GHSA-rf74-v2fm-23pw
-              --ignore-vuln PYSEC-2024-277
-              --ignore-vuln PYSEC-2026-97
+              --ignore-vuln CVE-2025-3000
             )
           fi
           uvx pip-audit \
