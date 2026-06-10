@@ -12,11 +12,11 @@ export default function EmptyState({
   description,
 }: Props) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 py-12">
-      <Icon className="h-10 w-10 text-gray-300" />
-      <h3 className="mt-3 text-sm font-medium text-gray-900">{title}</h3>
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-line py-12">
+      <Icon className="h-10 w-10 text-fg-tertiary" />
+      <h3 className="mt-3 text-sm font-medium text-fg-primary">{title}</h3>
       {description && (
-        <p className="mt-1 text-sm text-gray-500">{description}</p>
+        <p className="mt-1 text-sm text-fg-secondary">{description}</p>
       )}
     </div>
   );

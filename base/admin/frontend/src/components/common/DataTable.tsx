@@ -54,7 +54,7 @@ export default function DataTable<T extends object>({
 
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+      <div className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-fg-secondary">
         {emptyMessage}
       </div>
     );
@@ -63,12 +63,12 @@ export default function DataTable<T extends object>({
   return (
     <div
       className={clsx(
-        "overflow-x-auto rounded-lg border border-gray-200",
+        "overflow-x-auto rounded-lg border border-line",
         className,
       )}
     >
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+      <table className="min-w-full divide-y divide-line">
+        <thead className="bg-canvas-tertiary">
           <tr>
             {columns.map((col, idx) => {
               if (idx === 0 && headerSlot) return <React.Fragment key={col.key}>{headerSlot}</React.Fragment>;
@@ -76,8 +76,8 @@ export default function DataTable<T extends object>({
                 <th
                   key={col.key}
                   className={clsx(
-                    "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500",
-                    col.sortable && "cursor-pointer select-none hover:text-gray-700",
+                    "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-fg-secondary",
+                    col.sortable && "cursor-pointer select-none hover:text-fg-primary",
                     col.className,
                   )}
                   onClick={col.sortable ? () => handleSort(col.key) : undefined}
@@ -93,20 +93,20 @@ export default function DataTable<T extends object>({
             })}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-200 bg-white">
+        <tbody className="divide-y divide-line bg-surface-card">
           {sorted.map((row) => (
             <tr
               key={String((row as Record<string, unknown>)[keyField])}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               className={clsx(
-                onRowClick && "cursor-pointer hover:bg-gray-50",
+                onRowClick && "cursor-pointer hover:bg-surface-hover",
               )}
             >
               {columns.map((col) => (
                 <td
                   key={col.key}
                   className={clsx(
-                    "whitespace-nowrap px-4 py-3 text-sm text-gray-700",
+                    "whitespace-nowrap px-4 py-3 text-sm text-fg-primary",
                     col.className,
                   )}
                 >

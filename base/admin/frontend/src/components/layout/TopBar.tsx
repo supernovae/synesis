@@ -1,6 +1,6 @@
 import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import { LogOut, Shield, Eye, Moon, Sun, Key, Building2 } from "lucide-react";
+import { LogOut, Shield, Eye, Moon, Sun, Key, Building2, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const breadcrumbLabels: Record<string, string> = {
@@ -74,7 +74,11 @@ function breadcrumbSegmentLabel(seg: string, prevSeg: string | undefined): strin
   return breadcrumbLabels[seg] || seg;
 }
 
-export default function TopBar() {
+interface TopBarProps {
+  onMobileMenuToggle: () => void;
+}
+
+export default function TopBar({ onMobileMenuToggle }: TopBarProps) {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const [dark, setDark] = useState(() => {
@@ -100,64 +104,74 @@ export default function TopBar() {
   }));
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900">
-      <nav className="flex items-center gap-1 text-sm">
-        <Link
-          to="/"
-          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+    <header className="flex h-14 items-center justify-between border-b border-line bg-surface-card px-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          onClick={onMobileMenuToggle}
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-fg-tertiary hover:bg-surface-hover hover:text-fg-primary md:hidden"
+          aria-label="Toggle navigation"
         >
-          Home
-        </Link>
-        {crumbs.map((c) => (
-          <span key={c.path} className="flex items-center gap-1">
-            <span className="text-gray-300 dark:text-gray-600">/</span>
-            <Link
-              to={c.path}
-              className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
-            >
-              {c.label}
-            </Link>
-          </span>
-        ))}
-      </nav>
+          <Menu className="h-5 w-5" />
+        </button>
 
-      <div className="flex items-center gap-3">
+        <nav className="scrollbar-none flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
+          <Link
+            to="/"
+            className="shrink-0 text-fg-tertiary hover:text-fg-primary"
+          >
+            Home
+          </Link>
+          {crumbs.map((c) => (
+            <span key={c.path} className="flex shrink-0 items-center gap-1">
+              <span className="text-fg-tertiary">/</span>
+              <Link
+                to={c.path}
+                className="text-fg-secondary hover:text-fg-primary"
+              >
+                {c.label}
+              </Link>
+            </span>
+          ))}
+        </nav>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-1 md:gap-2">
         <button
           onClick={() => setDark((d) => !d)}
-          className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-fg-tertiary hover:bg-surface-hover hover:text-fg-primary"
           title={dark ? "Light mode" : "Dark mode"}
         >
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
 
         {user && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 md:gap-2">
             {user.role === "admin" || user.role === "platform_admin" || user.role === "org_admin" ? (
-              <Shield className="h-4 w-4 text-blue-500" />
+              <Shield className="hidden h-4 w-4 text-blue-500 md:block" />
             ) : (
-              <Eye className="h-4 w-4 text-gray-400" />
+              <Eye className="hidden h-4 w-4 text-fg-tertiary md:block" />
             )}
             <Link
               to="/account"
-              className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              className="hidden text-sm font-medium text-fg-primary hover:text-accent md:block"
             >
               {user.username}
             </Link>
             {user.org_name && (
               <Link
                 to="/account/organization"
-                className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
+                className="hidden items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 md:flex"
               >
                 <Building2 className="h-3 w-3" />
                 {user.org_name}
               </Link>
             )}
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+            <span className="hidden rounded-full bg-surface-hover px-2 py-0.5 text-xs font-medium text-fg-secondary md:inline">
               {user.role}
             </span>
             <Link
               to="/account/tokens"
-              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+              className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-fg-tertiary hover:bg-surface-hover hover:text-fg-primary md:inline-flex"
               title="API Tokens"
             >
               <Key className="h-4 w-4" />
@@ -166,7 +180,7 @@ export default function TopBar() {
         )}
         <button
           onClick={logout}
-          className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-fg-tertiary hover:bg-surface-hover hover:text-fg-primary"
           title="Sign out"
         >
           <LogOut className="h-4 w-4" />

@@ -223,9 +223,11 @@ function isGroupActive(children: NavChild[], pathname: string) {
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const { user } = useAuth();
   const { pathname } = useLocation();
   const userRole = user?.role;
@@ -268,8 +270,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={clsx(
-        "flex h-screen flex-shrink-0 flex-col bg-sidebar text-white transition-all duration-200",
-        collapsed ? "w-16" : "w-64",
+        "flex h-screen flex-col bg-sidebar text-white transition-transform duration-200 ease-in-out",
+        "fixed inset-y-0 left-0 z-50 w-64",
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+        "md:relative md:z-auto md:translate-x-0 md:flex-shrink-0 md:transition-[width]",
+        collapsed ? "md:w-16" : "md:w-64",
       )}
     >
       <div className="flex h-14 items-center justify-between border-b border-white/10 px-3">
@@ -283,7 +288,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
         <button
           onClick={onToggle}
-          className="rounded p-1 text-slate-400 hover:bg-sidebar-hover hover:text-white"
+          className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-slate-400 hover:bg-sidebar-hover hover:text-white md:inline-flex"
         >
           {collapsed ? (
             <PanelLeft className="h-4 w-4" />
@@ -293,7 +298,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
+      <nav className="flex-1 overflow-y-auto px-2 py-2">
         <ul className="space-y-0.5">
           {allowedNavigation.map((item) => {
             const Icon = item.icon;
@@ -305,9 +310,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     to={item.path}
                     end={item.path === "/"}
                     title={collapsed ? item.label : undefined}
+                    onClick={onMobileClose}
                     className={({ isActive }) =>
                       clsx(
-                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        "flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
                         isActive
                           ? "bg-sidebar-active text-white"
                           : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
@@ -333,7 +339,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   <div
                     title={item.label}
                     className={clsx(
-                      "flex items-center justify-center rounded-md px-2 py-2",
+                      "flex min-h-[44px] items-center justify-center rounded-lg px-2",
                       active ? "text-white" : "text-slate-400",
                     )}
                   >
@@ -348,7 +354,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <button
                   onClick={() => toggle(item.label)}
                   className={clsx(
-                    "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
                     active
                       ? "text-white"
                       : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
@@ -370,9 +376,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         <NavLink
                           to={child.path}
                           end
+                          onClick={onMobileClose}
                           className={({ isActive }) =>
                             clsx(
-                              "block rounded-md px-3 py-1.5 text-sm transition-colors",
+                              "block min-h-[36px] rounded-lg px-3 py-1.5 text-sm leading-snug transition-colors",
                               isActive
                                 ? "bg-sidebar-active font-medium text-white"
                                 : "text-slate-400 hover:bg-sidebar-hover hover:text-white",
