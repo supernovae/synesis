@@ -78,6 +78,56 @@ type CurrentWorkPacketSummary = {
   block: string;
 };
 
+function latestCapabilityResolutionFromEvents(
+  events: YarnSessionEventRow[],
+): CapabilityResolutionSummary | null {
+  for (const ev of events) {
+    if (ev.event_kind !== "capability_matrix_resolution_v1") continue;
+    if (!isRecord(ev.metadata_json)) continue;
+    const resolvedCaps = isRecord(ev.metadata_json.resolved_capabilities)
+      ? ev.metadata_json.resolved_capabilities
+      : null;
+    return {
+      createdAt: ev.created_at,
+      mode: String(ev.metadata_json.mode ?? "enforced"),
+      globalOptimizationsEnabled: ev.metadata_json.global_optimizations_enabled === true,
+      matchedOverrideCount: Array.isArray(ev.metadata_json.matched_override_ids)
+        ? ev.metadata_json.matched_override_ids.length
+        : 0,
+      reducersEnabled: resolvedCaps?.["yarn.reducers_enabled"] === true,
+      transcriptPruneEnabled: resolvedCaps?.["yarn.transcript_prune_enabled"] === true,
+      jsonCompactionEnabled: resolvedCaps?.["yarn.json_compaction_enabled"] === true,
+      contentDedupeEnabled: resolvedCaps?.["yarn.content_dedupe_enabled"] === true,
+    };
+  }
+  return null;
+}
+
+function latestWorkPacketFromEvents(events: YarnSessionEventRow[]): CurrentWorkPacketSummary | null {
+  for (const ev of events) {
+    if (ev.event_kind !== "current_work_packet_v1") continue;
+    if (!isRecord(ev.metadata_json)) continue;
+    const summary = isRecord(ev.metadata_json.summary) ? ev.metadata_json.summary : null;
+    return {
+      eventId: ev.id,
+      createdAt: ev.created_at,
+      hash: String(ev.metadata_json.hash ?? ""),
+      mode: String(ev.metadata_json.mode ?? "adapt"),
+      injected: ev.metadata_json.injected === true,
+      estimatedTokens: asNumber(ev.metadata_json.estimated_tokens),
+      sourceSections: Array.isArray(ev.metadata_json.source_sections)
+        ? ev.metadata_json.source_sections.map(String)
+        : [],
+      reasons: Array.isArray(ev.metadata_json.reasons) ? ev.metadata_json.reasons.map(String) : [],
+      objective: String(summary?.objective ?? "—"),
+      currentPhase: String(summary?.currentPhase ?? "unknown"),
+      nextBestAction: String(summary?.nextBestAction ?? "—"),
+      block: String(ev.metadata_json.block ?? ""),
+    };
+  }
+  return null;
+}
+
 export default function YarnSessionDetail() {
   const { sessionKey } = useParams<{ sessionKey: string }>();
   const navigate = useNavigate();
@@ -87,18 +137,16 @@ export default function YarnSessionDetail() {
   const [selectedPreset, setSelectedPreset] = useState<EventDiagnosticPreset | null>(null);
   const [expandedMetadata, setExpandedMetadata] = useState<Record<number, boolean>>({});
 
-  const availableEventKinds = useMemo(() => {
-    const src = data?.events ?? [];
-    return listEventKinds(src);
-  }, [data?.events]);
+  const events = useMemo(() => data?.events ?? [], [data]);
+
+  const availableEventKinds = useMemo(() => listEventKinds(events), [events]);
 
   const filteredEvents = useMemo(() => {
-    const src = data?.events ?? [];
-    return filterEventsByDiagnosticPreset(filterEventsByKinds(src, selectedKinds), selectedPreset);
-  }, [data?.events, selectedKinds, selectedPreset]);
+    return filterEventsByDiagnosticPreset(filterEventsByKinds(events, selectedKinds), selectedPreset);
+  }, [events, selectedKinds, selectedPreset]);
   const forensicsSnapshots = useMemo<ForensicsSnapshot[]>(() => {
     const rows: ForensicsSnapshot[] = [];
-    for (const ev of data?.events ?? []) {
+    for (const ev of events) {
       if (ev.event_kind !== "request_forensics_v1") continue;
       if (!isRecord(ev.metadata_json)) continue;
       const usage = isRecord(ev.metadata_json.usage) ? ev.metadata_json.usage : null;
@@ -125,7 +173,7 @@ export default function YarnSessionDetail() {
       const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
       return bTime - aTime;
     });
-  }, [data?.events]);
+  }, [events]);
   const forensicsSummary = useMemo(() => {
     if (forensicsSnapshots.length === 0) return null;
     const windowRows = forensicsSnapshots.slice(0, 12);
@@ -149,52 +197,8 @@ export default function YarnSessionDetail() {
       cachedPlateauDetected,
     };
   }, [forensicsSnapshots]);
-  const latestCapabilityResolution = useMemo<CapabilityResolutionSummary | null>(() => {
-    for (const ev of data?.events ?? []) {
-      if (ev.event_kind !== "capability_matrix_resolution_v1") continue;
-      if (!isRecord(ev.metadata_json)) continue;
-      const resolvedCaps = isRecord(ev.metadata_json.resolved_capabilities)
-        ? ev.metadata_json.resolved_capabilities
-        : null;
-      return {
-        createdAt: ev.created_at,
-        mode: String(ev.metadata_json.mode ?? "enforced"),
-        globalOptimizationsEnabled: ev.metadata_json.global_optimizations_enabled === true,
-        matchedOverrideCount: Array.isArray(ev.metadata_json.matched_override_ids)
-          ? ev.metadata_json.matched_override_ids.length
-          : 0,
-        reducersEnabled: resolvedCaps?.["yarn.reducers_enabled"] === true,
-        transcriptPruneEnabled: resolvedCaps?.["yarn.transcript_prune_enabled"] === true,
-        jsonCompactionEnabled: resolvedCaps?.["yarn.json_compaction_enabled"] === true,
-        contentDedupeEnabled: resolvedCaps?.["yarn.content_dedupe_enabled"] === true,
-      };
-    }
-    return null;
-  }, [data?.events]);
-  const latestWorkPacket = useMemo<CurrentWorkPacketSummary | null>(() => {
-    for (const ev of data?.events ?? []) {
-      if (ev.event_kind !== "current_work_packet_v1") continue;
-      if (!isRecord(ev.metadata_json)) continue;
-      const summary = isRecord(ev.metadata_json.summary) ? ev.metadata_json.summary : null;
-      return {
-        eventId: ev.id,
-        createdAt: ev.created_at,
-        hash: String(ev.metadata_json.hash ?? ""),
-        mode: String(ev.metadata_json.mode ?? "adapt"),
-        injected: ev.metadata_json.injected === true,
-        estimatedTokens: asNumber(ev.metadata_json.estimated_tokens),
-        sourceSections: Array.isArray(ev.metadata_json.source_sections)
-          ? ev.metadata_json.source_sections.map(String)
-          : [],
-        reasons: Array.isArray(ev.metadata_json.reasons) ? ev.metadata_json.reasons.map(String) : [],
-        objective: String(summary?.objective ?? "—"),
-        currentPhase: String(summary?.currentPhase ?? "unknown"),
-        nextBestAction: String(summary?.nextBestAction ?? "—"),
-        block: String(ev.metadata_json.block ?? ""),
-      };
-    }
-    return null;
-  }, [data?.events]);
+  const latestCapabilityResolution = latestCapabilityResolutionFromEvents(events);
+  const latestWorkPacket = latestWorkPacketFromEvents(events);
   const sessionPromptTokens = data?.session.total_tokens_in ?? 0;
   const sessionCachedPromptTokens = data?.session.total_tokens_cached ?? 0;
   const sessionEffectivePromptTokens = Math.max(sessionPromptTokens - sessionCachedPromptTokens, 0);

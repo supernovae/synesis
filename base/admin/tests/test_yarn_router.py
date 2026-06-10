@@ -154,8 +154,10 @@ def _yarn_router_env(monkeypatch):
 def client():
     import app.routers.yarn as yarn_mod
     from app.main import app
+    from app.rate_limit import _buckets
     from app.rbac import require_org_admin, require_platform_admin
 
+    _buckets.clear()
     prev_org = app.dependency_overrides.get(require_org_admin)
     prev_platform = app.dependency_overrides.get(require_platform_admin)
     prev_yarn_user = app.dependency_overrides.get(yarn_mod.get_current_user)
@@ -177,6 +179,7 @@ def client():
             app.dependency_overrides.pop(yarn_mod.get_current_user, None)
         else:
             app.dependency_overrides[yarn_mod.get_current_user] = prev_yarn_user
+        _buckets.clear()
 
 
 @pytest.fixture()

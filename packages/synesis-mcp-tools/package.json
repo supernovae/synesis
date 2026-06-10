@@ -15,6 +15,7 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "npm run build -w @synesis/context-trust",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },

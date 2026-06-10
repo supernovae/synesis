@@ -103,6 +103,7 @@ const ArchitectureBoolGroupSchema = z.object({
   applyBudgetPolicy: z.boolean().optional(),
   citationVerification: z.boolean().optional(),
   contradictionScanning: z.boolean().optional(),
+  criticalFactPins: z.boolean().optional(),
   dedupe: z.boolean().optional(),
   enabled: z.boolean().optional(),
   evidenceManifest: z.boolean().optional(),

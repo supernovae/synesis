@@ -99,7 +99,7 @@ describe("route governance block assembly", () => {
       }),
     });
 
-    expect(result.clientToolBlock).toContain("plan_implementation_approved=true");
+    expect(result.clientToolBlock).toContain("plan_implementation_approved: true");
     expect(result.clientToolBlock).toContain("start or continue implementation");
     expect(result.clientToolBlock).toContain("do not ask whether to proceed again");
     expect(result.clientToolBlock).toContain("stale earlier plan-mode reminders");

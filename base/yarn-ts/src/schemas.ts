@@ -175,6 +175,8 @@ export const RequestMetadataSchema = z.object({
   request_id: z.string().max(256).optional(),
   user_id: z.string().max(256).optional(),
   synesis_client: z.string().max(128).optional(),
+  client: z.string().max(128).optional(),
+  workspace: z.string().max(2048).optional(),
   synesis_mode: PipelineModeSchema.optional(),
   synesis: SynesisExtraBodySchema.optional(),
   synesis_planning_override: PlanningBooleanControlSchema.optional(),
