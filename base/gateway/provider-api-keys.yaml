@@ -5,13 +5,14 @@
 # copies with envFrom optional: true.
 #
 # Create/update via:
-#   Helm values under secrets.providerApiKeys
 #   Admin UI → Settings → Provider Keys
 #   oc create secret generic provider-api-keys \
-#     --from-literal=OPENROUTER_API_KEY=sk-or-v1-... \
+#     --from-literal=PROVIDER_API_KEY=... \
 #     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
 #
-# Model configs reference keys by environment variable name.
+# Model configs reference keys by environment variable name. Helm values under
+# secrets.providerApiKeys are supported only for initial bootstrap or operators
+# who intentionally want provider keys reconciled by Helm.
 apiVersion: v1
 kind: Secret
 metadata:

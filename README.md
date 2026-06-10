@@ -118,7 +118,7 @@ Canonical order: **entry → planner → plan gate → router → writer → (cr
 - Kubernetes cluster (OpenShift, AKS, EKS, GKE, or any conformant distribution)
 - `helm` and `kubectl` (or `oc` for OpenShift)
 - Postgres and Redis/Valkey backends (cloud-managed or operator-managed by the chart)
-- Model provider API keys (OpenRouter, Azure OpenAI, etc.) or self-hosted model endpoints
+- Model provider API keys or self-hosted model endpoints, configured in Admin after install
 
 ### Install with Helm
 

@@ -21,18 +21,6 @@ AVAILABLE_CRITIC_MODELS = {
         "label": "Synesis Critic (local)",
         "provider": "local",
     },
-    "openai/gpt-4.1": {
-        "label": "GPT-4.1 (OpenRouter)",
-        "provider": "openrouter",
-    },
-    "google/gemini-2.5-pro-preview-05-06": {
-        "label": "Gemini 2.5 Pro (OpenRouter)",
-        "provider": "openrouter",
-    },
-    "anthropic/claude-sonnet-4": {
-        "label": "Claude Sonnet 4 (OpenRouter)",
-        "provider": "openrouter",
-    },
 }
 
 router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
@@ -233,13 +221,12 @@ async def critic_analytics(_user: UserInfo = Depends(require_admin)):
 @router.get("/critic/models")
 async def critic_models(_user: UserInfo = Depends(require_admin)):
     """Return available critic models for manual runs."""
-    has_openrouter = bool(os.environ.get("OPENROUTER_API_KEY") or os.environ.get("SYNESIS_OPENROUTER_API_KEY"))
-    models = []
-    for model_id, info in AVAILABLE_CRITIC_MODELS.items():
-        if info["provider"] == "openrouter" and not has_openrouter:
-            continue
-        models.append({"id": model_id, "label": info["label"], "provider": info["provider"]})
-    return {"models": models}
+    return {
+        "models": [
+            {"id": model_id, "label": info["label"], "provider": info["provider"]}
+            for model_id, info in AVAILABLE_CRITIC_MODELS.items()
+        ]
+    }
 
 
 CRITIC_SYSTEM_PROMPT = """You are a strict evaluator of AI-generated responses.
@@ -354,23 +341,16 @@ async def run_critic_on_trace(
         raise HTTPException(status_code=400, detail="No output found in trace to critique")
 
     user_content = f"## User Prompt\n{user_query[:4000]}\n\n## AI Response\n{final_output[:12000]}"
+    model_label = AVAILABLE_CRITIC_MODELS[model]["label"]
 
-    model_info = AVAILABLE_CRITIC_MODELS[model]
     t0 = time.monotonic()
 
     try:
-        if model_info["provider"] == "openrouter":
-            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("SYNESIS_OPENROUTER_API_KEY", "")
-            if not api_key:
-                raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not configured")
-            api_base = "https://openrouter.ai/api/v1"
-            headers = {"Authorization": f"Bearer {api_key}"}
-        else:
-            api_base = os.environ.get(
-                "SYNESIS_CRITIC_MODEL_URL",
-                "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1",
-            )
-            headers = {}
+        api_base = os.environ.get(
+            "SYNESIS_CRITIC_MODEL_URL",
+            "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1",
+        )
+        headers = {}
 
         async with httpx.AsyncClient(timeout=120.0) as http:
             resp = await http.post(
@@ -429,7 +409,7 @@ async def run_critic_on_trace(
         "repair_instructions": repair_instructions,
         "overall_assessment": overall_assessment,
         "model": model,
-        "model_label": model_info["label"],
+        "model_label": model_label,
         "latency_ms": latency_ms,
         "run_at": time.time(),
         "triggered_by": "admin_ui",
@@ -453,7 +433,7 @@ async def run_critic_on_trace(
     return {
         "trace_id": trace_id,
         "model": model,
-        "model_label": model_info["label"],
+        "model_label": model_label,
         "scores": scores,
         "approved": approved,
         "failure_modes": failure_modes,

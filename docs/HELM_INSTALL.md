@@ -56,8 +56,9 @@ and RedKey-compatible servers use the same client protocol and URI scheme.
 - Kubernetes or OpenShift cluster.
 - `helm` and `kubectl` or `oc`.
 - Container registry access for the Synesis images.
-- Provider keys for any hosted model providers you enable, for example
-  `OPENROUTER_API_KEY`.
+- Provider API keys for hosted model providers, configured after install in
+  Admin -> Providers & API keys or bootstrapped intentionally through Helm
+  values.
 - For OpenShift routes, a real route domain and hostnames for API, admin, chat,
   coder, and Keycloak.
 

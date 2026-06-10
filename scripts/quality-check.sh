@@ -49,7 +49,11 @@ fi
 yaml_files=()
 while IFS= read -r file; do
     yaml_files+=("$file")
-done < <(git ls-files base overlays | grep -E '\.ya?ml$' || true)
+done < <(
+    while IFS= read -r file; do
+        [ -f "$file" ] && printf '%s\n' "$file"
+    done < <(git ls-files base overlays | grep -E '\.ya?ml$' || true)
+)
 if [ "${#yaml_files[@]}" -gt 0 ]; then
     run uvx yamllint -c .yamllint.yml "${yaml_files[@]}"
 fi

@@ -45,7 +45,13 @@ fi
 
 staged_yaml_files=()
 while IFS= read -r file; do
-    staged_yaml_files+=("$file")
+    case "$file" in
+        charts/*/templates/*.yaml|charts/*/templates/*.yml)
+            ;;
+        *)
+            staged_yaml_files+=("$file")
+            ;;
+    esac
 done < <(git diff --cached --name-only --diff-filter=ACMR -- '*.yaml' '*.yml')
 
 if [ "${#staged_yaml_files[@]}" -gt 0 ]; then

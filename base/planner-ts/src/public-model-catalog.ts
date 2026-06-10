@@ -76,7 +76,7 @@ const InternalRoleAssignmentSchema = z.object({
   provider: z.string().optional(),
   api_key_env: z.string().optional(),
   route_params: RoleRouteParamsSchema.nullable().optional(),
-}).strict();
+}).passthrough();
 
 const RoleAssignmentsEnvelopeSchema = z.object({
   roles: z.array(InternalRoleAssignmentSchema),

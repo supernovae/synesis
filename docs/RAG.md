@@ -145,7 +145,7 @@ Primary environment variables:
 | `SYNESIS_NORNIC_URI` | `bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687` |
 | `SYNESIS_NORNIC_DATABASE` | `nornic` |
 | `SYNESIS_NORNIC_VECTOR_INDEX` | `embeddings` |
-| `SYNESIS_NORNIC_RUNTIME_PROFILE` | `cpu-bge` |
+| `SYNESIS_NORNIC_RUNTIME_PROFILE` | `cpu-bge` planner metadata; keep aligned with database pod `NORNICDB_RUNTIME_PROFILE` |
 | `SYNESIS_NORNIC_GRAPH_DEPTH` | `2` |
 | `SYNESIS_NORNIC_EDGE_TYPES` | `CONTAINS,DEFINES,CALLS,IMPORTS,REFERENCES,OVERRIDES,IMPLEMENTS,DOCUMENTS` |
 | `SYNESIS_EMBEDDER_URL` | empty |

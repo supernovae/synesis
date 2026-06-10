@@ -1,11 +1,10 @@
-# API mode — routes all LLM traffic through external providers (OpenRouter, etc.).
+# API mode — routes LLM traffic through Admin-configured external providers.
 #
-# No GPU pods, no vLLM. Provider API keys are prompted by deploy.sh on first
-# run, then managed via Admin UI (Settings > Provider Keys).
+# No GPU pods, no vLLM. Configure provider endpoints, model assignments, and
+# provider API keys in Admin (Providers & API keys / Model Registry).
 #
 # Usage:
-#   ./scripts/deploy.sh api
-#   ./scripts/deploy.sh api v1.2.0    # specific image tag
+#   kustomize build overlays/api
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

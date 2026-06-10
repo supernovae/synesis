@@ -302,7 +302,7 @@ export default function CriticAnalytics() {
             Lenient mode applies below 0.4.
           </li>
           <li>
-            <strong>External models:</strong> Available when <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">OPENROUTER_API_KEY</code> is set on the admin service.
+            <strong>External providers:</strong> Configure provider endpoints and API keys in Providers & API keys, then assign Chat roles in the Model Registry.
           </li>
         </ul>
       </div>
