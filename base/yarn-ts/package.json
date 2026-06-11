@@ -49,15 +49,15 @@
     "governor:loop": "tsx scripts/dual-agent-loop.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.24.0",
-    "@ai-sdk/openai": "^3.0.68",
+    "@agentclientprotocol/sdk": "^0.25.0",
+    "@ai-sdk/openai": "^3.0.69",
     "@fastify/rate-limit": "^11.0.0",
     "@openfga/sdk": "0.9.6",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/resources": "^2.7.1",
     "@opentelemetry/sdk-trace-base": "^2.7.1",
-    "@opentelemetry/sdk-trace-node": "^2.7.1",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@synesis/agent-orchestration": "*",
     "@synesis/auth-contracts": "*",
@@ -67,7 +67,7 @@
     "@synesis/oidc-auth": "*",
     "@synesis/telemetry": "*",
     "@synesis/upper-harness": "*",
-    "ai": "^6.0.197",
+    "ai": "^6.0.201",
     "fastify": "^5.8.5",
     "ioredis": "^5.11.1",
     "pg": "^8.21.0",
@@ -76,7 +76,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.3",
     "@types/pg": "^8.20.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
