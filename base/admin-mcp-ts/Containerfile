@@ -16,8 +16,10 @@ WORKDIR /opt/app-root/src
 
 COPY --from=builder /opt/app-root/src/node_modules ./node_modules
 COPY --from=builder /opt/app-root/src/packages ./packages
+COPY --from=builder /opt/app-root/src/base/admin-mcp-ts/node_modules base/admin-mcp-ts/node_modules
 COPY --from=builder /opt/app-root/src/base/admin-mcp-ts/package.json base/admin-mcp-ts/package.json
 COPY --from=builder /opt/app-root/src/base/admin-mcp-ts/dist base/admin-mcp-ts/dist
+RUN node -e "const { createRequire } = require('node:module'); createRequire(process.cwd() + '/base/admin-mcp-ts/dist/index.js').resolve('@fastify/rate-limit')"
 
 ENV NODE_ENV=production
 EXPOSE 8102

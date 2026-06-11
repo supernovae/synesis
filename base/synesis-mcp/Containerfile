@@ -16,8 +16,10 @@ WORKDIR /opt/app-root/src
 
 COPY --from=builder /opt/app-root/src/node_modules ./node_modules
 COPY --from=builder /opt/app-root/src/packages ./packages
+COPY --from=builder /opt/app-root/src/base/synesis-mcp/node_modules base/synesis-mcp/node_modules
 COPY --from=builder /opt/app-root/src/base/synesis-mcp/package.json base/synesis-mcp/package.json
 COPY --from=builder /opt/app-root/src/base/synesis-mcp/dist base/synesis-mcp/dist
+RUN node -e "const { createRequire } = require('node:module'); createRequire(process.cwd() + '/base/synesis-mcp/dist/index.js').resolve('@fastify/rate-limit')"
 
 ENV NODE_ENV=production
 EXPOSE 8100

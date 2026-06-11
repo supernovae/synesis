@@ -312,6 +312,8 @@ openfga:
         name: synesis-planner-ts
       - namespace: yarn
         name: synesis-yarn
+      - namespace: yarn
+        name: synesis-mcp
 
 keycloak:
   enabled: true
