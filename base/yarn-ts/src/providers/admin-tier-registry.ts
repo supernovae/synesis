@@ -155,7 +155,35 @@ const RoleSchema = z.object({
   route_params: RouteParamsSchema.nullable().optional(),
   adapter_hint: z.string().nullable().optional(),
   context_window: z.number().nullable().optional(),
-}).strict();
+  id: z.unknown().optional(),
+  environment: z.unknown().optional(),
+  served_name: z.unknown().optional(),
+  status: z.unknown().optional(),
+  profile: z.unknown().optional(),
+  source: z.unknown().optional(),
+  is_active: z.unknown().optional(),
+  description: z.unknown().optional(),
+  notes: z.unknown().optional(),
+  gpu_config: z.unknown().optional(),
+  route_model_id: z.unknown().optional(),
+  fallbacks: z.unknown().optional(),
+  updated_at: z.unknown().optional(),
+}).strict().transform(({
+  id: _id,
+  environment: _environment,
+  served_name: _servedName,
+  status: _status,
+  profile: _profile,
+  source: _source,
+  is_active: _isActive,
+  description: _description,
+  notes: _notes,
+  gpu_config: _gpuConfig,
+  route_model_id: _routeModelId,
+  fallbacks: _fallbacks,
+  updated_at: _updatedAt,
+  ...role
+}) => role);
 
 const RolesEnvelopeSchema = z.object({
   roles: z.array(RoleSchema)

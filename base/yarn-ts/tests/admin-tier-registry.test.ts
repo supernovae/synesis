@@ -139,6 +139,43 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].baseUrl).toBe("https://route-base/v1");
   });
 
+  it("accepts and strips known admin role metadata while preserving route hardening", async () => {
+    stubFetch(
+      {
+        roles: [
+          {
+            id: 42,
+            role: "coder-core",
+            assigned: true,
+            provider: "openrouter",
+            model: "m",
+            endpoint: "",
+            route_params: { api_base: "https://route-base/v1" },
+            environment: "prod",
+            served_name: "synesis-core",
+            status: "active",
+            profile: "default",
+            source: "admin-ui",
+            is_active: true,
+            description: "operator note",
+            notes: "not used by yarn",
+            gpu_config: { gpu: "none" },
+            route_model_id: 7,
+            fallbacks: ["coder-pulse"],
+            updated_at: "2026-06-11T00:00:00Z",
+          },
+        ],
+      },
+      { costs: [] },
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+
+    expect(tiers).toHaveLength(1);
+    expect(tiers[0].id).toBe("synesis-core");
+    expect(tiers[0].baseUrl).toBe("https://route-base/v1");
+  });
+
   it("rejects unknown route_params keys from the admin registry", async () => {
     stubFetch(
       {
