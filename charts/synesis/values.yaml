@@ -554,8 +554,10 @@ cloudflared:
 
 networkPolicies:
   enabled: true
-  # Baseline policies allow Synesis namespace traffic, DNS, and public HTTPS
-  # while blocking direct egress to private/link-local networks by default.
+  # Baseline policies allow Synesis namespace traffic, DNS, and configured public
+  # TCP egress while blocking direct egress to private/link-local networks by
+  # default. Keep this list aligned with managed external dependencies such as
+  # Azure Database for PostgreSQL and Azure Cache for Redis.
   ingress:
     allowAll: false
     extraNamespaceNames:
@@ -567,6 +569,9 @@ networkPolicies:
     allowSynesisNamespaces: true
     allowDns: true
     allowPublicHttps: true
+    extraPublicTcpPorts:
+      - 5432
+      - 10000
 
 persistence:
   webui:
@@ -1563,7 +1568,10 @@ workloads:
         persistentVolumeClaim:
           claimName: synesis-nornicdb-data
     podSecurityContext:
-      runAsNonRoot: true
+      # Upstream NornicDB v1.1.5 images currently run as root. Keep the
+      # container otherwise restricted with no privilege escalation, dropped
+      # Linux capabilities, and RuntimeDefault seccomp.
+      runAsNonRoot: false
       seccompProfile:
         type: RuntimeDefault
     containerSecurityContext:
@@ -1571,7 +1579,7 @@ workloads:
       capabilities:
         drop:
           - ALL
-      runAsNonRoot: true
+      runAsNonRoot: false
       seccompProfile:
         type: RuntimeDefault
     resources:
@@ -1616,10 +1624,10 @@ workloads:
     resources:
       requests:
         cpu: 500m
-        memory: 768Mi
+        memory: 4Gi
       limits:
         cpu: "1"
-        memory: 2Gi
+        memory: 12Gi
   keywordService:
     enabled: true
     namespace: rag
