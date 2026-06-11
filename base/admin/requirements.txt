@@ -10,7 +10,7 @@ pyjwt[crypto]>=2.13.0
 sqlalchemy[asyncio]>=2.0.50
 asyncpg>=0.31.0
 alembic>=1.18.4
-cryptography>=48.0.0
+cryptography>=48.0.1
 requests>=2.34.2
 # Pin urllib3 to address CVE-2026-44431, CVE-2026-44432
 urllib3>=2.7.0
