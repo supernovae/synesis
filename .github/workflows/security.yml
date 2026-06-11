@@ -432,10 +432,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.11.20"
 
       - name: Verify lockfiles are up to date
-        run: ./scripts/lock-deps.sh --check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            ./scripts/lock-deps.sh --check
+          elif [ -n "$BASE_SHA" ] && ! echo "$BASE_SHA" | grep -Eq '^0+$'; then
+            ./scripts/lock-deps.sh --check --changed "$BASE_SHA"
+          else
+            ./scripts/lock-deps.sh --check
+          fi

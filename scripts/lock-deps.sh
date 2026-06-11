@@ -13,6 +13,9 @@ set -euo pipefail
 #   ./scripts/lock-deps.sh               # recompile all lockfiles
 #   ./scripts/lock-deps.sh admin         # recompile one service
 #   ./scripts/lock-deps.sh --check       # exit non-zero if any lockfile is stale
+#   ./scripts/lock-deps.sh --check --changed origin/main
+#                                      # check only services affected by changed
+#                                      # requirement inputs, plus dependents
 #
 # Prerequisites: uv >= 0.5 (https://docs.astral.sh/uv/)
 
@@ -25,23 +28,47 @@ PYTHON_VERSION="3.12"
 PLATFORM="x86_64-manylinux_2_34"
 
 CHECK_ONLY=false
+CHANGED_ONLY=false
+BASE_REF=""
 ONLY=""
+CHECK_ALL=false
+AFFECTED_SERVICES=""
 
-for arg in "$@"; do
+while [ "$#" -gt 0 ]; do
+    arg="$1"
     case "$arg" in
         --check)   CHECK_ONLY=true ;;
+        --changed)
+            CHANGED_ONLY=true
+            if [ "${2:-}" ] && [[ "${2:-}" != --* ]]; then
+                BASE_REF="$2"
+                shift
+            fi
+            ;;
+        --base-ref)
+            BASE_REF="${2:-}"
+            [ -n "$BASE_REF" ] || die "--base-ref requires a git ref or SHA"
+            shift
+            ;;
         --help|-h)
-            sed -n '3,15p' "$0" | sed 's/^# \?//'
+            sed -n '3,18p' "$0" | sed 's/^# \?//'
             exit 0
             ;;
         *)  ONLY="$arg" ;;
     esac
+    shift
 done
 
 log() { echo "[lock-deps] $*"; }
 die() { echo "[lock-deps] ERROR: $*" >&2; exit 1; }
 
 command -v uv &>/dev/null || die "uv not found — install from https://docs.astral.sh/uv/"
+
+# Keep local hook/check runs from depending on a user-global uv cache location.
+# CI can still override UV_CACHE_DIR explicitly if it wants a shared cache.
+if [ -z "${UV_CACHE_DIR:-}" ]; then
+    export UV_CACHE_DIR="${TMPDIR:-/tmp}/synesis-uv-cache"
+fi
 
 # ---------------------------------------------------------------------------
 # Service definitions — ordered by dependency tier.
@@ -72,6 +99,18 @@ SERVICES=(
     "indexer|base/rag/indexer|"
 )
 
+DEPENDENTS_OF() {
+    local target="$1"
+    local entry
+    for entry in "${SERVICES[@]}"; do
+        local n _d c
+        IFS='|' read -r n _d c <<< "$entry"
+        if [ "$c" = "$target" ]; then
+            echo "$n"
+        fi
+    done
+}
+
 # Resolve the lockfile path for a named service.
 lock_path_for() {
     local target="$1"
@@ -88,6 +127,70 @@ lock_path_for() {
 
 has_packages() {
     grep -qE '^[a-zA-Z]' "$1" 2>/dev/null
+}
+
+mark_service_and_dependents() {
+    local target="$1"
+    local dep
+    case " $AFFECTED_SERVICES " in
+        *" $target "*) return 0 ;;
+    esac
+    if [ -z "$AFFECTED_SERVICES" ]; then
+        AFFECTED_SERVICES="$target"
+    else
+        AFFECTED_SERVICES="$AFFECTED_SERVICES $target"
+    fi
+    while IFS= read -r dep; do
+        [ -n "$dep" ] || continue
+        mark_service_and_dependents "$dep"
+    done < <(DEPENDENTS_OF "$target")
+}
+
+service_is_affected() {
+    local target="$1"
+    if [ "$CHANGED_ONLY" != "true" ] || [ "$CHECK_ALL" = "true" ]; then
+        return 0
+    fi
+    case " $AFFECTED_SERVICES " in
+        *" $target "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+changed_files() {
+    if [ -n "$BASE_REF" ]; then
+        git diff --name-only "$BASE_REF"...HEAD
+    else
+        git diff --name-only HEAD
+    fi
+}
+
+resolve_changed_services() {
+    if [ "$CHANGED_ONLY" != "true" ]; then
+        return 0
+    fi
+    git rev-parse --is-inside-work-tree &>/dev/null || die "--changed requires a git worktree"
+
+    local file entry name dir
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+
+        case "$file" in
+            scripts/lock-deps.sh|.github/workflows/security.yml)
+                CHECK_ALL=true
+                return 0
+                ;;
+        esac
+
+        for entry in "${SERVICES[@]}"; do
+            IFS='|' read -r name dir _constraint <<< "$entry"
+            case "$file" in
+                "$dir/requirements.txt"|"$dir/requirements.lock"|"$dir/requirements.overrides.txt")
+                    mark_service_and_dependents "$name"
+                    ;;
+            esac
+        done
+    done < <(changed_files)
 }
 
 common_args() {
@@ -194,6 +297,7 @@ check_one() {
     if ! uv pip compile "$src" "${args[@]}" -o "$tmp" >"$compile_log" 2>&1; then
         log "ERROR $name — failed to compile requirements.lock"
         sed 's/^/[lock-deps]   /' "$compile_log" >&2
+        CHECK_FAILED=1
         rm -f "$tmp" "$compile_log"
         return 1
     fi
@@ -214,11 +318,31 @@ check_one() {
 # ---------------------------------------------------------------------------
 
 STALE=0
+CHECK_FAILED=0
+
+resolve_changed_services
+
+if [ "$CHANGED_ONLY" = "true" ] && [ "$CHECK_ALL" != "true" ] && [ -z "$AFFECTED_SERVICES" ]; then
+    log "No changed Python dependency inputs; skipping lockfile freshness check."
+    exit 0
+fi
+
+if [ "$CHANGED_ONLY" = "true" ]; then
+    if [ "$CHECK_ALL" = "true" ]; then
+        log "Shared lockfile tooling changed; checking all lockfiles."
+    else
+        log "Checking changed lockfile set: $AFFECTED_SERVICES"
+    fi
+fi
 
 for entry in "${SERVICES[@]}"; do
     IFS='|' read -r name dir constraint <<< "$entry"
 
     if [ -n "$ONLY" ] && [ "$name" != "$ONLY" ]; then
+        continue
+    fi
+
+    if ! service_is_affected "$name"; then
         continue
     fi
 
@@ -231,6 +355,9 @@ done
 
 if [ "$CHECK_ONLY" = "true" ]; then
     if [ "$STALE" -eq 1 ]; then
+        if [ "$CHECK_FAILED" -eq 1 ]; then
+            die "Lockfile freshness check failed before comparison; see compile errors above"
+        fi
         die "Stale lockfiles detected — run ./scripts/lock-deps.sh and commit the results"
     fi
     log "All lockfiles are up to date."

@@ -85,7 +85,7 @@ Lockfiles are compiled for **Python 3.12** on **linux/x86_64** (the production i
 
 The script compiles in dependency order: `base-api` first, then `base-ml` (constrained by base-api), then downstream services (constrained by their base image's lockfile). This prevents version skew across image layers.
 
-**Workflow for dependency changes:** edit `requirements.txt` (human intent with version ranges), run `./scripts/lock-deps.sh`, commit both files. CI enforces freshness via the **Lockfile Freshness Check** job.
+**Workflow for dependency changes:** edit `requirements.txt` (human intent with version ranges), run `./scripts/lock-deps.sh`, commit both files. CI enforces freshness via the **Lockfile Freshness Check** job. Pull requests and pushes run the check only for changed dependency inputs and their constrained dependents; the scheduled security workflow still runs a full lockfile drift check.
 
 **pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver entirely. This eliminates the `ResolutionImpossible` errors previously seen with complex dependency trees (e.g. crawl4ai in the indexer).
 
@@ -112,7 +112,7 @@ All first-party images currently use `:latest` tags. This is intentional during 
 
 - [x] All service images install from `uv pip compile` lockfiles with SHA-256 hashes
 - [x] Dockerfiles enforce `--require-hashes` at install time
-- [x] CI verifies lockfile freshness on every PR (lockfile-freshness job)
+- [x] CI verifies changed lockfile freshness on PRs and pushes, with full scheduled drift checks
 - [x] pip-audit scans pre-resolved lockfiles (no resolver-dependent results)
 - [x] LiteLLM PyPI compromise IOCs checked by supply-chain-guard job
 - [x] CycloneDX SBOMs generated for every image build (Syft)
