@@ -60,7 +60,7 @@ spec:
         - port: 53
           protocol: TCP
   {{- end }}
-  {{- if $root.Values.networkPolicies.egress.allowPublicHttps }}
+  {{- if or $root.Values.networkPolicies.egress.allowPublicHttps $root.Values.networkPolicies.egress.extraPublicTcpPorts $root.Values.networkPolicies.egress.extraPublicUdpPorts }}
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -72,27 +72,17 @@ spec:
               - 172.16.0.0/12
               - 192.168.0.0/16
       ports:
+        {{- if $root.Values.networkPolicies.egress.allowPublicHttps }}
         - port: 443
           protocol: TCP
+        {{- end }}
         {{- range $port := $root.Values.networkPolicies.egress.extraPublicTcpPorts }}
         - port: {{ $port }}
           protocol: TCP
         {{- end }}
-  {{- else if $root.Values.networkPolicies.egress.extraPublicTcpPorts }}
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 100.64.0.0/10
-              - 127.0.0.0/8
-              - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        {{- range $port := $root.Values.networkPolicies.egress.extraPublicTcpPorts }}
+        {{- range $port := $root.Values.networkPolicies.egress.extraPublicUdpPorts }}
         - port: {{ $port }}
-          protocol: TCP
+          protocol: UDP
         {{- end }}
   {{- end }}
   {{- end }}

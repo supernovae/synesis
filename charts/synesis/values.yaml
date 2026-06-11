@@ -570,8 +570,14 @@ networkPolicies:
     allowDns: true
     allowPublicHttps: true
     extraPublicTcpPorts:
+      # Cloudflare Tunnel edge connectivity (HTTP/2 fallback) plus managed
+      # external dependencies such as Azure Database and Redis.
+      - 7844
       - 5432
       - 10000
+    extraPublicUdpPorts:
+      # Cloudflare Tunnel QUIC edge connectivity.
+      - 7844
 
 persistence:
   webui:
@@ -843,7 +849,7 @@ workloads:
       - name: SYNESIS_ADMIN_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - name: SYNESIS_EMBEDDER_URL
-        value: http://embedder.synesis-rag.svc.cluster.local:8080/v1
+        value: ""
       - name: SYNESIS_NORNIC_URI
         value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
       - name: SYNESIS_NORNIC_DATABASE
@@ -1590,7 +1596,10 @@ workloads:
         cpu: "4"
         memory: 16Gi
   embedder:
-    enabled: true
+    # Disabled by default: the BGE-M3 TEI CPU container is memory-heavy and can
+    # OOM during warmup on default clusters. Re-enable only with a right-sized
+    # node pool or replace this workload with the selected SynPack/RAG embedder.
+    enabled: false
     namespace: rag
     name: embedder
     component: embedder
@@ -1995,7 +2004,7 @@ jobs:
       - name: SYNESIS_NORNIC_URI
         value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
       - name: SYNESIS_EMBEDDER_URL
-        value: http://embedder.synesis-rag.svc.cluster.local:8080
+        value: ""
       - name: SYNESIS_ADMIN_API_URL
         value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
       - name: SYNESIS_LLM_URL
