@@ -434,6 +434,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.20"
 
       - name: Verify lockfiles are up to date
         run: ./scripts/lock-deps.sh --check
