@@ -24,7 +24,9 @@ COPY base/synesis-mcp/package.json base/synesis-mcp/
 COPY base/yarn-ts/package.json base/yarn-ts/
 RUN npm ci --ignore-scripts
 RUN npm ls --workspace=base/synesis-mcp @fastify/rate-limit --omit=dev \
-  && npm ls --workspace=base/admin-mcp-ts @fastify/rate-limit --omit=dev
+  && npm ls --workspace=base/admin-mcp-ts @fastify/rate-limit --omit=dev \
+  && npm ls --workspace=base/yarn-ts @fastify/rate-limit --omit=dev \
+  && npm ls --workspace=base/planner-ts @fastify/rate-limit --omit=dev
 
 # Shared packages are built here once. App images inherit their dist/types and
 # only rebuild their own service package.

@@ -17,11 +17,14 @@ WORKDIR /opt/app-root/src
 
 COPY --from=builder /opt/app-root/src/node_modules ./node_modules
 COPY --from=builder /opt/app-root/src/packages ./packages
+COPY --from=builder /opt/app-root/src/base/planner-ts/node_modules base/planner-ts/node_modules
 COPY --from=builder /opt/app-root/src/base/planner-ts/package.json base/planner-ts/package.json
 COPY --from=builder /opt/app-root/src/base/planner-ts/dist base/planner-ts/dist
 
 # Taxonomy + ontology config (single source of truth from planner-ts/config)
 COPY base/planner-ts/config base/planner-ts/config
+
+RUN node -e "const { createRequire } = require('node:module'); createRequire(process.cwd() + '/base/planner-ts/dist/src/app.js').resolve('@fastify/rate-limit')"
 
 EXPOSE 8080
 

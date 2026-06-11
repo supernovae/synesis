@@ -17,8 +17,11 @@ WORKDIR /opt/app-root/src
 
 COPY --from=builder /opt/app-root/src/node_modules ./node_modules
 COPY --from=builder /opt/app-root/src/packages ./packages
+COPY --from=builder /opt/app-root/src/base/yarn-ts/node_modules base/yarn-ts/node_modules
 COPY --from=builder /opt/app-root/src/base/yarn-ts/package.json base/yarn-ts/package.json
 COPY --from=builder /opt/app-root/src/base/yarn-ts/dist base/yarn-ts/dist
+
+RUN node -e "const { createRequire } = require('node:module'); createRequire(process.cwd() + '/base/yarn-ts/dist/yarn-server.js').resolve('@fastify/rate-limit')"
 
 EXPOSE 8000
 
