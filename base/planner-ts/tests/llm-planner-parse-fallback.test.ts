@@ -120,6 +120,82 @@ describe("runLlmPlanner parse fallback", () => {
     expect(scorerPayload.explicit_user_uncertainties).toContain("persistence backend");
   });
 
+  it("asks before proceeding when a complex architecture plan depends on several assumptions", async () => {
+    chatCompletionMock
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          steps: [{ id: 1, action: "Design internal coding assistant architecture", dependencies: [] }],
+          open_questions: [],
+          assumptions: [
+            "The organization uses GitHub as its primary version-control system.",
+            "The documentation corpus is mostly Markdown or HTML rather than PDFs and images.",
+            "The assistant will be accessed through a web UI first, with chat integrations later.",
+          ],
+          confidence: 0.74,
+          reasoning: "Proceed with a pragmatic architecture using stated and inferred constraints.",
+        }),
+        usage: {
+          prompt_tokens: 240,
+          completion_tokens: 130,
+          total_tokens: 370,
+          cached_prompt_tokens: 0,
+          estimated_cost_usd: 0,
+          actual_cost_usd: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          ambiguity_level: 0.22,
+          can_proceed_without_clarification: true,
+          material_gaps: [],
+          clarification_questions: [],
+          rationale: "The prompt is sufficiently bounded to proceed with assumptions.",
+        }),
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 30,
+          total_tokens: 130,
+          cached_prompt_tokens: 0,
+          estimated_cost_usd: 0,
+          actual_cost_usd: 0,
+        },
+      });
+
+    const out = await runLlmPlanner({
+      task_description: [
+        "You are helping me design a production-ready AI assistant for a small engineering organization.",
+        "Propose a practical architecture for an internal coding assistant that can answer company docs, help write and review code, avoid making up facts, escalate when evidence is weak, and keep latency and cost reasonable.",
+        "Constraints: Team size is 80 engineers, mix of public and private knowledge, Kubernetes, Terraform, Python, limited budget, security matters, useful within 90 days.",
+        "Do not give a generic answer. Make tradeoffs explicit. Separate facts, assumptions, and recommendations.",
+      ].join("\n"),
+      difficulty: 0.76,
+      cynefin_domain: "complex",
+      iteration_count: 0,
+      domain_profile: {
+        domains: [
+          { key: "software_architecture", weight: 0.45 },
+          { key: "ml_ai", weight: 0.35 },
+          { key: "cloud_infra", weight: 0.2 },
+        ],
+        frameCoherence: "composite",
+      },
+      taxonomy_metadata: {
+        taxonomy_key: "software_architecture",
+        output_controls: { clarify_first: false },
+      },
+    });
+
+    expect(out.clarification).toBeDefined();
+    expect(out.result.ambiguity_decision_reason).toBe("clarify:material-assumption-load");
+    expect(out.clarification?.question).toContain("Is this assumption correct");
+    expect(out.clarification?.question).toContain("GitHub");
+    const numberedQuestions = (out.clarification?.question ?? "")
+      .split("\n")
+      .filter((line) => /^\d+\.\s/.test(line));
+    expect(numberedQuestions.length).toBeGreaterThanOrEqual(3);
+    expect(numberedQuestions.length).toBeLessThanOrEqual(5);
+  });
+
   it("still triggers clarification when planner JSON is unparseable", async () => {
     chatCompletionMock
       .mockResolvedValueOnce({

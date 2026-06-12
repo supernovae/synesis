@@ -162,6 +162,53 @@ function explicitUncertaintyCount(text: string): number {
     .length;
 }
 
+function isArchitectureRequest(state: GraphState): boolean {
+  const taxonomy = state.taxonomy_metadata ?? {};
+  const activeDomains = Array.isArray(taxonomy.active_domains)
+    ? taxonomy.active_domains.map(String)
+    : [];
+  const domains = [
+    ...(state.domain_profile?.domains ?? []).map((domain) => domain.key),
+    ...activeDomains,
+    String(taxonomy.taxonomy_key ?? ""),
+    String(taxonomy.active_vertical ?? ""),
+  ].map((value) => value.toLowerCase());
+  const text = (state.task_description ?? "").toLowerCase();
+  return (
+    domains.some((domain) =>
+      /\b(?:architecture|cloud|kubernetes|infrastructure|platform|rag|software_architecture)\b/.test(domain),
+    ) ||
+    /\b(?:architecture|system\s+design|production-ready|multi-tenant|horizontally\s+scalable|kubernetes|openshift|terraform|rag|retrieval)\b/.test(text)
+  );
+}
+
+function materialAssumptions(plan: PlannerOutput): string[] {
+  return plan.assumptions
+    .map((assumption) => assumption.trim())
+    .filter((assumption) => assumption.length >= 16)
+    .filter((assumption) => !/^(?:llm\s+(?:planner|returned)|using deterministic plan|parse failed)/i.test(assumption));
+}
+
+function assumptionLoadClarificationRequired(state: GraphState, plan: PlannerOutput): boolean {
+  const difficulty = state.difficulty ?? 0.3;
+  const frameCoherence = state.domain_profile?.frameCoherence ?? "focused";
+  const cynefin = state.cynefin_domain ?? "clear";
+  const assumptions = materialAssumptions(plan);
+  if (assumptions.length < 3) return false;
+  if (!isArchitectureRequest(state)) return false;
+  if (difficulty >= 0.7) return true;
+  if (difficulty >= 0.6 && (frameCoherence === "composite" || frameCoherence === "diffuse")) return true;
+  return difficulty >= 0.6 && (cynefin === "complex" || cynefin === "chaotic");
+}
+
+function questionForAssumption(assumption: string): string {
+  const normalized = assumption
+    .replace(/^\[?Assumption\]?:?\s*/i, "")
+    .replace(/[.]+$/g, "")
+    .trim();
+  return `Is this assumption correct, or should I change it: ${normalized}?`;
+}
+
 function mergeAmbiguityAssessment(
   ambiguity: AmbiguityAssessment | undefined,
   explicitGaps: MaterialGap[],
@@ -217,6 +264,7 @@ async function runAmbiguityScorer(
           "Do not over-ask. Prefer 1-3 high-impact clarification questions, but use up to 5 when several independent material decisions are blocking.",
           "If many decisions are unresolved, group related unknowns and suggest a structured scoping pass instead of producing a long questionnaire.",
           "If explicit_user_uncertainties is non-empty, treat those as user-declared unknowns and group them into concise clarification questions unless the user has already answered them.",
+          "If the planner is relying on several material assumptions for a production architecture, prefer asking the highest-impact clarifying questions over silently proceeding.",
           "Do not treat a generic instruction to proceed as an override when the same message declares material unknowns that would change the answer.",
           "Schema:",
           "{ ambiguity_level: number 0..1, can_proceed_without_clarification: boolean, material_gaps: [{ missing_information: string, impact_on_outcome: string, suggested_question?: string }], clarification_questions: string[], rationale: string }",
@@ -327,6 +375,7 @@ export function shouldClarify(
 
   if (difficulty >= 0.4 && explicitGapCount >= 3) return true;
   if (frameCoherence === "diffuse" && difficulty >= 0.4 && (openQCount >= 1 || materialGapCount >= 1)) return true;
+  if (assumptionLoadClarificationRequired(state, plan)) return true;
   if (!canProceed && materialGapCount >= 1) return true;
   if (ambiguityLevel >= threshold && materialGapCount >= 1) return true;
   if (confidence < 0.5 && (openQCount >= 1 || materialGapCount >= 1)) return true;
@@ -357,10 +406,13 @@ function buildClarificationQuestion(
     .map((gap) => gap.suggested_question)
     .filter(Boolean);
   const assumptions = plan.assumptions.slice(0, 3);
+  const assumptionQuestions = assumptionLoadClarificationRequired(state, plan)
+    ? materialAssumptions(plan).slice(0, EXPANDED_CLARIFICATION_QUESTION_LIMIT).map(questionForAssumption)
+    : [];
   const explicitCount = explicitUncertaintyCount(state.task_description ?? "");
   const materialGapCount = ambiguity?.material_gaps.length ?? 0;
   const questionLimit =
-    explicitCount >= 4 || materialGapCount >= 4
+    explicitCount >= 4 || materialGapCount >= 4 || assumptionQuestions.length >= 4
       ? EXPANDED_CLARIFICATION_QUESTION_LIMIT
       : DEFAULT_CLARIFICATION_QUESTION_LIMIT;
   const shouldOfferScopingBrief = explicitCount >= BROAD_SCOPING_UNCERTAINTY_THRESHOLD;
@@ -374,6 +426,7 @@ function buildClarificationQuestion(
     ...questions,
     ...scorerQuestions,
     ...explicitQuestions,
+    ...assumptionQuestions,
     ...suggestedByGap,
   ]).slice(0, questionLimit);
 
@@ -646,7 +699,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     const decisionReason = clarify
       ? explicitGaps.length >= 3
         ? "clarify:explicit-user-uncertainty"
-        : "clarify:parse-fallback-ambiguity"
+        : assumptionLoadClarificationRequired(state, parseFallbackPlan)
+          ? "clarify:material-assumption-load"
+          : "clarify:parse-fallback-ambiguity"
       : "proceed:parse-fallback-low-material-ambiguity";
     process.stderr.write(JSON.stringify({
       level: 30,
@@ -698,7 +753,9 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   const decisionReason = clarify
     ? explicitGaps.length >= 3
       ? "clarify:explicit-user-uncertainty"
-      : "clarify:material-ambiguity"
+      : assumptionLoadClarificationRequired(state, parsed)
+        ? "clarify:material-assumption-load"
+        : "clarify:material-ambiguity"
     : "proceed:sufficiently-specified";
   process.stderr.write(JSON.stringify({
     level: 30,

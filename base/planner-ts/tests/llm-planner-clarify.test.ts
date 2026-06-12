@@ -72,6 +72,49 @@ describe("llm planner clarify-first parity", () => {
     expect(shouldClarify(state, plan, ambiguity)).toBe(true);
   });
 
+  it("clarifies for complex architecture plans that rely on several material assumptions", () => {
+    const state: GraphState = {
+      task_description: [
+        "Propose a practical architecture for an internal coding assistant that can answer docs, write and review code, avoid hallucinations, escalate when evidence is weak, and keep latency and cost reasonable.",
+        "Constraints: 80 engineers, mixed public/private knowledge, Kubernetes, Terraform, Python, limited budget, useful within 90 days.",
+      ].join("\n"),
+      difficulty: 0.76,
+      cynefin_domain: "complex",
+      iteration_count: 0,
+      domain_profile: {
+        domains: [
+          { key: "software_architecture", weight: 0.45 },
+          { key: "ml_ai", weight: 0.35 },
+          { key: "cloud_infra", weight: 0.2 },
+        ],
+        frameCoherence: "composite",
+      },
+      taxonomy_metadata: {
+        taxonomy_key: "software_architecture",
+        output_controls: { clarify_first: false },
+      },
+    };
+    const plan = {
+      steps: [{ id: 1, action: "Draft internal coding assistant architecture", dependencies: [] }],
+      open_questions: [],
+      assumptions: [
+        "The organization uses GitHub as its primary version-control system.",
+        "The documentation corpus is mostly Markdown or HTML rather than PDFs and images.",
+        "The assistant will be accessed through a web UI first, with chat integrations later.",
+      ],
+      confidence: 0.74,
+      reasoning: "Can proceed with reasonable assumptions.",
+    };
+
+    expect(shouldClarify(state, plan, {
+      ambiguity_level: 0.2,
+      can_proceed_without_clarification: true,
+      material_gaps: [],
+      clarification_questions: [],
+      rationale: "Can proceed with assumptions.",
+    })).toBe(true);
+  });
+
   it("clarifies when ambiguity scorer reports material gaps", () => {
     const state: GraphState = {
       task_description: "Design a cloud architecture for our AI platform and model routing.",

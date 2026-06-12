@@ -47,6 +47,38 @@ def test_trace_ingest_accepts_known_payload() -> None:
     assert payload["spans"][0]["llm_calls"][0]["model"] == "m"
 
 
+def test_trace_ingest_accepts_normalized_planner_risk_score() -> None:
+    body = TraceIngestBody(
+        service="planner",
+        trace_id="trace-risk",
+        request_id="req-risk",
+        classification={
+            "difficulty": 0.82,
+            "risk_score": 0.425,
+            "taxonomy_key": "software_architecture",
+        },
+        trace_context={"risk_score_raw": 42.5},
+    )
+
+    assert body.classification is not None
+    assert body.classification.risk_score == 0.425
+    assert body.trace_context == {"risk_score_raw": 42.5}
+
+
+def test_trace_ingest_rejects_raw_planner_risk_score_in_classification() -> None:
+    with pytest.raises(ValidationError, match="risk_score"):
+        TraceIngestBody(
+            service="planner",
+            trace_id="trace-risk-raw",
+            request_id="req-risk-raw",
+            classification={
+                "difficulty": 0.82,
+                "risk_score": 42.5,
+                "taxonomy_key": "software_architecture",
+            },
+        )
+
+
 def test_trace_ingest_rejects_unknown_top_level_field() -> None:
     with pytest.raises(ValidationError, match="admin_override"):
         TraceIngestBody(trace_id="trace-1", admin_override=True)

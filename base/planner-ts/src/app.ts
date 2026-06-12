@@ -2076,10 +2076,11 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   function buildClassificationTrace(state: GraphState): TraceClassification {
     const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
+    const riskScoreRaw = state.risk_score ?? 0;
     return {
       difficulty: state.difficulty ?? 0,
       task_size: state.task_size ?? "unknown",
-      risk_score: state.risk_score ?? 0,
+      risk_score: Math.max(0, Math.min(1, riskScoreRaw / 100)),
       effort_mode: state.selected_effort_mode ?? state.recommended_effort_mode ?? "auto",
       model_tier: state.model_tier ?? "auto",
       rag_mode: state.rag_mode ?? "disabled",
@@ -2258,6 +2259,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const ctx: Record<string, unknown> = {};
     if (state.writer_max_tokens) ctx.token_budget_total = state.writer_max_tokens;
     if (state.writer_budget_target !== undefined) ctx.token_budget_target = state.writer_budget_target;
+    if (state.risk_score !== undefined) ctx.risk_score_raw = state.risk_score;
     if (state.iteration_count !== undefined) ctx.iteration_count = state.iteration_count;
     if (state.max_iterations !== undefined) ctx.max_iterations = state.max_iterations;
     if (state.error) {
