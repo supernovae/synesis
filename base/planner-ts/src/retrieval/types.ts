@@ -93,7 +93,6 @@ export interface UnifiedRetrievalRequest {
   forceWeb?: boolean;
   domainHints?: string[];
   skipWeb?: boolean;
-  searchSourceIds?: string[];
   preferredDomains?: string[];
   preseededLock?: CohesionLockData;
   callerOrgId?: string;

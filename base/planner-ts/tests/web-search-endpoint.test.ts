@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 
@@ -63,5 +63,57 @@ describe("planner /v1/web/search", () => {
     expect(body.policy?.action).toBe("deny");
     expect(body.policy?.reason).toBe("web_search_disabled");
     await app.close();
+  });
+
+  it("applies preferred domain restrict policy on direct web search", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "Vendor docs",
+              url: "https://docs.example.com/page",
+              content: "synesis docs answer",
+              engine: "duckduckgo",
+              score: 1,
+            },
+            {
+              title: "Other blog",
+              url: "https://blog.example.net/page",
+              content: "synesis docs answer",
+              engine: "duckduckgo",
+              score: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const app = buildApp(
+      makeConfig({
+        SYNESIS_WEB_SEARCH_ENABLED: "true",
+        SYNESIS_WEB_SEARCH_URL: "http://searxng.local",
+        SYNESIS_DOMAIN_POLICY_MODE: "restrict",
+      }),
+    );
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/web/search",
+        headers: { authorization: "Bearer debug-token" },
+        payload: {
+          query: "synesis docs",
+          fetch_pages: false,
+          preferred_domains: ["docs.example.com"],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.total).toBe(1);
+      expect(body.results[0].url).toBe("https://docs.example.com/page");
+    } finally {
+      fetchMock.mockRestore();
+      await app.close();
+    }
   });
 });

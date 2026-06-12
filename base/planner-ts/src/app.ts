@@ -181,6 +181,7 @@ const WebSearchRouteBodySchema = z.object({
   fetch_pages: z.boolean().optional(),
   max_fetch_pages: WebSearchNumericSchema.optional(),
   min_relevance: WebSearchNumericSchema.optional(),
+  preferred_domains: KnowledgeStringArraySchema.optional(),
   source_surface: z.enum(["yarn_chat", "yarn_mcp_http", "openwebui_planner", "planner_internal", "external_api"]).optional(),
   tool_name: KnowledgeShortStringSchema.optional(),
   request_id: KnowledgeShortStringSchema.optional(),
@@ -405,6 +406,48 @@ function normalizeSourceSurface(value: unknown): WebSearchAttribution["source_su
     default:
       return "planner_internal";
   }
+}
+
+function normalizePreferredDomain(value: string): string {
+  const trimmed = value.trim().toLowerCase().replace(/^site:/, "");
+  try {
+    return new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname.replace(/^www\./, "");
+  } catch {
+    return trimmed.replace(/^www\./, "");
+  }
+}
+
+function webResultMatchesDomain(result: { url?: string }, domain: string): boolean {
+  try {
+    const hostname = new URL(result.url ?? "").hostname.toLowerCase().replace(/^www\./, "");
+    return hostname === domain || hostname.endsWith(`.${domain}`);
+  } catch {
+    return false;
+  }
+}
+
+function applyWebSearchDomainPolicy<T extends { url?: string; relevance?: number; score?: number }>(
+  results: T[],
+  preferredDomains: string[] | undefined,
+  mode: "prefer" | "restrict",
+  boost: number,
+): T[] {
+  const domains = (preferredDomains ?? []).map(normalizePreferredDomain).filter(Boolean);
+  if (domains.length === 0 || results.length === 0) return results;
+
+  const matches = (result: T) => domains.some((domain) => webResultMatchesDomain(result, domain));
+  if (mode === "restrict") return results.filter(matches);
+
+  return results
+    .map((result) => {
+      if (!matches(result)) return result;
+      return {
+        ...result,
+        relevance: typeof result.relevance === "number" ? result.relevance * boost : result.relevance,
+        score: typeof result.score === "number" ? result.score * boost : result.score,
+      };
+    })
+    .sort((a, b) => (b.relevance ?? b.score ?? 0) - (a.relevance ?? a.score ?? 0));
 }
 
 async function isSearchRouteAuthorized(
@@ -1808,25 +1851,35 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const started = performance.now();
     try {
-      const results = await searchAndProcess(query, {
-        url: config.SYNESIS_WEB_SEARCH_URL,
-        enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
-        timeoutMs: config.SYNESIS_WEB_SEARCH_TIMEOUT_MS,
-        maxResults: topK,
-        engineAuthorityMap: (() => {
-          try {
-            return JSON.parse(config.SYNESIS_ENGINE_AUTHORITY_MAP || "{}");
-          } catch {
-            return {};
-          }
-        })(),
-      }, {
-        profile,
-        fetchPages: body.fetch_pages ?? true,
-        maxFetchPages: Number(body.max_fetch_pages ?? 2) || 2,
-        minRelevance: Number(body.min_relevance ?? 0.5) || 0.5,
-        attribution,
-      });
+      const searchResults = await searchAndProcess(
+        query,
+        {
+          url: config.SYNESIS_WEB_SEARCH_URL,
+          enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
+          timeoutMs: config.SYNESIS_WEB_SEARCH_TIMEOUT_MS,
+          maxResults: topK,
+          engineAuthorityMap: (() => {
+            try {
+              return JSON.parse(config.SYNESIS_ENGINE_AUTHORITY_MAP || "{}");
+            } catch {
+              return {};
+            }
+          })(),
+        },
+        {
+          profile,
+          fetchPages: body.fetch_pages ?? true,
+          maxFetchPages: Number(body.max_fetch_pages ?? 2) || 2,
+          minRelevance: Number(body.min_relevance ?? 0.5) || 0.5,
+          attribution,
+        },
+      );
+      const results = applyWebSearchDomainPolicy(
+        searchResults,
+        body.preferred_domains,
+        config.SYNESIS_DOMAIN_POLICY_MODE,
+        config.SYNESIS_DOMAIN_POLICY_BOOST,
+      );
 
       const totalMs = Math.round((performance.now() - started) * 10) / 10;
       const response: WebSearchResponse = {
