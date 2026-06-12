@@ -20,6 +20,10 @@ const RECENT_YEAR_RE = /\b20(2[4-9]|3\d)\b/;
 
 const WEATHER_RE = /\b(weather|forecast|temperature)\b/i;
 const US_ZIP_RE = /\b\d{5}\b/;
+const MODEL_SELECTION_RE =
+  /\b(?:model\s+(?:choice|choices|selection|recommendation|recommendations|routing|architecture|comparison|comparisons|tradeoffs?)|(?:which|what)\s+(?:llm|model|models)|(?:llm|model)\s+(?:to\s+use|should\s+(?:i|we)\s+use)|embedding\s+model|reranker|hot[-\s]?path\s+model|escalation\s+model)\b/i;
+const AI_MODEL_DOMAIN_RE =
+  /\b(?:llm|large\s+language\s+model|generative\s+ai|coding\s+assistant|code\s+assistant|rag|retrieval[-\s]?augmented|qwen|deepseek|kimi|moonshot|minimax|claude|gpt|llama|mistral|gemma|vllm|bedrock|openrouter|deepinfra|inference)\b/i;
 
 export interface LiveWebIntentResult {
   needsLiveWeb: boolean;
@@ -38,6 +42,7 @@ export function analyzeLiveWebIntent(rawText: string): LiveWebIntentResult {
   if (AS_OF_TODAY_RE.test(text)) return { needsLiveWeb: true };
   if (CURRENT_NEWS_RE.test(text)) return { needsLiveWeb: true };
   if (RECENT_YEAR_RE.test(text)) return { needsLiveWeb: true };
+  if (MODEL_SELECTION_RE.test(text) && AI_MODEL_DOMAIN_RE.test(text)) return { needsLiveWeb: true };
 
   if (WEATHER_RE.test(text)) {
     if (US_ZIP_RE.test(text)) return { needsLiveWeb: true };

@@ -38,7 +38,7 @@ export {
   type ServiceMetrics,
 } from "./metrics.js";
 
-export { emitTrace, type TraceEmitterConfig } from "./trace-emitter.js";
+export { emitTrace, sanitizeTraceForIngest, type TraceEmitterConfig } from "./trace-emitter.js";
 
 export {
   emitPlannerUsageMetering,

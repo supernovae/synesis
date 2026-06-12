@@ -37,6 +37,54 @@ function sanitizeTraceEmitErrorBody(body: string): string | undefined {
     .slice(0, 512);
 }
 
+function stripControlChars(value: string): string {
+  return [...value]
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 || code === 127 ? " " : char;
+    })
+    .join("")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeJsonValue(value: unknown, depth = 0): unknown {
+  if (depth > 12) return undefined;
+  if (typeof value === "string") return stripControlChars(value);
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "boolean" || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((item) => sanitizeJsonValue(item, depth + 1));
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const cleanKey = stripControlChars(key);
+      if (!cleanKey) continue;
+      const cleanValue = sanitizeJsonValue(item, depth + 1);
+      if (cleanValue !== undefined) out[cleanKey] = cleanValue;
+    }
+    return out;
+  }
+  return undefined;
+}
+
+function normalizeConfidence(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return 0;
+  if (numeric > 1 && numeric <= 10) return Math.max(0, Math.min(1, numeric / 10));
+  return Math.max(0, Math.min(1, numeric));
+}
+
+export function sanitizeTraceForIngest(trace: TraceRecord): TraceRecord {
+  const sanitized = sanitizeJsonValue(trace) as TraceRecord;
+  return {
+    ...sanitized,
+    spans: (sanitized.spans ?? []).map((span) => ({
+      ...span,
+      confidence: normalizeConfidence(span.confidence),
+    })),
+  };
+}
+
 /**
  * Fire-and-forget POST to admin /api/v1/traces/ingest.
  * Never blocks the response path; failures are logged and swallowed.
@@ -47,6 +95,7 @@ export function emitTrace(
   logger?: { warn: (msg: string, ...args: unknown[]) => void },
 ): void {
   if (!config.adminUrl) return;
+  const safeTrace = sanitizeTraceForIngest(trace);
 
   const url = `${config.adminUrl.replace(/\/$/, "")}/api/v1/traces/ingest`;
   const headers: Record<string, string> = {
@@ -54,20 +103,20 @@ export function emitTrace(
   };
   if (config.adminToken) {
     headers["x-synesis-service-token"] = config.adminToken;
-    headers["x-synesis-service-name"] = trace.service;
+    headers["x-synesis-service-name"] = safeTrace.service;
     headers["authorization"] = `Bearer ${config.adminToken}`;
   }
-  if (trace.request_id) {
-    headers["x-request-id"] = trace.request_id;
+  if (safeTrace.request_id) {
+    headers["x-request-id"] = safeTrace.request_id;
   }
-  if (trace.authz_trace_id) {
-    headers["x-synesis-authz-trace-id"] = trace.authz_trace_id;
+  if (safeTrace.authz_trace_id) {
+    headers["x-synesis-authz-trace-id"] = safeTrace.authz_trace_id;
   }
 
   void fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify(trace),
+    body: JSON.stringify(safeTrace),
     signal: AbortSignal.timeout(config.timeoutMs ?? 3000),
   }).then(async (resp) => {
     if (!resp.ok) {
@@ -80,7 +129,7 @@ export function emitTrace(
       }
       const detail = sanitized ? ` detail=${sanitized}` : "";
       logger?.warn(
-        `trace emit HTTP ${resp.status} for ${trace.trace_id}: ${resp.statusText}${detail}`,
+        `trace emit HTTP ${resp.status} for ${safeTrace.trace_id}: ${resp.statusText}${detail}`,
       );
     }
   }).catch((err: unknown) => {

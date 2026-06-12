@@ -31,3 +31,81 @@ data:
         "content": "Review this change for regressions, missing tests, and operational risk."
       }
     ]
+{{- if .Values.workloads.search.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: {{ include "synesis.namespace" (dict "root" . "key" .Values.workloads.search.namespace) }}
+  labels:
+    {{- include "synesis.labels" . | nindent 4 }}
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/component: search
+data:
+  limiter.toml: |
+    [botdetection]
+
+    ipv4_prefix = 32
+    ipv6_prefix = 48
+
+    trusted_proxies = [
+      '127.0.0.0/8',
+      '::1',
+      '10.0.0.0/8',
+      '172.16.0.0/12',
+      '192.168.0.0/16',
+      'fd00::/8',
+    ]
+
+    [botdetection.ip_limit]
+    filter_link_local = false
+    link_token = false
+
+    [botdetection.ip_lists]
+    block_ip = []
+    pass_ip = []
+    pass_searxng_org = true
+
+  settings.yml: |
+    use_default_settings:
+      engines:
+        keep_only:
+          - google
+          - bing
+          - duckduckgo
+          - github
+          - stackoverflow
+
+    server:
+      secret_key: "synesis-searxng-internal-key"
+      bind_address: "0.0.0.0"
+      port: 8080
+      limiter: false
+      image_proxy: false
+      public_instance: false
+
+    outgoing:
+      request_timeout: 5.0
+      max_request_timeout: 8.0
+      useragent_suffix: "synesis-search"
+
+    search:
+      safe_search: 0
+      autocomplete: ""
+      default_lang: "en"
+      formats:
+        - html
+        - json
+
+    ui:
+      static_use_hash: true
+
+    engines:
+      - name: stackoverflow
+        engine: stackexchange
+        shortcut: so
+        api_site: "stackoverflow"
+        categories: [it, q&a]
+        disabled: false
+{{- end }}

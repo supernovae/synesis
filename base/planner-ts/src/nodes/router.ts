@@ -22,6 +22,81 @@ export const MAX_DOCS_PER_QUERY = 5;
 export const MAX_SNIPPETS_PER_PACKET = 20;
 export const LOW_CONFIDENCE_THRESHOLD = 0.4;
 const FOCUSED_PRESEED_THRESHOLD = 0.6;
+const WEB_QUERY_STOPWORDS = new Set([
+  "about",
+  "after",
+  "also",
+  "answer",
+  "architecture",
+  "because",
+  "before",
+  "build",
+  "building",
+  "could",
+  "design",
+  "engineer",
+  "engineering",
+  "explain",
+  "from",
+  "give",
+  "help",
+  "implementation",
+  "internal",
+  "need",
+  "please",
+  "practical",
+  "production",
+  "proposal",
+  "ready",
+  "should",
+  "small",
+  "system",
+  "team",
+  "that",
+  "their",
+  "there",
+  "these",
+  "this",
+  "useful",
+  "want",
+  "what",
+  "when",
+  "where",
+  "which",
+  "with",
+  "within",
+  "would",
+]);
+
+const WEB_QUERY_PRIORITY_TERMS = [
+  "qwen",
+  "deepseek",
+  "kimi",
+  "moonshot",
+  "minimax",
+  "llm",
+  "model",
+  "models",
+  "coding",
+  "coder",
+  "assistant",
+  "rag",
+  "retrieval",
+  "embedding",
+  "reranker",
+  "vllm",
+  "bedrock",
+  "openrouter",
+  "deepinfra",
+  "kubernetes",
+  "terraform",
+  "python",
+  "benchmark",
+  "benchmarks",
+  "release",
+  "latest",
+  "current",
+];
 
 function isTriviallyEmptyEvidencePacket(packet: {
   sources: unknown[];
@@ -175,6 +250,42 @@ function extractTopicFrame(state: GraphState): string {
   return String(taskFrame.topic_frame ?? "");
 }
 
+function compactWebQuery(raw: string, state: GraphState, request: Record<string, unknown>): string {
+  const explicit = String(request.web_query ?? "").trim();
+  if (explicit) return explicit.slice(0, 180);
+
+  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
+  const frameBits = [
+    taskFrame.main_question,
+    ...(Array.isArray(taskFrame.technologies) ? taskFrame.technologies : []),
+    ...(Array.isArray(taskFrame.domain_tags) ? taskFrame.domain_tags : []),
+    ...(state.domain_profile?.domains ?? []).slice(0, 4).map((domain) => domain.key.replace(/_/g, " ")),
+  ].filter(Boolean).join(" ");
+  const source = `${raw} ${frameBits}`;
+  const tokens = source
+    .toLowerCase()
+    .match(/[a-z0-9][a-z0-9.+#-]{1,}/g) ?? [];
+
+  const selected: string[] = [];
+  for (const priority of WEB_QUERY_PRIORITY_TERMS) {
+    if (tokens.some((token) => token.includes(priority)) && !selected.includes(priority)) {
+      selected.push(priority);
+    }
+  }
+  for (const token of tokens) {
+    if (selected.length >= 14) break;
+    if (token.length < 3 || WEB_QUERY_STOPWORDS.has(token)) continue;
+    if (selected.includes(token)) continue;
+    selected.push(token);
+  }
+
+  const suffix = selected.some((token) => ["latest", "current", "release", "benchmark", "benchmarks"].includes(token))
+    ? ""
+    : " current benchmarks";
+  const query = `${selected.join(" ")}${suffix}`.trim();
+  return (query || raw).slice(0, 180);
+}
+
 export async function runRouter(
   state: GraphState,
   deps: { retrievalClient?: RetrievalClient; summarizerOutput?: string } = {}
@@ -201,6 +312,7 @@ export async function runRouter(
     if (typeof client.retrieveUnified === "function") {
       const unifiedRequest: UnifiedRetrievalRequest = {
         query,
+        webQuery: compactWebQuery(baseQuery, state, request),
         difficulty,
         topK: MAX_DOCS_PER_QUERY,
         domainHints,

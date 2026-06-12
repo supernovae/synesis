@@ -1548,16 +1548,24 @@ workloads:
         value: "8080"
       - name: GRANIAN_PORT
         value: "8080"
+      - name: SEARXNG_SETTINGS_PATH
+        value: /etc/searxng-config/settings.yml
     podSecurityContext:
       runAsNonRoot: false
       seccompProfile:
         type: RuntimeDefault
     volumeMounts:
+      - name: settings
+        mountPath: /etc/searxng-config
+        readOnly: true
       - name: cache
         mountPath: /var/cache/searxng
       - name: tmp-etc
         mountPath: /etc/searxng
     volumes:
+      - name: settings
+        configMap:
+          name: searxng-settings
       - name: cache
         emptyDir:
           sizeLimit: 100Mi

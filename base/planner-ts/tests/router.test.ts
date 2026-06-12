@@ -93,6 +93,43 @@ describe("router node", () => {
     expect(client.lastUnified?.forceWeb).toBe(false);
   });
 
+  it("sends a compact web query instead of the full architecture prompt", async () => {
+    const client = new CapturingUnifiedClient();
+    await runRouter(
+      {
+        task_description: [
+          "Original request:",
+          "You are helping me design a production-ready AI assistant for a small engineering organization.",
+          "Explain model choices and where small vs large models should be used.",
+          "The system should support Kubernetes, Terraform, Python, RAG, and code review.",
+          "Clarification response: EKS, Keycloak, self-hosted, 3000 daily queries.",
+        ].join("\n"),
+        force_live_web: true,
+        domain_profile: {
+          domains: [
+            { key: "ml_ai", weight: 0.4 },
+            { key: "cloud_infra", weight: 0.3 },
+            { key: "software_architecture", weight: 0.3 },
+          ],
+          frameCoherence: "composite",
+        },
+        task_frame: {
+          main_question: "Design an internal AI assistant architecture",
+          technologies: ["kubernetes", "terraform", "python", "rag"],
+          domain_tags: ["ml_ai", "software_architecture"],
+        },
+      },
+      { retrievalClient: client },
+    );
+
+    expect(client.lastUnified?.webQuery).toBeDefined();
+    expect(client.lastUnified?.webQuery?.length).toBeLessThan(180);
+    expect(client.lastUnified?.webQuery).toContain("model");
+    expect(client.lastUnified?.webQuery).toContain("rag");
+    expect(client.lastUnified?.webQuery).toContain("current benchmarks");
+    expect(client.lastUnified?.webQuery).not.toContain("Original request");
+  });
+
   it("respects summarizer structured output", async () => {
     const state = await runRouter(
       {
