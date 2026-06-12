@@ -80,7 +80,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-api:${{ needs.prepare.outputs.version }}
             ${{ env.REGISTRY }}/synesis-base-api:latest
           cache-from: type=gha,scope=synesis-base-api
-          cache-to: type=gha,mode=max,scope=synesis-base-api
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-api
 
   build-base-devtools:
     needs: prepare
@@ -106,7 +106,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.prepare.outputs.version }}
             ${{ env.REGISTRY }}/synesis-base-devtools:latest
           cache-from: type=gha,scope=synesis-base-devtools
-          cache-to: type=gha,mode=max,scope=synesis-base-devtools
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-devtools
 
   build-base-ml:
     needs: [prepare, build-base-api]
@@ -134,7 +134,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.prepare.outputs.version }}
             ${{ env.REGISTRY }}/synesis-base-ml:latest
           cache-from: type=gha,scope=synesis-base-ml
-          cache-to: type=gha,mode=max,scope=synesis-base-ml
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-ml
 
   build-base-node-workspace:
     needs: prepare
@@ -160,7 +160,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-node-workspace:${{ needs.prepare.outputs.version }}
             ${{ env.REGISTRY }}/synesis-base-node-workspace:latest
           cache-from: type=gha,scope=synesis-base-node-workspace
-          cache-to: type=gha,mode=max,scope=synesis-base-node-workspace
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-node-workspace
 
   # -----------------------------------------------------------------------
   # Stage 2: Build all service images in parallel.
@@ -266,7 +266,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.prepare.outputs.version }}
             ${{ env.REGISTRY }}/${{ matrix.name }}:latest
           cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.name }}
 
   # -----------------------------------------------------------------------
   # Stage 3: Post-release summary — update release notes with image manifest.

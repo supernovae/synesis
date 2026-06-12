@@ -239,7 +239,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
             ${{ env.REGISTRY }}/synesis-base-api:latest
           cache-from: type=gha,scope=synesis-base-api
-          cache-to: type=gha,mode=max,scope=synesis-base-api
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-api
 
       - name: Generate SBOM (Syft)
         if: steps.filter.outputs.skip != 'true'
@@ -301,7 +301,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
             ${{ env.REGISTRY }}/synesis-base-devtools:latest
           cache-from: type=gha,scope=synesis-base-devtools
-          cache-to: type=gha,mode=max,scope=synesis-base-devtools
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-devtools
 
       - name: Generate SBOM (Syft)
         if: steps.filter.outputs.skip != 'true'
@@ -376,7 +376,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.determine-tag.outputs.tag }}
             ${{ env.REGISTRY }}/synesis-base-ml:latest
           cache-from: type=gha,scope=synesis-base-ml
-          cache-to: type=gha,mode=max,scope=synesis-base-ml
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-ml
 
       - name: Generate SBOM (Syft)
         if: steps.filter.outputs.skip != 'true'
@@ -436,7 +436,7 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-node-workspace:${{ needs.determine-tag.outputs.tag }}
             ${{ env.REGISTRY }}/synesis-base-node-workspace:latest
           cache-from: type=gha,scope=synesis-base-node-workspace
-          cache-to: type=gha,mode=max,scope=synesis-base-node-workspace
+          cache-to: type=gha,mode=max,ignore-error=true,scope=synesis-base-node-workspace
 
       - name: Generate SBOM (Syft)
         if: steps.filter.outputs.skip != 'true'
@@ -717,7 +717,7 @@ jobs:
             ${{ steps.base.outputs.arg }}
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.name }}
 
       - name: Generate SBOM (Syft)
         if: steps.check.outputs.skip != 'true'
