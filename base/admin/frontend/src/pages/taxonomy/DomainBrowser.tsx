@@ -95,6 +95,7 @@ function DomainRow({
   const [persona, setPersona] = useState(domain.persona);
   const [depthInstructions, setDepthInstructions] = useState("");
   const [outputStyleGuidance, setOutputStyleGuidance] = useState("");
+  const [calibrationGuidance, setCalibrationGuidance] = useState("");
   const [requiredElements, setRequiredElements] = useState("");
   const mutation = useUpdateTaxonomyDomain();
   const { data: detail } = useTaxonomyDomain(open ? domain.key : "");
@@ -103,6 +104,7 @@ function DomainRow({
     if (detail) {
       setDepthInstructions((detail.depth_instructions as string) ?? "");
       setOutputStyleGuidance((detail.output_style_guidance as string) ?? "");
+      setCalibrationGuidance((detail.calibration_guidance as string) ?? "");
       setRequiredElements(
         Array.isArray(detail.required_elements)
           ? (detail.required_elements as string[]).join("\n")
@@ -124,6 +126,7 @@ function DomainRow({
         persona,
         ...(depthInstructions ? { depth_instructions: depthInstructions } : {}),
         ...(outputStyleGuidance ? { output_style_guidance: outputStyleGuidance } : {}),
+        ...(calibrationGuidance ? { calibration_guidance: calibrationGuidance } : {}),
         ...(elements.length > 0 ? { required_elements: elements } : {}),
       } as Parameters<typeof mutation.mutate>[0],
       { onSuccess: () => setEditing(false) },
@@ -219,6 +222,17 @@ function DomainRow({
                   className={inputCls}
                 />
               </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Calibration Guidance
+                </span>
+                <textarea
+                  rows={4}
+                  value={calibrationGuidance}
+                  onChange={(e) => setCalibrationGuidance(e.target.value)}
+                  className={inputCls}
+                />
+              </label>
               <div className="flex gap-2">
                 <button
                   onClick={handleSave}
@@ -259,6 +273,12 @@ function DomainRow({
                         <p className="text-xs">
                           <strong>Depth:</strong>{" "}
                           {(detail.depth_instructions as string).slice(0, 200)}...
+                        </p>
+                      )}
+                      {detail.calibration_guidance && (
+                        <p className="text-xs">
+                          <strong>Calibration:</strong>{" "}
+                          {(detail.calibration_guidance as string).slice(0, 200)}...
                         </p>
                       )}
                     </>

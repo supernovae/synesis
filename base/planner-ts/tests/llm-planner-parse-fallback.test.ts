@@ -154,7 +154,7 @@ describe("runLlmPlanner parse fallback", () => {
     expect(providerLike.length).toBe(1);
   });
 
-  it("falls back to planner-only epistemic checks when ambiguity scorer fails", async () => {
+  it("falls back to planner-only ambiguity checks when ambiguity scorer fails", async () => {
     chatCompletionMock
       .mockResolvedValueOnce({
         content: JSON.stringify({

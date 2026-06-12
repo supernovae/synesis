@@ -1,5 +1,5 @@
 /**
- * LLM-powered planner with epistemological clarification gates.
+ * LLM-powered planner with ambiguity and calibration gates.
  *
  * When the LLM is available, the planner produces structured JSON including
  * its own assessment of what it doesn't know (open_questions), what it
@@ -179,7 +179,7 @@ async function runAmbiguityScorer(
     const detail = err instanceof Error ? err.message : String(err);
     process.stderr.write(JSON.stringify({
       level: 30,
-      msg: "ambiguity scorer unavailable; using planner-only epistemic checks",
+      msg: "ambiguity scorer unavailable; using planner-only ambiguity checks",
       error: detail,
       time: Date.now(),
     }) + "\n");
@@ -514,7 +514,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       parseFallback: true,
     });
     const decisionReason = clarify
-      ? "clarify:parse-fallback-epistemic-ambiguity"
+      ? "clarify:parse-fallback-ambiguity"
       : "proceed:parse-fallback-low-material-ambiguity";
     process.stderr.write(JSON.stringify({
       level: 30,
@@ -561,7 +561,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
   const clarify = shouldClarify(state, parsed, ambiguity.assessment, ambiguityThreshold);
   const decisionReason = clarify
-    ? "clarify:epistemic-material-ambiguity"
+    ? "clarify:material-ambiguity"
     : "proceed:sufficiently-specified";
   process.stderr.write(JSON.stringify({
     level: 30,

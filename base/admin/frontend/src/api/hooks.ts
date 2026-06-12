@@ -1163,7 +1163,16 @@ export function useTaxonomyDomain(key: string) {
 export function useUpdateTaxonomyDomain() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { key: string; path?: string; complexity?: number; persona?: string }) =>
+    mutationFn: (data: {
+      key: string;
+      path?: string;
+      complexity?: number;
+      persona?: string;
+      required_elements?: string[];
+      depth_instructions?: string;
+      output_style_guidance?: string;
+      calibration_guidance?: string;
+    }) =>
       client.put(`/taxonomy/${data.key}`, data).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["taxonomy"] }),
   });

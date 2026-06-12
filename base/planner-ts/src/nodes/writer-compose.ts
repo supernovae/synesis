@@ -18,7 +18,7 @@ import { sanitizeStepAction } from "../security/step-sanitizer.js";
 import { loadConfig } from "../config.js";
 import {
   getOutputStyleGuidance,
-  getEpistemicGuidanceBlock,
+  getCalibrationGuidanceBlock,
   getWriterRegulatedBlock,
   getDiscoveryPrompt,
 } from "../taxonomy/taxonomy-prompt-factory.js";
@@ -159,7 +159,7 @@ function buildAssumptionInstructions(state: GraphState): string {
   const difficulty = state.difficulty ?? 0.3;
 
   const rules: string[] = [
-    "EPISTEMIC LABELING RULES:",
+    "CALIBRATION LABELING RULES:",
     "- When you make a material assumption that affects the answer, tag it inline with [Assumption: brief description].",
     "- When you give a numerical approximation or estimate, tag it with [Estimate: brief basis].",
     "- When citing a specific goal, SLA, or requirement, tag it with [Target: source or context].",
@@ -259,8 +259,8 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
     systemParts.push(`\nOUTPUT STYLE:\n${styleGuidance}`);
   }
   if (difficulty >= 0.5) {
-    const epistemic = getEpistemicGuidanceBlock(taxonomyMeta);
-    if (epistemic) systemParts.push(`\nEPISTEMIC DISCIPLINE:\n${epistemic}`);
+    const calibration = getCalibrationGuidanceBlock(taxonomyMeta);
+    if (calibration) systemParts.push(`\nCALIBRATION GUIDANCE:\n${calibration}`);
   }
   if (difficulty >= 0.4) {
     const discovery = getDiscoveryPrompt(taxonomyMeta);
@@ -280,9 +280,9 @@ export function buildWriterMessages(state: GraphState): ChatMessage[] {
   }
 
   // L2 taxonomy blocks
-  const eg = getEpistemicGuidanceBlock(taxonomyMeta);
-  if (eg && difficulty >= 0.5) {
-    systemParts.push(`\nDISCIPLINE EPISTEMICS (taxonomy):\n${eg}`);
+  const calibration = getCalibrationGuidanceBlock(taxonomyMeta);
+  if (calibration && difficulty >= 0.5) {
+    systemParts.push(`\nDOMAIN CALIBRATION (taxonomy):\n${calibration}`);
   }
   const wr = getWriterRegulatedBlock(taxonomyMeta);
   if (wr) systemParts.push(`\nREGULATED CONTEXT (taxonomy):\n${wr}`);

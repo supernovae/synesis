@@ -518,7 +518,7 @@ The indexer (`base/rag/indexer/`) uses the `domain` field from each ingestion qu
 
 **Purpose:** Entry Classifier labels topic complexity; `TaxonomyPromptFactory` shapes
 prompts for Planner, Writer, and Critic without adding new LLMs. Config-driven depth,
-style, and epistemic discipline.
+style, and calibration guidance.
 
 **Source:** Taxonomy domains are loaded DB-first from the `taxonomy_domains` table (managed
 via admin UI), with sticky cache and YAML fallback (`bootstrap/taxonomy/taxonomy_prompt_config.yaml`).
@@ -537,17 +537,22 @@ example_domain:
   required_elements: [...]            # Sections the response should cover
   output_style: "code_guide"          # Short label for output format
   output_style_guidance: "..."        # Injected into writer as OUTPUT STYLE block
-  epistemic_guidance: "..."           # Injected into writer as EPISTEMIC DISCIPLINE block
+  calibration_guidance: "..."           # Injected into writer as CALIBRATION GUIDANCE block
+  regulated_domain: true              # Marks high-stakes / regulated domains
+  writer_regulated_block: "..."       # Writer-specific regulated-domain guidance
+  critic_regulated_block: "..."       # Critic checks for regulated-domain answers
   planner_decomposition_rules: "..."  # Domain-specific planning rules
   discovery_prompt: "..."             # Enrichment instruction for responses
   query_expansion_hints: [...]        # Terms for retrieval query expansion
   preferred_web_scopes: [...]         # Steer web search (e.g., site:docs.aws.amazon.com)
 ```
 
-**State:** `taxonomy_metadata` flows through all graph nodes. `resolve_taxonomy_metadata()`
-starts with `dict(node_cfg)` (all raw YAML fields), then overlays computed fields:
-`complexity_score` (blended), `persona_instructions`, `required_bullets`, `taxonomy_key`.
-New YAML fields are automatically available downstream without code changes.
+**State:** `taxonomy_metadata` flows through all graph nodes.
+`resolveTaxonomyMetadata()` copies known, sanitized taxonomy fields and overlays
+computed fields: `complexity_score` (blended), `persona_instructions`,
+`required_bullets`, and `taxonomy_key`. New prompt-facing YAML fields require an
+explicit TypeScript contract and test update before they are available
+downstream.
 
 **Key computed fields:**
 - `complexity_score` — blended: 40% domain baseline + 60% prompt-specific difficulty
@@ -557,7 +562,7 @@ New YAML fields are automatically available downstream without code changes.
 **Writer injection:** Three taxonomy blocks injected into system prompt:
 1. `DOMAIN DEPTH:` from `depth_instructions` (when complexity > 0.55)
 2. `OUTPUT STYLE:` from `output_style_guidance`
-3. `EPISTEMIC DISCIPLINE:` from `epistemic_guidance` (22 entries have this)
+3. `CALIBRATION GUIDANCE:` from `calibration_guidance` (22 entries have this)
 
 **Critic enforcement:** For domains with complexity >= 0.8, `required_elements` are
 promoted from advisory hints to soft mandates — flagged as `insufficient_depth` if

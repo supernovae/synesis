@@ -32,7 +32,7 @@ class TaxonomyDomainUpdateBody(BaseModel):
     required_elements: list[RequiredElement] | None = Field(None, max_length=100)
     depth_instructions: str | None = Field(None, max_length=20000)
     output_style_guidance: str | None = Field(None, max_length=20000)
-    epistemic_guidance: str | None = Field(None, max_length=20000)
+    calibration_guidance: str | None = Field(None, max_length=20000)
 
 
 async def _ensure_loaded() -> None:
@@ -106,7 +106,7 @@ async def domain_detail(
         "required_elements": cfg.get("required_elements", []),
         "depth_instructions": cfg.get("depth_instructions", ""),
         "output_style_guidance": cfg.get("output_style_guidance", ""),
-        "epistemic_guidance": cfg.get("epistemic_guidance", ""),
+        "calibration_guidance": cfg.get("calibration_guidance", ""),
         "raw_config": cfg,
     }
 
@@ -136,8 +136,8 @@ async def update_domain(
             cfg["depth_instructions"] = data["depth_instructions"]
         if "output_style_guidance" in data:
             cfg["output_style_guidance"] = data["output_style_guidance"]
-        if "epistemic_guidance" in data:
-            cfg["epistemic_guidance"] = data["epistemic_guidance"]
+        if "calibration_guidance" in data:
+            cfg["calibration_guidance"] = data["calibration_guidance"]
         row.raw_config = cfg
 
         await session.commit()

@@ -13,7 +13,7 @@ def test_taxonomy_domain_update_accepts_known_payload() -> None:
         required_elements=["Assumptions", "Derivation", "Limitations"],
         depth_instructions="Use rigorous derivations.",
         output_style_guidance="Prefer equations and concise prose.",
-        epistemic_guidance="Flag uncertain measurements.",
+        calibration_guidance="Flag uncertain measurements.",
     )
 
     payload = body.model_dump(exclude_unset=True)

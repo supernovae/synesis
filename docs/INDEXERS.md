@@ -203,6 +203,40 @@ validates those fields before writing:
 - `session` requires `conversation_id`.
 - `restricted` and `private` ACL modes require at least one ACL group.
 
+## End-to-End Verification
+
+Use this checklist after changing ingestion handlers, SynPack installers,
+NornicDB schema, planner retrieval, or scope/authz behavior:
+
+1. Add or import a source through the Admin UI or bootstrap API.
+2. Run one indexer pass:
+
+   ```bash
+   ./scripts/deploy-indexer.sh --run
+   ```
+
+3. Confirm the Admin ingestion queue item reaches `indexed`.
+4. Confirm NornicDB contains the expected `ContentNode` rows plus related
+   `Document`, `File`, `Symbol`, and graph edge records where applicable.
+5. Confirm embeddings are present in the configured vector index
+   (`SYNESIS_NORNIC_VECTOR_INDEX`, default `embeddings`) when embedding is
+   enabled for the run.
+6. Confirm protected content carries exact scope fields: `visibility_scope`,
+   `org_id`, `tenant_id`, `owner_user_id`, `conversation_id`, `acl_mode`,
+   `acl_group_ids`, and `authz_object_id` as appropriate for the item.
+7. Query `/v1/knowledge/search` as an allowed principal and verify the content
+   can be returned.
+8. Query the same content as an unscoped, wrong-org, wrong-tenant, or wrong-user
+   principal and verify it is not returned.
+9. When `SYNESIS_RAG_AUTHZ_MODE=enforce`, verify protected rows have matching
+   `rag_doc:*` OpenFGA grants before expecting them to appear in planner
+   retrieval results.
+
+Planner-side negative access regressions are covered by
+`base/planner-ts/tests/scope-predicate-matrix.test.ts`,
+`base/planner-ts/tests/rag-permissions.test.ts`, and
+`base/planner-ts/tests/rag-scope-isolation.test.ts`.
+
 ## Schema Changes
 
 When adding retrieval-visible fields:

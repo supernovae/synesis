@@ -24,7 +24,7 @@ When these concerns share infrastructure, improvements in one dimension propagat
 
 Effective joint cognitive systems maintain shared understanding between human and machine. When the machine is uncertain, it should expose that uncertainty and collaborate with the human rather than proceeding with low confidence or stalling silently.
 
-**Design impact:** Synesis is designed as a human-AI collaboration where the system exposes its understanding and uncertainty, inviting the human to refine direction. The diffuse-frame probe asks the user a guided clarification question using what the system already knows (`shouldClarify()` in `llm-planner.ts`). The human-in-the-loop review queue, trust attribution metadata, and epistemic uncertainty labels (`[Assumption: …]`, `[Estimate: …]`) all express this principle.
+**Design impact:** Synesis is designed as a human-AI collaboration where the system exposes its understanding and uncertainty, inviting the human to refine direction. The diffuse-frame probe asks the user a guided clarification question using what the system already knows (`shouldClarify()` in `llm-planner.ts`). The human-in-the-loop review queue, trust attribution metadata, and calibration labels (`[Assumption: …]`, `[Estimate: …]`) all express this principle.
 
 ### 2.2 Safety-II
 
@@ -110,7 +110,7 @@ Augmenting generation with retrieved evidence reduces hallucination, grounds res
 
 Sensemaking with LLMs emphasizes human-AI collaboration and complementary roles rather than full automation. The system should support sensemaking by constraining when it answers, how it labels uncertainty, and when it hands back to the user.
 
-**Design impact:** Synesis constrains its own behavior: clarify-first for chaotic frames, epistemic labels for uncertain claims, evidence-governed answers with visible citations, and HITL review queues for corpus quality. The human supplies judgment and domain authority; the system supplies structure, recall, and consistency.
+**Design impact:** Synesis constrains its own behavior: clarify-first for chaotic frames, calibration labels for uncertain claims, evidence-governed answers with visible citations, and HITL review queues for corpus quality. The human supplies judgment and domain authority; the system supplies structure, recall, and consistency.
 
 ---
 
@@ -176,7 +176,7 @@ These principles are derived from the research above and govern engineering deci
 
 3. **Match response to complexity** — Focused prompts get focused responses. Composite prompts get proportional multi-domain responses. Diffuse prompts trigger collaborative clarification.
 
-4. **Taxonomy helps, never harms** — Domain knowledge structures (persona, depth, epistemic guidance, vertical prompts) help the model produce better output. They should never hard-exclude relevant content from a multi-domain prompt. Taxonomy blocks are injected at the tail of system prompts, preserving LLM prefix-cache efficiency.
+4. **Taxonomy helps, never harms** — Domain knowledge structures (persona, depth, calibration guidance, vertical prompts) help the model produce better output. They should never hard-exclude relevant content from a multi-domain prompt. Taxonomy blocks are injected at the tail of system prompts, preserving LLM prefix-cache efficiency.
 
 5. **When uncertain, inquire** — In the Cynefin complex domain, probe before acting. Ask the user a guided question using what you already know, rather than proceeding with low confidence.
 
@@ -211,7 +211,7 @@ See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WOR
 | Document | Description |
 |----------|-------------|
 | [AWESOME_PAPERS.MD](AWESOME_PAPERS.MD) | Curated arXiv and primary references (security, RAG, critic, sensemaking) |
-| [DESIGN_THEORY.md](DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, epistemic discipline |
+| [DESIGN_THEORY.md](DESIGN_THEORY.md) | Cynefin domain mapping, clarify-first behavior, calibration guidance |
 | [SECURITY.md](SECURITY.md) | Trust envelopes, 9-layer prompt injection defense, attribution |
 | [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) | Domain behavior configuration via YAML |
 | [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) | Full pipeline flow, router-governed evidence, anti-oscillation |

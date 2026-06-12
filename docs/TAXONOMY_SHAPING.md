@@ -113,12 +113,12 @@ toward `site:martinfowler.com` and `site:microservices.io`.
 
 ### Writer (Style-Driven Generation)
 
-The Writer uses taxonomy metadata to shape output format, structure, and epistemic discipline.
+The Writer uses taxonomy metadata to shape output format, structure, and calibration guidance.
 Three taxonomy blocks are injected into the system prompt:
 
 1. **DOMAIN DEPTH** (from `depth_instructions`) — when complexity > 0.55
 2. **OUTPUT STYLE** (from `output_style_guidance`) — always when present
-3. **EPISTEMIC DISCIPLINE** (from `epistemic_guidance`) — always when present
+3. **CALIBRATION GUIDANCE** (from `calibration_guidance`) — always when present
 
 Evidence is trimmed to `evidence_budget_chars` (default 24,000) before injection
 to prevent token-budget fading in long responses.
@@ -129,7 +129,7 @@ to prevent token-budget fading in long responses.
 | Output structure guidance | `taxonomy_prompt_config.yaml` | `output_style_guidance` |
 | Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
 | Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
-| Epistemic discipline | `taxonomy_prompt_config.yaml` | `epistemic_guidance` |
+| Calibration guidance | `taxonomy_prompt_config.yaml` | `calibration_guidance` |
 | Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` (scoped to cohesion entity when lock active) |
 | Domain coverage checklist | `taxonomy_prompt_config.yaml` | `required_elements` (secondary to Document Outline) |
 | Evidence budget | planner config | `evidence_budget_chars` (default 24000, capped relative to `compiler_model_context`) |
@@ -138,9 +138,9 @@ to prevent token-budget fading in long responses.
 **Example**: When the domain is `software_architecture`, the Writer receives
 `output_style_guidance` that says "Structure like a technical architecture
 document: design goals, components, technology choices with rationale, implementation
-path, key risks." It also receives `epistemic_guidance` that says "Separate
+path, key risks." It also receives `calibration_guidance` that says "Separate
 established patterns from assumptions and recommendations." This produces
-ADR-shaped output with clear epistemic framing.
+ADR-shaped output with clear calibration framing.
 
 ### Executor (General model: Qwen3-32B FP8)
 
@@ -257,7 +257,7 @@ your_domain:
   output_style_guidance: >-    # Injected into writer as OUTPUT STYLE block
     Structure the response as a domain document with specific
     formatting and section requirements.
-  epistemic_guidance: >-       # Injected into writer as EPISTEMIC DISCIPLINE block
+  calibration_guidance: >-       # Injected into writer as CALIBRATION GUIDANCE block
     Separate established patterns from assumptions. Note when
     recommendations are opinion vs evidence-backed.
   planner_decomposition_rules: >-  # Domain-specific planning rules
@@ -452,7 +452,7 @@ and pedagogical structure -- all from YAML.
 |---|---|---|
 | `entry_classifier_weights.yaml` | Base scoring keywords and thresholds | EntryClassifier |
 | `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier, Query Normalizer lexicon |
-| `taxonomy_prompt_config.yaml` | 190 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic, Query Normalizer lexicon |
+| `taxonomy_prompt_config.yaml` | 190 domain entries (persona, depth, calibration, output style, planner rules, query hints) | Router, Writer, Planner, Critic, Query Normalizer lexicon |
 | `query_normalizer_config.yaml` | Extra jargon, protected patterns for typo correction | Query Normalizer |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
 | `plugins/weights/vertical_*.yaml` | 41 vertical plugins (keywords, risk, prompts, critic tiers) | All roles |

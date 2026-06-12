@@ -2135,7 +2135,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     const complexity = Number(taxonomy.complexity_score ?? 0);
     if (complexity > 0.55 && String(taxonomy.depth_instructions ?? "").trim()) steeringApplied.push("depth_instructions");
     if (String(taxonomy.output_style_guidance ?? "").trim()) steeringApplied.push("output_style_guidance");
-    if (difficulty >= 0.5 && String(taxonomy.epistemic_guidance ?? "").trim()) steeringApplied.push("epistemic_guidance");
+    if (difficulty >= 0.5 && String(taxonomy.calibration_guidance ?? "").trim()) steeringApplied.push("calibration_guidance");
     if (difficulty >= 0.4 && String(taxonomy.discovery_prompt ?? "").trim()) steeringApplied.push("discovery_prompt");
     if (difficulty >= 0.5 && Array.isArray(taxonomy.required_elements) && taxonomy.required_elements.length > 0) steeringApplied.push("required_elements");
     if (String(taxonomy.writer_regulated_block ?? "").trim()) steeringApplied.push("writer_regulated_block");

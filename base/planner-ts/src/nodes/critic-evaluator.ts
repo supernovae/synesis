@@ -49,7 +49,7 @@ function checkAssumptionLabels(state: GraphState): {
   const hasEstimateTags = /\[Estimate[:\]]/.test(draft);
   const hasTargetTags = /\[Target[:\]]/.test(draft);
   const hasMeasuredTags = /\[Measured[:\]]/.test(draft);
-  const hasAnyEpistemicTag = hasAssumptionTags || hasEstimateTags || hasTargetTags || hasMeasuredTags;
+  const hasAnyCalibrationTag = hasAssumptionTags || hasEstimateTags || hasTargetTags || hasMeasuredTags;
 
   if (assumptions.length > 0 && !hasAssumptionTags) {
     nonblocking.push({
@@ -78,7 +78,7 @@ function checkAssumptionLabels(state: GraphState): {
 
   const definitivePhrases = /\b(definitely|certainly|always|never|guaranteed|impossible)\b/i;
   const confidence = state.planner_confidence ?? 0.7;
-  if (confidence < 0.6 && definitivePhrases.test(draft) && !hasAnyEpistemicTag) {
+  if (confidence < 0.6 && definitivePhrases.test(draft) && !hasAnyCalibrationTag) {
     nonblocking.push({
       item_id: "false_certainty",
       category: "transparency",

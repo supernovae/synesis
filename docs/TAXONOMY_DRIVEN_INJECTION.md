@@ -11,18 +11,20 @@ lookup from `taxonomy_prompt_config.yaml` (190 entries, compiled at startup).
 | Component | Role |
 |-----------|------|
 | **Entry Classifier** | Deterministic scoring engine. Outputs `active_domain_refs`, `task_size`, `intent_class`, `complexity_score`. |
-| **TaxonomyResolver** | `resolve_taxonomy_metadata()` — maps domain to full metadata dict. Forwards all YAML fields automatically. No LLM. |
+| **TaxonomyResolver** | `resolveTaxonomyMetadata()` — maps domain to a sanitized taxonomy metadata contract. No LLM. |
 | **Planner** | Taxonomy-aware. Reads `required_elements` and `planner_decomposition_rules`; injects depth instructions when complexity > 0.55. |
-| **Writer** | Receives `depth_instructions`, `output_style_guidance`, and `epistemic_guidance` as system prompt blocks. Evidence trimmed to `evidence_budget_chars`. |
+| **Writer** | Receives `depth_instructions`, `output_style_guidance`, and `calibration_guidance` as system prompt blocks. Evidence trimmed to `evidence_budget_chars`. |
 | **Critic** | Uses universal principles + taxonomy hints. For complexity >= 0.8, `required_elements` are soft mandates. |
 
 ---
 
-## TaxonomyNode Schema (State)
+## TaxonomyNode Schema
 
-All raw YAML fields are forwarded via `dict(node_cfg)` in `resolve_taxonomy_metadata()`.
-Computed fields are overlaid on top. Adding a new field to YAML makes it immediately
-available in `state["taxonomy_metadata"]` — no code changes required.
+Planner-ts normalizes taxonomy YAML through
+[`taxonomy-prompt-factory.ts`](../base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts).
+Only known fields are copied into `state.taxonomy_metadata`, and prompt-facing
+strings are sanitized and length-limited. Adding a new prompt-facing taxonomy
+field requires updating the TypeScript contract and tests.
 
 **Computed fields (overlaid):**
 
@@ -43,12 +45,17 @@ depth_instructions: str      # Injected as DOMAIN DEPTH block
 required_elements: list[str] # e.g. ["Theoretical Basis", "Mathematical Context"]
 output_style: str            # Short label for output format
 output_style_guidance: str   # Injected as OUTPUT STYLE block
-epistemic_guidance: str      # Injected as EPISTEMIC DISCIPLINE block
+calibration_guidance: str      # Injected as CALIBRATION GUIDANCE block
 planner_decomposition_rules: str  # Domain-specific planning rules
 worker_explain_tone: str     # Role/style for text mode prompts
 discovery_prompt: str        # Enrichment instruction
 query_expansion_hints: list  # Terms for retrieval query expansion
 preferred_web_scopes: list   # Steer web search to authoritative sites
+regulated_domain: bool       # Domain is high stakes / regulated
+writer_regulated_block: str  # Writer-specific regulated-domain guidance
+critic_regulated_block: str  # Critic checks for regulated-domain answers
+critic_assistant_systems_block: str  # Assistant-system review guidance
+router_summarizer_tone: str  # Optional retrieval summary calibration tone
 ```
 
 ---
@@ -56,7 +63,8 @@ preferred_web_scopes: list   # Steer web search to authoritative sites
 ## Flow
 
 1. **Entry Classifier** produces `active_domain_refs` (e.g. `["physics"]`), `task_size`, `intent_class`, `complexity_score`.
-2. **TaxonomyResolver** looks up first matching domain in pre-cached `_cached_taxonomies` → full metadata dict (O(1) dict access, no YAML parsing).
+2. **TaxonomyResolver** looks up the selected domain in the cached taxonomy map
+   and returns the normalized metadata contract.
 3. **Complexity blending**: 40% domain baseline (from YAML) + 60% prompt-specific difficulty (from ScoringEngine). Simple questions in complex domains stay simple.
 4. **State** receives `taxonomy_metadata` dict. Flows through all nodes.
 5. **Document + high-depth**: `plan_required=true` when domain in `deep_dive_domains` and `complexity > 0.6`.
@@ -64,7 +72,7 @@ preferred_web_scopes: list   # Steer web search to authoritative sites
 7. **Writer** injects three taxonomy blocks into system prompt:
    - `DOMAIN DEPTH:` from `depth_instructions` (when complexity > 0.55)
    - `OUTPUT STYLE:` from `output_style_guidance`
-   - `EPISTEMIC DISCIPLINE:` from `epistemic_guidance`
+   - `CALIBRATION GUIDANCE:` from `calibration_guidance`
 8. **Evidence budget**: Compiled evidence trimmed to `evidence_budget_chars` (default 24,000) to prevent token-budget fading.
 9. **Critic**: For complexity >= 0.8, `required_elements` are "Expected sections" (soft mandates). For lower complexity, advisory hints. Critic generates per-query evaluation criteria using taxonomy hints.
 
@@ -73,11 +81,11 @@ preferred_web_scopes: list   # Steer web search to authoritative sites
 ## Example: "What is the speed of light?"
 
 1. Entry Classifier: `knowledge_style` match → `intent_class=knowledge`. Domain keywords → `active_domain_refs=["physics"]`.
-2. TaxonomyResolver: `physics` → full metadata with `complexity=0.9`, `required_elements=[Theoretical Basis, Mathematical Context, Real-world Implications, Historical Context, Key Constants & Formulas]`, `epistemic_guidance="Distinguish established laws from approximations..."`.
+2. TaxonomyResolver: `physics` → full metadata with `complexity=0.9`, `required_elements=[Theoretical Basis, Mathematical Context, Real-world Implications, Historical Context, Key Constants & Formulas]`, `calibration_guidance="Distinguish established laws from approximations..."`.
 3. `should_plan_for_document(metadata, ["physics"])` → true (complexity > 0.6).
 4. `plan_required=true` → route to Planner.
 5. Planner: System prompt includes required_elements + depth_instructions.
-6. Writer: System prompt receives DOMAIN DEPTH, OUTPUT STYLE, and EPISTEMIC DISCIPLINE blocks. Evidence trimmed to budget.
+6. Writer: System prompt receives DOMAIN DEPTH, OUTPUT STYLE, and CALIBRATION GUIDANCE blocks. Evidence trimmed to budget.
 7. Critic: complexity >= 0.8 → required_elements are soft mandates. Validates coverage of Theoretical Basis, Mathematical Context, etc. If insufficient → revision loop.
 8. Final Scrubber → Respond.
 
@@ -110,7 +118,7 @@ physics:
   output_style: "scientific_explanation"
   output_style_guidance: >-
     State the principle, derive the math, connect to physical intuition.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish established laws from approximations and their validity ranges.
     Flag active research frontiers separately from textbook material.
   discovery_prompt: "End with a 'Discover More' note connecting this topic to adjacent physics."
@@ -155,17 +163,21 @@ Per-request cost is O(1) dict access. No YAML parsing, no disk I/O on the hot pa
 1. Add `domain_keywords.<key>` in `intent_weights.yaml` or a plugin YAML so Entry Classifier produces the key in `active_domain_refs`.
 2. Add the key and schema to `taxonomy_prompt_config.yaml` (minimum: `path` + `complexity`).
 3. The taxonomy linter will validate the entry at next startup.
-4. Any new YAML fields are automatically forwarded to `taxonomy_metadata` — no code changes needed.
+4. If you add a new prompt-facing YAML field, update the TypeScript
+   `TaxonomyNode` / `TaxonomyMetadata` contract and tests so it is deliberately
+   sanitized and forwarded.
 
 ---
 
 ## Design Decisions
 
 - **No new LLM**: TaxonomyResolver is deterministic lookup. Entry Classifier (YAML scoring) + cached config = fast.
-- **Forward-all passthrough**: `resolve_taxonomy_metadata()` uses `dict(node_cfg)` to forward all raw YAML fields. New fields added to YAML are available in `state["taxonomy_metadata"]` immediately.
+- **Known-field contract**: `resolveTaxonomyMetadata()` forwards only known,
+  sanitized fields into `state.taxonomy_metadata`. This prevents arbitrary YAML
+  keys from becoming prompt instructions by accident.
 - **Startup fail-fast**: Schema validation catches invalid entries before the first request. Orphan detection catches routing YAML that references missing taxonomy keys.
 - **Evidence budget control**: Writer trims evidence to prevent token-budget fading. The budget (24k chars default) is set in `config.py`, not per-taxonomy.
-- **Epistemic guidance**: 22 high-complexity entries include `epistemic_guidance` to separate facts/assumptions/recommendations. Injected as a dedicated EPISTEMIC DISCIPLINE block in the writer prompt.
+- **Calibration guidance**: 22 high-complexity entries include `calibration_guidance` to separate facts/assumptions/recommendations. Injected as a dedicated CALIBRATION GUIDANCE block in the writer prompt.
 - **Critic enforcement**: For domains with complexity >= 0.8, `required_elements` are promoted to soft mandates. The critic flags missing sections as `insufficient_depth`.
 - **Code path unchanged**: Taxonomy shapes prompts but the graph structure (Executor → PIG → Critic) is unaffected. Document path gains optional Planner when taxonomy requests deep-dive.
 

@@ -561,7 +561,7 @@ export interface TaxonomyDomain {
   required_elements?: string[];
   depth_instructions?: string;
   output_style_guidance?: string;
-  epistemic_guidance?: string;
+  calibration_guidance?: string;
 }
 
 export interface PipelineMetrics {

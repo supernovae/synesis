@@ -161,7 +161,7 @@ MARKETING_PHRASES: list[str] = [
     "all rights reserved",
 ]
 
-EPISTEMIC_PHRASES: list[str] = [
+SUBSTANTIVE_PHRASES: list[str] = [
     "architecture",
     "design pattern",
     "best practice",
@@ -246,7 +246,7 @@ class GatePolicy:
     min_page_quality: float = 0.35
     follow_threshold: float = 0.45
     marketing_phrases: list[str] = field(default_factory=lambda: list(MARKETING_PHRASES))
-    epistemic_phrases: list[str] = field(default_factory=lambda: list(EPISTEMIC_PHRASES))
+    substantive_phrases: list[str] = field(default_factory=lambda: list(SUBSTANTIVE_PHRASES))
     allow_blog: bool = True
     allowed_hosts: list[str] = field(default_factory=list)
     allowed_prefixes: list[str] = field(default_factory=list)
@@ -533,10 +533,10 @@ def score_page(features: PageFeatures, policy: GatePolicy) -> float:
     elif marketing_hits >= 1:
         score -= 0.10
 
-    epistemic_hits = sum(1 for p in policy.epistemic_phrases if p in text_lower)
-    if epistemic_hits >= 3:
+    substantive_hits = sum(1 for p in policy.substantive_phrases if p in text_lower)
+    if substantive_hits >= 3:
         score += 0.10
-    elif epistemic_hits >= 1:
+    elif substantive_hits >= 1:
         score += 0.05
 
     return max(0.0, min(1.0, score))
@@ -820,10 +820,10 @@ def score_chunk(
     if _SENTENCE_RE.search(text):
         score += 0.10
 
-    epistemic_hits = sum(1 for p in policy.epistemic_phrases if p in text_lower)
-    if epistemic_hits >= 2:
+    substantive_hits = sum(1 for p in policy.substantive_phrases if p in text_lower)
+    if substantive_hits >= 2:
         score += 0.15
-    elif epistemic_hits >= 1:
+    elif substantive_hits >= 1:
         score += 0.08
 
     marketing_hits = sum(1 for p in policy.marketing_phrases if p in text_lower)
@@ -834,7 +834,7 @@ def score_chunk(
 
     boilerplate_hits = sum(1 for p in policy.boilerplate_phrases if p in text_lower)
 
-    # Structural signal: heading_path, section, strong epistemic content, or
+    # Structural signal: heading_path, section, strong substantive content, or
     # code/table/definition markers.  When present, cap the boilerplate penalty
     # so incidental "contact us" in an otherwise good doc chunk does not force
     # rejection.  Truly junk-heavy chunks (boilerplate ratio > 20%) still get
@@ -842,7 +842,7 @@ def score_chunk(
     has_structural_signal = bool(
         section
         or heading_path
-        or epistemic_hits >= 2
+        or substantive_hits >= 2
         or _CODE_FENCE_RE.search(text)
         or _TABLE_ROW_RE.search(text)
         or _DEFINITION_RE.search(text)

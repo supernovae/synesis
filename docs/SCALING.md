@@ -204,7 +204,7 @@ RAG ingestion scales differently from chat traffic.
 - Throughput is mainly controlled by queue depth, schedule frequency, worker resource requests, and staged fetch/normalize/enrich split.
 - GPU enrichment workers should be scaled around model memory and queue latency, not chat HPA settings.
 
-See [Ingestion Tuning And E2E](INGESTION_TUNING_AND_E2E.md) and [RAG](RAG.md) for ingestion-specific controls.
+See [Knowledge Indexers](INDEXERS.md) and [RAG](RAG.md) for ingestion-specific controls.
 
 ## Lifecycle
 

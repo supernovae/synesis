@@ -42,7 +42,7 @@ physics:
     approximations and limits. Use equations in context within prose, not as
     isolated bullet points. Each section should reason from a physical law or
     principle through to its observable consequences.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish established laws from approximations and their validity ranges.
     When stating a result, note whether it is exact, asymptotic, or empirical.
     Flag active research frontiers separately from textbook material.
@@ -117,7 +117,7 @@ chemistry:
     Mechanism-first explanations: show reaction equations within prose, explain
     each step of the mechanism, include thermodynamic and kinetic reasoning
     where relevant. Connect molecular structure to macroscopic behavior.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish well-characterized mechanisms from proposed or debated ones.
     Note when yields or selectivities are approximate. Flag conditions where
     textbook rules break down.
@@ -141,7 +141,7 @@ bioinformatics:
     Structure as a bioinformatics pipeline document: data sources and format
     standards, pipeline architecture with processing stages, statistical methods
     with their assumptions, and clinical or research crossover considerations.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish validated pipelines from experimental approaches. Note
     statistical assumptions and when they may be violated. Flag clinical
     translation gaps and reproducibility considerations.
@@ -167,7 +167,7 @@ environmental_science:
     - "Systems Context"
     - "Evidence & Data"
     - "Implications"
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish observed trends from modeled projections. Note confidence
     intervals and scenario assumptions. Flag where scientific consensus exists
     versus active debate.
@@ -193,7 +193,7 @@ neuroscience:
     mechanisms at the appropriate level (molecular, cellular, systems),
     distinguish established findings from emerging research, and connect to
     clinical or behavioral significance.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish established neural mechanisms from emerging hypotheses.
     Note when findings are from animal models vs human studies. Flag
     translational gaps between basic research and clinical application.
@@ -208,7 +208,7 @@ materials_science:
     - "Structure & Properties"
     - "Processing"
     - "Applications"
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish well-characterized material properties from theoretical
     predictions. Note when data comes from specific test conditions that
     may not generalize. Flag processing-dependent variability.
@@ -1490,7 +1490,7 @@ personal_legal:
     with jurisdiction caveats. Use IRAC-style reasoning. Explain legal terms
     in plain language alongside their formal definitions. Note where rules
     vary significantly by jurisdiction.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general legal principles from jurisdiction-specific rules.
     Note when an answer depends on state/federal law or recent case law.
     Always flag that this is general information, not legal advice, and
@@ -1586,7 +1586,7 @@ protocols:
     handling and recovery. Use mermaid sequence diagrams for multi-step
     exchanges. Build incrementally: discovery then operations. Reference
     RFC or spec section numbers where applicable.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish mandatory protocol requirements (MUST/SHALL per RFC 2119)
     from optional or implementation-defined behavior. Note when
     interoperability depends on specific versions or extensions. Flag
@@ -1702,7 +1702,7 @@ software_architecture:
     Implementation path with concrete milestones and team-size-aware phasing.
     Key risks with domain-specific failure modes and detection strategies.
     Every recommendation must be concrete and justified.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Separate what is established (evidence-backed or widely accepted) from
     what is assumed (reasonable but unverified) and what is recommended
     (your professional judgment). When making a recommendation, state the
@@ -1769,7 +1769,7 @@ cloud:
     Cost Model section with estimates and stated assumptions. Implementation
     phases and operational runbook items. Prefer concrete service names over
     abstract categories.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Separate what is established (evidence-backed or widely accepted) from
     what is assumed (reasonable but unverified) and what is recommended
     (your professional judgment). When making a recommendation, state the
@@ -1821,7 +1821,7 @@ kubernetes:
     configurations with concrete values, networking and security policies,
     observability stack with tool names, and operational runbook items.
     Include YAML snippets for critical configurations.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish battle-tested patterns from emerging approaches. Note when
     a recommendation depends on cluster size, cloud provider, or version.
     Flag operational assumptions (e.g. team size, on-call maturity).
@@ -1860,7 +1860,7 @@ databases:
     diagram, access pattern analysis with read/write ratios, storage engine
     comparison table, consistency and durability guarantees, migration path,
     and operational considerations. Include concrete schema examples.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general database principles from engine-specific behavior.
     Note when performance claims depend on workload characteristics. Flag
     assumptions about data volume, access patterns, or consistency needs.
@@ -1890,7 +1890,7 @@ networking:
     ports. Concrete protocol and port specifications. Failure domain analysis
     with failover paths. Latency budgets with stated assumptions. Encryption
     and security policy per segment.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish protocol standards from implementation-specific behavior.
     Note when latency or throughput claims depend on hardware or topology.
     Flag assumptions about network environment (cloud vs on-prem, MTU, etc.).
@@ -1931,7 +1931,7 @@ web_backend:
     examples, error handling strategy, middleware chain, database access
     patterns, caching strategy, authentication flow, and production readiness
     checklist. Include code snippets for critical patterns.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish framework conventions from general best practices. Note
     when a pattern depends on framework version or ecosystem. Flag
     performance claims that depend on deployment context.
@@ -1969,7 +1969,7 @@ web_frontend:
     rationale (SSR/CSR/ISR with tradeoffs), state management approach with
     rejected alternatives, bundle size and performance analysis. Include
     code snippets for critical patterns.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish framework conventions from general web platform behavior.
     Note when a pattern is framework-specific or version-dependent. Flag
     performance claims that depend on bundle tooling or deployment target.
@@ -2012,7 +2012,7 @@ testing_strategy:
     with rationale, test data management approach, CI pipeline integration,
     and coverage targets with reasoning. Include code snippets for
     representative test patterns.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general testing principles from framework-specific patterns.
     Note when coverage targets depend on domain risk profile (e.g. fintech
     vs internal tooling). Flag assumptions about CI infrastructure or
@@ -2055,7 +2055,7 @@ debugging:
     isolation approach, specific diagnostic commands and tools, root cause
     hypothesis with evidence, fix with verification steps, and prevention
     measures. Include concrete command examples.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish confirmed root causes from hypotheses. Note when a
     diagnosis depends on runtime, OS, or configuration. Flag when
     multiple root causes could produce the same symptom.
@@ -2095,7 +2095,7 @@ code_review:
     or Nit. For each finding, explain the issue, its impact, and a concrete
     fix. End with a summary of what's done well and overall assessment.
     Include code snippets showing before/after for non-trivial suggestions.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish objective correctness issues from style preferences. Note
     when a suggestion is team-convention-dependent vs universally applicable.
     Flag subjective recommendations as such.
@@ -2141,7 +2141,7 @@ api_design:
     bodies), error handling with status code mapping, authentication flow,
     versioning strategy, and rate limiting design. Include OpenAPI/schema
     snippets for key endpoints.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish API design best practices from convention preferences.
     Note when a pattern depends on client ecosystem (mobile, web, internal).
     Flag assumptions about traffic patterns or consumer types.
@@ -2191,7 +2191,7 @@ system_design:
     diagram, component deep-dives with data flow, storage design with access
     patterns, API surface, failure mode analysis, and scalability roadmap.
     Make all capacity numbers explicit with stated assumptions.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Separate hard requirements from assumed constraints (mark as [Assumed]).
     Label all capacity estimates with [Estimate] and state assumptions.
     Distinguish battle-tested patterns from emerging approaches. Note when
@@ -2233,7 +2233,7 @@ ml_ops:
     and compute estimates, training and serving topology, data pipeline
     with freshness guarantees, monitoring and drift detection strategy,
     and cost analysis with GPU/compute breakdown.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish empirical benchmark results from theoretical estimates.
     Note when performance claims depend on hardware, batch size, or data
     distribution. Flag assumptions about data quality, labeling, or drift.
@@ -2265,7 +2265,7 @@ embedded:
     interrupt and peripheral architecture with timing analysis. Include
     concrete register or configuration examples for critical interfaces.
     Separate design rationale from implementation detail.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish datasheet specifications from empirical measurements.
     Note when timing or power claims depend on operating conditions.
     Flag assumptions about toolchain, silicon revision, or peripheral
@@ -2638,7 +2638,7 @@ devops:
     deployment strategy with rollback procedures, infrastructure as code
     patterns, observability stack, and operational runbook items. Include
     concrete tool names and configuration snippets.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general DevOps principles from tool-specific behavior.
     Note when a pattern depends on team size, deployment frequency, or
     platform. Flag assumptions about existing infrastructure.
@@ -2677,7 +2677,7 @@ terraform:
     Lead with HCL code. Explain state management decisions. Show module
     composition patterns. Note provider-specific gotchas and plan/apply
     workflow implications.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish Terraform core behavior from provider-specific behavior.
     Note when a pattern depends on provider version or Terraform version.
     Flag assumptions about existing state or infrastructure.
@@ -2707,7 +2707,7 @@ ansible:
   output_style_guidance: >-
     Lead with working playbook YAML. Explain role structure and variable
     precedence. Note idempotency considerations. End with testing approach.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish Ansible core module behavior from collection-specific behavior.
     Note when patterns depend on Ansible version or target OS. Flag
     assumptions about inventory structure or privilege escalation.
@@ -2729,7 +2729,7 @@ shell_scripting:
   output_style_guidance: >-
     Lead with working script. Note bash vs POSIX portability. Show proper
     error handling and quoting. Mention shellcheck compliance.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish POSIX-portable behavior from bash/zsh-specific extensions.
     Note when a command depends on GNU vs BSD coreutils. Flag assumptions
     about shell version or installed utilities.
@@ -2796,7 +2796,7 @@ ci_cd:
     and promotion flow, secret handling, deployment strategy per environment,
     and developer experience considerations. Include pipeline-as-code
     snippets for key stages.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish CI/CD platform-agnostic patterns from tool-specific features.
     Note when a pipeline design depends on repo structure, team size, or
     deployment target. Flag assumptions about existing infrastructure.
@@ -2841,7 +2841,7 @@ sre:
     diagram, capacity planning with utilization targets, chaos engineering
     approach, and toil reduction priorities. Include concrete examples of
     SLO specifications.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish Google SRE book principles from practices adapted to smaller
     teams. Note when an SLO depends on business requirements vs engineering
     defaults. Flag assumptions about team size, on-call maturity, and
@@ -2885,7 +2885,7 @@ cost_optimization:
     commitment strategy with risk analysis, tagging taxonomy for chargeback,
     auto-scaling policy with concrete triggers, and performance impact
     assessment. Include cost estimate tables with stated assumptions.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general FinOps principles from cloud-provider-specific
     pricing behavior. Note when cost estimates depend on usage patterns,
     region, or commitment terms. Flag assumptions about current utilization
@@ -3008,7 +3008,7 @@ ai_ml:
     with alternatives considered, data pipeline and preprocessing, training
     strategy with hyperparameter reasoning, evaluation methodology with
     metrics and baselines, and deployment plan.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish empirical results (benchmarks, papers) from theoretical
     expectations. Note when performance claims depend on dataset, compute,
     or hyperparameter tuning. Flag when best practices are rapidly evolving.
@@ -3145,7 +3145,7 @@ data_engineering:
     strategy, quality gates at each stage, orchestration and scheduling
     design, failure recovery with backfill procedures, and storage
     optimization. Include concrete tool configurations.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish general data engineering principles from tool-specific
     behavior. Note when pipeline patterns depend on data volume, velocity,
     or variety. Flag assumptions about source system reliability and
@@ -3195,7 +3195,7 @@ model_serving:
     optimization techniques (quantization, batching, caching), model rollout
     strategy (A/B, shadow, canary), autoscaling policy with triggers, and
     monitoring with fallback paths. Include concrete benchmarks or estimates.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish measured benchmarks from projected performance. Note when
     latency or throughput depends on model size, hardware, or batch size.
     Flag assumptions about GPU availability, model format, and traffic
@@ -3243,7 +3243,7 @@ ai_guardrails:
     methodology with test categories, monitoring and escalation workflows,
     and false positive rate targets. Include concrete classifier and
     threshold choices.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish known attack vectors (published research) from theoretical
     threats. Note when guardrail effectiveness depends on model, language,
     or domain. Flag the inherent tradeoff between safety and utility.
@@ -3391,7 +3391,7 @@ cybersecurity:
     analysis, recommended mitigations with priority, detection and
     alerting strategy, incident response considerations, and compliance
     mapping.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish known vulnerabilities (CVEs, published exploits) from
     theoretical attack vectors. Note when a mitigation depends on
     specific configurations or versions. Flag compliance requirements
@@ -3459,7 +3459,7 @@ healthcare_compliance:
     Structure as a compliance guide: applicable regulations, required
     safeguards (technical, physical, administrative), implementation
     steps, and audit/monitoring procedures.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish HIPAA requirements from best practices that exceed
     minimum compliance. Note when guidance depends on entity type
     or state-specific laws. Always flag that this is general
@@ -3518,7 +3518,7 @@ mobile:
     Structure as a mobile development guide: platform strategy decision,
     architecture pattern, key implementation with code snippets, performance
     considerations, and testing approach.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish platform-specific behavior from cross-platform abstractions.
     Note when a pattern depends on OS version or device capabilities.
     Flag app store review implications.
@@ -3643,7 +3643,7 @@ data_science:
     preparation steps, analysis methodology with statistical rationale,
     visualization recommendations, and interpretation with caveats.
     Include code snippets for key analysis steps.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish correlation from causation. Note when statistical
     assumptions may be violated. Flag sample size limitations and
     generalizability concerns. State confidence levels.
@@ -3786,7 +3786,7 @@ product_planning:
     with methodology, success metrics with measurement plan, timeline with
     dependencies and milestones, and explicit scope boundaries. Use tables
     for prioritization and timeline.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish validated user needs from assumed requirements. Note when
     priority depends on business context not stated. Flag estimates as
     [Estimate] and state the assumptions behind them. Separate stakeholder
@@ -3831,7 +3831,7 @@ incident_postmortem:
     action items table with owner/priority/deadline, what went well, and
     follow-up meeting schedule. Use a timeline format for the incident
     progression.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish observed facts (logs, metrics) from inferred causation.
     Note when contributing factors are hypothesized vs confirmed. Avoid
     assigning blame to individuals — focus on systemic and process factors.
@@ -3871,7 +3871,7 @@ runbook:
     and expected outputs, verification steps after each critical action,
     rollback procedure, and escalation criteria. Use monospace for commands
     and highlight decision points.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish verified procedures (tested in production) from untested
     steps. Note when a step depends on environment, permissions, or
     tooling version. Flag steps that require elevated privileges.
@@ -3909,7 +3909,7 @@ decision_memo:
     table with criteria scoring, recommendation with reasoning, risks and
     reversibility assessment, rejected alternatives with rationale, and
     revisit triggers. Use comparison tables for options evaluation.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish objective criteria (cost, performance benchmarks) from
     subjective criteria (team preference, ecosystem familiarity). Note
     when a recommendation depends on assumptions that may change. Flag
@@ -3955,7 +3955,7 @@ project_management:
     rhythm (meeting types, frequency, attendees), risk register with
     mitigations, and delivery metrics with targets. Include concrete
     ceremony descriptions and time-boxes.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish evidence-based management practices from methodology
     dogma. Note when a process depends on team size, maturity, or
     distribution. Flag estimation uncertainty honestly.
@@ -3991,7 +3991,7 @@ stakeholder_comms:
     get technical depth with blockers highlighted. All formats include
     clear next steps and asks. Use bullet points and tables for
     skimmability.
-  epistemic_guidance: >-
+  calibration_guidance: >-
     Distinguish confirmed facts from projections. Note when timeline
     estimates have significant uncertainty. Flag dependencies on external
     teams or decisions. Be transparent about risks without catastrophizing.
@@ -4008,6 +4008,6 @@ generic:
     headers and provide concrete details. Separate facts from opinions.
   required_elements:
     - "Direct Answer"
-  epistemic_guidance: >-
+  calibration_guidance: >-
     If uncertain, say so. Separate established facts from your best judgment.
     For subjective topics, present multiple perspectives.

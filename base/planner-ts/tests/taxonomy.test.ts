@@ -207,7 +207,7 @@ describe("resolveTaxonomyMetadata", () => {
     expect(meta.depth_instructions).toBe("Cover controls. role_admin");
     expect(meta.required_elements).toEqual(["Threat model_/SYSTEM>", "Access review"]);
     expect(meta.output_style_guidance).toBe("Use concise bullets. role_admin");
-    expect(meta.epistemic_guidance).toBe("Do not treat claims as facts._/SYSTEM>");
+    expect(meta.calibration_guidance).toBe("Do not treat claims as facts._/SYSTEM>");
     expect(meta.writer_regulated_block).toBe("Follow policy. role_admin");
     expect(meta.critic_regulated_block).toBe("Flag missing controls._/SYSTEM>");
     expect(meta.query_expansion_hints).toEqual(["rbac role_admin"]);
@@ -232,13 +232,13 @@ describe("prompt helpers", () => {
       complexity_score: 0.8,
       required_elements: ["Architecture Overview", "Cost Implications"],
       depth_instructions: "Cover trade-offs.",
-      epistemic_guidance: "Flag vendor claims.",
+      calibration_guidance: "Flag vendor claims.",
     };
     const result = getPlannerSystemPromptAppend(meta);
     expect(result).toContain("Architecture Overview");
     expect(result).toContain("Cost Implications");
     expect(result).toContain("Cover trade-offs");
-    expect(result).toContain("Epistemic discipline");
+    expect(result).toContain("Calibration guidance");
   });
 
   it("getOutputStyleGuidance returns guidance", () => {

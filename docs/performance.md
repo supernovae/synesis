@@ -57,7 +57,7 @@ Legacy curator tier fields are retired for planner-ts. Writer and critic budget 
 
 ## Prefix-aware prompts
 
-Put **static** system content first and **per-request** suffix + user messages last so prefix caching can hit where enabled by the deployed model runtime. Layering (L0/L1/L2): [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md).
+Put **static** system content first and **per-request** suffix + user messages last so prefix caching can hit where enabled by the deployed model runtime. Layering (L0/L1/L2): [PROMPT_LAYERING_AND_CALIBRATION.md](PROMPT_LAYERING_AND_CALIBRATION.md).
 
 ---
 

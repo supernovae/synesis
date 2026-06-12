@@ -530,7 +530,7 @@ class TestGatePolicy:
         assert len(policy.allow_path_signals) > 0
         assert len(policy.block_path_signals) > 0
         assert len(policy.marketing_phrases) > 0
-        assert len(policy.epistemic_phrases) > 0
+        assert len(policy.substantive_phrases) > 0
         assert policy.min_page_quality == 0.35
         assert policy.min_chunk_quality == 0.25
         assert policy.max_depth == 2

@@ -157,6 +157,73 @@ describe("buildScopePredicate — exhaustive matrix", () => {
   });
 });
 
+describe("RAG scope negative access regressions", () => {
+  it("does not expose org-scoped content outside the caller org", () => {
+    const scope: ScopeFilterOptions = { callerOrgId: "org-a", callerUserId: "user-a" };
+    const params: Record<string, unknown> = {};
+    const predicate = buildScopePredicate("n", scope);
+    addScopeParams(scope, params);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "org",
+      org_id: "org-a",
+      acl_mode: "open",
+    })).toBe(true);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "org",
+      org_id: "org-b",
+      acl_mode: "open",
+    })).toBe(false);
+  });
+
+  it("does not expose user-scoped content to another user in the same org", () => {
+    const scope: ScopeFilterOptions = { callerOrgId: "org-a", callerUserId: "user-a" };
+    const params: Record<string, unknown> = {};
+    const predicate = buildScopePredicate("n", scope);
+    addScopeParams(scope, params);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "user",
+      org_id: "org-a",
+      owner_user_id: "user-a",
+      acl_mode: "open",
+    })).toBe(true);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "user",
+      org_id: "org-a",
+      owner_user_id: "user-b",
+      acl_mode: "open",
+    })).toBe(false);
+  });
+
+  it("does not expose tenant-scoped content to another tenant", () => {
+    const scope: ScopeFilterOptions = {
+      callerOrgId: "org-a",
+      callerTenantIds: ["tenant-a"],
+      callerUserId: "user-a",
+    };
+    const params: Record<string, unknown> = {};
+    const predicate = buildScopePredicate("n", scope);
+    addScopeParams(scope, params);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "tenant",
+      org_id: "org-a",
+      tenant_id: "tenant-a",
+      acl_mode: "open",
+    })).toBe(true);
+
+    expect(evaluatePredicate(predicate, params, {
+      visibility_scope: "tenant",
+      org_id: "org-a",
+      tenant_id: "tenant-b",
+      acl_mode: "open",
+    })).toBe(false);
+  });
+});
+
 describe("buildScopePredicate — structural assertions", () => {
   it("always starts with global visibility clause", () => {
     const pred = buildScopePredicate("n", { callerOrgId: "x" });

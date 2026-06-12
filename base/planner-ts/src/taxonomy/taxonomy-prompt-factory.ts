@@ -30,7 +30,7 @@ export interface TaxonomyNode {
   required_elements?: string[];
   output_style?: string;
   output_style_guidance?: string;
-  epistemic_guidance?: string;
+  calibration_guidance?: string;
   regulated_domain?: boolean;
   writer_regulated_block?: string;
   critic_regulated_block?: string;
@@ -57,6 +57,7 @@ export interface TaxonomyMetadata extends Record<string, unknown> {
   preferred_web_scopes: string[];
   output_style: string;
   output_style_guidance: string;
+  calibration_guidance: string;
   regulated_domain: boolean;
   output_controls?: Record<string, boolean>;
 }
@@ -257,7 +258,7 @@ function buildMetadataFromKey(
     preferred_web_scopes: safeTaxonomyList(nodeCfg.preferred_web_scopes, 3, LIST_ITEM_LIMIT),
     output_style: safeTaxonomyText(nodeCfg.output_style, SHORT_TEXT_LIMIT),
     output_style_guidance: safeTaxonomyText(nodeCfg.output_style_guidance, TEXT_LIMIT),
-    epistemic_guidance: safeTaxonomyText(nodeCfg.epistemic_guidance, TEXT_LIMIT),
+    calibration_guidance: safeTaxonomyText(nodeCfg.calibration_guidance, TEXT_LIMIT),
     regulated_domain: Boolean(nodeCfg.regulated_domain),
     writer_regulated_block: safeTaxonomyText(nodeCfg.writer_regulated_block, TEXT_LIMIT),
     critic_regulated_block: safeTaxonomyText(nodeCfg.critic_regulated_block, TEXT_LIMIT),
@@ -347,9 +348,9 @@ export function getPlannerSystemPromptAppend(metadata: TaxonomyMetadata | Record
   if (complexity > 0.7 && depthInstructions) {
     parts.push(depthInstructions);
   }
-  const eg = String(metadata.epistemic_guidance ?? "").trim();
-  if (complexity > 0.5 && eg) {
-    parts.push(`Epistemic discipline for this domain: ${eg}`);
+  const calibration = String(metadata.calibration_guidance ?? "").trim();
+  if (complexity > 0.5 && calibration) {
+    parts.push(`Calibration guidance for this domain: ${calibration}`);
   }
   return parts.length > 0 ? "\n\n" + parts.join(" ") : "";
 }
@@ -359,9 +360,9 @@ export function getOutputStyleGuidance(metadata: Record<string, unknown>): strin
   return String(metadata.output_style_guidance ?? "").trim();
 }
 
-export function getEpistemicGuidanceBlock(metadata: Record<string, unknown>): string {
+export function getCalibrationGuidanceBlock(metadata: Record<string, unknown>): string {
   if (!metadata || isLargeModel()) return "";
-  return String(metadata.epistemic_guidance ?? "").trim();
+  return String(metadata.calibration_guidance ?? "").trim();
 }
 
 export function getWriterRegulatedBlock(metadata: Record<string, unknown>): string {

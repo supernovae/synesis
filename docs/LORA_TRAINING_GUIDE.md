@@ -155,7 +155,7 @@ The following priorities are ordered by impact. Each describes the specific beha
 
 **Data sources:** (1) Manually curated gold-standard architecture responses scored 8+/10 by external critic. (2) Contrastive pairs: (weak 5/10 response, strong 8/10 response) for the same prompt. (3) Filtered production logs where critic revision improved response quality.
 
-**Evaluation metric:** External critic score on benchmark architecture prompt. Target: 7.5+/10. Current baseline (prompt-only): 6.5-7/10 (improved from 5.5 via depth mode + steering; domain detection fix + epistemic enforcement pending).
+**Evaluation metric:** External critic score on benchmark architecture prompt. Target: 7.5+/10. Current baseline (prompt-only): 6.5-7/10 (improved from 5.5 via depth mode + steering; domain detection fix + calibration enforcement pending).
 
 **Note on training cost:** 32B LoRA requires more VRAM. Use QLoRA (4-bit base + LoRA adapters) on 2x L40S (96GB total). Alternatively, use LoRA on the FP8 checkpoint directly if vLLM supports it at training time.
 
