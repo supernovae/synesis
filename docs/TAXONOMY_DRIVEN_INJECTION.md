@@ -1,193 +1,148 @@
 # Taxonomy-Driven Contextual Injection
 
-How the Entry Classifier identifies a topic's complexity and uses taxonomy metadata
-to shape prompts for the Planner, Writer, and Critic. No new LLM — deterministic
-lookup from `taxonomy_prompt_config.yaml` (190 entries, compiled at startup).
-
----
+This document explains how Synesis turns deterministic taxonomy metadata into
+planner, writer, critic, retrieval, and tracing behavior. The active
+implementation is TypeScript in `base/planner-ts/`.
 
 ## Overview
 
 | Component | Role |
 |-----------|------|
-| **Entry Classifier** | Deterministic scoring engine. Outputs `active_domain_refs`, `task_size`, `intent_class`, `complexity_score`. |
-| **TaxonomyResolver** | `resolveTaxonomyMetadata()` — maps domain to a sanitized taxonomy metadata contract. No LLM. |
-| **Planner** | Taxonomy-aware. Reads `required_elements` and `planner_decomposition_rules`; injects depth instructions when complexity > 0.55. |
-| **Writer** | Receives `depth_instructions`, `output_style_guidance`, and `calibration_guidance` as system prompt blocks. Evidence trimmed to `evidence_budget_chars`. |
-| **Critic** | Uses universal principles + taxonomy hints. For complexity >= 0.8, `required_elements` are soft mandates. |
+| Entry classifier | Runs deterministic scoring and emits task size, intent, risk, and `active_domain_refs`. |
+| Taxonomy resolver | Maps active domain refs to a sanitized `taxonomy_metadata` contract. |
+| Vertical resolver | Maps active domains and platform context to optional vertical prompt overlays. |
+| Planner | Uses required elements, decomposition rules, and calibration guidance. |
+| Writer | Uses depth, output style, calibration, and regulated-domain blocks. |
+| Critic | Uses required-element coverage, regulated-domain checks, vertical critic mode, and assistant-system review blocks. |
 
----
-
-## TaxonomyNode Schema
-
-Planner-ts normalizes taxonomy YAML through
-[`taxonomy-prompt-factory.ts`](../base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts).
-Only known fields are copied into `state.taxonomy_metadata`, and prompt-facing
-strings are sanitized and length-limited. Adding a new prompt-facing taxonomy
-field requires updating the TypeScript contract and tests.
-
-**Computed fields (overlaid):**
-
-```
-path: str                    # e.g. "Science > Physics"
-complexity_score: float      # Blended: 40% domain baseline + 60% prompt difficulty
-persona_instructions: str    # Persona + depth guidance (when complexity > 0.55)
-required_bullets: int        # len(required_elements), capped at 2 for trivial queries
-taxonomy_key: str            # e.g. "physics", "generic"
-```
-
-**Raw YAML fields (forwarded as-is):**
-
-```
-complexity: float            # Raw domain baseline (0.0-1.0)
-persona: str                 # Base persona label
-depth_instructions: str      # Injected as DOMAIN DEPTH block
-required_elements: list[str] # e.g. ["Theoretical Basis", "Mathematical Context"]
-output_style: str            # Short label for output format
-output_style_guidance: str   # Injected as OUTPUT STYLE block
-calibration_guidance: str      # Injected as CALIBRATION GUIDANCE block
-planner_decomposition_rules: str  # Domain-specific planning rules
-worker_explain_tone: str     # Role/style for text mode prompts
-discovery_prompt: str        # Enrichment instruction
-query_expansion_hints: list  # Terms for retrieval query expansion
-preferred_web_scopes: list   # Steer web search to authoritative sites
-regulated_domain: bool       # Domain is high stakes / regulated
-writer_regulated_block: str  # Writer-specific regulated-domain guidance
-critic_regulated_block: str  # Critic checks for regulated-domain answers
-critic_assistant_systems_block: str  # Assistant-system review guidance
-router_summarizer_tone: str  # Optional retrieval summary calibration tone
-```
-
----
+No extra LLM call is used for taxonomy injection.
 
 ## Flow
 
-1. **Entry Classifier** produces `active_domain_refs` (e.g. `["physics"]`), `task_size`, `intent_class`, `complexity_score`.
-2. **TaxonomyResolver** looks up the selected domain in the cached taxonomy map
-   and returns the normalized metadata contract.
-3. **Complexity blending**: 40% domain baseline (from YAML) + 60% prompt-specific difficulty (from ScoringEngine). Simple questions in complex domains stay simple.
-4. **State** receives `taxonomy_metadata` dict. Flows through all nodes.
-5. **Document + high-depth**: `plan_required=true` when domain in `deep_dive_domains` and `complexity > 0.6`.
-6. **Planner** appends `get_planner_system_prompt_append(metadata)` to system prompt. Uses `planner_decomposition_rules` from taxonomy if present.
-7. **Writer** injects three taxonomy blocks into system prompt:
-   - `DOMAIN DEPTH:` from `depth_instructions` (when complexity > 0.55)
-   - `OUTPUT STYLE:` from `output_style_guidance`
-   - `CALIBRATION GUIDANCE:` from `calibration_guidance`
-8. **Evidence budget**: Compiled evidence trimmed to `evidence_budget_chars` (default 24,000) to prevent token-budget fading.
-9. **Critic**: For complexity >= 0.8, `required_elements` are "Expected sections" (soft mandates). For lower complexity, advisory hints. Critic generates per-query evaluation criteria using taxonomy hints.
+```mermaid
+sequenceDiagram
+  participant User
+  participant Classifier as Entry Classifier
+  participant Taxonomy as Taxonomy Resolver
+  participant Planner
+  participant Writer
+  participant Critic
 
----
-
-## Example: "What is the speed of light?"
-
-1. Entry Classifier: `knowledge_style` match → `intent_class=knowledge`. Domain keywords → `active_domain_refs=["physics"]`.
-2. TaxonomyResolver: `physics` → full metadata with `complexity=0.9`, `required_elements=[Theoretical Basis, Mathematical Context, Real-world Implications, Historical Context, Key Constants & Formulas]`, `calibration_guidance="Distinguish established laws from approximations..."`.
-3. `should_plan_for_document(metadata, ["physics"])` → true (complexity > 0.6).
-4. `plan_required=true` → route to Planner.
-5. Planner: System prompt includes required_elements + depth_instructions.
-6. Writer: System prompt receives DOMAIN DEPTH, OUTPUT STYLE, and CALIBRATION GUIDANCE blocks. Evidence trimmed to budget.
-7. Critic: complexity >= 0.8 → required_elements are soft mandates. Validates coverage of Theoretical Basis, Mathematical Context, etc. If insufficient → revision loop.
-8. Final Scrubber → Respond.
-
----
-
-## Config: taxonomy_prompt_config.yaml
-
-**Location:** `base/planner-ts/config/taxonomy_prompt_config.yaml`
-
-**Size:** 190 domain entries across 28 top-level categories (Engineering, Science,
-Lifestyle, Writing, etc.).
-
-**Full entry example:**
-
-```yaml
-physics:
-  path: "Science > Physics"
-  complexity: 0.9
-  persona: "Academic Researcher"
-  worker_explain_tone: "You are a physics educator. Default to thorough, principled explanations."
-  depth_instructions: >-
-    Derive from first principles. Use equations within prose paragraphs.
-    State approximations and their validity ranges.
-  required_elements:
-    - "Theoretical Basis"
-    - "Mathematical Context"
-    - "Real-world Implications"
-    - "Historical Context"
-    - "Key Constants & Formulas"
-  output_style: "scientific_explanation"
-  output_style_guidance: >-
-    State the principle, derive the math, connect to physical intuition.
-  calibration_guidance: >-
-    Distinguish established laws from approximations and their validity ranges.
-    Flag active research frontiers separately from textbook material.
-  discovery_prompt: "End with a 'Discover More' note connecting this topic to adjacent physics."
-  query_expansion_hints:
-    - "first principles"
-    - "derivation"
-  preferred_web_scopes:
-    - "site:arxiv.org"
+  User->>Classifier: request text + recent context
+  Classifier->>Classifier: ScoringEngine analyzes complexity, risk, intent, domains
+  Classifier->>Taxonomy: active_domain_refs, intent_class, task_size
+  Taxonomy-->>Classifier: sanitized taxonomy_metadata
+  Classifier->>Planner: required elements, planner rules, calibration
+  Classifier->>Writer: depth, style, calibration, regulated blocks
+  Classifier->>Critic: required elements, regulated blocks, vertical critic mode
 ```
 
-**Minimum valid entry:**
+## Runtime Contract
 
-```yaml
-my_domain:
-  path: "Category > My Domain"
-  complexity: 0.6
+`taxonomy-prompt-factory.ts` forwards only known fields. Prompt-facing strings
+are sanitized and length-limited before entering `state.taxonomy_metadata`.
+Unknown YAML keys are ignored until the TypeScript contract and tests are
+updated.
+
+Supported YAML fields include:
+
+- `path`
+- `complexity`
+- `persona`
+- `worker_explain_tone`
+- `depth_instructions`
+- `discovery_prompt`
+- `required_elements`
+- `output_style`
+- `output_style_guidance`
+- `calibration_guidance`
+- `regulated_domain`
+- `writer_regulated_block`
+- `critic_regulated_block`
+- `critic_assistant_systems_block`
+- `query_expansion_hints`
+- `preferred_web_scopes`
+- `router_summarizer_tone`
+- `output_controls`
+- `planner_decomposition_rules`
+
+Computed fields include `taxonomy_key`, blended `complexity_score`,
+`persona_instructions`, `required_bullets`, optional `taxonomy_candidates`, and
+optional semantic validation details.
+
+## Current Config
+
+The canonical config is
+`base/planner-ts/config/taxonomy_prompt_config.yaml`.
+
+Current repository state:
+
+- 191 taxonomy entries across 28 categories.
+- 42 plugin weight files.
+- 0 orphan domain targets.
+- All `complexity >= 0.8` entries include `calibration_guidance`.
+- Every `regulated_domain` entry includes writer and critic regulated blocks.
+
+Bootstrap and Helm/Admin seed copies are kept synchronized with the planner
+canonical file and checked by
+`base/planner-ts/tests/taxonomy-config-integrity.test.ts`.
+
+## Injection Points
+
+| Field | Consumer |
+|-------|----------|
+| `required_elements` | Planner hints and critic coverage checks. |
+| `depth_instructions` | Planner and writer depth blocks when task complexity warrants it. |
+| `output_style_guidance` | Writer output structure for model tiers that use style steering. |
+| `calibration_guidance` | Planner/writer guidance and trace steering records. |
+| `writer_regulated_block` | Writer `REGULATED CONTEXT (taxonomy)` block. |
+| `critic_regulated_block` | Dynamic critic suffix for high-stakes domains. |
+| `critic_assistant_systems_block` | Critic checks for assistant-system/routing/retrieval designs. |
+| `query_expansion_hints` | Retrieval query expansion helper. |
+| `preferred_web_scopes` | Web-search scope helper when a real web path is active. |
+| `output_controls` | Clarify/assumption/precision style contract. |
+| `planner_decomposition_rules` | Domain-specific planning order. |
+
+Taxonomy metadata is advisory unless a node explicitly consumes a field. The
+known-field contract prevents arbitrary YAML text from becoming prompt
+instructions accidentally.
+
+## Example
+
+For an AWS architecture question:
+
+1. `domain_keywords` match AWS terms and emit `active_domain_refs=["aws"]`.
+2. The resolver selects taxonomy key `aws`.
+3. `taxonomy_metadata` includes service-selection requirements, preferred AWS
+   docs scopes, architecture output style, and calibration guidance for region,
+   quota, account policy, compliance, and traffic assumptions.
+4. Planner and writer produce architecture-shaped output rather than a generic
+   answer.
+5. Critic can check for missing security/IAM, cost, and tradeoff coverage.
+
+## Admin Notes
+
+Admin stores taxonomy rows in Postgres and can seed/sync from the mounted YAML.
+The current Admin editor covers core fields and `calibration_guidance`.
+Regulated blocks, query hints, preferred web scopes, and router summarizer tone
+still require YAML/sync workflow.
+
+## Validation
+
+Run:
+
+```bash
+cd base/planner-ts
+npm test -- tests/taxonomy.test.ts tests/taxonomy-config-integrity.test.ts
 ```
 
-All other fields are optional. The taxonomy linter validates required fields at startup.
-
----
-
-## Startup Compilation
-
-Taxonomy config is compiled once at startup in `lifespan()`:
-
-1. `_load_config()` parses YAML into `_cached` (module global)
-2. `_cached_taxonomies` is pre-built (filtered dict of entries with `path` key)
-3. `lint_taxonomy_config()` validates all entries via Pydantic:
-   - Required fields: `path` (str), `complexity` (float 0.0-1.0)
-   - Type validation for all known fields
-   - Duplicate path detection
-   - Orphan domain detection (cross-refs routing YAML)
-   - Alias collision detection (`query_expansion_hints` overlap)
-
-Per-request cost is O(1) dict access. No YAML parsing, no disk I/O on the hot path.
-
----
-
-## Adding a New Taxonomy
-
-1. Add `domain_keywords.<key>` in `intent_weights.yaml` or a plugin YAML so Entry Classifier produces the key in `active_domain_refs`.
-2. Add the key and schema to `taxonomy_prompt_config.yaml` (minimum: `path` + `complexity`).
-3. The taxonomy linter will validate the entry at next startup.
-4. If you add a new prompt-facing YAML field, update the TypeScript
-   `TaxonomyNode` / `TaxonomyMetadata` contract and tests so it is deliberately
-   sanitized and forwarded.
-
----
-
-## Design Decisions
-
-- **No new LLM**: TaxonomyResolver is deterministic lookup. Entry Classifier (YAML scoring) + cached config = fast.
-- **Known-field contract**: `resolveTaxonomyMetadata()` forwards only known,
-  sanitized fields into `state.taxonomy_metadata`. This prevents arbitrary YAML
-  keys from becoming prompt instructions by accident.
-- **Startup fail-fast**: Schema validation catches invalid entries before the first request. Orphan detection catches routing YAML that references missing taxonomy keys.
-- **Evidence budget control**: Writer trims evidence to prevent token-budget fading. The budget (24k chars default) is set in `config.py`, not per-taxonomy.
-- **Calibration guidance**: 22 high-complexity entries include `calibration_guidance` to separate facts/assumptions/recommendations. Injected as a dedicated CALIBRATION GUIDANCE block in the writer prompt.
-- **Critic enforcement**: For domains with complexity >= 0.8, `required_elements` are promoted to soft mandates. The critic flags missing sections as `insufficient_depth`.
-- **Code path unchanged**: Taxonomy shapes prompts but the graph structure (Executor → PIG → Critic) is unaffected. Document path gains optional Planner when taxonomy requests deep-dive.
-
----
+Use the integrity test whenever adding a domain, editing plugin routing, or
+changing deployment seed YAML.
 
 ## See Also
 
-- [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, verticals, coverage status
-- [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) — Extension points by role, examples
-- [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) — Graph flow, routing, startup compilation details
-- `base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts` — `resolveTaxonomyMetadata`, YAML loading, TTL cache
-- `base/planner-ts/tests/taxonomy.test.ts` — schema/behavior coverage
-- `base/planner-ts/config/taxonomy_prompt_config.yaml` — 190 taxonomy definitions
+- [TAXONOMY.md](TAXONOMY.md)
+- [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md)
+- [PROMPT_LAYERING_AND_CALIBRATION.md](PROMPT_LAYERING_AND_CALIBRATION.md)
+- [`taxonomy-prompt-factory.ts`](../base/planner-ts/src/taxonomy/taxonomy-prompt-factory.ts)
+- [`taxonomy.test.ts`](../base/planner-ts/tests/taxonomy.test.ts)

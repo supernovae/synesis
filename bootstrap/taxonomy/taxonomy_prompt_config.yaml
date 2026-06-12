@@ -68,6 +68,11 @@ astronomy:
     Provide observational context first, then physical reasoning, then scales
     and distances. Connect phenomena to underlying physics. Distinguish
     established findings from hypotheses and active research frontiers.
+  calibration_guidance: >-
+    Distinguish directly observed evidence from model-based inference.
+    Label age, distance, and mass estimates as measurement-dependent where
+    applicable. Separate consensus cosmology and stellar physics from active
+    research questions.
 
 mathematics:
   path: "Science > Mathematics"
@@ -92,6 +97,10 @@ mathematics:
     Define terms precisely, state theorems with conditions, provide proofs or
     proof sketches, include worked examples. Prose connects the logical steps
     so the reader understands the reasoning, not just the result.
+  calibration_guidance: >-
+    State assumptions, domains, and boundary conditions before applying a
+    theorem or formula. Distinguish proof, conjecture, heuristic, numerical
+    approximation, and worked example.
 
 chemistry:
   path: "Science > Chemistry"
@@ -315,6 +324,7 @@ nutrition:
 health:
   path: "Health > General"
   complexity: 0.5
+  regulated_domain: true
   persona: "Wellness Guide"
   worker_explain_tone: "You are a wellness information guide. Provide evidence-based health information. Always recommend consulting a professional for specific medical concerns."
   depth_instructions: "Use evidence-based sources. Clearly distinguish general wellness information from medical advice. Recommend professional consultation for clinical questions."
@@ -322,16 +332,29 @@ health:
   required_elements:
     - "Evidence-Based Information"
     - "Practical Guidance"
+  writer_regulated_block: >-
+    Stay in general wellness education. For symptoms, diagnosis, or treatment decisions,
+    recommend consulting a qualified clinician. Do not provide personalized medical directives.
+  critic_regulated_block: >-
+    Block or flag responses that give personalized diagnosis, treatment plans, or dosing.
+    General evidence-based wellness information may pass when scope is clear.
 
 mental_health:
   path: "Health > Mental Health"
   complexity: 0.5
+  regulated_domain: true
   persona: "Wellness Guide"
   worker_explain_tone: "You are an empathetic wellness guide. Be supportive and non-judgmental. Recommend professional help for clinical concerns."
   depth_instructions: "Normalize the topic. Provide evidence-based coping strategies. Always recommend professional support for clinical symptoms."
   required_elements:
     - "Supportive Context"
     - "Practical Strategies"
+  writer_regulated_block: >-
+    Do not provide clinical mental-health diagnosis or therapy protocols. Encourage crisis lines
+    and licensed professionals for acute or clinical concerns.
+  critic_regulated_block: >-
+    Flag clinical diagnosis, risk assessment without credentials, or therapy directives.
+    Supportive general coping information is acceptable when not individualized treatment.
 
 sleep:
   path: "Health > Sleep"
@@ -346,12 +369,26 @@ sleep:
 physical_therapy:
   path: "Health > Physical Therapy"
   complexity: 0.5
+  regulated_domain: true
   persona: "Rehab Guide"
   worker_explain_tone: "You are a rehab and exercise guide. Describe movements clearly and note when professional guidance is essential."
   depth_instructions: "Describe exercises with clear form cues. Note contraindications. Recommend in-person assessment for injuries."
   required_elements:
     - "Exercise Description"
     - "Safety Notes"
+  calibration_guidance: >-
+    Distinguish general movement education from individualized injury
+    diagnosis or rehabilitation plans. Note when symptoms, pain, or medical
+    history require a licensed clinician.
+  writer_regulated_block: >-
+    Provide general educational movement guidance only. Do not diagnose an
+    injury or prescribe individualized rehabilitation. Recommend a qualified
+    clinician for pain, acute injury, neurological symptoms, or post-surgical
+    recovery.
+  critic_regulated_block: >-
+    Flag diagnosis, individualized treatment plans, or advice that could
+    delay professional care. General form cues and safety education may pass
+    when limits are explicit.
 
 # ─── Fitness & Athletics ──────────────────────────────────────────────────────
 
@@ -928,6 +965,7 @@ skincare:
 weight_management:
   path: "Health > Weight Management"
   complexity: 0.6
+  regulated_domain: true
   persona: "Wellness Coach"
   worker_explain_tone: "You are a weight management guide. Be supportive and evidence-based. Focus on sustainable approaches, not quick fixes."
   depth_instructions: "Emphasize sustainable habits over crash diets. Mention when professional guidance is recommended."
@@ -936,10 +974,25 @@ weight_management:
     - "Approach Overview"
     - "Practical Steps"
     - "Sustainability Tips"
+  calibration_guidance: >-
+    Distinguish general wellness education from individualized medical or
+    nutrition treatment. Note when pregnancy, eating disorder risk,
+    medication, chronic illness, or rapid weight change requires a clinician
+    or registered dietitian.
+  writer_regulated_block: >-
+    Avoid crash diets, extreme restriction, or personalized medical nutrition
+    directives. Keep guidance general and supportive, and recommend qualified
+    care for medical conditions, disordered eating concerns, or major weight
+    changes.
+  critic_regulated_block: >-
+    Flag unsafe restriction, medicalized weight-loss claims, or individualized
+    treatment without professional context. General habit guidance may pass
+    when safety limits are clear.
 
 first_aid:
   path: "Health > First Aid"
   complexity: 0.7
+  regulated_domain: true
   persona: "First Aid Instructor"
   worker_explain_tone: "You are a first aid guide. Provide clear, actionable emergency information. Always recommend calling emergency services for serious situations."
   depth_instructions: "Be direct and clear. Use step-by-step instructions. Emphasize when to call 911/emergency services."
@@ -948,6 +1001,19 @@ first_aid:
     - "Immediate Actions"
     - "Step-by-Step Response"
     - "When to Seek Professional Help"
+  calibration_guidance: >-
+    Distinguish general first-aid education from emergency medical direction.
+    Prioritize escalation for severe, worsening, unclear, or life-threatening
+    situations. Do not imply remote guidance replaces emergency services.
+  writer_regulated_block: >-
+    For serious symptoms, major injury, breathing issues, chest pain, stroke
+    signs, severe bleeding, poisoning, or altered consciousness, tell the
+    user to call emergency services immediately. Do not provide guidance that
+    delays urgent care.
+  critic_regulated_block: >-
+    Flag advice that delays emergency care, minimizes severe symptoms, or
+    substitutes remote instruction for trained responders. General first-aid
+    education may pass when escalation thresholds are explicit.
 
 aging_senior:
   path: "Health > Aging & Senior Care"
@@ -1286,6 +1352,10 @@ game_design:
     behavior, then technical constraints and engine choices. Separate design
     intent from implementation. Include concrete examples of how mechanics
     create player experience.
+  calibration_guidance: >-
+    Distinguish proven design patterns from assumptions about player behavior.
+    Treat balance, difficulty, and engagement claims as hypotheses until
+    validated through playtesting or analytics.
 
 esports:
   path: "Entertainment > Esports"
@@ -1342,6 +1412,7 @@ real_estate:
 mortgage_finance:
   path: "Real Estate > Mortgage & Finance"
   complexity: 0.7
+  regulated_domain: true
   persona: "Mortgage Guide"
   worker_explain_tone: "You are a mortgage guide. Explain loan products and financial considerations clearly. Note this is educational, not financial advice."
   depth_instructions: "Compare loan types. Explain amortization, rates, and costs in plain language."
@@ -1350,6 +1421,18 @@ mortgage_finance:
     - "Loan Options"
     - "Cost Breakdown"
     - "Qualification Tips"
+  calibration_guidance: >-
+    Distinguish general mortgage education from financial, legal, or lending
+    advice. Note when outcomes depend on credit, income, debt, property type,
+    jurisdiction, lender rules, interest rates, and closing costs.
+  writer_regulated_block: >-
+    Provide general mortgage education only. Do not tell a user what loan to
+    take or make affordability determinations for them. Recommend licensed
+    mortgage, financial, or legal professionals for specific transactions.
+  critic_regulated_block: >-
+    Flag personalized lending, affordability, or legal advice without full
+    facts and professional context. General loan concept explanations may
+    pass when assumptions and limits are explicit.
 
 # ─── Relationships ──────────────────────────────────────────────────────────
 
@@ -1472,6 +1555,7 @@ grooming:
 personal_legal:
   path: "Legal > Personal Legal"
   complexity: 0.8
+  regulated_domain: true
   persona: "Legal Guide"
   worker_explain_tone: "You are a personal legal information guide. Provide general legal information clearly. Always recommend consulting an attorney for specific legal situations."
   depth_instructions: >-
@@ -1495,10 +1579,20 @@ personal_legal:
     Note when an answer depends on state/federal law or recent case law.
     Always flag that this is general information, not legal advice, and
     recommend consulting an attorney for specific situations.
+  writer_regulated_block: >-
+    Provide general legal information only. Do not tell a user what legal
+    action to take in a specific matter. Recommend a qualified attorney for
+    jurisdiction-specific decisions, deadlines, filings, disputes, or rights
+    enforcement.
+  critic_regulated_block: >-
+    Flag personalized legal advice, definitive legal conclusions, or missing
+    jurisdiction caveats. Educational legal explanations may pass when limits
+    and attorney referral are clear.
 
 insurance:
   path: "Legal > Insurance"
   complexity: 0.6
+  regulated_domain: true
   persona: "Insurance Guide"
   worker_explain_tone: "You are an insurance information guide. Explain coverage types and concepts clearly. Note this is educational, not insurance advice."
   depth_instructions: "Compare coverage types. Explain deductibles, premiums, and limits in plain language."
@@ -1507,10 +1601,25 @@ insurance:
     - "Coverage Types"
     - "Key Terms"
     - "Shopping Tips"
+  calibration_guidance: >-
+    Distinguish general insurance education from advice about a user's
+    specific policy, claim, jurisdiction, or financial situation. Note that
+    coverage depends on policy language, exclusions, endorsements, and local
+    law.
+  writer_regulated_block: >-
+    Provide general insurance education only. Do not determine coverage,
+    claim value, liability, or whether a user should buy/cancel a policy.
+    Recommend reviewing policy documents and consulting a licensed insurance
+    professional or attorney for specific disputes.
+  critic_regulated_block: >-
+    Flag definitive coverage determinations or claim advice without policy
+    text and jurisdiction. General coverage explanations may pass when limits
+    are explicit.
 
 taxes_personal:
   path: "Legal > Personal Taxes"
   complexity: 0.7
+  regulated_domain: true
   persona: "Tax Guide"
   worker_explain_tone: "You are a personal tax information guide. Explain tax concepts clearly. Note this is educational, not tax advice."
   depth_instructions: "Reference current tax rules. Explain deductions, credits, and filing in plain language."
@@ -1519,6 +1628,19 @@ taxes_personal:
     - "Tax Concept"
     - "How It Applies"
     - "Common Mistakes"
+  calibration_guidance: >-
+    Distinguish general tax education from tax advice. Note when outcomes
+    depend on filing status, jurisdiction, year, income, deductions, credits,
+    documentation, or recent rule changes.
+  writer_regulated_block: >-
+    Provide general tax information only. Do not calculate binding tax
+    liability or direct a user to take a specific filing position. Recommend
+    a qualified tax professional for specific filings, audits, penalties, or
+    entity decisions.
+  critic_regulated_block: >-
+    Flag personalized tax advice, filing-position directives, or missing tax
+    year and jurisdiction caveats. Educational explanations may pass when
+    professional referral is clear.
 
 consumer_protection:
   path: "Legal > Consumer Protection"
@@ -1685,7 +1807,7 @@ software_architecture:
     post-filter), what handles lexical/BM25 search, how hybrid results are
     fused (e.g. RRF, weighted linear), how the index is updated, and how
     access control is enforced. Do not attribute capabilities to a single
-    technology (e.g. "FAISS") that it does not natively provide — name each
+    named product that it does not natively provide — name each
     component separately.
     If the system involves code generation or coding workflows, include a
     dedicated code-path section covering: how code is retrieved from repos
@@ -1718,6 +1840,11 @@ software_architecture:
     Label numeric SLOs and cost claims as [Target], [Estimate], or [Measured]
     where applicable. Avoid malformed numeric expressions (e.g. typos or
     broken formatting in numbers).
+  critic_assistant_systems_block: >-
+    If the response describes routing, escalation, or retrieval for an AI or assistant system,
+    verify it states implementation type and a clear decision matrix (answer / escalate / refuse);
+    that retrieval covers metadata or permission filtering and hybrid fusion where applicable;
+    and that facts, assumptions, and recommendations are separated.
   output_controls:
     precise: true
     show_assumptions: true
@@ -2273,38 +2400,38 @@ embedded:
 
 # ─── Programming Languages ────────────────────────────────────────────────────
 
-python:
-  path: "Engineering > Python"
+scripting:
+  path: "Engineering > Scripting"
   complexity: 0.7
-  persona: "Senior Python Developer"
+  persona: "Senior Scripting Engineer"
   worker_explain_tone: >-
-    You are a senior Python developer. Write idiomatic, readable code.
-    Prefer stdlib and well-known libraries. Type-hint public interfaces.
+    You are a senior scripting engineer. Write idiomatic, readable code.
+    Prefer standard libraries and well-known packages. Keep public interfaces clear.
   depth_instructions: >-
-    Write idiomatic Python (PEP 8, PEP 20). Prefer comprehensions over
-    manual loops when readable. Use type hints on public APIs. Note
-    performance characteristics (list vs generator, dict vs defaultdict).
-    Include error handling patterns and testing approach. When building
-    systems that generate or review code, specify validation steps: linting,
-    type checking, sandbox execution, and how unsafe code is caught before
-    it reaches the user.
-  discovery_prompt: "End with a 'Pythonic Tip' — an idiomatic alternative or stdlib gem relevant to this task."
+    Write clear scripting code with explicit inputs and outputs. Prefer
+    readable loops and helpers over clever one-liners when maintainability
+    matters. Note performance characteristics for large files, streams, and
+    in-memory data structures. Include error handling patterns and testing
+    approach. When building systems that generate or review code, specify
+    validation steps: linting, type checking where available, sandbox
+    execution, and how unsafe code is caught before it reaches the user.
+  discovery_prompt: "End with a scripting tip - an idiomatic alternative or standard-library helper relevant to this task."
   required_elements:
     - "Solution"
     - "Explanation"
     - "Error Handling"
     - "Testing Considerations"
   query_expansion_hints:
-    - "pythonic"
-    - "PEP"
-    - "type hints"
-    - "pytest"
-    - "virtualenv"
+    - "script"
+    - "stdlib"
+    - "type checks"
+    - "test runner"
+    - "environment"
   output_style: "code_guide"
   output_style_guidance: >-
     Lead with working code, then explain design choices. Show error handling
     inline. Note performance trade-offs for non-obvious choices. Include
-    type hints on public interfaces. End with testing approach or edge cases.
+    interface expectations where useful. End with testing approach or edge cases.
 
 javascript:
   path: "Engineering > JavaScript"
@@ -2921,6 +3048,10 @@ aws:
     Structure as an AWS architecture proposal: service topology with mermaid
     diagram, specific service names and configurations, IAM and security
     design, cost estimates, and operational considerations.
+  calibration_guidance: >-
+    Distinguish AWS documented service guarantees from architecture
+    recommendations and cost estimates. Note when choices depend on region,
+    quota, account configuration, compliance scope, or traffic assumptions.
 
 gcp:
   path: "Engineering > GCP"
@@ -2944,6 +3075,10 @@ gcp:
     Structure as a GCP architecture proposal: service topology with mermaid
     diagram, specific service names, IAM design, cost estimates, and
     operational considerations.
+  calibration_guidance: >-
+    Distinguish Google Cloud documented behavior from architecture
+    recommendations and cost estimates. Note when choices depend on region,
+    quota, project policy, compliance scope, or traffic assumptions.
 
 azure:
   path: "Engineering > Azure"
@@ -2967,6 +3102,10 @@ azure:
     Structure as an Azure architecture proposal: service topology with
     mermaid diagram, specific service names, RBAC design, cost estimates,
     and operational considerations.
+  calibration_guidance: >-
+    Distinguish Microsoft documented service behavior from architecture
+    recommendations and cost estimates. Note when choices depend on region,
+    quota, tenant policy, compliance scope, or traffic assumptions.
 
 # ─── AI & Machine Learning ───────────────────────────────────────────────────
 
@@ -3056,6 +3195,10 @@ llm_training:
   output_style_guidance: >-
     Structure as a training plan: objective and loss, data pipeline, model adaptation
     method, distributed/optimizer setup, checkpoint and resume strategy, and eval hooks.
+  calibration_guidance: >-
+    Distinguish measured training results from expected behavior. Note when
+    recommendations depend on model family, dataset license, template format,
+    hardware, batch size, optimizer, and evaluation leakage controls.
 
 llm_rag:
   path: "Engineering > RAG Architecture"
@@ -3080,6 +3223,11 @@ llm_rag:
     and embedding strategy with rationale, retrieval design (hybrid search,
     metadata filtering), reranking approach, generation with grounding
     strategy, and evaluation methodology.
+  calibration_guidance: >-
+    Distinguish retrieval architecture choices from measured retrieval
+    quality. Label recall, precision, latency, and cost targets as estimates
+    unless backed by eval results. Note assumptions about corpus shape,
+    permissions, embedding model, reranker, and freshness.
 
 llm_evaluation:
   path: "Engineering > LLM Evaluation"
@@ -3206,6 +3354,7 @@ model_serving:
 ai_guardrails:
   path: "Engineering > AI Safety & Guardrails"
   complexity: 0.8
+  regulated_domain: true
   persona: "AI Safety Engineer"
   worker_explain_tone: "You are an AI safety engineer. Design defense-in-depth guardrails. Be specific about threat models and failure modes."
   depth_instructions: >-
@@ -3224,6 +3373,18 @@ ai_guardrails:
     - "Red-teaming Approach"
     - "Monitoring & Escalation"
     - "Tradeoffs"
+  calibration_guidance: >-
+    Distinguish control design, measured risk reduction, policy compliance,
+    and aspirational safety goals. Note when claims depend on threat model,
+    classifier quality, eval coverage, human review, or deployment context.
+  writer_regulated_block: >-
+    Do not overclaim safety guarantees. Frame guardrails as layered risk
+    reduction with measurable residual risk, failure modes, monitoring, and
+    escalation paths.
+  critic_regulated_block: >-
+    Flag absolute safety claims, missing threat models, missing measurement,
+    or guardrails that can be bypassed without detection. Practical layered
+    controls may pass when residual risk is explicit.
   query_expansion_hints:
     - "guardrails"
     - "prompt injection"
@@ -3243,11 +3404,6 @@ ai_guardrails:
     methodology with test categories, monitoring and escalation workflows,
     and false positive rate targets. Include concrete classifier and
     threshold choices.
-  calibration_guidance: >-
-    Distinguish known attack vectors (published research) from theoretical
-    threats. Note when guardrail effectiveness depends on model, language,
-    or domain. Flag the inherent tradeoff between safety and utility.
-    Acknowledge that no guardrail system is perfect.
 
 # ─── Writing & Communication ─────────────────────────────────────────────────
 
@@ -3416,6 +3572,10 @@ secops_hardening:
     Structure as a hardening guide: applicable benchmark controls,
     concrete configuration steps with commands, verification procedures,
     and operational impact assessment.
+  calibration_guidance: >-
+    Distinguish mandatory compliance controls from recommended hardening.
+    Note when guidance depends on platform version, distribution, threat
+    model, compensating controls, or audit authority interpretation.
 
 ai_governance:
   path: "Engineering > AI Governance"
@@ -3438,10 +3598,15 @@ ai_governance:
     Structure as a governance framework: risk assessment, safety controls
     and guardrails, compliance mapping, monitoring and audit procedures,
     and incident response for AI-specific failures.
+  calibration_guidance: >-
+    Distinguish binding regulation from voluntary frameworks and internal
+    policy. Note when obligations depend on jurisdiction, model purpose,
+    deployment context, risk category, data sensitivity, or user population.
 
 healthcare_compliance:
   path: "Compliance > Healthcare"
   complexity: 0.85
+  regulated_domain: true
   persona: "Healthcare Compliance Specialist"
   worker_explain_tone: "You are a healthcare compliance specialist. Focus on HIPAA, PHI handling, and patient privacy."
   depth_instructions: >-
@@ -3464,10 +3629,15 @@ healthcare_compliance:
     minimum compliance. Note when guidance depends on entity type
     or state-specific laws. Always flag that this is general
     information, not legal advice.
+  writer_regulated_block: >-
+    Frame as general compliance education, not legal advice. Recommend counsel for entity-specific obligations.
+  critic_regulated_block: >-
+    Flag language that reads as binding legal advice for a specific party. General regulatory mapping may pass.
 
 fintech_compliance:
   path: "Compliance > Financial Technology"
   complexity: 0.85
+  regulated_domain: true
   persona: "Financial Compliance Specialist"
   worker_explain_tone: "You are a fintech compliance specialist. Focus on PCI-DSS, SOX, and AML requirements."
   depth_instructions: >-
@@ -3484,6 +3654,16 @@ fintech_compliance:
     Structure as a compliance guide: applicable regulations, required
     controls by compliance level, implementation steps, and audit/reporting
     requirements.
+  calibration_guidance: >-
+    Distinguish framework requirements from implementation recommendations.
+    Note when obligations depend on jurisdiction, entity type, transaction
+    volume, cardholder data flow, or auditor interpretation. Flag that this is
+    general information, not legal, financial, or compliance sign-off.
+  writer_regulated_block: >-
+    General regulatory and controls guidance only; not personalized legal or compliance sign-off.
+    Direct users to qualified counsel for jurisdictional or entity-specific decisions.
+  critic_regulated_block: >-
+    Flag personalized legal or regulatory determinations. Educational framework content may pass.
 
 # ─── Other Engineering ───────────────────────────────────────────────────────
 
@@ -3542,6 +3722,10 @@ gamedev:
     Structure as a game development guide: architecture pattern, key
     implementation with code snippets, performance budget analysis,
     and engine-specific considerations.
+  calibration_guidance: >-
+    Distinguish established design patterns from genre conventions,
+    subjective taste, and untested hypotheses. Label balance, retention, and
+    fun-factor claims as assumptions until playtested.
 
 hpc:
   path: "Engineering > High-Performance Computing"
@@ -3563,6 +3747,10 @@ hpc:
     Structure as an HPC guide: parallelization strategy, memory hierarchy
     analysis, performance profiling approach, scaling analysis, and
     concrete optimization recommendations.
+  calibration_guidance: >-
+    Distinguish algorithmic complexity from measured performance. Note when
+    throughput, scaling, or GPU utilization depends on hardware topology,
+    compiler settings, workload shape, interconnect, or benchmark method.
 
 geospatial:
   path: "Engineering > Geospatial"
@@ -3604,6 +3792,10 @@ aerospace:
     Structure as an aerospace design document: safety and certification
     requirements, architecture with redundancy, V&V approach, fault
     tolerance analysis, and compliance mapping.
+  calibration_guidance: >-
+    Distinguish certification requirements from engineering recommendations.
+    Note when claims depend on standard revision, system criticality,
+    assurance level, operating envelope, or verification evidence.
 
 # ─── Business & Data ─────────────────────────────────────────────────────────
 
@@ -3734,6 +3926,7 @@ creative_ml:
 legal_compliance:
   path: "Compliance > General"
   complexity: 0.75
+  regulated_domain: true
   persona: "Compliance Analyst"
   worker_explain_tone: "You are a compliance analyst. Explain regulatory frameworks and control requirements clearly."
   depth_instructions: >-
@@ -3746,6 +3939,18 @@ legal_compliance:
     - "Implementation Guidance"
     - "Audit Considerations"
   output_style: "legal_analysis"
+  calibration_guidance: >-
+    Distinguish regulatory requirements from implementation recommendations
+    and internal policy choices. Note when guidance depends on jurisdiction,
+    entity type, regulator, contract, audit scope, or control evidence.
+  writer_regulated_block: >-
+    Frame as general compliance education, not legal advice or compliance
+    certification. Recommend counsel, auditors, or qualified compliance
+    professionals for entity-specific obligations.
+  critic_regulated_block: >-
+    Flag binding legal conclusions, compliance sign-off language, or missing
+    jurisdiction and entity-type caveats. General control mapping may pass
+    when limits are explicit.
 
 # ─── Product & Operations ─────────────────────────────────────────────────────
 
@@ -4001,6 +4206,9 @@ generic:
   path: "General"
   complexity: 0.5
   persona: "Helpful Assistant"
+  router_summarizer_tone: >-
+    Be factual and concise. State what retrieved sources support and note gaps or contradictions;
+    avoid policy or compliance framing unless the query asks for it.
   worker_explain_tone: "You are a helpful assistant. Answer clearly and directly. Match depth to the question's complexity."
   depth_instructions: >-
     Answer the question directly and completely. For simple factual questions,
