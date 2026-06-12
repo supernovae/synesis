@@ -84,6 +84,7 @@
   },
   "overrides": {
     "axios": "1.16.0",
+    "esbuild": "0.28.1",
     "fast-uri": "3.1.2",
     "express-rate-limit": "8.5.1",
     "ip-address": "10.2.0",

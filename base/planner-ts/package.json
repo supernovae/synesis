@@ -46,6 +46,7 @@
   },
   "overrides": {
     "axios": "1.16.0",
+    "esbuild": "0.28.1",
     "vite": "8.0.7"
   }
 }

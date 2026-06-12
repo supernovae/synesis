@@ -16,6 +16,7 @@
   ],
   "overrides": {
     "axios": "1.16.0",
+    "esbuild": "0.28.1",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
     "hono": "4.12.24",
