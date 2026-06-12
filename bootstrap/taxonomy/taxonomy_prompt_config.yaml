@@ -1848,7 +1848,7 @@ software_architecture:
   output_controls:
     precise: true
     show_assumptions: true
-    clarify_first: false
+    clarify_first: true
 
 # ─── Engineering: Cloud Architecture ──────────────────────────────────────────
 
@@ -1905,7 +1905,7 @@ cloud:
   output_controls:
     precise: true
     show_assumptions: true
-    clarify_first: false
+    clarify_first: true
 
 # ─── Engineering: Kubernetes & Container Orchestration ────────────────────────
 
