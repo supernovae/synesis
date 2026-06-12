@@ -28,6 +28,7 @@ import { loadConfig } from "./config.js";
 import { budgetSpanMetadata } from "./budgets.js";
 import { maybePublishKnowledgeGap } from "./knowledge-backlog.js";
 import { refreshPlannerArchitectureMediation } from "./context/architecture-mediation.js";
+import { redactOperationalError, summarizeOperationalError } from "./security/error-redaction.js";
 
 let _retrievalClient: RetrievalClient | undefined;
 
@@ -260,9 +261,11 @@ async function llmDrivenPlanner(state: GraphState): Promise<GraphState> {
     plannerResult = await runLlmPlanner(state);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: detail, time: Date.now() }) + "\n");
+    const sanitized = redactOperationalError(detail);
+    const summary = summarizeOperationalError(detail);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "llmDrivenPlanner failed, falling back to deterministic", error: sanitized, error_summary: summary, time: Date.now() }) + "\n");
     const fallbackCap = computeAdaptivePlannerCap(loadConfig().SYNESIS_PLANNER_TS_PLANNER_MAX_TOKENS, state);
-    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: detail, ...budgetSpanMetadata(fallbackCap, undefined) } });
+    collector.endSpan("planner", { outcome: "llm_fallback_to_deterministic", metadata: { error: summary, ...budgetSpanMetadata(fallbackCap, undefined) } });
     return deterministicPlanner(state);
   }
   const { result, clarification } = plannerResult;

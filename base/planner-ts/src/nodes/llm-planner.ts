@@ -22,6 +22,7 @@ import { getPlannerSystemPromptAppend } from "../taxonomy/taxonomy-prompt-factor
 import { getPlannerDecompositionRules } from "../taxonomy/vertical-prompts.js";
 import { getOntologySnapshot } from "../ontology/merge-plugins.js";
 import { composePlannerPrompt } from "../prompt-composer.js";
+import { redactOperationalError, summarizeOperationalError } from "../security/error-redaction.js";
 
 const PlannerOutputSchema = z.object({
   steps: z.array(z.object({
@@ -323,24 +324,37 @@ async function runAmbiguityScorer(
     };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    const sanitized = redactOperationalError(detail);
     process.stderr.write(JSON.stringify({
       level: 30,
       msg: "ambiguity scorer unavailable; using planner-only ambiguity checks",
-      error: detail,
+      error: sanitized,
       time: Date.now(),
     }) + "\n");
-    return { error: detail, latencyMs: Date.now() - started };
+    return { error: summarizeOperationalError(detail), latencyMs: Date.now() - started };
   }
 }
 
 function isStructuredOutputCompatibilityError(detail: string): boolean {
   const lowered = detail.toLowerCase();
-  if (/^llm http (400|404|415|422)/i.test(detail)) return true;
-  return (
+  if (
+    lowered.includes("api key") ||
+    lowered.includes("unauthorized") ||
+    lowered.includes("forbidden") ||
+    lowered.includes("authentication") ||
+    lowered.includes("invalid-argument")
+  ) {
+    return false;
+  }
+  const compatibilityHint =
     lowered.includes("response_format") ||
     lowered.includes("json_schema") ||
+    lowered.includes("structured output") ||
     lowered.includes("unsupported") ||
-    lowered.includes("not support")
+    lowered.includes("not support");
+  if (/^llm http (400|404|415|422)/i.test(detail)) return compatibilityHint;
+  return (
+    compatibilityHint
   );
 }
 
@@ -645,11 +659,12 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       if (!isStructuredOutputCompatibilityError(detail)) throw err;
+      const sanitized = redactOperationalError(detail);
       process.stderr.write(
         JSON.stringify({
           level: 30,
           msg: "planner structured-output mode unsupported; retrying with json_object response_format",
-          error: detail,
+          error: sanitized,
           time: Date.now(),
         }) + "\n",
       );
@@ -660,19 +675,48 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    process.stderr.write(JSON.stringify({ level: 40, msg: "llm planner call failed, using deterministic fallback", error: detail, time: Date.now() }) + "\n");
+    const sanitized = redactOperationalError(detail);
+    const summary = summarizeOperationalError(detail);
+    process.stderr.write(JSON.stringify({ level: 40, msg: "llm planner call failed, using deterministic fallback", error: sanitized, error_summary: summary, time: Date.now() }) + "\n");
+    const fallbackPlan = {
+      steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
+      open_questions: [],
+      assumptions: ["LLM planner call failed — using deterministic plan"],
+      confidence: 0.5,
+      reasoning: `LLM planner unavailable: ${summary}`,
+    };
+    const explicitGaps = detectExplicitUncertaintyGaps(state.task_description ?? "");
+    const mergedAmbiguity = mergeAmbiguityAssessment(undefined, explicitGaps);
+    const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
+    const clarify = shouldClarify(state, fallbackPlan, mergedAmbiguity, ambiguityThreshold, {
+      parseFallback: true,
+    });
+    const decisionReason = clarify
+      ? explicitGaps.length >= 3
+        ? "clarify:explicit-user-uncertainty"
+        : "clarify:planner-call-fallback-ambiguity"
+      : "proceed:planner-call-fallback";
+    process.stderr.write(JSON.stringify({
+      level: 30,
+      msg: "planner ambiguity decision",
+      decision: clarify ? "clarify" : "proceed",
+      reason: decisionReason,
+      ambiguity_level: mergedAmbiguity?.ambiguity_level ?? null,
+      material_gaps: mergedAmbiguity?.material_gaps.length ?? 0,
+      explicit_user_unknowns: explicitGaps.length,
+      can_proceed_without_clarification: mergedAmbiguity?.can_proceed_without_clarification ?? null,
+      scorer_latency_ms: null,
+      time: Date.now(),
+    }) + "\n");
     return {
       result: {
-        plan: {
-          steps: [{ id: 1, action: `Answer: ${task}`, dependencies: [] }],
-          open_questions: [],
-          assumptions: ["LLM planner call failed — using deterministic plan"],
-          confidence: 0.5,
-          reasoning: `LLM planner unavailable: ${detail}`,
-        },
+        plan: fallbackPlan,
         usage: ZERO_USAGE,
         effectiveMaxTokens,
+        ambiguity_assessment: mergedAmbiguity,
+        ambiguity_decision_reason: decisionReason,
       },
+      clarification: clarify ? buildClarificationQuestion(state, fallbackPlan, mergedAmbiguity) : undefined,
     };
   }
 

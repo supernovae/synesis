@@ -51,14 +51,12 @@ function countMatches(text: string, re: RegExp): number {
 
 export function buildDomainProfile(text: string): DomainProfile {
   const scored: WeightedDomain[] = [];
-  let totalWeight = 0;
 
   for (const pattern of DOMAIN_PATTERNS) {
     const hits = countMatches(text, pattern.re);
     if (hits === 0) continue;
     const weight = pattern.baseWeight * Math.min(hits, 5) / 3;
     scored.push({ key: pattern.key, weight });
-    totalWeight += weight;
   }
 
   if (scored.length === 0) {
@@ -68,7 +66,15 @@ export function buildDomainProfile(text: string): DomainProfile {
     };
   }
 
-  const normalized = scored
+  const hasSpecificDomain = scored.some((domain) => domain.key !== "general");
+  const adjusted = hasSpecificDomain
+    ? scored.map((domain) => domain.key === "general"
+      ? { ...domain, weight: domain.weight * 0.25 }
+      : domain)
+    : scored;
+  const totalWeight = adjusted.reduce((sum, domain) => sum + domain.weight, 0);
+
+  const normalized = adjusted
     .map((d) => ({ key: d.key, weight: totalWeight > 0 ? d.weight / totalWeight : 0 }))
     .sort((a, b) => b.weight - a.weight);
 

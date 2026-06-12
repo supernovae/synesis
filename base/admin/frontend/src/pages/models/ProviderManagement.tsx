@@ -255,7 +255,23 @@ export default function ProviderManagement() {
                   v.api_key_configured === null;
                 const isCustomized = !!v.config;
                 return (
-                  <tr key={v.key} className={!v.enabled ? "opacity-50" : ""}>
+                  <tr
+                    key={v.key}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openEdit(v)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openEdit(v);
+                      }
+                    }}
+                    title={`Edit ${v.label} provider settings`}
+                    className={[
+                      "cursor-pointer transition-colors hover:bg-blue-50/60 focus:bg-blue-50/80 focus:outline-none dark:hover:bg-blue-950/20 dark:focus:bg-blue-950/30",
+                      !v.enabled ? "opacity-50" : "",
+                    ].join(" ")}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Icon className="h-4 w-4 text-gray-400" />
@@ -328,15 +344,22 @@ export default function ProviderManagement() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
-                          onClick={() => openEdit(v)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(v);
+                          }}
+                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-gray-500 hover:bg-blue-100 hover:text-blue-700 dark:text-gray-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
                           title="Edit provider config"
                         >
                           <Pencil className="h-3.5 w-3.5" />
+                          Edit
                         </button>
                         {v.is_custom ? (
                           <button
-                            onClick={() => handleDelete(v.key)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(v.key);
+                            }}
                             className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-800"
                             title="Delete custom provider"
                           >
@@ -345,7 +368,10 @@ export default function ProviderManagement() {
                         ) : (
                           isCustomized && (
                             <button
-                              onClick={() => handleReset(v.key)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReset(v.key);
+                              }}
                               className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-amber-600 dark:hover:bg-gray-800"
                               title="Reset to defaults"
                             >

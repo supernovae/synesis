@@ -19,6 +19,75 @@ describe("runLlmPlanner parse fallback", () => {
     chatCompletionMock.mockReset();
   });
 
+  it("does not retry structured output when the planner provider returns an auth error", async () => {
+    chatCompletionMock.mockRejectedValueOnce(
+      new Error('LLM HTTP 400: {"code":"invalid-argument","error":"Incorrect API key provided: xa***ME."}'),
+    );
+
+    const out = await runLlmPlanner({
+      task_description: "Summarize the deployment approach.",
+      difficulty: 0.3,
+      iteration_count: 0,
+      domain_profile: {
+        domains: [{ key: "cloud_infra", weight: 0.8 }],
+        frameCoherence: "focused",
+      },
+      taxonomy_metadata: {
+        output_controls: { clarify_first: false },
+      },
+    });
+
+    expect(chatCompletionMock).toHaveBeenCalledTimes(1);
+    expect(out.clarification).toBeUndefined();
+    expect(out.result.plan.assumptions).toContain("LLM planner call failed — using deterministic plan");
+    expect(out.result.plan.reasoning).toBe("LLM planner unavailable: LLM provider authentication failed");
+    expect(out.result.plan.reasoning).not.toContain("xa***ME");
+    expect(out.result.ambiguity_decision_reason).toBe("proceed:planner-call-fallback");
+  });
+
+  it("asks clarifying questions from explicit unknowns when the planner call fails", async () => {
+    chatCompletionMock.mockRejectedValueOnce(
+      new Error('LLM HTTP 400: {"code":"invalid-argument","error":"Incorrect API key provided: xa***ME."}'),
+    );
+
+    const out = await runLlmPlanner({
+      task_description: [
+        "I need help building a Go-based production job orchestration service for Kubernetes/OpenShift.",
+        "It should be lightweight but production-grade, horizontally scalable, multi-tenant, secure, durable, restart-safe, auditable, and capable of long workflows.",
+        "I am not sure about:",
+        "- expected scale",
+        "- persistence backend",
+        "- whether workflows are fixed or user-defined",
+        "- whether execution runs in API pods or workers",
+        "- whether the system needs strict tenant isolation",
+        "- whether job events need exact ordering and replay",
+        "- whether artifacts are small text blobs or large files",
+        "- whether cancellation must immediately stop external tools",
+        "- whether retries happen at job, phase, or step level",
+        "Please proceed with the architecture and implementation plan.",
+      ].join("\n"),
+      difficulty: 0.78,
+      iteration_count: 0,
+      domain_profile: {
+        domains: [
+          { key: "architecture", weight: 0.45 },
+          { key: "cloud_infra", weight: 0.35 },
+          { key: "backend_api", weight: 0.2 },
+        ],
+        frameCoherence: "composite",
+      },
+      taxonomy_metadata: {
+        output_controls: { clarify_first: false },
+      },
+    });
+
+    expect(chatCompletionMock).toHaveBeenCalledTimes(1);
+    expect(out.clarification).toBeDefined();
+    expect(out.clarification?.question).toContain("What should I assume about expected scale");
+    expect(out.clarification?.question).toContain("compact brief");
+    expect(out.result.ambiguity_decision_reason).toBe("clarify:explicit-user-uncertainty");
+  });
+
   it("uses scorer-led clarification and a scoping brief for broad explicit unknowns", async () => {
     chatCompletionMock
       .mockResolvedValueOnce({
@@ -365,6 +434,6 @@ describe("runLlmPlanner parse fallback", () => {
       },
     });
     expect(out.clarification).toBeDefined();
-    expect(out.result.ambiguity_scorer_error).toContain("scorer timeout");
+    expect(out.result.ambiguity_scorer_error).toBe("LLM provider request timed out");
   });
 });
