@@ -75,7 +75,7 @@ const VERIFICATION_DISCIPLINE_LINES = [
 ];
 
 const PYTHON_RUNTIME_DISCOVERY_LINES = [
-  "## .py runtime resolution (prefer deterministic fallback order)",
+  "## Python runtime resolution (.py deterministic fallback order)",
   "For .py commands, resolve runtime once in this order: `.venv/bin/python` -> `uv run` -> `python3` -> `python`.",
   "Do NOT loop on `python ...` retries after a not-found error. Pick one resolved runtime and continue.",
   "Preferred test form: `<resolved_python> -m pytest ...` (or `uv run pytest ...` when uv is available).",
