@@ -24,8 +24,8 @@ message snippets, response snippets, and trace context in the admin UI.
 
 | Error | Fix |
 |-------|-----|
-| **No feedback entries** | Feedback is stored in Open WebUI after users vote. Configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN`, run a chat, vote, then use **Sync from Open WebUI** (see [FEEDBACK_API.md](../FEEDBACK_API.md)). |
-| **403 from Open WebUI** | Use an Open WebUI admin API key or admin session token, not the `webui-api-key` used for Open WebUI → planner requests. |
+| **No feedback entries** | Feedback is stored in Open WebUI after users vote. Confirm Helm wired `SYNESIS_OPENWEBUI_URL` and the generated `synesis-openwebui-admin-token`, run a chat, vote, then use **Sync from Open WebUI** (see [FEEDBACK_API.md](../FEEDBACK_API.md)). |
+| **403 from Open WebUI** | Confirm the same `synesis-openwebui-admin-token` value exists in the WebUI, admin, and planner namespaces. It is separate from the `webui-api-key` used for Open WebUI → planner requests. |
 
 ---
 
@@ -115,7 +115,7 @@ Use these from scripts, curl, or custom tooling. See [FEEDBACK_API.md](../FEEDBA
 
 ### Feedback sync checklist
 
-- [ ] Configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on synesis-admin.
+- [ ] Confirm Helm generated `synesis-openwebui-admin-token` and mounted it into synesis-admin as `SYNESIS_OPENWEBUI_ADMIN_TOKEN`.
 - [ ] Run a chat in Open WebUI and submit a thumbs up/down evaluation.
 - [ ] Open synesis-admin → Chat Feedback → **Sync from Open WebUI**.
 - [ ] Review mirrored feedback rows in synesis-admin.

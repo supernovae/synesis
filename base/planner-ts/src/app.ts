@@ -2694,14 +2694,43 @@ export function buildApp(config: AppConfig): FastifyInstance {
         model: responseModel,
         system_fingerprint: SYSTEM_FINGERPRINT,
       });
+      const openWebUIContext = openWebUIContextFromConfig({
+        config,
+        chatId: openWebUIEventMetadata.chatId,
+        messageId: openWebUIEventMetadata.messageId,
+      });
+      const hasOpenWebUIBaseUrl = Boolean(config.SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL.trim());
+      const hasOpenWebUIEventToken = Boolean(config.SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN.trim());
+      const hasOpenWebUIChatId = Boolean(openWebUIEventMetadata.chatId?.trim());
+      const hasOpenWebUIMessageId = Boolean(openWebUIEventMetadata.messageId?.trim());
+      const shouldDiagnoseOpenWebUIStatus =
+        hasOpenWebUIBaseUrl ||
+        hasOpenWebUIEventToken ||
+        hasOpenWebUIChatId ||
+        hasOpenWebUIMessageId ||
+        emitLegacyStreamStatus;
+      if (
+        config.SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED &&
+        !openWebUIContext &&
+        shouldDiagnoseOpenWebUIStatus
+      ) {
+        request.log.warn(
+          {
+            authzTraceId,
+            hasBaseUrl: hasOpenWebUIBaseUrl,
+            hasEventToken: hasOpenWebUIEventToken,
+            hasChatId: hasOpenWebUIChatId,
+            hasMessageId: hasOpenWebUIMessageId,
+            metadataSources: openWebUIEventMetadata.sources,
+            legacyStreamStatusEnabled: emitLegacyStreamStatus,
+          },
+          "openwebui status side-channel unavailable",
+        );
+      }
       const statusContext = {
         logger: request.log,
         authzTraceId,
-        openWebUI: openWebUIContextFromConfig({
-          config,
-          chatId: openWebUIEventMetadata.chatId,
-          messageId: openWebUIEventMetadata.messageId,
-        }),
+        openWebUI: openWebUIContext,
         legacySse: {
           enabled: emitLegacyStreamStatus,
           response: reply.raw,

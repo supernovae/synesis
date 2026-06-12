@@ -107,7 +107,8 @@ spec:
             # ── Planner-TS / Yarn-TS telemetry scraping URLs ──
             - name: SYNESIS_PLANNER_TS_URL
               value: "http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080"
-            # Open WebUI feedback export (Chat Feedback → Sync from Open WebUI). Token: optional secret.
+            # Open WebUI feedback export (Chat Feedback → Sync from Open WebUI).
+            # Helm mounts the generated Synesis service token here.
             - name: SYNESIS_OPENWEBUI_URL
               value: "http://open-webui.synesis-webui.svc.cluster.local:8080"
             - name: SYNESIS_OPENWEBUI_ADMIN_TOKEN

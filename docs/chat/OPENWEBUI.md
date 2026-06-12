@@ -17,7 +17,7 @@ The Helm chart:
 3. Deploys the Synesis-built Open WebUI image with the API URL and key pre-injected as environment variables
 4. Exposes Open WebUI through your cluster edge (Ingress/Route/Gateway) with your configured hostname
 
-The chart also configures the Open WebUI production defaults Synesis depends on: Keycloak OIDC, disabled local signup/login, API keys enabled for admin feedback sync, default Synesis model pins, writable `STATIC_DIR`, writable cache/home volumes, disabled Open WebUI-native RAG/web-search/code execution features, and forwarded user/session headers to planner-ts.
+The chart also configures the Open WebUI production defaults Synesis depends on: Keycloak OIDC, disabled local signup/login, disabled user-created Open WebUI API keys, a Helm-generated Synesis service token for feedback sync and message status events, default Synesis model pins, writable `STATIC_DIR`, writable cache/home volumes, disabled Open WebUI-native RAG/web-search/code execution features, and forwarded user/session headers to planner-ts.
 
 On first visit, create an admin account. The `synesis-agent` model is available immediately.
 
@@ -101,7 +101,7 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 
 ## Phase/Status Display
 
-The planner streams answers as strict OpenAI-compatible SSE and posts visible phase updates to Open WebUI's native message event endpoint when chat/message metadata and an Open WebUI event token are configured. Open WebUI displays these in its **native** status area; do not use a custom Synesis Progress pipe. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details, production behavior, and troubleshooting.
+The planner streams answers through the OpenAI-compatible SSE path and emits visible phase updates for Open WebUI. Helm shares a Synesis-owned Open WebUI service token with planner-ts, synesis-admin, and Open WebUI so planner-ts can post native message events out-of-band. Synesis manifests also enable the Open WebUI in-stream status fallback consumed by the Synesis Open WebUI middleware. Open WebUI displays both paths in its **native** status area; do not use a custom Synesis Progress pipe. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details, production behavior, and troubleshooting.
 
 ## Configuration
 
@@ -224,7 +224,7 @@ The dev overlay includes `openwebui-direct-planner.yaml`, which pins Open WebUI 
 
 See [OPENWEBUI_ADMIN_GUIDE.md](OPENWEBUI_ADMIN_GUIDE.md) for admin dashboard import and feedback plugin setup.
 
-**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Chat Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](../FEEDBACK_API.md)). Deploy the Synesis-built `open-webui` image (`./scripts/build-images.sh --only open-webui`) so planner `run_id` is stored on assistant messages for trace correlation after sync.
+**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. Helm wires `SYNESIS_OPENWEBUI_URL` and the generated `synesis-openwebui-admin-token` into synesis-admin; use **Admin → Chat Feedback → Sync from Open WebUI** to mirror it into Synesis (see [FEEDBACK_API.md](../FEEDBACK_API.md)). Deploy the Synesis-built `open-webui` image (`./scripts/build-images.sh --only open-webui`) so the service-token bridge and planner trace correlation are available.
 
 ---
 

@@ -56,28 +56,28 @@ Status delivery is best-effort. A failed event post must not fail chat completio
 |---------|---------|---------|
 | `SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED` | `true` | Enables side-channel Open WebUI event posting when all required fields are present |
 | `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL` | empty | Open WebUI base URL, usually `http://open-webui.synesis-webui.svc.cluster.local:8080` |
-| `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN` | empty | Bearer token accepted by Open WebUI for the message event endpoint |
+| `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN` | empty in code; Helm-generated in Synesis installs | Synesis Open WebUI service token accepted only for message status events and feedback export |
 | `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TIMEOUT_MS` | `1500` | Per-event post timeout |
-| `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS` | `off` | Legacy in-band SSE status mode; keep off for strict OpenAI compatibility |
+| `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS` | `off` in code; `openwebui-data` in Synesis manifests | Open WebUI in-stream status fallback for deployments that do not configure the side-channel event token |
 
 Open WebUI metadata can arrive through request metadata or forwarded headers. Synesis uses:
 
 - `metadata.chat_id` or `conversation_id` / `X-OpenWebUI-Chat-Id`
 - `metadata.message_id` / `X-OpenWebUI-Message-Id`
 
-If either ID or the event token is missing, Synesis simply skips side-channel status events and still streams the assistant answer normally.
+If either ID or the event token is missing, Synesis skips side-channel status events and still streams the assistant answer normally. The planner logs `openwebui status side-channel unavailable` with redacted booleans for `hasBaseUrl`, `hasEventToken`, `hasChatId`, and `hasMessageId` so operators can tell why native event posting is not active.
 
-In Helm installs, `secrets.openwebuiAdminToken` creates `synesis-openwebui-admin-token` in both the admin and planner namespaces. The planner reads that secret as `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`.
+In Helm installs, `synesis-openwebui-admin-token` is generated on first install unless `secrets.openwebuiAdminToken` is supplied. Helm creates the same secret in the WebUI, admin, and planner namespaces. Open WebUI reads it as `SYNESIS_OPENWEBUI_SERVICE_TOKEN`, planner-ts reads it as `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and synesis-admin reads it as `SYNESIS_OPENWEBUI_ADMIN_TOKEN`.
 
 ### Legacy In-Band Status Mode
 
-`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the compatibility Open WebUI data-event mode for local debugging or deployments that cannot use the side-channel event endpoint. In that mode planner-ts may emit:
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the compatibility Open WebUI data-event mode for local debugging or deployments that cannot use the side-channel event endpoint. Synesis Helm/base manifests enable this fallback so phase display still works if side-channel metadata is missing. In that mode planner-ts may emit:
 
 ```text
 data: {"event":{"type":"status","data":{"description":"Gathering evidence...","done":false,"hidden":false}}}
 ```
 
-Leave `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS` unset or set to `off` for strict OpenAI-compatible behavior.
+The Synesis Open WebUI middleware consumes these frames and forwards them to Open WebUI's event emitter; they should not appear in the final assistant text. Leave `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS` unset or set to `off` only for direct, strict OpenAI-compatible planner clients that are not going through Synesis Open WebUI.
 
 ---
 
@@ -197,7 +197,7 @@ Native status events are posted to Open WebUI's message event endpoint when plan
 - `data.hidden`: `false` for visible Synesis phases
 - `data.detail`: optional short subtext
 
-Legacy in-band status events are only expected when `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` is enabled.
+In Synesis Helm/base deployments, in-band status events are expected because `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` is enabled as a fallback. Direct planner deployments can disable it for strict OpenAI-compatible SSE.
 
 ### Visible Plan Steps (Knowledge Deep-Dives)
 
@@ -209,11 +209,12 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 
 **Unified pipeline phases:** Graph phases are node-driven, and retrieval subphases are emitted only around real retrieval work. The typical sequence is "Preparing request" -> "Classifying task and routing workflow" -> "Building execution plan" -> "Validating plan" -> "Retrieving relevant context" -> "Synthesizing response" -> "Done". If RAG/web retrieval runs, users may also see graph, web, and ranking status updates.
 
-**Production behavior:** Use Open WebUI's OpenAI-compatible backend path for answer streaming plus the native Open WebUI event endpoint for status. Do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
+**Production behavior:** Use Open WebUI's OpenAI-compatible backend path for answer streaming. Helm generates `synesis-openwebui-admin-token` and mounts it into planner-ts so planner-ts can post native Open WebUI message events out-of-band. Synesis manifests also keep the in-stream OpenWebUI status fallback enabled for deployments where Open WebUI message metadata is unavailable. Do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
 
 **Why streaming might appear delayed:**
 - **Proxy buffering**: Edge proxies may buffer small `data:` lines. Try calling planner directly in-cluster to verify.
 - **Open WebUI version/config**: Confirm it is using the planner-ts `/v1` endpoint and not an older custom pipe.
+- **Missing event token**: If planner logs `openwebui status side-channel unavailable` with `hasEventToken=false`, confirm Helm created `synesis-openwebui-admin-token` in the planner namespace and mounted it as `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`.
 - **Buffering**: `X-Accel-Buffering: no` is set; upstream proxies (HAProxy, nginx) may still buffer—add `haproxy.router.openshift.io/disable_buffer: "true"` on the route.
 - **Planner restarts**: If the planner pod OOMs or crashes, the stream stops. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. For memory debugging and instrumentation, see [OBSERVABILITY.md](../OBSERVABILITY.md).
 

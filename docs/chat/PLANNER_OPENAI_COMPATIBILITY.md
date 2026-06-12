@@ -130,7 +130,7 @@ For Open WebUI deployments, planner-ts can post visible status updates to Open W
 - `POST /api/v1/chats/{chat_id}/messages/{message_id}/event`
 - Body: `{"type":"status","data":{"description":"...","done":false,"hidden":false}}`
 
-This path requires `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`, `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and Open WebUI chat/message metadata. If those are missing, status delivery is skipped and chat completion still succeeds.
+This path requires `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`, `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and Open WebUI chat/message metadata. Helm supplies the event token from the generated `synesis-openwebui-admin-token` Secret. If the token or message metadata is missing, status delivery is skipped and chat completion still succeeds.
 
 ### Legacy non-standard SSE lines
 

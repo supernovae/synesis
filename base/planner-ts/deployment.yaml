@@ -90,6 +90,12 @@ spec:
               value: "100"
             - name: SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS
               value: "30000"
+            # Synesis Open WebUI consumes planner `data: {"event": ...}`
+            # status frames and renders them as visible status updates. This
+            # keeps phases visible when the side-channel Synesis Open WebUI
+            # service token or message metadata is not configured.
+            - name: SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS
+              value: "openwebui-data"
             - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED
               value: "true"
             - name: SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL

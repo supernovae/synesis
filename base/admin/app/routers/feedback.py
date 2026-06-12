@@ -407,7 +407,10 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
     if not base or not token:
         raise HTTPException(
             status_code=400,
-            detail="Configure SYNESIS_OPENWEBUI_URL and SYNESIS_OPENWEBUI_ADMIN_TOKEN on synesis-admin",
+            detail=(
+                "Configure SYNESIS_OPENWEBUI_URL and SYNESIS_OPENWEBUI_ADMIN_TOKEN on synesis-admin. "
+                "Helm should mount SYNESIS_OPENWEBUI_ADMIN_TOKEN from synesis-openwebui-admin-token."
+            ),
         )
     export_url = f"{base}/api/v1/evaluations/feedbacks/all/export"
     fallback_url = f"{base}/api/v1/evaluations/feedbacks/all"
@@ -446,20 +449,21 @@ async def sync_openwebui_feedback(_user: UserInfo = Depends(require_admin)):
         if exc.response.status_code == 401:
             detail += (
                 ". Authentication failed — the Bearer token is invalid or expired. "
-                "Regenerate an API key in Open WebUI (Account → API keys) or obtain a fresh JWT via "
-                "POST /api/v1/auths/signin, then update Kubernetes Secret synesis-openwebui-admin-token "
-                "(or redeploy with SYNESIS_OPENWEBUI_ADMIN_TOKEN set)."
+                "Refresh the Helm-managed synesis-openwebui-admin-token Secret and restart synesis-admin, "
+                "synesis-planner-ts, and open-webui so all components share the same Synesis Open WebUI "
+                "service token."
             )
         elif exc.response.status_code == 403 and "API key" in err_body and "not enabled" in err_body:
             detail += (
-                ". Open WebUI rejected the sk- API key: set ENABLE_API_KEYS=true on the "
-                "open-webui Deployment and rollout restart, or use a JWT from POST /api/v1/auths/signin "
-                "instead of an API key."
+                ". Open WebUI rejected normal API-key auth. Synesis should use its service-token bridge "
+                "with ENABLE_API_KEYS=false; confirm the deployed open-webui image includes "
+                "base/webui/overrides/sitecustomize.py and has SYNESIS_OPENWEBUI_SERVICE_TOKEN set."
             )
         elif exc.response.status_code == 403:
             detail += (
-                ". Forbidden — evaluations export requires an admin-capable token (admin user API key or "
-                "admin JWT). A non-admin API key will not work for GET .../feedbacks/all/export."
+                ". Forbidden — evaluations export requires the Synesis Open WebUI service token or another "
+                "admin-capable credential. Confirm the token Secret matches the WebUI, admin, and planner "
+                "deployments."
             )
             if err_body.strip():
                 detail += f" Response: {err_body[:300]}"

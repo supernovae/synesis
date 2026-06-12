@@ -274,6 +274,10 @@ secrets:
   # Helm-managed and can be reconciled on upgrade.
   providerApiKeys: {}
   openfgaAuthToken: changeme-generate-a-real-key
+  # Optional override for the Synesis Open WebUI service token used by
+  # synesis-admin feedback sync and planner phase events. Leave empty to have
+  # Helm generate a stable sk-synesis-* token and reuse it on later upgrades.
+  # This is not a normal user-created Open WebUI API key.
   openwebuiAdminToken: ""
   githubToken: ""
   huggingFaceToken: ""
@@ -638,6 +642,13 @@ workloads:
         value: synesis-admin
       - name: SYNESIS_PLANNER_URL
         value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
+      - name: SYNESIS_OPENWEBUI_URL
+        value: http://open-webui.synesis-webui.svc.cluster.local:8080
+      - name: SYNESIS_OPENWEBUI_ADMIN_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-openwebui-admin-token
+            key: token
       - name: SYNESIS_ADMIN_ASSISTANT_MODEL
         value: synesis-writer
       - name: SYNESIS_MCP_URL
@@ -813,6 +824,13 @@ workloads:
         value: "100"
       - name: SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS
         value: "30000"
+      # Synesis Open WebUI consumes planner `data: {"event": ...}` status
+      # frames and renders them as native visible status updates. The native
+      # side-channel endpoint uses the Helm-generated service token below; keep
+      # the in-stream fallback enabled for requests that lack Open WebUI
+      # chat/message metadata.
+      - name: SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS
+        value: openwebui-data
       - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENTS_ENABLED
         value: "true"
       - name: SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL
@@ -822,7 +840,6 @@ workloads:
           secretKeyRef:
             name: synesis-openwebui-admin-token
             key: token
-            optional: true
       - name: SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TIMEOUT_MS
         value: "1500"
       - name: SYNESIS_PLANNER_TS_HEALTH_MONITOR_ENABLED
@@ -1418,7 +1435,14 @@ workloads:
       - name: ENABLE_OAUTH_PERSISTENT_CONFIG
         value: "false"
       - name: ENABLE_API_KEYS
-        value: "true"
+        value: "false"
+      - name: SYNESIS_OPENWEBUI_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-openwebui-admin-token
+            key: token
+      - name: SYNESIS_OPENWEBUI_SERVICE_EMAIL
+        value: synesis-openwebui-service@localhost
       - name: ENABLE_OLLAMA_API
         value: "false"
       - name: ENABLE_IMAGE_GENERATION

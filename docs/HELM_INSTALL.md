@@ -109,6 +109,7 @@ exist before the Admin service starts.
 |--------|--------------|-----------------|---------|
 | `synesis-internal-service-auth` | Synesis service namespaces | Helm `secrets.internalServiceToken` | Service-to-service bearer token |
 | `webui-api-key` | `synesis-webui` | Helm `secrets.webuiSecretKey` | Open WebUI secret/API key used for planner authentication |
+| `synesis-openwebui-admin-token` | WebUI, admin, planner namespaces | Helm generated or `secrets.openwebuiAdminToken` | Synesis service token for Open WebUI feedback sync and planner status-event posts |
 | `synesis-admin-session-token-key` | `synesis-admin` | Helm generated or `secrets.adminSessionTokenKey` | Admin session signing key |
 | `synesis-pat-pepper` | Admin, planner, Yarn namespaces | Helm generated or `secrets.patPepper` | Personal access token hashing pepper |
 | `synesis-admin-db-url` | Admin, planner, Yarn namespaces | Helm Postgres values | Admin and trace database URLs |

@@ -133,6 +133,9 @@ are available:
 - `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`
 - Open WebUI chat/message metadata
 
+Helm mounts `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN` from the generated
+`synesis-openwebui-admin-token` Secret shared with Open WebUI and synesis-admin.
+
 `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` keeps the legacy
 in-band Open WebUI status envelope available for local debugging or deployments
 that cannot use side-channel events. Do not use it to mix internal status text

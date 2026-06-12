@@ -142,10 +142,18 @@ spec:
             - name: SAFE_MODE
               value: "true"
             # Required for account API keys (sk-...) on Open WebUI REST routes. synesis-admin Chat Feedback
-            # sync calls GET /api/v1/evaluations/... with Bearer sk-...; without this, OWUI returns 403
-            # "Use of API key is not enabled in the environment."
+            # sync and planner status-event posts use the Synesis service-token bridge below instead of
+            # enabling user-created Open WebUI API keys.
             - name: ENABLE_API_KEYS
-              value: "true"
+              value: "false"
+            - name: SYNESIS_OPENWEBUI_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-openwebui-admin-token
+                  key: token
+                  optional: true
+            - name: SYNESIS_OPENWEBUI_SERVICE_EMAIL
+              value: "synesis-openwebui-service@localhost"
             # No in-UI code execution engine; Synesis uses its own tools/sandbox when configured.
             - name: CODE_EXECUTION_ENGINE
               value: ""

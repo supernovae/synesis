@@ -185,7 +185,14 @@ workloads:
       - name: WEBUI_URL
         value: https://chat.synesis.example.com
       - name: ENABLE_API_KEYS
-        value: "true"
+        value: "false"
+      - name: SYNESIS_OPENWEBUI_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-openwebui-admin-token
+            key: token
+      - name: SYNESIS_OPENWEBUI_SERVICE_EMAIL
+        value: synesis-openwebui-service@localhost
       - name: ENABLE_OLLAMA_API
         value: "false"
       - name: WEBUI_NAME
