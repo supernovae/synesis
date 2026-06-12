@@ -50,6 +50,7 @@ const AmbiguityAssessmentSchema = z.object({
 });
 
 type AmbiguityAssessment = z.infer<typeof AmbiguityAssessmentSchema>;
+type MaterialGap = AmbiguityAssessment["material_gaps"][number];
 
 export interface LlmPlannerResult {
   plan: PlannerOutput;
@@ -62,6 +63,10 @@ export interface LlmPlannerResult {
 }
 
 const PLANNER_CAP_HARD_CEILING = 8192;
+const DEFAULT_CLARIFICATION_QUESTION_LIMIT = 3;
+const EXPANDED_CLARIFICATION_QUESTION_LIMIT = 5;
+const EXPLICIT_UNCERTAINTY_GAP_LIMIT = 12;
+const BROAD_SCOPING_UNCERTAINTY_THRESHOLD = 8;
 
 /**
  * Always appended after composePlannerPrompt() so Prompt Library profiles
@@ -101,6 +106,94 @@ export function isClarificationWaiver(text: string): boolean {
   return WAIVER_PATTERNS.test(text.trim());
 }
 
+function normalizeGapText(value: string): string {
+  return value
+    .replace(/^[-*]\s*/, "")
+    .replace(/^whether\s+/i, "")
+    .replace(/[?.]+$/g, "")
+    .trim();
+}
+
+function questionForExplicitUnknown(item: string): string {
+  const normalized = normalizeGapText(item);
+  return `What should I assume about ${normalized}, and what constraints or tradeoffs should drive that choice?`;
+}
+
+function explicitUnknownBlock(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const blocks: string[] = [];
+  let capturing = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^(?:i\s+am\s+not\s+sure|i'?m\s+not\s+sure|unknowns?|open\s+questions?|unclear)\s+(?:about|include)?\s*:?$/i.test(line)) {
+      capturing = true;
+      continue;
+    }
+    if (!capturing) continue;
+    if (!line) {
+      if (blocks.length > 0) break;
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      blocks.push(line);
+      continue;
+    }
+    if (blocks.length > 0) break;
+  }
+  return blocks;
+}
+
+export function detectExplicitUncertaintyGaps(text: string): MaterialGap[] {
+  const items = explicitUnknownBlock(text)
+    .map(normalizeGapText)
+    .filter((item) => item.length >= 8)
+    .slice(0, EXPLICIT_UNCERTAINTY_GAP_LIMIT);
+  return items.map((item) => ({
+    missing_information: item,
+    impact_on_outcome: "The user explicitly marked this as uncertain; choosing incorrectly can materially change the recommendation.",
+    suggested_question: questionForExplicitUnknown(item),
+  }));
+}
+
+function explicitUncertaintyCount(text: string): number {
+  return explicitUnknownBlock(text)
+    .map(normalizeGapText)
+    .filter((item) => item.length >= 8)
+    .length;
+}
+
+function mergeAmbiguityAssessment(
+  ambiguity: AmbiguityAssessment | undefined,
+  explicitGaps: MaterialGap[],
+): AmbiguityAssessment | undefined {
+  if (explicitGaps.length === 0) return ambiguity;
+  const existingGaps = ambiguity?.material_gaps ?? [];
+  const existingQuestions = ambiguity?.clarification_questions ?? [];
+  const seen = new Set<string>();
+  const material_gaps = [...existingGaps, ...explicitGaps].filter((gap) => {
+    const key = normalizeQuestion(gap.suggested_question || gap.missing_information);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, EXPLICIT_UNCERTAINTY_GAP_LIMIT);
+  const clarification_questions = [
+    ...existingQuestions,
+    ...explicitGaps.map((gap) => gap.suggested_question).filter(Boolean),
+  ].filter((question, index, all) =>
+    index === all.findIndex((candidate) => normalizeQuestion(candidate) === normalizeQuestion(question)),
+  ).slice(0, EXPANDED_CLARIFICATION_QUESTION_LIMIT);
+
+  return {
+    ambiguity_level: Math.max(ambiguity?.ambiguity_level ?? 0, 0.88),
+    can_proceed_without_clarification: false,
+    material_gaps,
+    clarification_questions,
+    rationale: ambiguity?.rationale
+      ? `${ambiguity.rationale} User also declared material unknowns explicitly.`
+      : "User declared material unknowns explicitly.",
+  };
+}
+
 async function runAmbiguityScorer(
   state: GraphState,
   plannerPlan: PlannerOutput,
@@ -121,7 +214,10 @@ async function runAmbiguityScorer(
           "Return JSON only.",
           "Assess whether ambiguity is material to action quality.",
           "Assess ambiguity for the latest user message; use recent messages only for continuity and reference resolution.",
-          "Do not over-ask; prefer 1-3 high-impact clarification questions.",
+          "Do not over-ask. Prefer 1-3 high-impact clarification questions, but use up to 5 when several independent material decisions are blocking.",
+          "If many decisions are unresolved, group related unknowns and suggest a structured scoping pass instead of producing a long questionnaire.",
+          "If explicit_user_uncertainties is non-empty, treat those as user-declared unknowns and group them into concise clarification questions unless the user has already answered them.",
+          "Do not treat a generic instruction to proceed as an override when the same message declares material unknowns that would change the answer.",
           "Schema:",
           "{ ambiguity_level: number 0..1, can_proceed_without_clarification: boolean, material_gaps: [{ missing_information: string, impact_on_outcome: string, suggested_question?: string }], clarification_questions: string[], rationale: string }",
         ].join("\n"),
@@ -137,6 +233,8 @@ async function runAmbiguityScorer(
           planner_open_questions: plannerPlan.open_questions,
           planner_assumptions: plannerPlan.assumptions,
           planner_confidence: plannerPlan.confidence,
+          explicit_user_uncertainties: detectExplicitUncertaintyGaps(state.task_description ?? "")
+            .map((gap) => gap.missing_information),
           frame_coherence: state.domain_profile?.frameCoherence ?? "focused",
           difficulty: state.difficulty ?? 0.3,
         }),
@@ -161,8 +259,8 @@ async function runAmbiguityScorer(
     const trimmedQuestions = parsed.clarification_questions
       .map((q) => q.trim())
       .filter(Boolean)
-      .slice(0, 3);
-    const trimmedGaps = parsed.material_gaps.slice(0, 5).map((g) => ({
+      .slice(0, EXPANDED_CLARIFICATION_QUESTION_LIMIT);
+    const trimmedGaps = parsed.material_gaps.slice(0, EXPLICIT_UNCERTAINTY_GAP_LIMIT).map((g) => ({
       missing_information: g.missing_information.trim(),
       impact_on_outcome: g.impact_on_outcome.trim(),
       suggested_question: g.suggested_question.trim(),
@@ -221,11 +319,13 @@ export function shouldClarify(
   const ambiguityLevel = ambiguity?.ambiguity_level ?? 0;
   const materialGapCount = ambiguity?.material_gaps.length ?? 0;
   const canProceed = ambiguity?.can_proceed_without_clarification ?? true;
+  const explicitGapCount = explicitUncertaintyCount(state.task_description ?? "");
 
   const taxonomy = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
   const controls = (taxonomy.output_controls ?? {}) as Record<string, unknown>;
   const clarifyFirst = Boolean(controls.clarify_first);
 
+  if (difficulty >= 0.4 && explicitGapCount >= 3) return true;
   if (frameCoherence === "diffuse" && difficulty >= 0.4 && (openQCount >= 1 || materialGapCount >= 1)) return true;
   if (!canProceed && materialGapCount >= 1) return true;
   if (ambiguityLevel >= threshold && materialGapCount >= 1) return true;
@@ -253,7 +353,17 @@ function buildClarificationQuestion(
     .filter(Boolean);
   const questions = plan.open_questions.slice(0, 5);
   const scorerQuestions = ambiguity?.clarification_questions ?? [];
+  const explicitQuestions = detectExplicitUncertaintyGaps(state.task_description ?? "")
+    .map((gap) => gap.suggested_question)
+    .filter(Boolean);
   const assumptions = plan.assumptions.slice(0, 3);
+  const explicitCount = explicitUncertaintyCount(state.task_description ?? "");
+  const materialGapCount = ambiguity?.material_gaps.length ?? 0;
+  const questionLimit =
+    explicitCount >= 4 || materialGapCount >= 4
+      ? EXPANDED_CLARIFICATION_QUESTION_LIMIT
+      : DEFAULT_CLARIFICATION_QUESTION_LIMIT;
+  const shouldOfferScopingBrief = explicitCount >= BROAD_SCOPING_UNCERTAINTY_THRESHOLD;
 
   const parts: string[] = [
     `I want to make sure I address your request accurately. Your question touches on **${frameDesc}**, and I have a few points I'd like to clarify before responding:`,
@@ -263,8 +373,9 @@ function buildClarificationQuestion(
   const allQuestions = dedupeClarificationQuestions([
     ...questions,
     ...scorerQuestions,
+    ...explicitQuestions,
     ...suggestedByGap,
-  ]).slice(0, 3);
+  ]).slice(0, questionLimit);
 
   if (allQuestions.length === 0 && (ambiguity?.material_gaps.length ?? 0) > 0) {
     allQuestions.push("Could you clarify the highest-priority constraints that should drive the approach?");
@@ -281,6 +392,23 @@ function buildClarificationQuestion(
     for (const a of assumptions) {
       parts.push(`- ${a}`);
     }
+    parts.push("");
+  }
+
+  if (shouldOfferScopingBrief) {
+    parts.push("There are enough unresolved decisions here that a short scoping pass will produce a better design than guessing. You can answer the questions above, or restart with a compact brief like:");
+    parts.push("");
+    parts.push("```text");
+    parts.push("Goal:");
+    parts.push("Non-negotiable constraints:");
+    parts.push("Allowed infrastructure:");
+    parts.push("Scale/SLO target:");
+    parts.push("State and durability requirements:");
+    parts.push("Execution and worker model:");
+    parts.push("Tenant/security boundary:");
+    parts.push("Event replay/artifact/retry expectations:");
+    parts.push("Decisions you want Synesis to make:");
+    parts.push("```");
     parts.push("");
   }
 
@@ -509,33 +637,38 @@ export async function runLlmPlanner(state: GraphState): Promise<{
       reasoning: `Parse failed: ${detail}`,
     };
     const ambiguity = await runAmbiguityScorer(state, parseFallbackPlan);
+    const explicitGaps = detectExplicitUncertaintyGaps(state.task_description ?? "");
+    const mergedAmbiguity = mergeAmbiguityAssessment(ambiguity.assessment, explicitGaps);
     const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
-    const clarify = shouldClarify(state, parseFallbackPlan, ambiguity.assessment, ambiguityThreshold, {
+    const clarify = shouldClarify(state, parseFallbackPlan, mergedAmbiguity, ambiguityThreshold, {
       parseFallback: true,
     });
     const decisionReason = clarify
-      ? "clarify:parse-fallback-ambiguity"
+      ? explicitGaps.length >= 3
+        ? "clarify:explicit-user-uncertainty"
+        : "clarify:parse-fallback-ambiguity"
       : "proceed:parse-fallback-low-material-ambiguity";
     process.stderr.write(JSON.stringify({
       level: 30,
       msg: "planner ambiguity decision",
       decision: clarify ? "clarify" : "proceed",
       reason: decisionReason,
-      ambiguity_level: ambiguity.assessment?.ambiguity_level ?? null,
-      material_gaps: ambiguity.assessment?.material_gaps.length ?? 0,
-      can_proceed_without_clarification: ambiguity.assessment?.can_proceed_without_clarification ?? null,
+      ambiguity_level: mergedAmbiguity?.ambiguity_level ?? null,
+      material_gaps: mergedAmbiguity?.material_gaps.length ?? 0,
+      explicit_user_unknowns: explicitGaps.length,
+      can_proceed_without_clarification: mergedAmbiguity?.can_proceed_without_clarification ?? null,
       scorer_latency_ms: ambiguity.latencyMs ?? null,
       time: Date.now(),
     }) + "\n");
 
     if (clarify) {
-      const clarification = buildClarificationQuestion(state, parseFallbackPlan, ambiguity.assessment);
+      const clarification = buildClarificationQuestion(state, parseFallbackPlan, mergedAmbiguity);
       return {
         result: {
           plan: parseFallbackPlan,
           usage: result.usage,
           effectiveMaxTokens,
-          ambiguity_assessment: ambiguity.assessment,
+          ambiguity_assessment: mergedAmbiguity,
           ambiguity_scorer_latency_ms: ambiguity.latencyMs,
           ambiguity_scorer_error: ambiguity.error,
           ambiguity_decision_reason: decisionReason,
@@ -549,7 +682,7 @@ export async function runLlmPlanner(state: GraphState): Promise<{
         plan: { ...parseFallbackPlan, open_questions: [] },
         usage: result.usage,
         effectiveMaxTokens,
-        ambiguity_assessment: ambiguity.assessment,
+        ambiguity_assessment: mergedAmbiguity,
         ambiguity_scorer_latency_ms: ambiguity.latencyMs,
         ambiguity_scorer_error: ambiguity.error,
         ambiguity_decision_reason: decisionReason,
@@ -558,19 +691,24 @@ export async function runLlmPlanner(state: GraphState): Promise<{
   }
 
   const ambiguity = await runAmbiguityScorer(state, parsed);
+  const explicitGaps = detectExplicitUncertaintyGaps(state.task_description ?? "");
+  const mergedAmbiguity = mergeAmbiguityAssessment(ambiguity.assessment, explicitGaps);
   const ambiguityThreshold = plannerCfg.SYNESIS_PLANNER_TS_AMBIGUITY_THRESHOLD;
-  const clarify = shouldClarify(state, parsed, ambiguity.assessment, ambiguityThreshold);
+  const clarify = shouldClarify(state, parsed, mergedAmbiguity, ambiguityThreshold);
   const decisionReason = clarify
-    ? "clarify:material-ambiguity"
+    ? explicitGaps.length >= 3
+      ? "clarify:explicit-user-uncertainty"
+      : "clarify:material-ambiguity"
     : "proceed:sufficiently-specified";
   process.stderr.write(JSON.stringify({
     level: 30,
     msg: "planner ambiguity decision",
     decision: clarify ? "clarify" : "proceed",
     reason: decisionReason,
-    ambiguity_level: ambiguity.assessment?.ambiguity_level ?? null,
-    material_gaps: ambiguity.assessment?.material_gaps.length ?? 0,
-    can_proceed_without_clarification: ambiguity.assessment?.can_proceed_without_clarification ?? null,
+    ambiguity_level: mergedAmbiguity?.ambiguity_level ?? null,
+    material_gaps: mergedAmbiguity?.material_gaps.length ?? 0,
+    explicit_user_unknowns: explicitGaps.length,
+    can_proceed_without_clarification: mergedAmbiguity?.can_proceed_without_clarification ?? null,
     scorer_latency_ms: ambiguity.latencyMs ?? null,
     time: Date.now(),
   }) + "\n");
@@ -578,14 +716,14 @@ export async function runLlmPlanner(state: GraphState): Promise<{
     plan: parsed,
     usage: result.usage,
     effectiveMaxTokens,
-    ambiguity_assessment: ambiguity.assessment,
+    ambiguity_assessment: mergedAmbiguity,
     ambiguity_scorer_latency_ms: ambiguity.latencyMs,
     ambiguity_scorer_error: ambiguity.error,
     ambiguity_decision_reason: decisionReason,
   };
 
   if (clarify) {
-    const clarification = buildClarificationQuestion(state, parsed, ambiguity.assessment);
+    const clarification = buildClarificationQuestion(state, parsed, mergedAmbiguity);
     return { result: planResult, clarification };
   }
 

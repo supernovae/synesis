@@ -1,8 +1,77 @@
 import { describe, expect, it } from "vitest";
-import { shouldClarify } from "../src/nodes/llm-planner.js";
+import { detectExplicitUncertaintyGaps, shouldClarify } from "../src/nodes/llm-planner.js";
 import type { GraphState } from "../src/state/types.js";
 
 describe("llm planner clarify-first parity", () => {
+  const explicitUnknownPrompt = [
+    "I need help building a Go-based production job orchestration service for Kubernetes/OpenShift.",
+    "",
+    "It should be simple and lightweight, but also production-grade, horizontally scalable, multi-tenant, secure, durable, restart-safe, auditable, and capable of running long workflows that last hours.",
+    "",
+    "I want to avoid adding too much infrastructure, so ideally no database, no queue, and no operator. But jobs must survive pod restarts, support retries without duplicate execution, persist artifacts and audit logs, replay UI events after reconnect, and allow multiple worker replicas without race conditions.",
+    "",
+    "I am not sure about:",
+    "- expected scale",
+    "- persistence backend",
+    "- whether workflows are fixed or user-defined",
+    "- whether execution runs in API pods or workers",
+    "- whether the system needs strict tenant isolation",
+    "- whether job events need exact ordering and replay",
+    "- whether artifacts are small text blobs or large files",
+    "- whether cancellation must immediately stop external tools",
+    "- whether retries happen at job, phase, or step level",
+    "",
+    "Please proceed with the architecture and implementation plan.",
+  ].join("\n");
+
+  it("extracts explicit user-declared unknowns as material gaps", () => {
+    const gaps = detectExplicitUncertaintyGaps(explicitUnknownPrompt);
+
+    expect(gaps.length).toBeGreaterThanOrEqual(8);
+    expect(gaps[0].missing_information).toBe("expected scale");
+    expect(gaps.some((gap) => gap.missing_information === "persistence backend")).toBe(true);
+    expect(gaps.every((gap) => gap.suggested_question.includes("What should I assume about"))).toBe(true);
+  });
+
+  it("clarifies when the user declares many material unknowns even if scorer says proceed", () => {
+    const state: GraphState = {
+      task_description: explicitUnknownPrompt,
+      difficulty: 0.78,
+      iteration_count: 0,
+      domain_profile: {
+        domains: [
+          { key: "architecture", weight: 0.45 },
+          { key: "cloud_infra", weight: 0.35 },
+          { key: "backend_api", weight: 0.2 },
+        ],
+        frameCoherence: "composite",
+      },
+      taxonomy_metadata: {
+        taxonomy_key: "code.architecture",
+        output_controls: { clarify_first: false },
+      },
+    };
+    const plan = {
+      steps: [{ id: 1, action: "Draft architecture and implementation plan", dependencies: [] }],
+      open_questions: [],
+      assumptions: [
+        "Use bbolt for persistence",
+        "Use Kubernetes Lease for leader election",
+      ],
+      confidence: 0.72,
+      reasoning: "Proceed with assumptions",
+    };
+    const ambiguity = {
+      ambiguity_level: 0.2,
+      can_proceed_without_clarification: true,
+      material_gaps: [],
+      clarification_questions: [],
+      rationale: "Can proceed with assumptions.",
+    };
+
+    expect(shouldClarify(state, plan, ambiguity)).toBe(true);
+  });
+
   it("clarifies when ambiguity scorer reports material gaps", () => {
     const state: GraphState = {
       task_description: "Design a cloud architecture for our AI platform and model routing.",

@@ -19,6 +19,107 @@ describe("runLlmPlanner parse fallback", () => {
     chatCompletionMock.mockReset();
   });
 
+  it("uses scorer-led clarification and a scoping brief for broad explicit unknowns", async () => {
+    chatCompletionMock
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          steps: [{ id: 1, action: "Design Go job orchestration service", dependencies: [] }],
+          open_questions: [],
+          assumptions: [
+            "Use embedded persistence",
+            "Use Kubernetes Lease for single-writer coordination",
+            "Use step-level retries",
+          ],
+          confidence: 0.72,
+          reasoning: "Proceed with assumptions.",
+        }),
+        usage: {
+          prompt_tokens: 220,
+          completion_tokens: 130,
+          total_tokens: 350,
+          cached_prompt_tokens: 0,
+          estimated_cost_usd: 0,
+          actual_cost_usd: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          ambiguity_level: 0.82,
+          can_proceed_without_clarification: false,
+          material_gaps: [
+            {
+              missing_information: "durability and coordination model",
+              impact_on_outcome: "drives whether embedded state is acceptable or an external database/queue/operator is required",
+              suggested_question: "Which durability and coordination tradeoff should take priority if zero extra infrastructure conflicts with restart safety and multi-replica execution?",
+            },
+          ],
+          clarification_questions: [
+            "Which durability and coordination tradeoff should take priority if zero extra infrastructure conflicts with restart safety and multi-replica execution?",
+            "What scale or SLO target should the initial design optimize for?",
+            "Should workflows be fixed service-defined flows or user-defined workflows?",
+            "What tenant isolation boundary is required for state, artifacts, and audit logs?",
+          ],
+          rationale: "The user listed several uncertainties that materially affect the architecture.",
+        }),
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 40,
+          total_tokens: 140,
+          cached_prompt_tokens: 0,
+          estimated_cost_usd: 0,
+          actual_cost_usd: 0,
+        },
+      });
+
+    const out = await runLlmPlanner({
+      task_description: [
+        "I need help building a Go-based production job orchestration service for Kubernetes/OpenShift.",
+        "It should be simple and lightweight, but also production-grade, horizontally scalable, multi-tenant, secure, durable, restart-safe, auditable, and capable of running long workflows that last hours.",
+        "I want to avoid adding too much infrastructure, so ideally no database, no queue, and no operator. But jobs must survive pod restarts, support retries without duplicate execution, persist artifacts and audit logs, replay UI events after reconnect, and allow multiple worker replicas without race conditions.",
+        "I am not sure about:",
+        "- expected scale",
+        "- persistence backend",
+        "- whether workflows are fixed or user-defined",
+        "- whether execution runs in API pods or workers",
+        "- whether the system needs strict tenant isolation",
+        "- whether job events need exact ordering and replay",
+        "- whether artifacts are small text blobs or large files",
+        "- whether cancellation must immediately stop external tools",
+        "- whether retries happen at job, phase, or step level",
+        "Please proceed with the architecture and implementation plan.",
+      ].join("\n"),
+      difficulty: 0.78,
+      iteration_count: 0,
+      domain_profile: {
+        domains: [
+          { key: "architecture", weight: 0.45 },
+          { key: "cloud_infra", weight: 0.35 },
+          { key: "backend_api", weight: 0.2 },
+        ],
+        frameCoherence: "composite",
+      },
+      taxonomy_metadata: {
+        output_controls: { clarify_first: false },
+      },
+    });
+
+    expect(out.clarification).toBeDefined();
+    expect(out.clarification?.question).toContain("durability and coordination tradeoff");
+    expect(out.clarification?.question).toContain("compact brief");
+    expect(out.clarification?.question).toContain("Allowed infrastructure:");
+    const numberedQuestions = (out.clarification?.question ?? "")
+      .split("\n")
+      .filter((line) => /^\d+\.\s/.test(line));
+    expect(numberedQuestions.length).toBeGreaterThan(3);
+    expect(numberedQuestions.length).toBeLessThanOrEqual(5);
+    expect(out.result.ambiguity_decision_reason).toBe("clarify:explicit-user-uncertainty");
+    expect(out.result.ambiguity_assessment?.can_proceed_without_clarification).toBe(false);
+    expect(out.result.ambiguity_assessment?.material_gaps.length).toBeGreaterThanOrEqual(8);
+    const scorerRequest = chatCompletionMock.mock.calls[1]?.[0];
+    const scorerPayload = JSON.parse(String(scorerRequest.messages[1].content));
+    expect(scorerPayload.explicit_user_uncertainties).toContain("persistence backend");
+  });
+
   it("still triggers clarification when planner JSON is unparseable", async () => {
     chatCompletionMock
       .mockResolvedValueOnce({
