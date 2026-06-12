@@ -178,7 +178,8 @@ GROUP BY 1
 ORDER BY 1 DESC;
 ```
 
-Admin UI dashboard will visualize these metrics (Phase 3).
+Admin UI dashboards can visualize these metrics when the deployment persists
+the corresponding usage and telemetry records.
 
 ---
 

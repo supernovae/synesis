@@ -43,4 +43,4 @@ When a validated round is stored for the session, Yarn may set:
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SYNESIS_YARN_PLANNING_USE_HORIZON` | `true` | Use Horizon tier for planning-phase sessions (legacy inference path). Set `false` to use keyword-only horizon escalation for planning. |
+| `SYNESIS_YARN_PLANNING_USE_HORIZON` | `true` | Use Horizon tier for planning-phase sessions. Set `false` to use keyword-only horizon escalation for planning. |

@@ -635,20 +635,20 @@ Transition guards gate phase transitions without adding new phases to the FSM.
 
 When `false_green_suspected` is active, `detectSessionPhase` demotes `finalize` back to `verify` and fires the `false_green_suspected` rule. Guards are exposed in `telemetry.activeGuards` and `training_signals.false_green_detected`.
 
-## Known Gaps and Roadmap
+## Known Limits
 
 | Gap | Description | Status |
 |-----|-------------|--------|
-| Result classification blind spots | Missing classifiers for environment blockers; `isVerificationCommand` does not cover tsc/make/bazel/mypy | Planned |
+| Result classification blind spots | Missing classifiers for environment blockers; `isVerificationCommand` does not cover tsc/make/bazel/mypy | Open |
 | Evidence progression tracking | `TurnEvidenceDelta` with `seenSignatures` and regression detection | **Shipped** |
-| Retry budgets by failure class | No per-class counters (compile, test, env, false-green) with exhaustion triggers | Planned |
-| Contradiction-triggered re-plan | No detection when plan assumes a file/module exists but it does not | Planned |
+| Retry budgets by failure class | No per-class counters (compile, test, env, false-green) with exhaustion triggers | Open |
+| Contradiction-triggered re-plan | No detection when plan assumes a file/module exists but it does not | Open |
 | Artifact-presence checks | `ArtifactReadShadow` with stale-write and stub-content blocking | **Shipped** |
 | False-green detection | `TransitionGuard: false_green_suspected` blocks `Verify → Finalize` on irrelevant green | **Shipped** |
-| Structured step-state schema | No `StepVerdict` type integrated with PlanGraph nodes | Planned |
-| Targeted verification | Recovery blocks do not include the exact narrowed command from `suggestScopedVerificationCommand` | Planned |
-| LLM verifier evaluation | Evaluate whether ambiguous classifications warrant a lightweight LLM verifier pass | Planned |
-| Expanded telemetry export | Internal counters not fully surfaced | Planned |
+| Structured step-state schema | No `StepVerdict` type integrated with PlanGraph nodes | Open |
+| Targeted verification | Recovery blocks do not include the exact narrowed command from `suggestScopedVerificationCommand` | Open |
+| LLM verifier evaluation | Evaluate whether ambiguous classifications warrant a lightweight LLM verifier pass | Open |
+| Expanded telemetry export | Internal counters not fully surfaced | Open |
 
 ## Regression Testing with Eval Gym
 

@@ -257,7 +257,7 @@ flowchart TD
 
 ## Implementation Plan
 
-### Phase 1: Trace Converter (script)
+### Trace Converter Script
 
 A CLI script that reads Cursor agent transcript JSONL and produces
 TRL-compatible training data.
@@ -281,7 +281,7 @@ TRL-compatible training data.
 **Location:** `scripts/trace-to-training.ts` (TypeScript, reuses
 existing types from `base/yarn-ts/src/eval/types.ts`)
 
-### Phase 2: Curation Workflow
+### Curation Workflow
 
 A lightweight process for building paired traces:
 
@@ -296,7 +296,7 @@ A lightweight process for building paired traces:
 5. **Validate:** Converter checks turn alignment, tool call format,
    and content hashes to ensure the prompt portion is identical.
 
-### Phase 3: Training Run
+### Training Run
 
 Use TRL on Hugging Face Jobs or local GPU:
 
@@ -318,7 +318,7 @@ python -m trl dpo \
   --output_dir ./checkpoints/coder-dpo
 ```
 
-### Phase 4: Evaluation and Promotion
+### Evaluation and Promotion
 
 1. Deploy the LoRA adapter alongside the base model using
    `--lora-modules` in vLLM (see `docs/LORA_TRAINING_GUIDE.md`)

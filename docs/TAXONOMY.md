@@ -199,7 +199,7 @@ Plugins add **niche** keywords. The master covers **generic** baseline. Files li
 |--------|-------|
 | **vertical_infrastructure** | Cloud (AWS/GCP/Azure), K8s, HPC, on-prem |
 | **vertical_development** | Web, Systems, Mobile, Embedded, GameDev |
-| **vertical_programming_slc** | 14 language ecosystems, SLC phases |
+| **vertical_programming_slc** | 14 language ecosystems, software lifecycle stages |
 | **vertical_iac_automation** | Terraform, Ansible, Pulumi, Shell |
 | **vertical_industrial** | ISO, Industrial IoT, OT/SCADA |
 | **vertical_aerospace_automotive** | DO-178C, ISO 26262, ADAS |
@@ -488,8 +488,8 @@ in routing YAML against taxonomy keys — any mismatch is logged as a warning.
 | Node | Use |
 |------|-----|
 | **Critic** | vertical_programming_slc → migration/dependency risks; vertical_iac_automation → state safety, idempotency |
-| **Router** | domain_keywords → route to correct RAG; code_intents → code path; SLC phases → design doc vs implementation |
-| **Planner** | SLC phases → step ordering (design before implement); IaC → terraform plan before apply |
+| **Router** | domain_keywords → route to correct RAG; code_intents → code path; lifecycle stage → design doc vs implementation |
+| **Planner** | lifecycle stage → step ordering (design before implement); IaC → terraform plan before apply |
 | **Executor** | language + ecosystem domain → correct runner (pytest, jest, go test); shell variant → bash vs pwsh |
 
 ---

@@ -77,18 +77,24 @@ Sources are selected per-query via three mechanisms:
 2. **Taxonomy-driven**: Sources whose `routing.tags` match the frame's `domain_tags` or whose `routing.task_types` match the task type are included.
 3. **Prompt-driven**: When the user explicitly mentions a source alias (e.g. "include jira", "search github+jira"), the matching source is included even if disabled.
 
-Selection happens in `search_sources.select_sources()` and is invoked by `RouterNode._resolve_search_sources()`.
+Selection is handled by planner-ts retrieval routing under
+`base/planner-ts/src/retrieval/` and invoked by `base/planner-ts/src/nodes/router.ts`.
 
 ## Parallel Fan-Out
 
-When multiple sources are selected, the planner queries them all in parallel via `asyncio.gather`:
+When web retrieval is enabled, planner-ts uses the SearXNG client in
+`base/planner-ts/src/retrieval/web-search.ts` alongside NornicDB retrieval in
+`base/planner-ts/src/retrieval/unified.ts`.
 
-```python
-# Conceptual flow in unified_retrieval.py
-rag_coro = retrieve_context(query, ...)     # NornicDB RAG
-web_coro = _multi_source_web_search(query)  # Parallel source fan-out
-
-rag_raw, web_multi_raw = await asyncio.gather(rag_coro, web_coro)
+```mermaid
+flowchart LR
+  Query["User query"] --> Router["router.ts"]
+  Router --> Unified["retrieval/unified.ts"]
+  Unified --> Rag["NornicDB RAG"]
+  Unified --> Web["retrieval/web-search.ts\nSearXNG"]
+  Rag --> Merge["RRF merge + scoring"]
+  Web --> Merge
+  Merge --> Writer["writer evidence packet"]
 ```
 
 Each source gets its own SearXNG call with its configured `searxng_params`. Results are tagged with `source_id`, trust metadata, and the source's `weight` multiplier before being merged.

@@ -22,15 +22,6 @@ Synesis resolves "what kind of task is this?" **through frame extraction and sen
 | 9. Router (evidence) | `src/nodes/router.ts` | `runRouter()` — parallel evidence dispatch, preseeded cohesion lock for focused frames, `topic_frame` + `domainHints` injection |
 | 10. Clarification | `src/nodes/llm-planner.ts` | `shouldClarify()` — diffuse-frame or low-confidence probe |
 
-| Step | Module | Key function / type |
-|------|--------|-------------------|
-| 1. Frame extraction | `app/nodes/frame_extractor.py` | `frame_extractor_node()` — LLM segment + GLiNER, `link_units_to_frame()` |
-| 2. Domain profile | `app/nodes/frame_extractor.py` | `_build_domain_profile()` → `DomainProfile` in `schemas.py` |
-| 3. Entry classification | `app/entry_classifier_engine.py` | `ScoringEngine.analyze()` — YAML-driven, BM25 intent |
-| 4. Unified retrieval | `app/unified_retrieval.py` | `retrieve_unified()` — parallel RAG + web, RRF, cohesion |
-| 5. Cohesion | `app/cohesion.py` | `detect_cohesion_lock()`, `cohesion_filter()`, `compress_to_cohesion()` |
-| 6. Router | `app/nodes/router.py` | `RouterNode` — query variants, `_preseeded_lock`, `_topic_frame` |
-
 ## Key concepts
 
 1. **Frame extraction** builds a structured view of the prompt: goals, tasks, constraints, technologies, domain tags, requested format, and a `topic_frame` string for retrieval.

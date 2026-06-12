@@ -123,26 +123,22 @@ Model role assignments in the admin Model Registry can include route-level defau
 
 Temperatures are set at **two levels**: role route defaults in the admin Model Registry and planner node overrides for pipeline calls.
 
-### Planner code — per-node temperatures
+### Planner-ts code — per-node temperatures
 
-| Node / Context | Model Role | Temperature | Rationale |
-|---|---|---|---|
-| `router.py` — routing & classification | Router | 0.0 | Deterministic routing decisions |
-| `router.py` — evidence summarization | Router | 0.0 | Faithful compression |
-| `frame_extractor.py` — structured extraction | Router | 0.1 | Structured JSON output |
-| `cohesion.py` — cohesion checks | Router | 0.0 | Binary coherence decisions |
-| `strategic_advisor.py` — proceed/skip | Router | 0.0 | Binary yes/no |
-| `planner_node.py` — plan decomposition | Router | 0.1 | Plans need reproducibility |
-| `critic.py` — evaluation & scoring | Critic | 0.1 | Consistent quality assessments |
-| `writer.py` — default LLM init | Writer | 0.2 | Safe default for varied tasks |
-| `writer.py` — thinking mode (complex) | Writer | 0.6 | Qwen3 recommended for thinking |
-| `writer.py` — direct stream (no plan) | Writer | 0.2 | Straightforward answers |
-| `writer.py` — direct stream (planned) | Writer | 0.3 | Planned synthesis |
-| `writer.py` — trivial fast-stream | Writer | 0.4 | Casual, conversational |
-| `writer.py` — writer synthesis | Writer | 0.3 | Balanced fluency + grounding |
-| `graph.py` — _writer_pass | Writer | 0.3 | Pre-writer formatting |
-| `final_answer_compiler.py` — compile | Writer | 0.3 | Section synthesis |
-| `history_summarizer.py` | Summarizer | 0.1 | Faithful compression |
+| Module / Context | Model Role | Temperature | Rationale |
+|---|---|---:|---|
+| `src/nodes/entry-classifier.ts` | Router | deterministic | YAML/BM25 classification and budget selection do not call the LLM |
+| `src/nodes/frame-extractor.ts` — LLM segmentation | Writer | `0.0` | Structured task-frame extraction |
+| `src/nodes/llm-planner.ts` — ambiguity scorer | Router | `0.0` | Deterministic clarification scoring |
+| `src/nodes/llm-planner.ts` — plan decomposition | Planner | `0.0` | Reproducible JSON plans |
+| `src/nodes/router.ts` | Router | deterministic | Retrieval routing, cohesion, and evidence assembly happen in code |
+| `src/nodes/critic-evaluator.ts` | Critic | `0.0` | Consistent JSON critique with deterministic fallback |
+| `src/nodes/writer-compose.ts` | Writer | `generation.temperature ?? 0.2` | Admin model offerings can override; otherwise writer calls use the safe default |
+
+Writer and critic output budgets are scaled in
+`src/nodes/entry-classifier.ts` from task difficulty and clamped by
+`src/model-tiers.ts` plus `SYNESIS_PLANNER_TS_*_BUDGET_*` settings in
+`src/config.ts`.
 
 ### Role route defaults — temperatures
 

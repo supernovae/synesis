@@ -49,7 +49,7 @@ Baseline requirements:
 - scoped access control (org/tenant)
 - traceability from decision to governing clauses
 
-## Backstage / Developer Hub — Implemented (Phase 17)
+## Backstage / Developer Hub Connector
 
 Connector API: `POST/GET/PATCH/DELETE /api/v1/developer-hub/connectors`
 

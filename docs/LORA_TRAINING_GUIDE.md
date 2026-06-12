@@ -31,7 +31,7 @@ Each node uses a different `ChatOpenAI` instance with role-specific prompts and 
 | **Router, Planner, Critic** | Qwen2.5-14B-Instruct FP8 | FP8 | ~14 GB on L40S |
 | **Critic (R1)** | DeepSeek R1-Distill-Qwen-32B FP8 | FP8 | ~33 GB on L40S |
 
-LoRA adapters would be trained against the **Qwen2.5-14B-Instruct** base and loaded onto the router deployment. The R1-Distill critic would not use LoRA in the initial phase.
+LoRA adapters would be trained against the **Qwen2.5-14B-Instruct** base and loaded onto the router deployment. The R1-Distill critic would not use LoRA for the initial adapter training pass.
 
 ---
 
@@ -138,7 +138,7 @@ The following priorities are ordered by impact. Each describes the specific beha
 
 **Evaluation metric:** Deliverable coverage rate — percentage of user-listed deliverables that appear as distinct plan steps. Target: 95%+. Current baseline (prompt-only): ~60%.
 
-**Signal to train:** When `KNOWLEDGE_PLANNER_PROMPT` strengthening (Phase 4) still results in merged/dropped deliverables on >20% of complex benchmark prompts.
+**Signal to train:** When `KNOWLEDGE_PLANNER_PROMPT` strengthening still results in merged/dropped deliverables on >20% of complex benchmark prompts.
 
 ### Priority 2: Executor LoRA (Qwen3-32B base)
 
@@ -238,7 +238,7 @@ Track results in MODEL_EXERCISE.md benchmark table.
 
 ---
 
-## Next Steps (When Ready)
+## Training Workflow
 
 1. Set up Unsloth or Axolotl environment (GPU instance or cluster).
 2. Export and curate training data from Synesis logs.

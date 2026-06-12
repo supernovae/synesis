@@ -78,8 +78,8 @@ open-ended LLM scoring for RAG systems.
 - Each failure mode has a concrete definition in the prompt so the LLM applies
   it consistently.
 
-**Future work** (Phase 3): A smaller, faster model trained on structured rules
-could replace the large critic model. Requires calibration data (Phase 2) first.
+**Backlog:** A smaller, faster model trained on structured rules could replace
+the large critic model after enough calibration data exists.
 
 ---
 
@@ -186,10 +186,10 @@ Systems," arXiv:2512.11150, Dec 2025.
 - Scoring dimensions are **independent and concrete** (6 axes with defined
   weights), reducing calibration problems.
 
-**Future work** (Phase 2): Collect human feedback on a small sample of
-responses and calibrate critic scores against them. The `request_feedback`
-structured log in `graph.py` captures the data needed; what's missing is a
-calibration pipeline to process it.
+**Backlog:** Collect human feedback on a small sample of responses and
+calibrate critic scores against them. Planner trace records, feedback-loop run
+exports, and critic score fields provide the raw data; the missing piece is a
+curated calibration pipeline and rating workflow.
 
 ---
 
@@ -211,9 +211,9 @@ error analysis.
   domain tags, evidence packet count, average confidence, and critic scores.
 - `failure_modes_detected` is logged per critic invocation.
 
-**Future work** (Phase 3): Aggregate critic failure modes across requests to
-identify systematic pipeline weaknesses (e.g. "30% of hard queries trigger
-`evidence_underuse`"). Build an interactive dashboard for investigation.
+**Backlog:** Aggregate critic failure modes across requests to identify
+systematic pipeline weaknesses, such as repeated `evidence_underuse` on hard
+queries, and expose those patterns in operator dashboards.
 
 ---
 
@@ -327,17 +327,19 @@ to implementation artifacts) benefits from explicit prompt decomposition.
   verifies coverage. This is a lightweight form of requirements traceability
   through the pipeline.
 
-**Future work**: Implement explicit requirement-to-section mapping in the plan
-output schema (deliverable_ids already exist for deliverables; extend to
-capability_requirement_ids).
+**Backlog:** Implement explicit requirement-to-section mapping in the plan
+output schema. `deliverable_ids` already exist for deliverables; a future
+schema can add capability requirement identifiers when that traceability is
+needed.
 
 ---
 
-## 3. Recommended Path Forward
+## 3. Current Controls and Backlog
 
-### Phase 1: Immediate -- IMPLEMENTED
+### Implemented Controls
 
-All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
+These controls are implemented in the current planner and retrieval enrichment
+pipeline.
 
 1. **`insufficient_depth` failure mode** — Implemented. "Sections that lack
    concrete details, specific recommendations, or technical reasoning
@@ -386,13 +388,12 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
    formats requirements as a bulleted "SYSTEM CAPABILITIES" list instead of a
    semicolon-joined line, reinforcing depth-of-coverage expectations.
 
-### Phase 2: Short-term
+### Open Backlog
 
-10. **Collect calibration data**: Use the `request_feedback` log to build a
-    small corpus of (prompt, response, human_rating) triples. Even 50-100
-    examples would allow calibrating critic scores against human judgment
-    (per Causal Judge Evaluation). **Status**: Not started. The structured log
-    exists in `graph.py`; what's needed is a collection pipeline and rating UI.
+10. **Collect calibration data**: Use trace records and feedback-loop exports
+    to build a small corpus of `(prompt, response, human_rating)` triples.
+    Even 50-100 examples would allow calibrating critic scores against human
+    judgment. The remaining work is a collection pipeline and rating UI.
 
 11. **Difficulty-aware rubric scaling** — PARTIALLY IMPLEMENTED. What scales
     with difficulty today:
@@ -407,21 +408,19 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
 12. **Track failure mode prevalence**: Aggregate `insufficient_depth`,
     `evidence_underuse`, `missing_requirement_coverage`, and
     `thin_technology_coverage` rates across requests to identify whether the
-    problem is in retrieval, generation, or planning. **Status**: Partially
-    implemented. `failure_modes_detected` is logged per critic invocation.
-    No aggregation pipeline or dashboard yet.
+    problem is in retrieval, generation, or planning. Critic outputs are
+    available in traces; no dedicated aggregation dashboard exists yet.
 
 13. **Explicit requirement-to-section traceability**: Per TraceLLM, extend the
-    planner output schema with `capability_requirement_ids` (analogous to
-    existing `deliverable_ids`) to create an auditable link from each
-    requirement to the plan sections that address it. **Status**: Not started.
+    planner output schema with `capability_requirement_ids` analogous to
+    existing `deliverable_ids` to create an auditable link from each
+    requirement to the plan sections that address it.
 
-### Phase 3: Long-term (research-backed)
+### Research Backlog
 
 14. **Compact critic model**: Per RAG-Zeval, a smaller model trained on
     structured rules can outperform a large model with open-ended prompts.
-    Fine-tune a lightweight judge on our calibration data. Requires Phase 2
-    calibration data first.
+    Fine-tune a lightweight judge after calibration data exists.
 
 15. **Failure pattern aggregation dashboard**: Per CLEAR, aggregate critic
     outputs into a dashboard showing system-level failure patterns, most common

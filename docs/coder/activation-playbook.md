@@ -87,13 +87,13 @@ outcomes.
 ### Rollback
 
 Set `SYNESIS_YARN_DECISION_MATRIX_ENABLED=false`. Orchestrator falls back to
-phase-only routing without evidence-aware path selection.
+stage-only routing without evidence-aware path selection.
 
 ---
 
 ## Stage 4: Sensemaking Engine
 
-Enable future-backward reasoning for explore-phase requests with insufficient
+Enable future-backward reasoning for exploration-stage requests with insufficient
 evidence. This injects structured exploration plans into the model context.
 
 | Flag | Value |
@@ -104,9 +104,9 @@ evidence. This injects structured exploration plans into the model context.
 ### Health gates
 
 1. `featureFlags.sensemaking` is `true`
-2. `sensemakingStats.triggered` > 0 after explore-phase requests
+2. `sensemakingStats.triggered` > 0 after exploration-stage requests
 3. `sensemakingStats.plansGenerated` > 0
-4. Exploration plans produce measurably better tool selection in explore phase
+4. Exploration plans produce measurably better tool selection in exploration-stage requests
 5. Event loop lag unchanged (sensemaking is synchronous but fast)
 
 ### Rollback

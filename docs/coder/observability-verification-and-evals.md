@@ -2,7 +2,7 @@
 
 ## Observability
 
-### Trace Decision Analytics (Phase 18)
+### Trace Decision Analytics
 
 The admin service aggregates decision-routing metrics directly from trace `full_record` JSONB:
 
@@ -15,7 +15,7 @@ The admin service aggregates decision-routing metrics directly from trace `full_
 
 Query params: `since` (unix ts), `until` (unix ts), `org_id`. RBAC: requires `org_observability` route group.
 
-### Conformance Rollups (Phase 18)
+### Conformance Rollups
 
 Durable periodic snapshots of Yarn runtime telemetry stored in `conformance_rollups` table:
 
@@ -29,7 +29,7 @@ Metrics tracked per language pack: family count, classifier/reducer coverage, fa
 
 Global metrics: recall stats, verification stats, decision path counts, escalations/deescalations, sensemaking triggered/skipped.
 
-### Trace Enrichment (Phase 9)
+### Trace Enrichment
 
 Per-request `DecisionSnapshot` populates trace `full_record` with: `evidence_summary`, `decision_ledger`, `trace_context`, `streaming`, `taxonomy`, `is_code_task`.
 
@@ -46,11 +46,11 @@ For the full rule catalog, telemetry schema, training signal mapping, and query 
 
 ## Verification
 
-### Verification Loops (Phase 7b)
+### Verification Loops
 
 Language pack `VerificationCommands` wired into pipeline for deterministic verification and self-repair. `VerificationLoopState` tracks rounds, findings, stalls with configurable max rounds and stall threshold.
 
-### Recall Engine (Phase 7a)
+### Recall Engine
 
 Fix recipes from language packs matched against error patterns. Confidence-based bypass routing: high confidence -> deterministic bypass, medium -> enriched prompt, low -> passthrough to LLM.
 
@@ -77,7 +77,7 @@ compares reducer savings profiles.
 
 ## Evaluation
 
-### Golden-Prompt Eval Harness (Phase 18)
+### Golden-Prompt Eval Harness
 
 Curated prompt suites executed against Yarn's OpenAI-compatible API with expectation assertions:
 
@@ -90,7 +90,7 @@ Curated prompt suites executed against Yarn's OpenAI-compatible API with expecta
 
 API: `GET /api/v1/evals/suites` (list), `POST /api/v1/evals/run` (execute, platform-admin).
 
-### Testing Labs (Phase 18)
+### Testing Labs
 
 Execution engine replays prompts from historical traces against Yarn:
 
@@ -105,7 +105,7 @@ Regression detection rules:
 - **Token regression**: candidate >2x baseline
 - **Decision path degradation**: deterministic -> constrained -> inference_first -> abstain
 
-### Stability Eval Suites (Phase 19)
+### Stability Eval Suites
 
 The eval harness now includes explicit stability suites focused on coding-agent continuity:
 

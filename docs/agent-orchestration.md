@@ -1,4 +1,4 @@
-# Agent Orchestration (Phase 3)
+# Agent Orchestration
 
 This document describes the request/response multi-agent orchestration runtime used by Yarn MCP `delegate_task`.
 

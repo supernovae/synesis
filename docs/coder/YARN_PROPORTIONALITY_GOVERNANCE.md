@@ -124,7 +124,7 @@ Key design choices:
 **Guide/Intervene** (scope_exceeded_dangerous):
 > "CRITICAL: Your changes far exceed the user's request scope. You appear to be deleting features or rewriting modules when the user asked for targeted fixes. STOP immediately. Revert to surgical fixes only."
 
-## Optional: Proportionality Critic (Phase 2)
+## Optional: Proportionality Critic
 
 **File:** `yarn-ts/src/governance/proportionality-critic.ts`
 

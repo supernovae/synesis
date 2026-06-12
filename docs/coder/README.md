@@ -69,7 +69,7 @@ Research anchors are collected in
 
 ## Consolidated Feature Areas
 
-Completed milestone notes have been merged into maintained feature docs:
+Maintained feature references:
 
 - Validation normalization and reducers: [`base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md)
 - Working frame, project manifest, recall, and structural index: [`context-and-recall-architecture.md`](./context-and-recall-architecture.md)

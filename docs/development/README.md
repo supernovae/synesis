@@ -27,7 +27,7 @@ security, and product hubs: [TESTING.md](./TESTING.md),
 
 ## Feature documentation
 
-Milestone-era design notes have been consolidated into the current feature docs below:
+Current feature references:
 
 | Area | Canonical docs |
 |------|----------------|

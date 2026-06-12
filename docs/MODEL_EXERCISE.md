@@ -65,7 +65,7 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 ### Mitigation status
 
-- **Prompt strengthening** (Phase 4): Added explicit "count deliverables, produce 1:1 steps" instruction. Helps but doesn't fully resolve at 8B scale.
+- **Prompt strengthening:** Added explicit "count deliverables, produce 1:1 steps" instruction. Helps but doesn't fully resolve at 8B scale.
 - **LoRA candidate:** Planner LoRA is Priority 1 in training guide. Training on (complex prompt → faithful N-step plan with format constraints) pairs would directly address these gaps.
 
 ---
@@ -90,11 +90,11 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 ### Mitigation status
 
-- **Temperature adjusted** (Phase 5 → regression fix): 0.2 → 0.4 → 0.3 for knowledge deep-dives. 0.4 was too aggressive (undisciplined output); 0.3 balances variety with structure.
-- **Prompt strengthening** (Phase 3): Added explicit anti-generic, timeline constraining, and uncertainty honesty rules to `_DEEP_DIVE_SUFFIX`.
-- **Format constraints pipeline** (Phase 1): Planner-captured format constraints now reach the executor as `## Response Constraints`.
-- **Compliance isolation** (Phase 6): Compliance terms removed from base vertical persona; injected only when user prompt contains trigger keywords.
-- **Token budget raised** (Phase 7): Floor raised from 2048 to 4096 for planned knowledge tasks to prevent truncation of later sections. Section budget further raised to 3072 and writer budget to 12288 (2026-03-07f) for narrative depth.
+- **Temperature adjusted:** 0.2 → 0.4 → 0.3 for knowledge deep-dives. 0.4 was too aggressive (undisciplined output); 0.3 balances variety with structure.
+- **Prompt strengthening:** Added explicit anti-generic, timeline constraining, and uncertainty honesty rules to `_DEEP_DIVE_SUFFIX`.
+- **Format constraints pipeline:** Planner-captured format constraints now reach the executor as `## Response Constraints`.
+- **Compliance isolation:** Compliance terms removed from base vertical persona; injected only when user prompt contains trigger keywords.
+- **Token budget raised:** Floor raised from 2048 to 4096 for planned knowledge tasks to prevent truncation of later sections. Section budget further raised to 3072 and writer budget to 12288 (2026-03-07f) for narrative depth.
 - **Parallel per-section generation** (2026-03-07d): Produces better role separation and deterministic tooling mentions, but sections still tend toward bullet-point lists rather than narrative prose.
 - **Writer domain rules** (2026-03-07f): Writer injects domain-specific requirements (failure mode concreteness, decision policy signal decomposition, retrieval design depth, confidence decomposition) based on section topic keywords.
 - **Narrative depth steering** (2026-03-07f): Writer now explicitly requires multi-paragraph prose, not bullet-point summaries.
@@ -137,7 +137,7 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 ### Mitigation status
 
-- **Keyword expansion** (Phase 1, 2026-03-07e): Added "design", "propose", "rollout plan", "failure modes", "model strategy", "retrieval", "assistant" to `software_architecture` keywords. Also added pairings for ("architecture" + "design") and ("architecture" + "propose") to boost complexity score.
+- **Keyword expansion** (2026-03-07e): Added "design", "propose", "rollout plan", "failure modes", "model strategy", "retrieval", "assistant" to `software_architecture` keywords. Also added pairings for ("architecture" + "design") and ("architecture" + "propose") to boost complexity score.
 - **Future fine-tuning notes:** If keyword expansion proves insufficient, consider:
   - Lowering `min_hits` to 1 for high-signal domains (architecture alone is a strong enough signal)
   - Adding a lightweight embedding similarity check as a fallback when keyword matches are 0-1

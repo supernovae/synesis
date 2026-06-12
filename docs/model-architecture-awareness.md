@@ -20,7 +20,7 @@ OpenAI-compatible API can differ sharply:
   context as addressable storage rather than dense working memory;
 - MLA / attention-compressed models may need explicit state packets rather than
   raw transcript volume;
-- MoE models benefit from deterministic phase labels and stricter validation;
+- MoE models benefit from deterministic task-stage labels and stricter validation;
 - MTP or speculative-friendly serving needs careful stream/tool-call boundary
   validation;
 - high-throughput cheap-output models may need shorter turns and recent task
@@ -225,7 +225,7 @@ from “profile actively changed request handling.”
 - Xiaomi MiMo model: Yarn treats MiMo-V2.5 Pro as a long-agent MoE profile with
   explicit current-state replay, and treats MiMo Flash as SWA/MTP-sensitive so
   short turns, path discipline, and stream/tool boundary checks stay prominent.
-- MoE coder: Yarn favors deterministic validation and clearer phase/task labels
+- MoE coder: Yarn favors deterministic validation and clearer task-stage labels
   to reduce ambiguous instruction blends.
 - Throughput-optimized model: Yarn encourages shorter turns, structured tool
   digests, recent task replay, and safer retries so lower developer harnesses do

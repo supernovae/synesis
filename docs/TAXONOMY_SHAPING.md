@@ -229,9 +229,10 @@ the Executor's response covers those elements. No additional YAML needed.
 
 **Layer 4: Thinking budget** (code-controlled)
 
-R1 thinking tokens scale with `task_size`: easy=256, medium=1024, hard=2048.
-This is set in code (planner-ts: `critic-evaluator.ts`; Python legacy: `critic.py`) and maps
-from the YAML-driven difficulty score.
+Planner writer and critic budgets scale from task difficulty and tier settings
+in `base/planner-ts/src/nodes/entry-classifier.ts`, `base/planner-ts/src/model-tiers.ts`,
+and `base/planner-ts/src/config.ts`. The critic evaluator applies current
+taxonomy steering in `base/planner-ts/src/nodes/critic-evaluator.ts`.
 
 ## How to Add a New Domain
 

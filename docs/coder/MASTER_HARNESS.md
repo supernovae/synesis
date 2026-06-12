@@ -132,11 +132,7 @@ call, and emit `upper_harness_decision_v1` session events for budget decisions
 and non-allow tool decisions. The ACP bridge applies the same universal safety
 gate before local filesystem or terminal execution.
 
-Next migration step: retire duplicated adapter-level argument alias maps after
-parity is proven, then attach file-state telemetry directly to the Master
-Harness so stale-write and plan-stub blocking are implemented there instead of
-only in the legacy `governToolCall` layer.
-
-Phase 2 should attach file-state telemetry so stale writes and plan-stub writes
-can be blocked by fact, not guesswork. Until then, those rules stay in the
-contract and docs rather than pretending a heuristic is authoritative.
+Open item: retire duplicated adapter-level argument alias maps after parity is
+proven. File-state telemetry already exists in Yarn; the remaining work is to
+make the Master Harness consume that telemetry directly so stale-write and
+plan-stub blocking use one fact source across OpenAI, Claude, and ACP paths.

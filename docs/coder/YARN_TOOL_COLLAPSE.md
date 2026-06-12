@@ -1,6 +1,6 @@
 # Yarn tool call collapsing
 
-Synesis Yarn can **batch, dedupe, and merge** adjacent tool calls from the model before the client executes them. Goals: fewer round-trips, less context bloat, and lower prefill churn during tool-heavy phases (e.g. Qwen3 Coder step-style `read_file` bursts).
+Synesis Yarn can **batch, dedupe, and merge** adjacent tool calls from the model before the client executes them. Goals: fewer round-trips, less context bloat, and lower prefill churn during tool-heavy work (e.g. Qwen3 Coder step-style `read_file` bursts).
 
 Implementation: [`base/yarn-ts/src/tool-collapse/`](../../base/yarn-ts/src/tool-collapse/).
 

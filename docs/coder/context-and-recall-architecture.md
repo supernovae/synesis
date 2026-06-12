@@ -8,8 +8,8 @@ bounded, typed runtime context around it so coding agents can preserve task
 state, file truth, verification evidence, and retrieval hints without treating
 every prior token as equally authoritative.
 
-This document describes the current `base/yarn-ts` paradigm. It is an
-operational architecture reference, not a milestone plan.
+This document describes the current `base/yarn-ts` paradigm as an operational
+architecture reference.
 
 ## Request-Time Pipeline
 
@@ -18,7 +18,7 @@ flowchart TD
   Request["OpenAI / Claude compatible request"] --> Normalize["Normalize messages\nreducers + snapshot normalization"]
   Normalize --> State["Derive chat/file state\nartifact shadows + objective scope"]
   State --> Recall["Optional recall\nvalidation recipes, evidence prefetch, pattern prefetch"]
-  Recall --> Orchestrate["Phase + tier orchestration"]
+  Recall --> Orchestrate["Task stage + tier orchestration"]
   Orchestrate --> Frame["Route enrichment\nstable prefix + volatile context"]
   Frame --> Admission["Context admission\nbudget policy + compaction"]
   Admission --> Provider["Provider call / stream"]
@@ -44,7 +44,7 @@ the original conversation messages. The typed shape is
 | `projectContext` | Trusted path hints and top-level directories | Anchor workspace/root facts |
 | `chatState` | Derived transcript state and pause summaries | Preserve task state across turns |
 | `fileState` | File snapshot registry and artifact shadows | Preserve current file truth and stale-read warnings |
-| `workingFrame` | `WorkingFrameService` | Compact goal, phase, active files, constraints, checks |
+| `workingFrame` | `WorkingFrameService` | Compact goal, task stage, active files, constraints, checks |
 | `projectManifest` | Manifest service and `@synesis/manifest` | Summarize detected project shape and conventions |
 | `structuralIndex` | Incremental structural index | Map known file/symbol structure within a budget |
 | `fileSummary` | Content-addressed dedup | Summarize already-seen file content |
@@ -63,12 +63,12 @@ and change reasons.
 builds the model-facing `<WORKING_FRAME>` block:
 
 - tiny/small tasks use a lightweight frame with goal, constraints, active
-  files, phase, pending checks, and open decisions.
+  files, current task stage, pending checks, and open decisions.
 - medium/large tasks use manifest-aware rich frames derived from
   `@synesis/manifest` templates, observed files, structural comparison, and
   optional structural critic output.
 - active file lists are bounded by `SYNESIS_YARN_FRAME_MAX_FILES`.
-- for non-exploration phases, active-file extraction favors recent messages so
+- for non-exploration stages, active-file extraction favors recent messages so
   discovery-only files do not stay prominent indefinitely.
 - project-root and shell-cwd hints are included only after path normalization
   and workspace-boundary checks.
@@ -201,7 +201,7 @@ health/telemetry surfaces:
   `context_checkpoint_created`, and admission warn/reject events.
 - state confidence emits `state_confidence_reground_required` when the model
   needs to re-ground on current file or chat state.
-- prefix hashes, prompt profile hashes, phase/tier decisions, governor
+- prefix hashes, prompt profile hashes, task-stage/tier decisions, governor
   decisions, and training signals flow into decision telemetry.
 
 ## Related Docs

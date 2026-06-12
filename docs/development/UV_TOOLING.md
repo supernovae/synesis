@@ -133,7 +133,7 @@ All `requirements.txt` files remain the source of truth — no lockfiles or
 
 ---
 
-## Future: Lock Hardening (Phase 3)
+## Lock Hardening
 
 When strict reproducibility is needed:
 
