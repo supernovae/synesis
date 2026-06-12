@@ -10,7 +10,7 @@ Synesis is a self-hosted AI platform for teams that want more than a chatbot and
 
 Use it to wire Open WebUI, IDE agents, MCP clients, OpenAI-compatible APIs, self-hosted models, and provider APIs into one system you can inspect, operate, and extend.
 
-**Start here:** [Local Compose](docs/LOCAL_COMPOSE.md) · [Helm install](docs/HELM_INSTALL.md) · [Connect an IDE with MCP](docs/clients/MCP_QUICKSTART.md) · [Coder clients](docs/clients/CLIENTS.md) · [Security model](docs/SECURITY.md) · [Docs index](docs/README.md)
+**Start here:** [Local Compose](docs/LOCAL_COMPOSE.md) · [Helm install](docs/HELM_INSTALL.md) · [Connect an IDE with MCP](docs/clients/MCP_QUICKSTART.md) · [Coder clients](docs/clients/CLIENTS.md) · [Security model](docs/SECURITY.md) · [Design theory](docs/DESIGN_THEORY.md) · [Docs index](docs/README.md)
 
 ---
 
@@ -155,6 +155,7 @@ The short version:
 - [Indexers](docs/INDEXERS.md): queue-driven ingestion for docs, code, APIs, licenses, and web pages.
 - [Sandbox](docs/SANDBOX.md): isolated code execution and validation.
 - [Observability](docs/OBSERVABILITY.md): metrics, dashboards, traces, and validation.
+- [Design theory](docs/DESIGN_THEORY.md): guiding hypotheses, research lineage, and why the platform is shaped as a control plane.
 - [Comparison notes](docs/COMPARISON.md): where Synesis fits relative to frameworks, RAG apps, coding agents, and SaaS search.
 
 ## Repository Map
