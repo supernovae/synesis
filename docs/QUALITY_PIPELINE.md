@@ -27,7 +27,7 @@ Admin UI mapping: [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md).
 | **Chunking Benchmark** | `benchmarks/corpus/bench_chunking.py` | Chunk size/overlap parameter sweep | `results_chunking.json` |
 | **Retrieval Benchmark** | `benchmarks/retrieval/bench_hybrid.py` | Graph/vector retrieval regression test | `results_hybrid.json` |
 | **Enrichment Benchmark** | `benchmarks/retrieval/bench_enrichment.py` | A/B test for context prefix and enrichment impact | `results_enrichment.json` |
-| **Curator Agent** | `tools/curator/curator_agent.py` | Discover sources for weak domains via SearXNG + LLM review | `proposed_sources.yaml` |
+| **Curator Agent** | `tools/curator/curator_agent.py` | Discover ingestion item proposals for weak domains via SearXNG + LLM review | `proposed_ingestion_items.yaml` |
 | **Admin Quality UI** | `base/admin/app/routers/rag.py`, `feedback.py`, React SPA | Dashboards, gaps, curator, benchmarks | `/rag/quality`, `/feedback/*` |
 | **Quality CronJob** | `base/quality-runner/` | Scheduled audit + curator pattern | ConfigMap / persisted reports |
 

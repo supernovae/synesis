@@ -26,7 +26,7 @@ SCOPE_ORG_ID = os.getenv("SYNESIS_SCOPE_ORG_ID", "")
 SCOPE_TENANT_IDS = os.getenv("SYNESIS_SCOPE_TENANT_IDS", "")
 _tmp = tempfile.gettempdir()
 AUDIT_OUTPUT = os.path.join(_tmp, "corpus_audit_report.json")
-CURATOR_OUTPUT = os.path.join(_tmp, "proposed_sources.yaml")
+CURATOR_OUTPUT = os.path.join(_tmp, "proposed_ingestion_items.yaml")
 RUN_CURATOR = os.getenv("SYNESIS_RUN_CURATOR", "false").lower() in ("1", "true", "yes")
 API_TOKEN = os.getenv("SYNESIS_API_TOKEN", "")
 

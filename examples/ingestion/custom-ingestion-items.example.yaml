@@ -1,0 +1,64 @@
+# Example Admin ingestion bootstrap file.
+#
+# This is the supported sample format for custom one-off loads. Import it with
+# the Admin UI or:
+#
+#   curl -X POST http://localhost:8081/api/v1/ingestion/bootstrap \
+#     -F file=@examples/ingestion/custom-ingestion-items.example.yaml
+#
+# Curated Synesis-distributed content should be packaged as SynPack v2 instead
+# of being maintained as a long-lived source YAML catalog.
+
+items:
+  - uri: https://example.com/docs/
+    handler: web_page
+    title: Example Product Documentation
+    domain: custom-docs
+    authority: vetted
+    origin_type: curated
+    tags:
+      - example
+      - product-docs
+    corpus_class: hybrid
+    languages: []
+    artifact_kind: docs
+    content_profile: reference
+    freshness_sla_days: 180
+    scope_tags:
+      - product-docs
+    constraint_kind: guiding
+    config:
+      discovery: sitemap_first
+      follow_links: true
+      max_depth: 3
+      max_pages: 50
+      respect_robots: true
+      min_request_interval: 0.5
+      allowed_prefixes:
+        - https://example.com/docs/
+
+  - uri: https://github.com/example/project
+    handler: github_code
+    title: Example Project Source
+    domain: custom-code
+    authority: vetted
+    origin_type: curated
+    tags:
+      - example
+      - source
+    corpus_class: coder_enriched
+    languages:
+      - go
+    artifact_kind: code
+    content_profile: code
+    freshness_sla_days: 90
+    scope_tags:
+      - source
+    constraint_kind: guiding
+    config:
+      repo: example/project
+      language: go
+      branch: main
+      paths:
+        - cmd/
+        - internal/

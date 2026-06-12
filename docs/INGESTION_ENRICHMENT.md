@@ -6,7 +6,9 @@ indexer. For the operational source of truth, see [INDEXERS.md](INDEXERS.md).
 Production ingestion is queue-driven: the indexer CronJob in `synesis-rag`
 claims rows from Admin/Postgres, runs source handlers and `pipeline.py`, embeds
 content with TEI/BGE-M3, scans chunks, and upserts nodes and edges into
-NornicDB.
+NornicDB. Synesis-maintained reusable corpora should ship as SynPack v2
+archives; queue bootstrap files are for custom organization loads and
+experiments.
 
 ```mermaid
 flowchart LR
@@ -41,4 +43,5 @@ and neighbors, and merges RAG evidence with web evidence when enabled.
 
 - [INDEXERS.md](INDEXERS.md) — queue mode, graph schema, scope validation, operations
 - [RAG.md](RAG.md) — retrieval path and authorization
+- [SYNPACKS.md](SYNPACKS.md) — managed SynPack v2 build and install workflow
 - [SECURITY.md](SECURITY.md) — trust envelopes, scan status, and prompt-injection controls

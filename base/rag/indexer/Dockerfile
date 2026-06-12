@@ -68,11 +68,6 @@ RUN /opt/app-root/bin/python -m playwright install chromium \
     && chmod -R 755 /opt/pw-browsers
 
 COPY rag/indexer/app/ /app/app/
-COPY rag/indexer/seed-corpus.json /app/seed-corpus.json
-COPY rag/indexer/seed-corpus-band2.json /app/seed-corpus-band2.json
-COPY rag/indexer/seed-corpus-developer.json /app/seed-corpus-developer.json
-COPY rag/indexer/seed-corpus-ai-architecture.json /app/seed-corpus-ai-architecture.json
-COPY rag/indexer/seed-corpus-retrieval-depth.json /app/seed-corpus-retrieval-depth.json
 
 # Writable dirs for OpenShift (runs as arbitrary non-root UID).
 # HOME must point somewhere writable so Path.home() / ~ expansion works.
@@ -85,4 +80,4 @@ RUN mkdir -p /tmp/.crawl4ai && chmod -R 777 /tmp/.crawl4ai
 USER 1001
 
 ENTRYPOINT ["python", "-m", "app.cli"]
-CMD ["--sources", "/data/sources.yaml"]
+CMD ["--mode", "queue"]

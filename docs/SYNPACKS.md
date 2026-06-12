@@ -211,9 +211,10 @@ run from the repository root, stores each pack in `.work/synpacks/<pack-id>`
 `UV_CACHE_DIR`, and refuses to reuse a work directory whose staged manifest
 belongs to another language or pack id.
 
-### Supported `--language` Values
+### Supported Language/Domain Pack Values
 
-`synpack-helper.py` currently supports the following explicit pack parameters:
+`synpack-helper.py` currently supports the following explicit SynPack
+parameters:
 
 | `--language` value | Default pack id | Pack config | Coverage |
 | --- | --- | --- | --- |
@@ -251,7 +252,7 @@ The helper also accepts comma-separated values and `all`:
 go,rust,quarkus,python,godot,terraform,ecma,bash
 ```
 
-Platform pack configs also exist under `base/rag/pack-configs/platform/`:
+Platform SynPack configs also exist under `base/rag/pack-configs/platform/`:
 
 - `devops-tooling`
 - `gitops`
@@ -260,7 +261,7 @@ Platform pack configs also exist under `base/rag/pack-configs/platform/`:
 - `openshift`
 
 Those are platform pack configs, not accepted `synpack-helper.py --language`
-values today. Build them through the lower-level indexer path with
+values today. Build them through the lower-level SynPack path with
 `--pack-config` while the helper remains focused on language/domain packs.
 
 ```bash

@@ -236,7 +236,7 @@ class TestBootstrapValidation:
     def test_empty_entry_returns_normalized_config(self):
         from app.routers.ingestion import _normalize_bootstrap_meta
 
-        original = {"path": "seed-corpus.json"}
+        original = {"path": "source-manifest.json"}
         cfg, warnings, errors = _normalize_bootstrap_meta({}, original)
         assert cfg == original
         assert not warnings
@@ -337,8 +337,8 @@ class TestIngestionConfigValidation:
         item = ItemCreate(
             uri="license:spdx",
             config={
-                "path": "seed-corpus.json",
-                "doc_id_prefix": "epistemic",
+                "path": "source-manifest.json",
+                "doc_id_prefix": "custom",
                 "papers": [{"id": "2005.11401", "title": "RAG"}],
                 "spdx": {
                     "licenses_url": "https://example.com/licenses.json",
@@ -358,7 +358,7 @@ class TestIngestionConfigValidation:
         )
 
         assert item.config is not None
-        assert item.config.path == "seed-corpus.json"
+        assert item.config.path == "source-manifest.json"
         assert item.config.papers is not None
         assert item.config.papers[0].id == "2005.11401"
         assert item.config.spdx is not None

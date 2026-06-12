@@ -56,7 +56,7 @@ spec:
             - name: SYNESIS_QUALITY_REPORT_PATH
               value: "/data/quality/corpus_audit_report.json"
             - name: SYNESIS_CURATOR_PROPOSALS_PATH
-              value: "/data/quality/proposed_sources.yaml"
+              value: "/data/quality/proposed_ingestion_items.yaml"
             - name: SYNESIS_TAXONOMY_YAML_PATH
               value: "/etc/synesis/taxonomy_prompt_config.yaml"
             # DB URL sourced from the Helm-managed synesis-admin-db-url Secret.

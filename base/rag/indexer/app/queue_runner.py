@@ -111,7 +111,7 @@ class QueueClient:
 
 
 def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
-    """Build a source_config dict matching what handlers expect from sources.yaml."""
+    """Build a source_config dict matching what handlers expect."""
     handler = item.get("effective_handler") or item.get("handler") or "html_document"
     config = dict(item.get("effective_config") or item.get("config") or {})
     domain = item.get("effective_domain") or item.get("domain") or "generalist"

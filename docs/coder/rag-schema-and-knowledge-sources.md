@@ -4,7 +4,8 @@
 
 This document is the coder-facing reference for how Synesis knowledge is built,
 stored, searched, and exposed to agents. It covers the current NornicDB content
-graph, SynPack v2 bundles, language packs, and planner/Yarn/MCP search paths.
+graph, SynPack v2 bundles, Admin queue ingestion, and planner/Yarn/MCP search
+paths.
 
 ## Current Baseline
 
@@ -115,13 +116,16 @@ Helm-managed `synesis-indexer-content-packs` runner. Packs marked
 `requires_bulk_import: true` should use the bulk path rather than the slow
 row-by-row Bolt importer.
 
-## Language Packs
+## SynPack Configs
 
-Language packs are curated SynPack v2 builds. Current pack configs live under
-[`base/rag/pack-configs`](../../base/rag/pack-configs) and cover Go, Rust,
-Python, Quarkus, Godot, Terraform/OpenTofu, and Ecma/JS/TS.
+Synesis-maintained reusable content should be represented as SynPack v2 pack
+configs. Current pack configs live under
+[`base/rag/pack-configs`](../../base/rag/pack-configs) and cover language,
+domain, and platform packs such as Go, Rust, Python, Quarkus, Godot,
+Terraform/OpenTofu, Ecma/JS/TS, Bash, Kubernetes, OpenShift, GitOps,
+observability, and DevOps tooling.
 
-The language-pack builder:
+The SynPack builders:
 
 - Resolves stable upstream source versions where supported.
 - Normalizes docs/code into `LanguageChunk` rows.
@@ -259,14 +263,15 @@ boundaries.
 
 Current source classes:
 
-- **SynPack language packs**: curated language/framework/API packs with typed
+- **SynPack v2 packs**: curated language/framework/API/platform packs with typed
   nodes, enrichment, examples, constraints, and vector sidecars.
 - **Backstage/Developer Hub**: templates, platform standards, pipelines, and
   golden paths linked through `golden_path_id`.
 - **Curated technical docs**: language/framework/tool references for coder
   reliability.
-- **Code/API sources**: GitHub code, OpenAPI specs, structured data, markdown,
-  PDFs, web pages, and repo maps handled by the indexer source handlers.
+- **Custom source ingestion**: Admin queue items for GitHub code, OpenAPI
+  specs, structured data, markdown, PDFs, web pages, and repo maps handled by
+  the indexer source handlers.
 - **Internal governance artifacts**: constitutions, ADRs, runbooks, policy
   references, quality bars, and eval cases.
 - **Feedback/gap loop**: retrieval gaps, curated proposals, and eval outputs
@@ -278,8 +283,8 @@ status, freshness/version metadata, and scope/authz metadata.
 ## Pipeline Flow
 
 ```text
-Source config / Admin queue item / SynPack catalog job
-  -> indexer source handler or language-pack builder
+Admin queue item / SynPack catalog job
+  -> indexer source handler or SynPack builder/importer
   -> deterministic chunking, source cleanup, metadata extraction
   -> content gate, injection scan, optional enrichment
   -> BGE-M3 embedding
@@ -305,7 +310,7 @@ Any retrieval-visible schema or search behavior change must update:
 1. **Indexer schema**: `schema.py`, `nornic_writer.py`, and schema/version tests.
 2. **Ingestion pipeline**: `pipeline.py`, source handlers, content gate, scan,
    enrichment, and backfill behavior.
-3. **SynPack/language packs**: `synpack.py`, `language_pack.py`, pack configs,
+3. **SynPack packs**: `synpack.py`, `language_pack.py`, pack configs,
    prompt schemas, quality reports, and import validation.
 4. **Planner retrieval**: `rag-client.ts`, `types.ts`, `metadata-filter.ts`,
    app route mapping, auth/scope handling, and retrieval tests.

@@ -1,16 +1,23 @@
 # Knowledge Indexers
 
 The Synesis indexer is the production ingestion path for RAG content. It claims
-work from the Admin ingestion queue, fetches and normalizes sources, chunks and
-enriches content, embeds text with TEI/BGE-M3, scans for prompt-injection
-signals, and writes graph nodes plus relationships into **NornicDB**.
+work from the Admin ingestion queue, installs hosted SynPack archives, fetches
+and normalizes custom sources, chunks and enriches content, embeds text with
+TEI/BGE-M3, scans for prompt-injection signals, and writes graph nodes plus
+relationships into **NornicDB**.
+
+Curated Synesis-maintained corpora should be built and distributed as
+**SynPack v2** archives. Use Admin queue bootstrap files for custom
+organization-specific loads, experiments, or one-off documents.
 
 ## Current Architecture
 
 ```mermaid
 flowchart LR
   Admin["Admin ingestion queue\nPostgres"] --> Runner["indexer queue runner"]
-  Runner --> Handlers["source handlers\nGitHub, docs, API specs, web"]
+  Catalog["Admin content-pack jobs"] --> PackRunner["SynPack installer"]
+  Runner --> Handlers["custom source handlers\nGitHub, docs, API specs, web"]
+  PackRunner --> Graph["NornicDB\ncontent_graph"]
   Handlers --> Pipeline["pipeline.py\nchunk, enrich, scan, embed"]
   Pipeline --> Graph["NornicDB\ncontent_graph"]
   Pipeline --> AdminStatus["Admin status updates"]
@@ -26,6 +33,10 @@ The direct queue runner is the normal production path:
 Staged jobs may still be used for large source sets, but they write the same
 NornicDB graph shape and must not compete with the direct queue runner for the
 same pending corpus.
+
+SynPack jobs use the same indexer image in `--mode content-packs` or
+`--mode synpack` command paths. The legacy in-image `sources-*.yaml` catalogs
+have been retired; the image defaults to `--mode queue`.
 
 ## Graph Schema
 
@@ -72,7 +83,7 @@ All code ingestion benefits from deterministic graph extraction:
    - `CONTAINS` for document/file/chunk hierarchy
    - `DEFINES` for chunk-to-symbol relationships
    - `IMPORTS` and `CALLS` for resolved code references
-5. SynPacks and language packs can add LLM enrichment, but LLMs are not required
+5. SynPacks can add LLM enrichment, but LLMs are not required
    for graph construction.
 
 This means ordinary GitHub code ingestion and managed packs both improve
@@ -85,7 +96,7 @@ retrieval with the same graph-native context.
 | `github_code.py` | Repository code fetch, AST-aware chunking, code graph signals |
 | documentation handlers | Markdown/HTML/docs chunking and source metadata |
 | API spec handlers | OpenAPI and structured reference extraction |
-| `synpack.py` / `language_pack.py` / `platform_pack.py` | Managed content packs, language packs, platform packs, lock files, optional enrichment |
+| `synpack.py` / `language_pack.py` / `platform_pack.py` | Managed SynPack v2 archives, language/domain pack configs, platform pack configs, lock files, optional enrichment |
 
 Handlers should produce deterministic metadata first. Optional services such as
 preprocess, spam scoring, entity extraction, or LLM enrichment are env-gated and
@@ -137,6 +148,21 @@ Run one indexer pass:
 
 ```bash
 ./scripts/deploy-indexer.sh --run
+```
+
+Import custom ingestion items:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/ingestion/bootstrap \
+  -F file=@examples/ingestion/custom-ingestion-items.example.yaml
+```
+
+Build or install maintained content as SynPack v2:
+
+```bash
+./scripts/synpack-helper.py prepare --language go
+./scripts/synpack-helper.py enrich --language go --request-limit 1000
+./scripts/synpack-helper.py finalize --language go --embedder-url http://localhost:8082/v1
 ```
 
 Check planner retrieval config:

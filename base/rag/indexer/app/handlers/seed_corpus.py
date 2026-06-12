@@ -1,11 +1,10 @@
-"""Handler: Epistemic seed corpus (foundational reference knowledge).
+"""Handler: curated JSON source manifest.
 
-Reads a seed-corpus.json manifest, fetches each source URL, and produces
-chunks with per-source domain and tag metadata.  HTML pages are converted
-to Markdown via trafilatura; PDFs are extracted with PyMuPDF.  The JSON
-file is the single source of truth — every entry carries its own domain
-and tags which propagate to NornicDB at index time via chunk.metadata
-overrides.
+Reads a JSON manifest, fetches each source URL, and produces chunks with
+per-source domain and tag metadata. HTML pages are converted to Markdown via
+trafilatura; PDFs are extracted with PyMuPDF. Every entry carries its own
+domain and tags, which propagate to NornicDB at index time through
+chunk.metadata overrides.
 """
 
 from __future__ import annotations
@@ -31,12 +30,12 @@ _FETCH_TIMEOUT = 45
 @register
 class SeedCorpusHandler:
     handler_type = "seed_corpus"
-    source_type = "seed_corpus"
+    source_type = "source_manifest"
 
     def fetch(self, source_config: dict[str, Any]) -> list[RawDocument]:
         config = source_config.get("config", {})
         json_path = config.get("path", "")
-        doc_id_prefix = config.get("doc_id_prefix", "epistemic")
+        doc_id_prefix = config.get("doc_id_prefix", "curated")
 
         if not json_path:
             logger.error("indexer_handler_config_missing", extra={"handler": "seed_corpus", "field": "config.path"})
@@ -86,7 +85,7 @@ class SeedCorpusHandler:
     def _fetch_one(
         client: httpx.Client,
         src: dict[str, Any],
-        doc_id_prefix: str = "epistemic",
+        doc_id_prefix: str = "curated",
     ) -> RawDocument | None:
         url = src.get("url", "")
         title = src.get("title", url)
@@ -114,8 +113,8 @@ class SeedCorpusHandler:
             verdict = evaluate_page(url, resp.text, GatePolicy())
             if not verdict.should_index:
                 logger.warning(
-                    "Epistemic source '%s' scored low (%.2f, type=%s): %s. "
-                    "Indexing anyway (curated), but review if content has changed.",
+                    "Curated manifest source '%s' scored low (%.2f, type=%s): %s. "
+                    "Indexing anyway, but review if content has changed.",
                     title,
                     verdict.quality_score,
                     verdict.doc_type,
@@ -123,7 +122,7 @@ class SeedCorpusHandler:
                 )
             else:
                 logger.debug(
-                    "Epistemic source '%s' quality=%.2f type=%s",
+                    "Curated manifest source '%s' quality=%.2f type=%s",
                     title,
                     verdict.quality_score,
                     verdict.doc_type,

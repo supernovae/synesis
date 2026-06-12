@@ -2,14 +2,14 @@
 """Auto-curation agent: discover high-quality sources for under-served taxonomy domains.
 
 Reads the corpus audit report, identifies weak/empty domains, discovers candidate
-sources via web search + LLM suggestion, evaluates them, and outputs a
-proposed_sources.yaml for human review.
+sources via web search + LLM suggestion, evaluates them, and outputs
+proposed_ingestion_items.yaml for human review.
 
 Usage:
     python curator_agent.py [--audit-report PATH] [--taxonomy PATH]
                             [--llm-url URL] [--model MODEL]
                             [--searxng-url URL] [--max-domains N]
-                            [--output proposed_sources.yaml]
+                            [--output proposed_ingestion_items.yaml]
 
 Prerequisites:
     - Port-forward to SearXNG: oc port-forward svc/searxng 8888:8080 -n synesis-search
@@ -240,17 +240,27 @@ def generate_source_entry(
     candidate: dict[str, Any],
     domain_key: str,
 ) -> dict[str, Any]:
-    """Generate a sources.yaml-compatible entry."""
+    """Generate an Admin ingestion bootstrap-compatible item."""
     return {
-        "name": candidate["title"][:80],
+        "uri": candidate["url"],
         "handler": "web_page",
-        "origin_type": "external",
-        "authority": "community",
+        "title": candidate["title"][:80],
         "domain": domain_key,
+        "authority": "community",
+        "origin_type": "external",
+        "tags": [domain_key, "auto-curated"],
+        "corpus_class": "hybrid",
+        "languages": [],
+        "artifact_kind": "docs",
+        "content_profile": "reference",
+        "freshness_sla_days": 180,
+        "scope_tags": [domain_key, "auto-curated"],
+        "constraint_kind": "guiding",
         "config": {
-            "url": candidate["url"],
+            "discovery": "sitemap_first",
+            "follow_links": True,
+            "respect_robots": True,
             "max_pages": 20,
-            "tags": [domain_key, "auto-curated"],
         },
         "_curator_metadata": {
             "quality_score": candidate["quality_score"],
@@ -274,8 +284,8 @@ def main():
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--searxng-url", default="http://localhost:8888")
     parser.add_argument("--max-domains", type=int, default=10, help="Max number of weak domains to process")
-    parser.add_argument("--min-quality", type=int, default=3, help="Min quality score (1-5) for proposed sources")
-    parser.add_argument("--output", default="tools/curator/proposed_sources.yaml")
+    parser.add_argument("--min-quality", type=int, default=3, help="Min quality score (1-5) for proposed items")
+    parser.add_argument("--output", default="tools/curator/proposed_ingestion_items.yaml")
     args = parser.parse_args()
 
     audit_path = Path(args.audit_report)
@@ -343,24 +353,25 @@ def main():
 
     elapsed = time.time() - t0
 
-    # Write proposed sources
+    # Write proposed ingestion items.
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Flatten into a sources.yaml-compatible list with comments
-    flat_sources = []
+    # Flatten into Admin ingestion bootstrap-compatible items for reviewers.
+    flat_items = []
     for proposal in all_proposals:
         for entry in proposal["sources"]:
-            flat_sources.append(entry)
+            flat_items.append(entry)
 
     output_data = {
         "generated_by": "curator_agent.py",
         "domains_processed": len(all_proposals),
-        "total_sources": len(flat_sources),
+        "total_items": len(flat_items),
         "review_instructions": (
             "Review each entry below. Adjust 'authority' (community -> vetted) for "
-            "high-quality sources. Remove entries that don't meet standards. "
-            "Copy approved entries into the appropriate sources-*.yaml file."
+            "high-quality sources and remove entries that do not meet standards. "
+            "Import approved items through the Admin ingestion bootstrap endpoint "
+            "or create them in the Admin ingestion queue."
         ),
         "proposals": all_proposals,
     }
@@ -370,13 +381,13 @@ def main():
 
     print(f"\n=== Curator Agent Summary ({elapsed:.0f}s) ===")
     print(f"  Domains processed:  {len(all_proposals)}")
-    print(f"  Sources proposed:   {len(flat_sources)}")
+    print(f"  Items proposed:     {len(flat_items)}")
     print(f"  Output:             {output_path}")
     print("\n  Next steps:")
     print(f"    1. Review {output_path}")
     print("    2. Adjust authority levels for vetted sources")
-    print("    3. Copy approved entries to sources-docs.yaml or sources-research.yaml")
-    print("    4. Run indexer to ingest new sources")
+    print("    3. Import approved entries through Admin ingestion bootstrap or UI")
+    print("    4. Run the queue indexer to ingest new items")
     print("    5. Re-run audit_corpus.py to verify improvement")
 
 

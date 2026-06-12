@@ -138,8 +138,11 @@ podman compose -f podman-compose.yaml --profile rag --profile ingest run --rm in
 ```
 
 The queue indexer claims work from Synesis Admin. Create or import ingestion
-items first through the admin API/UI. For staged ingestion, SynPack, and content
-pack operations, see [`docs/INDEXERS.md`](INDEXERS.md) and
+items first through the admin API/UI. Use
+[`examples/ingestion/custom-ingestion-items.example.yaml`](../examples/ingestion/custom-ingestion-items.example.yaml)
+for a copyable custom-load example. For staged ingestion, SynPack, and content
+pack operations, see [`docs/INDEXERS.md`](INDEXERS.md),
+[`docs/SYNPACKS.md`](SYNPACKS.md), and
 [`base/rag/README.md`](../base/rag/README.md).
 
 Heavy helper services are intentionally opt-in:

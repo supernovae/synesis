@@ -4,7 +4,7 @@ Single conversion pipeline for all indexer handlers. Trafilatura handles
 boilerplate removal (nav, ads, sidebars, cookie banners) and produces
 clean Markdown with headings, code blocks, tables, and links preserved.
 
-This replaces the previous split between markdownify (seed_corpus,
+This replaces the previous split between markdownify (curated manifests,
 html_document, arxiv_paper) and crawl4ai's built-in converter (web_page).
 
 Post-extraction normalization (normalize_doc_markdown) strips residual

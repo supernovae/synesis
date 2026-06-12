@@ -35,7 +35,7 @@ flowchart TB
     GH[GitHub workflow quality-pipeline.yml]
     CRON[quality-runner CronJob]
     AUD --> JSON[corpus_audit_report.json]
-    CUR --> YAML[proposed_sources.yaml]
+    CUR --> YAML[proposed_ingestion_items.yaml]
     BENCH --> BR[benchmark JSON / DB]
     GH --> AUD
     CRON --> AUD

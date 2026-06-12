@@ -67,7 +67,7 @@ bench-chunking:
 # Also requires port-forward to SearXNG:
 #   oc port-forward svc/searxng 8888:8080 -n synesis-search
 
-# Discover sources for weak domains, output proposed_sources.yaml
+# Discover ingestion item proposals for weak domains.
 curator-discover:
 	python tools/curator/curator_agent.py
 

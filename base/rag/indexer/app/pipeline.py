@@ -1,8 +1,9 @@
 """Unified indexing pipeline: fetch -> parse -> chunk -> gate -> enrich -> embed -> upsert.
 
-Orchestrates the full indexing flow for any source configuration using
-the handler registry. Each source entry in sources.yaml specifies a
-handler type, authority, origin_type, and handler-specific config.
+Orchestrates the full indexing flow for source configurations from Admin queue
+items, explicit custom YAML files, or internal pack builders. Each source
+configuration specifies a handler type, authority, origin_type, and
+handler-specific config.
 
 The chunk-level quality gate (Layer 2) runs for ALL handlers between
 parse/chunk and enrich.  It catches marketing, thin, and boilerplate
@@ -793,7 +794,7 @@ def index_source(
     dry_run: bool = False,
     gate_policy: GatePolicy | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Index a single source from the unified sources.yaml.
+    """Index one source configuration.
 
     Returns (chunks upserted, fetch telemetry dict). The second value is empty
     when fetch failed or produced no documents; otherwise it reflects the fetch

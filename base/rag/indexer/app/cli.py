@@ -1,15 +1,12 @@
 """Unified CLI for the Synesis RAG Indexer.
 
-Usage (YAML mode — existing behavior):
-    python -m app.cli --sources /data/sources.yaml
-    python -m app.cli --sources /data/sources.yaml --handler github_markdown
-    python -m app.cli --sources /data/sources.yaml --source "OpenShift Runbooks"
-    python -m app.cli --sources /data/sources.yaml --enrich full --llm-url http://...
-    python -m app.cli --sources /data/sources.yaml --dry-run
-
-Usage (queue mode — DB-driven):
+Usage (queue mode — production default):
     python -m app.cli --mode queue
     python -m app.cli --mode queue --admin-url http://synesis-admin:8080
+
+Usage (explicit custom source YAML mode):
+    python -m app.cli --mode yaml --sources ./custom-source-config.yaml --dry-run
+    python -m app.cli --mode yaml --sources ./custom-source-config.yaml --handler github_markdown
 
 Utilities:
     python -m app.cli --list-handlers
@@ -34,22 +31,22 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python -m app.cli --sources /data/sources.yaml\n"
             "  python -m app.cli --mode queue --admin-url http://synesis-admin:8080\n"
+            "  python -m app.cli --mode yaml --sources ./custom-source-config.yaml --dry-run\n"
             "  python -m app.cli --list-handlers\n"
         ),
     )
     parser.add_argument(
         "--mode",
         choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich", "synpack", "content-packs"],
-        default="yaml",
+        default="queue",
         help=(
-            "yaml: read sources from file (default). queue: direct NornicDB path via admin API. "
+            "queue: claim Admin ingestion items (default). yaml: explicit custom/dev source file. "
             "staged-*: S3 staged pipeline (see docs/INDEXERS.md). synpack: build/load managed doc packs. "
             "content-packs: install admin-queued SynPack downloads."
         ),
     )
-    parser.add_argument("--sources", help="Path to unified sources.yaml (yaml mode only)")
+    parser.add_argument("--sources", help="Path to a custom source YAML file (yaml mode only)")
     parser.add_argument("--admin-url", default="", help="Admin API base URL (queue mode)")
     parser.add_argument("--trigger", default="cron", help="Run trigger label (queue mode)")
     parser.add_argument("--handler", default=None, help="Only run sources with this handler type")
@@ -278,7 +275,7 @@ def _run_content_pack_mode(args: argparse.Namespace) -> None:
 
 
 def _run_yaml_mode(args: argparse.Namespace) -> None:
-    """Original YAML-driven pipeline mode."""
+    """Explicit custom-source YAML mode."""
     if not args.sources:
         logger.error("indexer_sources_required")
         sys.exit(1)

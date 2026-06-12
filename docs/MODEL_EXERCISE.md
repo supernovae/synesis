@@ -43,7 +43,7 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 - `_DEEP_DIVE_SUFFIX` opens with `DEPTH RULES` emphasizing standalone-document-quality sections.
 - Temperature set to 0.3 for planned knowledge tasks.
 - Web search generates per-section queries instead of concatenated mega-queries.
-- 5 curated RAG documents created in `base/rag/knowledge-base/` for model grounding.
+- Historical local RAG notes were later retired in favor of SynPack v2 packs and Admin queue ingestion.
 
 ---
 

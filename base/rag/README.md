@@ -13,7 +13,7 @@ helm upgrade --install synesis ./charts/synesis \
 
 The Helm chart applies the RAG stack as part of the Synesis release. Enable
 indexer CronJobs under `jobs.indexer` in Helm values when you want queue
-processing managed by the release.
+processing or content-pack installation managed by the release.
 
 ## Components
 
@@ -21,7 +21,8 @@ processing managed by the release.
 |-----------|---------|
 | `nornicdb.yaml` | NornicDB graph/vector database, Bolt service, and durable PVC |
 | `embedder/` | BGE-M3 embedding service for components that still need explicit embeddings |
-| `indexer/` | Queue/staged/content-pack indexer that writes `ContentNode` graph nodes and relationships |
+| `indexer/` | Queue/staged/SynPack indexer that writes `ContentNode` graph nodes and relationships |
+| `pack-configs/` | Canonical SynPack v2 language/domain/platform pack definitions |
 
 ## Content Graph
 
@@ -75,7 +76,7 @@ ORDER BY score DESC
 
 ## Content Packs
 
-Portable content packs are ZIP archives with:
+Portable content packs are SynPack v2 ZIP archives with:
 
 - `manifest.json`
 - `nodes.jsonl`
@@ -87,3 +88,8 @@ The loader upserts graph nodes idempotently and creates deterministic
 relationships such as `CONTAINS` and `DEFINES`. Enrichment may add candidate
 relationships and retrieval hints, but deterministic extraction remains the
 authoritative source for graph edges.
+
+Use `base/rag/pack-configs/` for Synesis-maintained reusable packs. Use Admin
+queue bootstrap files, such as
+`examples/ingestion/custom-ingestion-items.example.yaml`, for local or
+organization-specific custom loads.
