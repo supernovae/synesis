@@ -220,7 +220,25 @@ const CostRowSchema = z.object({
   /** When set, estimated cost includes cache write tokens at this $/1M; else cache_creation billed at input rate. */
   input_cache_write_per_million: z.number().nullable().optional(),
   pricing_source: z.string().optional(),
-}).strict();
+  model: z.unknown().optional(),
+  served_name: z.unknown().optional(),
+  profile: z.unknown().optional(),
+  source: z.unknown().optional(),
+  provider: z.unknown().optional(),
+  monthly_fixed_cost: z.unknown().optional(),
+  cost_formula: z.unknown().optional(),
+  notes: z.unknown().optional(),
+}).strict().transform(({
+  model: _model,
+  served_name: _servedName,
+  profile: _profile,
+  source: _source,
+  provider: _provider,
+  monthly_fixed_cost: _monthlyFixedCost,
+  cost_formula: _costFormula,
+  notes: _notes,
+  ...cost
+}) => cost);
 
 const CostEnvelopeSchema = z.object({
   costs: z.array(CostRowSchema).optional(),

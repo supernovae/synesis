@@ -237,6 +237,40 @@ describe("fetchTierConfigs", () => {
     await expect(fetchTierConfigs(makeConfig())).rejects.toThrow(/billing_override/);
   });
 
+  it("accepts and strips known admin cost metadata", async () => {
+    stubFetch(
+      { roles: [{ role: "coder-core", assigned: true, provider: "openrouter", model: "m", endpoint: "" }] },
+      {
+        costs: [
+          {
+            role: "coder-core",
+            model: "m",
+            served_name: "synesis-core",
+            profile: "",
+            source: "openrouter",
+            provider: "openrouter",
+            input_per_million: 1.25,
+            input_cached_per_million: 0.2,
+            input_cache_write_per_million: 0.4,
+            output_per_million: 4.5,
+            monthly_fixed_cost: 0,
+            cost_formula: "",
+            notes: "operator note",
+            pricing_source: "manual",
+          },
+        ],
+      },
+    );
+
+    const tiers = await fetchTierConfigs(makeConfig());
+
+    expect(tiers[0].inputPerM).toBe(1.25);
+    expect(tiers[0].outputPerM).toBe(4.5);
+    expect(tiers[0].cachedPerM).toBe(0.2);
+    expect(tiers[0].cacheWritePerM).toBe(0.4);
+    expect(tiers[0].pricingSource).toBe("manual");
+  });
+
   it("rejects unknown nested architecture profile keys from route_params", async () => {
     stubFetch(
       {
