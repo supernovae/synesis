@@ -10,7 +10,7 @@ Synesis is a self-hosted AI platform for teams that want more than a chatbot and
 
 Use it to wire Open WebUI, IDE agents, MCP clients, OpenAI-compatible APIs, self-hosted models, and provider APIs into one system you can inspect, operate, and extend.
 
-**Start here:** [Helm install](docs/HELM_INSTALL.md) · [Connect an IDE with MCP](docs/clients/MCP_QUICKSTART.md) · [Coder clients](docs/clients/CLIENTS.md) · [Security model](docs/SECURITY.md) · [Docs index](docs/README.md)
+**Start here:** [Local Compose](docs/LOCAL_COMPOSE.md) · [Helm install](docs/HELM_INSTALL.md) · [Connect an IDE with MCP](docs/clients/MCP_QUICKSTART.md) · [Coder clients](docs/clients/CLIENTS.md) · [Security model](docs/SECURITY.md) · [Docs index](docs/README.md)
 
 ---
 
@@ -58,7 +58,18 @@ The repo is organized as real services and shared packages, not a demo script. Y
 
 ## Try It
 
-### 1. Deploy the platform
+### 1. Try it locally
+
+Run the core stack without Kubernetes:
+
+```bash
+cp .env.example .env
+podman compose -f podman-compose.yaml up -d
+```
+
+Then open Open WebUI at <http://localhost:3000>. See [`docs/LOCAL_COMPOSE.md`](docs/LOCAL_COMPOSE.md) for Docker Compose, optional RAG/MCP/search profiles, and model-provider configuration.
+
+### 2. Deploy the platform
 
 Pick a checked-in values example for your environment, copy it, then edit hosts, storage, providers, and secrets.
 
@@ -74,13 +85,13 @@ helm upgrade --install synesis ./charts/synesis \
 
 Other starting points are in [`charts/synesis/examples/`](charts/synesis/examples/), including AKS and GKE variants. The full production guide is [`docs/HELM_INSTALL.md`](docs/HELM_INSTALL.md).
 
-### 2. Bootstrap admin access
+### 3. Bootstrap admin access
 
 Create a user in the Keycloak `synesis` realm, assign `synesis-admin`, and sign in to the admin app. The admin API intentionally has no hardcoded username/password fallback.
 
 Guide: [`docs/admin/KEYCLOAK_BOOTSTRAP.md`](docs/admin/KEYCLOAK_BOOTSTRAP.md)
 
-### 3. Connect your IDE or agent harness
+### 4. Connect your IDE or agent harness
 
 After you create a Synesis PAT with `mcp:invoke` or `coder` scope, point your client at Synesis MCP:
 
