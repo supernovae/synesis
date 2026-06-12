@@ -80,7 +80,7 @@ const PHASE_DESCRIPTIONS: Record<PlannerStatusPhase, string> = {
   tool_call: "Calling external tool...",
   mcp_call: "Calling MCP tool...",
   critic: "Reviewing answer quality...",
-  synthesizing: "Synthesizing response...",
+  synthesizing: "Writing response...",
   streaming: "Streaming response...",
   complete: "Done",
   error: "Workflow failed",

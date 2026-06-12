@@ -98,7 +98,7 @@ def test_trace_ingest_rejects_deep_nested_observability_payload() -> None:
     with pytest.raises(ValidationError, match="nesting depth"):
         TraceIngestBody(
             trace_id="trace-1",
-            trace_context={"a": {"b": {"c": {"d": {"e": "too-deep"}}}}},
+            trace_context={"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": "too-deep"}}}}}}}}},
         )
 
 
@@ -109,6 +109,53 @@ def test_trace_ingest_accepts_bounded_observability_payload() -> None:
     )
 
     assert body.trace_context == {"cache": {"shape_hash": "abc123", "provider_options_bytes": 42}}
+
+
+def test_trace_ingest_accepts_complex_planner_observability_payload() -> None:
+    body = TraceIngestBody(
+        service="planner",
+        trace_id="trace-complex",
+        request_id="req-complex",
+        decision_ledger=[
+            {
+                "node": f"node-{idx}",
+                "decision": "continue",
+                "signals": {"taxonomy": {"domains": [{"key": "code", "score": 0.91}]}},
+            }
+            for idx in range(250)
+        ],
+        sensemaking={
+            "domain_profile": {
+                "domains": [
+                    {
+                        "key": "code",
+                        "signals": {"confidence": 0.92, "evidence": ["trace", "steering"]},
+                    }
+                ],
+                "frameCoherence": "complex",
+            },
+            "task_frame": {"goals": ["diagnose"], "constraints": {"preserve": ["streaming", "status"]}},
+        },
+        trace_context={
+            "architecture_mediation": {
+                "context_adjustments": {
+                    "retained": {"client": {"messages": {"count": 12}}},
+                },
+            },
+        },
+        taxonomy={
+            "discovery": {
+                "semantic_validation": {
+                    "candidates": [{"key": "code.debugging", "scores": {"lexical": 0.8, "semantic": 0.7}}],
+                },
+            },
+            "steering_applied": ["depth_instructions", "calibration_guidance"],
+        },
+    )
+
+    assert len(body.decision_ledger or []) == 250
+    assert body.trace_context is not None
+    assert body.taxonomy is not None
 
 
 def test_trace_archive_request_rejects_invented_trace_service() -> None:

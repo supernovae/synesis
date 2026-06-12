@@ -396,9 +396,9 @@ export async function composeWriterDraft(state: GraphState): Promise<WriterResul
 
 /**
  * Streaming variant — calls onDelta for token fragments so the SSE layer can
- * forward them to the client. When the mermaid guard is enabled, the LLM stream
- * is buffered until completion, then sanitized and replayed in chunks; otherwise
- * raw deltas are forwarded (legacy behavior).
+ * forward them to the client. Streaming Mermaid cleanup is opt-in because it
+ * buffers the full writer response before replaying sanitized chunks; by default
+ * raw content deltas are forwarded immediately for first-token UX.
  */
 export async function composeWriterDraftStream(
   state: GraphState,
@@ -413,7 +413,10 @@ export async function composeWriterDraftStream(
 
   try {
     const cfg = loadConfig();
-    const mermaidGuardEnabled = cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED && !jsonMode;
+    const mermaidGuardEnabled =
+      cfg.SYNESIS_PLANNER_TS_STREAM_MERMAID_GUARD_ENABLED &&
+      cfg.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED &&
+      !jsonMode;
     const generation = state.writer_generation_params ?? {};
 
     const result = await chatCompletionStream(

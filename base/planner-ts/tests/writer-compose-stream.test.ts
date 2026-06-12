@@ -28,9 +28,39 @@ describe("composeWriterDraftStream mermaid guard", () => {
 
   afterEach(() => {
     delete process.env.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED;
+    delete process.env.SYNESIS_PLANNER_TS_STREAM_MERMAID_GUARD_ENABLED;
   });
 
-  it("buffers the LLM stream and emits guarded mermaid (quoted labels) in chunks", async () => {
+  it("streams raw deltas immediately by default even when the non-streaming mermaid guard is enabled", async () => {
+    const raw = [
+      "```mermaid",
+      "graph TD",
+      "B --> C[Model Server (vLLM, TGI)]",
+      "```",
+    ].join("\n");
+
+    chatCompletionStreamMock.mockImplementation(
+      async (_req: unknown, onDelta: (d: { content?: string }) => void) => {
+        onDelta({ content: raw });
+        return {
+          content: raw,
+          usage: { ...ZERO_USAGE },
+        };
+      },
+    );
+
+    const deltas: string[] = [];
+    const result = await composeWriterDraftStream(baseState, (d) => {
+      if (d.content) deltas.push(d.content);
+    });
+
+    expect(result.content).toBe(raw);
+    expect(deltas.join("")).toBe(raw);
+  });
+
+  it("buffers the LLM stream and emits guarded mermaid when streaming mermaid guard is explicitly enabled", async () => {
+    process.env.SYNESIS_PLANNER_TS_STREAM_MERMAID_GUARD_ENABLED = "true";
+
     const raw = [
       "```mermaid",
       "graph TD",
@@ -56,28 +86,5 @@ describe("composeWriterDraftStream mermaid guard", () => {
     expect(result.content).toContain('C["Model Server (vLLM, TGI)"]');
     expect(result.content).not.toContain("C[Model Server (vLLM, TGI)]");
     expect(deltas.join("")).toBe(result.content);
-  });
-
-  it("passes through raw deltas when mermaid guard is disabled", async () => {
-    process.env.SYNESIS_PLANNER_TS_MERMAID_GUARD_ENABLED = "false";
-
-    const raw = "Hello world";
-    chatCompletionStreamMock.mockImplementation(
-      async (_req: unknown, onDelta: (d: { content?: string }) => void) => {
-        onDelta({ content: raw });
-        return {
-          content: raw,
-          usage: { ...ZERO_USAGE },
-        };
-      },
-    );
-
-    const deltas: string[] = [];
-    const result = await composeWriterDraftStream(baseState, (d) => {
-      if (d.content) deltas.push(d.content);
-    });
-
-    expect(deltas.join("")).toBe(raw);
-    expect(result.content).toBe(raw);
   });
 });

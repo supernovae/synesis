@@ -28,6 +28,7 @@ describe("status event helpers", () => {
   it("maps phases to user-visible descriptions", () => {
     expect(describeStatusPhase("planning")).toBe("Building execution plan...");
     expect(describeStatusPhase("web_search")).toBe("Searching the web...");
+    expect(describeStatusPhase("synthesizing")).toBe("Writing response...");
     expect(describeStatusPhase("complete")).toBe("Done");
   });
 

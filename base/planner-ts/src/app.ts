@@ -69,6 +69,7 @@ import {
 } from "./streaming/sse.js";
 import { describePhase } from "./streaming/phases.js";
 import {
+  emitStatus,
   emitPhaseDone,
   emitPhaseError,
   emitPhaseStarted,
@@ -2738,12 +2739,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
       };
       const statusReporter: PlannerStatusReporter = (phase, status, detail, error) => {
         if (status === "done") {
-          void emitPhaseDone(statusContext, phase, detail);
+          if (phase === "complete") {
+            void emitPhaseDone(statusContext, phase, detail);
+          }
         } else if (status === "error") {
           void emitPhaseError(statusContext, phase, error ?? detail ?? "unknown error");
         } else {
           void emitPhaseStarted(statusContext, phase, detail);
         }
+      };
+      const emitVisibleMilestone = (description: string, detail?: string) => {
+        void emitStatus(statusContext, description, { detail, done: false });
       };
       void emitPhaseStarted(statusContext, "intake");
       if (emitLegacyStreamStatus) {
@@ -2794,6 +2800,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         if (usedDirectPath) {
           finalState = directState;
         } else {
+          emitVisibleMilestone("Planning and gathering evidence...");
           if (emitLegacyStreamStatus && isSseWritable(reply.raw)) {
             writeReasoningDelta(reply.raw, {
               id: completionId,
@@ -2833,6 +2840,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
                 };
                 const preview = previewPhases[nextNode];
                 if (preview) {
+                  emitVisibleMilestone(preview);
                   writeReasoningDelta(reply.raw, {
                     id: completionId,
                     created,

@@ -165,6 +165,11 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  /** When true, streaming writer output is buffered for Mermaid cleanup before replay. Default keeps live token streaming. */
+  SYNESIS_PLANNER_TS_STREAM_MERMAID_GUARD_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
   SYNESIS_PLANNER_TS_MERMAID_GUARD_STRICT: z
     .string()
     .optional()

@@ -99,6 +99,23 @@ describe("SSE conformance", () => {
     expect(response.statusCode).toBe(200);
     const payloads = parseSsePayloads(response.body);
     expect(payloads.some((payload) => payload.event)).toBe(true);
+    const statusEvents = payloads
+      .map((payload) => {
+        const event = payload.event as Record<string, unknown> | undefined;
+        const data = event?.data as Record<string, unknown> | undefined;
+        return typeof data?.description === "string" ? data : undefined;
+      })
+      .filter((data): data is Record<string, unknown> => Boolean(data));
+    const statusDescriptions = statusEvents.map((data) => String(data.description));
+    expect(statusDescriptions).toContain("Preparing request...");
+    expect(statusDescriptions).toContain("Writing response...");
+    expect(statusDescriptions).not.toContain("Synthesizing response...");
+    for (const data of statusEvents) {
+      if (data.description !== "Done") {
+        expect(data.done).toBe(false);
+      }
+    }
+    expect(statusEvents.find((data) => data.description === "Done")?.done).toBe(true);
     expect(payloads.some((payload) => {
       const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
       const delta = (choices[0]?.delta ?? {}) as Record<string, unknown>;

@@ -213,7 +213,7 @@ class TraceSpanBody(BaseModel):
     @field_validator("metadata", mode="after")
     @classmethod
     def validate_metadata(cls, value: dict[str, Any] | None, info: ValidationInfo) -> dict[str, Any] | None:
-        return validate_observability_payload(value, field_name=info.field_name)
+        return validate_trace_observability_payload(value, field_name=info.field_name)
 
 
 class TraceStreamingBody(BaseModel):
@@ -221,6 +221,17 @@ class TraceStreamingBody(BaseModel):
 
     mode: Literal["streaming", "non-streaming"]
     time_to_first_token_ms: float | None = Field(None, ge=0, le=86_400_000)
+
+
+def validate_trace_observability_payload(value: Any, *, field_name: str) -> Any:
+    """Validate rich trace JSON while preserving complex planner diagnostics."""
+    return validate_observability_payload(
+        value,
+        field_name=field_name,
+        max_depth=8,
+        max_items=2_000,
+        max_string_length=20_000,
+    )
 
 
 class TraceIngestBody(BaseModel):
@@ -328,7 +339,7 @@ class TraceIngestBody(BaseModel):
     )
     @classmethod
     def validate_observability_maps(cls, value: Any, info: ValidationInfo) -> Any:
-        return validate_observability_payload(value, field_name=info.field_name)
+        return validate_trace_observability_payload(value, field_name=info.field_name)
 
     @model_validator(mode="after")
     def require_trace_or_request_id(self) -> Self:
