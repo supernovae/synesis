@@ -69,7 +69,7 @@ Mode behavior:
 - `aggressive`: use the same artifacts with a stronger retrieve-answer-verify
   posture, still bounded to one repair pass.
 
-Legacy direct metadata aliases remain accepted for migration compatibility, but
+Direct metadata aliases remain accepted for client compatibility, but
 new clients should emit only the nested `metadata.synesis.*` shape.
 
 ## Active State Packet

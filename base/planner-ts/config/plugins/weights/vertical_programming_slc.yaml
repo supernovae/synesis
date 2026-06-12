@@ -78,10 +78,10 @@ complexity_weights:
       - sbom
 
 domain_keywords:
-  python_ecosystem:
-    domain: python
+  scripting_ecosystem:
+    domain: scripting
     keywords:
-      - python
+      - script
       - pip
       - venv
       - poetry

@@ -1210,7 +1210,7 @@ export function repairWriteToolCall(
   if (!content || typeof content !== "string") return null;
 
   // Heuristics for garbled content:
-  // 1. Content looks like Python dict syntax (model failed JSON encoding)
+  // 1. Content looks like single-quoted dict syntax (model failed JSON encoding)
   // 2. Content is suspiciously short for a source file (< 20 chars) but has a code extension
   // 3. Content has no newlines but the file extension suggests multi-line code
   const codeExtensions = /\.(go|py|js|ts|jsx|tsx|rs|c|cpp|h|java|rb|sh|yaml|yml|toml|json|html|css)$/i;

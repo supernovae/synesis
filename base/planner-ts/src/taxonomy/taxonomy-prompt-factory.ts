@@ -1,5 +1,5 @@
 /**
- * Taxonomy-driven contextual injection — ports Python taxonomy_prompt_factory.py.
+ * Taxonomy-driven contextual injection.
  *
  * Maps scoring engine output (active_domain_refs, intent_class) to taxonomy
  * node metadata from taxonomy_prompt_config.yaml.  No LLM — deterministic
@@ -327,7 +327,7 @@ export async function resolveTaxonomyMetadataAsync(opts: ResolutionOpts): Promis
 }
 
 // ---------------------------------------------------------------------------
-// Prompt helpers (pure functions, match Python taxonomy_prompt_factory.py)
+// Prompt helpers
 // ---------------------------------------------------------------------------
 
 function isLargeModel(): boolean {

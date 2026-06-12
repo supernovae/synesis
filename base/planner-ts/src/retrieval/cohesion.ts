@@ -1,7 +1,7 @@
 /**
  * Cohesion Lock Engine — post-retrieval inter-document coherence filtering.
  *
- * Ports the Python cohesion.py:
+ * Cohesion-lock pipeline:
  *   Phase 5b: detectCohesionLock (deterministic metadata + LLM fallback)
  *   Phase 5c: cohesionFilter (embedding tier + parallel LLM micro-critic)
  *   Phase 5d: compressToCohesion (sentence-level extraction)
@@ -55,7 +55,7 @@ const CONFLICT_GROUPS: Record<string, ConflictGroup> = {
     aliases: { chevy: ["chevrolet"] },
   },
   programming_language: {
-    members: ["python", "java", "go", "rust", "typescript", "csharp"],
+    members: ["java", "go", "rust", "typescript", "csharp"],
     aliases: { csharp: ["c#", "dotnet"], typescript: ["ts"], go: ["golang"] },
   },
   database: {

@@ -1,5 +1,5 @@
 /**
- * Ontology merge — ports Python plugin_weight_loader.py.
+ * Ontology merge for plugin weight files.
  *
  * Loads core intent_weights.yaml + all enabled plugins/weights/*.yaml,
  * merges complexity_weights, risk_weights, domain_keywords, intent_classes,
@@ -106,7 +106,7 @@ function extractOntology(raw: Record<string, unknown>): Record<string, unknown> 
 }
 
 // ---------------------------------------------------------------------------
-// Merge primitives (match Python semantics exactly)
+// Merge primitives
 // ---------------------------------------------------------------------------
 
 function mergeWeights(

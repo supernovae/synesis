@@ -1,119 +1,197 @@
-# Planner TS
+# planner-ts
 
-This service is the TypeScript planner runtime.
+`base/planner-ts` is the active Synesis chat runtime. It is a TypeScript
+Fastify service that exposes OpenAI-compatible chat endpoints, runs the planner
+graph, performs retrieval, emits Open WebUI status events, and records authz,
+usage, and trace metadata. Treat this directory, the Helm chart, and the docs
+under `docs/chat/` as the current source of truth.
 
-## Current scope
+## Runtime Shape
 
-- OpenAI-compatible API skeleton:
-  - `GET /health`
-  - `GET /v1/models`
-  - `POST /v1/chat/completions` (stream + non-stream)
-- Canonical pipeline scaffold:
-  - `entry_pipeline -> planner -> plan_gate -> router -> writer -> critic -> final_scrubber -> respond`
-- Typed contracts (`zod`) for core planner artifacts.
-- Reducer parity primitives for:
-  - evidence packet merge
-  - set-once dict fields
-  - append-only ledgers
-  - critique lifecycle merge/reopen semantics
-- Deterministic context optimization (Yarn-derived):
-  - oversized payload reduction envelopes
-  - LITM-inspired message ordering
-  - recent-history admission bounds
-- Router-governed evidence bootstrap:
-  - typed router node with evidence packet parsing + fallback assembly
-  - retrieval client boundary isolated under `src/retrieval/`
-  - governance tests that enforce router-only retrieval imports
-- Critic/anti-oscillation bootstrap:
-  - oscillation scoring module with weighted dimensions
-  - critic route policy parity (`need_more_evidence -> router`, bounded revision loops)
-  - tests covering drift/override and routing outcomes
-- Deterministic contract validators bootstrap:
-  - style compliance, decision drift, citation preservation checks
-  - draft fingerprinting and critique-register annotation helpers
-  - pipeline integration so critic approval reflects deterministic validation
-- Validated-node wrapper parity:
-  - generic pre/post validator hooks (`validatedNode`)
-  - pre-violation warning injection into node context
-  - post-violation annotation and critic-state adjustment
-- Golden replay harness:
-  - JSON fixtures under `tests/fixtures/golden/`
-  - replay tests asserting contract-level outcomes for representative scenarios
-  - includes baseline scenarios for happy path, citation gaps, decision drift, and oscillation pressure
-  - baseline corpus for ongoing TS-only regression expansion
-- Lightweight TypeScript graph execution path:
-  - `invokeGraph()` runs the planner graph directly (entry -> planner -> plan_gate -> router -> writer -> critic -> scrubber/respond)
-  - conditional routing mirrors canonical pipeline decisions
-  - parity test ensures graph invocation stays aligned with canonical pipeline output
-- Writer/Critic behavior bootstrap:
-  - writer now composes structured draft sections from plan + evidence packets
-  - critic evaluator emits typed `CriticOut` (deterministic path + optional raw JSON parse/repair)
-  - critic decisions now include scores, blocking/nonblocking issues, and repair instructions
-- Optional LLM path (env-gated, deterministic fallback preserved):
-  - `SYNESIS_PLANNER_TS_LLM_ENABLED=true` + `SYNESIS_PLANNER_TS_LLM_BASE_URL` enables OpenAI-compatible calls
-  - planner model via `SYNESIS_PLANNER_TS_PLANNER_MODEL`
-  - writer model via `SYNESIS_PLANNER_TS_WRITER_MODEL`
-  - critic model via `SYNESIS_PLANNER_TS_CRITIC_MODEL`
-  - ambiguity scorer model via `SYNESIS_PLANNER_TS_AMBIGUITY_SCORER_MODEL`
-  - on LLM errors/timeouts, writer/critic fall back to deterministic logic
-- SSE decoupling and cleanup:
-  - centralized SSE writer helpers in `src/streaming/sse.ts`
-  - phase mapping + content chunking in `src/streaming/phases.ts`
-  - streaming emits OpenAI-compatible `chat.completion.chunk` frames by default
-  - Open WebUI status updates post through `src/streaming/status-events.ts` when `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`, `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`, and chat/message metadata are present
-  - `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables legacy OpenWebUI status/reasoning data events for debugging
-- API decoupling:
-  - Fastify app construction moved to `src/app.ts` (`buildApp(config)`)
-  - `src/index.ts` is now a thin runtime bootstrap wrapper
-  - API compatibility tests validate non-stream envelope, bearer-auth behavior, and SSE output contract
-- Verification/perf gate artifacts:
-  - `tests/sse-conformance.test.ts` validates strict OpenAI-compatible SSE semantics and the opt-in OpenWebUI status mode
-  - `tests/latency-budget.test.ts` validates local p50/p95 latency budgets for stream + non-stream
-  - `npm run bun:smoke` runs Bun compatibility smoke checks (`typecheck`, `test`) and skips cleanly when Bun is not installed
-  - `npm run verify:gates` runs consolidated cutover gates (typecheck, tests, Bun smoke)
-- Cutover/rollback artifacts:
-  - `CUTOVER_ROLLBACK_RUNBOOK.md` defines staged promotion + immediate fallback procedure
-  - `STAGING_REHEARSAL_CHECKLIST.md` provides a sign-off checklist for staging promotion/rollback rehearsal
-  - `STAGING_REHEARSAL_RECORD_TEMPLATE.json` provides a machine-readable rehearsal record format for archival/automation
-  - `npm run rehearsal:new` scaffolds a timestamped rehearsal record JSON from the template
-- Auth/RBAC hardening bootstrap:
-  - explicit `AuthContext` resolution in `src/auth/resolver.ts` (token mode + forwarded identity trust boundary)
-  - scoped authorization gate in `src/auth/authorizer.ts` for chat-completions access
-  - OpenFGA-backed policy engine in `src/auth/policy-engine.ts` for centralized authorization checks
-  - strict forwarded-header mode for service-to-service identity propagation
-  - per-request authz decision trace headers (`x-synesis-authz-trace-id`, `x-synesis-authz-engine`, `x-synesis-authz-rules`)
-  - authz counters + recent decision events exposed via `/health` (`auth.policyStats`)
-  - dedicated authz event feed available at `/health/authz-events`
-  - structured allow/deny authz logs include trace ID + matched rules
-  - graph state stores authz metadata (`authz_trace_id`, `authz_engine`, `authz_rules`) for downstream correlation
-  - node traces and decision ledger rationale carry `authz_trace_id` for orchestration-to-authz lineage
-  - API tests cover missing bearer, missing model scope, untrusted forwarded identity, and trusted service-token forwarding
-  - OpenFGA rollout design documented in `OPENFGA_AUTHZ_DESIGN.md` with shared tuple model and staged enforcement plan
-- Session continuity + sawtooth-style checkpointing:
-  - `src/context/session-manager.ts` provides per-conversation history, checkpoint summaries, and TTL pruning
-  - incoming requests can be enriched with compact `<SESSION_STATE>` blocks for long chats
-  - health telemetry now includes session counters (active, checkpointed, history entries)
-- Architecture-aware context mediation:
-  - shared profile/policy code comes from `@synesis/upper-harness`
-  - request controls support `x-synesis-context-mediation` and `metadata.synesis.contextMediation`
-  - normal graph/writer requests can inject `SYNESIS_PLANNER_ACTIVE_STATE` with fact pins, evidence manifest IDs, chat profile, hygiene score, and planner commitments
-  - built-in chat profiles cover general assistant, tutoring/study, long-form advisory, roleplay/creative continuity, and RAG-grounded answers
-  - docs: [`docs/chat/PLANNER_ARCHITECTURE_MEDIATION.md`](../../docs/chat/PLANNER_ARCHITECTURE_MEDIATION.md)
-- Capability lock assertions to prevent regression during migration.
+| Concern | Current implementation |
+|---------|------------------------|
+| API server | `src/app.ts` builds the Fastify app; `src/index.ts` only loads config and starts it |
+| Request schema | `src/api-schemas.ts` and `src/contracts/schemas.ts` use Zod contracts |
+| Graph execution | `src/graph.ts` runs node transitions over `GraphState` |
+| Node behavior | `src/pipeline.ts` plus `src/nodes/*` |
+| Retrieval | `src/retrieval/*`, owned by the router path |
+| Streaming | `src/streaming/sse.ts`, `phases.ts`, and `status-events.ts` |
+| Auth/authz | `src/auth/*`; policy decisions are correlated by `x-synesis-authz-trace-id` |
+| Session continuity | `src/context/session-manager.ts` and `session-store.ts` |
+| Prompt/model metadata | Admin-backed prompt registry, public model catalog, and capability matrix polling |
 
-## Migration invariants
+## Public And Operator Routes
 
-The TS migration must preserve or improve:
+Public OpenAI-compatible routes:
 
-- anti-oscillation controls
-- router-governed evidence boundary
-- deterministic structured repair
-- decision ledger and critique lifecycle semantics
-- security/trust boundaries
-- client-neutral policy behavior
+- `GET /v1/models`
+- `POST /v1/chat/completions`
 
-## Next steps
+Planner-owned knowledge/search routes:
 
-1. Expand writer/critic prompt + schema parity from captured Python traces.
-2. Add broader performance/conformance gates (SSE cadence, latency/error budgets, Bun smoke).
-3. Stage cutover/rollback manifests for big-bang switch with Python fallback.
+- `POST /v1/knowledge/search`
+- `POST /v1/knowledge/bundle`
+- `POST /v1/knowledge/resolve-pack`
+- `POST /v1/web/search`
+
+Operational routes:
+
+- `GET /health`
+- `GET /health/readiness`
+- `GET /health/detailed` (internal service token required)
+- `GET /health/deps` (internal service token required)
+- `GET /health/authz-events` (internal service token required)
+- `GET /health/failures` (internal service token required)
+- `GET /metrics` (internal service token required)
+- `GET /debug/retrieval-config` (internal service token required)
+- `GET /debug/session-stats` (internal service token required)
+- `DELETE /v1/memory/:conversationId`
+
+## Planner Graph
+
+The graph currently flows:
+
+```text
+entry_pipeline -> planner -> plan_gate -> router -> writer -> critic -> final_scrubber -> respond
+```
+
+Important loops and exits:
+
+- `critic -> router` when evidence is insufficient.
+- `critic -> writer` when a bounded rewrite is needed.
+- `critic -> final_scrubber` for terminal cleanup, anti-oscillation, or max-iteration pressure.
+- `plan_gate -> respond` when the request is clarification-oriented or should not proceed.
+
+Node responsibilities:
+
+- `entry_pipeline`: deterministic classification, optional frame extraction, difficulty/RAG/plan policy.
+- `planner`: LLM-backed plan generation when enabled, deterministic fallback otherwise.
+- `plan_gate`: validates plan structure and gates unsafe or incomplete plans.
+- `router`: the only graph node that invokes retrieval clients and emits evidence packets.
+- `writer`: composes streamed or non-streamed markdown answers.
+- `critic`: checks evidence sufficiency, contract adherence, and revision need.
+- `final_scrubber`: removes internal scaffolding and applies final output guards.
+
+## Retrieval Paradigm
+
+Retrieval is router-governed. Writer and critic consume evidence packets; they do
+not call retrieval clients directly.
+
+Current retrieval behavior:
+
+1. Router calls the unified retrieval client when task policy allows RAG/web retrieval.
+2. NornicDB RAG uses configured BGE/TEI embedding, vector search, Cypher metadata filters, graph expansion, freshness/authority signals, and optional reranking.
+3. Web search only runs when `SYNESIS_WEB_SEARCH_ENABLED=true` and `SYNESIS_WEB_SEARCH_URL` is set.
+4. RAG and web results are merged with reciprocal-rank fusion.
+5. Context budgeting selects the evidence passed to writer/critic.
+
+Security invariant: public knowledge routes ignore caller-supplied org, tenant,
+ACL, and user scope hints. Scope is derived from the resolved authenticated
+principal or from trusted forwarded identity headers.
+
+## Auth And Authorization
+
+Identity resolution lives in `src/auth/resolver.ts`.
+
+Supported request identities:
+
+- Synesis PATs (`syn-*`) resolved from the admin database.
+- Trusted forwarded identity from Open WebUI or another internal gateway when
+  the bearer token equals `SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN`.
+- Opaque bearer compatibility when `SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER=true`.
+- Anonymous compatibility only when bearer auth is not required.
+
+Authorization lives in `src/auth/policy-engine.ts` and
+`src/auth/openfga-client.ts`.
+
+For `POST /v1/chat/completions`, the policy engine requires:
+
+- a token scope with the `model` prefix, and
+- OpenFGA `can_invoke` on `planner_endpoint:chat_completions`.
+
+If OpenFGA is not configured or the check fails, authorization fails closed.
+Local/dev deployments that need compatibility must explicitly choose relaxed
+auth settings and understand that they are not production posture.
+
+RAG isolation combines:
+
+- principal-derived Cypher predicates for fast structural filtering, and
+- optional OpenFGA row checks for protected `rag_doc:*` objects when
+  `SYNESIS_RAG_AUTHZ_MODE=enforce`.
+
+See [`OPENFGA_AUTHZ_DESIGN.md`](OPENFGA_AUTHZ_DESIGN.md).
+
+## Streaming And Open WebUI
+
+Default streaming returns strict OpenAI-compatible
+`chat.completion.chunk` SSE frames.
+
+Visible Open WebUI status uses the side-channel event endpoint when all of these
+are available:
+
+- `SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL`
+- `SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN`
+- Open WebUI chat/message metadata
+
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` keeps the legacy
+in-band Open WebUI status envelope available for local debugging or deployments
+that cannot use side-channel events. Do not use it to mix internal status text
+into final assistant answers.
+
+## Configuration Groups
+
+All planner-specific runtime toggles are in `src/config.ts`.
+
+Primary groups:
+
+- API/server: `PORT`, `HOST`, `LOG_LEVEL`
+- LLM: `SYNESIS_PLANNER_TS_LLM_*`
+- Model roles: `SYNESIS_PLANNER_TS_PLANNER_MODEL`, `WRITER_MODEL`, `CRITIC_MODEL`
+- Auth: `SYNESIS_PLANNER_TS_REQUIRE_BEARER_AUTH`,
+  `SYNESIS_PLANNER_TS_ALLOW_OPAQUE_BEARER`,
+  `SYNESIS_PLANNER_TS_TRUST_FORWARDED_IDENTITY_HEADERS`,
+  `SYNESIS_PLANNER_TS_STRICT_FORWARDED_IDENTITY_MODE`
+- OpenFGA: `SYNESIS_OPENFGA_*`
+- Sessions/Redis: `SYNESIS_PLANNER_TS_REDIS_*`,
+  `SYNESIS_PLANNER_TS_SESSION_*`
+- Retrieval/RAG: `SYNESIS_NORNIC_*`, `SYNESIS_EMBEDDER_*`,
+  `SYNESIS_BGE_RERANKER_URL`, `SYNESIS_RAG_*`
+- Web search: `SYNESIS_WEB_SEARCH_*`
+- Open WebUI events: `SYNESIS_PLANNER_TS_OPENWEBUI_*`,
+  `SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS`
+- Rate/stream limits: `SYNESIS_PLANNER_TS_RATE_LIMIT_*`,
+  `SYNESIS_PLANNER_TS_STREAM_*`
+
+## Development Commands
+
+From the repository root:
+
+```bash
+npm test -w synesis-planner-ts
+npm run typecheck -w synesis-planner-ts
+npm run verify:gates -w synesis-planner-ts
+```
+
+Useful focused tests:
+
+```bash
+npm run test -w synesis-planner-ts -- tests/api-contract.test.ts tests/sse-conformance.test.ts
+npm run test -w synesis-planner-ts -- tests/auth-resolver.test.ts tests/search-route-auth.test.ts tests/rag-scope-isolation.test.ts
+npm run test -w synesis-planner-ts -- tests/golden-replay.test.ts
+```
+
+Optional local compose smoke:
+
+```bash
+cp .env.example .env
+podman compose -f podman-compose.yaml up -d planner redis postgres
+curl http://localhost:8082/health
+```
+
+## Related Docs
+
+- [`docs/chat/WORKFLOW_PLANNER.MD`](../../docs/chat/WORKFLOW_PLANNER.MD)
+- [`docs/chat/PLANNER_OPENAI_COMPATIBILITY.md`](../../docs/chat/PLANNER_OPENAI_COMPATIBILITY.md)
+- [`docs/chat/OPENWEBUI_PHASES.md`](../../docs/chat/OPENWEBUI_PHASES.md)
+- [`docs/chat/PLANNER_MEMORY_LIFECYCLE.md`](../../docs/chat/PLANNER_MEMORY_LIFECYCLE.md)
+- [`docs/chat/planner-scaling.md`](../../docs/chat/planner-scaling.md)

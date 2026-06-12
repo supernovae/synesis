@@ -177,7 +177,7 @@ async function llmCritic(state: GraphState): Promise<CriticResult> {
   const assumptionContext = assumptions.length > 0 && state.show_assumptions
     ? `\n\nPlanner assumptions: ${assumptions.join("; ")}. Check that material assumptions are tagged with [Assumption] and definitive claims about uncertain topics are qualified.`
     : "";
-  // Build taxonomy hints for the critic (matching Python _build_taxonomy_hints)
+  // Build taxonomy hints for the critic.
   const taxonomyMeta = (state.taxonomy_metadata ?? {}) as Record<string, unknown>;
   const difficulty = state.difficulty ?? 0;
   const taxonomyHintParts: string[] = [];

@@ -727,7 +727,7 @@ export { SpanCollector } from "./tracing/span-collector.js";
  *
  * Used for trivial/easy tasks where the full graph (planner -> plan_gate ->
  * router -> critic) would add latency without improving quality. Matches
- * Python's direct_stream_request behavior.
+ * the non-streaming direct request behavior.
  *
  * Returns the final state if fast-pathed (next_node === "respond"), or
  * the input state unchanged if conditions aren't met (caller should run

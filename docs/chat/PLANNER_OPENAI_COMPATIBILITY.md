@@ -185,27 +185,27 @@ Usage is included on the final chunk unless `stream_options.include_usage` is ex
 Run the compatibility test suite:
 
 ```bash
-npm run test --prefix base/planner-ts tests/api-contract.test.ts tests/sse-conformance.test.ts
+npm run test -w synesis-planner-ts -- tests/api-contract.test.ts tests/sse-conformance.test.ts
 ```
 
 ### Test coverage by area
 
-| Area | Test Class | Count |
-|------|-----------|-------|
-| Error envelope (400/422/500) | `TestOpenAIErrorEnvelope` | 3 |
-| Streaming chunks (model, created, finish, usage, [DONE]) | `TestStreamingCompat` | 5 |
-| Auth contract (bearer required, public models) | `TestAuthContract` | 4 |
-| Request schema (extras, multipart, null, max_tokens) | `TestRequestSchemaCompat` | 6 |
-| Usage/finish invariants (stream + non-stream) | `TestUsageInvariants` | 5 |
-| Usage extraction (OpenAI, Anthropic, empty) | `TestLLMUsageExtract` | 5 |
-| Response shape | `TestNonStreamingResponseShape` | 1 |
-| Auth (forwarded identity, PAT, scope) | `test_forwarded_identity_auth.py`, `test_pat_auth.py`, `test_knowledge_scope_auth.py` | 29 |
+| Area | Current TypeScript coverage |
+|------|-----------------------------|
+| OpenAI response/request contracts | `base/planner-ts/tests/api-contract.test.ts`, `api-schemas.test.ts` |
+| Streaming chunks, usage, and `[DONE]` framing | `base/planner-ts/tests/sse-conformance.test.ts`, `sse-status-shape.test.ts`, `sse-clarification-stream.test.ts` |
+| Auth contract and scope handling | `base/planner-ts/tests/auth-resolver.test.ts`, `pat-resolver.test.ts`, `search-route-auth.test.ts` |
+| Forwarded identity and Open WebUI status side channel | `base/planner-ts/tests/auth-resolver.test.ts`, `status-events.test.ts`, `openwebui-eval-matrix.test.ts` |
+| Knowledge/RAG scope isolation | `base/planner-ts/tests/rag-scope-isolation.test.ts`, `rag-permissions.test.ts`, `scope-predicate-matrix.test.ts` |
+| Model catalog and public offerings | `base/planner-ts/tests/model-tiers-public-offerings.test.ts`, `capability-matrix-resolver.test.ts` |
 
 ## Troubleshooting
 
 ### Client gets `detail` instead of `error` object
 
-Verify you are running the latest planner image with the OpenAI error envelope handler. Pre-handler builds return FastAPI's native `{"detail": "..."}`.
+Verify you are running the latest `planner-ts` image and that the request is
+reaching planner-ts directly. Current schema/auth failures should return the
+OpenAI-style `{"error": ...}` envelope on the OpenAI-compatible routes.
 
 ### Streaming parser fails on status events
 

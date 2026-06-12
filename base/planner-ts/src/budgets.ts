@@ -8,7 +8,7 @@ export function clipDifficulty01(d: number): number {
 
 /**
  * Writer output budget: trivial fast-path uses a fixed small budget; otherwise
- * linear in difficulty between base and max (parity with Python `config.py`).
+ * linear in difficulty between base and max using the runtime defaults.
  */
 export function computeScaledWriterBudget(
   cfg: AppConfig,
@@ -84,4 +84,3 @@ export function budgetSpanMetadata(
     ...(util !== undefined ? { budget_utilization: util } : {}),
   };
 }
-

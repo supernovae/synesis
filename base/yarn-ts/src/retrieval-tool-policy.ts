@@ -75,8 +75,8 @@ const VERIFICATION_DISCIPLINE_LINES = [
 ];
 
 const PYTHON_RUNTIME_DISCOVERY_LINES = [
-  "## Python runtime resolution (prefer deterministic fallback order)",
-  "For Python commands, resolve runtime once in this order: `.venv/bin/python` -> `uv run` -> `python3` -> `python`.",
+  "## .py runtime resolution (prefer deterministic fallback order)",
+  "For .py commands, resolve runtime once in this order: `.venv/bin/python` -> `uv run` -> `python3` -> `python`.",
   "Do NOT loop on `python ...` retries after a not-found error. Pick one resolved runtime and continue.",
   "Preferred test form: `<resolved_python> -m pytest ...` (or `uv run pytest ...` when uv is available).",
   "If no runtime is found, report it once with the exact probe results instead of re-running failing commands.",
@@ -112,7 +112,7 @@ export function buildVerificationDisciplineToolPromptFragment(tools: unknown[] |
 }
 
 /**
- * Returns a short policy block for Python runtime discovery/fallback behavior.
+ * Returns a short policy block for .py runtime discovery/fallback behavior.
  * Helps avoid churn from python/python3/uv/venv probing loops.
  */
 export function buildPythonRuntimeDiscoveryToolPromptFragment(tools: unknown[] | undefined): string | undefined {

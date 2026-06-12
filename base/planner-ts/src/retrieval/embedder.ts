@@ -2,7 +2,7 @@
  * TEI embedder HTTP client.
  *
  * Calls the Text Embeddings Inference service (OpenAI-compatible /v1/embeddings).
- * Matches the Python embed_client pattern in rag_client.py / embed_client.py.
+ * Matches the embedding request pattern used by the RAG client.
  */
 
 export interface EmbedderConfig {

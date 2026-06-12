@@ -16,8 +16,6 @@ interface GapPayload {
 const LANGUAGE_ALIASES: Record<string, string> = {
   golang: "go",
   go: "go",
-  python: "python",
-  py: "python",
   typescript: "typescript",
   ts: "typescript",
   javascript: "javascript",
@@ -32,7 +30,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 
 const LANGUAGE_HINTS: Array<{ language: string; pattern: RegExp }> = [
   { language: "go", pattern: /\b(?:golang|go\s+(?:http|service|server|context|request|module|mod|test|build|program|code)|net\/http|goroutine)\b/i },
-  { language: "python", pattern: /\b(?:python|pytest|django|flask|fastapi|pydantic)\b/i },
   { language: "typescript", pattern: /\b(?:typescript|tsx|tsconfig|tsc)\b/i },
   { language: "javascript", pattern: /\b(?:javascript|node\.?js|npm|express|fastify)\b/i },
   { language: "rust", pattern: /\b(?:rust|cargo|tokio|axum|actix)\b/i },
@@ -66,7 +63,7 @@ export function inferKnowledgeGapMetadata(state: GraphState): { language: string
     language = LANGUAGE_HINTS.find((hint) => hint.pattern.test(text))?.language ?? "";
   }
 
-  const languageLike = new Set(["golang", "go", "python", "typescript", "javascript", "rust", "java", "csharp", "terraform", "bash"]);
+  const languageLike = new Set(["golang", "go", "typescript", "javascript", "rust", "java", "csharp", "terraform", "bash"]);
   const platform =
     domainKeys.find((key) => key && !languageLike.has(key) && key !== "general" && key !== "generic")
     ?? activeDomains.find((key) => key && !languageLike.has(key) && key !== "general" && key !== "generic")
@@ -81,8 +78,9 @@ export function inferKnowledgeGapMetadata(state: GraphState): { language: string
 
 /**
  * Fire-and-forget POST to admin knowledge-gap ingest when the router's best
- * evidence confidence is below threshold. Mirrors the Python planner's
- * `publish_knowledge_gap` behavior without requiring a Postgres client.
+ * evidence confidence is below threshold. Publishes the same knowledge-gap
+ * payload shape used by the admin ingest endpoint without requiring a
+ * Postgres client in this service.
  */
 export function maybePublishKnowledgeGap(
   state: GraphState,

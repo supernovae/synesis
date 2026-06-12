@@ -81,7 +81,7 @@ export function detectPythonRuntimeDiscoveryLoop(
     runtimeVariants,
     guidance: [
       "<SYNESIS_PYTHON_RUNTIME_HINT>",
-      `Python runtime probing loop detected (${pythonAttempts} attempts; variants: ${runtimeVariants.join(", ")}).`,
+      `.py runtime probing loop detected (${pythonAttempts} attempts; variants: ${runtimeVariants.join(", ")}).`,
       "Do NOT keep retrying with different python command spellings.",
       "",
       "Resolve runtime once, then continue with that runtime:",
@@ -89,7 +89,7 @@ export function detectPythonRuntimeDiscoveryLoop(
       "  elif command -v uv >/dev/null 2>&1; then PY='uv run python';",
       "  elif command -v python3 >/dev/null 2>&1; then PY=python3;",
       "  elif command -v python >/dev/null 2>&1; then PY=python;",
-      "  else echo 'No Python runtime found (.venv/uv/python3/python)'; fi",
+      "  else echo 'No .py runtime found (.venv/uv/python3/python)'; fi",
       "",
       "Run tests as `$PY -m pytest ...` (or `uv run pytest ...` when using uv).",
       "If runtime is missing, report the single probe result and stop retrying.",

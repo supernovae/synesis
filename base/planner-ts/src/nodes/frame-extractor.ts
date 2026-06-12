@@ -5,7 +5,7 @@
  * Stage 2 (deterministic): Link units into a TaskFrame, build topic_frame
  *   and domain profile.
  *
- * Ports the Python frame_extractor_node from frame_extractor.py.
+ * Frame extraction node.
  *
  * Design references:
  *   Klein (2007) Data-Frame theory: fit data into frames
@@ -109,7 +109,7 @@ async function llmSegment(text: string, pricingRates?: PricingRates): Promise<Fr
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Persona detection (port of _detect_persona from frame_extractor.py)
+// Persona detection
 // ---------------------------------------------------------------------------
 
 const PERSONA_PATTERNS: Array<{ pattern: RegExp; template: string; skipCheck: boolean }> = [

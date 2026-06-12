@@ -71,7 +71,7 @@ In Helm installs, `secrets.openwebuiAdminToken` creates `synesis-openwebui-admin
 
 ### Legacy In-Band Status Mode
 
-`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the old Open WebUI data-event mode for local debugging or deployments that cannot use the side-channel event endpoint. In that mode planner-ts may emit:
+`SYNESIS_PLANNER_TS_STREAM_STATUS_EVENTS=openwebui-data` enables the compatibility Open WebUI data-event mode for local debugging or deployments that cannot use the side-channel event endpoint. In that mode planner-ts may emit:
 
 ```text
 data: {"event":{"type":"status","data":{"description":"Gathering evidence...","done":false,"hidden":false}}}
@@ -265,6 +265,6 @@ chunk regardless.
 - **planner-ts SSE helpers:** `base/planner-ts/src/streaming/sse.ts` — OpenAI chunk helpers plus legacy status helpers
 - **planner-ts graph:** `base/planner-ts/src/graph.ts` — `streamGraph()` yields `NodeTransitionEvent`
 - **planner-ts closing follow-up:** `base/planner-ts/src/pipeline.ts` — `buildClosingFollowup()`, `finalScrubberNode()`
-- **Legacy Python planner path:** retired; planner-ts is the maintained runtime.
+- **Planner runtime:** `base/planner-ts` is the maintained TypeScript runtime.
 - Open WebUI Events: https://docs.openwebui.com/features/plugin/events/
 - Open WebUI deployment base: `base/webui/deployment.yaml`

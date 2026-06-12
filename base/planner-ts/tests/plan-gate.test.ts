@@ -42,7 +42,7 @@ describe("plan gate", () => {
   it("full pipeline produces response path", async () => {
     const state = await runCanonicalPipeline({
       task_description:
-        "Design a comprehensive planner migration strategy that handles backward compatibility, state persistence across the TypeScript and Python runtimes, rollback procedures, and data migration for existing conversation histories",
+        "Design a comprehensive planner migration strategy that handles backward compatibility, state persistence across old and new runtimes, rollback procedures, and data migration for existing conversation histories",
       authz_trace_id: "trace-test-1",
       task_frame: {
         tasks: [{ description: "Migration strategy" }],

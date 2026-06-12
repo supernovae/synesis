@@ -21,7 +21,7 @@ export class NullRetrievalClient implements RetrievalClient {
 /**
  * Full retrieval client backed by NornicDB + SearXNG + cohesion.
  *
- * Mirrors the Python retrieve_unified() pipeline:
+ * Retrieval pipeline:
  *   graph RAG + web -> RRF merge -> adaptive top-k -> cohesion.
  */
 export class UnifiedRetrievalClient implements RetrievalClient {

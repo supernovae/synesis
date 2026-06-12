@@ -243,7 +243,7 @@ export interface RagResult {
   source_refs?: string;
 }
 
-/** Authority multipliers applied after reranking (same as Python). */
+/** Authority multipliers applied after reranking. */
 export const AUTHORITY_BOOST: Record<string, number> = {
   canonical: 1.5,
   vetted: 1.3,

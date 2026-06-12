@@ -1,7 +1,7 @@
 /**
  * Unified retrieval orchestrator.
  *
- * Ports the Python retrieve_unified() from unified_retrieval.py:
+ * Unified retrieval phases:
  *   Phase 1: Parallel RAG + web
  *   Phase 2: Map to UnifiedResult
  *   Phase 3: L-RAG adaptive web gating

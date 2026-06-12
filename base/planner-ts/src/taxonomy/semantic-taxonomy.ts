@@ -1,9 +1,8 @@
 /**
  * Semantic taxonomy validator — embedding-based cross-check for keyword classification.
  *
- * Ports Python semantic_taxonomy.py. Uses cosine similarity between the query
- * and pre-computed taxonomy node embeddings to validate or override the keyword-
- * based taxonomy key.
+ * Uses cosine similarity between the query and pre-computed taxonomy node
+ * embeddings to validate or override the keyword-based taxonomy key.
  *
  * Only active when SYNESIS_EMBEDDER_URL is configured. On any failure, returns
  * the keyword key unchanged (graceful degradation).

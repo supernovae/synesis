@@ -1,5 +1,5 @@
 /**
- * Lightweight regex-based signature extractors for Go, TypeScript, and Python.
+ * Lightweight regex-based signature extractors for supported source languages.
  *
  * These produce compact symbol tables without requiring tree-sitter or
  * language-specific parsers. Accuracy is "good enough for navigation" —
@@ -142,7 +142,7 @@ export function extractTypeScriptSymbols(content: string, filePath: string): { s
 }
 
 // ---------------------------------------------------------------------------
-// Python
+// .py source symbols
 // ---------------------------------------------------------------------------
 
 const PY_DEF_RE = /^(\s*)def\s+(\w+)\s*\(([^)]*)\)/;

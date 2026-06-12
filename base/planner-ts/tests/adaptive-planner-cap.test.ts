@@ -139,7 +139,7 @@ describe("runLlmPlanner adaptive budget", () => {
     });
 
     const state: GraphState = {
-      task_description: "What is Python?",
+      task_description: "What is Rust?",
       difficulty: 0.15,
       cynefin_domain: "clear",
       iteration_count: 0,

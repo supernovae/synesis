@@ -1,61 +1,92 @@
-# Planner Memory and OOM Debugging
+# Planner Memory And Request-State Debugging
 
-Notes on why planner memory can balloon for a single user, instrumentation added to debug it, and an audit of the graph for crash loops and overload.
+This page explains planner-ts memory pressure and the current instrumentation
+operators can use to debug large requests, long streams, and session growth.
 
----
+For conversation lifecycle behavior, key derivation, and purge semantics, see
+[`PLANNER_MEMORY_LIFECYCLE.md`](PLANNER_MEMORY_LIFECYCLE.md).
 
-## Why memory can balloon (single user)
+## Why Memory Can Grow
 
-- **State size per request**: Each run carries `evidence_packets` (merged by query/section_id but can grow over critic→router loops), `node_traces` (append-only per node run), `tool_refs`, `messages`, `execution_plan`, and `generated_code`. Long prompts, many deliverables, or multiple critic iterations increase state size.
-- **Streaming accumulator**: The SSE generator keeps `accumulated_state` and builds content (and optionally reasoning buffers) for the whole stream. Large responses increase in-process memory for the duration of the request.
-- **Conversation memory**: L1 in-memory store (`conversation_memory`) holds history per scope; `memory_max_turns_per_user` and `memory_max_users` cap size but long chats still use more. See [CONVERSATION_MEMORY.md](CONVERSATION_MEMORY.md) for L1 vs optional Redis L2 (pending checkpoints, pivot archive).
-- **Checkpointer**: With Redis checkpointer, full state is in Redis per thread; with in-memory checkpointer (e.g. dev), state is in process.
-- **No per-request state cap**: There are no hard limits on `evidence_packets` length or `node_traces` length; only reducer semantics (merge/dedupe) and `max_iterations` / oscillation termination bound the number of graph steps.
+- **Graph state per request:** Each run carries messages, execution plan,
+  evidence packets, decision ledger entries, node traces, critic state, and
+  generated draft content. Long prompts, broad retrieval, and critic loops
+  increase this state.
+- **Streaming accumulator:** The streaming path keeps accumulated response state
+  while emitting OpenAI-compatible chunks. Large responses increase memory for
+  the duration of the request.
+- **Evidence packets:** Router-owned RAG/web retrieval deduplicates and budgets
+  evidence, but high top-k, graph expansion, and repeated evidence-gap loops can
+  still create larger in-memory packets.
+- **Session store:** `SessionManager` keeps recent conversation history and
+  checkpoints. With `SYNESIS_PLANNER_TS_REDIS_URL` it persists through Redis;
+  otherwise it is in-process memory.
+- **Operational buffers:** authz decision events, failure store entries, health
+  snapshots, prompt/capability caches, and rate/stream admission state are
+  bounded but still part of process RSS.
 
----
+## Current Bounds
+
+- `SYNESIS_PLANNER_TS_SESSION_MAX_HISTORY`
+- `SYNESIS_PLANNER_TS_SESSION_MAX_SESSIONS`
+- `SYNESIS_PLANNER_TS_SESSION_TTL_MS`
+- `SYNESIS_PLANNER_TS_CONTEXT_MAX_CHARS`
+- `SYNESIS_PLANNER_TS_CONTEXT_RECENT_MESSAGE_LIMIT`
+- `SYNESIS_PLANNER_TS_RAG_TOP_K`
+- `SYNESIS_RAG_OVERFETCH_MIN` / `SYNESIS_RAG_OVERFETCH_MAX`
+- `SYNESIS_PLANNER_TS_NODE_TIMEOUT_MS`
+- `SYNESIS_PLANNER_TS_WRITER_NODE_TIMEOUT_MS`
+- `SYNESIS_PLANNER_TS_STREAM_MAX_CONCURRENT`
+- `SYNESIS_PLANNER_TS_STREAM_QUEUE_MAX`
+- `SYNESIS_PLANNER_TS_STREAM_QUEUE_WAIT_MS`
+
+The graph also has bounded retry behavior: critic loops route to router/writer
+only under explicit verdicts and terminate through `final_scrubber` when
+iteration, oscillation, or validation pressure says to stop.
 
 ## Instrumentation
 
-- **Logs**
-  - `request_start`: At the beginning of each `/v1/chat/completions` request we log `request_memory_sample` with `label=request_start`, `rss_mib`, and `cgroup_mib`.
-  - `request_end`: When the request finishes (stream or non-stream, success or error) we log `request_memory_sample` with `label=request_end`, `rss_mib`, `cgroup_mib`, and when state is available: `state_evidence_packets`, `state_node_traces`, `state_messages`.
-  - Use these to correlate memory growth with long runs, high iteration count, or large state sizes.
+Planner exposes:
 
-- **Prometheus**
-  - `synesis_planner_memory_rss_mib`: Gauge of process RSS in MiB, updated at request end. Use for OOM correlation and trend (e.g. `avg_over_time(synesis_planner_memory_rss_mib[5m])`).
-  - `synesis_planner_memory_cgroup_mib`: Gauge of cgroup memory usage when available (e.g. in Kubernetes). Exposed on `GET /metrics`.
+- `GET /health` for simple liveness.
+- `GET /health/readiness` for dependency-aware readiness.
+- `GET /health/detailed` for session telemetry, optimizer counters, LLM
+  resilience, prompt/capability registry state, stream admission, failures, and
+  authz policy counters. Requires the internal service token.
+- `GET /debug/session-stats` for session backend/TTL. Requires the internal
+  service token.
+- `GET /metrics` for Prometheus metrics. Requires the internal service token.
 
-- **Startup**
-  - `startup_memory_checkpoint` and `graph_init_memory` (in graph.py) log RSS at startup and after graph compile for baseline comparison.
+Important code references:
 
----
+- Request lifecycle and streaming: `base/planner-ts/src/app.ts`
+- Graph routing and node timeouts: `base/planner-ts/src/graph.ts`
+- Session persistence: `base/planner-ts/src/context/session-manager.ts` and
+  `session-store.ts`
+- Retrieval and evidence packets: `base/planner-ts/src/retrieval/*`
+- Config limits: `base/planner-ts/src/config.ts`
 
-## Graph audit: crash loops and overload
+## Debug Workflow
 
-- **Retry / iteration caps**
-  - `max_iterations` (default 3) caps critic→writer/router loops; at `iteration >= max_iter` we route to `final_scrubber`, so we do not loop indefinitely.
-  - `oscillation_threshold` (default 0.7): when `detect_oscillation(state).total_score` exceeds it, we force-route to `final_scrubber` instead of writer/router, terminating the retry loop.
+1. Check whether the issue is concurrency or a single large request:
 
-- **Node timeouts**
-  - Each node is wrapped with `with_timeout(timeout_seconds)`. On `TimeoutError` the node returns a structured error state and routes to `respond`; the process does not retry the node or crash. `asyncio.CancelledError` is re-raised (task cancellation).
+   ```bash
+   curl -H "Authorization: Bearer $SYNESIS_INTERNAL_SERVICE_TOKEN" \
+     http://localhost:8080/health/detailed
+   ```
 
-- **Node exceptions**
-  - Planner and executor catch exceptions and return error state (e.g. `next_node: "respond"`, `error: str(e)`); they do not re-raise, so no uncaught exception crash loop.
-  - Router and other nodes are not audited here line-by-line but follow the same pattern: return state updates; timeouts hand off to respond.
+2. Inspect `admissionControl.streamAdmission` for queued or saturated streams.
+3. Inspect `session` for active sessions, checkpoint count, and backend.
+4. Check retrieval config:
 
-- **Planner fallback**
-  - After 2 consecutive planner errors, the planner node produces a minimal fallback plan and proceeds to the writer so the graph does not loop router→planner indefinitely.
+   ```bash
+   curl -H "Authorization: Bearer $SYNESIS_INTERNAL_SERVICE_TOKEN" \
+     http://localhost:8080/debug/retrieval-config
+   ```
 
-- **Conclusion**
-  - No unbounded retry loop: iteration and oscillation are capped; timeouts and node error handling route to respond. OOM risk is from **single-request memory usage** (large state, long stream, big prompts) rather than from repeated failing steps. Use the new memory instrumentation to identify which requests or state shapes drive RSS up before OOMKill.
+5. Correlate request logs by `x-synesis-run-id`, `x-synesis-authz-trace-id`, and
+   any OpenTelemetry traceparent propagated by the caller.
 
----
-
-## References (planner-ts)
-
-- Request lifecycle, streaming, metrics: `base/planner-ts/src/app.ts`
-- Graph routing, iterations, oscillation: `base/planner-ts/src/graph.ts`
-- Limits and env configuration: `base/planner-ts/src/config.ts`
-- Graph state types / reducers: `base/planner-ts/src/state/` (and related `nodes/*`)
-
-> Some paragraphs above still describe Python-era logging field names; when they diverge from code, treat **`base/planner-ts/src`** as source of truth and open a doc cleanup PR.
+OOM risk is usually from one of three sources: unusually large prompts,
+retrieval overfetch/graph expansion, or long streamed outputs. Tune the bounds
+above before increasing pod/container memory.

@@ -1,146 +1,158 @@
 # Synesis Yarn TS
 
-Node 22 TypeScript orchestration service prototype for replacing Python Yarn.
+Yarn is the TypeScript runtime that powers Synesis coder conversations. It exposes OpenAI-compatible, Claude-compatible, ACP, MCP, and operational APIs while coordinating provider selection, context shaping, tool safety, governance, session persistence, telemetry, and response streaming.
 
-## Design Highlights
+This package is the current Yarn implementation. Treat it as the source of truth for Yarn runtime behavior.
 
-- Vercel AI SDK Core (`ai`) as direct dependency; OpenAI/Claude/ACP compliant surfaces for Cursor, Claude Code, Roo, VSCode, Zed, etc.
-- Qwen3CoderAdapter (now supports qwen3-coder-next) with enhanced Plan→Do→Act workflow discipline, explicit phases/modes (Roo/Cursor inspired), self-verification, task tracking — reduces stalls and governor interventions.
-- Deterministic execution governor (tool-event phases: explore/edit/verify/report/finalize) + phase policy for required tools and repair paths.
-- Stable prefix, sawtooth compaction, artifact/server-side tools, transcript pruning for coherent long-context "edit/read/write/complete".
-- Zod-validated contracts, Redis session store, MCP HTTP bridge.
+## What Yarn Does
 
-**Prefix cache, provider shims, Redis artifact/tool tiers:** [docs/CACHING.md](docs/CACHING.md) (maintained in lockstep with [provider-cache-hints.ts](src/context/provider-cache-hints.ts) and related code).
+- Serves chat APIs for OpenAI-compatible clients, Claude-compatible clients, and the Responses compatibility endpoint.
+- Resolves Synesis model roles through the admin tier registry and provider configuration.
+- Applies request normalization, schema hardening, rate limits, auth checks, and per-user runtime preferences.
+- Builds context from session state, workspace hints, project manifests, working frames, evidence prefetch, and knowledge search tools.
+- Manages tool execution safety with MCP tool validation, OpenClaw policy support, tool-result reduction, artifact handles, and tool-loop governance.
+- Preserves streaming compatibility while recording usage, request diagnostics, session events, cache hints, and Prometheus metrics.
+- Provides an ACP bridge through the `synesis-yarn-acp` binary for clients that speak Agent Client Protocol.
 
-Sensemaking safety: `SYNESIS_YARN_SENSEMAKING_ENABLED` runs classification/telemetry, while `SYNESIS_YARN_SENSEMAKING_PROMPT_BLOCK_ENABLED` separately controls prompt mutation (`<EXPLORATION_PLAN>` injection).
+## Runtime Surfaces
 
-## Regression checks (policy + image parity)
+| Surface | Route or entrypoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| OpenAI chat | `POST /v1/chat/completions` | Coder token required | Main OpenAI-compatible chat and streaming endpoint. |
+| Claude messages | `POST /v1/messages` | Coder token required | Claude-compatible messages endpoint with streaming and non-streaming support. |
+| Responses compatibility | `POST /v1/responses` | Coder token required | Translates Responses-style requests to chat completion handling. |
+| Model catalog | `GET /v1/models`, `GET /v1/models/:model` | Model-read token required | Lists model roles and available configured offerings. |
+| Health | `GET /health`, `GET /health/readiness` | Public | Liveness and Redis-backed readiness checks. |
+| Internal health and metrics | `GET /health/detailed`, `GET /metrics`, `GET /health/telemetry` | Internal service token required | Operational state and Prometheus metrics. |
+| Diagnostics | `GET /v1/diagnostics/*` | Internal service token required | Request diagnostics, cache shapes, and model architecture details. |
+| Preferences | `GET/PUT /v1/user-runtime-preferences/:userId` | Internal service token required | Runtime preference persistence for admin-managed users. |
+| Artifacts | `GET /v1/artifacts/:id` | Internal service token required | Retrieves server-side artifact payloads. |
+| MCP tools | `GET /v1/mcp/tools`, `POST /v1/mcp/tools/call` | Coder token required | HTTP MCP tool catalog and call surface. |
+| Tool collapse | `POST /v1/coder/tool-collapse/plan` | Coder token required | Plans compact Synesis batch-tool calls. |
+| Eval gym | `GET/POST /v1/eval/*` | Eval/internal auth | Scenario, observer, result, and export endpoints for validation workflows. |
+| Claude helpers | `GET /v1/claude/*`, `POST /v1/claude/commands/execute` | Route-specific auth | Client bootstrap, model resolution, and command handling. |
+| ACP bridge | `synesis-yarn-acp` | Client-side process config | ACP adapter that calls Yarn's OpenAI-compatible endpoint. |
 
-- **Unit tests:** from repo root after `npm ci`: `npm test --workspace=base/yarn-ts` — includes `tests/deterministic-policy-engine.test.ts` (repeat-loop **sessionKey** scoping), `tests/containerfile-build-parity.test.ts` (Containerfile must build every `@synesis/*` dependency), and the rest of the suite.
-- **Same compile order as the production image:** `./scripts/verify-yarn-ts-build-parity.sh` (mirrors `base/yarn-ts/Containerfile`; catches missing workspace packages before Docker).
-- **ESLint:** not wired for this package; contract tests above cover Dockerfile drift and policy invariants without a custom ESLint plugin.
+## Request Pipeline
 
-## Run Locally
+The detailed pipeline is documented in [REQUEST_PIPELINE_MAP.md](./REQUEST_PIPELINE_MAP.md). At a high level:
+
+1. Fastify receives the request and validates the route-specific schema.
+2. Auth resolves a PAT, OIDC token, or explicitly enabled opaque bearer token.
+3. Protocol normalization converts OpenAI, Claude, or Responses input into Yarn's internal message and tool model.
+4. Session identity, workspace metadata, client adapter packs, runtime preferences, and pause state are attached.
+5. Context services add working frames, project manifests, structural hints, stable prefix layout, evidence prefetch, knowledge-search affordances, and task/governance blocks.
+6. Tool schemas are normalized, reduced, sorted, filtered, or collapsed according to client capability and OpenClaw policy.
+7. Provider routing resolves the selected model role to an admin-managed provider offering and adapter hints.
+8. The Vercel AI SDK executes non-streaming or streaming provider calls.
+9. Post-processing records telemetry, usage, diagnostics, session state, artifacts, and final response formatting.
+
+## Authentication
+
+Yarn supports three auth modes:
+
+- Synesis personal access tokens beginning with `syn-`, validated against the admin database.
+- OIDC bearer tokens verified through the configured issuer, client IDs, roles, and JWKS cache.
+- Opaque bearer tokens only when `SYNESIS_YARN_ALLOW_OPAQUE_BEARER=true` is explicitly set for compatibility.
+
+Coder routes require coder-capable scopes. Model catalog routes require model-read scopes. Internal operational routes require `SYNESIS_INTERNAL_SERVICE_TOKEN`.
+
+For production, configure:
+
+- `SYNESIS_YARN_ADMIN_DB_URL`
+- `SYNESIS_PAT_PEPPER`
+- `SYNESIS_REQUIRE_PAT_PEPPER=true`
+- OIDC issuer/client/role settings when identity-provider auth is used
+- `SYNESIS_INTERNAL_SERVICE_TOKEN`
+
+## Local Development
+
+From the repository root:
 
 ```bash
 npm install
-npm run dev
+npm --workspace synesis-yarn-ts run dev
 ```
 
-The service listens on `0.0.0.0:8000` by default.
+The service defaults to `PORT=8000` and `HOST=0.0.0.0`.
 
-## Live verification (deployed Yarn)
-
-From this directory, `npm run verify:live` hits a running Yarn OpenAI-compatible API. Prefer the same names as GitHub Actions:
-
-- **`SYNESIS_YARN_EVAL_URL`** — public Yarn base URL (e.g. `https://coder.kybern.dev`; alias: `SYNESIS_YARN_URL`)
-- **`SYNESIS_TEST_PAT_TOKEN`** — PAT for user-space `/v1` (CI; locally use `SYNESIS_TEST_AUTH` / `SYNESIS_TEST_TOKEN`)
-
-The runtime **`SYNESIS_INTERNAL_SERVICE_TOKEN`** in this package is the **service** token Yarn uses to call the planner and other internals — not the PAT you pass to live-verify.
-
-See **`docs/development/CI_GITHUB_VALIDATION.md`** and **`docs/development/TESTING.md`**. Workflow: **`yarn-live-verify.yml`**.
-
-## Important Environment Variables
-
-- `SYNESIS_YARN_ADMIN_API_URL`
-- `SYNESIS_INTERNAL_SERVICE_TOKEN`
-- `SYNESIS_YARN_DEFAULT_TIER`
-- `SYNESIS_YARN_TIER_POLL_INTERVAL`
-- `SYNESIS_YARN_OPENAI_COMPAT_BASE_URL`
-- `SYNESIS_YARN_OPENAI_COMPAT_API_KEY`
-- `SYNESIS_YARN_SESSION_PATH_HINTS_IN_WORKING_FRAME` (default `true`) — include client `project_root` / `shell_cwd` in `<WORKING_FRAME>` when sent; see `docs/clients/SESSION_EXECUTION_CONTEXT.md`.
-- `SYNESIS_YARN_FILE_TOOL_PROJECT_ROOT_ENFORCE` (default `true`) — clamp file-tool paths to `project_root` (or `shell_cwd` fallback) across coder routes.
-- `SYNESIS_YARN_BASH_PATH_DRIFT_BLOCK_ENABLED` (default `true`) — block risky `mkdir && cd` duplicate-segment drift by rewriting the Bash tool call to a safe failure.
-- `SYNESIS_YARN_GIT_POLICY_MODE` (default `advisory`) — `off|advisory|enforced` repo behavior mode for prompt context and guarded git MCP preflights.
-- `SYNESIS_YARN_CONTEXT_ADMISSION_MODE` (default `hybrid`) — outbound prompt admission behavior: `advisory|hybrid|enforced`.
-- `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS` (default `200000`) — warning threshold for estimated prompt+tool-schema input size.
-- `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` (default `262000`) — hard reject threshold for clearly unsafe outbound context size.
-- `SYNESIS_YARN_KNOWLEDGE_SEARCH_ENABLED` — inject `synesis_knowledge_search` and `search_developer_docs` on non-streaming OpenAI-style requests (calls planner `POST /v1/knowledge/search`).
-- `SYNESIS_YARN_WEB_SEARCH_ENABLED` — inject `synesis_web_search` similarly (planner-backed web; `fetch_pages` is token-heavy).
-- `SYNESIS_YARN_RESPONSE_STYLE_MODE` (default `guidance`) — markdown style policy mode: `off`, `guidance`, or `guardrail`.
-- `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID` (default `true`) — whether style guidance should encourage mermaid diagrams when appropriate.
-- Token accounting: Shared `@synesis/telemetry/extractUsage` (strengthened for vLLM `cache_hit_tokens`, `prefix_cache_hit_tokens`, etc.). Admin UI no longer double-counts cached tokens in "Tokens" column. DashScope explicit cache markers are provider-scoped and gated by `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE`; vLLM/OpenRouter-style routes continue to rely on stable prefix ordering and provider usage telemetry. See `usage-extract.ts`, `synesis-provider.ts`, `provider-cache-hints.ts`.
-- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MODE` (default `off`) — `off|canary|auto`; enables DashScope `cache_control` markers only for DashScope endpoint URLs.
-- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_CANARY_PCT` (default `10`) — deterministic session-hash canary percentage when mode is `canary`.
-- `SYNESIS_YARN_DASHSCOPE_EXPLICIT_CACHE_MAX_MARKERS` (default `3`) — marker cap passed to the prefix optimizer and DashScope endpoint adapter.
-
-## Markdown response style
-
-Yarn has a runtime response-style layer for making final assistant text easier
-to read in IDEs and chat clients. This is a Yarn behavior, not a client setup
-contract, so operators configure it on the coder deployment.
-
-`SYNESIS_YARN_RESPONSE_STYLE_MODE` controls how much Yarn does:
-
-| Mode | Behavior | Use when |
-|---|---|---|
-| `off` | No style prompt and no final markdown cleanup. | A client or upstream model prompt already owns all response formatting. |
-| `guidance` | Adds a `<RESPONSE_STYLE>` system block with markdown guidance. | Default. Gives models consistent formatting instructions without rewriting final text. |
-| `guardrail` | Adds guidance and applies small final-text cleanup. | Use when models often return malformed markdown, unclosed fences, or cramped headings. |
-
-The built-in guidance asks the model to:
-
-- use concise headings when sections help scanning;
-- use fenced code blocks for commands and code;
-- prefer bullets for steps/options and tables only for comparisons;
-- keep paragraphs short;
-- use Mermaid diagrams for architecture or process flows when
-  `SYNESIS_YARN_RESPONSE_STYLE_ALLOW_MERMAID=true`.
-
-`guardrail` mode intentionally performs formatting-only changes:
-
-- normalizes heading spacing;
-- fixes bullet marker spacing;
-- closes an unbalanced fenced code block.
-
-It does not rewrite tool calls, change request semantics, or re-author the
-assistant answer.
-
-Operators can replace the default style block through the Admin prompt library
-by creating a node prompt profile with `target_type = "node"` and
-`target_value = "response_style"`. When present, that prompt body replaces the
-built-in markdown style body while preserving the same `<RESPONSE_STYLE>` frame.
-
-Validation:
+Build and test:
 
 ```bash
-npm test --workspace synesis-yarn-ts -- response-style.test.ts openai-nonstream-finalizer.test.ts claude-nonstream-finalizer.test.ts claude-stream-finalizer.test.ts attention-positioning.test.ts stable-prefix.test.ts
+npm --workspace synesis-yarn-ts run typecheck
+npm --workspace synesis-yarn-ts test
+npm --workspace synesis-yarn-ts run test:openai-conformance
 ```
 
-## OpenAI and Claude: model reasoning (thinking)
+Useful validation scripts:
 
-Yarn forwards **extended thinking** from the model to each client in the shape that protocol expects:
+```bash
+npm --workspace synesis-yarn-ts run verify:live
+npm --workspace synesis-yarn-ts run verify:cache-canaries
+npm --workspace synesis-yarn-ts run eval:list
+npm --workspace synesis-yarn-ts run test:governor:unit
+```
 
-| Route | Client examples | How reasoning is exposed |
-|-------|------------------|-------------------------|
-| `POST /v1/messages` | Claude Code, Anthropic API clients | Streaming SSE: `thinking` / `thinking_delta` content blocks (see `docs/clients/CLAUDECODE.md`). Non-stream: `thinking` in assembled message content when present. |
-| `POST /v1/chat/completions` | Cursor, OpenAI-style agents, `curl` | **Stream:** `choices[].delta.reasoning_content` (OpenAI-compatible extension; separate from `content`). **Non-stream:** `choices[0].message.reasoning_content` when the Vercel AI result includes `reasoning`. |
+## Core Configuration
 
-**Request side:** Bodies may include **`enable_thinking`** (OpenAI schema); Anthropic requests may include **`thinking`** and **`enable_thinking`**. Admin tier **sampling defaults** can set `enable_thinking` for thinking-capable backends (for example Qwen3 or DeepSeek-class models). **`DeepSeekAdapter`** adds `reasoningParser: "deepseek_r1"` so R1-style tags parse into stream parts.
+Most production deployments should use Helm values and Synesis admin provider configuration instead of local-only environment overrides. The most common runtime variables are:
 
-**ACP:** The stdio bridge `synesis-yarn-acp` calls OpenAI with **`stream: false`**. It optionally sends **`enable_thinking`** via env, parses **`reasoning_content`** from the JSON response, and can prefix the ACP transcript — see `docs/clients/ACP_SYNESIS.md`.
+| Area | Variables |
+| --- | --- |
+| Server | `PORT`, `HOST`, `LOG_LEVEL` |
+| Admin integration | `SYNESIS_YARN_ADMIN_API_URL`, `SYNESIS_YARN_ADMIN_DB_URL`, `SYNESIS_INTERNAL_SERVICE_TOKEN` |
+| Auth | `SYNESIS_PAT_PEPPER`, `SYNESIS_REQUIRE_PAT_PEPPER`, `SYNESIS_YARN_ALLOW_OPAQUE_BEARER`, `SYNESIS_OIDC_*` |
+| Provider fallback | `SYNESIS_YARN_DEFAULT_TIER`, `SYNESIS_YARN_OPENAI_COMPAT_BASE_URL`, `SYNESIS_YARN_OPENAI_COMPAT_API_KEY` |
+| Session state | `SYNESIS_YARN_SESSION_REDIS_URL`, `SYNESIS_YARN_SESSION_TTL_MS` |
+| Context admission | `SYNESIS_YARN_CONTEXT_ADMISSION_MODE`, `SYNESIS_YARN_CONTEXT_ADMISSION_WARN_TOKENS`, `SYNESIS_YARN_CONTEXT_ADMISSION_HARD_TOKENS` |
+| Context budget | `SYNESIS_YARN_CONTEXT_BUDGET_ENABLED`, `SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE`, `SYNESIS_YARN_CONTEXT_BUDGET_CEILING_TOKENS` |
+| Governance | `SYNESIS_YARN_EXECUTION_GOVERNOR_ENABLED`, `SYNESIS_YARN_GOVERNANCE_PROFILE`, `SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED` |
+| MCP and RAG | `SYNESIS_YARN_MCP_TOOLS_ENABLED`, `SYNESIS_YARN_PLANNER_URL`, MCP concurrency and timeout variables |
+| Telemetry | `SYNESIS_YARN_PERSIST_USAGE_TO_DB`, OpenTelemetry exporter variables, Prometheus scrape config |
 
-## Admin Prompt Library: `model_family` (Kimi, MiniMax, etc.)
+See [../../docs/HELM_INSTALL.md](../../docs/HELM_INSTALL.md) and the Helm chart values for deployment-specific defaults.
 
-1. In Admin, use **`model_family` → slug** (e.g. `kimi`, `minimax`) on the picklist; see `base/admin/frontend/src/constants/promptModelFamilies.ts`.
-2. Coder matches **`model_family`** to the **backend model id** on the role’s tier (from Model Registry) via `inferModelFamily()` in `src/prompt/infer-model-family.ts` — e.g. a model string containing `kimi` or `moonshot` → `kimi`, `minimax` or `abab` → `minimax`.
-3. **Kimi backends** use `KimiAdapter` (path/CWD rails, loop steering, strict tool args). Force it on any provider via Model Registry **adapter hint = `kimi`** even when the model id is opaque. See [`docs/coder/KIMI_ADAPTER.md`](../../docs/coder/KIMI_ADAPTER.md).
-4. **Validation:** `npm run test -- tests/infer-model-family.test.ts tests/stable-prefix.test.ts` — unit tests assert slug inference and that `StablePrefixService` includes Kimi/MiniMax overlays when `promptContext.modelFamily` matches. Telemetry and diagnostics can include `promptProfileIds` / `promptProfileHashes` on each completion path when you need to confirm at runtime.
-5. **Long sessions — re-injecting the system block:** Yarn keeps **default + tier + `model_family` + role** overlays in the **stable prefix** (session-scoped, cache-friendly) on each request, not only on turn 1. You do not need a separate “refresh system prompt” timer: the same logical instructions are re-attached for each upstream call. Per-request duplication of a *huge* custom profile still costs tokens; prefer **sawtooth compaction** and transcript pruning for context growth instead of appending the full system text again in the *middle* of the message list (which would be an anti-pattern for prefix-cache alignment and is not how Yarn is structured). If a product requirement needs *periodic* behavioral nudges in long threads, a short **governor- or user-turn reminder** in conversation is more typical than re-sending the entire base system block mid-history.
+## Model Reasoning
 
-## Current Scope
+Yarn normalizes model reasoning options at the provider boundary. It accepts OpenAI-style and vendor-style reasoning fields and maps supported values into provider options only when the selected model family can use them.
 
-This is the first implementation pass focused on:
+Current behavior is implemented in:
 
-- protocol skeleton,
-- provider tier polling and resolution,
-- sawtooth core primitives,
-- safety middleware hooks.
+- `src/pipeline/provider-options.ts`
+- `src/providers/model-architecture-profile.ts`
+- `src/prompt/infer-model-family.ts`
 
-Advanced parity features (full MCP parity, persistence parity, and full streaming/tool lifecycle parity) are targeted in subsequent phases.
+Operators should prefer admin-managed model roles and architecture profiles over per-client hardcoding.
 
-## Knowledge catalog vs web search
+## Context And Memory
 
-Yarn nudges the model (tool descriptions, optional system fragment when retrieval tools are present, tool-schema pruning priority) to prefer **knowledge** tools before **web**, and to avoid full-page fetch until snippets fail. Retrieval is still **optional** — nothing runs on every turn.
+Yarn treats client transcript context and Synesis runtime memory separately:
 
-Those tools only return useful results if the **indexer** has ingested relevant material (e.g. Cobra/spf13 patterns, kubectl snippets). Yarn does not ingest documents; operators curate the corpus and metadata (language, `scope_tags`, etc.) separately.
+- Client transcript context remains part of the incoming request and is shaped conservatively.
+- Synesis session state is stored in Redis and the admin database where configured.
+- Working frames, project manifests, durable work packets, task ledgers, and stable prefixes are injected as bounded system context.
+- Context budget compaction defaults to `minimal` so clients with their own harness behavior remain in control unless operators choose stronger compaction.
+
+Related docs:
+
+- [REQUEST_PIPELINE_MAP.md](./REQUEST_PIPELINE_MAP.md)
+- [docs/CACHING.md](./docs/CACHING.md)
+- [docs/token-optimization-architecture.md](./docs/token-optimization-architecture.md)
+- [../../docs/SESSION_FRAME_COMPACTION.md](../../docs/SESSION_FRAME_COMPACTION.md)
+- [../../docs/clients/SESSION_EXECUTION_CONTEXT.md](../../docs/clients/SESSION_EXECUTION_CONTEXT.md)
+
+## Operational Notes
+
+- `/health/readiness` depends on Redis. If Redis is unavailable, readiness returns `503`.
+- `/metrics`, detailed health, diagnostics, artifacts, telemetry, and preference routes are internal surfaces and must not be exposed without the internal service token boundary.
+- Provider roles, prompts, public offerings, costs, and model capabilities are polled from Synesis admin when configured.
+- Usage persistence is asynchronous and bounded by queue settings so chat requests do not block on normal telemetry writes.
+- Status, diagnostics, and eval artifacts should never include provider API keys or internal service tokens.
+
+## Related Documentation
+
+- [REQUEST_PIPELINE_MAP.md](./REQUEST_PIPELINE_MAP.md) - request lifecycle and mutation boundaries.
+- [../../docs/clients/CLIENTS.md](../../docs/clients/CLIENTS.md) - client setup index.
+- [../../docs/clients/SESSION_EXECUTION_CONTEXT.md](../../docs/clients/SESSION_EXECUTION_CONTEXT.md) - client-provided execution context.
+- [../../docs/CODER_AGENT_ITERATION_PLAYBOOK.md](../../docs/CODER_AGENT_ITERATION_PLAYBOOK.md) - governance, status, and tracing reference.
+- [../../docs/SECURITY.md](../../docs/SECURITY.md) - current security controls and known limitations.

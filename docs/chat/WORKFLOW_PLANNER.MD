@@ -3,8 +3,6 @@
 This is the canonical workflow document for the active planner runtime:
 `base/planner-ts/`.
 
-It supersedes legacy planner workflow notes that referenced Python planner code.
-
 ## Scope
 
 - Runtime: `base/planner-ts/`
@@ -128,10 +126,8 @@ Notable groups:
 - Retrieval / web-search / taxonomy config
 - RAG authz config: `SYNESIS_RAG_AUTHZ_MODE=audit|enforce`
 
-## Notes on Legacy References
+## Source Of Truth
 
-Older docs may still mention Python planner paths (for example `graph.py`,
-`main.py`, or Python node modules). Those are historical references and are not the
-active planner runtime.
-
-Use this document and `base/planner-ts/` source files as the source of truth.
+The active planner runtime is TypeScript-only. Use this document,
+[`base/planner-ts/README.md`](../../base/planner-ts/README.md), and
+`base/planner-ts/src/` as the source of truth for planner behavior.

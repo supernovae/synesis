@@ -1,5 +1,5 @@
 /**
- * Vertical prompt helpers — ports Python taxonomy_prompt_factory.py vertical functions.
+ * Vertical prompt helpers for merged ontology prompt fragments.
  *
  * Reads vertical_prompts from the MergedOntologySnapshot (already merged by
  * merge-plugins.ts). No separate file scan.
@@ -163,7 +163,7 @@ export function getCriticTierPrompt(
 }
 
 /**
- * Pick critic tier from difficulty (matching Python heuristic).
+ * Pick critic tier from difficulty.
  */
 export function selectCriticTier(difficulty: number): "basic" | "advanced" | "research" {
   if (difficulty >= 0.7) return "research";

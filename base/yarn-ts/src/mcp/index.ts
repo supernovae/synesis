@@ -684,7 +684,7 @@ export function getToolRegistry(): McpToolRegistry {
 
 /**
  * Register native MCP tool routes on the Fastify app.
- * These replace the proxy-to-Python-MCP pattern for user-workload tools.
+ * These expose user-workload tools directly from the Yarn service.
  * Auth: requires valid PAT (syn-*) via AuthResolver.
  */
 export async function registerMcpRoutes(

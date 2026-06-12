@@ -125,7 +125,7 @@ async function buildFullTaxonomy(scoring: ScoringResult, text: string): Promise<
     clarify_first: scoringComplexity >= 0.7,
   };
 
-  // YAML output_controls override scoring defaults (matching Python merge)
+  // YAML output_controls override scoring defaults.
   const yamlControls = (taxonomyMeta.output_controls ?? {}) as Record<string, boolean>;
   const mergedControls = { ...scoringControls, ...yamlControls };
 

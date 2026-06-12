@@ -11,13 +11,13 @@ describe("buildMetadataFilter", () => {
   });
 
   it("builds single language filter", () => {
-    const expr = buildMetadataFilter({ language: "Python" });
-    expect(expr).toBe('language == "python"');
+    const expr = buildMetadataFilter({ language: "Rust" });
+    expect(expr).toBe('language == "rust"');
   });
 
   it("builds pack filters (v16)", () => {
-    const expr = buildMetadataFilter({ pack_ids: ["Go 1.26", "python-3.13"], package_name: "net/http" });
-    expect(expr).toContain('pack_id in ["go-1-26", "python-3-13"]');
+    const expr = buildMetadataFilter({ pack_ids: ["Go 1.26", "rust-1.84"], package_name: "net/http" });
+    expect(expr).toContain('pack_id in ["go-1-26", "rust-1-84"]');
     expect(expr).toContain('package_name == "net/http"');
   });
 

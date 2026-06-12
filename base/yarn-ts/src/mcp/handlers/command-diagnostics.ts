@@ -110,7 +110,7 @@ export function extractStructuredErrors(stderr: string, stdout: string, maxItems
       continue;
     }
 
-    // Python traceback markers.
+    // Traceback markers.
     if (/^Traceback \(most recent call last\):$/i.test(line)) {
       inPythonTraceback = true;
       pendingPyFrame = null;
@@ -122,7 +122,7 @@ export function extractStructuredErrors(stderr: string, stdout: string, maxItems
       pendingPyFrame = { file: pyFrame[1], line: Number(pyFrame[2]) };
       continue;
     }
-    // Python exception line after traceback frame: ValueError: bad value
+    // Exception line after traceback frame: ValueError: bad value
     const pyExc = line.match(/^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)):\s+(.+)$/);
     if (pyExc && inPythonTraceback) {
       push({

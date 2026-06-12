@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { inferKnowledgeGapMetadata } from "../src/knowledge-backlog.js";
 
 describe("knowledge backlog metadata", () => {
-  it("infers Go and backend context instead of defaulting to Python/generic", () => {
+  it("infers Go and backend context instead of defaulting to generic", () => {
     const meta = inferKnowledgeGapMetadata({
       task_description:
         "For a Go HTTP service, how should I configure server timeouts, request context cancellation, and graceful shutdown?",
@@ -27,7 +27,7 @@ describe("knowledge backlog metadata", () => {
     expect(meta.platform_context).toBe("backend_api");
   });
 
-  it("leaves unknown language empty rather than inventing Python", () => {
+  it("leaves unknown language empty rather than inventing a language", () => {
     const meta = inferKnowledgeGapMetadata({
       task_description: "Compare several project management approaches for a remote design team.",
     });

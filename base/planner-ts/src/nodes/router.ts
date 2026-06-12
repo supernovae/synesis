@@ -4,7 +4,7 @@
  * Governs all evidence acquisition (RAG + web). No other node may import
  * retrieval modules directly (see router-governed-evidence rule).
  *
- * Ports Python RouterNode behavior:
+ * Router node behavior:
  *   - Parallel evidence_requests dispatch
  *   - Domain-profile-aware cohesion preseed for focused frames
  *   - topic_frame and domain_hints injection into retrieval

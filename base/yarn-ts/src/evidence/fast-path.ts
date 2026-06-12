@@ -6,7 +6,7 @@
  * is slower, the result is dropped and the LLM can use the tool later.
  *
  * Patterns detected:
- *   - Compiler/runtime error codes (TS2345, E0308, go vet errors, Python tracebacks)
+ *   - Compiler/runtime error codes (TS2345, E0308, go vet errors, traceback signatures)
  *   - Linter rule references (eslint, ruff, golangci-lint, clippy)
  *   - Language spec / syntax questions
  */

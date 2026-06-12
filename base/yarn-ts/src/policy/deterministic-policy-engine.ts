@@ -15,7 +15,7 @@ export interface PolicyContext {
   maxInputTokens?: number;
   /** Hard safety ceiling on session input tokens — reject above in both modes. */
   hardMaxInputTokens?: number;
-  /** Default `enforced` — matches legacy single-threshold behavior. */
+  /** Default `enforced` - preserves the original single-threshold budget behavior. */
   sessionBudgetMode?: "audit" | "enforced";
   consecutiveToolCalls?: number;
   consecutiveToolCallsLimit?: number;

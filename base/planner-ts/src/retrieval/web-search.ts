@@ -1,7 +1,7 @@
 /**
  * SearXNG web search client.
  *
- * Ports the Python search_and_process() and multi-source fan-out from web_search.py.
+ * Web search orchestration and multi-source fan-out.
  */
 
 import type { SearchResult, WebSearchAttribution } from "./types.js";

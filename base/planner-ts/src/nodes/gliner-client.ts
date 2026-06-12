@@ -3,7 +3,7 @@
  *
  * Calls /extract with a predefined entity schema and returns typed
  * extraction results (technologies, domain tags, formats, etc.).
- * Ports the Python GlinerClient from gliner_client.py.
+ * GLiNER HTTP client used by frame extraction.
  */
 
 export interface ExtractionCandidate {

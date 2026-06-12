@@ -6,7 +6,7 @@
 import type { EvalScenario } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// 1. Fresh Python app — build a simple Flask app from scratch
+// 1. Fresh Flask app - build a simple web app from scratch
 // ---------------------------------------------------------------------------
 
 export const freshPythonApp: EvalScenario = {

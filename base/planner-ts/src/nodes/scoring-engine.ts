@@ -1,7 +1,7 @@
 /**
  * YAML-driven complexity scorer — split axes: complexity, risk, domain.
  *
- * Ports the Python ScoringEngine from entry_classifier_engine.py with
+ * Deterministic scoring engine with
  * BM25-inspired intent classification, brevity weights, risk veto, and
  * deliverable counting.
  *
@@ -105,7 +105,7 @@ export interface ScoringResult {
   };
 }
 
-// BM25 parameters matching Python
+// BM25 parameters
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
 const BM25_AVG_DL = 50;
@@ -183,7 +183,7 @@ const DEFAULT_CONFIG: ScoringConfig = {
     cloud_aws:    { domain: "aws", keywords: ["aws", "ec2", "s3", "lambda", "cloudformation", "iam", "dynamodb", "sqs", "eks"], minHits: 1 },
     cloud_gcp:    { domain: "gcp", keywords: ["gcp", "google cloud", "compute engine", "cloud run", "bigquery", "gke"], minHits: 1 },
     cloud_azure:  { domain: "azure", keywords: ["azure", "arm template", "azure devops", "aks", "cosmos db"], minHits: 1 },
-    python:       { domain: "python", keywords: ["python", "pip", "pytest", "django", "flask", "fastapi", "pydantic"], minHits: 1 },
+    scripting:    { domain: "scripting", keywords: ["script", "package manager", "test runner", "web framework", "data validation"], minHits: 1 },
     typescript:   { domain: "typescript", keywords: ["typescript", "ts", "tsx", "node.js", "nodejs", "express", "fastify", "npm"], minHits: 1 },
     web_backend:  { domain: "web_backend", keywords: ["http service", "http server", "server timeout", "server timeouts", "request context", "graceful shutdown", "fastapi", "flask", "django", "express", "spring", "gin", "actix"], minHits: 1 },
     react:        { domain: "react", keywords: ["react", "jsx", "next.js", "nextjs", "remix", "react native"], minHits: 1 },

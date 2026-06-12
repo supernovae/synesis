@@ -2292,38 +2292,38 @@ embedded:
 
 # ─── Programming Languages ────────────────────────────────────────────────────
 
-python:
-  path: "Engineering > Python"
+scripting:
+  path: "Engineering > Scripting"
   complexity: 0.7
-  persona: "Senior Python Developer"
+  persona: "Senior Scripting Engineer"
   worker_explain_tone: >-
-    You are a senior Python developer. Write idiomatic, readable code.
-    Prefer stdlib and well-known libraries. Type-hint public interfaces.
+    You are a senior scripting engineer. Write idiomatic, readable code.
+    Prefer standard libraries and well-known packages. Keep public interfaces clear.
   depth_instructions: >-
-    Write idiomatic Python (PEP 8, PEP 20). Prefer comprehensions over
-    manual loops when readable. Use type hints on public APIs. Note
-    performance characteristics (list vs generator, dict vs defaultdict).
-    Include error handling patterns and testing approach. When building
-    systems that generate or review code, specify validation steps: linting,
-    type checking, sandbox execution, and how unsafe code is caught before
-    it reaches the user.
-  discovery_prompt: "End with a 'Pythonic Tip' — an idiomatic alternative or stdlib gem relevant to this task."
+    Write clear scripting code with explicit inputs and outputs. Prefer
+    readable loops and helpers over clever one-liners when maintainability
+    matters. Note performance characteristics for large files, streams, and
+    in-memory data structures. Include error handling patterns and testing
+    approach. When building systems that generate or review code, specify
+    validation steps: linting, type checking where available, sandbox
+    execution, and how unsafe code is caught before it reaches the user.
+  discovery_prompt: "End with a scripting tip - an idiomatic alternative or standard-library helper relevant to this task."
   required_elements:
     - "Solution"
     - "Explanation"
     - "Error Handling"
     - "Testing Considerations"
   query_expansion_hints:
-    - "pythonic"
-    - "PEP"
-    - "type hints"
-    - "pytest"
-    - "virtualenv"
+    - "script"
+    - "stdlib"
+    - "type checks"
+    - "test runner"
+    - "environment"
   output_style: "code_guide"
   output_style_guidance: >-
     Lead with working code, then explain design choices. Show error handling
     inline. Note performance trade-offs for non-obvious choices. Include
-    type hints on public interfaces. End with testing approach or edge cases.
+    interface expectations where useful. End with testing approach or edge cases.
 
 javascript:
   path: "Engineering > JavaScript"

@@ -9,7 +9,7 @@ import {
 } from "../src/budgets.js";
 import { loadConfig } from "../src/config.js";
 
-describe("budget scaling (parity with Python config defaults)", () => {
+describe("budget scaling", () => {
   it("uses trivial writer cap when task is trivial", () => {
     const cfg = loadConfig(process.env);
     expect(computeScaledWriterBudget(cfg, 0.99, true)).toBe(cfg.SYNESIS_PLANNER_TS_TRIVIAL_WRITER_BUDGET);
