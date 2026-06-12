@@ -207,7 +207,14 @@ Bundle retrieval adds a pack-aware layer:
 Important detail: `retrieval_source: "hybrid"` currently means vector seed
 search plus metadata, graph, pack-resolver, and typed-node retrieval. BM25
 fields and RRF score fields remain in the result contract for compatibility,
-but the current NornicDB path is not a standalone BM25 engine.
+   but the current NornicDB path is not a standalone BM25 engine.
+
+For coding intents, planner retrieval applies a code-aware ranking pass in
+[`base/planner-ts/src/retrieval/unified.ts`](../../base/planner-ts/src/retrieval/unified.ts).
+Results with `has_code` or positive `code_signal_count` are promoted into the
+`primary_code` evidence bucket, while explanatory docs remain available as
+`supporting_docs`. This keeps implementation evidence visible without dropping
+manuals, migration notes, or conceptual documentation that may explain the code.
 
 ## Search Filters
 

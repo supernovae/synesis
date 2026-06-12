@@ -34,7 +34,7 @@ Milestone-era design notes have been consolidated into the current feature docs 
 | Validation normalization and reducers | [`base/yarn-ts/src/reduction/README.md`](../../base/yarn-ts/src/reduction/README.md) |
 | Context, manifest, recall, and structural index | [`docs/coder/context-and-recall-architecture.md`](../coder/context-and-recall-architecture.md) |
 | Model routing and phase policy | [`docs/coder/model-routing-and-adaptive-complexity.md`](../coder/model-routing-and-adaptive-complexity.md) |
-| Governor and safety controls | [`docs/coder/GOVERNOR_HARNESS.md`](../coder/GOVERNOR_HARNESS.md), [`docs/coder/safety-reliability-and-fail-safe.md`](../coder/safety-reliability-and-fail-safe.md) |
+| Governor and safety controls | [`docs/coder/GOVERNOR_HARNESS.md`](../coder/GOVERNOR_HARNESS.md), [`docs/coder/GOVERNOR_PAUSE_ENVELOPE.md`](../coder/GOVERNOR_PAUSE_ENVELOPE.md) |
 | Verification and evals | [`docs/coder/observability-verification-and-evals.md`](../coder/observability-verification-and-evals.md), [`TESTING.md`](./TESTING.md) |
 
 ## Product-aligned doc hubs

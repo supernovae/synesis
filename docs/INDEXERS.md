@@ -102,6 +102,88 @@ Handlers should produce deterministic metadata first. Optional services such as
 preprocess, spam scoring, entity extraction, or LLM enrichment are env-gated and
 must not be required for a successful basic ingest.
 
+## Custom And Intranet Ingestion
+
+Synesis-maintained reusable content should be packaged as SynPack v2. Use the
+Admin ingestion queue for organization-specific loads: intranet docs, private
+runbooks, internal repos, PDFs, one-off OpenAPI specs, and temporary discovery
+experiments.
+
+The copyable example is
+[`examples/ingestion/custom-ingestion-items.example.yaml`](../examples/ingestion/custom-ingestion-items.example.yaml).
+It uses the Admin bootstrap shape:
+
+- top-level `items`
+- per-item `uri`, `handler`, `title`, `domain`, `authority`, `origin_type`,
+  `tags`, `visibility_scope`, `acl_mode`, and optional org/tenant scope
+- per-item `config` for handler-specific fetch settings
+- per-item metadata such as `corpus_class`, `languages`, `artifact_kind`,
+  `content_profile`, `freshness_sla_days`, `scope_tags`, and
+  `constraint_kind`
+
+Accepted handlers come from `GET /api/v1/ingestion/handlers`. Common custom
+load handlers are:
+
+| Handler | Use |
+|---|---|
+| `web_page` | Multi-page docs sites with sitemap/robots support |
+| `html_document` | Single HTML page |
+| `markdown_file` | Direct Markdown URL |
+| `github_code` | Repository source code |
+| `github_markdown` | Repository docs or wiki-style markdown |
+| `openapi_spec` | OpenAPI/Swagger YAML or JSON |
+| `pdf_document` | Direct PDF URL |
+| `structured_data` | YAML/JSON/TOML/XML reference data |
+| `generic_text` | Plain text files |
+
+Classify custom loads with the same fields the indexer and planner understand:
+
+| Field | Supported values / guidance |
+|---|---|
+| `corpus_class` | `coder_enriched`, `general`, or `hybrid` |
+| `constraint_kind` | `hard`, `guiding`, or `advisory` |
+| `authority` | `canonical`, `vetted`, `community`, or `untrusted` |
+| `origin_type` | `curated`, `official`, `community`, or `generated` |
+| `visibility_scope` | `global`, `org`, `tenant`, `user`, or `session` |
+| `acl_mode` | `open`, `restricted`, or `private` |
+| `artifact_kind` | Short operator-defined class such as `docs`, `code`, `api_spec`, `runbook`, or `changelog` |
+| `content_profile` | Short operator-defined profile such as `reference`, `conceptual`, `procedural`, or `troubleshooting` |
+
+Use `coder_enriched` for source code, API references, compiler/runtime errors,
+toolchain docs, platform standards, and implementation runbooks. Use `general`
+for broader business/domain knowledge. Use `hybrid` when Planner, Yarn/Coder,
+and MCP callers should all consider the content useful.
+
+Scope intranet content deliberately:
+
+- `visibility_scope: global` only for content safe for every tenant/user.
+- `visibility_scope: org` with `org_id` for organization-wide private docs.
+- `visibility_scope: tenant` with `org_id` and `tenant_id` for tenant-bound
+  docs.
+- `acl_mode: restricted` or `private` requires `acl_groups`; retrieval
+  enforcement also requires matching `rag_doc:*` OpenFGA grants when
+  `SYNESIS_RAG_AUTHZ_MODE=enforce`.
+
+Validate before import:
+
+```bash
+curl -sS -X POST "$SYNESIS_ADMIN_URL/api/v1/ingestion/bootstrap/validate" \
+  -H "Authorization: Bearer $SYNESIS_ADMIN_TOKEN" \
+  -F file=@examples/ingestion/custom-ingestion-items.example.yaml
+```
+
+Import after validation:
+
+```bash
+curl -sS -X POST "$SYNESIS_ADMIN_URL/api/v1/ingestion/bootstrap" \
+  -H "Authorization: Bearer $SYNESIS_ADMIN_TOKEN" \
+  -F file=@examples/ingestion/custom-ingestion-items.example.yaml
+```
+
+The same file can also be imported through the Admin UI ingestion bootstrap
+flow. After import, queue items are claimed by the indexer CronJob or by a
+manual indexer run.
+
 ## Lifecycle
 
 | Status | Meaning |
@@ -153,7 +235,8 @@ Run one indexer pass:
 Import custom ingestion items:
 
 ```bash
-curl -X POST http://localhost:8081/api/v1/ingestion/bootstrap \
+curl -sS -X POST "$SYNESIS_ADMIN_URL/api/v1/ingestion/bootstrap" \
+  -H "Authorization: Bearer $SYNESIS_ADMIN_TOKEN" \
   -F file=@examples/ingestion/custom-ingestion-items.example.yaml
 ```
 

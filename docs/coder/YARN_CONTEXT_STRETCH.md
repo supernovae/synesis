@@ -154,4 +154,4 @@ to get the full payload back into context, on demand.
 - [Transcript Pruning](TRANSCRIPT_PRUNE_SAFE_CONTEXT.md)
 - [Sawtooth Architecture](YARN_TS_SAWTOOTH_ARCHITECTURE.md)
 - [Context and Recall Architecture](context-and-recall-architecture.md)
-- [Safety and Reliability](safety-reliability-and-fail-safe.md)
+- [Governor Harness](GOVERNOR_HARNESS.md)

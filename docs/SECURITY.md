@@ -308,7 +308,7 @@ User-facing error messages never expose internal trust metadata, scan patterns, 
 ```mermaid
 flowchart LR
     Ingest["Document\nIngestion"] -->|"scan_chunk_text_detailed()"| Status{"scan_status\n+ scan_signals"}
-    Status -->|clean| Catalog["NornicDB content graph\n(schema v19)"]
+    Status -->|clean| Catalog["NornicDB content graph\n(schema v20)"]
     Status -->|flagged| Queue["Admin Review Queue\n(sort: freshness, authority)"]
     Queue -->|"human review"| Vet["Vet\n(authority -> vetted\nreview_trace_id set)"]
     Queue -->|"human review"| Reject["Reject\n(approval -> rejected\nreview_trace_id set)"]

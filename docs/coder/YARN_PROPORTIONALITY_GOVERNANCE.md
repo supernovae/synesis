@@ -211,4 +211,4 @@ The proportionality governance system operates as an invisible guardrail that on
 - `yarn-ts/src/index.ts` — Pipeline integration (4 governance call sites)
 - `yarn-ts/tests/proportionality-governance.test.ts` — 43 unit tests
 - [`constraint-governance.md`](constraint-governance.md) — Governance precedence
-- [`safety-reliability-and-fail-safe.md`](safety-reliability-and-fail-safe.md) — Safety boundaries
+- [`GOVERNOR_HARNESS.md`](GOVERNOR_HARNESS.md) — Reliability invariants and safety boundaries

@@ -17,7 +17,7 @@ This document is the **source of truth** for how corpus quality, retrieval gaps,
 | **Evidence starvation / pack** | High-confidence chunks dropped from writer context | **Tracing → trace detail → Writer context budgeting** |
 | **Critic / quality of answer** | Approvals, scores, failure modes over traces | **Pipeline → Critic** |
 | **Proposed new sources** | Curator agent YAML (file-backed) | **Feedback → Curator** |
-| **Trust attribution** | Provenance, scan status, authority tier, review trace per evidence source | **RAG → Review Queue** (schema v19 graph fields) |
+| **Trust attribution** | Provenance, scan status, authority tier, review trace per evidence source | **RAG → Review Queue** (schema v20 graph fields) |
 | **Document freshness** | Recency distribution across corpus, stale source detection | **RAG → Quality** (freshness_pct), **Review Queue** (freshness score) |
 
 **Hallucinated URLs / unsupported citations** are tracked in **trace** `critic_scores` (e.g. `hallucinated_urls_count`) and Critic analytics — there is not yet a dedicated "hallucination inbox" page; use **Traces** + **Pipeline → Critic** as the front door.

@@ -216,5 +216,5 @@ See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for the redirect and pointers to [WOR
 | [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) | Domain behavior configuration via YAML |
 | [WORKFLOW_PLANNER.MD](chat/WORKFLOW_PLANNER.MD) | Full pipeline flow, router-governed evidence, anti-oscillation |
 | [CRITIC_RESEARCH.md](CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric |
-| [INDEXERS.md](INDEXERS.md) | RAG indexer, schema v19 content graph, trust attribution fields |
+| [INDEXERS.md](INDEXERS.md) | RAG indexer, schema v20 content graph, trust attribution fields |
 | [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md) | Feedback loops, quality signals, HITL review |

@@ -27,6 +27,37 @@ The governor runs **after** message normalization / reduction and **before** mod
 
 When recovery escalation reaches hard stop, Yarn now emits a transport-agnostic pause contract (`synesis_governor_pause`) alongside human-readable text. See [`GOVERNOR_PAUSE_ENVELOPE.md`](./GOVERNOR_PAUSE_ENVELOPE.md) for schema and integration guidance.
 
+## Reliability Invariants
+
+The governor and adjacent Yarn safety controls enforce reliability properties
+that are operationally visible in traces and session events:
+
+- Do not claim success without a validation signal.
+- Prefer deterministic evidence paths before inferential paths.
+- Bound retries, loops, tokens, and execution budgets.
+- Degrade safely when dependencies fail.
+- Preserve explicit abstain behavior when confidence is insufficient.
+- Block writes to files whose current content was not read from a real,
+  non-stub tool result.
+- Block completion when verification does not cover changed files.
+- Track evidence progression per session and treat repeated failure signatures
+  as stalled or regressed recovery.
+
+When uncertainty or risk rises, Yarn should require more evidence, narrow the
+requested action, escalate model tier when justified, or stop automation with a
+governor pause envelope.
+
+Hard safety boundaries live in dedicated controls:
+
+- Filesystem and path access:
+  [`YARN_PATH_SANDBOX.md`](YARN_PATH_SANDBOX.md)
+- Scope proportionality and overreach detection:
+  [`YARN_PROPORTIONALITY_GOVERNANCE.md`](YARN_PROPORTIONALITY_GOVERNANCE.md)
+- Context preservation and compaction safety:
+  [`YARN_CONTEXT_STRETCH.md`](YARN_CONTEXT_STRETCH.md)
+- Trust envelopes for external context:
+  [`YARN_TS_CONTEXT_TRUST.md`](YARN_TS_CONTEXT_TRUST.md)
+
 ## Phase Model
 
 The governor uses a deterministic tool-event phase model. It does not trust
@@ -656,6 +687,5 @@ step-by-step instructions.
 - [EVAL_GYM.md](EVAL_GYM.md) -- integrated exerciser, observer, and training data pipeline
 - [observability-verification-and-evals.md](observability-verification-and-evals.md) -- trace analytics and eval harness
 - [qwen-stability-feedback-loop.md](qwen-stability-feedback-loop.md) -- closed-loop training pipeline and trajectory contract
-- [safety-reliability-and-fail-safe.md](safety-reliability-and-fail-safe.md) -- invariants and fail-safe principles
 - [HARNESS_INTAKE_PLAYBOOK.md](HARNESS_INTAKE_PLAYBOOK.md) -- mapping external patterns to Yarn implementation
 - [constraint-governance.md](constraint-governance.md) -- product/policy governance model

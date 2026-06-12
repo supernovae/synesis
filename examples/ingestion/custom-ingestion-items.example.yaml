@@ -3,7 +3,12 @@
 # This is the supported sample format for custom one-off loads. Import it with
 # the Admin UI or:
 #
-#   curl -X POST http://localhost:8081/api/v1/ingestion/bootstrap \
+#   curl -sS -X POST "$SYNESIS_ADMIN_URL/api/v1/ingestion/bootstrap/validate" \
+#     -H "Authorization: Bearer $SYNESIS_ADMIN_TOKEN" \
+#     -F file=@examples/ingestion/custom-ingestion-items.example.yaml
+#
+#   curl -sS -X POST "$SYNESIS_ADMIN_URL/api/v1/ingestion/bootstrap" \
+#     -H "Authorization: Bearer $SYNESIS_ADMIN_TOKEN" \
 #     -F file=@examples/ingestion/custom-ingestion-items.example.yaml
 #
 # Curated Synesis-distributed content should be packaged as SynPack v2 instead
