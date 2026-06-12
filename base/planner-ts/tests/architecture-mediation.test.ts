@@ -9,7 +9,7 @@ describe("planner architecture mediation", () => {
   it("honors nested metadata controls and builds roleplay active state", () => {
     const mediation = resolvePlannerArchitectureMediation({
       requestedModel: "Synesis",
-      writerModel: "kimi-k2.6",
+      writerModel: "kimi-k2.7-code",
       metadata: { synesis: { contextMediation: "adaptive", architectureProfile: "auto" } },
       messages: [
         { role: "user", content: "Roleplay as Captain Vale. Canon: the ship is Aurora. Always stay in character." },

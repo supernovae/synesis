@@ -71,7 +71,7 @@ function inferCapabilityFamily(modelRef: string): string {
   const normalized = modelRef.toLowerCase();
   if (/qwen3.*coder/.test(normalized)) return "qwen3-coder";
   if (/deepseek/.test(normalized)) return "deepseek";
-  if (/kimi|moonshot|k2[.-]?5|k2[.-]?6/.test(normalized)) return "kimi";
+  if (/kimi|moonshot|k2[.-]?[567]/.test(normalized)) return "kimi";
   if (/minimax|abab/.test(normalized)) return "minimax";
   return "generic";
 }

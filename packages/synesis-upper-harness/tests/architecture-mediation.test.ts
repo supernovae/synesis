@@ -27,7 +27,7 @@ describe("architecture mediation", () => {
 
   it("treats hybrid compressed attention as storage with a working set", () => {
     const profile = resolveModelArchitectureProfile({
-      modelId: "kimi-k2.6",
+      modelId: "kimi-k2.7-code",
       declaredContextTokens: 256_000,
     });
     const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "adaptive");

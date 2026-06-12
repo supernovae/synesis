@@ -63,7 +63,7 @@ describe("model architecture profile", () => {
   });
 
   it("raises deterministic validation preference for MoE profiles", () => {
-    const profile = resolveModelArchitectureProfile({ modelId: "kimi-k2.6", family: "kimi" });
+    const profile = resolveModelArchitectureProfile({ modelId: "kimi-k2.7-code", family: "kimi" });
     const policy = deriveModelExecutionPolicy(profile);
 
     expect(profile.activation).toBe("moe");

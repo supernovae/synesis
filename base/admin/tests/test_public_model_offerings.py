@@ -115,6 +115,12 @@ def test_normalize_generation_params() -> None:
     }
 
 
+def test_normalize_generation_params_accepts_kimi_k2_7_alias() -> None:
+    assert normalize_generation_params({"model_capability_preset": "kimi-k2.7-code"}) == {
+        "model_capability_preset": "kimi_k2",
+    }
+
+
 def test_normalize_generation_params_rejects_invalid_boolean() -> None:
     with pytest.raises(ValueError, match="enable_thinking"):
         normalize_generation_params({"enable_thinking": "false"})

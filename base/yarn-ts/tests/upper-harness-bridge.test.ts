@@ -31,7 +31,7 @@ describe("upper harness bridge", () => {
   it("blocks unsafe commands before provider-specific execution", () => {
     const context = buildYarnUpperHarnessContext({
       surface: "acp",
-      modelId: "kimi-k2.6",
+      modelId: "kimi-k2.7-code",
       provider: "moonshot",
     });
     const result = applyUpperHarnessToolCall({

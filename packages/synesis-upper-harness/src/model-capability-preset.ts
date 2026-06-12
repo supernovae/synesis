@@ -31,6 +31,8 @@ const MODEL_CAPABILITY_ALIASES: Record<string, ModelCapabilityPresetId> = {
   kimi: "kimi_k2",
   kimi_k2_5: "kimi_k2",
   kimi_k2_6: "kimi_k2",
+  kimi_k2_7: "kimi_k2",
+  kimi_k2_7_code: "kimi_k2",
   moonshot_kimi_k2: "kimi_k2",
   glm: "glm_4_5",
   glm_45: "glm_4_5",
@@ -64,7 +66,7 @@ export function inferModelCapabilityPreset(
   }
   if ((model.includes("qwen") && model.includes("coder")) || fam === "qwen3-coder") return "qwen_3_coder";
   if (/qwen/.test(model)) return "qwen_3";
-  if (/kimi|moonshot|k2[.-]?[56]/.test(model) || fam === "kimi") return "kimi_k2";
+  if (/kimi|moonshot|k2[.-]?[567]/.test(model) || fam === "kimi") return "kimi_k2";
   if (/glm[-_. ]?4[-_. ]?5|glm[-_. ]?45/.test(model) || fam === "glm") return "glm_4_5";
   if (/minimax|abab/.test(model) || fam === "minimax") {
     return /m1|1\.1/.test(model) ? "minimax_m1" : "minimax_m2";

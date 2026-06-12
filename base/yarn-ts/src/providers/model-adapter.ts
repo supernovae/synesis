@@ -689,7 +689,7 @@ export function adapterUsesToolLoopSteering(family: string): boolean {
 /**
  * Kimi K2.x / Moonshot coding agents (OpenCode, Kimi Code API, OpenRouter, vLLM).
  *
- * Known K2.6 behavioral patterns this adapter targets:
+ * Known K2.x behavioral patterns this adapter targets:
  * - **Path/CWD confusion**: prepends UI/workspace segments (e.g. `k8/overseerr/foo.yaml`) while
  *   client file tools resolve from `shell_cwd` — use basename or repo-relative paths only.
  * - **Strict tool schema**: rejects empty assistant turns; prefers exact `file_path` / `command` names.
@@ -697,7 +697,7 @@ export function adapterUsesToolLoopSteering(family: string): boolean {
  * - **Verbal plans without tools**: states intent in prose then loops on discovery.
  * - **Parameter aliases**: often emits `path` instead of `file_path`, `cmd` instead of `command`.
  *
- * Associate with any provider via Admin **adapter_hint=kimi** or backend id matching `kimi|moonshot|k2.5|k2.6`.
+ * Associate with any provider via Admin **adapter_hint=kimi** or backend id matching `kimi|moonshot|k2.5|k2.6|k2.7`.
  */
 export class KimiAdapter implements ModelAdapter {
   readonly family = "kimi";
@@ -735,7 +735,7 @@ export class KimiAdapter implements ModelAdapter {
       "- Fetch a URL **once** per task unless the user asked to refresh or content changed.",
       "- After a successful fetch, use the result; do not refetch the same docs while debugging paths.",
       "",
-      "## Long sessions (K2.6 agent mode)",
+      "## Long sessions (K2.x agent mode)",
       "- After stating a plan, take the **next concrete** Edit/Write or one verification command — do not re-gather the same context.",
       "- Mark tasks complete before claiming done; avoid duplicate TaskCreate/TaskUpdate/TodoWrite items with the same intent.",
       SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
@@ -792,7 +792,7 @@ export class KimiAdapter implements ModelAdapter {
   }
 
   defaultSamplingParams(): { temperature?: number; top_p?: number } | undefined {
-    // K2.6 thinking-mode defaults per Moonshot docs; client/request values still win when set.
+    // K2.x thinking-mode defaults per Moonshot docs; client/request values still win when set.
     return { temperature: 1.0, top_p: 0.95 };
   }
 
@@ -1470,7 +1470,7 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
   if (/claude|anthropic/i.test(m)) return new ClaudeAdapter();
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
-  if (/kimi|moonshot|k2[.-]?5|k2[.-]?6/i.test(m)) return new KimiAdapter();
+  if (/kimi|moonshot|k2[.-]?[567]/i.test(m)) return new KimiAdapter();
   if (/minimax|abab/i.test(m)) return new MiniMaxAdapter();
   if (/xiaomi|mimo/i.test(m)) return new XiaomiMiMoAdapter();
   return new GenericOpenAIAdapter("generic");

@@ -11,6 +11,7 @@ describe("inferModelFamily (yarn prompt context)", () => {
     expect(inferModelFamily("moonshot-v1-128k")).toBe("kimi");
     expect(inferModelFamily("moonshotai/kimi-k2.6")).toBe("kimi");
     expect(inferModelFamily("kimi-k2.5-instruct")).toBe("kimi");
+    expect(inferModelFamily("moonshotai/Kimi-K2.7-Code")).toBe("kimi");
   });
 
   it("maps MiniMax / abab backend ids to slug minimax", () => {

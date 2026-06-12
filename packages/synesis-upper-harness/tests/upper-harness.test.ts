@@ -11,7 +11,7 @@ import {
 describe("upper harness", () => {
   it("resolves model behavior cards without making safety model-specific", () => {
     const qwen = resolveHarnessCard({ modelId: "qwen3-coder-plus", provider: "dashscope" });
-    const kimi = resolveHarnessCard({ modelId: "moonshot-kimi-k2.6", provider: "kimi_coding" });
+    const kimi = resolveHarnessCard({ modelId: "moonshotai/Kimi-K2.7-Code", provider: "kimi_coding" });
 
     expect(qwen.id).toBe("qwen3-coder");
     expect(kimi.id).toBe("kimi");
@@ -87,11 +87,11 @@ describe("upper harness", () => {
       },
     };
     const decision = evaluateUpperHarness({
-      modelId: "kimi-k2.6",
+      modelId: "kimi-k2.7-code",
       provider: "kimi_coding",
       cards: [
         {
-          ...resolveHarnessCard({ modelId: "kimi-k2.6", provider: "kimi_coding" }),
+          ...resolveHarnessCard({ modelId: "kimi-k2.7-code", provider: "kimi_coding" }),
           plugin_id: "kimi-loop-plugin",
         },
       ],

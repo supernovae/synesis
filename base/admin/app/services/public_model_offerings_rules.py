@@ -40,6 +40,14 @@ VALID_MODEL_CAPABILITY_PRESETS = frozenset(
     }
 )
 
+MODEL_CAPABILITY_ALIASES = {
+    "kimi": "kimi_k2",
+    "kimi_k2_5": "kimi_k2",
+    "kimi_k2_6": "kimi_k2",
+    "kimi_k2_7": "kimi_k2",
+    "kimi_k2_7_code": "kimi_k2",
+}
+
 RESERVED_CLIENT_MODEL_IDS = frozenset(
     {
         "auto",
@@ -234,6 +242,7 @@ def normalize_generation_params(value: Any) -> dict[str, Any] | None:
             preset = str(raw).strip().lower().replace("-", "_").replace(".", "_").replace("/", "_")
             while "__" in preset:
                 preset = preset.replace("__", "_")
+            preset = MODEL_CAPABILITY_ALIASES.get(preset, preset)
             if preset not in VALID_MODEL_CAPABILITY_PRESETS:
                 raise ValueError("generation_params.model_capability_preset must be a supported preset")
             out[key] = preset

@@ -5,7 +5,7 @@ import type { ChatMessage } from "../src/context/session-store.js";
 const MODELS = [
   { id: "deepseek-v4", expectedAttention: "mla" },
   { id: "qwen3-coder-plus", expectedAttention: "global_local_hybrid" },
-  { id: "kimi-k2.6", expectedAttention: "hybrid_compressed_attention" },
+  { id: "kimi-k2.7-code", expectedAttention: "hybrid_compressed_attention" },
   { id: "minimax-abab-7", expectedAttention: "heavily_compressed_attention" },
 ] as const;
 

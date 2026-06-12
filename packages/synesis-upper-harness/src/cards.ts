@@ -124,7 +124,7 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
     display_name: "Kimi / Moonshot",
     model_match: {
       family_prefixes: ["kimi", "moonshot"],
-      model_substrings: ["kimi", "moonshot", "k2.5", "k2.6"],
+      model_substrings: ["kimi", "moonshot", "k2.5", "k2.6", "k2.7"],
       provider_hints: ["kimi_coding", "moonshot", "openrouter", "vllm"],
     },
     capabilities: {

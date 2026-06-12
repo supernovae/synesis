@@ -6,11 +6,11 @@ Yarn routes Kimi / Moonshot / Kimi K2.x backends through a dedicated **`KimiAdap
 
 | Mechanism | Behavior |
 |-----------|----------|
-| **Auto-detect** | Backend model id matches `kimi`, `moonshot`, `k2.5`, or `k2.6` (case-insensitive). |
+| **Auto-detect** | Backend model id matches `kimi`, `moonshot`, `k2.5`, `k2.6`, or `k2.7` (case-insensitive). |
 | **Admin override** | Model Registry → deployment → **Adapter hint** = `kimi` (forces adapter even if the model string is opaque, e.g. `synesis-coder`). |
 | **Prompt Library** | `model_family` = `kimi` overlays still apply via `inferModelFamily()` — independent of adapter hint but should stay aligned. |
 
-Auto-detect regex (yarn): `/kimi|moonshot|k2[.-]?5|k2[.-]?6/i`
+Auto-detect regex (yarn): `/kimi|moonshot|k2[.-]?[567]/i`
 
 ## What the adapter does
 
@@ -22,7 +22,7 @@ Injected when the client offers tools. Covers:
 - **Strict tool schema** — exact `file_path`, `command`, `{}` for empty args; no empty assistant turns.
 - **Read vs Bash** — prefer Read over `cat`/`sed` on guessed paths.
 - **WebFetch** — one fetch per URL per task unless the user asks to refresh.
-- **Long agent sessions** — plan → act; avoid re-gathering the same context (K2.6 agent / swarm style loops).
+- **Long agent sessions** — plan → act; avoid re-gathering the same context (K2.x agent / swarm style loops).
 
 Also includes shared **Plan → Do → Act** discipline (`SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE`).
 
@@ -51,11 +51,20 @@ Config knobs (shared with Qwen today): `SYNESIS_YARN_QWEN_STAGNATION_*`, `SYNESI
 
 ### 5. Default sampling (fallback only)
 
-`temperature: 1.0`, `top_p: 0.95` when the client omits sampling — aligned with Kimi K2.6 thinking-mode docs. **Client and Admin tier values still win** when set.
+`temperature: 1.0`, `top_p: 0.95` when the client omits sampling — aligned with Moonshot's Kimi K2.x thinking-mode guidance. **Client and Admin tier values still win** when set.
 
 ### 6. Thinking / reasoning
 
 `supportsThinking: true` — Kimi K2.x may return `reasoning_content`; Yarn’s OpenAI path can surface it when the upstream API does. No separate `reasoningParser` today (unlike DeepSeek R1).
+
+Kimi K2.7 Code is still treated as the same generic `kimi` adapter/preset family because the model card states that it keeps the K2.5/K2.6 architecture and deployment path. The important K2.7 operational differences are:
+
+- thinking mode is forced by the provider/model;
+- `preserve_thinking` is forced and cannot be disabled;
+- instant mode is not supported;
+- the model card reports about 30% lower thinking-token usage versus K2.6, so do not add synthetic thinking budget inflation just for K2.7.
+
+Synesis therefore does **not** add a separate `kimi_k2_7` preset. Use the existing `adapter_hint=kimi` and `model_capability_preset=kimi_k2`. Aliases such as `kimi-k2.7` and `kimi-k2.7-code` normalize to `kimi_k2` for public offerings.
 
 ## Operator setup
 
@@ -63,7 +72,27 @@ Config knobs (shared with Qwen today): `SYNESIS_YARN_QWEN_STAGNATION_*`, `SYNESI
 
 1. Admin → **Models** → edit the role deployment.
 2. Set **Adapter hint** to **Kimi / Moonshot**.
-3. Save and reconcile LiteLLM if used.
+3. Set **Model capability preset** to **Kimi K2** when the model id is opaque.
+4. Save and reconcile LiteLLM if used.
+
+For Kimi K2.7 Code, a good starting point is:
+
+```json
+{
+  "model": "moonshotai/Kimi-K2.7-Code",
+  "adapter_hint": "kimi",
+  "route_params": {
+    "model_capability_preset": "kimi_k2",
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "enable_thinking": true,
+    "default_context_mediation_mode": "adaptive"
+  },
+  "context_window": 256000
+}
+```
+
+Do not configure `enable_thinking: false` for K2.7. The model card says thinking/preserve-thinking are forced, so disabling it in Synesis only creates misleading local configuration.
 
 ### Prompt Library (optional overlays)
 

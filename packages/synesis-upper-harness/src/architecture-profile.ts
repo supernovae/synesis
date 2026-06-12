@@ -475,7 +475,7 @@ export function resolveModelArchitectureProfile(
     };
   } else if (
     preset === "kimi_k2"
-    || (allowNameInference && (/kimi|moonshot|k2[.-]?[56]/.test(model) || family === "kimi"))
+    || (allowNameInference && (/kimi|moonshot|k2[.-]?[567]/.test(model) || family === "kimi"))
   ) {
     profile = {
       ...profile,

@@ -40,9 +40,10 @@ describe("resolveAdapter", () => {
     expect(adapter.family).toBe("kimi");
   });
 
-  it("resolves Kimi K2.5/K2.6 model ids to KimiAdapter", () => {
+  it("resolves Kimi K2.5/K2.6/K2.7 model ids to KimiAdapter", () => {
     expect(resolveAdapter("moonshotai/kimi-k2.6")).toBeInstanceOf(KimiAdapter);
     expect(resolveAdapter("kimi-k2.5")).toBeInstanceOf(KimiAdapter);
+    expect(resolveAdapter("moonshotai/Kimi-K2.7-Code")).toBeInstanceOf(KimiAdapter);
   });
 
   it("resolves MiniMax model names to MiniMaxAdapter", () => {
@@ -404,7 +405,7 @@ describe("KimiAdapter", () => {
     expect(adapter.supportsThinking).toBe(true);
   });
 
-  it("toolSystemPrompt covers shell_cwd path discipline and K2.6 session behavior", () => {
+  it("toolSystemPrompt covers shell_cwd path discipline and K2.x session behavior", () => {
     const prompt = adapter.toolSystemPrompt!(5);
     expect(prompt).toBeDefined();
     expect(prompt).toContain("shell_cwd");
@@ -434,7 +435,7 @@ describe("KimiAdapter", () => {
     expect(adapter.enrichToolDescription!("Other", "x")).toBe("x");
   });
 
-  it("defaultSamplingParams matches K2.6 thinking defaults", () => {
+  it("defaultSamplingParams matches K2.x thinking defaults", () => {
     expect(adapter.defaultSamplingParams?.()).toEqual({ temperature: 1.0, top_p: 0.95 });
   });
 
