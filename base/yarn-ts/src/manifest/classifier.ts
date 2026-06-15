@@ -2,8 +2,8 @@ import type {
   ClassificationResult,
   ComplexityAssessment,
   ProjectKind,
-} from "@synesis/manifest";
-import { getAllTemplates } from "@synesis/manifest";
+} from "./schemas.js";
+import { getAllTemplates } from "./templates/index.js";
 
 // ---------------------------------------------------------------------------
 // Language detection (keyword -> language string)

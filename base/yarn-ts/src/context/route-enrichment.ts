@@ -10,7 +10,7 @@ import type { MemoryGovernorTracker } from "../memory/governor-integration.js";
 import type { BlockStore } from "../store/block-store.js";
 import type { WorkingFrameService, ManifestContext } from "../frame/working-frame-service.js";
 import type { ProjectManifestService } from "../project/project-manifest-service.js";
-import { getTemplate as manifestGetTemplate } from "@synesis/manifest";
+import { getTemplate as manifestGetTemplate } from "../manifest/templates/index.js";
 import { classify as manifestClassify } from "../manifest/classifier.js";
 import { scanForManifest as manifestScan } from "../manifest/repo-scanner.js";
 import { compareManifests as manifestCompare } from "../manifest/comparator.js";

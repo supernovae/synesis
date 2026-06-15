@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTemplate, type ProjectManifest } from "@synesis/manifest";
+import { getTemplate, type ProjectManifest } from "../src/manifest/index.js";
 import { compareManifests } from "../src/manifest/comparator.js";
 import { critiquStructure } from "../src/manifest/structural-critic.js";
 

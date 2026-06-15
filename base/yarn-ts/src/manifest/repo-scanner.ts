@@ -5,7 +5,7 @@ import {
   type ExpectedFile,
   type ExpectedDirectory,
   type RecommendedTool,
-} from "@synesis/manifest";
+} from "./schemas.js";
 
 // ---------------------------------------------------------------------------
 // File-path based project detection

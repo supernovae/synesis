@@ -3,7 +3,7 @@ import type {
   ProjectManifest,
   ManifestComparison,
   WorkingFrame as RichWorkingFrame,
-} from "@synesis/manifest";
+} from "../manifest/schemas.js";
 import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 export interface FrameMessage {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProjectManifestSchema, ManifestComparisonSchema } from "@synesis/manifest";
+import { ProjectManifestSchema, ManifestComparisonSchema } from "../../manifest/schemas.js";
 import { compareManifests } from "../../manifest/comparator.js";
 import { critiquStructure } from "../../manifest/structural-critic.js";
 import type { McpToolDefinition } from "../tool-registry.js";

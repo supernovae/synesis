@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ProjectKind, ProjectTemplateSchema, getTemplate } from "@synesis/manifest";
+import { ProjectKind, ProjectTemplateSchema } from "../../manifest/schemas.js";
+import { getTemplate } from "../../manifest/templates/index.js";
 import type { McpToolDefinition } from "../tool-registry.js";
 
 const InputSchema = z.object({

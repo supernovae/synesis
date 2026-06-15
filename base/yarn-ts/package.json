@@ -61,7 +61,6 @@
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@synesis/auth-contracts": "*",
     "@synesis/context-trust": "*",
-    "@synesis/manifest": "*",
     "@synesis/mcp-tools": "*",
     "@synesis/oidc-auth": "*",
     "@synesis/telemetry": "*",

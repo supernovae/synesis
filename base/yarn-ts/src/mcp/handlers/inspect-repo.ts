@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProjectManifestSchema } from "@synesis/manifest";
+import { ProjectManifestSchema } from "../../manifest/schemas.js";
 import { scanForManifest } from "../../manifest/repo-scanner.js";
 import type { McpToolDefinition } from "../tool-registry.js";
 

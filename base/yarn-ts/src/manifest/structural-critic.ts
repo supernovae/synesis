@@ -1,7 +1,7 @@
 import type {
   ManifestComparison,
   StructuralRequirement,
-} from "@synesis/manifest";
+} from "./schemas.js";
 
 export interface StructuralCritiqueResult {
   passed: boolean;

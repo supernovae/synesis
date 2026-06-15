@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ClassificationResultSchema, ComplexityAssessmentSchema } from "@synesis/manifest";
+import { ClassificationResultSchema, ComplexityAssessmentSchema } from "../../manifest/schemas.js";
 import { classify } from "../../manifest/classifier.js";
 import type { McpToolDefinition } from "../tool-registry.js";
 
