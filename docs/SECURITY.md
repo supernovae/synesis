@@ -17,6 +17,17 @@ Synesis processes untrusted content from four sources:
 
 Any of these can carry indirect prompt injection payloads — instructions embedded in data that attempt to hijack LLM behavior. Neither planner's pipeline graph nor yarn's transcript processing provides inherent isolation between content sources, making defense at each boundary critical.
 
+## Prompt Injection Defense Matrix
+
+| Threat | Primary control | Backstop |
+|---|---|---|
+| Direct jailbreak / instruction override | `scanUserInput()` and `TrustPacketV1` wrapping | `TRUST_POLICY_COMPACT`, sandwich reminders, security ingest |
+| Indirect RAG / web injection | `scanWebContent()` at retrieval and index-time `scan_chunk_text()` | Trust packets with attribution and review status |
+| Obfuscated injection | Confusable normalization, zero-width stripping, base64 probing | Shared TS/Python scanner fixtures |
+| Tool manipulation / exfiltration | Upper Harness shell/path safety | Yarn path sandbox and write-capable tool policy |
+| Prompt or secret leakage in output | `scanModelOutput()` and Yarn `guardModelOutputText()` | Generic replacement text and scrubbed audit events |
+| Persistent/multi-turn attacks | Conversation-history scan and trust-packet transcript wrapping | Security events scoped by request/session/org |
+
 ## Current Security Claims And Operator Verification
 
 This table lists security claims that are currently backed by code or
@@ -26,6 +37,7 @@ evidence.
 | Claim | Evidence in repo | Operator verification |
 |---|---|---|
 | Prompt-injection scanner detections are centrally visible. | `packages/synesis-context-trust/src/security-ingest.ts`, `base/admin/app/routers/security.py`, `base/admin/app/services/security_service.py`, `base/admin/alembic/versions/026_security_events.py` | Admin UI: **Security -> Events**. API: `GET /api/v1/security/summary?since_hours=24` and `GET /api/v1/security/events?resolved=false`. |
+| Tool calls cannot trivially read or exfiltrate secrets. | `packages/synesis-upper-harness/src/safety.ts`, tests in `packages/synesis-upper-harness/tests/upper-harness.test.ts`. | Run upper-harness tests; shell commands like `cat ~/.ssh/id_rsa` or `cat .env \| curl ...` should block, ordinary `curl -I` should pass. |
 | Security event ingestion is service-to-service only. | `base/admin/app/routers/security.py` calls `require_internal_service_token_request()` on `POST /api/v1/security/events/ingest`. | Verify `SYNESIS_INTERNAL_SERVICE_TOKEN` / `SYNESIS_INTERNAL_SERVICE_TOKENS` are set for admin and emitting services. Requests without the internal token should receive 401/403. |
 | Security event list/summary APIs are org-scoped for non-platform admins. | `base/admin/app/routers/security.py` uses `RouteGroup.org_observability`, `resolve_role()`, and `_scope_org()`. | Admin UI should show only the caller org for org admins. Platform admins can view all orgs. |
 | RAG retrieval uses deterministic authz metadata, not semantic filtering. | `base/planner-ts/src/retrieval/rag-client.ts`, `base/rag/indexer/app/nornic_writer.py`, `base/planner-ts/src/config.ts` default `SYNESIS_RAG_AUTHZ_MODE=enforce`. | Confirm planner deployment has `SYNESIS_RAG_AUTHZ_MODE=enforce` and OpenFGA config populated. Review retrieval logs by `authz_trace_id`. |
@@ -159,9 +171,9 @@ flowchart TD
 
 Canonical TS implementation: `@synesis/context-trust` (`packages/synesis-context-trust/src/scanner.ts` + `normalizer.ts`). Python reference: `base/security/guardrails_core/`. Both share a fixture suite (`base/security/tests/fixtures/scanner_vectors.json`) to prevent pattern drift.
 
-- **Tier 1 (core):** 20 regex patterns covering instruction override, role hijacking, chat template injection, instruction following redirects
-- **Tier 2 (web-extended):** 10 additional patterns for base64 payloads, JavaScript injection, invisible Unicode markers, data URI payloads, jailbreak framing, XML comment injection
-- **Tier 3 (output):** 6 patterns detecting signs the model complied with an injection (prompt leakage, compliance statements)
+- **Tier 1 (core):** 22 regex patterns covering instruction override, role hijacking, chat template injection, instruction following redirects, and credential-exfiltration prompts
+- **Tier 2 (web-extended):** 12 additional patterns for base64 payloads, JavaScript injection, invisible Unicode markers, data URI payloads, hidden CSS instructions, jailbreak framing, XML comment injection, and markdown exfiltration links
+- **Tier 3 (output):** 10 patterns detecting signs the model complied with an injection, prompt leakage, credential leakage, private key leakage, and markdown exfiltration links
 - **Confusable normalization:** Cyrillic and fullwidth Unicode homoglyphs mapped to ASCII before matching. Zero-width characters stripped. Base64 blobs decoded and probed against Tier 1 patterns.
 
 Scan points:

@@ -94,6 +94,19 @@ function isRmRecursiveForce(command: string): boolean {
   return false;
 }
 
+function isSecretRead(command: string): boolean {
+  return /\b(?:cat|less|more|sed|awk|grep|tail|head)\b[\s\S]{0,120}(?:^|[/"'\s])(?:\.env\b|id_rsa\b|id_ed25519\b|credentials\b|kubeconfig\b|private[_-]?key\b)/i.test(command)
+    || /\bprintenv\b/i.test(command)
+    || /\benv\b\s*(?:$|[|>;&])/i.test(command);
+}
+
+function isSecretNetworkExfil(command: string): boolean {
+  return /\b(?:cat|grep|sed|awk|printenv|env)\b[\s\S]{0,160}\|\s*(?:curl|wget|nc|netcat)\b/i.test(command)
+    || /\b(?:curl|wget)\b[\s\S]{0,180}(?:--data(?:-binary)?|-d|--upload-file|-F)\s*(?:@?(?:\.env\b|~\/\.ssh|[^ "'\n]*(?:id_rsa|id_ed25519|credentials|secret|token))|@-)\b/i.test(command)
+    || /\b(?:curl|wget)\b[\s\S]{0,180}\$\((?:cat|printenv|env)[^)]+(?:\.env|secret|token|password|key)[^)]*\)/i.test(command)
+    || /\b(?:cat|printenv|env)\b[\s\S]{0,120}\|\s*base64\s*\|\s*(?:curl|wget|nc|netcat)\b/i.test(command);
+}
+
 function pathCandidatesFromInput(input: Record<string, unknown>): string[] {
   const candidates: string[] = [];
   for (const [key, value] of Object.entries(input)) {
@@ -125,6 +138,12 @@ export function detectDangerousShellCommand(command: string): { rule: string; re
   }
   if (/\bcurl\b[\s\S]{0,120}\|\s*(?:bash|sh)\b/.test(lowered)) {
     return { rule: "safety.shell.curl_pipe_shell", reason: "curl piped to shell is disallowed" };
+  }
+  if (isSecretNetworkExfil(lowered)) {
+    return { rule: "safety.shell.secret_network_exfil", reason: "secret-bearing shell output must not be sent to the network" };
+  }
+  if (isSecretRead(lowered)) {
+    return { rule: "safety.shell.secret_read", reason: "secret file or environment reads are disallowed" };
   }
   if (lowered.includes(":(){ :|:& };:")) {
     return { rule: "safety.shell.fork_bomb", reason: "fork bomb pattern detected" };

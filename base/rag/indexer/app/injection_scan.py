@@ -34,6 +34,34 @@ NAMED_INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("follow_instead", re.compile(r"follow\s+these\s+instructions?\s+instead", re.IGNORECASE)),
     ("output_only_following", re.compile(r"output\s+(?:only|just)\s+the\s+following", re.IGNORECASE)),
     ("print_exactly_this", re.compile(r"print\s+(?:exactly|only)\s+this\s*:", re.IGNORECASE)),
+    (
+        "secret_exfiltration_request",
+        re.compile(
+            r"\b(?:send|post|upload|exfiltrate|leak|forward|transmit)\b[\s\S]{0,120}\b(?:secrets?|tokens?|api[_ -]?keys?|passwords?|credentials?|\.env|private\s+keys?)\b[\s\S]{0,120}\b(?:https?:\/\/|webhook|external|remote|attacker|requestbin|pastebin)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "secret_file_read_request",
+        re.compile(
+            r"\b(?:read|open|cat|print|dump|show)\b[\s\S]{0,80}\b(?:\.env\b|~\/\.ssh|id_rsa|id_ed25519|private[_ -]?key|aws[_ -]?credentials|kubeconfig|\/etc\/passwd)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "hidden_css_instruction",
+        re.compile(
+            r"(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0)[^<\n]{0,240}(?:ignore|system|instruction|prompt)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "markdown_image_exfil",
+        re.compile(
+            r"!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 

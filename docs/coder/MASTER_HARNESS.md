@@ -76,6 +76,8 @@ Examples of universal blocks:
 - filesystem formatting commands
 - shutdown or reboot commands
 - `curl | bash`
+- reads of `.env`, private keys, credentials, or full environment dumps
+- piping secret-bearing output to `curl`, `wget`, `nc`, or similar network sinks
 - fork bomb patterns
 
 The block event must state:

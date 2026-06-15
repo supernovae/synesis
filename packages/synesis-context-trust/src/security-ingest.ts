@@ -40,6 +40,8 @@ function confidenceBand(confidence: number): string {
 }
 
 function severityFromEvent(eventType: EventType, confidence: number): string {
+  if (eventType === "credential_or_secret_exfil_pattern") return "critical";
+  if (eventType === "data_exfiltration_attempt") return confidence >= 0.5 ? "high" : "medium";
   if (confidence >= 0.8) {
     if (eventType === "system_override_attempt" || eventType === "jailbreak_roleplay") return "high";
     return "medium";

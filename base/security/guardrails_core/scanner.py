@@ -42,6 +42,14 @@ CORE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"print\s+(?:exactly|only)\s+this\s*:", re.IGNORECASE),
     re.compile(r"(?:DAN|developer)\s+mode\s+(?:enabled|activated|on)", re.IGNORECASE),
     re.compile(r"(?:do\s+anything\s+now|unlimited\s+mode)", re.IGNORECASE),
+    re.compile(
+        r"\b(?:send|post|upload|exfiltrate|leak|forward|transmit)\b[\s\S]{0,120}\b(?:secrets?|tokens?|api[_ -]?keys?|passwords?|credentials?|\.env|private\s+keys?)\b[\s\S]{0,120}\b(?:https?:\/\/|webhook|external|remote|attacker|requestbin|pastebin)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:read|open|cat|print|dump|show)\b[\s\S]{0,80}\b(?:\.env\b|~\/\.ssh|id_rsa|id_ed25519|private[_ -]?key|aws[_ -]?credentials|kubeconfig|\/etc\/passwd)\b",
+        re.IGNORECASE,
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -58,6 +66,13 @@ WEB_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"from\s+now\s+on\s+(?:you\s+)?(?:are|will|must|should)\b", re.IGNORECASE),
     re.compile(r"(?:assistant|ai|model)\s*:\s*(?:sure|okay|yes|I will)", re.IGNORECASE),
     re.compile(r"<!--\s*(?:system|instruction|prompt)", re.IGNORECASE),
+    re.compile(
+        r"(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0)[^<\n]{0,240}(?:ignore|system|instruction|prompt)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=", re.IGNORECASE
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -73,6 +88,15 @@ OUTPUT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"I\s+(?:will|can|shall)\s+now\s+(?:act|behave|operate)\s+as", re.IGNORECASE),
     re.compile(r"(?:DAN|developer)\s+mode\s+(?:enabled|activated)", re.IGNORECASE),
     re.compile(r"<\|im_start\|>", re.IGNORECASE),
+    re.compile(
+        r"\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN|NPM_TOKEN|DATABASE_URL)\s*[:=]\s*['\"]?[A-Za-z0-9_./+=:-]{12,}",
+        re.IGNORECASE,
+    ),
+    re.compile(r"-----BEGIN\s+(?:RSA\s+|OPENSSH\s+|EC\s+|DSA\s+)?PRIVATE\s+KEY-----", re.IGNORECASE),
+    re.compile(r"\b(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b", re.IGNORECASE),
+    re.compile(
+        r"!\[[^\]\r\n]{0,2048}\]\(\s*https?:\/\/[^\s)]{0,2048}(?:token|secret|api[_-]?key|password|env)=", re.IGNORECASE
+    ),
 ]
 
 CODE_NOISE_PATTERNS: list[re.Pattern[str]] = [
@@ -84,6 +108,37 @@ CODE_NOISE_PATTERNS: list[re.Pattern[str]] = [
 def _classify_patterns(patterns_found: list[str]) -> EventType:
     """Heuristic mapping from matched pattern strings to event type."""
     joined = " ".join(patterns_found).lower()
+    if any(
+        w in joined
+        for w in (
+            "secret",
+            "token",
+            "api",
+            "password",
+            "credential",
+            ".env",
+            "private",
+            "id_rsa",
+            "id_ed25519",
+            "kubeconfig",
+        )
+    ):
+        if any(
+            w in joined
+            for w in (
+                "http",
+                "webhook",
+                "external",
+                "remote",
+                "attacker",
+                "requestbin",
+                "pastebin",
+                "upload",
+                "exfiltrate",
+            )
+        ):
+            return EventType.DATA_EXFILTRATION
+        return EventType.CREDENTIAL_EXFIL
     if any(w in joined for w in ("ignore", "disregard", "override", "new instructions")):
         return EventType.SYSTEM_OVERRIDE
     if any(w in joined for w in ("dan", "pretend", "act as", "you are now", "unlimited")):
