@@ -900,6 +900,37 @@ function postTool(
   };
 }
 
+function patchTool(
+  name: string,
+  description: string,
+  minRole: AdminRole,
+  inputSchema: ToolInputSchema,
+  path: string | ((args: Record<string, unknown>) => string),
+  body?: (args: Record<string, unknown>) => Record<string, unknown>,
+  params?: (args: Record<string, unknown>) => Record<string, unknown>,
+): AdminToolDefinition {
+  return {
+    name,
+    description,
+    min_role: minRole,
+    inputSchema: strictInputSchema(inputSchema),
+    invoke: async (ctx, args) => {
+      const resolvedPath = typeof path === "function" ? path(args) : path;
+      return apiRequest(ctx, "PATCH", resolvedPath, params ? params(args) : undefined, body ? body(args) : {});
+    },
+  };
+}
+
+type NoArgToolRow = readonly [name: string, description: string, minRole: AdminRole, path: string];
+
+function noArgGetTools(rows: readonly NoArgToolRow[]): AdminToolDefinition[] {
+  return rows.map(([name, description, minRole, path]) => getTool(name, description, minRole, EMPTY_SCHEMA, path));
+}
+
+function noArgPostTools(rows: readonly NoArgToolRow[]): AdminToolDefinition[] {
+  return rows.map(([name, description, minRole, path]) => postTool(name, description, minRole, EMPTY_SCHEMA, path));
+}
+
 const EMPTY_SCHEMA = { type: "object", properties: {} };
 const SINCE_HOURS_SCHEMA = {
   type: "object",
@@ -1085,12 +1116,11 @@ const SAFE_TEXT_256_SCHEMA: ToolJsonSchemaProperty = {
 };
 
 const TOOL_DEFINITIONS: AdminToolDefinition[] = [
-  {
-    name: "list_traces",
-    description:
-      "List recent traces with optional filters (same data as GET /api/v1/traces). Supports trace_service, conversation_id, decision_path, tenant_id, and offset.",
-    min_role: "org_admin",
-    inputSchema: {
+  getTool(
+    "list_traces",
+    "List recent traces with optional filters (same data as GET /api/v1/traces). Supports trace_service, conversation_id, decision_path, tenant_id, and offset.",
+    "org_admin",
+    {
       type: "object",
       properties: {
         limit: { type: "integer", default: 20, description: "Max results (max 100)" },
@@ -1106,9 +1136,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         org_id: { ...SAFE_TEXT_256_SCHEMA, description: "Optional org id filter (within RBAC scope)" },
       },
     },
-    invoke: async (ctx, args) => {
+    "/api/v1/traces",
+    (args) => {
       const sinceHours = asInt(args.since_hours, 0, 0, 720);
-      return apiRequest(ctx, "GET", "/api/v1/traces", {
+      return {
         limit: asInt(args.limit, 20, 1, 100),
         offset: asInt(args.offset, 0, 0, 100_000),
         has_error: typeof args.has_error === "boolean" ? args.has_error : undefined,
@@ -1120,87 +1151,48 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         user_id: boundedString(args.user_id, 256),
         org_id: boundedString(args.org_id, 256),
         since: sinceHours > 0 ? nowUnixSeconds() - sinceHours * 3600 : undefined,
-      });
+      };
     },
-  },
-  {
-    name: "get_trace",
-    description: "Get full detail for a single trace by ID. Scoped to the caller role.",
-    min_role: "org_admin",
-    inputSchema: {
+  ),
+  getTool(
+    "get_trace",
+    "Get full detail for a single trace by ID. Scoped to the caller role.",
+    "org_admin",
+    {
       type: "object",
       properties: { trace_id: { ...TRACE_ID_SCHEMA, description: "The trace ID to look up" } },
       required: ["trace_id"],
     },
-    invoke: async (ctx, args) => {
+    (args) => {
       const traceId = boundedString(args.trace_id, 64);
       if (!traceId) throw new Error("trace_id required");
-      return apiRequest(ctx, "GET", `/api/v1/traces/${encodeURIComponent(traceId)}`);
+      return `/api/v1/traces/${encodeURIComponent(traceId)}`;
     },
-  },
-  {
-    name: "trace_stats",
-    description: "Aggregate trace statistics (last 24h), same as GET /api/v1/traces/stats.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/traces/stats"),
-  },
-  {
-    name: "trace_decision_analytics",
-    description:
-      "Decision-path and verification analytics from trace JSONB (GET /api/v1/traces/analytics).",
-    min_role: "org_admin",
-    inputSchema: {
+  ),
+  getTool("trace_stats", "Aggregate trace statistics (last 24h), same as GET /api/v1/traces/stats.", "org_admin", EMPTY_SCHEMA, "/api/v1/traces/stats"),
+  getTool(
+    "trace_decision_analytics",
+    "Decision-path and verification analytics from trace JSONB (GET /api/v1/traces/analytics).",
+    "org_admin",
+    {
       type: "object",
       properties: {
         since_hours: { type: "integer", default: 24, description: "Start of window in hours ago" },
         org_id: { ...SAFE_TEXT_256_SCHEMA, description: "Optional org filter" },
       },
     },
-    invoke: async (ctx, args) => {
+    "/api/v1/traces/analytics",
+    (args) => {
       const sinceHours = asInt(args.since_hours, 24, 1, 720);
-      return apiRequest(ctx, "GET", "/api/v1/traces/analytics", {
+      return {
         since: nowUnixSeconds() - sinceHours * 3600,
         org_id: boundedString(args.org_id, 128),
-      });
+      };
     },
-  },
-  {
-    name: "usage_summary",
-    description: "Pre-aggregated usage/cost summary from usage traces (GET /api/v1/usage/summary).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24, description: "Lookback hours" } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/usage/summary", { since_hours: asInt(args.since_hours, 24, 1, 720) }),
-  },
-  {
-    name: "usage_time_series",
-    description: "Hourly usage buckets (GET /api/v1/usage).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24, description: "Lookback hours (1-720)" } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/usage", { since_hours: asInt(args.since_hours, 24, 1, 720) }),
-  },
-  {
-    name: "unified_usage_snapshot",
-    description:
-      "Full usage and cost snapshot: pipeline trace totals + Yarn usage for org_admin+ (GET /api/v1/usage/summary-unified).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24, description: "Lookback hours" } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/usage/summary-unified", {
-        since_hours: asInt(args.since_hours, 24, 1, 720),
-      }),
-  },
+  ),
+  getTool("usage_summary", "Pre-aggregated usage/cost summary from usage traces (GET /api/v1/usage/summary).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/usage/summary", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
+  getTool("usage_time_series", "Hourly usage buckets (GET /api/v1/usage).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/usage", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
+  getTool("unified_usage_snapshot", "Full usage and cost snapshot: pipeline trace totals + Yarn usage for org_admin+ (GET /api/v1/usage/summary-unified).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/usage/summary-unified", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
   {
     name: "synesis_search",
     description: "Search the Synesis knowledge corpus through Planner knowledge search.",
@@ -1389,35 +1381,17 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       status: boundedString(args.status, 32),
     }),
   ),
-  getTool("fga_status", "OpenFGA authorization engine status and recent evaluation events. Platform admin only.", "platform_admin", EMPTY_SCHEMA, "/api/v1/observability/fga-status"),
-  getTool("token_fga_explain", "Explain the current user's token scopes and FGA relationship implications.", "user", EMPTY_SCHEMA, "/api/v1/observability/token-fga-explain"),
-  {
-    name: "yarn_overview",
-    description: "Yarn ops overview: sessions, tokens, costs (GET /api/v1/yarn/overview).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24, description: "Lookback hours" } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/overview", { since_hours: asInt(args.since_hours, 24, 1, 720) }),
-  },
-  {
-    name: "yarn_intelligence",
-    description: "Yarn intelligence rollup for the period (GET /api/v1/yarn/intelligence).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24, description: "Lookback hours" } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/intelligence", { since_hours: asInt(args.since_hours, 24, 1, 720) }),
-  },
-  {
-    name: "yarn_sessions",
-    description: "List Yarn IDE sessions (GET /api/v1/yarn/sessions).",
-    min_role: "org_admin",
-    inputSchema: {
+  ...noArgGetTools([
+    ["fga_status", "OpenFGA authorization engine status and recent evaluation events. Platform admin only.", "platform_admin", "/api/v1/observability/fga-status"],
+    ["token_fga_explain", "Explain the current user's token scopes and FGA relationship implications.", "user", "/api/v1/observability/token-fga-explain"],
+  ]),
+  getTool("yarn_overview", "Yarn ops overview: sessions, tokens, costs (GET /api/v1/yarn/overview).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/yarn/overview", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
+  getTool("yarn_intelligence", "Yarn intelligence rollup for the period (GET /api/v1/yarn/intelligence).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/yarn/intelligence", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
+  getTool(
+    "yarn_sessions",
+    "List Yarn IDE sessions (GET /api/v1/yarn/sessions).",
+    "org_admin",
+    {
       type: "object",
       properties: {
         page: { type: "integer", default: 1 },
@@ -1425,13 +1399,13 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         active_since_hours: { type: "integer", default: 168, description: "Only sessions active in this window" },
       },
     },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/sessions", {
-        page: asInt(args.page, 1, 1, 10_000),
-        page_size: asInt(args.page_size, 20, 1, 100),
-        active_since_hours: asInt(args.active_since_hours, 168, 1, 8760),
-      }),
-  },
+    "/api/v1/yarn/sessions",
+    (args) => ({
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 20, 1, 100),
+      active_since_hours: asInt(args.active_since_hours, 168, 1, 8760),
+    }),
+  ),
   {
     name: "yarn_session_detail",
     description: "Full detail for one Yarn session by session_key (GET /api/v1/yarn/sessions/{key}).",
@@ -1515,28 +1489,28 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       throw new AdminMcpToolError("session_not_found", 404);
     },
   },
-  {
-    name: "yarn_performance",
-    description: "Yarn latency and throughput buckets (GET /api/v1/yarn/performance).",
-    min_role: "org_admin",
-    inputSchema: {
+  getTool(
+    "yarn_performance",
+    "Yarn latency and throughput buckets (GET /api/v1/yarn/performance).",
+    "org_admin",
+    {
       type: "object",
       properties: {
         since_hours: { type: "integer", default: 24 },
         bucket_minutes: { type: "integer", default: 15, description: "Bucket size 5-60" },
       },
     },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/performance", {
-        since_hours: asInt(args.since_hours, 24, 1, 720),
-        bucket_minutes: asInt(args.bucket_minutes, 15, 5, 60),
-      }),
-  },
-  {
-    name: "yarn_events",
-    description: "Yarn usage events and errors (GET /api/v1/yarn/events).",
-    min_role: "org_admin",
-    inputSchema: {
+    "/api/v1/yarn/performance",
+    (args) => ({
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      bucket_minutes: asInt(args.bucket_minutes, 15, 5, 60),
+    }),
+  ),
+  getTool(
+    "yarn_events",
+    "Yarn usage events and errors (GET /api/v1/yarn/events).",
+    "org_admin",
+    {
       type: "object",
       properties: {
         page: { type: "integer", default: 1 },
@@ -1545,27 +1519,15 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         errors_only: { type: "boolean", default: false },
       },
     },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/events", {
-        page: asInt(args.page, 1, 1, 10_000),
-        page_size: asInt(args.page_size, 50, 1, 200),
-        since_hours: asInt(args.since_hours, 24, 1, 720),
-        errors_only: asBool(args.errors_only, false),
-      }),
-  },
-  {
-    name: "yarn_safety_summary",
-    description: "Yarn safety / policy events summary (GET /api/v1/yarn/safety-summary).",
-    min_role: "org_admin",
-    inputSchema: {
-      type: "object",
-      properties: { since_hours: { type: "integer", default: 24 } },
-    },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/yarn/safety-summary", {
-        since_hours: asInt(args.since_hours, 24, 1, 720),
-      }),
-  },
+    "/api/v1/yarn/events",
+    (args) => ({
+      page: asInt(args.page, 1, 1, 10_000),
+      page_size: asInt(args.page_size, 50, 1, 200),
+      since_hours: asInt(args.since_hours, 24, 1, 720),
+      errors_only: asBool(args.errors_only, false),
+    }),
+  ),
+  getTool("yarn_safety_summary", "Yarn safety / policy events summary (GET /api/v1/yarn/safety-summary).", "org_admin", SINCE_HOURS_SCHEMA, "/api/v1/yarn/safety-summary", (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 720) })),
   getTool(
     "yarn_runtime_preferences",
     "Read the current user's advanced Coder runtime preferences.",
@@ -1584,8 +1546,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     },
     (args) => `/api/v1/yarn/diagnostics/${encodeURIComponent(boundedString(args.request_id, 128))}`,
   ),
-  getTool("yarn_health", "Direct health probe of the Yarn service.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/health"),
-  getTool("yarn_runtime_telemetry", "Yarn runtime telemetry from /health/telemetry.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/runtime-telemetry"),
+  ...noArgGetTools([
+    ["yarn_health", "Direct health probe of the Yarn service.", "org_admin", "/api/v1/yarn/health"],
+    ["yarn_runtime_telemetry", "Yarn runtime telemetry from /health/telemetry.", "org_admin", "/api/v1/yarn/runtime-telemetry"],
+  ]),
   getTool(
     "yarn_reducer_telemetry_history",
     "Historical Yarn reducer telemetry snapshots and rollups.",
@@ -1597,8 +1561,12 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/yarn/reducer-telemetry-history",
     (args) => ({ since_hours: asInt(args.since_hours, 168, 1, 720) }),
   ),
-  getTool("yarn_language_packs", "Yarn language pack conformance matrix.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/language-packs"),
-  postTool("yarn_verify", "Run a quick Yarn health/model smoke verification.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/verify"),
+  ...noArgGetTools([
+    ["yarn_language_packs", "Yarn language pack conformance matrix.", "org_admin", "/api/v1/yarn/language-packs"],
+  ]),
+  ...noArgPostTools([
+    ["yarn_verify", "Run a quick Yarn health/model smoke verification.", "org_admin", "/api/v1/yarn/verify"],
+  ]),
   getTool(
     "yarn_safety_events",
     "List Yarn safety/policy events.",
@@ -1620,14 +1588,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       event_kind: boundedString(args.event_kind, 64),
     }),
   ),
-  getTool("yarn_diagnostics_recent", "Recent Yarn request diagnostics snapshots.", "org_admin", EMPTY_SCHEMA, "/api/v1/yarn/diagnostics/recent"),
-  getTool(
-    "yarn_optimization_watcher",
-    "Summarize Yarn cache-shape stability, stage timing, and likely cache/prefix issues.",
-    "org_admin",
-    EMPTY_SCHEMA,
-    "/api/v1/yarn/optimization-watcher",
-  ),
+  ...noArgGetTools([
+    ["yarn_diagnostics_recent", "Recent Yarn request diagnostics snapshots.", "org_admin", "/api/v1/yarn/diagnostics/recent"],
+    ["yarn_optimization_watcher", "Summarize Yarn cache-shape stability, stage timing, and likely cache/prefix issues.", "org_admin", "/api/v1/yarn/optimization-watcher"],
+  ]),
   postTool(
     "yarn_optimization_ai_brief",
     "Ask the configured admin assistant model to explain Yarn cache/prefix and pipeline watcher findings.",
@@ -1914,28 +1878,18 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       };
     },
   },
-  {
-    name: "service_health",
-    description: "Check health of all Synesis services.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/observability/health"),
-  },
-  {
-    name: "list_models",
-    description: "List active model role assignments.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/models/roles"),
-  },
-  getTool("model_topology", "Model registry topology and route graph.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/topology"),
-  getTool("model_pipeline_services", "Operational health visibility for model-adjacent pipeline services.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/pipeline-services"),
-  getTool("model_public_offerings", "Public model offerings catalog.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/public-offerings"),
-  getTool("model_prompt_profiles", "Prompt profile library entries.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/prompts/profiles"),
-  getTool("model_prompt_assignments", "Prompt profile assignments by service/role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/prompts/assignments"),
-  getTool("model_deployments", "Model deployment records and routing metadata.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/deployments"),
-  getTool("model_active_costs", "Rate configuration for active model role assignments.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/costs/active"),
-  getTool("model_costs", "Configured model cost estimates by role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/costs"),
+  ...noArgGetTools([
+    ["service_health", "Check health of all Synesis services.", "org_admin", "/api/v1/observability/health"],
+    ["list_models", "List active model role assignments.", "org_admin", "/api/v1/models/roles"],
+    ["model_topology", "Model registry topology and route graph.", "org_admin", "/api/v1/models/topology"],
+    ["model_pipeline_services", "Operational health visibility for model-adjacent pipeline services.", "org_admin", "/api/v1/models/pipeline-services"],
+    ["model_public_offerings", "Public model offerings catalog.", "org_admin", "/api/v1/models/public-offerings"],
+    ["model_prompt_profiles", "Prompt profile library entries.", "org_admin", "/api/v1/models/prompts/profiles"],
+    ["model_prompt_assignments", "Prompt profile assignments by service/role.", "org_admin", "/api/v1/models/prompts/assignments"],
+    ["model_deployments", "Model deployment records and routing metadata.", "org_admin", "/api/v1/models/deployments"],
+    ["model_active_costs", "Rate configuration for active model role assignments.", "org_admin", "/api/v1/models/costs/active"],
+    ["model_costs", "Configured model cost estimates by role.", "org_admin", "/api/v1/models/costs"],
+  ]),
   getTool(
     "model_costs_by_model",
     "Per-model cost breakdown from recent trace LLM calls.",
@@ -1960,7 +1914,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/models/costs/daily",
     (args) => ({ days: asInt(args.days, 7, 1, 90) }),
   ),
-  getTool("model_performance_summary", "Legacy Prometheus model performance summary.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/performance"),
+  ...noArgGetTools([
+    ["model_performance_summary", "Legacy Prometheus model performance summary.", "org_admin", "/api/v1/models/performance"],
+  ]),
   getTool(
     "model_performance_detailed",
     "Trace-based per-model latency, token, cost, and cache-hit metrics.",
@@ -2009,7 +1965,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         : undefined,
     }),
   ),
-  getTool("model_policies", "Active model policies grouped by role.", "org_admin", EMPTY_SCHEMA, "/api/v1/models/policies"),
+  ...noArgGetTools([
+    ["model_policies", "Active model policies grouped by role.", "org_admin", "/api/v1/models/policies"],
+  ]),
   getTool(
     "model_role_policies",
     "Ordered policy rules for one model role.",
@@ -2032,8 +1990,10 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     },
     (args) => `/api/v1/models/roles/${encodeURIComponent(boundedString(args.role, 128))}/history`,
   ),
-  getTool("provider_catalog", "Provider catalog and canonical model roles.", "user", EMPTY_SCHEMA, "/api/v1/providers/catalog"),
-  getTool("provider_discovery_supported", "Provider keys that support model discovery.", "org_admin", EMPTY_SCHEMA, "/api/v1/providers/discovery/supported"),
+  ...noArgGetTools([
+    ["provider_catalog", "Provider catalog and canonical model roles.", "user", "/api/v1/providers/catalog"],
+    ["provider_discovery_supported", "Provider keys that support model discovery.", "org_admin", "/api/v1/providers/discovery/supported"],
+  ]),
   getTool(
     "provider_discovery_models",
     "Discover available models for a provider.",
@@ -2083,9 +2043,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/providers/discovery/validate",
     (args) => ({ provider: boundedString(args.provider, 64), model: boundedString(args.model, 256) }),
   ),
-  getTool("provider_keys_status", "Provider API key names and configured status; never returns secret values.", "platform_admin", EMPTY_SCHEMA, "/api/v1/providers/keys"),
-  getTool("provider_consumers_restart_status", "Rollout status for provider key consumer deployments.", "platform_admin", EMPTY_SCHEMA, "/api/v1/providers/consumers/restart-status"),
-  getTool("provider_governance_list", "Provider governance overlay, enablement, defaults, policies, and key status.", "org_admin", EMPTY_SCHEMA, "/api/v1/provider-governance"),
+  ...noArgGetTools([
+    ["provider_keys_status", "Provider API key names and configured status; never returns secret values.", "platform_admin", "/api/v1/providers/keys"],
+    ["provider_consumers_restart_status", "Rollout status for provider key consumer deployments.", "platform_admin", "/api/v1/providers/consumers/restart-status"],
+    ["provider_governance_list", "Provider governance overlay, enablement, defaults, policies, and key status.", "org_admin", "/api/v1/provider-governance"],
+  ]),
   getTool(
     "provider_governance_detail",
     "Single provider governance config and catalog overlay.",
@@ -2129,7 +2091,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/governance/capability-matrix/effective",
     (args) => ({ org_id: boundedString(args.org_id, 128) }),
   ),
-  getTool("governance_summary", "Governance dashboard summary and recent constitution changes.", "org_admin", EMPTY_SCHEMA, "/api/v1/governance/summary"),
+  ...noArgGetTools([
+    ["governance_summary", "Governance dashboard summary and recent constitution changes.", "org_admin", "/api/v1/governance/summary"],
+  ]),
   getTool(
     "audit_events",
     "Newest-first admin audit event stream. Platform admin only.",
@@ -2179,7 +2143,9 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/security/summary",
     (args) => ({ since_hours: asInt(args.since_hours, 24, 1, 8760) }),
   ),
-  getTool("web_search_stats", "Aggregate web-search stats from Prometheus or Postgres fallback.", "org_admin", EMPTY_SCHEMA, "/api/v1/integrations/web-search"),
+  ...noArgGetTools([
+    ["web_search_stats", "Aggregate web-search stats from Prometheus or Postgres fallback.", "org_admin", "/api/v1/integrations/web-search"],
+  ]),
   getTool(
     "web_search_log",
     "Search web-search event logs with filters.",
@@ -2227,28 +2193,12 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
     "/api/v1/integrations/web-search/log/domains",
     (args) => ({ limit: asInt(args.limit, 50, 1, 200) }),
   ),
-  getTool("web_search_policies", "List web-search URL HITL policies.", "org_admin", EMPTY_SCHEMA, "/api/v1/integrations/web-search/policies"),
-  {
-    name: "cache_metrics",
-    description: "Prefix cache hit rates, token savings, and session stats.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/observability/cache"),
-  },
-  {
-    name: "circuit_breakers",
-    description: "Current circuit breaker states for LLM, web search, and infra.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/observability/circuit-breakers"),
-  },
-  {
-    name: "knowledge_gap_stats",
-    description: "RAG corpus knowledge gap statistics.",
-    min_role: "org_admin",
-    inputSchema: { type: "object", properties: {} },
-    invoke: async (ctx) => apiRequest(ctx, "GET", "/api/v1/observability/knowledge-gaps/stats"),
-  },
+  ...noArgGetTools([
+    ["web_search_policies", "List web-search URL HITL policies.", "org_admin", "/api/v1/integrations/web-search/policies"],
+    ["cache_metrics", "Prefix cache hit rates, token savings, and session stats.", "org_admin", "/api/v1/observability/cache"],
+    ["circuit_breakers", "Current circuit breaker states for LLM, web search, and infra.", "org_admin", "/api/v1/observability/circuit-breakers"],
+    ["knowledge_gap_stats", "RAG corpus knowledge gap statistics.", "org_admin", "/api/v1/observability/knowledge-gaps/stats"],
+  ]),
   {
     name: "refresh_model_routes",
     description: "Report the direct model route source of truth. Platform admin only.",
@@ -2273,11 +2223,11 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         dry_run: asBool(args.dry_run, true),
       }),
   },
-  {
-    name: "ingestion_list_items",
-    description: "List ingestion queue items with filters. Platform admin only.",
-    min_role: "platform_admin",
-    inputSchema: {
+  getTool(
+    "ingestion_list_items",
+    "List ingestion queue items with filters. Platform admin only.",
+    "platform_admin",
+    {
       type: "object",
       properties: {
         status: { type: "string", enum: [...INGESTION_ITEM_STATUSES], description: "Filter by ingestion status" },
@@ -2285,19 +2235,19 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
         limit: { type: "integer", default: 20, description: "Max results" },
       },
     },
-    invoke: async (ctx, args) =>
-      apiRequest(ctx, "GET", "/api/v1/ingestion/items", {
-        status: boundedString(args.status, 64),
-        handler: boundedString(args.handler, 64),
-        page: 1,
-        page_size: asInt(args.limit, 20, 1, 100),
-      }),
-  },
-  {
-    name: "ingestion_patch_item",
-    description: "Edit an ingestion item's metadata or status. Platform admin only.",
-    min_role: "platform_admin",
-    inputSchema: {
+    "/api/v1/ingestion/items",
+    (args) => ({
+      status: boundedString(args.status, 64),
+      handler: boundedString(args.handler, 64),
+      page: 1,
+      page_size: asInt(args.limit, 20, 1, 100),
+    }),
+  ),
+  patchTool(
+    "ingestion_patch_item",
+    "Edit an ingestion item's metadata or status. Platform admin only.",
+    "platform_admin",
+    {
       type: "object",
       properties: {
         item_id: { type: "integer", description: "The item ID" },
@@ -2311,22 +2261,25 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       },
       required: ["item_id"],
     },
-    invoke: async (ctx, args) => {
+    (args) => {
       const itemId = asInt(args.item_id, 0, 1, Number.MAX_SAFE_INTEGER);
       if (itemId <= 0) throw new Error("item_id required");
+      return `/api/v1/ingestion/items/${itemId}`;
+    },
+    (args) => {
       const patch: Record<string, unknown> = {};
       for (const key of ["title", "handler", "domain", "tags", "priority", "status", "config"]) {
         if (args[key] === undefined) continue;
         patch[key] = key === "config" ? sanitizeIngestionConfig(args[key]) : args[key];
       }
-      return apiRequest(ctx, "PATCH", `/api/v1/ingestion/items/${itemId}`, undefined, patch);
+      return patch;
     },
-  },
-  {
-    name: "ingestion_discover_url",
-    description: "Run discovery on a URL to get a suggested ingestion config. Platform admin only.",
-    min_role: "platform_admin",
-    inputSchema: {
+  ),
+  postTool(
+    "ingestion_discover_url",
+    "Run discovery on a URL to get a suggested ingestion config. Platform admin only.",
+    "platform_admin",
+    {
       type: "object",
       properties: {
         url: { ...INGESTION_PUBLIC_URL_SCHEMA, description: "URL to analyse" },
@@ -2339,16 +2292,17 @@ const TOOL_DEFINITIONS: AdminToolDefinition[] = [
       },
       required: ["url"],
     },
-    invoke: async (ctx, args) => {
+    "/api/v1/ingestion/discover",
+    (args) => {
       const url = boundedString(args.url, 2048);
       if (!url) throw new Error("url required");
-      return apiRequest(ctx, "POST", "/api/v1/ingestion/discover", undefined, {
+      return {
         url,
         hints: ingestionDiscoveryHints(args.hint_tags),
         use_llm: asBool(args.use_llm, false),
-      });
+      };
     },
-  },
+  ),
   {
     name: "ingestion_retry_item",
     description: "Retry a failed or dead_letter ingestion item. Platform admin only.",
