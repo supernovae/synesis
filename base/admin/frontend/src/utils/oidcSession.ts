@@ -1,4 +1,3 @@
-import axios from "axios";
 import type { User } from "../types";
 
 export const TOKEN_KEY = "synesis_token";
@@ -21,9 +20,18 @@ interface RefreshOptions {
 
 let refreshInFlight: Promise<User | null> | null = null;
 
+interface HttpError extends Error {
+  response?: { status: number };
+}
+
+function httpError(response: Response): HttpError {
+  const error = new Error(response.statusText || "Request failed") as HttpError;
+  error.response = { status: response.status };
+  return error;
+}
+
 function shouldRetryRefresh(error: unknown): boolean {
-  if (!axios.isAxiosError(error)) return false;
-  const status = error.response?.status;
+  const status = (error as HttpError | null)?.response?.status;
   if (status == null) return true;
   return status >= 500 || status === 429;
 }
@@ -68,11 +76,16 @@ export async function refreshSession(options: RefreshOptions = {}): Promise<User
   refreshInFlight = (async () => {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        const { data } = await axios.post<SessionResponse>(
-          "/api/v1/auth/oauth/refresh",
-          undefined,
-          { headers: { [CSRF_HEADER_KEY]: getCookie(CSRF_COOKIE_KEY) }, withCredentials: true },
-        );
+        const headers = new Headers();
+        const csrf = getCookie(CSRF_COOKIE_KEY);
+        if (csrf) headers.set(CSRF_HEADER_KEY, csrf);
+        const response = await fetch("/api/v1/auth/oauth/refresh", {
+          method: "POST",
+          headers,
+          credentials: "include",
+        });
+        if (!response.ok) throw httpError(response);
+        const data = await response.json() as SessionResponse;
         if (!data?.user) return null;
         persistUser(data.user);
         return data.user;

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Key, Plus, Trash2, Copy, Check } from "lucide-react";
-import type { AxiosResponse } from "axios";
 import client from "../../api/client";
 import type { PersonalAccessToken, TokenCreated } from "../../types";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
@@ -97,7 +96,7 @@ export default function ApiTokens() {
   const { data: tokens = [], isLoading } = useQuery<PersonalAccessToken[]>({
     queryKey: ["tokens"],
     queryFn: () =>
-      client.get("/tokens").then((r: AxiosResponse<PersonalAccessToken[]>) => r.data),
+      client.get<PersonalAccessToken[]>("/tokens").then((r) => r.data),
   });
 
   const createMutation = useMutation<TokenCreated, Error, void>({
@@ -108,7 +107,7 @@ export default function ApiTokens() {
           expires_in_days: expiresDays || null,
           scopes: buildScopes(),
         })
-        .then((r: AxiosResponse<TokenCreated>) => r.data),
+        .then((r) => r.data),
     onSuccess: (data) => {
       setNewToken(data.token);
       setLastCreatedRole(data.role);
@@ -119,7 +118,7 @@ export default function ApiTokens() {
   });
 
   const revokeMutation = useMutation<void, Error, string>({
-    mutationFn: (id) => client.delete(`/tokens/${id}`),
+    mutationFn: (id) => client.delete(`/tokens/${id}`).then(() => undefined),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tokens"] }),
   });
 

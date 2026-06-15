@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import axios from "axios";
+import client from "../../api/client";
 import type { OidcConfig, User } from "../../types";
 import { resolveKeycloakRealmIssuer } from "../../utils/keycloakUrls";
 import {
@@ -56,8 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function loadAuth() {
       try {
         const [{ data: config }, { data: currentUser }] = await Promise.all([
-          axios.get<OidcConfig>("/api/v1/auth/oidc-config", { withCredentials: true }),
-          axios.get<User>("/api/v1/auth/me", { withCredentials: true }),
+          client.get<OidcConfig>("/auth/oidc-config"),
+          client.get<User>("/auth/me"),
         ]);
         if (cancelled) return;
         setOidcConfig(config);
@@ -73,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearPersistedAuth();
           setUser(null);
           try {
-            const { data } = await axios.get<OidcConfig>("/api/v1/auth/oidc-config", { withCredentials: true });
+            const { data } = await client.get<OidcConfig>("/auth/oidc-config");
             if (!cancelled) setOidcConfig(data);
           } catch {
             if (!cancelled) setOidcConfig({ enabled: false });
@@ -134,8 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     sessionStorage.setItem(POST_LOGOUT_FLAG, "1");
     sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
-    void axios
-      .post("/api/v1/auth/logout", {}, { headers: { [CSRF_HEADER_KEY]: getCookie(CSRF_COOKIE_KEY) }, withCredentials: true })
+    const headers = new Headers({ "Content-Type": "application/json" });
+    const csrf = getCookie(CSRF_COOKIE_KEY);
+    if (csrf) headers.set(CSRF_HEADER_KEY, csrf);
+    void fetch("/api/v1/auth/logout", { method: "POST", headers, body: "{}", credentials: "include" })
       .catch(() => undefined);
     clearPersistedAuth();
     setUser(null);

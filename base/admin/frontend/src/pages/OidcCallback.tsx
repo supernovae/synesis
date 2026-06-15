@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/auth/useAuth";
-import axios from "axios";
 import { persistUser } from "../utils/oidcSession";
 import type { User } from "../types";
 
@@ -64,20 +63,32 @@ export default function OidcCallback() {
       const redirectUri = `${window.location.origin}/callback`;
 
       try {
-        const { data } = await axios.post<{
+        const tokenResponse = await fetch("/api/v1/auth/oauth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            code,
+            redirect_uri: redirectUri,
+            code_verifier: verifier,
+          }),
+        });
+        if (!tokenResponse.ok) throw new Error(tokenResponse.statusText || "OIDC token exchange failed");
+        const data = await tokenResponse.json() as {
           status: string;
           user?: unknown;
-        }>("/api/v1/auth/oauth/token", {
-          code,
-          redirect_uri: redirectUri,
-          code_verifier: verifier,
-        }, { withCredentials: true });
+        };
 
         sessionStorage.removeItem("synesis_pkce_verifier");
         sessionStorage.removeItem(OIDC_STATE_KEY);
         sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
 
-        const userInfo = (data.user ?? (await axios.get<User>("/api/v1/auth/me", { withCredentials: true })).data) as User;
+        let userInfo = data.user as User | undefined;
+        if (!userInfo) {
+          const meResponse = await fetch("/api/v1/auth/me", { credentials: "include" });
+          if (!meResponse.ok) throw new Error(meResponse.statusText || "Failed to load user");
+          userInfo = await meResponse.json() as User;
+        }
         persistUser(userInfo);
 
         const returnTo = sessionStorage.getItem("synesis_return_to") || "/";
