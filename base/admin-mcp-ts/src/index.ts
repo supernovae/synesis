@@ -31,7 +31,6 @@ const DELEGATED_CSRF_HEADER = "x-synesis-delegated-csrf";
 const ADMIN_ROLE_VALUES = ["readonly", "user", "org_admin", "platform_admin", "admin"] as const satisfies readonly AdminRole[];
 const ORG_HEADER_RE = /^[A-Za-z0-9_.:-]{1,256}$/;
 
-type RateLimitOptions = { max: number; timeWindow: string | number };
 type AdminMcpAuditOutcome = "allowed" | "denied" | "error";
 
 const boundedString = (maxLength: number) => z.string().trim().max(maxLength);
@@ -49,45 +48,6 @@ const SessionUserSchema = z.object({
   tenant_ids: boundedSecurityStringArray(50, 64).default([]),
   token_scopes: boundedSecurityStringArray(50, 128).default([]),
 }).strict();
-
-function timeWindowMs(timeWindow: string | number): number {
-  if (typeof timeWindow === "number" && Number.isFinite(timeWindow) && timeWindow > 0) return timeWindow;
-  const match = String(timeWindow).trim().match(/^(\d+)\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?)$/i);
-  if (!match) return 60000;
-  const amount = Number(match[1] ?? "0");
-  const unit = (match[2] ?? "m").toLowerCase();
-  if (unit === "ms" || unit.startsWith("millisecond")) return amount;
-  if (unit === "s" || unit.startsWith("second")) return amount * 1000;
-  if (unit === "m" || unit.startsWith("minute")) return amount * 60_000;
-  return amount * 3_600_000;
-}
-
-function createRouteRateLimit(options: RateLimitOptions) {
-  const windowMs = timeWindowMs(options.timeWindow);
-  const buckets = new Map<string, { count: number; resetAt: number }>();
-
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const now = Date.now();
-    if (buckets.size > 10_000) {
-      for (const [key, value] of buckets) {
-        if (value.resetAt <= now) buckets.delete(key);
-      }
-    }
-    const routeId = request.routeOptions.url ?? request.url;
-    const key = `${request.ip}:${request.method}:${routeId}`;
-    const bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      buckets.set(key, { count: 1, resetAt: now + windowMs });
-      return;
-    }
-    bucket.count += 1;
-    if (bucket.count <= options.max) return;
-
-    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-    reply.header("retry-after", String(retryAfterSeconds));
-    return reply.code(429).send({ error: "rate_limit_exceeded" });
-  };
-}
 
 function timingSafeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -496,7 +456,6 @@ export function createApp(cfg: AdminMcpConfig) {
   // Keep app-level limits even when Cloudflare is enabled so origin-only traffic
   // and trusted network paths still have bounded abuse protection.
   const adminAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
-  const adminAuthPreHandler = createRouteRateLimit(adminAuthRateLimit);
   const directInvokeLimiter = new AdminMcpConcurrencyLimiter({
     maxPerUser: cfg.SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_PER_USER,
     maxGlobal: cfg.SYNESIS_ADMIN_MCP_TOOL_MAX_CONCURRENT_GLOBAL,
@@ -522,7 +481,6 @@ export function createApp(cfg: AdminMcpConfig) {
     "/v1/admin-tools",
     {
       config: { rateLimit: adminAuthRateLimit },
-      preHandler: adminAuthPreHandler,
     },
     // codeql[js/missing-rate-limiting]
     async (req, reply) => {
@@ -546,7 +504,6 @@ export function createApp(cfg: AdminMcpConfig) {
     "/v1/admin-tools/invoke",
     {
       config: { rateLimit: adminAuthRateLimit },
-      preHandler: adminAuthPreHandler,
     },
     // codeql[js/missing-rate-limiting]
     async (req, reply) => {
@@ -638,8 +595,6 @@ export function createApp(cfg: AdminMcpConfig) {
     method: ["GET", "POST", "DELETE"],
     url: cfg.SYNESIS_ADMIN_MCP_HTTP_PATH,
     config: { rateLimit: adminAuthRateLimit },
-    preHandler: adminAuthPreHandler,
-    // Rate limited by both @fastify/rate-limit route config and adminAuthPreHandler.
     // lgtm[js/missing-rate-limiting]
     // codeql[js/missing-rate-limiting]
     handler: async (req, reply) => {
