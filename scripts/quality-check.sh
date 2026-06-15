@@ -64,7 +64,6 @@ if [ "$mode" = "--full" ]; then
     run npm run build -w packages/synesis-context-trust
     run npm run build -w packages/synesis-manifest
     run npm run build -w packages/synesis-mcp-tools
-    run npm run build -w packages/synesis-agent-orchestration
     run npm run build -w packages/synesis-upper-harness
     run npm run typecheck -w base/yarn-ts
     run npm run test -w base/yarn-ts

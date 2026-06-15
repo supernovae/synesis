@@ -32,7 +32,6 @@ evidence.
 | OIDC JWT validation checks issuer, RS256 signature, expiration, allowed client, and required role. | `packages/synesis-oidc-auth/src/index.ts`; tests in `packages/synesis-oidc-auth/tests/index.test.ts`. | Confirm `SYNESIS_OIDC_ISSUER_URL`, optional internal issuer URL, `SYNESIS_OIDC_ALLOWED_CLIENT_IDS`, and `SYNESIS_OIDC_REQUIRED_ROLES` match the deployment realm/client. |
 | PAT hashing can be required to use a pepper. | `packages/synesis-auth-contracts/src/index.ts` (`hashPatToken`, `validatePatPepperRequirement`), deployment env `SYNESIS_REQUIRE_PAT_PEPPER=true`. | Confirm `SYNESIS_PAT_PEPPER` comes from a Kubernetes Secret and startup fails when PAT validation is enabled without it. |
 | Tool/search inputs are bounded before dispatch. | `packages/synesis-mcp-tools/src/knowledge-schemas.ts`, `packages/synesis-mcp-tools/src/web-search-schemas.ts`, `packages/synesis-mcp-tools/src/tool-utils.ts`. | Run shared package tests and reject requests with unknown keys, excessive `top_k`, excessive graph depth, or oversized strings. |
-| Agent orchestration artifacts and worker packets are strict Zod contracts. | `packages/synesis-agent-orchestration/src/schemas.ts`. | Run `npm test -w @synesis/agent-orchestration` if tests are added; current validation path is `npm run typecheck -w @synesis/agent-orchestration`. |
 | Model architecture diagnostics are schema-validated before use. | `packages/synesis-upper-harness/src/contracts.ts`, tests in `packages/synesis-upper-harness/tests/architecture-mediation.test.ts`. | Query model architecture diagnostics in admin/coder flows and ensure malformed diagnostics fail validation instead of being silently trusted. |
 
 ## Schema Hardening
@@ -54,7 +53,6 @@ dependencies on new code paths.
 | Trust envelope | `packages/synesis-context-trust/src/trust-packet.ts` | Enumerates trust levels, source types, retrieval channels, policy decisions, and bounds fields such as `source_id` and `imperative_likelihood`. Serialized with deterministic key order. |
 | MCP knowledge/search tools | `packages/synesis-mcp-tools/src/knowledge-schemas.ts`, `packages/synesis-mcp-tools/src/web-search-schemas.ts` | `.strict()` object schemas reject unknown tool arguments. Inputs are bounded by shared `LIMITS`: query size, `top_k`, graph depth, string arrays, Terraform plan size, resource count, and fetch-page count. |
 | Upper harness controls and diagnostics | `packages/synesis-upper-harness/src/contracts.ts` | `.strict()` schemas allow only known metadata/header controls; preprocessors copy only recognized header/body keys before parsing. Diagnostics validate schema version, model count, architecture flags, and bounded reason strings. |
-| Agent orchestration artifacts | `packages/synesis-agent-orchestration/src/schemas.ts` | `.strict()` worker plans, task packets, decision records, trace events, and discriminated artifact envelopes. Budgets and line numbers must be positive integers; confidence is bounded 0-1. |
 | Public model offerings | `base/planner-ts/src/public-model-catalog.ts` | Strict public schemas limit exposed model fields and generation parameters; internal role assignment records are parsed separately. |
 | Project manifest/working frame | `packages/synesis-manifest/src/schemas.ts` | Zod enums and bounded structured schemas normalize generated manifest and working-frame data. |
 
@@ -379,7 +377,6 @@ Known limitations are tracked as actionable items in
 | `packages/synesis-mcp-tools/src/knowledge-schemas.ts` | Strict Zod schemas for knowledge/RAG tool inputs |
 | `packages/synesis-mcp-tools/src/web-search-schemas.ts` | Strict Zod schema for web search tool input |
 | `packages/synesis-upper-harness/src/contracts.ts` | Strict Zod contracts for model architecture controls and diagnostics |
-| `packages/synesis-agent-orchestration/src/schemas.ts` | Strict Zod contracts for planner/worker/reviewer artifacts |
 | `packages/synesis-manifest/src/schemas.ts` | Shared project manifest and working-frame schemas |
 
 ### Planner-ts

@@ -48,7 +48,6 @@ import {
   repoWriteDecisionRecordTool,
   searchCodeTool,
   takeScreenshotTool,
-  delegateTaskTool,
   writeFileTool,
 } from "./handlers/coding-tools.js";
 import { storeObservationTool, recallFindingsTool } from "./handlers/memory-tools.js";
@@ -103,7 +102,6 @@ const OPENCLAW_WRITE_CAPABLE_TOOLS = new Set<string>([
   "git_add_guarded",
   "git_commit_guarded",
   "take_screenshot",
-  "delegate_task",
 ]);
 
 const AGENT_FLOW_ONLY_TOOLS = new Set<string>([
@@ -128,7 +126,6 @@ const PROJECT_BOUND_MCP_TOOLS = new Set<string>([
   "git_add_guarded",
   "git_commit_guarded",
   "take_screenshot",
-  "delegate_task",
   "repo.search",
   "repo.read_range",
   "repo.find_symbol",
@@ -665,7 +662,6 @@ registry.register(gitAddGuardedTool);
 registry.register(gitCommitGuardedTool);
 registry.register(runInSandboxTool);
 registry.register(takeScreenshotTool);
-registry.register(delegateTaskTool);
 registry.register(repoSearchTool);
 registry.register(repoReadRangeTool);
 registry.register(repoFindSymbolTool);

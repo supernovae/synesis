@@ -4,15 +4,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
-import {
-  DEFAULT_AGENT_ALLOWED_REPO_OPS,
-  DecisionRecordSchema,
-  GuardedRepoOpsAdapter,
-  REPO_OPERATION_IDS,
-  RequestResponseRuntime,
-  type RepoOperationRequest,
-  type RepoOperationResult,
-} from "@synesis/agent-orchestration";
 import type { McpToolDefinition } from "../tool-registry.js";
 import {
   extractDiagnosticLines,
@@ -530,177 +521,6 @@ export const takeScreenshotTool: McpToolDefinition<
   },
 };
 
-const DelegateTaskSchema = RootSchema.extend({
-  task_description: z.string().min(10).max(32_000).describe("Detailed description of the task for the sub-agent to perform"),
-  context_files: z.array(RelPathSchema).max(100).optional().describe("Optional list of files to pre-load into the sub-agent's context"),
-});
-
-export function projectRootFromArgs(args: Record<string, unknown>, fallback: string): string {
-  const normalizedFallback = normalizeAbsolutePathHint(fallback);
-  if (!normalizedFallback) {
-    throw new Error("Invalid fallback project root");
-  }
-  const candidate = args.projectRoot;
-  const normalizedCandidate = typeof candidate === "string" ? normalizeAbsolutePathHint(candidate) : null;
-  return normalizedCandidate === normalizedFallback ? normalizedCandidate : normalizedFallback;
-}
-
-async function runRepoOpFromDelegate(
-  request: RepoOperationRequest,
-  fallbackProjectRoot: string,
-): Promise<RepoOperationResult> {
-  try {
-    const args = request.args ?? {};
-    switch (request.op) {
-      case REPO_OPERATION_IDS.search: {
-        const result = await searchCodeTool.handler(searchCodeTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          pattern: String(args.pattern ?? ""),
-          dir: typeof args.dir === "string" ? args.dir : ".",
-          glob: typeof args.glob === "string" ? args.glob : undefined,
-          headLimit: typeof args.headLimit === "number" ? args.headLimit : 100,
-        }));
-        return { ok: true, data: result };
-      }
-      case REPO_OPERATION_IDS.readRange: {
-        const result = await readFileTool.handler(readFileTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          filePath: String(args.filePath ?? ""),
-          maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : 200_000,
-          startLine: typeof args.startLine === "number" ? args.startLine : undefined,
-          endLine: typeof args.endLine === "number" ? args.endLine : undefined,
-        }));
-        return { ok: true, data: result };
-      }
-      case REPO_OPERATION_IDS.findSymbol: {
-        const symbol = String(args.symbol ?? "");
-        const result = await searchCodeTool.handler(searchCodeTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          pattern: symbol,
-          dir: typeof args.dir === "string" ? args.dir : ".",
-          headLimit: typeof args.headLimit === "number" ? args.headLimit : 50,
-          glob: typeof args.glob === "string" ? args.glob : undefined,
-        }));
-        return { ok: true, data: result };
-      }
-      case REPO_OPERATION_IDS.applyPatch: {
-        const mode = typeof args.mode === "string" ? args.mode : "str_replace";
-        if (mode === "write_file") {
-          const result = await writeFileTool.handler(writeFileTool.inputSchema.parse({
-            projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-            filePath: String(args.filePath ?? ""),
-            content: String(args.content ?? ""),
-            createDirs: args.createDirs === true,
-          }));
-          return { ok: true, data: result };
-        }
-        const result = await strReplaceTool.handler(strReplaceTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          filePath: String(args.filePath ?? ""),
-          oldString: String(args.oldString ?? ""),
-          newString: String(args.newString ?? ""),
-        }));
-        return { ok: true, data: result };
-      }
-      case REPO_OPERATION_IDS.runTests: {
-        const result = await runTestTool.handler(runTestTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          preset: typeof args.preset === "string" ? args.preset : "node_npm",
-        }));
-        return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
-      }
-      case REPO_OPERATION_IDS.runLint: {
-        const result = await runLintTool.handler(runLintTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          preset: typeof args.preset === "string" ? args.preset : "typescript_eslint",
-        }));
-        return { ok: result.ok, data: result, error: result.ok ? undefined : result.summary };
-      }
-      case REPO_OPERATION_IDS.gitDiff: {
-        const result = await gitDiffTool.handler(gitDiffTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          staged: args.staged === true,
-          filePath: typeof args.filePath === "string" ? args.filePath : undefined,
-        }));
-        return { ok: result.exitCode === 0, data: result, error: result.exitCode === 0 ? undefined : result.stderr };
-      }
-      case REPO_OPERATION_IDS.listChangedFiles: {
-        const result = await gitStatusTool.handler(gitStatusTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-        }));
-        if (result.exitCode !== 0) {
-          return { ok: false, error: result.stderr };
-        }
-        const files = result.stdout
-          .split(/\r?\n/)
-          .filter((line) => line.trim().length > 0 && !line.startsWith("## "))
-          .map((line) => line.slice(3).trim())
-          .filter(Boolean);
-        return { ok: true, data: { files } };
-      }
-      case REPO_OPERATION_IDS.writeDecisionRecord: {
-        const result = await writeFileTool.handler(writeFileTool.inputSchema.parse({
-          projectRoot: projectRootFromArgs(args, fallbackProjectRoot),
-          filePath: typeof args.filePath === "string" ? args.filePath : ".synesis/decision-record.json",
-          content: JSON.stringify(args.decisionRecord ?? {}, null, 2),
-          createDirs: true,
-        }));
-        return { ok: true, data: result };
-      }
-      default:
-        return { ok: false, error: `unknown_repo_op:${request.op}` };
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "repo_op_failed",
-    };
-  }
-}
-
-export const delegateTaskTool: McpToolDefinition<
-  z.infer<typeof DelegateTaskSchema>,
-  { status: string; sub_agent_id?: string; error?: string; trace_id?: string; artifacts?: string[]; final_review?: unknown }
-> = {
-  name: "delegate_task",
-  description: "Run bounded request/response sub-agent orchestration (planner/worker/reviewer) with traceable artifacts.",
-  inputSchema: DelegateTaskSchema,
-  async handler(input) {
-    const traceId = `trace-${Date.now()}`;
-    const runtime = new RequestResponseRuntime({
-      repoOpsAdapter: new GuardedRepoOpsAdapter(
-        (request) => runRepoOpFromDelegate(request, input.projectRoot),
-        new Set(DEFAULT_AGENT_ALLOWED_REPO_OPS),
-      ),
-    });
-    const response = await runtime.run({
-      traceId,
-      objective: input.task_description,
-      projectRoot: input.projectRoot,
-      availableFiles: input.context_files ?? [],
-      initialContextSummary: `delegate_task context files count=${input.context_files?.length ?? 0}`,
-      allowFullFileOverride: false,
-    });
-
-    if (!response.accepted) {
-      return {
-        status: `Sub-agent orchestration requires input: ${response.responseSummary}`,
-        error: response.userQuestions?.join(" | ") || response.responseSummary,
-        trace_id: traceId,
-        artifacts: response.artifactIds,
-      };
-    }
-
-    return {
-      status: "Sub-agent request/response orchestration completed.",
-      sub_agent_id: `sub-agent-${Date.now()}`,
-      trace_id: traceId,
-      artifacts: response.artifactIds,
-      final_review: response.finalReview,
-    };
-  },
-};
-
 const RepoSearchSchema = RootSchema.extend({
   pattern: z.string().min(1).max(500),
   dir: RelPathSchema.default("."),
@@ -740,6 +560,20 @@ const RepoGitDiffSchema = RootSchema.extend({
   staged: z.boolean().default(false),
   filePath: RelPathSchema.optional(),
 });
+
+const DecisionOptionIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/);
+const DecisionRecordSchema = z.object({
+  question: z.string().min(1),
+  options: z.array(z.object({
+    id: DecisionOptionIdSchema,
+    description: z.string().min(1),
+  }).strict()).min(2),
+  evidencePerOption: z.record(DecisionOptionIdSchema, z.array(z.string().min(1).max(512)).max(16)),
+  riskPerOption: z.record(DecisionOptionIdSchema, z.string().min(1).max(256)),
+  recommendation: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  requiresUserChoice: z.boolean().default(false),
+}).strict();
 
 const RepoWriteDecisionRecordSchema = RootSchema.extend({
   filePath: RelPathSchema.default(".synesis/decision-record.json"),

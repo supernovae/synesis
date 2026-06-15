@@ -151,7 +151,6 @@ jobs:
               - 'packages/synesis-oidc-auth/**'
               - 'packages/synesis-manifest/**'
               - 'packages/synesis-mcp-tools/**'
-              - 'packages/synesis-agent-orchestration/**'
               - 'packages/synesis-upper-harness/**'
               - 'package.json'
               - 'package-lock.json'

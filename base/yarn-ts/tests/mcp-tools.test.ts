@@ -6,7 +6,6 @@ import { inspectRepoTool } from "../src/mcp/handlers/inspect-repo.js";
 import { scaffoldTool } from "../src/mcp/handlers/scaffold.js";
 import { compareManifestTool } from "../src/mcp/handlers/compare-manifest.js";
 import {
-  delegateTaskTool,
   formatCodeTool,
   gitAddGuardedTool,
   gitCommitGuardedTool,
@@ -69,7 +68,6 @@ const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   gitCommitGuardedTool,
   runInSandboxTool,
   takeScreenshotTool,
-  delegateTaskTool,
   repoSearchTool,
   repoReadRangeTool,
   repoFindSymbolTool,

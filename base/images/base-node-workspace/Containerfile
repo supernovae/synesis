@@ -9,7 +9,6 @@ WORKDIR /opt/app-root/src
 # the same dependency graph that service images use, without re-running npm ci
 # in every TypeScript service image.
 COPY package.json package-lock.json ./
-COPY packages/synesis-agent-orchestration/package.json packages/synesis-agent-orchestration/
 COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
 COPY packages/synesis-manifest/package.json packages/synesis-manifest/
@@ -30,10 +29,6 @@ RUN npm ls --workspace=base/synesis-mcp @fastify/rate-limit --omit=dev \
 
 # Shared packages are built here once. App images inherit their dist/types and
 # only rebuild their own service package.
-COPY packages/synesis-agent-orchestration/tsconfig.json packages/synesis-agent-orchestration/
-COPY packages/synesis-agent-orchestration/src packages/synesis-agent-orchestration/src
-RUN npm run build --workspace=packages/synesis-agent-orchestration
-
 COPY packages/synesis-auth-contracts/tsconfig.json packages/synesis-auth-contracts/
 COPY packages/synesis-auth-contracts/src packages/synesis-auth-contracts/src
 RUN npm run build --workspace=packages/synesis-auth-contracts
