@@ -39,12 +39,39 @@ import type {
   UsageAuditResponse,
 } from "../types";
 
+type GetConfig = Parameters<typeof client.get>[1];
+type WriteConfig = Parameters<typeof client.post>[2];
+
+function unwrap<T>(request: Promise<{ data: T }>): Promise<T> {
+  return request.then((r) => r.data);
+}
+
+function apiGet<T>(url: string, config?: GetConfig) {
+  return unwrap(client.get<T>(url, config));
+}
+
+function apiPost<T>(url: string, data?: unknown, config?: WriteConfig) {
+  return unwrap(client.post<T>(url, data, config));
+}
+
+function apiPut<T>(url: string, data?: unknown, config?: WriteConfig) {
+  return unwrap(client.put<T>(url, data, config));
+}
+
+function apiPatch<T>(url: string, data?: unknown, config?: WriteConfig) {
+  return unwrap(client.patch<T>(url, data, config));
+}
+
+function apiDelete<T>(url: string, config?: GetConfig) {
+  return unwrap(client.delete<T>(url, config));
+}
+
 // --- Dashboard ---
 
 export function useDashboardSummary() {
   return useQuery<DashboardSummary>({
     queryKey: ["dashboard", "summary"],
-    queryFn: () => client.get("/dashboard/summary").then((r) => r.data),
+    queryFn: () => apiGet("/dashboard/summary"),
     refetchInterval: 30_000,
     placeholderData: keepPreviousData,
   });
@@ -84,21 +111,21 @@ export function useUsageSummaryUnified(sinceHours: number) {
   return useQuery<UsageUnifiedSummary>({
     queryKey: ["usage", "summary-unified", sinceHours],
     queryFn: () =>
-      client.get("/usage/summary-unified", { params: { since_hours: sinceHours } }).then((r) => r.data),
+      apiGet("/usage/summary-unified", { params: { since_hours: sinceHours } }),
   });
 }
 
 export function useMcpAgentHealth() {
-  return useQuery({
+  return useQuery<{ reachable: boolean; latency_ms?: number | null; error?: string | null }>({
     queryKey: ["integrations", "mcp", "health"],
-    queryFn: () => client.get("/integrations/mcp/health").then((r) => r.data),
+    queryFn: () => apiGet("/integrations/mcp/health"),
   });
 }
 
 export function useMcpAdminMcpHealth() {
-  return useQuery({
+  return useQuery<{ reachable: boolean; latency_ms?: number | null; error?: string | null }>({
     queryKey: ["integrations", "mcp", "admin-mcp-health"],
-    queryFn: () => client.get("/integrations/mcp/admin-mcp-health").then((r) => r.data),
+    queryFn: () => apiGet("/integrations/mcp/admin-mcp-health"),
   });
 }
 
@@ -109,7 +136,7 @@ export function useMcpAdminCatalog() {
     note?: string;
   }>({
     queryKey: ["integrations", "mcp", "admin-catalog"],
-    queryFn: () => client.get("/integrations/mcp/admin-catalog").then((r) => r.data),
+    queryFn: () => apiGet("/integrations/mcp/admin-catalog"),
   });
 }
 
@@ -118,7 +145,7 @@ export function useMcpAdminCatalog() {
 export function useModelCosts() {
   return useQuery<{ roles: ModelCost[] }>({
     queryKey: ["models", "costs"],
-    queryFn: () => client.get("/models/costs").then((r) => r.data),
+    queryFn: () => apiGet("/models/costs"),
   });
 }
 
@@ -135,7 +162,7 @@ export function usePipelineServices() {
     }>;
   }>({
     queryKey: ["models", "pipeline-services"],
-    queryFn: () => client.get("/models/pipeline-services").then((r) => r.data),
+    queryFn: () => apiGet("/models/pipeline-services"),
     refetchInterval: 30_000,
   });
 }
@@ -146,7 +173,7 @@ export function useModelCostsByModel() {
     period: string;
   }>({
     queryKey: ["models", "costs", "by-model"],
-    queryFn: () => client.get("/models/costs/by-model").then((r) => r.data),
+    queryFn: () => apiGet("/models/costs/by-model"),
     refetchInterval: 60_000,
   });
 }
@@ -155,7 +182,7 @@ export function useUpdateModelCost() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<ModelCost> & { role: string }) =>
-      client.put("/models/costs", data).then((r) => r.data),
+      apiPut("/models/costs", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs", "by-model"] });
@@ -176,7 +203,7 @@ interface ModelPerformanceEntry {
 export function useModelPerformance() {
   return useQuery<{ models: ModelPerformanceEntry[] }>({
     queryKey: ["models", "performance"],
-    queryFn: () => client.get("/models/performance").then((r) => r.data),
+    queryFn: () => apiGet("/models/performance"),
     refetchInterval: 30_000,
   });
 }
@@ -186,7 +213,7 @@ export function useModelPerformance() {
 export function useModelDeployments() {
   return useQuery<{ deployments: import("../types").ModelDeployment[] }>({
     queryKey: ["models", "deployments"],
-    queryFn: () => client.get("/models/deployments").then((r) => r.data),
+    queryFn: () => apiGet("/models/deployments"),
     refetchInterval: 30_000,
   });
 }
@@ -195,7 +222,7 @@ export function useCreateModelDeployment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<import("../types").ModelDeployment> & { environment: string; role: string }) =>
-      client.post("/models/deployments", data).then((r) => r.data),
+      apiPost("/models/deployments", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -207,7 +234,7 @@ export function useUpdateModelDeployment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").ModelDeployment>) =>
-      client.put(`/models/deployments/${id}`, data).then((r) => r.data),
+      apiPut(`/models/deployments/${id}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -219,7 +246,7 @@ export function useDeleteModelDeployment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.delete(`/models/deployments/${id}`).then((r) => r.data),
+      apiDelete(`/models/deployments/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -231,7 +258,7 @@ export function useActivateModel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.post(`/models/deployments/${id}/activate`).then((r) => r.data),
+      apiPost(`/models/deployments/${id}/activate`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -243,7 +270,7 @@ export function useDeactivateModel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.post(`/models/deployments/${id}/deactivate`).then((r) => r.data),
+      apiPost(`/models/deployments/${id}/deactivate`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -255,9 +282,7 @@ export function usePromptProfiles(service?: "yarn" | "planner") {
   return useQuery<{ profiles: import("../types").PromptProfile[] }>({
     queryKey: ["models", "prompts", "profiles", service ?? "all"],
     queryFn: () =>
-      client
-        .get("/models/prompts/profiles", { params: service ? { service } : undefined })
-        .then((r) => r.data),
+      apiGet("/models/prompts/profiles", { params: service ? { service } : undefined }),
     refetchInterval: 30_000,
   });
 }
@@ -266,7 +291,7 @@ export function useCreatePromptProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<import("../types").PromptProfile> & { name: string; service: string; content: string }) =>
-      client.post("/models/prompts/profiles", data).then((r) => r.data),
+      apiPost("/models/prompts/profiles", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "prompts"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -278,7 +303,7 @@ export function useUpdatePromptProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").PromptProfile>) =>
-      client.put(`/models/prompts/profiles/${id}`, data).then((r) => r.data),
+      apiPut(`/models/prompts/profiles/${id}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "prompts"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -289,7 +314,7 @@ export function useUpdatePromptProfile() {
 export function useDeletePromptProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => client.delete(`/models/prompts/profiles/${id}`).then((r) => r.data),
+    mutationFn: (id: number) => apiDelete(`/models/prompts/profiles/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "prompts"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -301,9 +326,7 @@ export function usePromptAssignments(service?: "yarn" | "planner") {
   return useQuery<{ assignments: import("../types").PromptAssignment[] }>({
     queryKey: ["models", "prompts", "assignments", service ?? "all"],
     queryFn: () =>
-      client
-        .get("/models/prompts/assignments", { params: service ? { service } : undefined })
-        .then((r) => r.data),
+      apiGet("/models/prompts/assignments", { params: service ? { service } : undefined }),
     refetchInterval: 30_000,
   });
 }
@@ -317,7 +340,7 @@ export function useUpsertPromptAssignment() {
       target_value: string;
       profile_id: number;
       enabled?: boolean;
-    }) => client.put("/models/prompts/assignments", data).then((r) => r.data),
+    }) => apiPut("/models/prompts/assignments", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "prompts"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -328,7 +351,7 @@ export function useUpsertPromptAssignment() {
 export function useDeletePromptAssignment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => client.delete(`/models/prompts/assignments/${id}`).then((r) => r.data),
+    mutationFn: (id: number) => apiDelete(`/models/prompts/assignments/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "prompts"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -340,7 +363,7 @@ export function useUpdateFallbacks() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, fallbacks }: { id: number; fallbacks: string[] }) =>
-      client.put(`/models/deployments/${id}/fallbacks`, { fallbacks }).then((r) => r.data),
+      apiPut(`/models/deployments/${id}/fallbacks`, { fallbacks }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -353,7 +376,7 @@ export function useUpdateFallbacks() {
 const PROVIDER_GOVERNANCE_QUERY_KEY = ["provider-governance"] as const;
 
 async function fetchProviderGovernance(): Promise<import("../types").ProviderGovernanceResponse> {
-  return client.get("/provider-governance").then((r) => r.data);
+  return apiGet("/provider-governance");
 }
 
 export function buildCatalogFromGovernance(data: import("../types").ProviderGovernanceResponse): {
@@ -406,7 +429,7 @@ export function useSetProviderKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ name, value }: { name: string; value: string }) =>
-      client.put(`/providers/keys/${name}`, { value }).then((r) => r.data),
+      apiPut(`/providers/keys/${name}`, { value }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["models"] });
@@ -419,7 +442,7 @@ export function useDeleteProviderKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
-      client.delete(`/providers/keys/${name}`).then((r) => r.data),
+      apiDelete(`/providers/keys/${name}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["models"] });
@@ -446,11 +469,9 @@ export function useReconcileProviderSpend() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (sinceHours: number) =>
-      client
-        .post<ProviderSpendReconcileResult>("/providers/spend/reconcile", null, {
+      apiPost<ProviderSpendReconcileResult>("/providers/spend/reconcile", null, {
           params: { since_hours: sinceHours },
-        })
-        .then((r) => r.data),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
       qc.invalidateQueries({ queryKey: ["yarn"] });
@@ -463,7 +484,7 @@ export function useReconcileProviderSpend() {
 export function useProviderConsumerRestartStatus() {
   return useQuery<import("../types").ProviderConsumersRestartStatus>({
     queryKey: ["providers", "consumers", "restart-status"],
-    queryFn: () => client.get("/providers/consumers/restart-status").then((r) => r.data),
+    queryFn: () => apiGet("/providers/consumers/restart-status"),
     refetchInterval: 10_000,
     staleTime: 5_000,
   });
@@ -474,7 +495,7 @@ export function useProviderConsumerRestartStatus() {
 export function useRoleAssignments() {
   return useQuery<{ roles: import("../types").ModelDeployment[] }>({
     queryKey: ["models", "roles"],
-    queryFn: () => client.get("/models/roles").then((r) => r.data),
+    queryFn: () => apiGet("/models/roles"),
     refetchInterval: 30_000,
   });
 }
@@ -503,7 +524,7 @@ export function useAssignRole() {
       description?: string | undefined;
       notes?: string | undefined;
     }) =>
-      client.put(`/models/roles/${role}`, data).then((r) => r.data),
+      apiPut(`/models/roles/${role}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -515,7 +536,7 @@ export function useDeactivateRole() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (role: string) =>
-      client.delete(`/models/roles/${role}`).then((r) => r.data),
+      apiDelete(`/models/roles/${role}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -526,7 +547,7 @@ export function useDeactivateRole() {
 export function useRoleHistory(role: string) {
   return useQuery<{ history: import("../types").RoleHistoryEntry[] }>({
     queryKey: ["models", "roles", role, "history"],
-    queryFn: () => client.get(`/models/roles/${role}/history`).then((r) => r.data),
+    queryFn: () => apiGet(`/models/roles/${role}/history`),
     enabled: !!role,
   });
 }
@@ -542,9 +563,7 @@ export function useDiscoverModels(providerKey: string | null, bypassCache = fals
   return useQuery<import("../types").DiscoveryResult>({
     queryKey: ["providers", "discovery", providerKey, bypassCache],
     queryFn: () =>
-      client
-        .get(`/providers/discovery/${providerKey}/models`, { params: { bypass_cache: bypassCache } })
-        .then((r) => r.data),
+      apiGet(`/providers/discovery/${providerKey}/models`, { params: { bypass_cache: bypassCache } }),
     enabled: !!providerKey,
     staleTime: 5 * 60_000,
   });
@@ -554,11 +573,9 @@ export function useProviderDefaults(providerKey: string, modelId: string, contex
   return useQuery<import("../types").ProviderDefaults>({
     queryKey: ["providers", "defaults", providerKey, modelId, contextWindow],
     queryFn: () =>
-      client
-        .get(`/providers/discovery/${providerKey}/defaults`, {
+      apiGet(`/providers/discovery/${providerKey}/defaults`, {
           params: { model_id: modelId, context_window: contextWindow ?? undefined },
-        })
-        .then((r) => r.data),
+        }),
     enabled: !!providerKey && !!modelId,
     staleTime: 5 * 60_000,
   });
@@ -567,7 +584,7 @@ export function useProviderDefaults(providerKey: string, modelId: string, contex
 export function useValidateModel() {
   return useMutation<import("../types").ModelValidation, Error, { provider: string; model: string }>({
     mutationFn: (data) =>
-      client.post("/providers/discovery/validate", data).then((r) => r.data),
+      apiPost("/providers/discovery/validate", data),
   });
 }
 
@@ -581,7 +598,7 @@ export function useUpdateProviderConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ providerKey, ...data }: { providerKey: string } & Partial<import("../types").ProviderConfig>) =>
-      client.put(`/provider-governance/${providerKey}`, data).then((r) => r.data),
+      apiPut(`/provider-governance/${providerKey}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -593,7 +610,7 @@ export function useResetProviderConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (providerKey: string) =>
-      client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
+      apiDelete(`/provider-governance/${providerKey}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -614,7 +631,7 @@ export function useCreateProvider() {
       placeholder?: string;
       is_local?: boolean;
       enabled?: boolean;
-    }) => client.post("/provider-governance", data).then((r) => r.data),
+    }) => apiPost("/provider-governance", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -626,7 +643,7 @@ export function useDeleteProvider() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (providerKey: string) =>
-      client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
+      apiDelete(`/provider-governance/${providerKey}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PROVIDER_GOVERNANCE_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -641,7 +658,7 @@ export function usePerformanceByRole(days: number = 7) {
   return useQuery<{ roles: import("../types").RolePerformance[]; period_days: number }>({
     queryKey: ["models", "performance", "by-role", days],
     queryFn: () =>
-      client.get("/models/performance/by-role", { params: { days } }).then((r) => r.data),
+      apiGet("/models/performance/by-role", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -651,7 +668,7 @@ export function usePerformanceByRole(days: number = 7) {
 export function useActiveCosts() {
   return useQuery<{ roles: import("../types").ActiveCostEntry[] }>({
     queryKey: ["models", "costs", "active"],
-    queryFn: () => client.get("/models/costs/active").then((r) => r.data),
+    queryFn: () => apiGet("/models/costs/active"),
     refetchInterval: 60_000,
   });
 }
@@ -678,7 +695,7 @@ export interface PublicModelOffering {
 export function usePublicOfferings() {
   return useQuery<{ offerings: PublicModelOffering[] }>({
     queryKey: ["models", "public-offerings"],
-    queryFn: () => client.get("/models/public-offerings").then((r) => r.data),
+    queryFn: () => apiGet("/models/public-offerings"),
     refetchInterval: 60_000,
   });
 }
@@ -700,7 +717,7 @@ export function useCreatePublicOffering() {
       expose_planner?: boolean;
       expose_yarn?: boolean;
       is_active?: boolean;
-    }) => client.post<PublicModelOffering>("/models/public-offerings", body).then((r) => r.data),
+    }) => apiPost<PublicModelOffering>("/models/public-offerings", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
     },
@@ -727,7 +744,7 @@ export function usePatchPublicOffering() {
       expose_planner: boolean;
       expose_yarn: boolean;
       is_active: boolean;
-    }>) => client.patch<PublicModelOffering>(`/models/public-offerings/${id}`, patch).then((r) => r.data),
+    }>) => apiPatch<PublicModelOffering>(`/models/public-offerings/${id}`, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
     },
@@ -737,7 +754,7 @@ export function usePatchPublicOffering() {
 export function useDeletePublicOffering() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => client.delete(`/models/public-offerings/${id}`).then((r) => r.data),
+    mutationFn: (id: number) => apiDelete(`/models/public-offerings/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "public-offerings"] });
     },
@@ -749,7 +766,7 @@ export function useDeletePublicOffering() {
 export function useInfraCatalog() {
   return useQuery<{ instances: import("../types").InfraInstanceType[] }>({
     queryKey: ["settings", "infra-costs", "catalog"],
-    queryFn: () => client.get("/settings/infra-costs/catalog").then((r) => r.data),
+    queryFn: () => apiGet("/settings/infra-costs/catalog"),
     staleTime: 5 * 60_000,
   });
 }
@@ -757,7 +774,7 @@ export function useInfraCatalog() {
 export function useInfraConfigs() {
   return useQuery<{ configs: import("../types").InfraCostConfig[] }>({
     queryKey: ["settings", "infra-costs"],
-    queryFn: () => client.get("/settings/infra-costs").then((r) => r.data),
+    queryFn: () => apiGet("/settings/infra-costs"),
     refetchInterval: 30_000,
   });
 }
@@ -766,7 +783,7 @@ export function useSetInfraCost() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ role, ...data }: { role: string } & Partial<import("../types").InfraCostConfig>) =>
-      client.put(`/settings/infra-costs/${role}`, data).then((r) => r.data),
+      apiPut(`/settings/infra-costs/${role}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
@@ -779,7 +796,7 @@ export function useDeleteInfraCost() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (role: string) =>
-      client.delete(`/settings/infra-costs/${role}`).then((r) => r.data),
+      apiDelete(`/settings/infra-costs/${role}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
@@ -806,7 +823,7 @@ export interface AdminAuditEventRow {
 export function useAdminAuditEvents(limit = 150) {
   return useQuery<{ events: AdminAuditEventRow[] }>({
     queryKey: ["audit", "events", limit],
-    queryFn: () => client.get("/audit/events", { params: { limit } }).then((r) => r.data),
+    queryFn: () => apiGet("/audit/events", { params: { limit } }),
     refetchInterval: 15_000,
   });
 }
@@ -831,7 +848,7 @@ export function useDetailedPerformance(days: number = 7) {
   return useQuery<{ models: DetailedModelPerformance[]; period_days: number }>({
     queryKey: ["models", "performance", "detailed", days],
     queryFn: () =>
-      client.get("/models/performance/detailed", { params: { days } }).then((r) => r.data),
+      apiGet("/models/performance/detailed", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -847,7 +864,7 @@ export function useLatencyTrend(days: number = 14) {
   return useQuery<{ trend: LatencyTrendPoint[]; period_days: number }>({
     queryKey: ["models", "performance", "latency-trend", days],
     queryFn: () =>
-      client.get("/models/performance/latency-trend", { params: { days } }).then((r) => r.data),
+      apiGet("/models/performance/latency-trend", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -868,7 +885,7 @@ export function useCostsByModel(days: number = 7) {
   return useQuery<{ models: CostByModelEntry[]; period_days: number }>({
     queryKey: ["models", "costs", "by-model", days],
     queryFn: () =>
-      client.get("/models/costs/by-model", { params: { days } }).then((r) => r.data),
+      apiGet("/models/costs/by-model", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -887,7 +904,7 @@ export function useCostsByRole(days: number = 7) {
   return useQuery<{ roles: CostByRoleEntry[]; period_days: number }>({
     queryKey: ["models", "costs", "by-role", days],
     queryFn: () =>
-      client.get("/models/costs/by-role", { params: { days } }).then((r) => r.data),
+      apiGet("/models/costs/by-role", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -904,7 +921,7 @@ export function useCostsDaily(days: number = 7) {
   return useQuery<{ daily: DailyCostEntry[]; period_days: number }>({
     queryKey: ["models", "costs", "daily", days],
     queryFn: () =>
-      client.get("/models/costs/daily", { params: { days } }).then((r) => r.data),
+      apiGet("/models/costs/daily", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -915,7 +932,7 @@ export function useCostsDaily(days: number = 7) {
 export function useCorpusStats() {
   return useQuery<CorpusStats>({
     queryKey: ["rag", "corpus"],
-    queryFn: () => client.get("/rag/corpus").then((r) => r.data),
+    queryFn: () => apiGet("/rag/corpus"),
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
     placeholderData: keepPreviousData,
@@ -927,7 +944,7 @@ export function useCorpusStats() {
 export function useQualitySummary() {
   return useQuery<QualitySummary>({
     queryKey: ["rag", "quality"],
-    queryFn: () => client.get("/rag/quality").then((r) => r.data),
+    queryFn: () => apiGet("/rag/quality"),
   });
 }
 
@@ -935,7 +952,7 @@ export function useQualityDomains(params?: { sort?: string; health?: string }) {
   return useQuery<{ domains: DomainScorecard[] }>({
     queryKey: ["rag", "quality", "domains", params],
     queryFn: () =>
-      client.get("/rag/quality/domains", { params }).then((r) => r.data),
+      apiGet("/rag/quality/domains", { params }),
   });
 }
 
@@ -943,7 +960,7 @@ export function useQualityDomain(key: string) {
   return useQuery<DomainScorecard>({
     queryKey: ["rag", "quality", "domains", key],
     queryFn: () =>
-      client.get(`/rag/quality/domains/${key}`).then((r) => r.data),
+      apiGet(`/rag/quality/domains/${key}`),
     enabled: !!key,
   });
 }
@@ -951,7 +968,7 @@ export function useQualityDomain(key: string) {
 export function useBenchmarks() {
   return useQuery<BenchmarkResults & { run_id?: string; triggered_by?: string; started_at?: string }>({
     queryKey: ["rag", "benchmarks"],
-    queryFn: () => client.get("/rag/benchmarks").then((r) => r.data),
+    queryFn: () => apiGet("/rag/benchmarks"),
     staleTime: 5 * 60_000,
   });
 }
@@ -959,7 +976,7 @@ export function useBenchmarks() {
 export function useRagEvalSuites() {
   return useQuery<{ suites: RagEvalSuiteInfo[] }>({
     queryKey: ["evals", "rag", "suites"],
-    queryFn: () => client.get("/evals/rag/suites").then((r) => r.data),
+    queryFn: () => apiGet("/evals/rag/suites"),
     staleTime: 5 * 60_000,
   });
 }
@@ -967,7 +984,7 @@ export function useRagEvalSuites() {
 export function useLatestRagEval() {
   return useQuery<RagEvalResult>({
     queryKey: ["evals", "rag", "latest"],
-    queryFn: () => client.get("/evals/rag/latest").then((r) => r.data),
+    queryFn: () => apiGet("/evals/rag/latest"),
     staleTime: 60_000,
   });
 }
@@ -976,7 +993,7 @@ export function useRunRagEval() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { suite_name: string; top_k?: number }) =>
-      client.post("/evals/rag/run", data).then((r) => r.data as RagEvalResult),
+      apiPost<RagEvalResult>("/evals/rag/run", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["evals", "rag"] });
       qc.invalidateQueries({ queryKey: ["rag", "benchmarks"] });
@@ -1108,7 +1125,7 @@ export interface ContentPacksOverview {
 export function useContentPacks() {
   return useQuery<ContentPacksOverview>({
     queryKey: ["rag", "content-packs"],
-    queryFn: () => client.get("/rag/content-packs").then((r) => r.data),
+    queryFn: () => apiGet("/rag/content-packs"),
     refetchInterval: 30_000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
@@ -1120,7 +1137,7 @@ export function useUpdateContentPackCatalog() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (catalog_url: string) =>
-      client.put("/rag/content-packs/config", { catalog_url }).then((r) => r.data),
+      apiPut("/rag/content-packs/config", { catalog_url }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
   });
 }
@@ -1129,7 +1146,7 @@ export function useInstallContentPack() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { pack_id: string; version?: string; replace?: boolean }) =>
-      client.post("/rag/content-packs/install", data).then((r) => r.data),
+      apiPost("/rag/content-packs/install", data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
   });
 }
@@ -1138,7 +1155,7 @@ export function useRetryContentPackInstallJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (jobId: number) =>
-      client.post(`/rag/content-packs/install-jobs/${jobId}/retry`).then((r) => r.data),
+      apiPost(`/rag/content-packs/install-jobs/${jobId}/retry`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["rag", "content-packs"] }),
   });
 }
@@ -1148,14 +1165,14 @@ export function useRetryContentPackInstallJob() {
 export function useTaxonomy() {
   return useQuery<{ domains: TaxonomyDomain[] }>({
     queryKey: ["taxonomy"],
-    queryFn: () => client.get("/taxonomy").then((r) => r.data),
+    queryFn: () => apiGet("/taxonomy"),
   });
 }
 
 export function useTaxonomyDomain(key: string) {
   return useQuery<TaxonomyDomain>({
     queryKey: ["taxonomy", key],
-    queryFn: () => client.get(`/taxonomy/${key}`).then((r) => r.data),
+    queryFn: () => apiGet(`/taxonomy/${key}`),
     enabled: !!key,
   });
 }
@@ -1173,7 +1190,7 @@ export function useUpdateTaxonomyDomain() {
       output_style_guidance?: string;
       calibration_guidance?: string;
     }) =>
-      client.put(`/taxonomy/${data.key}`, data).then((r) => r.data),
+      apiPut(`/taxonomy/${data.key}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["taxonomy"] }),
   });
 }
@@ -1181,14 +1198,14 @@ export function useUpdateTaxonomyDomain() {
 export function useSyncTaxonomyFromYaml() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => client.post("/taxonomy/sync-from-yaml").then((r) => r.data),
+    mutationFn: () => apiPost("/taxonomy/sync-from-yaml"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["taxonomy"] }),
   });
 }
 
 export function useExportTaxonomyYaml() {
   return useMutation({
-    mutationFn: () => client.post("/taxonomy/export-yaml").then((r) => r.data),
+    mutationFn: () => apiPost("/taxonomy/export-yaml"),
   });
 }
 
@@ -1214,14 +1231,14 @@ interface PipelineGraph {
 export function usePipelineGraph() {
   return useQuery<PipelineGraph>({
     queryKey: ["pipeline", "graph"],
-    queryFn: () => client.get("/pipeline/graph").then((r) => r.data),
+    queryFn: () => apiGet("/pipeline/graph"),
   });
 }
 
 export function usePipelineMetrics() {
   return useQuery<{ nodes: PipelineMetrics[] }>({
     queryKey: ["pipeline", "metrics"],
-    queryFn: () => client.get("/pipeline/metrics").then((r) => r.data),
+    queryFn: () => apiGet("/pipeline/metrics"),
     refetchInterval: 30_000,
   });
 }
@@ -1229,7 +1246,7 @@ export function usePipelineMetrics() {
 export function useCriticStats() {
   return useQuery<CriticStats>({
     queryKey: ["pipeline", "critic"],
-    queryFn: () => client.get("/pipeline/critic").then((r) => r.data),
+    queryFn: () => apiGet("/pipeline/critic"),
     refetchInterval: 30_000,
   });
 }
@@ -1238,9 +1255,7 @@ export function useCriticDetailed(days: number = 7) {
   return useQuery<CriticDetailed>({
     queryKey: ["pipeline", "critic", "detailed", days],
     queryFn: () =>
-      client
-        .get("/pipeline/critic/detailed", { params: { days } })
-        .then((r) => r.data),
+      apiGet("/pipeline/critic/detailed", { params: { days } }),
     refetchInterval: 60_000,
   });
 }
@@ -1268,9 +1283,7 @@ export function useCriticEvaluations(params?: {
   }>({
     queryKey: ["pipeline", "critic", "evaluations", params],
     queryFn: () =>
-      client
-        .get("/pipeline/critic/evaluations", { params })
-        .then((r) => r.data),
+      apiGet("/pipeline/critic/evaluations", { params }),
     refetchInterval: 60_000,
   });
 }
@@ -1284,7 +1297,7 @@ export interface CriticModel {
 export function useCriticModels() {
   return useQuery<{ models: CriticModel[] }>({
     queryKey: ["pipeline", "critic", "models"],
-    queryFn: () => client.get("/pipeline/critic/models").then((r) => r.data),
+    queryFn: () => apiGet("/pipeline/critic/models"),
   });
 }
 
@@ -1308,7 +1321,7 @@ export interface CriticRunResult {
 export function useRunCritic() {
   const qc = useQueryClient();
   return useMutation<CriticRunResult, Error, { trace_id: string; model: string }>({
-    mutationFn: (data) => client.post("/pipeline/critic/run", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/pipeline/critic/run", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
     },
@@ -1323,7 +1336,7 @@ export function usePurgeTrivialTraces() {
     { min_tokens?: number; dry_run?: boolean }
   >({
     mutationFn: (params) =>
-      client.post("/traces/purge-trivial", null, { params }).then((r) => r.data),
+      apiPost("/traces/purge-trivial", null, { params }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -1334,7 +1347,7 @@ export function usePurgeTrivialTraces() {
 export function useDeleteTrace() {
   const qc = useQueryClient();
   return useMutation<{ deleted: string }, Error, string>({
-    mutationFn: (traceId) => client.delete(`/traces/${traceId}`).then((r) => r.data),
+    mutationFn: (traceId) => apiDelete(`/traces/${traceId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -1346,7 +1359,7 @@ export function useBulkDeleteTraces() {
   const qc = useQueryClient();
   return useMutation<{ deleted: number; requested: number }, Error, string[]>({
     mutationFn: (traceIds) =>
-      client.post("/traces/bulk-delete", traceIds).then((r) => r.data),
+      apiPost("/traces/bulk-delete", traceIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -1377,7 +1390,7 @@ export function useArchiveTraces() {
       delete_after_archive?: boolean;
     }
   >({
-    mutationFn: (data) => client.post("/traces/archive", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/traces/archive", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -1392,7 +1405,7 @@ export function usePurgeOldTraces() {
     Error,
     { older_than_days: number; trace_service?: string; dry_run?: boolean; archive_before_delete?: boolean }
   >({
-    mutationFn: (params) => client.post("/traces/purge", null, { params }).then((r) => r.data),
+    mutationFn: (params) => apiPost("/traces/purge", null, { params }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -1404,7 +1417,7 @@ export function useClearCriticData() {
   const qc = useQueryClient();
   return useMutation<{ trace_id: string; cleared: boolean }, Error, string>({
     mutationFn: (traceId) =>
-      client.post("/pipeline/critic/clear", { trace_id: traceId }).then((r) => r.data),
+      apiPost("/pipeline/critic/clear", { trace_id: traceId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
       qc.invalidateQueries({ queryKey: ["traces"] });
@@ -1417,7 +1430,7 @@ export function useClearCriticData() {
 export function useMcpTools() {
   return useQuery<{ tools: McpTool[] }>({
     queryKey: ["integrations", "mcp", "tools"],
-    queryFn: () => client.get("/integrations/mcp/tools").then((r) => r.data),
+    queryFn: () => apiGet("/integrations/mcp/tools"),
   });
 }
 
@@ -1430,7 +1443,7 @@ interface WebSearchStats {
 export function useWebSearchStats() {
   return useQuery<WebSearchStats>({
     queryKey: ["integrations", "web-search"],
-    queryFn: () => client.get("/integrations/web-search").then((r) => r.data),
+    queryFn: () => apiGet("/integrations/web-search"),
     refetchInterval: 30_000,
   });
 }
@@ -1484,7 +1497,7 @@ export function useWebSearchLog(params?: {
   return useQuery<{ items: WebSearchLogEntry[]; total: number; page: number; page_size: number }>({
     queryKey: ["integrations", "web-search", "log", params],
     queryFn: () =>
-      client.get("/integrations/web-search/log", { params }).then((r) => r.data),
+      apiGet("/integrations/web-search/log", { params }),
     refetchInterval: 30_000,
   });
 }
@@ -1501,7 +1514,7 @@ export function useWebSearchDomains() {
   return useQuery<{ domains: DomainSummary[] }>({
     queryKey: ["integrations", "web-search", "domains"],
     queryFn: () =>
-      client.get("/integrations/web-search/log/domains").then((r) => r.data),
+      apiGet("/integrations/web-search/log/domains"),
     refetchInterval: 30_000,
   });
 }
@@ -1521,7 +1534,7 @@ export function useWebSearchPolicies() {
   return useQuery<{ policies: WebUrlPolicyEntry[] }>({
     queryKey: ["integrations", "web-search", "policies"],
     queryFn: () =>
-      client.get("/integrations/web-search/policies").then((r) => r.data),
+      apiGet("/integrations/web-search/policies"),
   });
 }
 
@@ -1534,7 +1547,7 @@ export function useCreateWebSearchPolicy() {
       reason?: string;
       boost_factor?: number;
       auto_ingest?: boolean;
-    }) => client.post("/integrations/web-search/policies", data).then((r) => r.data),
+    }) => apiPost("/integrations/web-search/policies", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integrations", "web-search", "policies"] });
     },
@@ -1545,7 +1558,7 @@ export function useDeleteWebSearchPolicy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.delete(`/integrations/web-search/policies/${id}`).then((r) => r.data),
+      apiDelete(`/integrations/web-search/policies/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integrations", "web-search", "policies"] });
     },
@@ -1555,7 +1568,7 @@ export function useDeleteWebSearchPolicy() {
 export function useIngestWebUrl() {
   return useMutation({
     mutationFn: (data: { url: string; title?: string; reason?: string }) =>
-      client.post("/integrations/web-search/ingest", data).then((r) => r.data),
+      apiPost("/integrations/web-search/ingest", data),
   });
 }
 
@@ -1570,14 +1583,14 @@ export function useFeedback(params?: {
 }) {
   return useQuery<{ entries: FeedbackEntry[]; total: number }>({
     queryKey: ["feedback", params],
-    queryFn: () => client.get("/feedback", { params }).then((r) => r.data),
+    queryFn: () => apiGet("/feedback", { params }),
   });
 }
 
 export function useSyncOpenWebUIFeedback() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => client.post("/feedback/sync-openwebui").then((r) => r.data),
+    mutationFn: () => apiPost("/feedback/sync-openwebui"),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["feedback"] });
       await qc.refetchQueries({ queryKey: ["feedback"] });
@@ -1595,7 +1608,7 @@ export function useFeedbackWorkspaceUpdate() {
       owui_id?: string;
       review_status: "pending" | "reviewed" | "closed";
       internal_note: string;
-    }) => client.patch("/feedback/workspace", data).then((r) => r.data),
+    }) => apiPatch("/feedback/workspace", data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback"] }),
   });
 }
@@ -1604,7 +1617,7 @@ export function useKnowledgeGaps(params?: { domain?: string; page?: number }) {
   return useQuery<{ gaps: KnowledgeGap[]; total: number }>({
     queryKey: ["feedback", "knowledge-gaps", params],
     queryFn: () =>
-      client.get("/feedback/knowledge-gaps", { params }).then((r) => r.data),
+      apiGet("/feedback/knowledge-gaps", { params }),
   });
 }
 
@@ -1621,7 +1634,7 @@ export function useSubmitKnowledge() {
 export function useCuratorProposals() {
   return useQuery<{ proposals: CuratorProposal[] }>({
     queryKey: ["feedback", "curator"],
-    queryFn: () => client.get("/feedback/curator").then((r) => r.data),
+    queryFn: () => apiGet("/feedback/curator"),
   });
 }
 
@@ -1640,7 +1653,7 @@ export function useCuratorAction() {
 export function useServiceHealth() {
   return useQuery<ServiceHealthSnapshot>({
     queryKey: ["observability", "health"],
-    queryFn: () => client.get("/observability/health").then((r) => r.data),
+    queryFn: () => apiGet("/observability/health"),
     refetchInterval: 15_000,
     placeholderData: keepPreviousData,
   });
@@ -1649,7 +1662,7 @@ export function useServiceHealth() {
 export function useCacheMetrics() {
   return useQuery<CacheMetrics>({
     queryKey: ["observability", "cache"],
-    queryFn: () => client.get("/observability/cache").then((r) => r.data),
+    queryFn: () => apiGet("/observability/cache"),
     refetchInterval: 15_000,
     placeholderData: keepPreviousData,
   });
@@ -1671,9 +1684,7 @@ export function useCompactionHistory(sinceHours = 24, service = "") {
   }>({
     queryKey: ["observability", "compaction-history", sinceHours, service],
     queryFn: () =>
-      client
-        .get("/observability/compaction", { params: { since_hours: sinceHours, service } })
-        .then((r) => r.data),
+      apiGet("/observability/compaction", { params: { since_hours: sinceHours, service } }),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
@@ -1683,9 +1694,7 @@ export function useCacheHistory(sinceHours = 24, service = "") {
   return useQuery<{ snapshots: import("../types").CacheHistorySnapshot[]; count: number }>({
     queryKey: ["observability", "cache-history", sinceHours, service],
     queryFn: () =>
-      client
-        .get("/observability/cache/history", { params: { since_hours: sinceHours, service } })
-        .then((r) => r.data),
+      apiGet("/observability/cache/history", { params: { since_hours: sinceHours, service } }),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
@@ -1695,9 +1704,7 @@ export function useTokenEconomicsMetrics(sinceHours = 24) {
   return useQuery<TokenEconomicsObservability>({
     queryKey: ["observability", "token-economics", sinceHours],
     queryFn: () =>
-      client
-        .get("/observability/cache/token-economics", { params: { since_hours: sinceHours } })
-        .then((r) => r.data),
+      apiGet("/observability/cache/token-economics", { params: { since_hours: sinceHours } }),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
@@ -1706,7 +1713,7 @@ export function useTokenEconomicsMetrics(sinceHours = 24) {
 export function useCacheCanaryReport() {
   return useQuery<CacheCanaryReportObservability>({
     queryKey: ["observability", "cache-canary-report"],
-    queryFn: () => client.get("/observability/cache/canary-report").then((r) => r.data),
+    queryFn: () => apiGet("/observability/cache/canary-report"),
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
@@ -1716,7 +1723,7 @@ export function useCircuitBreakers() {
   return useQuery<{ breakers: CircuitBreakerState[] }>({
     queryKey: ["observability", "circuit-breakers"],
     queryFn: () =>
-      client.get("/observability/circuit-breakers").then((r) => r.data),
+      apiGet("/observability/circuit-breakers"),
     refetchInterval: 15_000,
     placeholderData: keepPreviousData,
   });
@@ -1731,7 +1738,7 @@ export function useFailures(params?: {
   return useQuery<{ failures: FailureRecord[]; total: number }>({
     queryKey: ["observability", "failures", params],
     queryFn: () =>
-      client.get("/observability/failures", { params }).then((r) => r.data),
+      apiGet("/observability/failures", { params }),
   });
 }
 
@@ -1739,7 +1746,7 @@ export function useDeleteFailure() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (failureId: string) =>
-      client.delete(`/observability/failures/${failureId}`).then((r) => r.data),
+      apiDelete(`/observability/failures/${failureId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "failures"] });
     },
@@ -1750,7 +1757,7 @@ export function useBulkDeleteFailures() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (failureIds: string[]) =>
-      client.post("/observability/failures/bulk-delete", { failure_ids: failureIds }).then((r) => r.data),
+      apiPost("/observability/failures/bulk-delete", { failure_ids: failureIds }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "failures"] });
     },
@@ -1761,7 +1768,7 @@ export function usePurgeFailures() {
   const qc = useQueryClient();
   return useMutation<{ deleted: number; resolved_only: boolean }, Error, boolean>({
     mutationFn: (resolvedOnly) =>
-      client.delete("/observability/failures", { params: { resolved_only: resolvedOnly } }).then((r) => r.data),
+      apiDelete("/observability/failures", { params: { resolved_only: resolvedOnly } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "failures"] });
     },
@@ -1772,7 +1779,7 @@ export function useFailureDetail(id: string) {
   return useQuery<FailureRecord>({
     queryKey: ["observability", "failures", id],
     queryFn: () =>
-      client.get(`/observability/failures/${id}`).then((r) => r.data),
+      apiGet(`/observability/failures/${id}`),
     enabled: !!id,
   });
 }
@@ -1787,7 +1794,7 @@ export function useFailureStats() {
   return useQuery<FailureStats>({
     queryKey: ["observability", "failures", "stats"],
     queryFn: () =>
-      client.get("/observability/failures/stats").then((r) => r.data),
+      apiGet("/observability/failures/stats"),
   });
 }
 
@@ -1801,9 +1808,7 @@ export function useObservabilityKnowledgeGaps(params?: {
   return useQuery<{ gaps: KnowledgeGap[]; total: number }>({
     queryKey: ["observability", "knowledge-gaps", params],
     queryFn: () =>
-      client
-        .get("/observability/knowledge-gaps", { params })
-        .then((r) => r.data),
+      apiGet("/observability/knowledge-gaps", { params }),
   });
 }
 
@@ -1852,7 +1857,7 @@ export function useBulkGapAction() {
       gap_ids: string[];
       action: "resolve" | "reopen" | "purge";
       resolution_note?: string;
-    }) => client.post("/observability/knowledge-gaps/bulk-action", data).then((r) => r.data),
+    }) => apiPost("/observability/knowledge-gaps/bulk-action", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
       qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
@@ -1864,7 +1869,7 @@ export function usePurgeGapsByStatus() {
   const qc = useQueryClient();
   return useMutation<{ deleted: number; status: string }, Error, "resolved" | "reopened" | "open">({
     mutationFn: (status) =>
-      client.delete("/observability/knowledge-gaps", { params: { status } }).then((r) => r.data),
+      apiDelete("/observability/knowledge-gaps", { params: { status } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
       qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
@@ -1884,9 +1889,7 @@ export function useKnowledgeGapStats() {
   return useQuery<KnowledgeGapStats>({
     queryKey: ["observability", "knowledge-gaps", "stats"],
     queryFn: () =>
-      client
-        .get("/observability/knowledge-gaps/stats")
-        .then((r) => r.data),
+      apiGet("/observability/knowledge-gaps/stats"),
   });
 }
 
@@ -1907,7 +1910,7 @@ export function useTraces(params?: {
 }) {
   return useQuery<{ traces: import("../types").TraceRecord[]; total: number }>({
     queryKey: ["traces", params],
-    queryFn: () => client.get("/traces", { params }).then((r) => r.data),
+    queryFn: () => apiGet("/traces", { params }),
     refetchInterval: 15_000,
   });
 }
@@ -1915,7 +1918,7 @@ export function useTraces(params?: {
 export function useTrace(traceId: string) {
   return useQuery<import("../types").TraceRecord>({
     queryKey: ["traces", traceId],
-    queryFn: () => client.get(`/traces/${traceId}`).then((r) => r.data),
+    queryFn: () => apiGet(`/traces/${traceId}`),
     enabled: !!traceId,
   });
 }
@@ -1928,7 +1931,7 @@ export function useTraceChain(traceId: string, limit = 200) {
     chain: import("../types").TraceRecord[];
   }>({
     queryKey: ["traces", traceId, "chain", limit],
-    queryFn: () => client.get(`/traces/${traceId}/chain`, { params: { limit } }).then((r) => r.data),
+    queryFn: () => apiGet(`/traces/${traceId}/chain`, { params: { limit } }),
     enabled: !!traceId,
   });
 }
@@ -1936,7 +1939,7 @@ export function useTraceChain(traceId: string, limit = 200) {
 export function useTraceStats() {
   return useQuery<import("../types").TraceStats>({
     queryKey: ["traces", "stats"],
-    queryFn: () => client.get("/traces/stats").then((r) => r.data),
+    queryFn: () => apiGet("/traces/stats"),
     refetchInterval: 30_000,
   });
 }
@@ -1950,7 +1953,7 @@ export function useAssistantChat() {
     { message: string; context?: string; trace_id?: string; span_index?: number }
   >({
     mutationFn: (data) =>
-      client.post("/assistant/chat", data).then((r) => r.data),
+      apiPost("/assistant/chat", data),
   });
 }
 
@@ -1961,7 +1964,7 @@ export function useSupportAssistantChat() {
     { message: string; context?: string }
   >({
     mutationFn: (data) =>
-      client.post("/assistant/support/chat", data).then((r) => r.data),
+      apiPost("/assistant/support/chat", data),
   });
 }
 
@@ -1974,7 +1977,7 @@ interface SystemConfigData {
 export function useSystemConfig() {
   return useQuery<SystemConfigData>({
     queryKey: ["settings", "config"],
-    queryFn: () => client.get("/settings/config").then((r) => r.data),
+    queryFn: () => apiGet("/settings/config"),
   });
 }
 
@@ -1987,7 +1990,7 @@ export function useConflictGroups(params?: Record<string, unknown>) {
   return useQuery<{ groups: import("../types").ConflictGroup[]; total: number }>({
     queryKey: ["conflict-groups", qs],
     queryFn: () =>
-      client.get(`/pipeline/conflict-groups${qs ? `?${qs}` : ""}`).then((r) => r.data),
+      apiGet(`/pipeline/conflict-groups${qs ? `?${qs}` : ""}`),
     refetchInterval: 30_000,
   });
 }
@@ -2000,7 +2003,7 @@ export function useConflictGroupStats() {
     rejected: number;
   }>({
     queryKey: ["conflict-groups", "stats"],
-    queryFn: () => client.get("/pipeline/conflict-groups/stats").then((r) => r.data),
+    queryFn: () => apiGet("/pipeline/conflict-groups/stats"),
     refetchInterval: 30_000,
   });
 }
@@ -2009,12 +2012,10 @@ export function useReviewConflictGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { id: number; status: string; reviewer_note?: string }) =>
-      client
-        .post(`/pipeline/conflict-groups/${data.id}/review`, {
+      apiPost(`/pipeline/conflict-groups/${data.id}/review`, {
           status: data.status,
           reviewer_note: data.reviewer_note || "",
-        })
-        .then((r) => r.data),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["conflict-groups"] });
     },
@@ -2025,7 +2026,7 @@ export function useDeleteConflictGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.delete(`/pipeline/conflict-groups/${id}`).then((r) => r.data),
+      apiDelete(`/pipeline/conflict-groups/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["conflict-groups"] });
     },
@@ -2037,7 +2038,7 @@ export function useDeleteConflictGroup() {
 export function useIngestionStats() {
   return useQuery<IngestionStats>({
     queryKey: ["ingestion", "stats"],
-    queryFn: () => client.get("/ingestion/stats").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/stats"),
     refetchInterval: 10_000,
   });
 }
@@ -2055,7 +2056,7 @@ export interface HandlerMetadata {
 export function useIngestionHandlers() {
   return useQuery<{ handlers: HandlerMetadata[] }>({
     queryKey: ["ingestion", "handlers"],
-    queryFn: () => client.get("/ingestion/handlers").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/handlers"),
     staleTime: 5 * 60_000,
   });
 }
@@ -2079,7 +2080,7 @@ export interface SchemaSyncResponse {
 export function useSchemaSync() {
   return useQuery<SchemaSyncResponse>({
     queryKey: ["ingestion", "schema-sync"],
-    queryFn: () => client.get("/ingestion/schema-sync").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/schema-sync"),
     refetchInterval: 30_000,
   });
 }
@@ -2088,7 +2089,7 @@ export function useResetContentGraphCatalog() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { confirm: string; reset_queue?: boolean }) =>
-      client.post("/ingestion/graph/reset-catalog", data).then((r) => r.data),
+      apiPost("/ingestion/graph/reset-catalog", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
       qc.invalidateQueries({ queryKey: ["rag"] });
@@ -2099,7 +2100,7 @@ export function useResetContentGraphCatalog() {
 export function useIngestionSources() {
   return useQuery<{ sources: IngestionSource[] }>({
     queryKey: ["ingestion", "sources"],
-    queryFn: () => client.get("/ingestion/sources").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/sources"),
     refetchInterval: 30_000,
   });
 }
@@ -2120,7 +2121,7 @@ export function useCreateIngestionSource() {
       tenant_id?: string | undefined;
       acl_mode?: string;
       acl_groups?: string | undefined;
-    }) => client.post("/ingestion/sources", data).then((r) => r.data),
+    }) => apiPost("/ingestion/sources", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2137,7 +2138,7 @@ export function useIngestionItems(params?: {
 }) {
   return useQuery<{ items: IngestionItem[]; total: number; page: number; page_size: number }>({
     queryKey: ["ingestion", "items", params],
-    queryFn: () => client.get("/ingestion/items", { params }).then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/items", { params }),
     refetchInterval: 15_000,
   });
 }
@@ -2155,7 +2156,7 @@ export function useAddIngestionItem() {
       tags?: string[] | undefined;
       priority?: number;
       config?: Record<string, unknown>;
-    }) => client.post("/ingestion/items", data).then((r) => r.data),
+    }) => apiPost("/ingestion/items", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2176,7 +2177,7 @@ export function useAddIngestionItemsBulk() {
         priority?: number;
         config?: Record<string, unknown>;
       }>;
-    }) => client.post("/ingestion/items/bulk", data).then((r) => r.data),
+    }) => apiPost("/ingestion/items/bulk", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2187,7 +2188,7 @@ export function useDeleteIngestionItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.delete(`/ingestion/items/${id}`).then((r) => r.data),
+      apiDelete(`/ingestion/items/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2198,7 +2199,7 @@ export function useRetryIngestionItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) =>
-      client.post(`/ingestion/items/${id}/retry`).then((r) => r.data),
+      apiPost(`/ingestion/items/${id}/retry`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2222,7 +2223,7 @@ export function usePatchIngestionItem() {
       status?: string | undefined;
     }) => {
       const { itemId, ...body } = data;
-      return client.patch(`/ingestion/items/${itemId}`, body).then((r) => r.data);
+      return apiPatch(`/ingestion/items/${itemId}`, body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
@@ -2234,9 +2235,7 @@ export function useRequeueIngestionItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { itemId: number; reset_retries?: boolean }) =>
-      client
-        .post(`/ingestion/items/${data.itemId}/requeue?reset_retries=${data.reset_retries ?? false}`)
-        .then((r) => r.data),
+      apiPost(`/ingestion/items/${data.itemId}/requeue?reset_retries=${data.reset_retries ?? false}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2295,7 +2294,7 @@ export function useBatchPreflight() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { status_filter?: string; limit?: number; use_llm?: boolean; dry_run?: boolean }) =>
-      client.post("/ingestion/discover/batch", data).then((r) => r.data as { processed: number; flagged: number; errors: number; previews?: DiscoveryResult[] }),
+      apiPost<{ processed: number; flagged: number; errors: number; previews?: DiscoveryResult[] }>("/ingestion/discover/batch", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2305,14 +2304,14 @@ export function useBatchPreflight() {
 export function useDiscoverUrl() {
   return useMutation({
     mutationFn: (data: { url: string; hints?: string; use_llm?: boolean; model_id?: string }) =>
-      client.post("/ingestion/discover", data).then((r) => r.data as DiscoveryResult),
+      apiPost<DiscoveryResult>("/ingestion/discover", data),
   });
 }
 
 export function useDiscoverPreview() {
   return useMutation({
     mutationFn: (data: { url: string; hints?: string }) =>
-      client.post("/ingestion/discover/preview", data).then((r) => r.data as DiscoveryResult),
+      apiPost<DiscoveryResult>("/ingestion/discover/preview", data),
   });
 }
 
@@ -2321,9 +2320,9 @@ export function useBootstrapValidate() {
     mutationFn: (data: { file: File }) => {
       const form = new FormData();
       form.append("file", data.file);
-      return client.post("/ingestion/bootstrap/validate", form, {
+      return apiPost<BootstrapValidationResult>("/ingestion/bootstrap/validate", form, {
         headers: { "Content-Type": "multipart/form-data" },
-      }).then((r) => r.data as BootstrapValidationResult);
+      });
     },
   });
 }
@@ -2331,7 +2330,7 @@ export function useBootstrapValidate() {
 export function useMetadataGuide() {
   return useQuery<MetadataGuide>({
     queryKey: ["ingestion", "metadata-guide"],
-    queryFn: () => client.get("/ingestion/bootstrap/metadata-guide").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/bootstrap/metadata-guide"),
     staleTime: 10 * 60_000,
   });
 }
@@ -2340,12 +2339,10 @@ export function useRerunStagedItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { itemId: number; phase: "all" | "fetch" | "normalize" | "enrich"; reset_retries?: boolean }) =>
-      client
-        .post(`/ingestion/staged/items/${data.itemId}/rerun`, {
+      apiPost(`/ingestion/staged/items/${data.itemId}/rerun`, {
           phase: data.phase,
           reset_retries: data.reset_retries ?? true,
-        })
-        .then((r) => r.data),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2356,7 +2353,7 @@ export function useRecoverStaleIngestionLeases() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { stale_minutes: number }) =>
-      client.post("/ingestion/staged/leases/recover", data).then((r) => r.data),
+      apiPost("/ingestion/staged/leases/recover", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
@@ -2366,7 +2363,7 @@ export function useRecoverStaleIngestionLeases() {
 export function useStagedItemDocuments(itemId: number | null) {
   return useQuery<{ documents: StagedIngestionDocument[] }>({
     queryKey: ["ingestion", "staged-documents", itemId],
-    queryFn: () => client.get(`/ingestion/staged/items/${itemId}/documents`).then((r) => r.data),
+    queryFn: () => apiGet(`/ingestion/staged/items/${itemId}/documents`),
     enabled: typeof itemId === "number" && itemId > 0,
     refetchInterval: 15_000,
   });
@@ -2384,16 +2381,14 @@ export function useEditStagedDocument() {
       tags?: string[];
       config_snapshot?: Record<string, unknown>;
     }) =>
-      client
-        .patch(`/ingestion/staged/documents/${data.documentId}`, {
+      apiPatch(`/ingestion/staged/documents/${data.documentId}`, {
           title: data.title,
           domain: data.domain,
           authority: data.authority,
           origin_type: data.origin_type,
           tags: data.tags,
           config_snapshot: data.config_snapshot,
-        })
-        .then((r) => r.data),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
       qc.invalidateQueries({ queryKey: ["ingestion", "staged-documents"] });
@@ -2404,7 +2399,7 @@ export function useEditStagedDocument() {
 export function useIngestionRuns() {
   return useQuery<{ runs: IngestionRun[] }>({
     queryKey: ["ingestion", "runs"],
-    queryFn: () => client.get("/ingestion/runs").then((r) => r.data),
+    queryFn: () => apiGet("/ingestion/runs"),
     refetchInterval: 15_000,
   });
 }
@@ -2412,7 +2407,7 @@ export function useIngestionRuns() {
 export function useDeleteIngestionRun() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (runId: number) => client.delete(`/ingestion/runs/${runId}`).then((r) => r.data),
+    mutationFn: (runId: number) => apiDelete(`/ingestion/runs/${runId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion", "runs"] });
     },
@@ -2423,14 +2418,12 @@ export function usePurgeIngestionRuns() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { status?: string | undefined; keep_latest?: number }) =>
-      client
-        .delete("/ingestion/runs", {
+      apiDelete("/ingestion/runs", {
           params: {
             status: data.status || undefined,
             keep_latest: data.keep_latest ?? 0,
           },
-        })
-        .then((r) => r.data),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion", "runs"] });
     },
@@ -2439,14 +2432,14 @@ export function usePurgeIngestionRuns() {
 
 export function useBootstrapIngestion() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation<{ added?: number; skipped?: number }, Error, { file: File; status_override?: string }>({
     mutationFn: (data: { file: File; status_override?: string }) => {
       const form = new FormData();
       form.append("file", data.file);
       const params = data.status_override ? `?status_override=${data.status_override}` : "";
-      return client.post(`/ingestion/bootstrap${params}`, form, {
+      return apiPost(`/ingestion/bootstrap${params}`, form, {
         headers: { "Content-Type": "multipart/form-data" },
-      }).then((r) => r.data);
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
@@ -2491,7 +2484,7 @@ export interface UsageSummary {
 export function useUsageSeries(sinceHours = 24) {
   return useQuery<UsageTimeSeriesEntry[]>({
     queryKey: ["usage", "series", sinceHours],
-    queryFn: () => client.get(`/usage?since_hours=${sinceHours}`).then((r) => r.data),
+    queryFn: () => apiGet(`/usage?since_hours=${sinceHours}`),
     refetchInterval: 60_000,
   });
 }
@@ -2499,7 +2492,7 @@ export function useUsageSeries(sinceHours = 24) {
 export function useUsageSummary(sinceHours = 24) {
   return useQuery<UsageSummary>({
     queryKey: ["usage", "summary", sinceHours],
-    queryFn: () => client.get(`/usage/summary?since_hours=${sinceHours}`).then((r) => r.data),
+    queryFn: () => apiGet(`/usage/summary?since_hours=${sinceHours}`),
     refetchInterval: 60_000,
   });
 }
@@ -2508,7 +2501,7 @@ export function useUsageSummary(sinceHours = 24) {
 export function useUsageMeSummary(sinceHours = 24) {
   return useQuery<AccountUsageSummary & { period_hours: number; price_basis: string }>({
     queryKey: ["usage", "me-summary", sinceHours],
-    queryFn: () => client.get(`/usage/me/summary?since_hours=${sinceHours}`).then((r) => r.data),
+    queryFn: () => apiGet(`/usage/me/summary?since_hours=${sinceHours}`),
     refetchInterval: 60_000,
   });
 }
@@ -2516,7 +2509,7 @@ export function useUsageMeSummary(sinceHours = 24) {
 export function useUsageMeSeries(sinceHours = 24) {
   return useQuery<AccountUsageSeriesEntry[]>({
     queryKey: ["usage", "me-series", sinceHours],
-    queryFn: () => client.get(`/usage/me/series?since_hours=${sinceHours}`).then((r) => r.data),
+    queryFn: () => apiGet(`/usage/me/series?since_hours=${sinceHours}`),
     refetchInterval: 60_000,
   });
 }
@@ -2525,9 +2518,7 @@ export function useUsageMeDashboard(sinceHours = 24) {
   return useQuery<AccountUsageDashboard>({
     queryKey: ["usage", "me-dashboard", sinceHours],
     queryFn: () =>
-      client
-        .get("/usage/me/dashboard", { params: { since_hours: sinceHours } })
-        .then((r) => r.data),
+      apiGet("/usage/me/dashboard", { params: { since_hours: sinceHours } }),
     refetchInterval: 60_000,
   });
 }
@@ -2536,9 +2527,7 @@ export function useUsageMeRequests(sinceHours = 720, limit = 50, offset = 0) {
   return useQuery<UsageAuditResponse>({
     queryKey: ["usage", "me-requests", sinceHours, limit, offset],
     queryFn: () =>
-      client
-        .get("/usage/me/requests", { params: { since_hours: sinceHours, limit, offset } })
-        .then((r) => r.data),
+      apiGet("/usage/me/requests", { params: { since_hours: sinceHours, limit, offset } }),
     refetchInterval: 60_000,
   });
 }
@@ -2546,7 +2535,7 @@ export function useUsageMeRequests(sinceHours = 720, limit = 50, offset = 0) {
 export function useUsageMeRequest(requestId: string | undefined) {
   return useQuery<UsageAuditRequest>({
     queryKey: ["usage", "me-request", requestId],
-    queryFn: () => client.get(`/usage/me/requests/${requestId}`).then((r) => r.data),
+    queryFn: () => apiGet(`/usage/me/requests/${requestId}`),
     enabled: Boolean(requestId),
   });
 }
@@ -3010,7 +2999,7 @@ export function useYarnOverview(sinceHours: number) {
   return useQuery<YarnOverview>({
     queryKey: ["yarn", "overview", sinceHours],
     queryFn: () =>
-      client.get("/yarn/overview", { params: { since_hours: sinceHours } }).then((r) => r.data),
+      apiGet("/yarn/overview", { params: { since_hours: sinceHours } }),
     refetchInterval: 60_000,
   });
 }
@@ -3018,7 +3007,7 @@ export function useYarnOverview(sinceHours: number) {
 export function useUserRuntimePreferences(enabled = true) {
   return useQuery<UserRuntimePreferencesResponse>({
     queryKey: ["yarn", "runtime-preferences"],
-    queryFn: () => client.get("/yarn/runtime-preferences").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/runtime-preferences"),
     placeholderData: keepPreviousData,
     enabled,
   });
@@ -3026,9 +3015,9 @@ export function useUserRuntimePreferences(enabled = true) {
 
 export function useUpdateUserRuntimePreferences() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation<UserRuntimePreferencesResponse, Error, UserRuntimePreferences>({
     mutationFn: (data: UserRuntimePreferences) =>
-      client.put("/yarn/runtime-preferences", data).then((r) => r.data),
+      apiPut("/yarn/runtime-preferences", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["yarn", "runtime-preferences"] });
     },
@@ -3039,11 +3028,9 @@ export function useYarnPerformance(sinceHours: number, bucketMinutes = 15) {
   return useQuery<YarnPerformanceBucket[]>({
     queryKey: ["yarn", "performance", sinceHours, bucketMinutes],
     queryFn: () =>
-      client
-        .get("/yarn/performance", {
+      apiGet("/yarn/performance", {
           params: { since_hours: sinceHours, bucket_minutes: bucketMinutes },
-        })
-        .then((r) => r.data),
+        }),
     refetchInterval: 60_000,
   });
 }
@@ -3052,7 +3039,7 @@ export function useYarnIntelligence(sinceHours: number) {
   return useQuery<YarnIntelligence>({
     queryKey: ["yarn", "intelligence", sinceHours],
     queryFn: () =>
-      client.get("/yarn/intelligence", { params: { since_hours: sinceHours } }).then((r) => r.data),
+      apiGet("/yarn/intelligence", { params: { since_hours: sinceHours } }),
     refetchInterval: 60_000,
   });
 }
@@ -3060,21 +3047,21 @@ export function useYarnIntelligence(sinceHours: number) {
 export function useYarnOptimizationWatcher() {
   return useQuery<YarnOptimizationWatcher>({
     queryKey: ["yarn", "optimization-watcher"],
-    queryFn: () => client.get("/yarn/optimization-watcher").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/optimization-watcher"),
     refetchInterval: 60_000,
   });
 }
 
 export function useYarnOptimizationAssist() {
   return useMutation<YarnOptimizationWatcher, Error, { focus?: string }>({
-    mutationFn: (data) => client.post("/yarn/optimization-watcher/assist", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/yarn/optimization-watcher/assist", data),
   });
 }
 
 export function useYarnModelArchitectureDiagnostics() {
   return useQuery<YarnModelArchitectureDiagnostics>({
     queryKey: ["yarn", "model-architecture"],
-    queryFn: () => client.get("/yarn/model-architecture").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/model-architecture"),
     refetchInterval: 60_000,
   });
 }
@@ -3083,11 +3070,9 @@ export function useYarnTransitionQualityTelemetry(sinceHours: number, bucketMinu
   return useQuery<YarnTransitionQualityTelemetry>({
     queryKey: ["yarn", "transition-quality", sinceHours, bucketMinutes],
     queryFn: () =>
-      client
-        .get("/yarn/transition-quality", {
+      apiGet("/yarn/transition-quality", {
           params: { since_hours: sinceHours, bucket_minutes: bucketMinutes },
-        })
-        .then((r) => r.data),
+        }),
     refetchInterval: 60_000,
   });
 }
@@ -3095,7 +3080,7 @@ export function useYarnTransitionQualityTelemetry(sinceHours: number, bucketMinu
 export function useYarnRuntimeTelemetry() {
   return useQuery<YarnRuntimeTelemetry>({
     queryKey: ["yarn", "runtime-telemetry"],
-    queryFn: () => client.get("/yarn/runtime-telemetry").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/runtime-telemetry"),
     refetchInterval: 30_000,
   });
 }
@@ -3156,9 +3141,7 @@ export function useYarnReducerTelemetryHistory(sinceHours: number) {
   return useQuery<YarnReducerTelemetryHistory>({
     queryKey: ["yarn", "reducer-telemetry-history", sinceHours],
     queryFn: () =>
-      client
-        .get("/yarn/reducer-telemetry-history", { params: { since_hours: sinceHours } })
-        .then((r) => r.data),
+      apiGet("/yarn/reducer-telemetry-history", { params: { since_hours: sinceHours } }),
     refetchInterval: 60_000,
   });
 }
@@ -3167,9 +3150,7 @@ export function useYarnSessions(page: number, pageSize: number, activeSinceHours
   return useQuery<{ sessions: YarnSessionRow[]; total: number }>({
     queryKey: ["yarn", "sessions", page, pageSize, activeSinceHours],
     queryFn: () =>
-      client
-        .get("/yarn/sessions", { params: { page, page_size: pageSize, active_since_hours: activeSinceHours } })
-        .then((r) => r.data),
+      apiGet("/yarn/sessions", { params: { page, page_size: pageSize, active_since_hours: activeSinceHours } }),
     placeholderData: keepPreviousData,
   });
 }
@@ -3178,7 +3159,7 @@ export function useYarnSessionDetail(sessionKey: string | undefined) {
   return useQuery<YarnSessionDetailResponse>({
     queryKey: ["yarn", "session", sessionKey],
     queryFn: () =>
-      client.get(`/yarn/sessions/${encodeURIComponent(sessionKey!)}`).then((r) => r.data),
+      apiGet(`/yarn/sessions/${encodeURIComponent(sessionKey!)}`),
     enabled: Boolean(sessionKey),
   });
 }
@@ -3208,7 +3189,7 @@ export function useYarnSessionsPurge() {
     { older_than_days: number; session_key_prefix?: string; dry_run: boolean; archive_before_delete?: boolean }
   >({
     mutationFn: (params) =>
-      client.post("/yarn/sessions/purge", null, { params }).then((r) => r.data),
+      apiPost("/yarn/sessions/purge", null, { params }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["yarn"] });
     },
@@ -3228,7 +3209,7 @@ export function useYarnSessionsArchive() {
       delete_after_archive?: boolean;
     }
   >({
-    mutationFn: (data) => client.post("/yarn/sessions/archive", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/yarn/sessions/archive", data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["yarn"] });
     },
@@ -3243,7 +3224,7 @@ export function useYarnSessionsBulkDelete() {
     string[]
   >({
     mutationFn: (sessionKeys) =>
-      client.post("/yarn/sessions/bulk-delete", { session_keys: sessionKeys }).then((r) => r.data),
+      apiPost("/yarn/sessions/bulk-delete", { session_keys: sessionKeys }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["yarn"] });
     },
@@ -3259,16 +3240,14 @@ export function useYarnEvents(
   return useQuery<{ events: YarnEventRow[]; total: number }>({
     queryKey: ["yarn", "events", page, pageSize, sinceHours, errorsOnly],
     queryFn: () =>
-      client
-        .get("/yarn/events", {
+      apiGet("/yarn/events", {
           params: {
             page,
             page_size: pageSize,
             since_hours: sinceHours,
             errors_only: errorsOnly,
           },
-        })
-        .then((r) => r.data),
+        }),
     placeholderData: keepPreviousData,
   });
 }
@@ -3276,7 +3255,7 @@ export function useYarnEvents(
 export function useYarnHealth() {
   return useQuery<YarnHealthResult>({
     queryKey: ["yarn", "health"],
-    queryFn: () => client.get("/yarn/health").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/health"),
     refetchInterval: 30_000,
   });
 }
@@ -3284,7 +3263,7 @@ export function useYarnHealth() {
 export function useYarnVerify() {
   const qc = useQueryClient();
   return useMutation<YarnVerifyResult>({
-    mutationFn: () => client.post("/yarn/verify").then((r) => r.data),
+    mutationFn: () => apiPost("/yarn/verify"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["yarn", "health"] });
     },
@@ -3313,9 +3292,7 @@ export function useYarnUserUsage(sinceHours = 720) {
   return useQuery<YarnUserUsage>({
     queryKey: ["yarn", "user-usage", sinceHours],
     queryFn: () =>
-      client
-        .get("/yarn/user-usage", { params: { since_hours: sinceHours } })
-        .then((r) => r.data),
+      apiGet("/yarn/user-usage", { params: { since_hours: sinceHours } }),
     refetchInterval: 120_000,
   });
 }
@@ -3370,7 +3347,7 @@ export function useSecurityEvents(params: {
   return useQuery<{ events: SecurityEventRow[] }>({
     queryKey: ["security", "events", params],
     queryFn: () =>
-      client.get("/security/events", { params }).then((r) => r.data),
+      apiGet("/security/events", { params }),
     refetchInterval: 30_000,
   });
 }
@@ -3379,9 +3356,7 @@ export function useSecuritySummary(sinceHours: number) {
   return useQuery<SecuritySummary>({
     queryKey: ["security", "summary", sinceHours],
     queryFn: () =>
-      client
-        .get("/security/summary", { params: { since_hours: sinceHours } })
-        .then((r) => r.data),
+      apiGet("/security/summary", { params: { since_hours: sinceHours } }),
     refetchInterval: 30_000,
   });
 }
@@ -3394,9 +3369,7 @@ export function useResolveSecurityEvent() {
     { event_id: string; action: string; reason: string }
   >({
     mutationFn: ({ event_id, ...body }) =>
-      client
-        .post(`/security/events/${event_id}/resolve`, body)
-        .then((r) => r.data),
+      apiPost(`/security/events/${event_id}/resolve`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["security"] });
     },
@@ -3428,7 +3401,7 @@ export interface AuthzStatus {
 export function useAuthzStatus() {
   return useQuery<AuthzStatus>({
     queryKey: ["authz", "status"],
-    queryFn: () => client.get("/authz/status").then((r) => r.data),
+    queryFn: () => apiGet("/authz/status"),
     refetchInterval: 15_000,
   });
 }
@@ -3443,7 +3416,7 @@ export interface AuthzTuple {
 export function useAuthzTuples(filters: { user?: string; relation?: string; object?: string }) {
   return useQuery<{ tuples: AuthzTuple[]; count: number }>({
     queryKey: ["authz", "tuples", filters],
-    queryFn: () => client.get("/authz/tuples", { params: filters }).then((r) => r.data),
+    queryFn: () => apiGet("/authz/tuples", { params: filters }),
   });
 }
 
@@ -3451,7 +3424,7 @@ export function useWriteAuthzTuple() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { user: string; relation: string; object: string }) =>
-      client.post("/authz/tuples", data).then((r) => r.data),
+      apiPost("/authz/tuples", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["authz"] });
     },
@@ -3462,7 +3435,7 @@ export function useDeleteAuthzTuple() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { user: string; relation: string; object: string }) =>
-      client.delete("/authz/tuples", { data }).then((r) => r.data),
+      apiDelete("/authz/tuples", { data }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["authz"] });
     },
@@ -3478,7 +3451,7 @@ export interface AuthzCheckResult {
 
 export function useRunAuthzCheck() {
   return useMutation<AuthzCheckResult, Error, { user: string; relation: string; object: string }>({
-    mutationFn: (data) => client.post("/authz/check", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/authz/check", data),
   });
 }
 
@@ -3492,7 +3465,7 @@ export interface AuthzUserPermissions {
 export function useAuthzUserPermissions(userId: string) {
   return useQuery<AuthzUserPermissions>({
     queryKey: ["authz", "user-permissions", userId],
-    queryFn: () => client.get(`/authz/user-permissions/${userId}`).then((r) => r.data),
+    queryFn: () => apiGet(`/authz/user-permissions/${userId}`),
     enabled: !!userId,
   });
 }
@@ -3505,7 +3478,7 @@ export interface AuthzSchemaType {
 export function useAuthzSchemaTypes() {
   return useQuery<{ types: AuthzSchemaType[]; model_id: string | null }>({
     queryKey: ["authz", "schema-types"],
-    queryFn: () => client.get("/authz/schema-types").then((r) => r.data),
+    queryFn: () => apiGet("/authz/schema-types"),
     staleTime: 60_000,
   });
 }
@@ -3528,7 +3501,7 @@ export interface PolicyRule {
 export function useModelPolicies() {
   return useQuery<{ policies: Record<string, PolicyRule[]> }>({
     queryKey: ["models", "policies"],
-    queryFn: () => client.get("/models/policies").then((r) => r.data),
+    queryFn: () => apiGet("/models/policies"),
     refetchInterval: 30_000,
   });
 }
@@ -3536,7 +3509,7 @@ export function useModelPolicies() {
 export function useRolePolicies(role: string) {
   return useQuery<{ role: string; rules: PolicyRule[]; preview: Record<string, string> }>({
     queryKey: ["models", "policies", role],
-    queryFn: () => client.get(`/models/policies/${role}`).then((r) => r.data),
+    queryFn: () => apiGet(`/models/policies/${role}`),
     enabled: !!role,
   });
 }
@@ -3545,7 +3518,7 @@ export function useSaveRolePolicies() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ role, rules }: { role: string; rules: Omit<PolicyRule, "id">[] }) =>
-      client.put(`/models/policies/${role}`, rules).then((r) => r.data),
+      apiPut(`/models/policies/${role}`, rules),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "policies"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "graph"] });
@@ -3558,7 +3531,7 @@ export function useDeleteRolePolicies() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (role: string) =>
-      client.delete(`/models/policies/${role}`).then((r) => r.data),
+      apiDelete(`/models/policies/${role}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "policies"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "graph"] });
@@ -3604,7 +3577,7 @@ export interface EffortRecommendationPreviewResponse {
 
 export function useEffortRecommendationPreview() {
   return useMutation<EffortRecommendationPreviewResponse, Error, EffortRecommendationPreviewRequest>({
-    mutationFn: (data) => client.post("/models/effort/recommend", data).then((r) => r.data),
+    mutationFn: (data) => apiPost("/models/effort/recommend", data),
   });
 }
 
@@ -3627,7 +3600,7 @@ export interface LanguagePackConformance {
 export function useYarnLanguagePacks() {
   return useQuery<{ languagePacks: LanguagePackConformance[] }>({
     queryKey: ["yarn", "language-packs"],
-    queryFn: () => client.get("/yarn/language-packs").then((r) => r.data),
+    queryFn: () => apiGet("/yarn/language-packs"),
     refetchInterval: 60_000,
   });
 }
@@ -3640,9 +3613,7 @@ export function useCapabilityMatrix(orgId?: string) {
   return useQuery<CapabilityMatrixEffective>({
     queryKey: [...CAPABILITY_MATRIX_QUERY_KEY, orgId ?? "platform"],
     queryFn: () =>
-      client
-        .get("/governance/capability-matrix/effective", { params: orgId ? { org_id: orgId } : undefined })
-        .then((r) => r.data),
+      apiGet("/governance/capability-matrix/effective", { params: orgId ? { org_id: orgId } : undefined }),
     refetchInterval: 30_000,
   });
 }
@@ -3654,7 +3625,7 @@ export function useUpdateCapabilityMatrixGlobal() {
       mode: "enforced" | "shadow";
       global_optimizations_enabled: boolean;
       org_id?: string;
-    }) => client.put("/governance/capability-matrix/global", payload).then((r) => r.data),
+    }) => apiPut("/governance/capability-matrix/global", payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -3678,7 +3649,7 @@ export function useCreateCapabilityMatrixOverride() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: CapabilityMatrixOverrideUpsertInput) =>
-      client.post("/governance/capability-matrix/overrides", payload).then((r) => r.data),
+      apiPost("/governance/capability-matrix/overrides", payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -3690,7 +3661,7 @@ export function useUpdateCapabilityMatrixOverride() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ policyId, ...payload }: CapabilityMatrixOverrideUpsertInput & { policyId: string }) =>
-      client.put(`/governance/capability-matrix/overrides/${policyId}`, payload).then((r) => r.data),
+      apiPut(`/governance/capability-matrix/overrides/${policyId}`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
@@ -3702,7 +3673,7 @@ export function useDeleteCapabilityMatrixOverride() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (policyId: string) =>
-      client.delete(`/governance/capability-matrix/overrides/${policyId}`).then((r) => r.data),
+      apiDelete(`/governance/capability-matrix/overrides/${policyId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CAPABILITY_MATRIX_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["audit"] });
