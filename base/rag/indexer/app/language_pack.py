@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -4445,6 +4445,20 @@ def _clone_aux_sources(config: dict[str, Any], source_root: Path, sources_lock: 
     sources_lock["aux_sources"] = aux_locks
 
 
+LanguageChunkExtractor = Callable[..., list[LanguageChunk]]
+
+LANGUAGE_CHUNK_EXTRACTORS: dict[str, LanguageChunkExtractor] = {
+    "go": extract_go_chunks,
+    "rust": extract_rust_chunks,
+    "python": extract_python_chunks,
+    "godot": extract_godot_chunks,
+    "terraform": extract_terraform_chunks,
+    "ecma": extract_ecma_chunks,
+    "bash": extract_bash_chunks,
+    "quarkus": extract_quarkus_chunks,
+}
+
+
 def _extract_chunks_for_language(
     language: str,
     source_root: Path,
@@ -4453,21 +4467,10 @@ def _extract_chunks_for_language(
     tag: str,
     provider_schema: str | Path = "",
 ) -> list[LanguageChunk]:
-    if language == "go":
-        return extract_go_chunks(source_root, config=config, tag=tag)
-    if language == "rust":
-        return extract_rust_chunks(source_root, config=config, tag=tag)
-    if language == "python":
-        return extract_python_chunks(source_root, config=config, tag=tag)
-    if language == "godot":
-        return extract_godot_chunks(source_root, config=config, tag=tag)
+    extractor = LANGUAGE_CHUNK_EXTRACTORS.get(language, LANGUAGE_CHUNK_EXTRACTORS["quarkus"])
     if language == "terraform":
-        return extract_terraform_chunks(source_root, config=config, tag=tag, provider_schema=provider_schema)
-    if language == "ecma":
-        return extract_ecma_chunks(source_root, config=config, tag=tag)
-    if language == "bash":
-        return extract_bash_chunks(source_root, config=config, tag=tag)
-    return extract_quarkus_chunks(source_root, config=config, tag=tag)
+        return extractor(source_root, config=config, tag=tag, provider_schema=provider_schema)
+    return extractor(source_root, config=config, tag=tag)
 
 
 def _language_pack_manifest_base(

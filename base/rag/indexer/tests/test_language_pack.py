@@ -68,6 +68,50 @@ def test_shared_synpack_v2_append_requests_context_card_fields():
         assert term in append
 
 
+def test_extract_chunks_for_language_dispatches_by_table(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    calls: list[tuple[str, Path, dict[str, object], str, str | Path]] = []
+
+    def fake_extractor(name: str):
+        def _extract(
+            source_root: Path,
+            *,
+            config: dict[str, object],
+            tag: str,
+            provider_schema: str | Path = "",
+        ) -> list[language_pack.LanguageChunk]:
+            calls.append((name, source_root, config, tag, provider_schema))
+            return [
+                language_pack.LanguageChunk(
+                    text=name,
+                    doc_id=name,
+                    chunk_index=0,
+                    document_name=name,
+                )
+            ]
+
+        return _extract
+
+    for language in language_pack.SUPPORTED_LANGUAGE_PACKS:
+        monkeypatch.setitem(language_pack.LANGUAGE_CHUNK_EXTRACTORS, language, fake_extractor(language))
+
+    config = {"pack": "test"}
+    for language in language_pack.SUPPORTED_LANGUAGE_PACKS:
+        chunks = language_pack._extract_chunks_for_language(
+            language,
+            tmp_path,
+            config=config,
+            tag="v1",
+            provider_schema="schema.json",
+        )
+        assert chunks[0].document_name == language
+
+    assert ("terraform", tmp_path, config, "v1", "schema.json") in calls
+    assert ("go", tmp_path, config, "v1", "") in calls
+
+    chunks = language_pack._extract_chunks_for_language("unknown", tmp_path, config=config, tag="v1")
+    assert chunks[0].document_name == "quarkus"
+
+
 def test_go_tag_parser_accepts_stable_and_rejects_prerelease():
     assert parse_go_stable_tag("go1.26.2") == (1, 26, 2)
     assert parse_go_stable_tag("go1.27rc1") is None
