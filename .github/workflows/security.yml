@@ -163,6 +163,13 @@ jobs:
               --ignore-vuln CVE-2025-3000
             )
           fi
+          # indexer: nltk has no fixed PyPI version for CVE-2026-54293.
+          # See .github/SECURITY.md — remove when a patched release exists.
+          if [ "${{ matrix.name }}" = "indexer" ]; then
+            ignore_args+=(
+              --ignore-vuln CVE-2026-54293
+            )
+          fi
           uvx pip-audit \
             -r "${{ matrix.dir }}/requirements.lock" \
             --disable-pip \

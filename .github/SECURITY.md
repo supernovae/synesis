@@ -67,6 +67,7 @@ Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.checkov.
 The **Security Scan** workflow applies narrow **pip-audit `ignore-vuln` entries only to the affected matrix jobs** when OSV reports an advisory against the current locked package but does not provide a fixed PyPI version. These are not global suppressions.
 
 - **base-ml and gliner-service / torch**: locked to current `torch==2.12.0` and `transformers==5.11.0`. OSV currently reports `CVE-2025-3000` against `torch==2.12.0` with no fixed PyPI version. These images are ML runtime images; downgrade would not reduce risk without a known fixed release. Remove the ignore when a patched release becomes available.
+- **indexer / nltk**: locked to current `nltk==3.9.4`. OSV currently reports `CVE-2026-54293` with no fixed PyPI version. Remove the ignore when a patched release becomes available.
 
 ### Python dependency lockfiles and hash verification
 
