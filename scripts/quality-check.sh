@@ -62,7 +62,6 @@ run python3 scripts/check-doc-reference-integrity.py
 if [ "$mode" = "--full" ]; then
     run npm run build -w packages/synesis-telemetry
     run npm run build -w packages/synesis-context-trust
-    run npm run build -w packages/synesis-manifest
     run npm run build -w packages/synesis-mcp-tools
     run npm run build -w packages/synesis-upper-harness
     run npm run typecheck -w base/yarn-ts

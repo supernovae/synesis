@@ -133,7 +133,6 @@ jobs:
           npm run build -w packages/synesis-context-trust
           npm run build -w packages/synesis-auth-contracts
           npm run build -w packages/synesis-oidc-auth
-          npm run build -w packages/synesis-manifest
           npm run build -w packages/synesis-mcp-tools
           npm run build -w packages/synesis-upper-harness
 
@@ -246,7 +245,6 @@ jobs:
           npm run build -w packages/synesis-telemetry
           npm run build -w packages/synesis-context-trust
           npm run build -w packages/synesis-auth-contracts
-          npm run build -w packages/synesis-manifest
           npm run build -w packages/synesis-upper-harness
 
       - name: Unit tests

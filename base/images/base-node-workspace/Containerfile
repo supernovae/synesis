@@ -11,7 +11,6 @@ WORKDIR /opt/app-root/src
 COPY package.json package-lock.json ./
 COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
-COPY packages/synesis-manifest/package.json packages/synesis-manifest/
 COPY packages/synesis-mcp/package.json packages/synesis-mcp/
 COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/
 COPY packages/synesis-oidc-auth/package.json packages/synesis-oidc-auth/
@@ -36,10 +35,6 @@ RUN npm run build --workspace=packages/synesis-auth-contracts
 COPY packages/synesis-context-trust/tsconfig.json packages/synesis-context-trust/
 COPY packages/synesis-context-trust/src packages/synesis-context-trust/src
 RUN npm run build --workspace=packages/synesis-context-trust
-
-COPY packages/synesis-manifest/tsconfig.json packages/synesis-manifest/
-COPY packages/synesis-manifest/src packages/synesis-manifest/src
-RUN npm run build --workspace=packages/synesis-manifest
 
 COPY packages/synesis-mcp-tools/tsconfig.json packages/synesis-mcp-tools/
 COPY packages/synesis-mcp-tools/src packages/synesis-mcp-tools/src

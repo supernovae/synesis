@@ -149,7 +149,6 @@ jobs:
               - 'packages/synesis-context-trust/**'
               - 'packages/synesis-auth-contracts/**'
               - 'packages/synesis-oidc-auth/**'
-              - 'packages/synesis-manifest/**'
               - 'packages/synesis-mcp-tools/**'
               - 'packages/synesis-upper-harness/**'
               - 'package.json'
