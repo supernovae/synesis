@@ -49,7 +49,7 @@
     "governor:loop": "tsx scripts/dual-agent-loop.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.26.0",
+    "@agentclientprotocol/sdk": "^1.0.0",
     "@ai-sdk/openai": "^3.0.74",
     "@fastify/rate-limit": "^11.0.0",
     "@openfga/sdk": "0.9.6",
