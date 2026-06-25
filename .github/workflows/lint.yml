@@ -14,7 +14,7 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
@@ -33,7 +33,7 @@ jobs:
     name: Python (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -47,7 +47,7 @@ jobs:
     name: YAML Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -58,7 +58,7 @@ jobs:
     name: Docs Reference Integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Validate doc and rule references
         run: python3 scripts/check-doc-reference-integrity.py
@@ -67,7 +67,7 @@ jobs:
     name: Auth/Authz Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Verify admin and MCP routes declare auth
         run: python3 scripts/check-authz-coverage.py
@@ -79,7 +79,7 @@ jobs:
       matrix:
         overlay: [api, model, dev-models, dev-webui, jobs, jobs-prod, jobs-staging]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install kustomize
         run: |
@@ -95,7 +95,7 @@ jobs:
     name: Admin tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -117,7 +117,7 @@ jobs:
     name: Yarn-TS typecheck + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -151,7 +151,7 @@ jobs:
     name: Synesis MCP typecheck + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -183,7 +183,7 @@ jobs:
     name: Admin MCP-TS typecheck + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -205,7 +205,7 @@ jobs:
     name: Admin frontend lint + build + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -231,7 +231,7 @@ jobs:
     name: Planner-TS typecheck + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -258,7 +258,7 @@ jobs:
     name: Dockerfile Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install hadolint
         run: |

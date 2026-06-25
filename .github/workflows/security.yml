@@ -20,7 +20,7 @@ jobs:
       matrix:
         language: [python, javascript-typescript]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -43,7 +43,7 @@ jobs:
     name: Checkov IaC Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run Checkov (SARIF report)
         uses: bridgecrewio/checkov-action@v12
@@ -76,7 +76,7 @@ jobs:
     name: Grype Vulnerability Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Scan filesystem for vulnerabilities
         uses: anchore/scan-action@v7
@@ -98,7 +98,7 @@ jobs:
     name: Bandit (Python Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -144,7 +144,7 @@ jobs:
           - name: gliner-service
             dir: base/rag/gliner-service
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -182,7 +182,7 @@ jobs:
     name: Semgrep (Python/OWASP Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -235,7 +235,7 @@ jobs:
           - name: vision-worker
             dir: base/vision-worker
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -264,7 +264,7 @@ jobs:
     name: Semgrep (JS/TS/React Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -302,7 +302,7 @@ jobs:
     name: Semgrep (Planner/Yarn TypeScript Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
@@ -341,7 +341,7 @@ jobs:
     name: Supply-Chain IOC Guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
 
       - name: Check Helm production defaults fail closed
@@ -438,7 +438,7 @@ jobs:
     name: Lockfile Freshness Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

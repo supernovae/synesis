@@ -87,7 +87,7 @@ jobs:
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Detect changed paths
         uses: dorny/paths-filter@v4
@@ -212,7 +212,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-qemu-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -272,7 +272,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-qemu-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -338,7 +338,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -409,7 +409,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.filter.outputs.skip != 'true'
       - uses: docker/setup-qemu-action@v4
         if: steps.filter.outputs.skip != 'true'
@@ -623,7 +623,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.check.outputs.skip != 'true'
       - uses: docker/setup-qemu-action@v4
         if: steps.check.outputs.skip != 'true'

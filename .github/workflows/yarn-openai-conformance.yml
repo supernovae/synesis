@@ -35,7 +35,7 @@ jobs:
     name: OpenAI conformance (static contract)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -67,7 +67,7 @@ jobs:
       run:
         working-directory: base/yarn-ts
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
