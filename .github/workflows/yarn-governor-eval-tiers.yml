@@ -107,7 +107,7 @@ jobs:
           npm run ci:governor:prerelease
 
       - name: Restore main scorecard history cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-main.json
           key: harness-scorecard-history-main-${{ github.run_id }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: Save main scorecard history cache
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-main.json
           key: harness-scorecard-history-main-${{ github.run_id }}
@@ -202,7 +202,7 @@ jobs:
           npm run ci:governor:nightly
 
       - name: Restore nightly scorecard history cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-nightly.json
           key: harness-scorecard-history-nightly-${{ github.run_id }}
@@ -229,7 +229,7 @@ jobs:
 
       - name: Save nightly scorecard history cache
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-nightly.json
           key: harness-scorecard-history-nightly-${{ github.run_id }}
@@ -295,7 +295,7 @@ jobs:
           npm run ci:governor:prerelease
 
       - name: Restore release scorecard history cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-release.json
           key: harness-scorecard-history-release-${{ github.run_id }}
@@ -323,7 +323,7 @@ jobs:
 
       - name: Save release scorecard history cache
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: base/yarn-ts/harness-scorecard-history-release.json
           key: harness-scorecard-history-release-${{ github.run_id }}
