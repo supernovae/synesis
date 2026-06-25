@@ -15,7 +15,7 @@
     "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.73",
+    "@ai-sdk/openai": "^3.0.74",
     "@fastify/rate-limit": "^11.0.0",
     "@openfga/sdk": "0.9.6",
     "@opentelemetry/api": "^1.9.1",
@@ -28,11 +28,11 @@
     "@synesis/context-trust": "*",
     "@synesis/telemetry": "*",
     "@synesis/upper-harness": "*",
-    "ai": "^6.0.208",
+    "ai": "^6.0.209",
     "fastify": "^5.8.5",
     "ioredis": "^5.11.1",
     "neo4j-driver": "^6.1.0",
-    "pg": "^8.21.0",
+    "pg": "^8.22.0",
     "prom-client": "^15.1.3",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
