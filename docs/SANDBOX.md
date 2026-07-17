@@ -75,8 +75,8 @@ By default, the sandbox creates a new Kubernetes Job per code execution. Job sch
 |---------|---------|-------------|
 | `SANDBOX_WARM_POOL_ENABLED` | `true` | Enable/disable warm pool (falls back to Jobs when disabled) |
 | `SANDBOX_WARM_POOL_URL` | `http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080` | Warm pool Service URL |
-| `WARM_AUTH_SECRET` | From `synesis-internal-service-auth` | Enables HMAC-signed `POST /execute` requests; empty means dev-mode auth disabled |
-| `SYNESIS_SANDBOX_WARM_POOL_SECRET` | From `synesis-internal-service-auth` | Planner-side signing secret for warm-pool requests |
+| `WARM_AUTH_SECRET` | From `synesis-internal-service-auth` | Required HMAC secret; the server refuses to start when absent |
+| `SYNESIS_SANDBOX_SECRET` | From `synesis-internal-service-auth` | Yarn-side secret used with a one-time `/auth/challenge` nonce for every execution |
 
 **Replica Tuning by Environment:**
 

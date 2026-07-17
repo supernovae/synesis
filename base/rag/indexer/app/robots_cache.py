@@ -9,7 +9,7 @@ import urllib.robotparser
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-import httpx
+from .safe_http import get_public_https, validate_public_https_url
 
 logger = logging.getLogger("synesis.indexer.robots")
 
@@ -60,14 +60,17 @@ def fetch_robots_info(seed_url: str, *, timeout: float = 20.0) -> RobotsInfo:
     sitemap_urls: list[str] = []
     failed = False
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            r = client.get(robots_url, headers={"User-Agent": DEFAULT_USER_AGENT})
-            if r.status_code == 200 and r.text:
-                lines = r.text.splitlines()
-                rp.parse(lines)
-                sitemap_urls = _parse_sitemap_lines(r.text)
-            else:
-                rp.parse([])
+        r = get_public_https(robots_url, timeout=timeout, headers={"User-Agent": DEFAULT_USER_AGENT})
+        if r.status_code == 200 and r.text:
+            lines = r.text.splitlines()
+            rp.parse(lines)
+            for candidate in _parse_sitemap_lines(r.text):
+                try:
+                    sitemap_urls.append(validate_public_https_url(candidate))
+                except ValueError:
+                    logger.debug("robots_sitemap_url_blocked url=%s", candidate)
+        else:
+            rp.parse([])
     except Exception as e:
         logger.debug("robots_fetch_failed url=%s err=%s", robots_url, e)
         rp.parse([])

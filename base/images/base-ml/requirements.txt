@@ -1,3 +1,4 @@
 torch>=2.0.0
+setuptools>=83
 transformers>=4.40.0
 pygments>=2.20.0

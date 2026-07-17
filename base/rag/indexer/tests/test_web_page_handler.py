@@ -9,6 +9,11 @@ from app.content_gate import GatePolicy
 from app.handlers import web_page
 
 
+@pytest.fixture(autouse=True)
+def _public_https(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(web_page, "validate_public_https_url", lambda url: url)
+
+
 @pytest.mark.asyncio
 async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"

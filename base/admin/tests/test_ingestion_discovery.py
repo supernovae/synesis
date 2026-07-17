@@ -10,12 +10,29 @@ Covers:
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_dns():
+    def resolve(host, port, **_kwargs):
+        try:
+            address = str(ipaddress.ip_address(host))
+        except ValueError:
+            address = "93.184.216.34"
+        family = socket.AF_INET6 if ":" in address else socket.AF_INET
+        return [(family, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    with patch("app.services.ingestion_discovery.socket.getaddrinfo", side_effect=resolve):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -167,6 +184,27 @@ class TestHeuristicDiscovery:
             "required_missing_fields",
         }
         assert expected_keys.issubset(result.keys())
+
+    def test_discovery_rejects_unresolved_or_mixed_private_dns(self):
+        from app.services.ingestion_discovery import validate_discovery_target_url
+
+        with patch("app.services.ingestion_discovery.socket.getaddrinfo", side_effect=socket.gaierror):
+            with pytest.raises(HTTPException):
+                validate_discovery_target_url("https://unresolved.example/docs")
+
+        mixed = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 443)),
+        ]
+        with patch("app.services.ingestion_discovery.socket.getaddrinfo", return_value=mixed):
+            with pytest.raises(HTTPException):
+                validate_discovery_target_url("https://rebound.example/docs")
+
+    def test_discovery_rejects_plain_http(self):
+        from app.services.ingestion_discovery import validate_discovery_target_url
+
+        with pytest.raises(HTTPException, match="https"):
+            validate_discovery_target_url("http://example.com/docs")
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +375,6 @@ class TestIngestionConfigValidation:
         item = ItemCreate(
             uri="license:spdx",
             config={
-                "path": "source-manifest.json",
                 "doc_id_prefix": "custom",
                 "papers": [{"id": "2005.11401", "title": "RAG"}],
                 "spdx": {
@@ -353,16 +390,41 @@ class TestIngestionConfigValidation:
                     "branch": "gh-pages",
                     "licenses_path": "_licenses",
                 },
-                "compat_path": "/data/compatibility.yaml",
             },
         )
 
         assert item.config is not None
-        assert item.config.path == "source-manifest.json"
         assert item.config.papers is not None
         assert item.config.papers[0].id == "2005.11401"
         assert item.config.spdx is not None
         assert item.config.spdx.licenses_url == "https://example.com/licenses.json"
+
+    @pytest.mark.parametrize(
+        ("handler", "config"),
+        [
+            ("structured_data", {"path": "/proc/self/environ"}),
+            ("markdown_file", {"path": "/data/docs"}),
+            ("seed_corpus", {"path": "source-manifest.json"}),
+            ("license_spdx", {"compat_path": "/data/compatibility.yaml"}),
+        ],
+    )
+    def test_item_create_rejects_api_local_paths(self, handler, config):
+        from app.routers.ingestion import ItemCreate
+
+        with pytest.raises(ValidationError, match="CLI-only"):
+            ItemCreate(uri="https://example.com/source", handler=handler, config=config)
+
+    def test_item_create_keeps_github_repository_path(self):
+        from app.routers.ingestion import ItemCreate
+
+        item = ItemCreate(
+            uri="https://github.com/example/docs",
+            handler="github_markdown",
+            config={"repo": "example/docs", "path": "guides/start.md"},
+        )
+
+        assert item.config is not None
+        assert item.config.path == "guides/start.md"
 
     def test_item_create_accepts_absolute_path_crawl_prefixes(self):
         from app.routers.ingestion import ItemCreate
@@ -395,7 +457,7 @@ class TestIngestionConfigValidation:
     def test_item_create_rejects_non_public_handler_config_url(self):
         from app.routers.ingestion import ItemCreate
 
-        with pytest.raises(ValidationError, match="URL host is not allowed"):
+        with pytest.raises(ValidationError, match="https"):
             ItemCreate(
                 uri="license:spdx",
                 config={

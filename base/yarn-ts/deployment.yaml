@@ -64,6 +64,16 @@ spec:
                   name: synesis-internal-service-auth
                   key: token
                   optional: true
+            - name: SYNESIS_VISION_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-vision-worker-auth
+                  key: token
+            - name: SYNESIS_SANDBOX_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
             - name: SYNESIS_YARN_ALLOW_OPAQUE_BEARER
               value: "false"
             - name: SYNESIS_OIDC_ISSUER_URL

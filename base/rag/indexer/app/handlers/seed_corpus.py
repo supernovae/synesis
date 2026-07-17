@@ -13,12 +13,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-import httpx
 from synesis_telemetry import get_logger
 
 from ..chunking import chunk_text_simple, heading_aware_split
 from ..content_gate import GatePolicy, evaluate_page
 from ..extract import normalize_doc_markdown
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -58,15 +58,10 @@ class SeedCorpusHandler:
             return []
 
         docs: list[RawDocument] = []
-        with httpx.Client(
-            timeout=_FETCH_TIMEOUT,
-            follow_redirects=True,
-            headers={"User-Agent": "synesis-indexer/1.0"},
-        ) as client:
-            for src in sources:
-                doc = self._fetch_one(client, src, doc_id_prefix)
-                if doc:
-                    docs.append(doc)
+        for src in sources:
+            doc = self._fetch_one(src, doc_id_prefix)
+            if doc:
+                docs.append(doc)
 
         logger.info(
             "indexer_seed_corpus_fetched",
@@ -83,7 +78,6 @@ class SeedCorpusHandler:
 
     @staticmethod
     def _fetch_one(
-        client: httpx.Client,
         src: dict[str, Any],
         doc_id_prefix: str = "curated",
     ) -> RawDocument | None:
@@ -93,8 +87,11 @@ class SeedCorpusHandler:
             return None
 
         try:
-            resp = client.get(url)
-            resp.raise_for_status()
+            resp = get_public_https(
+                url,
+                timeout=_FETCH_TIMEOUT,
+                headers={"User-Agent": "synesis-indexer/1.0"},
+            )
         except Exception as e:
             logger.warning("Failed to fetch %s (%s): %s", title, url, e)
             return None

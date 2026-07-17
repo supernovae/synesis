@@ -145,14 +145,13 @@ def _verify_keycloak_token(token: str, *, requested_org_id: str = "") -> UserInf
         audience=audience,
         options={"verify_aud": verify_aud},
     )
-    if not verify_aud:
-        azp = payload.get("azp")
-        if azp and azp != KEYCLOAK_EXPECTED_AZP:
-            logger.warning(
-                "keycloak_azp_mismatch",
-                extra={"azp": azp, "expected": KEYCLOAK_EXPECTED_AZP},
-            )
-            raise jwt.InvalidTokenError("Token not issued for Synesis Admin client")
+    azp = payload.get("azp")
+    if azp != KEYCLOAK_EXPECTED_AZP:
+        logger.warning(
+            "keycloak_azp_mismatch",
+            extra={"azp": azp, "expected": KEYCLOAK_EXPECTED_AZP},
+        )
+        raise jwt.InvalidTokenError("Token not issued for Synesis Admin client")
     roles = payload.get("realm_access", {}).get("roles", [])
     username = payload.get("preferred_username", payload.get("sub", "unknown"))
     org_id, org_name, org_roles = _parse_org_claim(payload, requested_org_id=requested_org_id)

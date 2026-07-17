@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: synesis-vision-worker
+        app.kubernetes.io/part-of: synesis
+        synesis.network/restricted-egress: "true"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -29,6 +31,11 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            - name: SYNESIS_VISION_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-vision-worker-auth
+                  key: token
           resources:
             requests:
               cpu: 500m

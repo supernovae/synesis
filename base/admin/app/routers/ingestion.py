@@ -83,11 +83,31 @@ _DEFAULT_INGESTION_HANDLER = "html_document"
 _MODEL_ID_PATTERN = r"^[A-Za-z0-9_.:/@-]*$"
 _DISCOVERY_TAG_PATTERN = re.compile(r"^[a-z0-9_.@/+:-]{1,64}$")
 _URL_PREFIX_SCHEMES = ("http://", "https://")
+_LOCAL_PATH_FIELDS: dict[str, tuple[str, ...]] = {
+    "license_spdx": ("compat_path",),
+    "markdown_file": ("path",),
+    "seed_corpus": ("path",),
+    "structured_data": ("path",),
+}
 
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
+
+def _reject_api_local_paths(handler: str | None, config: IngestionConfig | None) -> None:
+    """Keep filesystem ingestion on the trusted indexer CLI path."""
+    if config is None:
+        return
+    values = config.model_dump(exclude_none=True)
+    normalized_handler = _normalize_handler(handler, allow_empty=True)
+    fields = _LOCAL_PATH_FIELDS.get(normalized_handler, ())
+    if not normalized_handler and any(values.get(field) for field in ("path", "compat_path")):
+        raise ValueError("config.path and config.compat_path require an explicit remote-only handler")
+    for field in fields:
+        if values.get(field):
+            raise ValueError(f"config.{field} is CLI-only for handler '{normalized_handler}'")
 
 
 def _validation_error_from_http(exc: HTTPException) -> ValueError:
@@ -104,6 +124,8 @@ def _normalize_config_url(value: str | None, *, field_name: str, required: bool 
         normalized, _parsed = _validate_discovery_target_url(raw)
     except HTTPException as exc:
         raise _validation_error_from_http(exc) from exc
+    if not normalized.lower().startswith("https://"):
+        raise ValueError(f"{field_name} must use public HTTPS")
     return normalized
 
 
@@ -318,6 +340,7 @@ class SourceCreate(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         self.handler = _normalize_handler(self.handler) or _DEFAULT_INGESTION_HANDLER
+        _reject_api_local_paths(self.handler, self.config)
 
 
 class ItemCreate(BaseModel):
@@ -341,6 +364,7 @@ class ItemCreate(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         self.handler = _normalize_handler(self.handler, allow_empty=True)
+        _reject_api_local_paths(self.handler, self.config)
 
 
 class BulkImport(BaseModel):
@@ -1110,9 +1134,14 @@ async def patch_item(
         if body.priority is not None:
             item.priority = body.priority
         if body.config is not None:
+            effective_handler = body.handler if body.handler is not None else item.handler
+            _reject_api_local_paths(effective_handler, body.config)
             item.config = _config_payload(body.config)
         if body.source_id is not None:
             item.source_id = body.source_id
+
+        effective_config = IngestionConfig.model_validate(item.config or {})
+        _reject_api_local_paths(item.handler, effective_config)
 
         if body.status is not None:
             if body.status not in _ADMIN_SETTABLE_STATUSES:

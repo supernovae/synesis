@@ -41,13 +41,10 @@ class StructuredDataHandler:
         fmt = config.get("format", "")
 
         if url:
-            import httpx
-
             try:
-                with httpx.Client(timeout=30, follow_redirects=True) as client:
-                    resp = client.get(url)
-                    resp.raise_for_status()
-                    content = resp.text
+                from ..safe_http import get_public_https
+
+                content = get_public_https(url, timeout=30).text
             except Exception as e:
                 logger.error("Failed to fetch %s: %s", url, e)
                 return []

@@ -21,6 +21,7 @@ import {
   type TerminalSignals,
 } from "../../terminal/terminal-signals.js";
 import { normalizeAbsolutePathHint } from "../../path-governance/path-hints.js";
+import { sandboxAuthorization } from "../../security/service-auth.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -489,11 +490,13 @@ export const takeScreenshotTool: McpToolDefinition<
     const absPath = path.join(root, filename);
 
     const url = process.env.SYNESIS_VISION_WORKER_URL || "http://synesis-vision-worker.synesis-yarn.svc.cluster.local:8080/screenshot";
+    const token = process.env.SYNESIS_VISION_WORKER_TOKEN || "";
+    if (!token) return { exitCode: 1, error: "Vision worker authentication is not configured" };
 
     try {
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           url: input.url,
           width: input.width,
@@ -1206,18 +1209,20 @@ export const runInSandboxTool: McpToolDefinition<z.infer<typeof RunInSandboxSche
     const secret = process.env.SYNESIS_SANDBOX_SECRET || "";
 
     try {
+      const body = JSON.stringify({
+        language: input.language,
+        code,
+        filename: path.basename(input.filePath),
+        trivial: input.trivial,
+      });
+      const authorization = await sandboxAuthorization(url, body, secret);
       const resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+          Authorization: authorization,
         },
-        body: JSON.stringify({
-          language: input.language,
-          code,
-          filename: path.basename(input.filePath),
-          trivial: input.trivial,
-        }),
+        body,
       });
 
       if (!resp.ok) {

@@ -138,16 +138,31 @@ class TestVerifyRequest:
         assert valid is False
         assert "expired_timestamp" in reason
 
-    def test_empty_secret_allows_all(self):
+    def test_empty_secret_fails_closed(self):
         valid, reason = auth.verify_request("", _BODY, "")
-        assert valid is True
-        assert reason == "auth_disabled"
+        assert valid is False
+        assert reason == "auth_not_configured"
 
-    def test_empty_secret_with_header_allows(self):
+    def test_empty_secret_with_header_fails_closed(self):
         headers = auth.sign_request(_BODY, _SECRET)
         valid, reason = auth.verify_request(headers["Authorization"], _BODY, "")
-        assert valid is True
-        assert reason == "auth_disabled"
+        assert valid is False
+        assert reason == "auth_not_configured"
+
+    def test_challenge_nonce_is_consumed_once(self):
+        headers = auth.sign_request(_BODY, _SECRET, nonce="issued-nonce")
+        issued = {"issued-nonce"}
+
+        def consume(nonce: str) -> bool:
+            if nonce not in issued:
+                return False
+            issued.remove(nonce)
+            return True
+
+        assert auth.verify_request(headers["Authorization"], _BODY, _SECRET, nonce_consumer=consume) == (True, "ok")
+        valid, reason = auth.verify_request(headers["Authorization"], _BODY, _SECRET, nonce_consumer=consume)
+        assert valid is False
+        assert reason == "unknown_expired_or_replayed_nonce"
 
     def test_custom_max_age(self):
         headers = auth.sign_request(_BODY, _SECRET)

@@ -263,6 +263,7 @@ kv:
 
 secrets:
   internalServiceToken: synesis-internal-change-me
+  visionWorkerToken: ""
   webuiSecretKey: sk-synesis-change-me
   adminSessionTokenKey: ""
   patPepper: ""
@@ -986,6 +987,16 @@ workloads:
             name: synesis-pat-pepper
             key: pepper
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-internal-service-auth
+            key: token
+      - name: SYNESIS_VISION_WORKER_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-vision-worker-auth
+            key: token
+      - name: SYNESIS_SANDBOX_SECRET
         valueFrom:
           secretKeyRef:
             name: synesis-internal-service-auth
@@ -1830,6 +1841,11 @@ workloads:
     env:
       - name: PORT
         value: "8080"
+      - name: SYNESIS_VISION_WORKER_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: synesis-vision-worker-auth
+            key: token
     podSecurityContext:
       runAsNonRoot: true
       seccompProfile:

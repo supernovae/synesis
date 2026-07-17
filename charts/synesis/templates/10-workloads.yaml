@@ -31,6 +31,9 @@ spec:
         app.kubernetes.io/name: {{ $workload.name }}
         app.kubernetes.io/part-of: synesis
         app.kubernetes.io/component: {{ $workload.component | default $key }}
+        {{- if eq $key "visionWorker" }}
+        synesis.network/restricted-egress: "true"
+        {{- end }}
       {{- if $workload.annotations }}
       annotations:
         checksum/synesis-secrets: {{ include (print $.Template.BasePath "/04-secrets.yaml") $ | sha256sum }}

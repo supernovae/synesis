@@ -15,6 +15,7 @@ import http.server
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -36,11 +37,35 @@ MAX_EXECUTIONS = int(os.environ.get("WARM_MAX_EXECUTIONS", "100"))
 PORT = int(os.environ.get("WARM_PORT", "8080"))
 EXECUTION_TIMEOUT = int(os.environ.get("WARM_EXECUTION_TIMEOUT", "30"))
 AUTH_SECRET = os.environ.get("WARM_AUTH_SECRET", "").strip()
+NONCE_TTL = 30
+MAX_OUTSTANDING_NONCES = 1024
 
 _lock = threading.Lock()
 _busy = False
 _execution_count = 0
 _start_time = time.monotonic()
+_nonce_lock = threading.Lock()
+_nonces: dict[str, float] = {}
+
+
+def _issue_nonce() -> tuple[str, int]:
+    now = time.time()
+    with _nonce_lock:
+        expired = [nonce for nonce, deadline in _nonces.items() if deadline <= now]
+        for nonce in expired:
+            _nonces.pop(nonce, None)
+        if len(_nonces) >= MAX_OUTSTANDING_NONCES:
+            raise RuntimeError("too many outstanding authentication challenges")
+        nonce = secrets.token_hex(16)
+        _nonces[nonce] = now + NONCE_TTL
+    return nonce, int(now + NONCE_TTL)
+
+
+def _consume_nonce(nonce: str) -> bool:
+    now = time.time()
+    with _nonce_lock:
+        deadline = _nonces.pop(nonce, None)
+    return deadline is not None and deadline > now
 
 
 class WarmHandler(http.server.BaseHTTPRequestHandler):
@@ -48,7 +73,13 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write(f"[warm-server] {self.address_string()} - {fmt % args}\n")
 
     def do_GET(self):
-        if self.path == "/healthz":
+        if self.path == "/auth/challenge":
+            try:
+                nonce, expires_at = _issue_nonce()
+                self._respond(200, {"nonce": nonce, "expires_at": expires_at})
+            except RuntimeError:
+                self._respond(503, {"error": "authentication challenge capacity reached"})
+        elif self.path == "/healthz":
             self._respond(200, {"status": "ok", "uptime_s": int(time.monotonic() - _start_time)})
         elif self.path == "/readyz":
             if _busy:
@@ -61,13 +92,17 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
     def _check_auth(self, body_bytes: bytes) -> bool:
         """Validate HMAC-signed request. Returns True if authorized."""
         if _svc_auth is None:
-            if AUTH_SECRET:
-                self._respond(500, {"error": "synesis_service_auth module not available"})
-                return False
-            return True
+            self._respond(500, {"error": "synesis_service_auth module not available"})
+            return False
 
         auth_header = self.headers.get("Authorization", "")
-        valid, reason = _svc_auth.verify_request(auth_header, body_bytes, AUTH_SECRET)
+        valid, reason = _svc_auth.verify_request(
+            auth_header,
+            body_bytes,
+            AUTH_SECRET,
+            max_age=NONCE_TTL,
+            nonce_consumer=_consume_nonce,
+        )
         if not valid:
             sys.stderr.write(f"[warm-server] auth_rejected: {reason}\n")
             self._respond(401, {"error": "unauthorized", "reason": reason})
@@ -208,15 +243,13 @@ def _graceful_shutdown():
 
 
 def main():
+    if not AUTH_SECRET:
+        raise SystemExit("WARM_AUTH_SECRET is required")
+    if _svc_auth is None:
+        raise SystemExit("synesis_service_auth module is required")
     server = http.server.HTTPServer(("0.0.0.0", PORT), WarmHandler)  # nosec B104
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    if AUTH_SECRET:
-        if _svc_auth is not None:
-            sys.stderr.write("[warm-server] HMAC request auth ENABLED\n")
-        else:
-            sys.stderr.write("[warm-server] WARNING: WARM_AUTH_SECRET set but synesis_service_auth not found\n")
-    else:
-        sys.stderr.write("[warm-server] WARNING: WARM_AUTH_SECRET not set — auth disabled (dev mode only)\n")
+    sys.stderr.write("[warm-server] HMAC challenge request auth ENABLED\n")
     sys.stderr.write(f"[warm-server] Listening on :{PORT}, max_executions={MAX_EXECUTIONS}\n")
     try:
         server.serve_forever()

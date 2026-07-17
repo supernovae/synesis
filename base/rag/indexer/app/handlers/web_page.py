@@ -34,6 +34,7 @@ from ..robots_cache import (
     crawl_delay_seconds,
     fetch_robots_info,
 )
+from ..safe_http import validate_public_https_url
 from ..sitemap_collect import collect_urls_from_sitemaps
 from . import register
 from .base import Chunk, RawDocument
@@ -135,6 +136,12 @@ async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy
 
     if importlib.util.find_spec("crawl4ai") is None:
         logger.error("crawl4ai not installed. Run: pip install crawl4ai")
+        return []
+
+    try:
+        seed_url = validate_public_https_url(seed_url)
+    except ValueError as exc:
+        logger.warning("Blocked crawl seed %s: %s", seed_url, exc)
         return []
 
     crawl_cfg = effective_crawl_config(config)
@@ -356,6 +363,12 @@ async def _fetch_url_list(
                 logger.debug("robots_disallow url=%s", url)
                 continue
 
+            try:
+                url = validate_public_https_url(url)
+            except ValueError as exc:
+                logger.warning("Blocked crawl URL %s: %s", url, exc)
+                continue
+
             passes, reason = url_passes_filter(url, policy, seed_host=seed_host)
             if not passes:
                 logger.debug("url_filtered (%s): %s", reason, url)
@@ -432,6 +445,12 @@ async def _crawl_bfs(
 
             if respect_robots and not can_fetch(url, user_agent, rinfo):
                 logger.debug("robots_disallow bfs url=%s", url)
+                continue
+
+            try:
+                url = validate_public_https_url(url)
+            except ValueError as exc:
+                logger.warning("Blocked crawl URL %s: %s", url, exc)
                 continue
 
             if request_idx > 0 and pause > 0:

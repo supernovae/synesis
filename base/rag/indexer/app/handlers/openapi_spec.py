@@ -10,9 +10,9 @@ import json
 import logging
 from typing import Any
 
-import httpx
 import yaml
 
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -36,10 +36,7 @@ class OpenAPISpecHandler:
             return []
 
         try:
-            with httpx.Client(timeout=30, follow_redirects=True) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                content = resp.text
+            content = get_public_https(url, timeout=30).text
         except Exception as e:
             logger.error("Failed to fetch spec %s: %s", url, e)
             return []

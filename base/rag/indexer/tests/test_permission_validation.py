@@ -39,7 +39,7 @@ if not hasattr(_handlers_mod, "_REGISTRY") or not _handlers_mod._REGISTRY:
     _handlers_mod._discovered = True
 
 from app.pipeline import index_parsed_chunk_pairs
-from app.queue_runner import _build_source_config
+from app.queue_runner import UnsafeQueueConfigError, _build_source_config
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -547,6 +547,19 @@ class TestQueueRunnerScopePropagation:
         assert cfg["pack_id"] == "my-pack"
         assert cfg["pack_version"] == "v2.1"
         assert cfg["pack_partition"] == "shard-1"
+
+    @pytest.mark.parametrize(
+        ("handler", "config"),
+        [
+            ("structured_data", {"path": "/proc/self/environ"}),
+            ("markdown_file", {"path": "/data/docs"}),
+            ("seed_corpus", {"path": "manifest.json"}),
+            ("license_spdx", {"compat_path": "/data/compat.yaml"}),
+        ],
+    )
+    def test_local_path_queue_items_fail_closed(self, handler, config):
+        with pytest.raises(UnsafeQueueConfigError, match="not allowed"):
+            _build_source_config({"uri": "https://example.com", "effective_handler": handler, "config": config})
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import yaml
 
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -258,10 +259,7 @@ def _fetch_spdx(licenses_url: str, details_base: str) -> list[dict]:
     if not licenses_url:
         return []
     try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.get(licenses_url)
-            resp.raise_for_status()
-            data = resp.json()
+        data = get_public_https(licenses_url, timeout=30).json()
     except Exception as e:
         logger.error("Failed to fetch SPDX licenses: %s", e)
         return []
@@ -278,10 +276,9 @@ def _fetch_spdx(licenses_url: str, details_base: str) -> list[dict]:
         if details_base and record["spdx_id"]:
             try:
                 detail_url = f"{details_base}{record['spdx_id']}.json"
-                with httpx.Client(timeout=15) as client:
-                    dresp = client.get(detail_url)
-                    if dresp.status_code == 200:
-                        record["full_text"] = dresp.json().get("licenseText", "")
+                dresp = get_public_https(detail_url, timeout=15)
+                if dresp.status_code == 200:
+                    record["full_text"] = dresp.json().get("licenseText", "")
             except Exception:  # nosec B110
                 pass
         licenses.append(record)
@@ -300,13 +297,12 @@ def _fetch_fedora_statuses(fedora_cfg: dict) -> dict[str, str]:
     for spdx_id in common:
         try:
             url = f"{repo_url}{spdx_id}.toml"
-            with httpx.Client(timeout=10) as client:
-                resp = client.get(url)
-                if resp.status_code == 200:
-                    for line in resp.text.splitlines():
-                        if line.startswith("status"):
-                            statuses[spdx_id] = line.split("=", 1)[-1].strip().strip('"')
-                            break
+            resp = get_public_https(url, timeout=10)
+            if resp.status_code == 200:
+                for line in resp.text.splitlines():
+                    if line.startswith("status"):
+                        statuses[spdx_id] = line.split("=", 1)[-1].strip().strip('"')
+                        break
         except Exception:  # nosec B110
             pass
 
