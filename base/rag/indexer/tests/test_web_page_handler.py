@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from types import SimpleNamespace
 
@@ -14,8 +15,7 @@ def _public_https(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(web_page, "validate_public_https_url", lambda url: url)
 
 
-@pytest.mark.asyncio
-async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest.MonkeyPatch):
+def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
     monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
@@ -41,15 +41,17 @@ async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: 
     monkeypatch.setattr(web_page, "_fetch_url_list", _fake_fetch_url_list)
     monkeypatch.setattr(web_page, "_crawl_bfs", _fake_bfs)
 
-    pages = await web_page._crawl_pages(
-        seed,
-        {
-            "discovery": "sitemap_first",
-            "follow_links": True,
-            "max_depth": 4,
-            "max_pages": 10,
-        },
-        GatePolicy(),
+    pages = asyncio.run(
+        web_page._crawl_pages(
+            seed,
+            {
+                "discovery": "sitemap_first",
+                "follow_links": True,
+                "max_depth": 4,
+                "max_pages": 10,
+            },
+            GatePolicy(),
+        )
     )
 
     assert bfs_called["value"] is True
@@ -57,8 +59,7 @@ async def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: 
     assert any(p["url"].endswith("/child") for p in pages)
 
 
-@pytest.mark.asyncio
-async def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyPatch):
+def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
     monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
@@ -78,15 +79,17 @@ async def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(web_page, "_fetch_url_list", _fake_fetch_url_list)
     monkeypatch.setattr(web_page, "_crawl_bfs", _fake_bfs)
 
-    pages = await web_page._crawl_pages(
-        seed,
-        {
-            "discovery": "sitemap_only",
-            "follow_links": True,
-            "max_depth": 4,
-            "max_pages": 10,
-        },
-        GatePolicy(),
+    pages = asyncio.run(
+        web_page._crawl_pages(
+            seed,
+            {
+                "discovery": "sitemap_only",
+                "follow_links": True,
+                "max_depth": 4,
+                "max_pages": 10,
+            },
+            GatePolicy(),
+        )
     )
 
     assert len(pages) == 1

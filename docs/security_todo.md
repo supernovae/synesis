@@ -111,10 +111,10 @@ npm test --workspace synesis-yarn-ts -- transcript-trust
 
 ## SEC-TODO-006 through SEC-TODO-014: 2026-07 security remediation
 
-**Status:** Code mitigations complete through SEC-TODO-013; rollout and SEC-TODO-014 remain
+**Status:** Code mitigations complete; deployment rollout remains
 
-Retire each checked item after its focused validation passes and the mitigation
-is deployed.
+Checked items have passed focused validation. Deployment remains an operational
+rollout step.
 
 - [x] SEC-TODO-006: Keep local-file ingestion CLI-only and reject it in Admin and queue flows.
 - [x] SEC-TODO-007: Authenticate and network-restrict the vision worker.
@@ -124,8 +124,8 @@ is deployed.
 - [x] SEC-TODO-011: Validate public HTTPS ingestion destinations and redirects.
 - [x] SEC-TODO-012: Gate unsuppressed Kubernetes findings against exact resource/check exceptions.
 - [x] SEC-TODO-013: Gate the existing test suites and establish a coverage floor.
-- [ ] SEC-TODO-014: Finish splitting `language_pack.py`, port the WebUI middleware delta onto pinned upstream,
-  and remove the fork. Admin hooks and governor recovery are split; generated `tsconfig.tsbuildinfo` is removed.
+- [x] SEC-TODO-014: Split language extractors by domain, replace the WebUI full-file fork with a version-checked
+  build patch against pinned upstream, split Admin hooks and governor recovery, and remove generated build state.
 
 ## SEC-TODO-005: Add model compliance regression cases for trust policy claims
 
