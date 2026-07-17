@@ -5,29 +5,6 @@ controls documented in [SECURITY.md](SECURITY.md). Keep each item retirable:
 when the acceptance criteria are met, remove the item. When the file is empty,
 delete it and remove links to it.
 
-## SEC-TODO-002: Add corpus-level scan signal trend reporting
-
-**Status:** Open
-
-**Why:** Index-time scanning stores scan status/signals, but operators need an
-easy way to identify recurring signals by source/domain over time.
-
-**Evidence:** `base/rag/indexer/app/injection_scan.py`,
-`base/rag/indexer/app/nornic_writer.py`, `docs/ADMIN_QUALITY_UI.md`.
-
-**Acceptance criteria:**
-
-- Admin exposes aggregate scan signal counts by source/domain/time window.
-- Security UI links flagged corpus trends to review queue filters.
-- Tests cover org scoping and malformed filter rejection.
-
-**Validation:**
-
-```bash
-pytest base/admin/tests/test_security_hardening.py
-python3 scripts/check-doc-reference-integrity.py
-```
-
 ## SEC-TODO-003: Reindex legacy RAG content after schema upgrades
 
 **Status:** Open until each production corpus has been reindexed.
@@ -75,7 +52,7 @@ rollout step.
 
 ## SEC-TODO-005: Add model compliance regression cases for trust policy claims
 
-**Status:** Open
+**Status:** Live model qualification pending. Deterministic regression cases and the result recorder are complete; the configured AKS endpoint was DNS-unreachable on 2026-07-17.
 
 **Why:** Trust envelopes, policy text, datamarks, and sandwich reminders reduce
 injection risk, but effectiveness varies by model and context shape.
@@ -87,11 +64,11 @@ injection risk, but effectiveness varies by model and context shape.
 
 **Acceptance criteria:**
 
-- Add representative prompt-injection regression cases for at least planner
+- [x] Add representative prompt-injection regression cases for at least planner
   writer and Yarn transcript flows.
-- Record model/family outcomes so operators can see which models are safe for
+- [ ] Record model/family outcomes so operators can see which models are safe for
   stricter trust policies.
-- Document any model-specific operational recommendation in the relevant coder
+- [x] Document model qualification recommendations in the relevant coder
   or chat docs.
 
 **Validation:**

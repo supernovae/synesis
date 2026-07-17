@@ -75,6 +75,11 @@ export {
 } from "./prompt-injection-scorer.js";
 
 export {
+  assessTrustPolicyResponse,
+  type ModelComplianceAssessment,
+} from "./model-compliance.js";
+
+export {
   freshnessScore,
   freshnessBoost,
   FRESHNESS_HALF_LIFE_DAYS,

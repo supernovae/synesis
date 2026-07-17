@@ -108,6 +108,8 @@ def _mock_all(monkeypatch):
     monkeypatch.setattr("app.routers.rag.safe_query", lambda *a, **kw: [])
     monkeypatch.setattr("app.services.nornic_service.safe_count", lambda *a, **kw: 0)
     monkeypatch.setattr("app.routers.rag.safe_count", lambda *a, **kw: 0)
+    monkeypatch.setattr("app.services.nornic_service.collection_scan_signal_trends", lambda *a, **kw: [])
+    monkeypatch.setattr("app.routers.rag.collection_scan_signal_trends", lambda *a, **kw: [])
     monkeypatch.setattr(
         "app.services.nornic_service.collection_schema_info",
         lambda *a, **kw: {"exists": True},
@@ -218,6 +220,17 @@ def test_rag_review_queue(client):
     resp = client.get("/api/v1/rag/review")
     assert resp.status_code == 200
     assert "chunks" in resp.json()
+
+
+def test_rag_review_trends(client):
+    resp = client.get("/api/v1/rag/review/trends?window_days=30")
+    assert resp.status_code == 200
+    assert resp.json() == {"trends": [], "window_days": 30}
+
+
+def test_rag_review_trends_rejects_malformed_filter(client):
+    resp = client.get("/api/v1/rag/review/trends", params={"signal": 'bad"signal'})
+    assert resp.status_code == 400
 
 
 def test_rag_review_queue_normalizes_nornic_rows(client, monkeypatch):

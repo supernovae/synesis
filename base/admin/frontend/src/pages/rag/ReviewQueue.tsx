@@ -10,7 +10,9 @@ import {
   MinusSquare,
   Clock,
   ArrowUpDown,
+  BarChart3,
   Filter,
+  X,
 } from "lucide-react";
 import client from "../../api/client";
 import RichContent from "../../components/common/RichContent";
@@ -46,6 +48,15 @@ interface ReviewStats {
   flagged: number;
   unscanned: number;
   pending_approval: number;
+}
+
+interface ScanTrend {
+  signal: string;
+  domain: string;
+  source: string;
+  count: number;
+  first_seen_epoch: number;
+  last_seen_epoch: number;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -95,21 +106,41 @@ function formatEpoch(epoch?: number): string {
   });
 }
 
+function sourceLabel(source: string): string {
+  if (!source) return "Unknown source";
+  try {
+    return new URL(source).hostname || source;
+  } catch {
+    return source;
+  }
+}
+
 export default function ReviewQueue() {
   const [chunks, setChunks] = useState<ReviewChunk[]>([]);
   const [stats, setStats] = useState<ReviewStats | null>(null);
+  const [trends, setTrends] = useState<ScanTrend[]>([]);
+  const [trendWindowDays, setTrendWindowDays] = useState(30);
   const [filter, setFilter] = useState<"flagged" | "unscanned" | "all">(
     "flagged",
   );
   const [sortPivot, setSortPivot] = useState<SortPivot>("");
   const [domainFilter, setDomainFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [signalFilter, setSignalFilter] = useState("");
   const [loadedQueryKey, setLoadedQueryKey] = useState("");
   const [acting, setActing] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkActing, setBulkActing] = useState(false);
   const [confirmBulkReject, setConfirmBulkReject] = useState(false);
-  const currentQueryKey = JSON.stringify([filter, sortPivot, domainFilter]);
+  const currentQueryKey = JSON.stringify([
+    filter,
+    sortPivot,
+    domainFilter,
+    sourceFilter,
+    signalFilter,
+    trendWindowDays,
+  ]);
   const loading = loadedQueryKey !== currentQueryKey;
 
   useEffect(() => {
@@ -123,18 +154,27 @@ export default function ReviewQueue() {
         };
         if (sortPivot) params.sort = sortPivot;
         if (domainFilter) params.domain = domainFilter;
-        const [statsRes, chunkRes] = await Promise.all([
+        if (sourceFilter) params.source = sourceFilter;
+        if (signalFilter) params.signal = signalFilter;
+        const [statsRes, chunkRes, trendRes] = await Promise.all([
           client.get("/rag/review/stats").then((r) => r.data),
           client.get("/rag/review", { params }).then((r) => r.data),
+          client
+            .get("/rag/review/trends", {
+              params: { window_days: trendWindowDays, limit: 12 },
+            })
+            .then((r) => r.data),
         ]);
         if (cancelled) return;
         setStats(statsRes);
         setChunks(chunkRes.chunks || []);
+        setTrends(trendRes.trends || []);
         setSelected(new Set());
         setLoadedQueryKey(currentQueryKey);
       } catch {
         if (cancelled) return;
         setChunks([]);
+        setTrends([]);
         setLoadedQueryKey(currentQueryKey);
       }
     }
@@ -144,7 +184,14 @@ export default function ReviewQueue() {
     return () => {
       cancelled = true;
     };
-  }, [filter, sortPivot, domainFilter, currentQueryKey]);
+  }, [filter, sortPivot, domainFilter, sourceFilter, signalFilter, trendWindowDays, currentQueryKey]);
+
+  function applyTrend(trend: ScanTrend) {
+    setFilter("flagged");
+    setDomainFilter(trend.domain);
+    setSourceFilter(trend.source);
+    setSignalFilter(trend.signal);
+  }
 
   function toggleSelect(chunkId: string) {
     setSelected((prev) => {
@@ -253,6 +300,53 @@ export default function ReviewQueue() {
         </div>
       )}
 
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+            <BarChart3 className="h-4 w-4 text-red-500" />
+            Scan Signal Trends
+          </h2>
+          <select
+            value={trendWindowDays}
+            onChange={(event) => setTrendWindowDays(Number(event.target.value))}
+            aria-label="Trend time window"
+            className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-700 dark:border-gray-600 dark:bg-slate-800 dark:text-slate-300"
+          >
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={365}>1 year</option>
+          </select>
+        </div>
+        <div className="divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-700 dark:border-gray-700">
+          {trends.length === 0 ? (
+            <p className="py-4 text-sm text-gray-500 dark:text-slate-400">
+              No flagged scan signals in this window.
+            </p>
+          ) : (
+            trends.map((trend) => (
+              <button
+                key={`${trend.signal}:${trend.domain}:${trend.source}`}
+                type="button"
+                onClick={() => applyTrend(trend)}
+                className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] items-center gap-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-slate-800/50"
+                title="Filter the review queue to this signal, domain, and source"
+              >
+                <span className="truncate font-medium text-gray-900 dark:text-slate-200">
+                  {trend.signal}
+                </span>
+                <span className="truncate text-gray-500 dark:text-slate-400">
+                  {trend.domain || "Unknown domain"} · {sourceLabel(trend.source)}
+                </span>
+                <span className="font-mono text-xs text-red-600 dark:text-red-400">
+                  {trend.count}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <div className="flex gap-2">
@@ -342,6 +436,33 @@ export default function ReviewQueue() {
           </div>
         )}
       </div>
+
+      {(signalFilter || sourceFilter) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {signalFilter && (
+            <button
+              type="button"
+              onClick={() => setSignalFilter("")}
+              className="flex max-w-full items-center gap-1 rounded bg-red-50 px-2 py-1 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+              title="Remove scan signal filter"
+            >
+              <span className="truncate">Signal: {signalFilter}</span>
+              <X className="h-3 w-3 flex-shrink-0" />
+            </button>
+          )}
+          {sourceFilter && (
+            <button
+              type="button"
+              onClick={() => setSourceFilter("")}
+              className="flex max-w-full items-center gap-1 rounded bg-gray-100 px-2 py-1 text-gray-700 dark:bg-slate-700 dark:text-slate-300"
+              title="Remove source filter"
+            >
+              <span className="truncate">Source: {sourceLabel(sourceFilter)}</span>
+              <X className="h-3 w-3 flex-shrink-0" />
+            </button>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

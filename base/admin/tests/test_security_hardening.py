@@ -25,6 +25,15 @@ def test_internal_service_token_fails_closed_when_unconfigured(monkeypatch):
     assert exc.value.status_code == 503
 
 
+def test_rag_review_filter_rejects_control_characters():
+    from app.routers.rag import _clean_review_filter_value
+
+    with pytest.raises(HTTPException) as exc:
+        _clean_review_filter_value("python\nadmin", name="domain")
+
+    assert exc.value.status_code == 400
+
+
 def test_internal_service_token_accepts_configured_header(monkeypatch):
     from app.internal_auth import require_internal_service_token_request
 

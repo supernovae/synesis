@@ -244,6 +244,7 @@ curl "$ADMIN_URL/api/v1/rag/review?status=flagged&sort=freshness" \
 | **HITL review_trace_id** — vet/reject/bulk actions generate and persist trace IDs for audit traceability. | Done |
 | **Quality refresh freshness** — `POST /rag/quality/refresh` computes real `freshness_pct` from NornicDB timestamps (exponential decay, 90-day half-life). | Done |
 | **Shared freshness scoring** — `@synesis/context-trust` `freshnessScore`/`freshnessBoost` shared across planner-ts and admin. | Done |
+| **Corpus scan signal trends** — org-scoped `/rag/review/trends` aggregates flagged signals by domain/source/time window; trend rows apply exact Review Queue filters. | Done |
 
 ---
 
