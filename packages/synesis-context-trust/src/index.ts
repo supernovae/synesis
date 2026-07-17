@@ -61,11 +61,18 @@ export {
 
 export {
   scanResultToPayload,
+  promptInjectionScoreToPayload,
   policyRejectToPayload,
   emitSecurityEvent,
   type SecurityIngestPayload,
   type SecurityIngestConfig,
 } from "./security-ingest.js";
+
+export {
+  scorePromptInjection,
+  type PromptInjectionScorerConfig,
+  type PromptInjectionScoreResult,
+} from "./prompt-injection-scorer.js";
 
 export {
   freshnessScore,

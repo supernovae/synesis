@@ -1,32 +1,45 @@
-# Optional second-stage prompt-injection scorer (design)
+# Optional second-stage prompt-injection scorer
 
-This document describes a **future, optional** layer for planner-ts — not implemented on the request hot path by default. It complements regex scanning in `@synesis/context-trust` while keeping heavy ML out of planner/yarn images: implement inference only in a dedicated microservice or offline batch job (same idea as the repository’s ML service boundary for app images).
+Planner and Yarn can asynchronously send untrusted user/tool text to a configured HTTP classifier and emit the result through the existing Admin security-event pipeline. No scorer is called unless `SYNESIS_INJECTION_SCORER_URL` is set, and results do not change deterministic block/reduce decisions.
 
 ## Goals
 
-- Improve **precision** on borderline user text (e.g. academic discussion vs. real override attempts) where Tier-1 patterns alone false-positive or false-negative.
-- **Zero added latency** for default deployments: scoring runs asynchronously, in batch, or only when an env-gated “strict” mode is enabled with explicit SLO buy-in.
+- Add semantic detection for novel or obfuscated attacks that deterministic patterns miss.
+- Preserve zero default latency and keep model dependencies out of Planner/Yarn images.
 
 ## Non-goals
 
 - Replacing regex scanning as the first line of defense (deterministic, fast, auditable).
-- Loading `transformers` / `torch` inside planner-ts or yarn-ts.
+- Coupling mitigation decisions to a fallible remote classifier.
+- Loading `transformers` / `torch` inside Planner or Yarn.
 
-## Proposed architecture
+## Selected classifier
 
-1. **Inputs:** `ScanResult` (or compact JSON: `patterns_found`, `event_type`, `confidence`, `source`, excerpt), message metadata (tenant, channel), optional hash of normalized text.
-2. **Service:** Small HTTP service under `base/rag/` or `base/security/` (CPU or GPU optional) exposing e.g. `POST /v1/prompt-injection/score` → `{ score: number, label?: string }`. Implementation options: lightweight classifier ONNX, distilled model behind TEI-style boundary, or calls to an external API — chosen in a spike.
-3. **Consumers:**
-   - **Async path:** After `scanUserInput` returns `detected`, enqueue a job (or fire-and-forget with timeout) to the scorer; persist result for admin / security UI only.
-   - **Strict mode (opt-in):** `SYNESIS_INJECTION_STRICT_SCORER=true` + scorer URL: block or reduce only when `regex.detected && scorer.score >= threshold`. Requires timeout budget (e.g. 50–150 ms) and fallback to regex-only if scorer unavailable.
+The default model identifier is Meta `meta-llama/Llama-Prompt-Guard-2-86M`, a binary benign/malicious prompt-injection and jailbreak classifier. Operators must review and accept the model license before deployment. The scorer URL may target a managed Hugging Face endpoint or an internal compatible service.
+
+The endpoint receives `POST {"inputs":"..."}` and must return a Hugging Face text-classification array containing `BENIGN`/`MALICIOUS` (or `LABEL_0`/`LABEL_1`) scores. Requests are capped at 8,000 characters, responses at 64 KB, redirects are rejected, and timeouts/failures become telemetry events rather than request failures.
+
+## Configuration
+
+The same variables apply to Planner and Yarn:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SYNESIS_INJECTION_SCORER_URL` | empty | Enables asynchronous scoring when set. |
+| `SYNESIS_INJECTION_SCORER_TOKEN` | empty | Optional bearer token for the classifier. |
+| `SYNESIS_INJECTION_SCORER_MODEL` | `meta-llama/Llama-Prompt-Guard-2-86M` | Model identifier recorded in telemetry. |
+| `SYNESIS_INJECTION_SCORER_THRESHOLD` | `0.8` | Score used to label emitted events as semantic injection. |
+| `SYNESIS_INJECTION_SCORER_TIMEOUT_MS` | `1000` | Request timeout, constrained to 50-10,000 ms. |
+
+Because raw untrusted text is sent to this endpoint, use a tenant-approved service and transport. Prefer an internal endpoint when prompts may contain confidential data.
 
 ## Rollout
 
-1. Spike: offline evaluation on `scanner_vectors.json` + red-team sets; measure precision/recall vs. regex-only and vs. dual-signal.
-2. Ship scorer service + admin visibility before any default blocking coupling.
-3. Document operator knobs next to `SYNESIS_INJECTION_ACTION` and `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL` in [SECURITY.md](../SECURITY.md).
+1. Enable the endpoint in a non-production environment and inspect `semantic_prompt_injection`, `semantic_prompt_benign`, and `prompt_injection_scorer_failure` events.
+2. Tune the threshold against representative tenant traffic without changing deterministic mitigation.
+3. Promote only after reviewing data handling, endpoint authentication, model licensing, latency, and false-positive rates.
 
 ## References
 
-- OWASP LLM01 (prompt injection) — vocabulary for threats and mitigations.
-- Literature on classifier-based PI detection (precision/recall vs. paraphrase attacks) — informs threshold choice, not a promise of completeness.
+- [Meta Llama Prompt Guard 2 86M model card](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M)
+- [OWASP LLM01: Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)

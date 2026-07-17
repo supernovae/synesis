@@ -56,7 +56,7 @@ export const AttributionV1 = z.object({
   policy_decision: PolicyDecision.default("allow"),
   ingested_at: z.string().optional(),
   effective_at: z.string().optional(),
-});
+}).strict();
 export type AttributionV1 = z.infer<typeof AttributionV1>;
 
 export const TrustPacketV1 = z.object({
@@ -72,7 +72,7 @@ export const TrustPacketV1 = z.object({
   artifact_handle: z.string().optional(),
   attribution: AttributionV1.optional(),
   content: z.string(),
-});
+}).strict();
 export type TrustPacketV1 = z.infer<typeof TrustPacketV1>;
 
 export const SemiTrustedPacketV1 = TrustPacketV1.extend({

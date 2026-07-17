@@ -78,7 +78,12 @@ import {
   type PlannerStatusReporter,
 } from "./streaming/status-events.js";
 import type { GenerationParams, GraphState } from "./state/types.js";
-import { shouldApplyUserInjectionMitigation } from "@synesis/context-trust";
+import {
+  emitSecurityEvent,
+  promptInjectionScoreToPayload,
+  scorePromptInjection,
+  shouldApplyUserInjectionMitigation,
+} from "@synesis/context-trust";
 import { scanUserInput, scanModelOutput, redactPatterns } from "./security/scanner.js";
 import { FailureStore } from "./diagnostics/failure-store.js";
 import { DependencyHealthMonitor } from "./diagnostics/health-monitor.js";
@@ -1081,6 +1086,25 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
     const userMessage = [...requestBody.messages].reverse().find((m) => m.role === "user");
     let taskText = userMessage?.content ?? "";
+
+    if (config.SYNESIS_INJECTION_SCORER_URL && taskText) {
+      void scorePromptInjection(taskText, "user_message", {
+        url: config.SYNESIS_INJECTION_SCORER_URL,
+        authToken: config.SYNESIS_INJECTION_SCORER_TOKEN,
+        model: config.SYNESIS_INJECTION_SCORER_MODEL,
+        timeoutMs: config.SYNESIS_INJECTION_SCORER_TIMEOUT_MS,
+      }).then((result) => {
+        emitSecurityEvent(promptInjectionScoreToPayload(result, {
+          service: "planner",
+          requestId: authzTraceId,
+          sessionId: sessionKey,
+          userId: auth.userId,
+          orgId: auth.orgId,
+          threshold: config.SYNESIS_INJECTION_SCORER_THRESHOLD,
+          actionTaken: config.SYNESIS_INJECTION_ACTION,
+        }), traceEmitterConfig, { warn: (message) => app.log.warn(message) });
+      });
+    }
 
     let injectionDetected = false;
     let injectionScanResult: { detected: boolean; patterns_found: string[]; source: string } = {

@@ -588,6 +588,13 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_INJECTION_SCORER_URL: z.string().default(""),
+  SYNESIS_INJECTION_SCORER_TOKEN: z.string().default(""),
+  SYNESIS_INJECTION_SCORER_MODEL: z
+    .string()
+    .default("meta-llama/Llama-Prompt-Guard-2-86M"),
+  SYNESIS_INJECTION_SCORER_THRESHOLD: z.coerce.number().min(0).max(1).default(0.8),
+  SYNESIS_INJECTION_SCORER_TIMEOUT_MS: z.coerce.number().int().min(50).max(10_000).default(1_000),
 
   // OTEL tracing
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(""),

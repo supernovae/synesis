@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { scanResultToPayload, policyRejectToPayload } from "../src/security-ingest.js";
+import {
+  scanResultToPayload,
+  promptInjectionScoreToPayload,
+  policyRejectToPayload,
+} from "../src/security-ingest.js";
 import type { ScanResult } from "../src/scanner.js";
 
 describe("scanResultToPayload", () => {
@@ -65,6 +69,28 @@ describe("scanResultToPayload", () => {
       actionTaken: "block",
     });
     expect(payload.severity).toBe("critical");
+  });
+});
+
+describe("promptInjectionScoreToPayload", () => {
+  it("maps a threshold match to a semantic injection event", () => {
+    const payload = promptInjectionScoreToPayload({
+      status: "scored",
+      score: 0.91,
+      label: "MALICIOUS",
+      model: "prompt-guard",
+      source: "user_message",
+      latency_ms: 42,
+    }, {
+      service: "planner",
+      requestId: "req-semantic",
+      threshold: 0.8,
+      actionTaken: "reduce",
+    });
+
+    expect(payload.event_type).toBe("semantic_prompt_injection");
+    expect(payload.action_taken).toBe("reduce");
+    expect(payload.detail.threshold).toBe(0.8);
   });
 });
 

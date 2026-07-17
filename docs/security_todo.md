@@ -5,34 +5,6 @@ controls documented in [SECURITY.md](SECURITY.md). Keep each item retirable:
 when the acceptance criteria are met, remove the item. When the file is empty,
 delete it and remove links to it.
 
-## SEC-TODO-001: Add a second-stage prompt-injection scorer
-
-**Status:** Open
-
-**Why:** The current scanner is deterministic and pattern-based. That is fast
-and auditable, but it will not catch every novel, semantic, or heavily
-obfuscated prompt-injection technique.
-
-**Evidence:** `packages/synesis-context-trust/src/scanner.ts`,
-`packages/synesis-context-trust/src/normalizer.ts`,
-`docs/chat/PLANNER_PROMPT_INJECTION_SCORER.md`.
-
-**Acceptance criteria:**
-
-- A scorer service or library is selected and documented.
-- Planner/Yarn can emit scorer results to the admin security event pipeline.
-- Operator knobs are documented next to `SYNESIS_INJECTION_ACTION` and
-  `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL`.
-- Tests cover benign quotes, obvious attacks, and scorer timeout/failure
-  behavior.
-
-**Validation:**
-
-```bash
-npm test -w @synesis/context-trust
-python3 scripts/check-doc-reference-integrity.py
-```
-
 ## SEC-TODO-002: Add corpus-level scan signal trend reporting
 
 **Status:** Open
@@ -81,32 +53,6 @@ but missing metadata weakens observability and review quality.
 
 ```bash
 python3 scripts/check-doc-reference-integrity.py
-```
-
-## SEC-TODO-004: Decide strictness for trust packet parsing
-
-**Status:** Open
-
-**Why:** Many high-risk tool and artifact schemas are strict, but
-`TrustPacketV1` and `AttributionV1` currently use Zod object parsing with
-bounded fields and defaults rather than `.strict()`. That can be useful for
-forward compatibility, but operators should have an explicit decision.
-
-**Evidence:** `packages/synesis-context-trust/src/trust-packet.ts`,
-`packages/synesis-context-trust/tests/trust-packet.test.ts`.
-
-**Acceptance criteria:**
-
-- Either make `TrustPacketV1` / `AttributionV1` strict, or document the
-  forward-compatible parsing decision in `docs/SECURITY.md`.
-- Tests cover unknown-key behavior.
-- Planner and Yarn trust-packet consumers pass the updated tests.
-
-**Validation:**
-
-```bash
-npm test -w @synesis/context-trust -- trust-packet.test.ts
-npm test --workspace synesis-yarn-ts -- transcript-trust
 ```
 
 ## SEC-TODO-006 through SEC-TODO-014: 2026-07 security remediation

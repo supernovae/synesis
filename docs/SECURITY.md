@@ -192,6 +192,7 @@ Configuration:
 
 - **Planner:** `SYNESIS_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_INJECTION_ACTION` (`reduce` | `block` | `log`), `SYNESIS_INJECTION_REQUIRE_DUAL_SIGNAL` (default `false`)
 - **Yarn:** `SYNESIS_YARN_INJECTION_SCAN_ENABLED` (default `true`), `SYNESIS_YARN_INJECTION_SCAN_ACTION` (`log` | `reduce` | `block`), `SYNESIS_YARN_SECURITY_INGEST_ENABLED` (default `true`)
+- **Optional semantic scorer (both):** `SYNESIS_INJECTION_SCORER_URL` (empty/disabled), `SYNESIS_INJECTION_SCORER_TOKEN`, `SYNESIS_INJECTION_SCORER_MODEL` (default `meta-llama/Llama-Prompt-Guard-2-86M`), `SYNESIS_INJECTION_SCORER_THRESHOLD` (default `0.8`), `SYNESIS_INJECTION_SCORER_TIMEOUT_MS` (default `1000`)
 
 #### Planner: `SYNESIS_INJECTION_ACTION` and false positives
 
@@ -207,7 +208,7 @@ Regex scanning is fast but coarse. Core phrases such as “ignore previous instr
 
 **Examples that may match core patterns:** “Explain why an attacker might say *ignore all previous instructions*”, pasted JSON with `[INST]`, or docs that say “override your instructions”. Use **`log`**, **dual-signal**, or both if those flows are common for your org.
 
-See also: [Optional second-stage PI scorer](chat/PLANNER_PROMPT_INJECTION_SCORER.md) (design only; not on the hot path by default).
+See also: [Optional second-stage PI scorer](chat/PLANNER_PROMPT_INJECTION_SCORER.md). It is asynchronous and disabled by default; configure only an endpoint approved to receive raw prompt content.
 
 ### Layer 2: Trust Delimiters (Spotlighting)
 
@@ -366,8 +367,8 @@ Known limitations are tracked as actionable items in
 - Trust policies and sandwich reminders still depend on model compliance.
 - Legacy RAG content must be reindexed to populate current attribution and
   authz metadata.
-- Some schemas intentionally allow forward-compatible parsing instead of
-  strict rejection; strictness decisions are tracked in the todo file.
+- Versioned trust packets reject unknown packet and attribution keys. New
+  fields require an explicit schema-version change.
 
 ## Files
 
