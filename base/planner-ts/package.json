@@ -15,7 +15,7 @@
     "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.74",
+    "@ai-sdk/openai": "^4.0.5",
     "@fastify/rate-limit": "^11.0.0",
     "@openfga/sdk": "0.9.6",
     "@opentelemetry/api": "^1.9.1",
