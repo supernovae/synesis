@@ -6,7 +6,7 @@ defusedxml>=0.7.1
 neo4j>=6.2.0
 pyyaml>=6.0.3
 # PDF parsing
-PyMuPDF>=1.27.2.3
+PyMuPDF>=1.28.0
 # HTML parsing and content extraction
 beautifulsoup4>=4.15.0
 lxml>=6.1.1,<7
