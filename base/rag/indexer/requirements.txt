@@ -17,7 +17,7 @@ trafilatura>=2.1.0
 crawl4ai==0.9.0
 # Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.26.0
-tree-sitter-language-pack>=1.10.9
+tree-sitter-language-pack>=1.12.5
 cryptography>=49.0.0
 requests>=2.34.2
 # Pin urllib3 to address CVE-2026-44431, CVE-2026-44432 (transitive via requests, boto3, etc.)
