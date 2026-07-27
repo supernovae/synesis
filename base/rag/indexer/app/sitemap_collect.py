@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import defusedxml.ElementTree as ET
-import httpx
 
 from .content_gate import GatePolicy, normalize_url, url_passes_filter
 from .robots_cache import DEFAULT_USER_AGENT
+from .safe_http import get_public_https, validate_public_https_url
 
 if TYPE_CHECKING:
     pass
@@ -27,9 +27,9 @@ def _local_tag(elem: ET.Element) -> str:
     return t.split("}", 1)[-1] if t.startswith("{") else t
 
 
-def _fetch_xml(client: httpx.Client, url: str, timeout: float) -> str | None:
+def _fetch_xml(url: str, timeout: float) -> str | None:
     try:
-        r = client.get(
+        r = get_public_https(
             url,
             timeout=timeout,
             headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/xml,text/xml,*/*"},
@@ -123,37 +123,46 @@ def collect_urls_from_sitemaps(
     if not queue:
         return []
 
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        hops = 0
-        while queue and hops < max_sitemap_hops and len(ordered_pages) < max_urls:
-            sm_url = queue.pop(0)
-            canon_sm = normalize_url(sm_url)
-            if canon_sm in seen_sitemaps:
+    hops = 0
+    while queue and hops < max_sitemap_hops and len(ordered_pages) < max_urls:
+        sm_url = queue.pop(0)
+        canon_sm = normalize_url(sm_url)
+        if canon_sm in seen_sitemaps:
+            continue
+        seen_sitemaps.add(canon_sm)
+        hops += 1
+
+        xml_text = _fetch_xml(sm_url, timeout)
+        if not xml_text:
+            continue
+
+        nested, pages = _parse_sitemap_xml(xml_text)
+        for n in nested:
+            try:
+                n = validate_public_https_url(n)
+            except ValueError:
+                logger.debug("sitemap_nested_url_blocked %s", n)
                 continue
-            seen_sitemaps.add(canon_sm)
-            hops += 1
+            cn = normalize_url(n)
+            if cn not in seen_sitemaps:
+                queue.append(n)
 
-            xml_text = _fetch_xml(client, sm_url, timeout)
-            if not xml_text:
+        for u in pages:
+            if len(ordered_pages) >= max_urls:
+                break
+            try:
+                u = validate_public_https_url(u)
+            except ValueError:
+                logger.debug("sitemap_page_url_blocked %s", u)
                 continue
-
-            nested, pages = _parse_sitemap_xml(xml_text)
-            for n in nested:
-                cn = normalize_url(n)
-                if cn not in seen_sitemaps:
-                    queue.append(n)
-
-            for u in pages:
-                if len(ordered_pages) >= max_urls:
-                    break
-                cu = normalize_url(u)
-                if cu in seen_pages:
-                    continue
-                ok, reason = url_passes_filter(u, policy, seed_host=seed_host)
-                if not ok:
-                    logger.debug("sitemap_url_filtered %s (%s)", u, reason)
-                    continue
-                seen_pages.add(cu)
-                ordered_pages.append(u)
+            cu = normalize_url(u)
+            if cu in seen_pages:
+                continue
+            ok, reason = url_passes_filter(u, policy, seed_host=seed_host)
+            if not ok:
+                logger.debug("sitemap_url_filtered %s (%s)", u, reason)
+                continue
+            seen_pages.add(cu)
+            ordered_pages.append(u)
 
     return ordered_pages

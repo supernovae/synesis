@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/part-of: synesis
     app.kubernetes.io/component: sandbox
 spec:
+  sessionAffinity: ClientIP
   type: ClusterIP
   selector:
     app.kubernetes.io/name: synesis-warm-pool

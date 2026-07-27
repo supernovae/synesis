@@ -31,6 +31,7 @@ from ..services.nornic_service import (
     collection_domain_hierarchy,
     collection_installed_packs,
     collection_pack_quality_reports,
+    collection_scan_signal_trends,
     collection_schema_info,
     expected_graph_schema_version,
     reported_graph_schema_version,
@@ -56,9 +57,13 @@ def _ensure_org_content_admin(user: UserInfo) -> None:
 
 def _nornic_scope_kwargs(user: UserInfo) -> dict:
     """Extract org-scope kwargs for safe_query / safe_vector_search."""
+    is_platform_admin = resolve_role(user) >= Role.platform_admin
+    org_id = (user.org_id or "").strip()
+    if not is_platform_admin and not org_id:
+        raise HTTPException(status_code=403, detail="Organization scope is required")
     return {
-        "caller_org_id": (user.org_id or "").strip(),
-        "is_platform_admin": resolve_role(user) >= Role.platform_admin,
+        "caller_org_id": org_id,
+        "is_platform_admin": is_platform_admin,
     }
 
 
@@ -1633,10 +1638,10 @@ def _string_value(value: Any) -> str:
     return str(value)
 
 
-def _clean_review_filter_value(value: str, *, name: str) -> str:
+def _clean_review_filter_value(value: str, *, name: str, max_length: int = 128) -> str:
     value = (value or "").strip()
-    if '"' in value:
-        raise HTTPException(status_code=400, detail=f"{name} cannot contain double quotes")
+    if len(value) > max_length or '"' in value or any(ord(char) < 32 for char in value):
+        raise HTTPException(status_code=400, detail=f"invalid {name}")
     return value
 
 
@@ -1677,6 +1682,33 @@ async def review_stats(_user: UserInfo = Depends(get_current_user)):
     }
 
 
+@router.get("/review/trends")
+async def review_trends(
+    _user: UserInfo = Depends(get_current_user),
+    window_days: int = Query(30, ge=1, le=3650),
+    domain: str = Query("", max_length=128),
+    source: str = Query("", max_length=1024),
+    signal: str = Query("", max_length=128),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Aggregate flagged scan signals by signal, domain, and source."""
+    _ensure_org_observability(_user)
+    domain = _clean_review_filter_value(domain, name="domain")
+    source = _clean_review_filter_value(source, name="source", max_length=1024)
+    signal = _clean_review_filter_value(signal, name="signal")
+    since_epoch = int(_time.time()) - (window_days * _ONE_DAY_S)
+    trends = collection_scan_signal_trends(
+        CATALOG_COLLECTION,
+        since_epoch=since_epoch,
+        domain=domain,
+        source=source,
+        signal=signal,
+        limit=limit,
+        **_nornic_scope_kwargs(_user),
+    )
+    return {"trends": trends, "window_days": window_days}
+
+
 @router.get("/review")
 async def review_queue(
     _user: UserInfo = Depends(get_current_user),
@@ -1685,8 +1717,10 @@ async def review_queue(
     offset: int = Query(0, ge=0),
     sort: str = Query("", description="Sort pivot: freshness | authority | scan_status"),
     domain: str = Query("", description="Filter by domain"),
+    source: str = Query("", description="Filter by source URL"),
+    signal: str = Query("", description="Filter by scan signal"),
 ):
-    """List chunks needing review with optional sort pivots and domain filter."""
+    """List chunks needing review with optional sort pivots and corpus filters."""
     _ensure_org_observability(_user)
     if status not in {"flagged", "unscanned", "all"}:
         raise HTTPException(status_code=400, detail="status must be flagged, unscanned, or all")
@@ -1699,6 +1733,12 @@ async def review_queue(
     if domain:
         safe_domain = _clean_review_filter_value(domain, name="domain")[:128]
         expr = f'({expr}) and domain == "{safe_domain}"'
+    if source:
+        safe_source = _clean_review_filter_value(source, name="source", max_length=1024)
+        expr = f'({expr}) and source_url == "{safe_source}"'
+    if signal:
+        safe_signal = _clean_review_filter_value(signal, name="signal")
+        expr = f'({expr}) and scan_signal == "{safe_signal}"'
     rows = safe_query(
         CATALOG_COLLECTION,
         filter_expr=expr,

@@ -277,3 +277,50 @@ def test_safe_count_uses_cypher_count_with_filters(monkeypatch):
     assert "RETURN count(n) AS count" in session.queries[0]
     assert "toString(coalesce(n.scan_status, 'unscanned')) = $count_filter_0" in session.queries[0]
     assert session.params[0]["count_filter_0"] == "unscanned"
+
+
+def test_scan_signal_trends_are_org_scoped_and_parameterized(monkeypatch):
+    from app.services import nornic_service
+
+    session = _QuerySession(
+        rows=[
+            {
+                "signal": "ignore_previous_instructions",
+                "domain": "python",
+                "source": "https://docs.example/python",
+                "count": 4,
+                "first_seen_epoch": 100,
+                "last_seen_epoch": 200,
+            }
+        ]
+    )
+    monkeypatch.setattr(nornic_service, "get_nornic_driver", lambda: _FakeDriver(session))
+
+    rows = nornic_service.collection_scan_signal_trends(
+        "content_graph",
+        since_epoch=100,
+        domain="python",
+        signal="ignore_previous_instructions",
+        caller_org_id="org-a",
+    )
+
+    assert rows[0]["count"] == 4
+    assert "n.org_id = $caller_org_id" in session.queries[0]
+    assert session.params[0]["caller_org_id"] == "org-a"
+    assert session.params[0]["domain"] == "python"
+    assert session.params[0]["signal"] == "ignore_previous_instructions"
+
+
+def test_safe_query_scan_signal_filter_matches_a_single_csv_token(monkeypatch):
+    from app.services import nornic_service
+
+    session = _QuerySession(rows=[])
+    monkeypatch.setattr(nornic_service, "get_nornic_driver", lambda: _FakeDriver(session))
+
+    nornic_service.safe_query(
+        "content_graph",
+        filter_expr='scan_signal == "system_prompt_marker"',
+    )
+
+    assert "$filter_0 IN [signal IN split" in session.queries[0]
+    assert session.params[0]["filter_0"] == "system_prompt_marker"

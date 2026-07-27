@@ -13,6 +13,8 @@ import {
   scanWebContent,
   sanitize,
   scanResultToPayload,
+  promptInjectionScoreToPayload,
+  scorePromptInjection,
   emitSecurityEvent,
   TRUST_POLICY_COMPACT,
   type ScanResult,
@@ -88,6 +90,25 @@ export function applyTrustPackets(
 
     if (role === "user" || role === "tool") {
       const sourceType = role === "user" ? "user_message" as const : "tool_result" as const;
+
+      if (ingestEnabled && config.SYNESIS_INJECTION_SCORER_URL && raw) {
+        void scorePromptInjection(raw, sourceType, {
+          url: config.SYNESIS_INJECTION_SCORER_URL,
+          authToken: config.SYNESIS_INJECTION_SCORER_TOKEN,
+          model: config.SYNESIS_INJECTION_SCORER_MODEL,
+          timeoutMs: config.SYNESIS_INJECTION_SCORER_TIMEOUT_MS,
+        }).then((result) => {
+          emitSecurityEvent(promptInjectionScoreToPayload(result, {
+            service: "yarn",
+            requestId: ctx.requestId,
+            sessionId: ctx.sessionKey,
+            userId: ctx.userId,
+            orgId: ctx.orgId,
+            threshold: config.SYNESIS_INJECTION_SCORER_THRESHOLD,
+            actionTaken: scanAction,
+          }), ingestConfig, logger);
+        });
+      }
 
       if (scanEnabled && raw) {
         const result = role === "tool"

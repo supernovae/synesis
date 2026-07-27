@@ -27,6 +27,18 @@ describe("TrustPacketV1", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects unknown packet and attribution keys", () => {
+    const packet = makeUntrusted("test", "rag_retrieval");
+    expect(TrustPacketV1.safeParse({ ...packet, injected: true }).success).toBe(false);
+    expect(TrustPacketV1.safeParse({
+      ...packet,
+      attribution: {
+        source_uri: "https://example.com",
+        injected: true,
+      },
+    }).success).toBe(false);
+  });
+
   it("round-trips through serialize/parse", () => {
     const packet = makeUntrusted("test content", "tool_result", {
       sourceId: "sess-123",

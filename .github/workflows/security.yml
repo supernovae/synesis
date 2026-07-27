@@ -69,6 +69,18 @@ jobs:
           output_format: cli
           soft_fail: false
 
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Enforce exact Kubernetes exception baseline
+        run: |
+          cd "$RUNNER_TEMP"
+          uvx checkov==3.3.0 -d "$GITHUB_WORKSPACE/base" \
+            --framework kubernetes --output json --soft-fail --quiet \
+            > checkov-kubernetes.json
+          jq -r '.results.failed_checks[] | [.check_id,.file_path,.resource] | @tsv' \
+            checkov-kubernetes.json | LC_ALL=C sort -u > checkov-kubernetes.tsv
+          diff -u "$GITHUB_WORKSPACE/.checkov-kubernetes-baseline.tsv" checkov-kubernetes.tsv
+
   # ---------------------------------------------------------------------------
   # Filesystem vulnerability scanning (Grype — replaces Trivy vuln scan)
   # ---------------------------------------------------------------------------
@@ -137,6 +149,8 @@ jobs:
             dir: base/images/base-ml
           - name: admin
             dir: base/admin
+          - name: ast-mcp
+            dir: base/ast-mcp
           - name: indexer
             dir: base/rag/indexer
           - name: preprocess-service

@@ -84,6 +84,8 @@ def _patch_runtime(monkeypatch):
     monkeypatch.setattr("app.routers.rag.safe_query", lambda *a, **kw: [])
     monkeypatch.setattr("app.services.nornic_service.safe_count", lambda *a, **kw: 0)
     monkeypatch.setattr("app.routers.rag.safe_count", lambda *a, **kw: 0)
+    monkeypatch.setattr("app.services.nornic_service.collection_scan_signal_trends", lambda *a, **kw: [])
+    monkeypatch.setattr("app.routers.rag.collection_scan_signal_trends", lambda *a, **kw: [])
     monkeypatch.setattr("app.services.nornic_service.collection_stats", lambda *a, **kw: {"row_count": 0})
     _auth_ctx["user"] = _user(role="org_admin", org_id="org-a")
 
@@ -122,3 +124,22 @@ def test_rag_write_endpoint_allows_org_admin(client):
     _auth_ctx["user"] = _user(role="org_admin", org_id="org-a")
     resp = client.post("/api/v1/rag/quality/refresh")
     assert resp.status_code == 200
+
+
+def test_rag_review_trends_forwards_org_scope(client, monkeypatch):
+    import app.routers.rag as rag_mod
+
+    captured: dict[str, object] = {}
+
+    def _trends(*_args, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(rag_mod, "collection_scan_signal_trends", _trends)
+    _auth_ctx["user"] = _user(role="org_admin", org_id="org-a")
+
+    resp = client.get("/api/v1/rag/review/trends")
+
+    assert resp.status_code == 200
+    assert captured["caller_org_id"] == "org-a"
+    assert captured["is_platform_admin"] is False

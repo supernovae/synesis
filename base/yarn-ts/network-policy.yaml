@@ -109,3 +109,11 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    # Vision worker for bounded public-HTTPS screenshots.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: synesis-vision-worker
+      ports:
+        - port: 8080
+          protocol: TCP

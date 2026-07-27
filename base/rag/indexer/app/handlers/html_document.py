@@ -9,9 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
-
 from ..chunking import heading_aware_split
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -33,9 +32,7 @@ class HTMLDocumentHandler:
             return []
 
         try:
-            with httpx.Client(timeout=30, follow_redirects=True) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
+            resp = get_public_https(url, timeout=30)
         except Exception as e:
             logger.error("Failed to fetch HTML %s: %s", url, e)
             return []

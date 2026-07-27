@@ -7,6 +7,7 @@ by the ingestion router for URL preflight and preview endpoints.
 from __future__ import annotations
 
 import ipaddress
+import socket
 from typing import Any
 from urllib.parse import urlparse
 
@@ -47,25 +48,18 @@ def is_public_discovery_host(host: str) -> bool:
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
         return False
     try:
-        ip_obj = ipaddress.ip_address(hostname)
-    except ValueError:
-        return True
-    if (
-        ip_obj.is_private
-        or ip_obj.is_loopback
-        or ip_obj.is_link_local
-        or ip_obj.is_multicast
-        or ip_obj.is_reserved
-        or ip_obj.is_unspecified
-    ):
+        addresses = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
         return False
-    return True
+    return bool(addresses) and all(
+        ipaddress.ip_address(address[4][0].split("%", 1)[0]).is_global for address in addresses
+    )
 
 
 def validate_discovery_target_url(raw_url: str) -> tuple[str, Any]:
     parsed = urlparse(raw_url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    if parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="URL must start with https://")
     if parsed.username or parsed.password:
         raise HTTPException(status_code=400, detail="URL credentials are not allowed")
     if not is_public_discovery_host(parsed.hostname or ""):

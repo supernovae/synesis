@@ -107,11 +107,63 @@ jobs:
         run: |
           uv pip install --system -r base/images/base-api/requirements.lock
           uv pip install --system -r base/admin/requirements.lock
-          uv pip install --system "pytest>=8" "pytest-asyncio>=0.23"
+          uv pip install --system "pytest>=8" "pytest-asyncio>=0.23" "pytest-cov>=7"
 
       - name: Admin pytest
         working-directory: base/admin
-        run: PYTHONPATH=.:../images/base-api/synesis-telemetry python -m pytest tests/ -q --tb=short
+        run: >-
+          PYTHONPATH=.:../images/base-api/synesis-telemetry
+          python -m pytest tests/ -q --tb=short
+          --cov=app --cov-branch --cov-report=term --cov-fail-under=44
+
+  indexer-tests:
+    name: Indexer tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r base/images/base-api/requirements.lock
+          uv pip install --system -r base/rag/indexer/requirements.lock
+          uv pip install --system "pytest>=8" "pytest-asyncio>=0.23"
+      - name: Indexer pytest
+        working-directory: base/rag/indexer
+        run: PYTHONPATH=.:../../images/base-api/synesis-telemetry python -m pytest tests/ -q --tb=short
+
+  ast-mcp-tests:
+    name: AST MCP tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r base/ast-mcp/requirements.lock
+          uv pip install --system "pytest>=8"
+      - name: AST MCP pytest
+        working-directory: base/ast-mcp
+        run: python -m pytest tests/ -q --tb=short
+
+  webui-tests:
+    name: WebUI override tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+      - name: Install dependencies
+        run: uv pip install --system "pytest>=8"
+      - name: WebUI pytest
+        run: python -m pytest base/webui/tests -q --tb=short
 
   yarn-ts-tests:
     name: Yarn-TS typecheck + tests

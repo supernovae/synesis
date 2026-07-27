@@ -14,6 +14,7 @@ base/admin/frontend/.vite/
 
 # Shared TS package build output (rebuilt in CI)
 packages/*/dist/
+*.tsbuildinfo
 
 # TypeScript service build output
 base/synesis-mcp/dist/

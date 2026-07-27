@@ -4,9 +4,9 @@ Synesis includes a built-in **Open WebUI** instance that provides a polished cha
 
 **Upstream from planner-ts** (separate concern): the pipeline calls hosted OpenAI-compatible API providers or self-hosted vLLM/InferenceService endpoints according to the active admin Model Registry role assignment.
 
-Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui:v0.9.6`, based on upstream `v0.9.6`) that injects a branded light/dark theme via `/static/custom.css` and patches Open WebUI middleware so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
+Synesis ships a child image (`ghcr.io/supernovae/synesis/open-webui:v0.9.6`, based on upstream `v0.9.6`) that injects a branded light/dark theme via `/static/custom.css` and applies a version-checked middleware patch so planner streaming responses persist `synesis_run_id` / `synesis_authz_trace_id` on assistant messages (for **Chat Feedback** trace links). Build with `./scripts/build-images.sh --only open-webui`.
 
-Helm should deploy this Synesis image directly. Do not mount `base/webui/overrides/middleware.py` into an upstream Open WebUI pod with a standalone ConfigMap; that creates a version split between the image and the middleware override. The chart defaults pin `workloads.webui.image.repository` to `ghcr.io/supernovae/synesis/open-webui` and `workloads.webui.image.tag` to the supported Open WebUI version. During active development, CI also publishes `:latest` from this repository, so `workloads.webui.image.tag=latest` is acceptable only when `global.allowInsecureDefaults=true` is intentionally used for a mutable dev deployment.
+Helm should deploy this Synesis image directly. Do not replace upstream middleware with a standalone ConfigMap; that bypasses the image build's upstream hash check. The chart defaults pin `workloads.webui.image.repository` to `ghcr.io/supernovae/synesis/open-webui` and `workloads.webui.image.tag` to the supported Open WebUI version. During active development, CI also publishes `:latest` from this repository, so `workloads.webui.image.tag=latest` is acceptable only when `global.allowInsecureDefaults=true` is intentionally used for a mutable dev deployment.
 
 ## Helm Setup
 

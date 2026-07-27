@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.schema import EMBEDDING_DIM, EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV19TenancyFields:
-    def test_version_is_19(self):
-        assert SCHEMA_VERSION == 19
+class TestSchemaV20TenancyFields:
+    def test_version_is_20(self):
+        assert SCHEMA_VERSION == 20
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS

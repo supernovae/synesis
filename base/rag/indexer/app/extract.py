@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from typing import Any
 
 logger = logging.getLogger("synesis.indexer.extract")
-_TRAFILATURA_EXTRACT: Callable[..., str | None] | None | bool = None
+_TRAFILATURA_EXTRACT: Callable[..., str | None] | bool | None = None
 _TRAFILATURA_LOGGERS = ("trafilatura", "trafilatura.core", "trafilatura.utils")
 
 # Lines that are *only* nav/footer/chrome residue left by trafilatura.

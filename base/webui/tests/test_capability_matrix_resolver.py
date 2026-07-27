@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "base" / "webui" / "overrides"))
 
+import capability_matrix
 from capability_matrix import CapabilityMatrixInput, resolve_capability_matrix
 
 
@@ -31,3 +33,20 @@ def test_capability_matrix_resolver_contract(fixture_case: dict) -> None:
     assert actual["global_optimizations_enabled"] == expected["global_optimizations_enabled"]
     assert actual["resolved_capabilities"] == expected["resolved_capabilities"]
     assert actual["matched_override_ids"] == expected["matched_override_ids"]
+
+
+def test_webui_capability_resolution_enforces_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        capability_matrix,
+        "get_cached_capability_matrix_payload",
+        lambda: {"mode": "enforced", "global_optimizations_enabled": False, "overrides": []},
+    )
+
+    actual = asyncio.run(
+        capability_matrix.resolve_webui_capabilities(
+            {"id": "provider/model", "info": {"meta": {"capabilities": {"builtin_tools": True}}}}
+        )
+    )
+
+    assert actual["builtin_tools_enabled"] is False
+    assert actual["file_context_enabled"] is False

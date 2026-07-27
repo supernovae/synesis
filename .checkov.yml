@@ -17,8 +17,9 @@ framework:
 compact: true
 quiet: true
 
-# ─── Global skips ────────────────────────────────────────────────────────────
-# These apply to all scanned files. Each maps from a former .trivyignore entry.
+# These skips keep the human-readable multi-framework report focused. CI also
+# runs Kubernetes without this file and compares every finding to the exact
+# resource/check tuples in .checkov-kubernetes-baseline.tsv. New findings fail.
 
 skip-check:
   # CKV_K8S_22: readOnlyRootFilesystem not set

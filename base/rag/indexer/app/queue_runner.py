@@ -25,6 +25,18 @@ from .schema import SCHEMA_VERSION, ensure_synesis_catalog
 
 logger = get_logger("synesis.indexer.queue")
 
+_LOCAL_PATH_FIELDS: dict[str, tuple[str, ...]] = {
+    "license_spdx": ("compat_path",),
+    "markdown_file": ("path",),
+    "seed_corpus": ("path",),
+    "structured_data": ("path",),
+}
+
+
+class UnsafeQueueConfigError(ValueError):
+    """Raised when an API queue item attempts local filesystem ingestion."""
+
+
 _DEFAULT_ADMIN_URL = os.getenv(
     "SYNESIS_ADMIN_URL",
     "http://synesis-admin.synesis-admin.svc.cluster.local:8080",
@@ -114,6 +126,9 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     """Build a source_config dict matching what handlers expect."""
     handler = item.get("effective_handler") or item.get("handler") or "html_document"
     config = dict(item.get("effective_config") or item.get("config") or {})
+    for field in _LOCAL_PATH_FIELDS.get(str(handler), ()):
+        if config.get(field):
+            raise UnsafeQueueConfigError(f"config.{field} is not allowed for queued handler '{handler}'")
     domain = item.get("effective_domain") or item.get("domain") or "generalist"
     authority = item.get("effective_authority") or item.get("authority") or "vetted"
     tags = item.get("effective_tags") or item.get("tags") or []
@@ -323,7 +338,8 @@ def run_queue(
                 extra={"item_id": item_id, "uri": item_uri, "chunks": chunks},
             )
         except Exception as e:
-            client.report_status(item_id, "failed", error_message=str(e))
+            status = "dead_letter" if isinstance(e, UnsafeQueueConfigError) else "failed"
+            client.report_status(item_id, status, error_message=str(e))
             items_failed += 1
             logger.error(
                 "queue_item_failed",

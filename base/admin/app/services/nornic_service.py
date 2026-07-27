@@ -180,6 +180,17 @@ def _filter_row_value(row: dict[str, Any], field: str) -> str:
     return str(value)
 
 
+def _scan_signal_values(row: dict[str, Any]) -> list[str]:
+    value = row.get("scan_signals", "")
+    if isinstance(value, list | tuple | set):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _scan_signal_cypher(alias: str) -> str:
+    return f"[signal IN split(toString(coalesce({alias}.scan_signals, '')), ',') | trim(signal)]"
+
+
 def _filter_expr_to_cypher(
     filter_expr: str,
     *,
@@ -207,14 +218,20 @@ def _filter_expr_to_cypher(
         eq = _FILTER_EQ_RE.match(part)
         if eq:
             field, expected = eq.groups()
-            clauses.append(f"{_filter_value_expr(alias, field)} = ${param}")
+            if field == "scan_signal":
+                clauses.append(f"${param} IN {_scan_signal_cypher(alias)}")
+            else:
+                clauses.append(f"{_filter_value_expr(alias, field)} = ${param}")
             params[param] = expected
             continue
 
         ne = _FILTER_NE_RE.match(part)
         if ne:
             field, expected = ne.groups()
-            clauses.append(f"{_filter_value_expr(alias, field)} <> ${param}")
+            if field == "scan_signal":
+                clauses.append(f"NOT ${param} IN {_scan_signal_cypher(alias)}")
+            else:
+                clauses.append(f"{_filter_value_expr(alias, field)} <> ${param}")
             params[param] = expected
             continue
 
@@ -222,7 +239,10 @@ def _filter_expr_to_cypher(
         if in_match:
             field = in_match.group(1)
             allowed = _parse_filter_list(in_match.group(2))
-            clauses.append(f"{_filter_value_expr(alias, field)} IN ${param}")
+            if field == "scan_signal":
+                clauses.append(f"any(signal IN {_scan_signal_cypher(alias)} WHERE signal IN ${param})")
+            else:
+                clauses.append(f"{_filter_value_expr(alias, field)} IN ${param}")
             params[param] = allowed
             continue
 
@@ -346,6 +366,80 @@ def safe_count(
         return 0
 
 
+def collection_scan_signal_trends(
+    collection: str,
+    *,
+    since_epoch: int,
+    domain: str = "",
+    source: str = "",
+    signal: str = "",
+    limit: int = 50,
+    caller_org_id: str = "",
+    is_platform_admin: bool = False,
+) -> list[dict[str, Any]]:
+    """Aggregate flagged scan signals without returning corpus text."""
+    del collection
+    observed_at = (
+        "CASE WHEN toInteger(coalesce(n.effective_at_epoch, 0)) > 0 "
+        "THEN toInteger(n.effective_at_epoch) ELSE toInteger(coalesce(n.crawl_timestamp, 0)) END"
+    )
+    predicates = [
+        *_org_scope_predicates("n", caller_org_id, is_platform_admin),
+        "toString(coalesce(n.scan_status, 'unscanned')) = 'flagged'",
+        f"{observed_at} >= $since_epoch",
+        "toString(coalesce(n.scan_signals, '')) <> ''",
+    ]
+    params: dict[str, Any] = {
+        "since_epoch": max(0, int(since_epoch)),
+        "domain": domain,
+        "source": source,
+        "signal": signal,
+        "limit": max(1, min(limit, 200)),
+    }
+    if caller_org_id and not is_platform_admin:
+        params["caller_org_id"] = caller_org_id
+    where = " AND ".join(predicates)
+    try:
+        driver = get_nornic_driver()
+        with driver.session(database=NORNIC_DATABASE) as session:
+            rows = session.run(
+                f"""
+                MATCH (n:ContentNode)
+                WHERE {where}
+                WITH n,
+                     {observed_at} AS observed_at,
+                     toString(coalesce(n.domain, '')) AS domain,
+                     toString(coalesce(n.source_url, '')) AS source
+                UNWIND {_scan_signal_cypher("n")} AS signal
+                WITH trim(signal) AS signal, domain, source, observed_at
+                WHERE signal <> ''
+                  AND ($domain = '' OR domain = $domain)
+                  AND ($source = '' OR source = $source)
+                  AND ($signal = '' OR signal = $signal)
+                RETURN signal, domain, source, count(*) AS count,
+                       min(observed_at) AS first_seen_epoch,
+                       max(observed_at) AS last_seen_epoch
+                ORDER BY count DESC, signal, domain, source
+                LIMIT $limit
+                """,
+                **params,
+            )
+            return [
+                {
+                    "signal": str(row.get("signal") or ""),
+                    "domain": str(row.get("domain") or ""),
+                    "source": str(row.get("source") or ""),
+                    "count": int(row.get("count") or 0),
+                    "first_seen_epoch": int(row.get("first_seen_epoch") or 0),
+                    "last_seen_epoch": int(row.get("last_seen_epoch") or 0),
+                }
+                for row in rows
+            ]
+    except Exception as exc:
+        logger.warning("nornic_scan_trends_error graph=%s error=%s", CATALOG_COLLECTION, str(exc)[:120])
+        return []
+
+
 def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[str, Any]] | None:
     """Apply a single filter clause. Returns None if the clause is unrecognized."""
     clause = clause.strip()
@@ -358,11 +452,15 @@ def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[s
     eq = _FILTER_EQ_RE.match(clause)
     if eq:
         field, expected = eq.groups()
+        if field == "scan_signal":
+            return [row for row in rows if expected in _scan_signal_values(row)]
         return [row for row in rows if _filter_row_value(row, field) == expected]
 
     ne = _FILTER_NE_RE.match(clause)
     if ne:
         field, expected = ne.groups()
+        if field == "scan_signal":
+            return [row for row in rows if expected not in _scan_signal_values(row)]
         return [row for row in rows if _filter_row_value(row, field) != expected]
 
     in_match = _FILTER_IN_RE.match(clause)
@@ -370,6 +468,8 @@ def _apply_single_clause(rows: list[dict[str, Any]], clause: str) -> list[dict[s
         field = in_match.group(1)
         raw_values = in_match.group(2)
         allowed = _parse_filter_list(raw_values)
+        if field == "scan_signal":
+            return [row for row in rows if any(signal in allowed for signal in _scan_signal_values(row))]
         return [row for row in rows if _filter_row_value(row, field) in allowed]
 
     return None

@@ -22,6 +22,10 @@ Global knobs still apply as baselines:
 
 Client-side `/compact` (Claude Code, etc.) is unchanged: Synesis only detects large transcript drops and resets dedup; it does not rewrite client summaries.
 
+## Trust-policy model qualification
+
+Model-family compaction settings do not establish prompt-injection resistance. Before approving a model for evidence-bearing Planner or Yarn routes, run both trust-policy flows documented in [Trust policy model compliance](TRUST_POLICY_MODEL_COMPLIANCE.md). Keep deterministic trust envelopes and scanning enabled for every family; do not treat a classifier or a passing model eval as a replacement for those controls.
+
 ## Code
 
 - [base/yarn-ts/src/context/compaction-sensitivity.ts](../../base/yarn-ts/src/context/compaction-sensitivity.ts)

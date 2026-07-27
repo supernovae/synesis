@@ -5,6 +5,7 @@
  */
 
 import type { ScanResult, EventType } from "./scanner.js";
+import type { PromptInjectionScoreResult } from "./prompt-injection-scorer.js";
 
 export interface SecurityIngestPayload {
   event_id: string;
@@ -85,6 +86,49 @@ export function scanResultToPayload(
       tier: result.tier,
       source: result.source,
       patterns_count: result.patterns_found.length,
+    },
+  };
+}
+
+export function promptInjectionScoreToPayload(
+  result: PromptInjectionScoreResult,
+  context: {
+    service: "yarn" | "planner";
+    requestId: string;
+    sessionId?: string;
+    userId?: string;
+    orgId?: string;
+    threshold: number;
+    actionTaken: "allow" | "log" | "reduce" | "block";
+  },
+): SecurityIngestPayload {
+  const detected = result.status === "scored" && result.score >= context.threshold;
+  return {
+    event_id: `${context.service}-semantic-${context.requestId}-${Date.now()}`,
+    event_type: result.status === "scored"
+      ? detected ? "semantic_prompt_injection" : "semantic_prompt_benign"
+      : "prompt_injection_scorer_failure",
+    severity: detected ? "high" : result.status === "scored" ? "low" : "medium",
+    confidence: result.score,
+    confidence_band: confidenceBand(result.score),
+    action_taken: detected ? context.actionTaken : "allow",
+    scope: "request",
+    service: context.service,
+    request_id: context.requestId,
+    session_id: context.sessionId ?? "",
+    user_id: context.userId ?? "",
+    token_id: "",
+    org_id: context.orgId ?? "",
+    patterns_found: [],
+    excerpt: "",
+    scanner_name: result.model.slice(0, 64),
+    latency_ms: result.latency_ms,
+    detail: {
+      scorer_status: result.status,
+      scorer_label: result.label,
+      scorer_source: result.source,
+      threshold: context.threshold,
+      ...(result.error ? { error: result.error } : {}),
     },
   };
 }

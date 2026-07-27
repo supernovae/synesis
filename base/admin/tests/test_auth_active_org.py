@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
 import jwt
 import pytest
 
@@ -80,3 +83,49 @@ def test_parse_org_claim_rejects_malformed_active_org_claim():
     }
     with pytest.raises(jwt.InvalidTokenError, match="active_org_id"):
         _parse_org_claim(payload)
+
+
+@pytest.mark.parametrize("azp", [None, "another-client", ""])
+def test_keycloak_token_requires_expected_authorized_party(azp):
+    from app import auth
+
+    payload = {"sub": "u1", "preferred_username": "user", "azp": azp}
+    client = Mock()
+    client.get_signing_key_from_jwt.return_value = SimpleNamespace(key="public-key")
+    with (
+        patch.object(auth, "_get_jwks_client", return_value=client),
+        patch.object(auth.jwt, "decode", return_value=payload),
+        pytest.raises(jwt.InvalidTokenError, match="not issued for Synesis Admin"),
+    ):
+        auth._verify_keycloak_token("token")
+
+
+def test_keycloak_token_accepts_expected_authorized_party():
+    from app import auth
+
+    payload = {"sub": "u1", "preferred_username": "user", "azp": "synesis-admin"}
+    client = Mock()
+    client.get_signing_key_from_jwt.return_value = SimpleNamespace(key="public-key")
+    with (
+        patch.object(auth, "_get_jwks_client", return_value=client),
+        patch.object(auth.jwt, "decode", return_value=payload),
+    ):
+        user = auth._verify_keycloak_token("token")
+    assert user.user_id == "u1"
+
+
+def test_configured_keycloak_audience_is_also_verified():
+    from app import auth
+
+    payload = {"sub": "u1", "azp": "synesis-admin"}
+    client = Mock()
+    client.get_signing_key_from_jwt.return_value = SimpleNamespace(key="public-key")
+    decode = Mock(return_value=payload)
+    with (
+        patch.object(auth, "KEYCLOAK_AUDIENCE", "synesis-admin-api"),
+        patch.object(auth, "_get_jwks_client", return_value=client),
+        patch.object(auth.jwt, "decode", decode),
+    ):
+        auth._verify_keycloak_token("token")
+    assert decode.call_args.kwargs["audience"] == "synesis-admin-api"
+    assert decode.call_args.kwargs["options"] == {"verify_aud": True}

@@ -10,9 +10,8 @@ import logging
 import re
 from typing import Any
 
-import httpx
-
 from ..chunking import chunk_text_simple
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -36,10 +35,7 @@ class PDFDocumentHandler:
             return []
 
         try:
-            with httpx.Client(timeout=60, follow_redirects=True) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                content = resp.content
+            content = get_public_https(url, timeout=60).content
         except Exception as e:
             logger.error("Failed to fetch PDF %s: %s", url, e)
             return []

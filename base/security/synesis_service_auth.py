@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import os
 import time
+from collections.abc import Callable
 
 _SCHEME = "HMAC-SHA256"
 _DEFAULT_MAX_AGE = 300  # 5-minute clock-skew tolerance
@@ -77,7 +78,7 @@ def verify_bearer(token: str, secrets: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def sign_request(body: bytes, secret: str) -> dict[str, str]:
+def sign_request(body: bytes, secret: str, *, nonce: str | None = None) -> dict[str, str]:
     """Create an ``Authorization`` header with an HMAC-SHA256 signature.
 
     Returns a dict suitable for passing as ``headers=`` to httpx / urllib.
@@ -86,7 +87,7 @@ def sign_request(body: bytes, secret: str) -> dict[str, str]:
     token is bound to the specific request body and a time window.
     """
     ts = str(int(time.time()))
-    nonce = hashlib.sha256(os.urandom(16)).hexdigest()[:16]
+    nonce = nonce or hashlib.sha256(os.urandom(16)).hexdigest()[:16]
     body_hash = hashlib.sha256(body).hexdigest()
     payload = f"{ts}:{nonce}:{body_hash}"
     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
@@ -99,15 +100,16 @@ def verify_request(
     secret: str,
     *,
     max_age: int = _DEFAULT_MAX_AGE,
+    nonce_consumer: Callable[[str], bool] | None = None,
 ) -> tuple[bool, str]:
     """Validate an HMAC-signed ``Authorization`` header.
 
     Returns ``(valid, reason)`` where *reason* explains rejection.
-    When *secret* is empty, returns ``(True, "auth_disabled")`` — this
-    allows dev/test environments to run without configuring secrets.
+    Empty secrets always fail closed. When *nonce_consumer* is supplied, it
+    must atomically accept and consume the nonce after signature validation.
     """
     if not secret:
-        return True, "auth_disabled"
+        return False, "auth_not_configured"
 
     if not auth_header:
         return False, "missing_authorization_header"
@@ -140,5 +142,8 @@ def verify_request(
 
     if not hmac.compare_digest(sig_hex, expected):
         return False, "signature_mismatch"
+
+    if nonce_consumer is not None and not nonce_consumer(nonce):
+        return False, "unknown_expired_or_replayed_nonce"
 
     return True, "ok"

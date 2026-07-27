@@ -16,6 +16,8 @@
  *   { stdout, stderr, exit_code, lint_output?, security_output? }
  */
 
+import { sandboxAuthorization } from "../../src/security/service-auth.js";
+
 export interface SandboxConfig {
   url: string;
   secret?: string;
@@ -126,19 +128,22 @@ export async function executeSandboxToolCall(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    if (!config.secret) throw new Error("Sandbox authentication is not configured");
+    const body = JSON.stringify({
+      language,
+      code: command,
+      filename: language === "go" ? "main.go" : language === "python" ? "script.py" : "script.sh",
+      trivial: false,
+    });
+    const authorization = await sandboxAuthorization(config.url, body, config.secret);
     const resp = await fetch(config.url, {
       method: "POST",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}),
+        Authorization: authorization,
       },
-      body: JSON.stringify({
-        language,
-        code: command,
-        filename: language === "go" ? "main.go" : language === "python" ? "script.py" : "script.sh",
-        trivial: false,
-      }),
+      body,
     });
 
     if (!resp.ok) {

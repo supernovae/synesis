@@ -41,7 +41,7 @@ This is a one-time step. After the Helm release is applied, `synesis-yarn` pods 
 | `SYNESIS_MONITOR_KEY` | optional | LLM key for monitor (defaults to `SYNESIS_YARN_TOKEN`) |
 | `SYNESIS_MONITOR_MODEL` | optional | Model override for monitor |
 | `SYNESIS_SANDBOX_URL` | optional | Sandbox warm pool URL (defaults to cluster DNS) |
-| `SYNESIS_SANDBOX_SECRET` | optional | Sandbox auth secret |
+| `SYNESIS_SANDBOX_SECRET` | live mode | Required sandbox HMAC secret; each request consumes a one-time challenge nonce |
 
 ---
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
@@ -33,13 +34,8 @@ class GenericTextHandler:
             logger.error("generic_text handler requires config.url")
             return []
 
-        import httpx
-
         try:
-            with httpx.Client(timeout=30, follow_redirects=True) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                content = resp.text
+            content = get_public_https(url, timeout=30).text
         except Exception as e:
             logger.error("Failed to fetch %s: %s", url, e)
             return []

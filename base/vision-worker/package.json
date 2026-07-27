@@ -4,7 +4,8 @@
   "description": "Headless Playwright worker for Synesis vision tasks",
   "main": "app/server.js",
   "scripts": {
-    "start": "node app/server.js"
+    "start": "node app/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "fastify": "^5.9.0",

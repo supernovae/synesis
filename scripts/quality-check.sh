@@ -66,6 +66,40 @@ if [ "$mode" = "--full" ]; then
     run npm run build -w packages/synesis-upper-harness
     run npm run typecheck -w base/yarn-ts
     run npm run test -w base/yarn-ts
+    run npm run test -w base/planner-ts
+    run npm run test -w base/synesis-mcp
+    run npm run test -w base/admin-mcp-ts
+
+    (
+        cd base/admin
+        PYTHONPATH=.:../images/base-api/synesis-telemetry run uv run \
+            --project ../.. --group dev \
+            --with-requirements ../images/base-api/requirements.lock \
+            --with-requirements requirements.lock \
+            pytest tests/ -q --tb=short --cov=app --cov-branch --cov-fail-under=44
+    )
+
+    (
+        cd base/rag/indexer
+        PYTHONPATH=.:../../images/base-api/synesis-telemetry run uv run \
+            --project ../../.. --group dev \
+            --with-requirements ../../images/base-api/requirements.lock \
+            --with-requirements requirements.lock \
+            pytest tests/ -q --tb=short
+    )
+
+    (
+        cd base/ast-mcp
+        run uv run --project ../.. --group dev \
+            --with-requirements requirements.lock pytest tests/ -q --tb=short
+    )
+
+    run uv run --group dev pytest base/webui/tests -q --tb=short
+
+    (
+        cd base/vision-worker
+        run npm test
+    )
 
     (
         cd base/admin/frontend
