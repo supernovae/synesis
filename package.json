@@ -15,7 +15,7 @@
     "base/admin-mcp-ts"
   ],
   "overrides": {
-    "axios": "1.16.0",
+    "axios": "1.18.0",
     "esbuild": "0.28.1",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
