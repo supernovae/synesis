@@ -695,7 +695,6 @@ export async function registerMcpRoutes(
   // Cloudflare may enforce edge throttling, but origin-side MCP routes still
   // apply local limits so private traffic paths are consistently protected.
   const mcpAuthRateLimit = { max: 240, timeWindow: "1 minute" as const };
-  const mcpAuthPreHandler = app.rateLimit(mcpAuthRateLimit);
   const toolConcurrencyLimiter = new McpConcurrencyLimiter({
     maxPerCaller: opts.toolMaxConcurrentPerCaller,
     maxGlobal: opts.toolMaxConcurrentGlobal,
@@ -722,7 +721,6 @@ export async function registerMcpRoutes(
     "/v1/mcp/tools",
     {
       config: { rateLimit: mcpAuthRateLimit },
-      preHandler: mcpAuthPreHandler,
     },
     // codeql[js/missing-rate-limiting]
     async (req, reply) => {
@@ -762,7 +760,6 @@ export async function registerMcpRoutes(
     "/v1/mcp/tools/call",
     {
       config: { rateLimit: mcpAuthRateLimit },
-      preHandler: mcpAuthPreHandler,
     },
     // codeql[js/missing-rate-limiting]
     async (req, reply) => {
