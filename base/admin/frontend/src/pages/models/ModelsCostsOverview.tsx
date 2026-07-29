@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { usePipelineServices, useRoleAssignments, useUsageSummaryUnified } from "../../api/hooks";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
 import { fmtCost, fmtTokens } from "../../lib/formatUsage";

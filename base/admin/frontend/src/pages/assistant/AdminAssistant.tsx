@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation, Link } from "react-router-dom";
+import { useLocation, Link } from "react-router";
 import { useAssistantChat } from "../../api/hooks";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import MarkdownContent from "../../components/common/MarkdownContent";

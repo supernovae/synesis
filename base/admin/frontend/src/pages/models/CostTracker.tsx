@@ -23,7 +23,7 @@ import EmptyState from "../../components/common/EmptyState";
 import { DollarSign, Cloud, Server, PenLine } from "lucide-react";
 import type { ModelCost, ActiveCostEntry } from "../../types";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 const SOURCE_BADGE_STYLES: Record<string, string> = {
   manual: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",

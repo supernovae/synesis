@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useUpdateUserRuntimePreferences, useUserRuntimePreferences } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";

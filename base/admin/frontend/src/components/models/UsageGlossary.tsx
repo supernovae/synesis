@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 /** Short definitions + link to Models & Pricing overview hub. */
 export function UsageGlossaryBanner({ className = "" }: { className?: string }) {

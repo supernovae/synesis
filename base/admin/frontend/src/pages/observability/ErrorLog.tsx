@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useBulkDeleteFailures, useDeleteFailure, useFailures, usePurgeFailures } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";

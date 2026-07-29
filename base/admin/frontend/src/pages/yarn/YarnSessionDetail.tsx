@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { clsx } from "clsx";
 import { useYarnSessionDetail, type YarnSessionRequestRow, type YarnSessionEventRow } from "../../api/hooks";

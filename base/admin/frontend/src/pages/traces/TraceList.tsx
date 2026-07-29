@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   useTraces,
   useTraceStats,
@@ -14,7 +14,7 @@ import DataTable from "../../components/common/DataTable";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2, Archive } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { TraceRecord } from "../../types";
 import { formatProviderCacheSummary, getProviderTokenRollup } from "./providerTokenRollup";
 

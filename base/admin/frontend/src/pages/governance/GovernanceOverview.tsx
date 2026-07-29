@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Shield, FileText, Scale, Clock } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import client from "../../api/client";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 

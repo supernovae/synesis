@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { useQualityDomain } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import StatusBadge from "../../components/common/StatusBadge";

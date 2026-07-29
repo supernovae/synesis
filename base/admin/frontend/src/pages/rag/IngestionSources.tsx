@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useIngestionSources, useCreateIngestionSource } from "../../api/hooks";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { Plus, FolderOpen, ChevronRight } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { IngestionSource } from "../../types";
 
 const ACL_MODES = ["open", "restricted", "private"] as const;

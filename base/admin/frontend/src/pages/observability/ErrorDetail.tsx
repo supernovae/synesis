@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { useFailureDetail } from "../../api/hooks";
 import RichContent from "../../components/common/RichContent";
 

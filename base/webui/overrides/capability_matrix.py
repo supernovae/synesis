@@ -78,7 +78,8 @@ def _fetch_capability_matrix_payload() -> dict[str, Any]:
     )
 
     try:
-        with urllib_request.urlopen(req, timeout=4) as response:  # noqa: S310 - validated cluster service URL
+        # URL scheme and authority are validated above; endpoint is deployment configuration.
+        with urllib_request.urlopen(req, timeout=4) as response:  # noqa: S310  # nosec B310
             if response.getcode() == 304:
                 _CAPABILITY_MATRIX_CACHE["fetched_at"] = time.time()
                 return _CAPABILITY_MATRIX_CACHE["payload"]

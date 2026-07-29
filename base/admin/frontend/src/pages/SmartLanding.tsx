@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import { useAuth } from "../components/auth/useAuth";
 
 const OPS_ROLES = new Set(["admin", "platform_admin", "org_admin"]);
