@@ -11,13 +11,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@fastify/rate-limit": "^11.1.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "fastify": "^5.10.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
