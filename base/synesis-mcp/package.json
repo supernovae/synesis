@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
-    "@fastify/rate-limit": "^11.1.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openfga/sdk": "^0.9.6",
     "@opentelemetry/api": "^1.9.1",
@@ -26,13 +26,13 @@
     "@synesis/auth-contracts": "*",
     "@synesis/mcp-tools": "file:../../packages/synesis-mcp-tools",
     "@synesis/oidc-auth": "file:../../packages/synesis-oidc-auth",
-    "fastify": "^5.10.0",
+    "fastify": "^5.11.0",
     "pg": "^8.22.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "tsx": "^4.23.1",
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.5",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
