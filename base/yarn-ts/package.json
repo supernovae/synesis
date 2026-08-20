@@ -67,7 +67,7 @@
     "@synesis/upper-harness": "*",
     "ai": "^7.0.58",
     "fastify": "^5.11.3",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.0",
     "prom-client": "^15.1.3",
     "tinypool": "^2.1.0",
