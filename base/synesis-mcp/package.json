@@ -16,7 +16,7 @@
     "@fastify/cors": "^11.3.0",
     "@fastify/rate-limit": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@openfga/sdk": "^0.9.6",
+    "@openfga/sdk": "^0.9.7",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
     "@opentelemetry/resources": "^2.10.0",
@@ -26,7 +26,7 @@
     "@synesis/auth-contracts": "*",
     "@synesis/mcp-tools": "file:../../packages/synesis-mcp-tools",
     "@synesis/oidc-auth": "file:../../packages/synesis-oidc-auth",
-    "fastify": "^5.11.3",
+    "fastify": "^5.12.1",
     "pg": "^8.23.0",
     "zod": "^4.4.3"
   },
@@ -34,7 +34,7 @@
     "@types/node": "^26.2.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "axios": "1.18.0",

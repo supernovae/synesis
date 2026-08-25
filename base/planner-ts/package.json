@@ -15,9 +15,9 @@
     "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.36",
+    "@ai-sdk/openai": "^4.0.46",
     "@fastify/rate-limit": "^11.2.0",
-    "@openfga/sdk": "0.9.6",
+    "@openfga/sdk": "0.9.7",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
     "@opentelemetry/resources": "^2.10.0",
@@ -28,8 +28,8 @@
     "@synesis/context-trust": "*",
     "@synesis/telemetry": "*",
     "@synesis/upper-harness": "*",
-    "ai": "^7.0.58",
-    "fastify": "^5.11.3",
+    "ai": "^7.0.77",
+    "fastify": "^5.12.1",
     "ioredis": "^6.0.0",
     "neo4j-driver": "^6.2.0",
     "pg": "^8.23.0",
@@ -39,10 +39,10 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "@types/pg": "^8.21.0",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "axios": "1.18.0",
