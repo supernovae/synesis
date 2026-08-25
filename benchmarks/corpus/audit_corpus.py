@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Corpus quality audit: per-domain coverage scoring and dead-weight detection.
 
-For each taxonomy domain, generates representative queries, probes hybrid
-retrieval, and scores coverage. Identifies domains with gaps and documents
-that never surface in top-K results (dead weight).
+For each taxonomy domain, generates representative queries, probes the
+canonical NornicDB vector index, and scores coverage. Identifies domains with
+gaps and documents that never surface in top-K results (dead weight).
 
 Usage:
-    python audit_corpus.py [--nornic-uri URI] [--embedder-url URL]
+    python audit_corpus.py [--nornic-uri URI] [--nornic-database DB]
                            [--taxonomy PATH] [--top-k K] [--domains D1,D2]
                            [--llm-url URL] [--model MODEL]
                            [--output corpus_audit_report.json]
@@ -29,29 +29,7 @@ import yaml
 from neo4j import GraphDatabase
 
 COLLECTION = "content_graph"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-SEARCH_OUTPUT_FIELDS = [
-    "chunk_id",
-    "doc_id",
-    "text",
-    "document_name",
-    "domain",
-    "authority",
-    "source_url",
-    "handler",
-    "heading_path",
-]
-
-INVENTORY_FIELDS = [
-    "chunk_id",
-    "doc_id",
-    "document_name",
-    "domain",
-    "authority",
-    "source_url",
-    "handler",
-]
+DEFAULT_VECTOR_INDEX = "embeddings"
 
 
 # ---------------------------------------------------------------------------
@@ -59,36 +37,47 @@ INVENTORY_FIELDS = [
 # ---------------------------------------------------------------------------
 
 
-def embed_text(text: str, embedder_url: str) -> list[float]:
-    resp = httpx.post(
-        f"{embedder_url}/embeddings",
-        json={"input": [text], "model": EMBEDDING_MODEL},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
-
-
-def hybrid_search(
+def vector_search(
     query: str,
-    query_vector: list[float],
     client: Any,
     top_k: int,
-    domain_filter: str = "",
+    *,
+    database: str,
+    vector_index: str,
+    org_id: str = "",
+    tenant_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    del query_vector, domain_filter
     formatted = []
-    with client.session(database="neo4j") as session:
+    with client.session(database=database) as session:
         rows = session.run(
             """
-            CALL db.index.vector.queryNodes('embeddings', $limit, $query)
+            CALL db.index.vector.queryNodes($index_name, $candidate_limit, $query)
             YIELD node, score
+            WHERE coalesce(node.acl_mode, "open") IN ["open", ""]
+              AND (
+                coalesce(node.visibility_scope, "global") = "global"
+                OR (
+                  $org_id <> ""
+                  AND (
+                  (node.visibility_scope = "org" AND node.org_id = $org_id)
+                  OR (
+                    node.visibility_scope = "tenant"
+                    AND node.org_id = $org_id
+                    AND node.tenant_id IN $tenant_ids
+                  )
+                )
+              )
+              )
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit
             """,
             query=query,
+            index_name=vector_index,
+            candidate_limit=max(top_k * 4, top_k),
             limit=top_k,
+            org_id=org_id,
+            tenant_ids=tenant_ids or [],
         )
         results = list(rows)
     for hit in results:
@@ -190,6 +179,10 @@ def generate_queries_from_taxonomy(
 def get_corpus_inventory(
     client: Any,
     domain: str = "",
+    *,
+    database: str,
+    org_id: str = "",
+    tenant_ids: list[str] | None = None,
 ) -> list[dict]:
     """Fetch all chunk metadata for a domain (or all domains)."""
     all_chunks = []
@@ -197,11 +190,26 @@ def get_corpus_inventory(
     batch = 1000
 
     while True:
-        with client.session(database="neo4j") as session:
+        with client.session(database=database) as session:
             rows = session.run(
                 """
                 MATCH (n:ContentNode)
-                WHERE $domain = "" OR n.domain = $domain
+                WHERE ($domain = "" OR n.domain = $domain)
+                  AND coalesce(n.acl_mode, "open") IN ["open", ""]
+                  AND (
+                    coalesce(n.visibility_scope, "global") = "global"
+                    OR (
+                      $org_id <> ""
+                      AND (
+                        (n.visibility_scope = "org" AND n.org_id = $org_id)
+                        OR (
+                          n.visibility_scope = "tenant"
+                          AND n.org_id = $org_id
+                          AND n.tenant_id IN $tenant_ids
+                        )
+                      )
+                    )
+                  )
                 RETURN n
                 SKIP $offset
                 LIMIT $limit
@@ -209,6 +217,8 @@ def get_corpus_inventory(
                 domain=domain,
                 offset=offset,
                 limit=batch,
+                org_id=org_id,
+                tenant_ids=tenant_ids or [],
             )
             results = [dict(row["n"]) for row in rows]
         if not results:
@@ -230,17 +240,26 @@ def audit_domain(
     domain_key: str,
     domain_config: dict,
     client: Any,
-    embedder_url: str,
     top_k: int,
     llm_url: str | None,
     model: str,
-    scope_filter: str = "",
+    *,
+    database: str,
+    vector_index: str,
+    org_id: str = "",
+    tenant_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run the full audit for a single domain."""
     queries = generate_queries_from_taxonomy(domain_key, domain_config, llm_url, model)
 
     # Retrieve all chunks in this domain for inventory
-    inventory = get_corpus_inventory(client, domain_key)
+    inventory = get_corpus_inventory(
+        client,
+        domain_key,
+        database=database,
+        org_id=org_id,
+        tenant_ids=tenant_ids,
+    )
     all_chunk_ids = {c.get("chunk_id", "") for c in inventory if c.get("chunk_id")}
     all_doc_ids = {c.get("doc_id", "") for c in inventory if c.get("doc_id")}
 
@@ -267,8 +286,15 @@ def audit_domain(
 
     for q in queries:
         try:
-            vec = embed_text(q, embedder_url)
-            results = hybrid_search(q, vec, client, top_k, domain_filter=scope_filter)
+            results = vector_search(
+                q,
+                client,
+                top_k,
+                database=database,
+                vector_index=vector_index,
+                org_id=org_id,
+                tenant_ids=tenant_ids,
+            )
         except Exception as e:
             print(f"    Search failed for '{q[:50]}': {e}", file=sys.stderr)
             mrr_scores.append(0.0)
@@ -345,7 +371,11 @@ def main():
     parser.add_argument("--nornic-uri", default="bolt://localhost:7687")
     parser.add_argument("--nornic-user", default=os.getenv("SYNESIS_NORNIC_USER", "neo4j"))
     parser.add_argument("--nornic-password", default=os.getenv("SYNESIS_NORNIC_PASSWORD", ""))
-    parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
+    parser.add_argument("--nornic-database", default=os.getenv("SYNESIS_NORNIC_DATABASE", "nornic"))
+    parser.add_argument(
+        "--nornic-vector-index",
+        default=os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", DEFAULT_VECTOR_INDEX),
+    )
     parser.add_argument("--llm-url", default=None, help="Optional: LLM URL for richer query generation")
     parser.add_argument("--model", default="synesis-general")
     parser.add_argument("--taxonomy", default="base/planner-ts/config/taxonomy_prompt_config.yaml")
@@ -370,21 +400,10 @@ def main():
 
     auth = (args.nornic_user, args.nornic_password) if args.nornic_password else None
     client = GraphDatabase.driver(args.nornic_uri, auth=auth)
-    embedder_url = args.embedder_url.rstrip("/")
-
-    scope_filter = ""
-    if args.org_id:
-        tid_list = [t.strip() for t in args.tenant_ids.split(",") if t.strip()] if args.tenant_ids else None
-        scope_clauses = ['visibility_scope == "global"']
-        safe_org = args.org_id.replace('"', "")[:64]
-        scope_clauses.append(f'(visibility_scope == "org" and org_id == "{safe_org}")')
-        if tid_list:
-            tenant_list = ",".join(f'"{t.replace(chr(34), "")[:64]}"' for t in tid_list[:50])
-            scope_clauses.append(
-                f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
-            )
-        scope_filter = f"({' or '.join(scope_clauses)})"
-        print(f"Scope filter: {scope_filter}")
+    org_id = args.org_id.strip()[:64]
+    tenant_ids = [tenant.strip()[:64] for tenant in args.tenant_ids.split(",") if tenant.strip()][:50]
+    if org_id:
+        print(f"Scope: global/open + org={org_id} + {len(tenant_ids)} tenant(s)")
 
     print(f"Auditing {len(target_domains)} domains against {COLLECTION}...")
     t0 = time.time()
@@ -392,35 +411,41 @@ def main():
     scorecards: list[dict] = []
     summary = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
 
-    for i, domain_key in enumerate(target_domains):
-        domain_config = taxonomy.get(domain_key, {})
-        if not isinstance(domain_config, dict) or "path" not in domain_config:
-            continue
+    try:
+        client.verify_connectivity()
+        for i, domain_key in enumerate(target_domains):
+            domain_config = taxonomy.get(domain_key, {})
+            if not isinstance(domain_config, dict) or "path" not in domain_config:
+                continue
 
-        print(f"\n[{i + 1}/{len(target_domains)}] {domain_key} ({domain_config.get('path', '')})")
+            print(f"\n[{i + 1}/{len(target_domains)}] {domain_key} ({domain_config.get('path', '')})")
 
-        scorecard = audit_domain(
-            domain_key,
-            domain_config,
-            client,
-            embedder_url,
-            args.top_k,
-            args.llm_url,
-            args.model,
-            scope_filter=scope_filter,
-        )
-        health = classify_domain(scorecard)
-        scorecard["health"] = health
-        summary[health] += 1
-        scorecards.append(scorecard)
+            scorecard = audit_domain(
+                domain_key,
+                domain_config,
+                client,
+                args.top_k,
+                args.llm_url,
+                args.model,
+                database=args.nornic_database,
+                vector_index=args.nornic_vector_index,
+                org_id=org_id,
+                tenant_ids=tenant_ids,
+            )
+            health = classify_domain(scorecard)
+            scorecard["health"] = health
+            summary[health] += 1
+            scorecards.append(scorecard)
 
-        cov = scorecard["coverage"]
-        inv = scorecard["inventory"]
-        print(
-            f"  {health.upper()}: {inv['total_chunks']} chunks, "
-            f"hit_rate={cov['hit_rate']:.0%}, mrr={cov['mean_mrr']:.3f}, "
-            f"diversity={cov['source_diversity']}"
-        )
+            cov = scorecard["coverage"]
+            inv = scorecard["inventory"]
+            print(
+                f"  {health.upper()}: {inv['total_chunks']} chunks, "
+                f"hit_rate={cov['hit_rate']:.0%}, mrr={cov['mean_mrr']:.3f}, "
+                f"diversity={cov['source_diversity']}"
+            )
+    finally:
+        client.close()
 
     elapsed = time.time() - t0
 

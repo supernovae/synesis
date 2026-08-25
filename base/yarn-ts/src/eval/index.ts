@@ -23,6 +23,7 @@ export type {
 export { EVAL_EVENT_KINDS } from "./types.js";
 export { runScenario, runScenarios } from "./scenario-runner.js";
 export { detectAnomalies, scoreTurn, scoreScenario } from "./turn-scorer.js";
+export { computePairedAccuracy, type PairedAccuracyMetrics } from "./paired-evaluation.js";
 export {
   isObserverEnabled,
   enableObserver,

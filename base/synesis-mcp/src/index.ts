@@ -283,6 +283,7 @@ app.get("/health/readiness", async (request, reply) => {
   const adminDbRequired = !config.SYNESIS_MCP_ALLOW_INTERNAL_ONLY;
   const checks: Record<string, boolean> = {
     planner_url_configured: Boolean(config.SYNESIS_PLANNER_URL.trim()),
+    internal_service_token_configured: Boolean(config.SYNESIS_INTERNAL_SERVICE_TOKEN.trim()),
     planner_reachable: await checkPlannerReady(),
     admin_db_required: adminDbRequired ? Boolean(config.SYNESIS_ADMIN_DB_URL?.trim()) : true,
     openfga_configured: config.SYNESIS_MCP_AUTHZ_MODE === "enforce" ? Boolean(getFgaClient()) : true,

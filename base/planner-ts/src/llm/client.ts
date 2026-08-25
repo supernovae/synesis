@@ -141,7 +141,6 @@ function usageFromSdk(usage: LanguageModelUsage | undefined, pricingRates?: Pric
     typeof usage?.totalTokens === "number" ? usage.totalTokens : Number(raw.total_tokens ?? promptTokens + completionTokens);
   const cachedTokens =
     usage?.inputTokenDetails?.cacheReadTokens
-    ?? usage?.cachedInputTokens
     ?? (raw.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens
     ?? Number(raw.cached_tokens ?? 0);
 

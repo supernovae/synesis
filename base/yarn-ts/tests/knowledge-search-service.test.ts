@@ -77,7 +77,9 @@ describe("KnowledgeSearchService", () => {
       expect(result.results[0].score).toBe(0.92);
       expect(String(fetchSpy.mock.calls[0][0])).toContain("/v1/knowledge/search");
       const init = fetchSpy.mock.calls[0][1] as RequestInit;
-      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer syn-test-pat");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer internal-token");
+      expect((init.headers as Record<string, string>)["x-openwebui-user-id"]).toBe("u1");
+      expect((init.headers as Record<string, string>)["x-synesis-org-id"]).toBe("o1");
     });
 
     it("passes caller identity into planner JSON body", async () => {

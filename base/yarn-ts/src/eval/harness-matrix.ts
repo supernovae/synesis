@@ -136,6 +136,8 @@ export interface HarnessMatrixCaseResult {
   harnessProfile: string;
   modelId: string;
   modelAlias?: string;
+  repeatGroupId: string;
+  roundsConfigured: number;
   round: number;
   passed: boolean;
   score: number;
@@ -166,6 +168,11 @@ export interface HarnessMatrixSummary {
   passed: number;
   failed: number;
   avgScore: number;
+  /** Groups configured with k>1 repeated executions. */
+  repeatedGroups: number;
+  /** Repeated groups for which every one of k executions passed (pass^k). */
+  repeatedGroupsAllPassed: number;
+  passPowK: number | null;
   failureCategories: Record<string, number>;
   likelyOwners: Record<string, number>;
   promotionRecommendations: Record<string, number>;
@@ -173,6 +180,7 @@ export interface HarnessMatrixSummary {
 
 interface ExpandedMatrixCase {
   id: string;
+  repeatGroupId: string;
   task: HarnessMatrixTaskSpec & { prompt: string };
   harness: HarnessMatrixHarnessSpec;
   model: HarnessMatrixModelSpec;
@@ -292,6 +300,7 @@ export async function expandHarnessMatrix(spec: HarnessMatrixSpec): Promise<Expa
     for (let round = 1; round <= rounds; round++) {
       expanded.push({
         id: rounds === 1 ? item.id : `${item.id}-r${round}`,
+        repeatGroupId: item.id,
         task,
         harness,
         model,
@@ -316,6 +325,7 @@ export function renderHarnessMatrixMarkdown(result: HarnessMatrixRunResult): str
     `Passed: ${result.summary.passed}`,
     `Failed: ${result.summary.failed}`,
     `Average score: ${result.summary.avgScore.toFixed(3)}`,
+    `Repeated-run pass^k: ${result.summary.passPowK ?? "n/a"} (${result.summary.repeatedGroupsAllPassed}/${result.summary.repeatedGroups} groups)`,
     "",
     "## Failure Categories",
     "",
@@ -507,6 +517,8 @@ function buildMatrixCaseResult(matrixCase: ExpandedMatrixCase, labCase: HarnessL
     harnessProfile: matrixCase.harness.profile ?? matrixCase.harness.id,
     modelId: matrixCase.model.id,
     modelAlias: matrixCase.model.alias,
+    repeatGroupId: matrixCase.repeatGroupId,
+    roundsConfigured: matrixCase.rounds,
     round: matrixCase.round,
     passed: labCase.riskReport.passed,
     score: labCase.riskReport.score,
@@ -583,11 +595,24 @@ function renderTemplateRecord(values: Record<string, string>, substitutions: Rec
 
 function summarizeMatrix(results: HarnessMatrixCaseResult[]): HarnessMatrixSummary {
   const failures = results.filter((result) => !result.passed);
+  const repeated = new Map<string, HarnessMatrixCaseResult[]>();
+  for (const result of results) {
+    if (result.roundsConfigured <= 1) continue;
+    const group = repeated.get(result.repeatGroupId) ?? [];
+    group.push(result);
+    repeated.set(result.repeatGroupId, group);
+  }
+  const repeatedGroupsAllPassed = [...repeated.values()].filter((group) =>
+    group.length > 0 && group.every((result) => result.passed)
+  ).length;
   return {
     total: results.length,
     passed: results.filter((result) => result.passed).length,
     failed: failures.length,
     avgScore: results.length === 0 ? 0 : Number((results.reduce((sum, result) => sum + result.score, 0) / results.length).toFixed(3)),
+    repeatedGroups: repeated.size,
+    repeatedGroupsAllPassed,
+    passPowK: repeated.size > 0 ? Number((repeatedGroupsAllPassed / repeated.size).toFixed(3)) : null,
     failureCategories: countBy(failures.map((result) => result.failureCategory)),
     likelyOwners: countBy(failures.map((result) => result.likelyOwner)),
     promotionRecommendations: countBy(results.map((result) => result.promotionRecommendation)),

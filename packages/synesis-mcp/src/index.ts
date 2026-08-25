@@ -56,7 +56,7 @@ export function createSynesisMcpServer(options: CreateSynesisMcpServerOptions): 
     tenantIds: [],
   };
 
-  const deps: SynesisMcpDeps = { plannerBaseUrl };
+  const deps: SynesisMcpDeps = { plannerBaseUrl, allowClientTokenFallback: true };
 
   const server = new McpServer(
     { name: "synesis-mcp", version: "0.1.0" },

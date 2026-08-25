@@ -26,6 +26,7 @@ import { ALL_SCENARIOS, getScenariosByCategory, getScenarioById, listScenarios }
 import { materialize, toJsonl, scenarioResultToTrajectoryRow } from "../src/eval/training-materializer.js";
 import type { EvalCategory, EvalRunnerConfig, ScenarioResult, TrainingFormat } from "../src/eval/types.js";
 import { writeFileSync } from "node:fs";
+import { computePairedAccuracy } from "../src/eval/paired-evaluation.js";
 
 // ---------------------------------------------------------------------------
 // Arg parsing (minimal, no deps)
@@ -76,6 +77,7 @@ type EvalSummaryMetrics = {
   medianTurnsToComplete: number | null;
   avgScore: number;
   totalDurationMs: number;
+  pairedEvaluation: ReturnType<typeof computePairedAccuracy>;
 };
 
 function median(values: number[]): number | null {
@@ -122,6 +124,7 @@ function computeSummaryMetrics(results: ScenarioResult[]): EvalSummaryMetrics {
     medianTurnsToComplete: median(completedTurns),
     avgScore: Number((total > 0 ? results.reduce((s, r) => s + r.score, 0) / total : 0).toFixed(3)),
     totalDurationMs: results.reduce((s, r) => s + r.durationMs, 0),
+    pairedEvaluation: computePairedAccuracy(results),
   };
 }
 
@@ -133,11 +136,12 @@ async function main() {
   // --list: print available scenarios
   if (hasFlag("list")) {
     const scenarios = listScenarios();
+    const idWidth = Math.max(38, ...scenarios.map((scenario) => scenario.id.length + 2));
     console.log("\nAvailable scenarios:\n");
-    console.log("  ID                                  Category              Name");
-    console.log("  " + "-".repeat(80));
+    console.log(`  ${"ID".padEnd(idWidth)}${"Category".padEnd(22)}Name`);
+    console.log("  " + "-".repeat(idWidth + 22 + 24));
     for (const s of scenarios) {
-      console.log(`  ${s.id.padEnd(38)}${s.category.padEnd(22)}${s.name}`);
+      console.log(`  ${s.id.padEnd(idWidth)}${s.category.padEnd(22)}${s.name}`);
     }
     console.log(`\n  Total: ${scenarios.length} scenarios\n`);
     return;
@@ -283,6 +287,14 @@ function printResults(results: ScenarioResult[], verbose: boolean, summary: Eval
     + ` | avg score: ${summary.avgScore.toFixed(3)}`
     + ` | total time: ${summary.totalDurationMs}ms\n`,
   );
+  if (summary.pairedEvaluation.completePairs > 0 || summary.pairedEvaluation.incompletePairIds.length > 0) {
+    const paired = summary.pairedEvaluation;
+    console.log(
+      `  paired act/abstain: ${paired.passedPairs}/${paired.completePairs} `
+      + `(accuracy ${paired.pairedAccuracy ?? "n/a"})`
+      + (paired.incompletePairIds.length > 0 ? ` | incomplete: ${paired.incompletePairIds.join(", ")}` : ""),
+    );
+  }
 }
 
 main().catch((err) => {

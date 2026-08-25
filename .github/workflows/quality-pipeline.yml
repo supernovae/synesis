@@ -19,10 +19,6 @@ on:
         description: "Run curator agent for weak domains"
         type: boolean
         default: false
-      llm_judge:
-        description: "Generate LLM relevance labels"
-        type: boolean
-        default: false
       max_domains:
         description: "Max domains to curate (curator only)"
         type: string
@@ -33,8 +29,9 @@ on:
         default: "synesis-general"
 
 env:
-  MILVUS_URI: "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
-  EMBEDDER_URL: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+  NORNIC_URI: ${{ vars.SYNESIS_NORNIC_URI || 'bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687' }}
+  NORNIC_DATABASE: ${{ vars.SYNESIS_NORNIC_DATABASE || 'nornic' }}
+  NORNIC_VECTOR_INDEX: ${{ vars.SYNESIS_NORNIC_VECTOR_INDEX || 'embeddings' }}
   LLM_URL: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
   SEARXNG_URL: "http://searxng.synesis-search.svc.cluster.local:8080"
   REPORT_DIR: "/tmp/quality-results"
@@ -53,30 +50,35 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.audit)
     runs-on: self-hosted
     timeout-minutes: 60
+    environment: validation
     steps:
       - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "benchmarks/corpus/requirements.txt"
+          cache-dependency-glob: "benchmarks/corpus/requirements.lock"
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv pip install --system -r benchmarks/corpus/requirements.txt
+        run: uv pip install --system --require-hashes -r benchmarks/corpus/requirements.lock
 
       - name: Run corpus audit
+        env:
+          SYNESIS_NORNIC_USER: ${{ secrets.SYNESIS_NORNIC_USER || 'neo4j' }}
+          SYNESIS_NORNIC_PASSWORD: ${{ secrets.SYNESIS_NORNIC_PASSWORD }}
         run: |
           EXTRA_ARGS=""
           if [ "${{ inputs.llm_queries || 'false' }}" = "true" ]; then
             EXTRA_ARGS="--llm-url ${{ env.LLM_URL }} --model ${{ inputs.model || 'synesis-general' }}"
           fi
           python benchmarks/corpus/audit_corpus.py \
-            --milvus-uri "${{ env.MILVUS_URI }}" \
-            --embedder-url "${{ env.EMBEDDER_URL }}" \
+            --nornic-uri "${{ env.NORNIC_URI }}" \
+            --nornic-database "${{ env.NORNIC_DATABASE }}" \
+            --nornic-vector-index "${{ env.NORNIC_VECTOR_INDEX }}" \
             --output "${{ env.REPORT_DIR }}/corpus_audit_report.json" \
             $EXTRA_ARGS
 
@@ -104,51 +106,6 @@ jobs:
           path: ${{ env.REPORT_DIR }}/corpus_audit_report.json
           retention-days: 90
 
-  llm-judge:
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.llm_judge
-    runs-on: self-hosted
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "benchmarks/corpus/requirements.txt"
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv pip install --system -r benchmarks/corpus/requirements.txt
-
-      - name: Restore judgment cache
-        uses: actions/cache@v6
-        with:
-          path: benchmarks/corpus/judgments_cache.json
-          key: llm-judgments-${{ hashFiles('benchmarks/bm25/queries.yaml') }}
-          restore-keys: llm-judgments-
-
-      - name: Run LLM judge
-        run: |
-          python benchmarks/corpus/llm_judge.py \
-            --milvus-uri "${{ env.MILVUS_URI }}" \
-            --embedder-url "${{ env.EMBEDDER_URL }}" \
-            --llm-url "${{ env.LLM_URL }}" \
-            --model "${{ inputs.model || 'synesis-general' }}" \
-            --output "${{ env.REPORT_DIR }}/relevance_labels_llm.json"
-
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: llm-judge-labels
-          path: |
-            ${{ env.REPORT_DIR }}/relevance_labels_llm.json
-            benchmarks/corpus/judgments_cache.json
-          retention-days: 90
-
   curator:
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.curator
@@ -161,14 +118,14 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "tools/curator/requirements.txt"
+          cache-dependency-glob: "tools/curator/requirements.lock"
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv pip install --system -r tools/curator/requirements.txt
+        run: uv pip install --system --require-hashes -r tools/curator/requirements.lock
 
       - name: Download audit report
         uses: actions/download-artifact@v8

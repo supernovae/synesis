@@ -1,6 +1,6 @@
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
-import { authHeaders, bearerForUpstream } from "./deps.js";
+import { upstreamAuthHeaders } from "./deps.js";
 import { buildSearchAttributionBody } from "./search-contract.js";
 import { LIMITS, boundedString, boundedStringArray, clampInt, requestFailure, sanitizeUpstreamError } from "./tool-utils.js";
 
@@ -177,7 +177,6 @@ async function postPlannerJson(
   body: Record<string, unknown>,
   errorCode: string,
 ): Promise<unknown> {
-  const bearer = bearerForUpstream(auth, deps);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
   let resp: Response;
@@ -186,7 +185,7 @@ async function postPlannerJson(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...authHeaders(bearer),
+        ...upstreamAuthHeaders(auth, deps),
       },
       body: JSON.stringify(body),
       signal: controller.signal,

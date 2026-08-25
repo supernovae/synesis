@@ -1603,7 +1603,10 @@
   notes: "Small tier (2048 tokens). Technical explanation, moderate reasoning expected."
 
 - id: budget-06
-  prompt: "Design a microservices architecture for an e-commerce platform with inventory management, order processing, payment gateway, and notification service. Include API contracts and data flow diagrams."
+  prompt: >-
+    Design a microservices architecture for an e-commerce platform with inventory management,
+    order processing, payment gateway, and notification service. Include API contracts and data
+    flow diagrams.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2039,7 +2042,11 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 - id: deep-01
-  prompt: "Propose a practical cloud architecture for migrating a monolithic Django application to microservices on AWS. The team has 6 engineers, the app handles 500 req/s, and the budget is limited. Explain tradeoffs between ECS and EKS, data migration strategy, and a phased rollout plan."
+  prompt: >-
+    Propose a practical cloud architecture for migrating a monolithic Django application to
+    microservices on AWS. The team has 6 engineers, the app handles 500 req/s, and the budget is
+    limited. Explain tradeoffs between ECS and EKS, data migration strategy, and a phased rollout
+    plan.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2050,10 +2057,16 @@
   context_must_persist: false
   max_latency_s: 120
   reject_terms: ["FIPS", "air-gap", "FedRAMP"]
-  notes: "Cloud architecture deep-dive. Must route through planner (KNOWLEDGE_PLANNER_PROMPT), produce structured sections, and be reviewed by critic. No compliance hallucination — prompt says nothing about government or regulation."
+  notes: >-
+    Cloud architecture deep-dive. Must route through planner (KNOWLEDGE_PLANNER_PROMPT), produce
+    structured sections, and be reviewed by critic. No compliance hallucination — prompt says
+    nothing about government or regulation.
 
 - id: deep-02
-  prompt: "Compare the tradeoffs of using PostgreSQL vs CockroachDB vs TiDB for a multi-region e-commerce platform that needs strong consistency, horizontal scaling, and sub-100ms read latency. Include operational complexity, cost implications, and failure mode analysis."
+  prompt: >-
+    Compare the tradeoffs of using PostgreSQL vs CockroachDB vs TiDB for a multi-region e-commerce
+    platform that needs strong consistency, horizontal scaling, and sub-100ms read latency. Include
+    operational complexity, cost implications, and failure mode analysis.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2067,7 +2080,10 @@
   notes: "Databases deep-dive. Should trigger databases domain in deep_dive_domains. Structured comparison with failure modes."
 
 - id: deep-03
-  prompt: "Explain how to design a Kubernetes networking strategy for a platform with 200 microservices. Cover service mesh selection (Istio vs Linkerd vs Cilium), network policies, ingress architecture, and observability. The cluster runs on bare metal with Calico CNI."
+  prompt: >-
+    Explain how to design a Kubernetes networking strategy for a platform with 200 microservices.
+    Cover service mesh selection (Istio vs Linkerd vs Cilium), network policies, ingress
+    architecture, and observability. The cluster runs on bare metal with Calico CNI.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2081,7 +2097,12 @@
   notes: "Kubernetes + networking deep-dive. Should match kubernetes and/or networking domains. Expect structured sections with concrete tool comparisons."
 
 - id: deep-04
-  prompt: "Propose the architecture for an internal AI coding assistant that can answer questions about company docs, help write and review code, avoid hallucination, and escalate when uncertain. Team of 80 engineers, mix of public/private knowledge, must support Kubernetes and Python workflows. Budget is limited. Give design goals, architecture, model choices, retrieval strategy, failure modes, and a 90-day rollout plan."
+  prompt: >-
+    Propose the architecture for an internal AI coding assistant that can answer questions about
+    company docs, help write and review code, avoid hallucination, and escalate when uncertain.
+    Team of 80 engineers, mix of public/private knowledge, must support Kubernetes and Python
+    workflows. Budget is limited. Give design goals, architecture, model choices, retrieval
+    strategy, failure modes, and a 90-day rollout plan.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2095,7 +2116,11 @@
   notes: "Software architecture deep-dive. The canonical 'architecture proposal' prompt. Must NOT inject compliance requirements the user didn't ask for. Critic should validate section coverage."
 
 - id: deep-05
-  prompt: "Design a real-time data pipeline for processing 10 million events per day from IoT sensors. Compare Kafka vs Pulsar vs Redpanda for the message broker, explain exactly how backpressure should be handled, and propose a storage strategy for both hot and cold data. Include cost estimates and failure modes."
+  prompt: >-
+    Design a real-time data pipeline for processing 10 million events per day from IoT sensors.
+    Compare Kafka vs Pulsar vs Redpanda for the message broker, explain exactly how backpressure
+    should be handled, and propose a storage strategy for both hot and cold data. Include cost
+    estimates and failure modes.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2109,7 +2134,10 @@
   notes: "Networking + databases deep-dive. Complex data architecture question. Should produce structured comparison with quantified tradeoffs."
 
 - id: deep-06
-  prompt: "Explain how to build a production ML inference pipeline for serving a 7B parameter LLM with <200ms P99 latency. Cover model serving options (vLLM, TGI, Triton), batching strategies, GPU memory management, autoscaling, and monitoring. Assume Kubernetes on GPU nodes."
+  prompt: >-
+    Explain how to build a production ML inference pipeline for serving a 7B parameter LLM with
+    <200ms P99 latency. Cover model serving options (vLLM, TGI, Triton), batching strategies, GPU
+    memory management, autoscaling, and monitoring. Assume Kubernetes on GPU nodes.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2123,7 +2151,10 @@
   notes: "ML ops deep-dive. Should match ml_ops domain. Expect concrete tool recommendations with quantified performance characteristics."
 
 - id: deep-07
-  prompt: "Compare building a web backend in Go with Gin vs Rust with Axum vs TypeScript with Fastify for a high-throughput API serving 50k req/s. Cover developer productivity, performance, ecosystem maturity, deployment complexity, and hiring considerations."
+  prompt: >-
+    Compare building a web backend in Go with Gin vs Rust with Axum vs TypeScript with Fastify for
+    a high-throughput API serving 50k req/s. Cover developer productivity, performance, ecosystem
+    maturity, deployment complexity, and hiring considerations.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2137,7 +2168,11 @@
   notes: "Web backend deep-dive. Should match web_backend domain. Structured framework comparison with hiring/cost dimensions."
 
 - id: deep-08
-  prompt: "Outline the architecture for a React frontend that needs to support offline-first operation, real-time collaboration, and accessibility compliance (WCAG 2.1 AA). Compare state management approaches (Redux Toolkit vs Zustand vs Jotai), discuss the data sync strategy, and propose a testing pyramid."
+  prompt: >-
+    Outline the architecture for a React frontend that needs to support offline-first operation,
+    real-time collaboration, and accessibility compliance (WCAG 2.1 AA). Compare state management
+    approaches (Redux Toolkit vs Zustand vs Jotai), discuss the data sync strategy, and propose a
+    testing pyramid.
   category: knowledge_deep_dive
   sequence: null
   expected_route: planner
@@ -2151,10 +2186,9 @@
   notes: "Web frontend deep-dive. Should match web_frontend domain. Structured sections covering state, sync, testing."
 
 # ──────────────────────────────────────────────────────────────────────────────
-# CATEGORY 30: Retrieval Quality (Hybrid Search Validation)
-# Validates that Milvus native hybrid search (dense + sparse BM25 + RRFRanker)
-# retrieves relevant context for queries where lexical matching matters,
-# semantic matching matters, or both. Tests the post-migration retrieval path.
+# CATEGORY 30: Retrieval Quality (Graph-Native Search Validation)
+# Validates that the production NornicDB vector + graph retrieval path retrieves
+# relevant context for lexical identifiers, semantic questions, and mixed cases.
 # ──────────────────────────────────────────────────────────────────────────────
 
 - id: retrieval-01

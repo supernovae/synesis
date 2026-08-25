@@ -142,7 +142,7 @@ All JSON is behind the same auth as the SPA (`/api/v1/...`). Suitable for **scri
 2. **`POST /rag/quality/refresh`** — Recomputes health from the **NornicDB** domain hierarchy (chunk counts per domain → strong/adequate/weak/empty). Now also computes **real `freshness_pct`** from `effective_at_epoch` / `crawl_timestamp` (chunks with freshness score ≥ 0.5 count as fresh).
 3. **`GET /rag/quality/domains/{key}`** — Prefers **audit JSON** scorecard for that domain; if missing, returns the latest **`QualitySnapshot`** row shaped for the UI (inventory; MRR/hit rate from audit only when JSON exists).
 
-So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline audit** (or CI/CronJob) writing JSON **or** future work to persist full scorecards in Postgres.
+So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline audit** (or CI/CronJob) importing its report through `POST /rag/quality/import-report`.
 
 ---
 
@@ -152,7 +152,7 @@ So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline 
 - **`.github/workflows/quality-pipeline.yml`** — Scheduled + `workflow_dispatch` (needs self-hosted runner or equivalent).
 - **`base/quality-runner/`** — In-cluster CronJob pattern.
 
-**Recommendation:** Periodically run **corpus audit** and sync the report into the cluster (ConfigMap/volume) **or** extend admin to **POST import** JSON into DB — not implemented today.
+**Recommendation:** Run the in-cluster corpus audit periodically. The quality runner imports the full JSON scorecards into Postgres through `POST /rag/quality/import-report`; the workflow ConfigMap remains a fallback snapshot path.
 
 ---
 

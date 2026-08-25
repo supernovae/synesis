@@ -3,7 +3,7 @@
  * Never accept these fields from unauthenticated client JSON.
  */
 export interface SynesisMcpAuth {
-  /** Bearer token to send to planner/critic (PAT or internal service token). */
+  /** Validated caller credential; reused upstream only by explicit local clients. */
   bearerToken: string;
   userId: string;
   orgId: string;

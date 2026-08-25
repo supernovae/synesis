@@ -50,6 +50,16 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 | BEAVER | [arXiv:2512.05439](https://arxiv.org/abs/2512.05439) | Deterministic verification complements |
 | FActScore | [arXiv:2305.14251](https://arxiv.org/abs/2305.14251) | Atomic factual scoring |
 | TraceLLM | [arXiv:2602.01253](https://arxiv.org/abs/2602.01253) | Requirements traceability with LLMs |
+| AgentAbstain | [arXiv:2607.10059](https://arxiv.org/abs/2607.10059) | Paired should-act/should-abstain evaluation; catches unsafe post-hoc refusal |
+| ReliabilityBench | [arXiv:2601.06112](https://arxiv.org/abs/2601.06112) | Repeated-run, perturbation, fault-injection, and metamorphic agent reliability |
+
+---
+
+## Agent memory
+
+| Title | Link | Why it matters here |
+|-------|------|---------------------|
+| Memora / From Recall to Forgetting | [arXiv:2604.20006](https://arxiv.org/abs/2604.20006) | Invalidated-memory reuse and forgetting-aware memory evaluation |
 
 ---
 

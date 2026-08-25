@@ -16,6 +16,7 @@ const authResolver = new McpAuthResolver(config);
 
 const deps: SynesisMcpDeps = {
   plannerBaseUrl: config.SYNESIS_PLANNER_URL,
+  allowClientTokenFallback: true,
 };
 const internalServiceToken = config.SYNESIS_INTERNAL_SERVICE_TOKEN.trim();
 if (internalServiceToken) deps.internalServiceToken = internalServiceToken;

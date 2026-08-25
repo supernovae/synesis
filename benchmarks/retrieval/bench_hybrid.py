@@ -8,6 +8,7 @@ Usage:
     python bench_hybrid.py [--milvus-uri URI] [--embedder-url URL]
                            [--runs N] [--top-k K] [--output results.json]
                            [--baseline baseline.json] [--tolerance 0.05]
+                           [--update-baseline]
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from typing import Any
 
 import httpx
 import yaml
+from baseline_policy import BenchmarkContractError, find_regressions, validate_snapshot
 from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 
 COLLECTION = "synesis_catalog"
@@ -149,6 +151,11 @@ def main():
         "--tolerance", type=float, default=0.05, help="Max allowed relative drop from baseline before failing"
     )
     parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="Explicitly promote the current valid result to the baseline after review",
+    )
+    parser.add_argument(
         "--use-llm-labels",
         action="store_true",
         help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based",
@@ -240,35 +247,42 @@ def main():
     # Save results
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = {"aggregate": agg, "per_query": per_query}
     with open(output_path, "w") as f:
-        json.dump({"aggregate": agg, "per_query": per_query}, f, indent=2)
+        json.dump(snapshot, f, indent=2)
     print(f"\nResults saved to {output_path}")
 
     # Baseline comparison
     baseline_path = Path(args.baseline)
-    if baseline_path.exists():
+    try:
+        validate_snapshot(snapshot, "current results")
+        if args.update_baseline:
+            baseline_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = baseline_path.with_suffix(f"{baseline_path.suffix}.tmp")
+            with open(temporary_path, "w") as f:
+                json.dump(snapshot, f, indent=2)
+                f.write("\n")
+            temporary_path.replace(baseline_path)
+            print(f"\nPromoted current results to {baseline_path}.")
+            return
+
+        if not baseline_path.exists():
+            raise BenchmarkContractError(
+                f"no baseline found at {baseline_path}; review the results, then rerun with --update-baseline"
+            )
         with open(baseline_path) as f:
-            baseline = json.load(f)["aggregate"]
-        regressions = []
-        check_keys = ["recall@5", "recall@10", "mrr@10", "ndcg@10"]
-        for key in check_keys:
-            base_val = baseline.get(key, 0.0)
-            curr_val = agg.get(key, 0.0)
-            if base_val > 0 and (base_val - curr_val) / base_val > args.tolerance:
-                regressions.append(
-                    f"{key}: {curr_val:.4f} < baseline {base_val:.4f} (>{args.tolerance * 100:.0f}% drop)"
-                )
-        if regressions:
-            print("\nREGRESSIONS DETECTED:")
-            for r in regressions:
-                print(f"  - {r}")
-            sys.exit(1)
-        else:
-            print("\nAll metrics within tolerance of baseline.")
-    else:
-        print(f"\nNo baseline found at {baseline_path}. Saving current results as baseline.")
-        with open(baseline_path, "w") as f:
-            json.dump({"aggregate": agg, "per_query": per_query}, f, indent=2)
+            baseline = json.load(f)
+        regressions = find_regressions(snapshot, baseline, args.tolerance)
+    except (BenchmarkContractError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(f"\nINVALID RETRIEVAL QUALITY GATE: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    if regressions:
+        print("\nREGRESSIONS DETECTED:")
+        for regression in regressions:
+            print(f"  - {regression}")
+        sys.exit(1)
+    print("\nAll metrics within tolerance of baseline.")
 
 
 if __name__ == "__main__":

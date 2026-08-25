@@ -18,7 +18,8 @@ import httpx
 
 ADMIN_API_URL = os.getenv("SYNESIS_ADMIN_API_URL", "http://synesis-admin.synesis-admin.svc.cluster.local:8080")
 NORNIC_URI = os.getenv("SYNESIS_NORNIC_URI", "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687")
-EMBEDDER_URL = os.getenv("SYNESIS_EMBEDDER_URL", "http://embedder.synesis-rag.svc.cluster.local:8080")
+NORNIC_DATABASE = os.getenv("SYNESIS_NORNIC_DATABASE", "nornic")
+NORNIC_VECTOR_INDEX = os.getenv("SYNESIS_NORNIC_VECTOR_INDEX", "embeddings")
 LLM_URL = os.getenv("SYNESIS_LLM_URL", "")
 LLM_MODEL = os.getenv("SYNESIS_LLM_MODEL", "synesis-general")
 TAXONOMY_PATH = os.getenv("SYNESIS_TAXONOMY_PATH", "/app/taxonomy_prompt_config.yaml")
@@ -37,8 +38,10 @@ def run_audit() -> bool:
         "benchmarks/corpus/audit_corpus.py",
         "--nornic-uri",
         NORNIC_URI,
-        "--embedder-url",
-        EMBEDDER_URL,
+        "--nornic-database",
+        NORNIC_DATABASE,
+        "--nornic-vector-index",
+        NORNIC_VECTOR_INDEX,
         "--taxonomy",
         TAXONOMY_PATH,
         "--output",

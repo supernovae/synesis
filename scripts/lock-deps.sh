@@ -90,13 +90,17 @@ SERVICES=(
     "admin|base/admin|base-api"
     "ast-mcp|base/ast-mcp|base-api"
     "preprocess-service|base/rag/preprocess-service|base-api"
-    "mcp|base/mcp|base-api"
+    "corpus-benchmarks|benchmarks/corpus|base-api"
+    "curator|tools/curator|base-api"
 
     # Tier 2: services on base-ml
     "gliner-service|base/rag/gliner-service|base-ml"
 
     # Standalone (own venv or non-UBI base)
     "indexer|base/rag/indexer|"
+    "bm25-benchmark|benchmarks/bm25|"
+    "milvus-retrieval-benchmark|benchmarks/retrieval|"
+    "prompt-evaluation|tests/prompts|"
 )
 
 DEPENDENTS_OF() {

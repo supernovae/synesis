@@ -45,6 +45,7 @@ describe("harness matrix", () => {
 
       expect(result.dryRun).toBe(true);
       expect(result.summary.total).toBe(1);
+      expect(result.summary.passPowK).toBeNull();
       expect(result.cases[0]!.stdoutExcerpt).toBe("");
       expect(result.cases[0]!.command.command).toBe("node");
       expect(result.cases[0]!.command.args.join(" ")).toContain("Core");
@@ -119,6 +120,22 @@ describe("harness matrix", () => {
 
     const expanded = await expandHarnessMatrix(spec);
     expect(expanded.map((item) => item.id)).toEqual(["case-r1", "case-r2"]);
+  });
+
+  it("reports pass^k for repeated execution groups", async () => {
+    const spec: HarnessMatrixSpec = {
+      name: "reliability",
+      defaults: { rounds: 3, apiBaseUrl: "http://localhost:8000/v1" },
+      tasks: [{ id: "task", prompt: "Do work" }],
+      harnesses: [{ id: "raw-openai", command: "node", args: ["runner.js"] }],
+      models: [{ id: "model-a" }],
+    };
+
+    const result = await runHarnessMatrix(spec, { dryRun: true });
+    expect(result.summary.repeatedGroups).toBe(1);
+    expect(result.summary.repeatedGroupsAllPassed).toBe(1);
+    expect(result.summary.passPowK).toBe(1);
+    expect(result.cases.map((testCase) => testCase.repeatGroupId)).toEqual(["task-raw-openai-model-a", "task-raw-openai-model-a", "task-raw-openai-model-a"]);
   });
 });
 

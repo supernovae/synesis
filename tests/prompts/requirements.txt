@@ -1,0 +1,3 @@
+# Prompt regression harness dependencies
+httpx
+pyyaml

@@ -31,7 +31,7 @@ The following are in scope for security reports:
 
 ## Out of Scope
 
-- Vulnerabilities in upstream dependencies that have already been reported (e.g., vLLM, LiteLLM, Milvus)
+- Vulnerabilities in upstream dependencies that have already been reported (e.g., vLLM, LiteLLM, NornicDB)
 - Denial-of-service attacks against development/test environments
 - Social engineering
 
@@ -80,7 +80,7 @@ Lockfiles are compiled for **Python 3.12** on **linux/x86_64** (the production i
 
 ```bash
 ./scripts/lock-deps.sh               # recompile all lockfiles
-./scripts/lock-deps.sh planner       # recompile one service
+./scripts/lock-deps.sh indexer       # recompile one environment
 ./scripts/lock-deps.sh --check       # verify lockfiles are fresh (CI uses this)
 ```
 
@@ -106,7 +106,8 @@ All first-party images currently use `:latest` tags. This is intentional during 
 
 - [ ] Adopt semantic versioning for all Synesis-built images
 - [x] Pin LiteLLM image to versioned tag (`main-v1.82.3-stable`) and Helm chart to `--version`
-- [ ] Pin remaining third-party images to digest or semver (vLLM, Milvus, SearXNG)
+- [x] Pin NornicDB to a versioned image tag
+- [ ] Pin remaining third-party images to digest or semver (vLLM, SearXNG)
 - [ ] Enforce tag immutability in the container registry
 
 ### Python supply-chain posture
@@ -143,7 +144,7 @@ The planner service defaults to `CORS_ORIGINS=*` for development. The value is c
 
 ### Secrets in base manifests
 
-Base Kubernetes manifests contain placeholder secrets (LiteLLM master key, WebUI API key, Milvus root password, SearXNG secret key). These are documented with `# SECURITY` comments. Before production:
+Base Kubernetes manifests contain placeholder secrets (LiteLLM master key, WebUI API key, NornicDB auth, SearXNG secret key). These are documented with `# SECURITY` comments. Before production:
 
 - [ ] Replace all placeholder secrets via overlays using SealedSecrets or an external secret manager
 - [ ] Ensure no plaintext secrets appear in deployed ConfigMaps/Secrets

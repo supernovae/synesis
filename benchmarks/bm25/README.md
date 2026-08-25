@@ -17,6 +17,10 @@ Compares three retrieval conditions on the same corpus and query set:
 ## Quick start
 
 ```bash
+# 0. Install the reproducible benchmark environment
+uv venv .venv
+uv pip install --require-hashes -r requirements.lock
+
 # 1. Port-forward to Milvus (if running locally)
 oc port-forward svc/synesis-milvus 19530:19530 -n synesis-rag &
 

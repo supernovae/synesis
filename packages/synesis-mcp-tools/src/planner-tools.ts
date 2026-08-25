@@ -2,7 +2,7 @@ import * as z from "zod/v4";
 import { TRUST_POLICY_COMPACT, renderUntrustedPromptBlock } from "@synesis/context-trust";
 import type { SynesisMcpAuth } from "./auth-types.js";
 import type { SynesisMcpDeps } from "./deps.js";
-import { authHeaders, bearerForUpstream } from "./deps.js";
+import { upstreamAuthHeaders } from "./deps.js";
 import { LIMITS, requestFailure, sanitizeUpstreamError } from "./tool-utils.js";
 
 const CLASSIFY_TIMEOUT_MS = 30_000;
@@ -51,7 +51,6 @@ export async function runClassify(
       return { error: "validation_error", message: `task must be ${LIMITS.queryChars} characters or fewer` };
     }
 
-    const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), CLASSIFY_TIMEOUT_MS);
     let resp: Response;
@@ -61,7 +60,7 @@ export async function runClassify(
         headers: {
           "Content-Type": "application/json",
           "X-Synesis-MCP": "classify-only",
-          ...authHeaders(bearer),
+          ...upstreamAuthHeaders(auth, deps),
         },
         body: JSON.stringify({
           model: "Synesis",
@@ -116,7 +115,6 @@ export async function runPlan(
       ? `${task}\n\n${renderCallerContextBlock(context, "mcp:synesis_plan:context", "context")}`
       : task;
 
-    const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), PLAN_TIMEOUT_MS);
     let resp: Response;
@@ -125,7 +123,7 @@ export async function runPlan(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders(bearer),
+          ...upstreamAuthHeaders(auth, deps),
         },
         body: JSON.stringify({
           model: "Synesis",
@@ -198,7 +196,6 @@ export async function runCritique(
       renderCallerContextBlock(code, "mcp:synesis_critique:code", "code"),
     ].join("\n\n");
 
-    const bearer = bearerForUpstream(auth, deps);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), CRITIQUE_TIMEOUT_MS);
     let resp: Response;
@@ -208,7 +205,7 @@ export async function runCritique(
         headers: {
           "Content-Type": "application/json",
           "X-Synesis-MCP-Role": "critic",
-          ...authHeaders(bearer),
+          ...upstreamAuthHeaders(auth, deps),
         },
         body: JSON.stringify({
           model: "critic",

@@ -1,6 +1,6 @@
 # Go RAG harness against planner POST /v1/knowledge/search (scripts/rag_retrieval_eval.py).
 #
-# Triggers: manual only + GitHub Release published — not on every PR/commit (cost control).
+# Triggers: manual + release, and relevant PRs when live validation is enabled.
 #
 # Canonical GitHub configuration (Settings → Secrets and variables → Actions):
 #   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN — internal service token (synesis-internal-service-auth), not a PAT.
@@ -11,6 +11,13 @@
 name: RAG retrieval eval (Go harness)
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "base/planner-ts/src/retrieval/**"
+      - "base/rag/**"
+      - "scripts/rag_retrieval_eval.py"
+      - "tests/prompts/go_retrieval_eval.yaml"
   workflow_dispatch:
   release:
     types: [published]
@@ -21,6 +28,10 @@ permissions:
 jobs:
   go-retrieval-eval:
     name: Go retrieval eval suite
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'release' ||
+      (github.event_name == 'pull_request' && vars.SYNESIS_VALIDATION_ENABLED == 'true')
     runs-on: self-hosted
     timeout-minutes: 20
     environment: validation
@@ -31,8 +42,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "benchmarks/corpus/requirements.lock"
+
       - name: Install script deps
-        run: pip install httpx pyyaml
+        run: uv pip install --system --require-hashes -r benchmarks/corpus/requirements.lock
 
       - name: Run harness
         env:
@@ -60,4 +76,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: rag-retrieval-eval-results
+          if-no-files-found: error
           path: retrieval-eval-results.json

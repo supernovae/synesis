@@ -13,8 +13,8 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 | [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
 | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
-| [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs | Per workflow |
-| [`.github/workflows/retrieval-regression.yml`](../../.github/workflows/retrieval-regression.yml) | RAG/regression against cluster inputs | Manual / scheduled |
+| [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | NornicDB corpus audit and optional curator | No; scheduled/manual |
+| [`.github/workflows/rag-retrieval-eval.yml`](../../.github/workflows/rag-retrieval-eval.yml) | Source-anchored retrieval suite through planner → NornicDB | Relevant PRs when validation is enabled; manual/release otherwise |
 
 **Note:** planner ontology + taxonomy YAML now lives in `base/planner-ts/config/` and is exercised by planner-ts tests.
 
@@ -248,7 +248,7 @@ Live validation tests (prompt regression, retrieval regression) support three mo
 | `prompt-regression.yml` — Prompt Suite Offline | PR touching `base/planner-ts/src/**`, `tests/prompts/**` | YAML validation + Python harness load for `tests/prompts/test_prompts.yaml` | Yes |
 | `prompt-regression.yml` — Prompt Suite Live | PR (when `SYNESIS_VALIDATION_ENABLED=true`), manual dispatch, or release | Live prompt suite via `tests/prompts/run_test_suite.py` | Yes (when triggered) |
 | Router governance unit tests | Via `lint.yml` → planner-ts job | `base/planner-ts/tests/router-governance.test.ts` (Vitest) | Yes |
-| `retrieval-regression.yml` | PR (when enabled), manual dispatch, or release | Retrieval quality metrics vs baseline (recall@k, mrr@k, ndcg@k within tolerance) | Yes (when triggered) |
+| `rag-retrieval-eval.yml` | Relevant PR (when enabled), manual dispatch, or release | Production planner → NornicDB retrieval against source/text golden cases | Yes (when triggered) |
 | `guardrails-tests.yml` | Push/PR touching `base/security/**` | `pytest` in `base/security/tests` | Yes |
 
 ### 9.3 Running live tests manually
@@ -269,11 +269,8 @@ gh workflow run prompt-regression.yml -f categories="grounding adversarial"
 # Prompt regression — different model
 gh workflow run prompt-regression.yml -f model="synesis-agent" -f categories="grounding"
 
-# Retrieval regression — custom tolerance
-gh workflow run retrieval-regression.yml -f tolerance=0.03
-
-# Retrieval regression — custom NornicDB URI (port-forwarded)
-gh workflow run retrieval-regression.yml -f nornic_uri=bolt://localhost:7687
+# Production NornicDB retrieval golden suite
+gh workflow run rag-retrieval-eval.yml
 ```
 
 **Locally (no GitHub required):**
@@ -329,17 +326,14 @@ Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
 - **HITL review queue**: approve/reject individual results
 - **Execution**: K8s Jobs in `synesis-validation` namespace, optional Tekton pipeline for governed promotions
 
-### 9.6 Baseline Management
+### 9.6 Retrieval Golden Management
 
-- `benchmarks/retrieval/baseline.json` — seed file, auto-overwritten on first benchmark run
-- To update baseline after a deliberate quality change:
-
-```bash
-python benchmarks/retrieval/bench_hybrid.py \
-  --nornic-uri bolt://localhost:7687 \
-  --embedder-url http://localhost:8082/v1 \
-  --output benchmarks/retrieval/baseline.json
-```
+The active gate is the source-anchored suite in
+`tests/prompts/go_retrieval_eval.yaml`, executed through the production planner
+knowledge-search endpoint. The retired Milvus score baseline was removed: it
+contained zero queries and could not detect regressions. Add or update golden
+cases in review whenever the graph schema, embedding profile, pack contents,
+filters, or reranker changes. See [RAG_EVAL_GOLDEN.md](../RAG_EVAL_GOLDEN.md).
 
 ### 9.7 Harness Trust KPI Lane (Coder Reliability)
 

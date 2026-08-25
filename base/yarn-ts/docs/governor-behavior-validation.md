@@ -125,11 +125,13 @@ Eval-gym scenarios validate model behavior through `/v1/chat/completions` with s
 - `governor_regression`: loop prevention and recovery.
 - `power_user_canary`: long-session developer experience.
 - `e2e_build`: fresh app build and verification.
+- `abstention`: paired should-act/should-abstain cases that fail on unsafe side effects.
 
 Run examples:
 
 ```bash
 npm run cli --prefix base/yarn-ts -- eval-gym --category governor_regression
+npm run eval:abstention --prefix base/yarn-ts
 npm run cli --prefix base/yarn-ts -- eval-gym --scenario dirty-workspace-recovery-momentum
 ```
 
@@ -238,6 +240,7 @@ Matrix reports include:
 - recommended next action
 - promotion recommendation
 - candidate replay fixture draft for review
+- repeated-run `pass^k` for groups configured with more than one round
 
 Interpret promotion recommendations conservatively:
 

@@ -1,147 +1,108 @@
-# UV Tooling — Python Dependency Management
+# uv tooling — Python dependency management
 
-Synesis standardizes on [uv](https://docs.astral.sh/uv/) for Python dependency
-installation across local development, CI, and container builds.
+Synesis uses [uv](https://docs.astral.sh/uv/) for Python resolution,
+installation, project environments, and one-shot developer tools. Runtime,
+benchmark, and evaluation dependencies use committed, SHA-256-hashed
+`requirements.lock` files; the root development environment uses `uv.lock`.
 
----
+## Source and lock policy
 
-## Why uv
-
-- **Faster installs**: 10-100x faster than pip for cold installs.
-- **Consistent resolution**: same resolver locally, in CI, and in containers.
-- **Drop-in replacement**: reads `requirements.txt` natively — no migration of
-  existing dependency files required.
-- **Single binary**: no Python bootstrap needed for tool installation.
-
----
-
-## Local Development
-
-### Install uv
+- Edit `requirements.txt` to express dependency intent. Do not hand-edit its
+  generated `requirements.lock`.
+- Generate locks with `./scripts/lock-deps.sh`. The script targets Python 3.12
+  on Linux x86_64 and constrains child-image dependencies to their base-image
+  lock where applicable.
+- Install deployable environments from `requirements.lock` with
+  `--require-hashes`.
+- Use `uv sync --locked` or `uv run --locked` for the root `pyproject.toml` /
+  `uv.lock` development environment.
+- Comment-only service requirement files intentionally inherit all packages
+  from their locked base image and therefore do not produce an additional
+  lockfile.
 
 ```bash
-# macOS (Homebrew)
+# Verify every managed requirements lock without changing it.
+./scripts/lock-deps.sh --check
+
+# Refresh one environment after editing its requirements.txt.
+./scripts/lock-deps.sh indexer
+
+# Refresh all environments in dependency order.
+./scripts/lock-deps.sh
+```
+
+The lockfile freshness job runs a change-aware check on pull requests and
+pushes, plus a complete scheduled check. `pip-audit` scans every non-empty
+requirements environment in the security matrix.
+
+## Local development
+
+Install uv with Homebrew or Astral's installer:
+
+```bash
 brew install uv
-
-# Standalone installer (any platform)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# or: curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### Install service dependencies
+For root development tools and tests:
 
 ```bash
-# System-wide (into your active Python)
-cd base/rag/indexer
-uv pip install --system -r requirements.txt
-
-# Or create a venv first
-uv venv .venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync --locked --group dev
+uv run --locked --group dev pytest
 ```
 
-### Run one-shot tools without installing
+For a service or benchmark:
 
 ```bash
-uvx ruff check base/
-uvx ruff format --check base/
-uvx yamllint -c .yamllint.yml base/
-uvx "bandit[toml]" -r base/
-uvx semgrep scan --config ... base/
+uv venv .venv --python 3.12
+uv pip install --require-hashes -r base/rag/indexer/requirements.lock
 ```
 
----
+Use `uvx` for isolated one-shot tools such as Ruff, Bandit, and yamllint. CI
+pins these invocations where reproducibility or security gating requires it.
 
-## CI Workflows
+## CI pattern
 
-All GitHub Actions workflows use [astral-sh/setup-uv](https://github.com/astral-sh/setup-uv)
-with dependency caching:
+Current workflows use `astral-sh/setup-uv@v7`, Python 3.12, and cache keys based
+on the lockfile:
 
 ```yaml
-- uses: astral-sh/setup-uv@v5
+- uses: astral-sh/setup-uv@v7
   with:
     enable-cache: true
-    cache-dependency-glob: "base/rag/**/requirements*.txt"
+    cache-dependency-glob: "tests/prompts/requirements.lock"
 
-- uses: actions/setup-python@v6
+- uses: actions/setup-python@v7
   with:
-    python-version: "3.13"
+    python-version: "3.12"
 
 - name: Install dependencies
-  run: uv pip install --system -r requirements.txt
+  run: uv pip install --system --require-hashes -r tests/prompts/requirements.lock
 ```
 
-For single-use linters/scanners, `uvx` avoids installing into the runner:
+The `pip-audit` jobs consume the already resolved locks with `--disable-pip`,
+so the vulnerability result does not depend on a second resolver pass.
 
-```yaml
-- name: Ruff check
-  run: uvx ruff check base/ --output-format=github
-```
+## Container pattern
 
-### pip-audit exception
-
-The `pypa/gh-action-pip-audit` action uses its own pip-based resolution
-internally. It reads `requirements.txt` files directly and does not depend on
-how we install in containers. This is left unchanged intentionally.
-
----
-
-## Container Builds
-
-### Base images
-
-`base-api` and `base-devtools` (the two root base images) include uv via a
-multi-stage `COPY`:
+Base and child images install into the application virtual environment. A
+typical locked layer is:
 
 ```dockerfile
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY requirements.lock .
+RUN uv pip install --python /opt/app-root/venv/bin/python \
+    --no-cache --require-hashes -r requirements.lock
 ```
 
-All child images inherit uv automatically.
+Standalone images use the same lock-and-hash rule with their own interpreter.
+The quality runner installs the corpus and curator locks together because it
+contains both tools.
 
-### Standalone images (not based on base-api)
+## Rollback and incident response
 
-Images like the indexer and MCP that use `python:3.x-slim` or UBI directly also
-include the same `COPY --from` line.
-
-### Install pattern
-
-```dockerfile
-COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
-```
-
-`--system` installs into the system Python (no venv in containers).
-`--no-cache` keeps the image layer small (equivalent to pip's `--no-cache-dir`).
-
----
-
-## Rollback
-
-If uv causes issues in a specific context:
-
-1. **CI**: Replace `uv pip install --system` with `pip install` and remove the
-   `astral-sh/setup-uv` step. The `setup-python` action already provides pip.
-2. **Containers**: Replace `uv pip install --system --no-cache` with
-   `pip install --no-cache-dir` and remove the `COPY --from=ghcr.io/astral-sh/uv`
-   line. The base Python images already include pip.
-3. **Local**: `pip install -r requirements.txt` continues to work since
-   `requirements.txt` files are unchanged.
-
-All `requirements.txt` files remain the source of truth — no lockfiles or
-`pyproject.toml` migration is required for rollback.
-
----
-
-## Lock Hardening
-
-When strict reproducibility is needed:
-
-```bash
-uv pip compile requirements.txt -o requirements.lock
-uv pip install --system -r requirements.lock
-```
-
-This pins every transitive dependency to exact versions. The lock can be
-committed and audited. This is not yet enabled — current requirements.txt
-files use range specifiers which uv resolves at install time.
+The human-maintained `requirements.txt` remains portable to pip, but replacing
+uv in CI or images is an explicit reviewed change: retain exact versions and
+hash verification when changing installers. If a lock is suspected of being
+compromised, regenerate it from the reviewed input, inspect the diff, run the
+full freshness and `pip-audit` gates, and rebuild the affected image rather
+than weakening `--require-hashes`.

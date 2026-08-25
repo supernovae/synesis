@@ -157,6 +157,16 @@ jobs:
             dir: base/rag/preprocess-service
           - name: gliner-service
             dir: base/rag/gliner-service
+          - name: corpus-benchmarks
+            dir: benchmarks/corpus
+          - name: curator
+            dir: tools/curator
+          - name: bm25-benchmark
+            dir: benchmarks/bm25
+          - name: milvus-retrieval-benchmark
+            dir: benchmarks/retrieval
+          - name: prompt-evaluation
+            dir: tests/prompts
     steps:
       - uses: actions/checkout@v7
 

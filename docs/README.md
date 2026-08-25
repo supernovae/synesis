@@ -24,6 +24,7 @@ This tree is organized by **audience** and **product surface**. Implementation c
 - **Develop & test:** [Development index](development/README.md).
 - **Coder eval gates:** [Harness trust KPI lane](development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability).
 - **Security posture:** [Security controls](SECURITY.md) · [Security todo tracker](security_todo.md).
+- **Latest platform audit:** [August 2026 architecture and research review](PLATFORM_AUDIT_2026_08.md).
 - **Project positioning:** [Comparison notes](COMPARISON.md).
 
 ## Admin-only

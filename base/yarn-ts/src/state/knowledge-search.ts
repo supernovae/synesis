@@ -267,7 +267,7 @@ export interface KnowledgeResolveContext {
   orgId: string;
   userId: string;
   tenantIds: string[];
-  /** Raw Bearer token (syn- PAT preferred). When empty, internal service token is used if configured. */
+  /** Validated caller token; shared MCP policy keeps it out of hosted upstream hops. */
   bearerToken: string;
 }
 

@@ -51,6 +51,7 @@ const auth: SynesisMcpAuth = {
 
 const deps: SynesisMcpDeps = {
   plannerBaseUrl,
+  allowClientTokenFallback: true,
 };
 
 async function main(): Promise<void> {

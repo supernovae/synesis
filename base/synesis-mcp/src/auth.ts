@@ -196,6 +196,7 @@ export class McpAuthResolver {
       userId: user.userId,
       orgId: user.orgId,
       tenantIds: user.tenantIds,
+      ...(user.aclGroups?.length ? { aclGroups: user.aclGroups } : {}),
     };
   }
 

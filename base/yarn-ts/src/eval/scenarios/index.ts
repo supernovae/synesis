@@ -9,6 +9,7 @@ import { POWER_USER_CANARY_SCENARIOS } from "./power-user-canary.js";
 import { E2E_BUILD_SCENARIOS } from "./e2e-builds.js";
 import { GOLANG_WORKER_SCENARIOS } from "./golang-worker.js";
 import { SWE_BENCH_SCENARIOS } from "./swe-bench-track.js";
+import { ABSTENTION_SCENARIOS } from "./abstention.js";
 
 export const ALL_SCENARIOS: EvalScenario[] = [
   ...GOVERNOR_REGRESSION_SCENARIOS,
@@ -16,6 +17,7 @@ export const ALL_SCENARIOS: EvalScenario[] = [
   ...E2E_BUILD_SCENARIOS,
   ...GOLANG_WORKER_SCENARIOS,
   ...SWE_BENCH_SCENARIOS,
+  ...ABSTENTION_SCENARIOS,
 ];
 
 export function getScenariosByCategory(category: EvalCategory): EvalScenario[] {
@@ -40,3 +42,4 @@ export { POWER_USER_CANARY_SCENARIOS } from "./power-user-canary.js";
 export { E2E_BUILD_SCENARIOS } from "./e2e-builds.js";
 export { GOLANG_WORKER_SCENARIOS } from "./golang-worker.js";
 export { SWE_BENCH_SCENARIOS } from "./swe-bench-track.js";
+export { ABSTENTION_SCENARIOS } from "./abstention.js";

@@ -34,6 +34,7 @@ export type EvalCategory =
   | "e2e_build"
   | "recovery"
   | "plan_management"
+  | "abstention"
   | "swe_bench";
 
 export interface EvalScenario {
@@ -47,6 +48,11 @@ export interface EvalScenario {
   };
   /** System message prepended to the first turn. */
   systemPrompt?: string;
+  /** Controlled act/abstain pair metadata for calibrated safety evaluation. */
+  evaluationPair?: {
+    id: string;
+    expectedDecision: "act" | "abstain";
+  };
   turns: EvalTurn[];
   scoring: ScoringCriteria;
 }
@@ -199,6 +205,10 @@ export interface ScenarioResult {
   timestamp: string;
   /** Optional eval client profile used for profile sweeps. */
   clientProfileId?: string;
+  evaluationPair?: {
+    id: string;
+    expectedDecision: "act" | "abstain";
+  };
   sessionCompletionKpi?: {
     taskFinished: boolean;
     verificationEvidence: boolean;

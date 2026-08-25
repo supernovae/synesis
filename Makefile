@@ -3,7 +3,7 @@
 # Prerequisites: npm ci (for planner-ts workspace tests)
 
 .PHONY: mock-tests online-tests tests quality quality-full install-hooks help
-.PHONY: bench-retrieval bench-llm-judge bench-corpus-audit bench-chunking
+.PHONY: bench-retrieval bench-corpus-audit
 .PHONY: curator-discover curator-report
 
 # ── Unit / Integration Tests ─────────────────────────────────────────────────
@@ -30,26 +30,17 @@ quality-full:
 install-hooks:
 	git config core.hooksPath .githooks
 
-# ── Retrieval Benchmarks ─────────────────────────────────────────────────────
-# All benchmarks require port-forward to Milvus + embedder:
-#   oc port-forward svc/synesis-milvus 19530:19530 -n synesis-rag
-#   oc port-forward svc/embedder 8082:8080 -n synesis-rag
+# ── Retrieval Benchmark ──────────────────────────────────────────────────────
+# Exercises the production planner -> NornicDB retrieval path:
+#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
+#   export SYNESIS_INTERNAL_SERVICE_TOKEN=...
 
-# Hybrid retrieval regression test (fails on >5% quality drop from baseline)
 bench-retrieval:
-	python benchmarks/retrieval/bench_hybrid.py
-
-# Same with LLM-judged relevance labels (higher quality)
-bench-retrieval-llm:
-	python benchmarks/retrieval/bench_hybrid.py --use-llm-labels
+	python scripts/rag_retrieval_eval.py --url http://localhost:8080 --suite tests/prompts/go_retrieval_eval.yaml
 
 # ── Corpus Quality Tools ─────────────────────────────────────────────────────
-# Also requires an OpenAI-compatible endpoint for LLM calls:
-#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
-
-# Generate LLM-judged relevance labels (replaces naive overlap heuristic)
-bench-llm-judge:
-	python benchmarks/corpus/llm_judge.py
+# Requires a port-forward to the canonical graph database:
+#   oc port-forward svc/synesis-nornicdb 7687:7687 -n synesis-rag
 
 # Per-domain corpus coverage audit (identifies weak domains and dead-weight)
 bench-corpus-audit:
@@ -58,10 +49,6 @@ bench-corpus-audit:
 # Corpus audit with LLM-generated queries (richer coverage but costs more)
 bench-corpus-audit-llm:
 	python benchmarks/corpus/audit_corpus.py --llm-url http://localhost:8080/v1
-
-# Chunk size parameter sweep (one-time diagnostic)
-bench-chunking:
-	python benchmarks/corpus/bench_chunking.py
 
 # ── Auto-Curation ────────────────────────────────────────────────────────────
 # Also requires port-forward to SearXNG:
@@ -85,15 +72,12 @@ help:
 	@echo "  online-tests          - Validation against live planner (oc port-forward)"
 	@echo "  tests                 - Alias for mock-tests"
 	@echo ""
-	@echo "── Retrieval Benchmarks (requires Milvus + embedder port-forward) ──"
-	@echo "  bench-retrieval       - Hybrid retrieval regression test"
-	@echo "  bench-retrieval-llm   - Same with LLM-judged relevance labels"
+	@echo "── Retrieval Benchmark (requires planner port-forward + internal token) ──"
+	@echo "  bench-retrieval       - Production NornicDB retrieval eval"
 	@echo ""
-	@echo "── Corpus Quality (requires Milvus + embedder + OpenAI-compatible endpoint) ──"
-	@echo "  bench-llm-judge       - Generate LLM-judged relevance labels"
+	@echo "── Corpus Quality (requires NornicDB; LLM endpoint optional) ──"
 	@echo "  bench-corpus-audit    - Per-domain coverage audit"
 	@echo "  bench-corpus-audit-llm - Audit with LLM-generated queries"
-	@echo "  bench-chunking        - Chunk size parameter sweep (diagnostic)"
 	@echo ""
 	@echo "── Auto-Curation (requires SearXNG + OpenAI-compatible endpoint) ──"
 	@echo "  curator-discover      - Find sources for weak domains"

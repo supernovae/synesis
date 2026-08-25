@@ -645,6 +645,7 @@ export async function runScenario(
     model,
     timestamp: new Date().toISOString(),
     clientProfileId: config.clientProfile?.id,
+    evaluationPair: scenario.evaluationPair,
     sessionCompletionKpi,
     adminTelemetry: {
       status: aggregateTelemetryStatus,

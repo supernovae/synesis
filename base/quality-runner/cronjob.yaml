@@ -37,8 +37,10 @@ spec:
                     secretKeyRef:
                       name: synesis-nornicdb-auth
                       key: password
-                - name: SYNESIS_EMBEDDER_URL
-                  value: "http://embedder.synesis-rag.svc.cluster.local:8080"
+                - name: SYNESIS_NORNIC_DATABASE
+                  value: "nornic"
+                - name: SYNESIS_NORNIC_VECTOR_INDEX
+                  value: "embeddings"
                 - name: SYNESIS_ADMIN_API_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
                 - name: SYNESIS_LLM_URL
