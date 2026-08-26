@@ -1,41 +1,38 @@
-# Multi-Tenant RAG Isolation (v10 schema)
+# Multi-Tenant RAG Isolation (graph schema v21)
 
 Three-tier visibility model enforced at every retrieval path.
 
 ## Active tiers (implemented)
 
-| Scope | Milvus `visibility_scope` | Access rule |
-|-------|---------------------------|-------------|
+| Scope | NornicDB `visibility_scope` | Access rule |
+|-------|-----------------------------|-------------|
 | **Global** | `"global"` | All callers see these chunks |
 | **Org** | `"org"` | Only callers with matching `org_id` |
 | **Tenant** | `"tenant"` | Matching `org_id` AND `tenant_id in caller_tenant_ids` |
+| **User** | `"user"` | Matching `org_id` and `owner_user_id` |
+| **Session** | `"session"` | Matching org, owner, conversation, and unexpired session |
 
 ## Fail-closed rule
 
-- Every Milvus search MUST include `build_scope_filter()` or `build_metadata_filter(caller_org_id=…)`.
+- Native NornicDB search returns candidates only. Every candidate hydration and graph expansion MUST apply `buildScopePredicate()` through parameterized Bolt queries.
 - No `caller_org_id` → only `global` content returned. Never implicit access.
 
 ## Key code paths
 
-- **Scope filter builder:** `base/planner-ts/src/retrieval/scope-filter.ts`
-- **Metadata filter (includes scope):** `build_metadata_filter(caller_org_id=, caller_tenant_ids=)`
-- **Planner state:** `initial_state["org_id"]`, `initial_state["tenant_ids"]` set in `main.py`
-- **Router retrieval:** `consolidated_retrieve()` passes `caller_org_id`/`caller_tenant_ids` to filter builder
-- **Unified retrieval:** `retrieve_unified()` accepts and applies scope filter
-- **Knowledge endpoints:** `/v1/knowledge/search` and `/v1/knowledge/submit` accept scope fields
-- **Yarn escalation:** `escalate_to_langchain()` forwards `x-synesis-org-id` and `x-synesis-tenant-ids` headers
+- **Scope predicate and parameters:** `base/planner-ts/src/retrieval/rag-client.ts`
+- **Unified request attribution:** `base/planner-ts/src/retrieval/unified.ts`
+- **Scope contract:** `base/planner-ts/src/retrieval/types.ts`
+- **Indexer graph properties:** `base/rag/indexer/app/schema.py`
+- **Parity tests:** `base/planner-ts/tests/chat-scope-parity.test.ts` and `rag-permissions.test.ts`
 
 ## Indexer enforcement
 
-- `index_parsed_chunk_pairs()` validates scope:
-  - `org` scope requires `org_id` → rejects if missing
-  - `tenant` scope requires both `org_id` and `tenant_id` → rejects if missing
-  - Invalid `visibility_scope` value → rejected
-- `_build_source_config()` in queue_runner propagates `effective_visibility_scope`, `effective_org_id`, `effective_tenant_id`
+- `catalog_entity()` normalizes the visibility, org, tenant, owner, conversation, expiry, and ACL properties for every indexed node.
+- Ingestion runners propagate the effective source scope; retrieval still fails closed because source metadata is not treated as caller authorization.
 
-## Schema fields (Milvus + Postgres)
+## Schema fields (NornicDB + Postgres)
 
-- Milvus: `visibility_scope VARCHAR(16)`, `org_id VARCHAR(64)`, `tenant_id VARCHAR(64)`
+- NornicDB node properties: `visibility_scope`, `org_id`, `tenant_id`, owner/session fields, `acl_mode`, and ACL group IDs
 - Postgres: same columns on `ingestion_sources`, `ingestion_items`, `ingestion_documents`
 - Alembic migration: `030_ingestion_tenant_scope`
 
@@ -53,7 +50,7 @@ Next phase adds per-document access subjects layered on top of the three-tier mo
 
 ### Design sketch
 
-1. **New Milvus field:** `access_subjects VARCHAR(2048)` — JSON array of `["org:acme", "group:engineering", "role:admin", "user:uid123"]`
+1. **New graph property:** `access_subjects` — bounded list of `["org:acme", "group:engineering", "role:admin", "user:uid123"]`
 2. **Retrieval policy:** After scope filter passes, intersect `access_subjects` with caller's resolved subjects
 3. **Subject resolver:** Keycloak groups/roles → subject list; cached per session
 4. **Deny telemetry:** Log when ACL denies access (separate from scope denial) for audit

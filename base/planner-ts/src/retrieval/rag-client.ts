@@ -1,11 +1,12 @@
 /**
  * NornicDB graph-native RAG retrieval client.
  *
- * Retrieval is intentionally graph-first:
- *   1. Vector search finds seed nodes in the content graph.
- *   2. Cypher filters apply pack, scope, ACL, and temporal constraints.
+ * Retrieval combines NornicDB-native search with graph-aware policy:
+ *   1. Native HTTP search owns query embedding, vector + BM25 retrieval,
+ *      RRF fusion, long-query handling, and configured reranking.
+ *   2. Point Cypher matches apply pack, scope, ACL, and temporal constraints.
  *   3. Optional graph expansion follows semantic edges around the seeds.
- *   4. Results are mapped back to the planner's existing RAG result shape.
+ *   4. Native score diagnostics are preserved in the planner result shape.
  */
 
 import neo4j, { type Driver, type QueryResult, type Record as Neo4jRecord } from "neo4j-driver";
@@ -26,6 +27,7 @@ import { fgaCheck } from "../auth/openfga-client.js";
 
 export interface RagClientConfig {
   nornicUri: string;
+  nornicHttpUrl: string;
   nornicUser: string;
   nornicPassword: string;
   nornicDatabase: string;
@@ -34,12 +36,8 @@ export interface RagClientConfig {
   embedderUrl: string;
   embedderModel: string;
   retrievalStrategy: "hybrid" | "vector" | "bm25";
-  rrfK: number;
-  scoreThreshold: number;
-  rerankScoreMin: number;
   graphDepth: number;
   edgeTypes: string[];
-  rerankEnabled: boolean;
   timeoutMs?: number;
 }
 
@@ -65,6 +63,28 @@ type GraphRelationshipLike = {
   properties?: Record<string, unknown>;
 };
 
+type NativeSearchCandidate = {
+  id: string;
+  rank: number;
+  score: number;
+  rrf_score: number;
+  vector_rank: number;
+  bm25_rank: number;
+  search_method: string;
+};
+
+type NativeSearchResult = {
+  node?: {
+    id?: unknown;
+    labels?: unknown;
+    properties?: Record<string, unknown>;
+  };
+  score?: unknown;
+  rrf_score?: unknown;
+  vector_rank?: unknown;
+  bm25_rank?: unknown;
+};
+
 const DEFAULT_EDGE_TYPES = [
   "CONTAINS",
   "DEFINES",
@@ -79,7 +99,13 @@ const DEFAULT_EDGE_TYPES = [
   "HAS_PATTERN",
   "HAS_CONTEXT_CARD",
   "HAS_PACK_CARD",
+  "HAS_FIELD",
   "APPLIES_TO",
+  "REQUIRES",
+  "MANAGED_BY",
+  "VALIDATED_BY",
+  "CONFLICTS_WITH",
+  "OWNS",
   "DEPRECATED_BY",
   "REPLACED_BY",
   "WARNS_ABOUT",
@@ -94,7 +120,13 @@ const DEFAULT_BUNDLE_EDGE_TYPES = [
   "HAS_CONSTRAINT",
   "HAS_CONTEXT_CARD",
   "HAS_PACK_CARD",
+  "HAS_FIELD",
   "APPLIES_TO",
+  "REQUIRES",
+  "MANAGED_BY",
+  "VALIDATED_BY",
+  "CONFLICTS_WITH",
+  "OWNS",
   "DEPRECATED_BY",
   "REPLACED_BY",
   "RELATED_TO",
@@ -103,6 +135,20 @@ const DEFAULT_BUNDLE_EDGE_TYPES = [
 
 let cachedDriverKey = "";
 let cachedDriver: Driver | null = null;
+
+function logNornicDiagnostic(msg: string, meta: Record<string, unknown>): void {
+  try {
+    process.stderr.write(JSON.stringify({
+      level: 40,
+      time: Date.now(),
+      msg,
+      component: "rag-client",
+      ...meta,
+    }) + "\n");
+  } catch {
+    /* diagnostic logging must never break retrieval */
+  }
+}
 
 function driverFor(config: RagClientConfig): Driver {
   const authMode = config.nornicPassword ? "basic" : "none";
@@ -148,6 +194,94 @@ function asStringArray(value: unknown): string[] {
     }
   }
   return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function nativeMetadataFilters(metadata: MetadataFilterParams | undefined): Record<string, string[]> {
+  const filters: Record<string, string[]> = { kind: ["Chunk"] };
+  const add = (property: string, value: unknown): void => {
+    const item = asString(value).trim();
+    if (item) filters[property] = [item];
+  };
+  if (metadata?.pack_id) {
+    add("pack", metadata.pack_id);
+  } else if (metadata?.pack_ids?.length) {
+    filters.pack = metadata.pack_ids.map((item) => item.trim()).filter(Boolean).slice(0, 20);
+  }
+  add("pack_version", metadata?.pack_version);
+  add("pack_partition", metadata?.pack_partition);
+  add("symbol_kind", metadata?.symbol_kind);
+  add("symbol_fqn", metadata?.symbol_fqn);
+  add("package_name", metadata?.package_name);
+  add("perf_tier", metadata?.perf_tier);
+  add("language", metadata?.language);
+  add("artifact_kind", metadata?.artifact_kind);
+  add("domain", metadata?.domain);
+  add("corpus_class", metadata?.corpus_class);
+  add("constraint_kind", metadata?.constraint_kind);
+  add("content_profile", metadata?.content_profile);
+  add("constraint_source", metadata?.constraint_source);
+  add("golden_path_id", metadata?.golden_path_id);
+  add("content_format", metadata?.content_format);
+  add("repo_path", metadata?.repo_path);
+  add("module_path", metadata?.module_path);
+  add("symbol_name", metadata?.symbol_name);
+  if (typeof metadata?.has_code === "boolean") add("has_code", metadata.has_code);
+  add("code_language", metadata?.code_language);
+  return filters;
+}
+
+async function nativeHybridCandidates(
+  config: RagClientConfig,
+  query: string,
+  limit: number,
+  filters: Record<string, string[]>,
+): Promise<NativeSearchCandidate[]> {
+  const baseUrl = config.nornicHttpUrl.trim().replace(/\/+$/, "");
+  if (!baseUrl) return [];
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (config.nornicPassword) {
+    headers.Authorization = `Basic ${Buffer.from(`${config.nornicUser}:${config.nornicPassword}`).toString("base64")}`;
+  }
+  const response = await fetch(`${baseUrl}/nornicdb/search`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      database: config.nornicDatabase,
+      query,
+      labels: ["ContentNode"],
+      limit,
+      filters,
+    }),
+    signal: AbortSignal.timeout(config.timeoutMs ?? 15000),
+  });
+  if (!response.ok) {
+    throw new Error(`nornic_native_search_http_${response.status}`);
+  }
+  const payload = await response.json() as unknown;
+  const results = Array.isArray(payload) ? payload as NativeSearchResult[] : [];
+  return results.flatMap((result, index) => {
+    const properties = propsOf(result.node?.properties);
+    const id = asString(properties.id ?? result.node?.id).trim();
+    if (!id) return [];
+    const score = asNumber(result.score, 0);
+    const rrfScore = asNumber(result.rrf_score, 0);
+    const vectorRank = asNumber(result.vector_rank, 0);
+    const bm25Rank = asNumber(result.bm25_rank, 0);
+    const method = vectorRank > 0 && bm25Rank > 0
+      ? "rrf_hybrid"
+      : vectorRank > 0
+      ? "vector_only"
+      : "bm25_only";
+    return [{
+      id,
+      rank: index,
+      score,
+      rrf_score: rrfScore,
+      vector_rank: vectorRank,
+      bm25_rank: bm25Rank,
+      search_method: rrfScore > 0 && Math.abs(score - rrfScore) > 1e-9 ? `${method}+rerank` : method,
+    }];
+  });
 }
 
 function propsOf(value: unknown): Record<string, unknown> {
@@ -321,6 +455,61 @@ async function runGraphSearch(
   });
 
   const limit = Math.min(Math.max(options.topK * 2, 1), 100);
+  const where = clauses.length ? `WHERE ${clauses.join("\n  AND ")}` : "";
+  if (config.retrievalStrategy !== "vector" && config.nornicHttpUrl.trim()) {
+    try {
+      const candidateLimit = Math.min(Math.max(options.topK * 10, 50), 100);
+      const nativeFilters = nativeMetadataFilters(options.metadata);
+      if (options.version) nativeFilters.source_version = [options.version];
+      if (options.commit) nativeFilters.commit = [options.commit];
+      if (options.branch) nativeFilters.branch = [options.branch];
+      const candidates = await nativeHybridCandidates(
+        config,
+        query,
+        candidateLimit,
+        nativeFilters,
+      );
+      const nativeExpansion = depth > 0
+        ? `
+OPTIONAL MATCH path=(node)-[rels${edgePattern(edges, depth)}]-(neighbor)
+WHERE ${neighborAuthzClause}
+WITH candidate, node,
+     collect(DISTINCT neighbor)[0..12] AS neighbors,
+     reduce(acc = [], r IN collect(coalesce(rels, [])) | acc + r)[0..24] AS edge_list`
+        : `
+WITH candidate, node, [] AS neighbors, [] AS edge_list`;
+      const nativeCypher = `
+UNWIND $candidates AS candidate
+MATCH (node:ContentNode {id: candidate.id})
+${where}
+${nativeExpansion}
+RETURN node, candidate.score AS score, neighbors, edge_list,
+       candidate.rrf_score AS rrf_score,
+       candidate.vector_rank AS vector_rank,
+       candidate.bm25_rank AS bm25_rank,
+       candidate.search_method AS search_method
+ORDER BY candidate.rank
+LIMIT $result_limit
+`;
+      const session = driverFor(config).session({ database: config.nornicDatabase });
+      try {
+        return await session.run(nativeCypher, {
+          ...params,
+          candidates,
+          result_limit: options.topK,
+        }, { timeout: config.timeoutMs ?? 15000 });
+      } finally {
+        await session.close();
+      }
+    } catch (error) {
+      // Keep the Bolt vector path as a degraded-mode fallback when the native
+      // HTTP search service is warming or temporarily unavailable.
+      logNornicDiagnostic("nornic_native_search_degraded", {
+        error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+        strategy: config.retrievalStrategy,
+      });
+    }
+  }
   const queryVector = config.embedderUrl
     ? (await embed([query], {
         url: config.embedderUrl,
@@ -329,7 +518,6 @@ async function runGraphSearch(
       }))[0]
     : [];
   const vectorQuery = queryVector?.length ? queryVector : query;
-  const where = clauses.length ? `WHERE ${clauses.join("\n  AND ")}` : "";
   const expansion = depth > 0
     ? `
 OPTIONAL MATCH path=(node)-[rels${edgePattern(edges, depth)}]-(neighbor)
@@ -375,7 +563,18 @@ function graphTrace(record: Neo4jRecord): string {
   });
 }
 
-function ragResultFromProps(row: Record<string, unknown>, score: number, graphContext = "{}"): RagResult {
+function ragResultFromProps(
+  row: Record<string, unknown>,
+  score: number,
+  graphContext = "{}",
+  scoring: {
+    source?: "vector" | "bm25" | "hybrid";
+    similarity?: number;
+    rrfScore?: number;
+    vectorRank?: number;
+    bm25Rank?: number;
+  } = {},
+): RagResult {
   const enrichment = parseJsonRecord(row.agent_enrichment_json);
 
   return {
@@ -387,10 +586,14 @@ function ragResultFromProps(row: Record<string, unknown>, score: number, graphCo
     text: asString(row.text ?? row.content ?? row.summary),
     source: asString(row.source ?? row.path ?? "nornicdb"),
     collection: "content_graph",
-    retrieval_source: "hybrid",
-    vector_score: score,
-    bm25_score: 0,
-    rrf_score: score,
+    retrieval_source: scoring.source ?? "hybrid",
+    vector_score: scoring.source === "vector"
+      ? (scoring.similarity ?? score)
+      : scoring.vectorRank
+      ? (scoring.similarity ?? 0)
+      : 0,
+    bm25_score: (scoring.bm25Rank || scoring.source === "bm25") ? score : 0,
+    rrf_score: scoring.rrfScore ?? score,
     rerank_score: score,
     origin_type: asString(row.origin_type),
     authority: asString(row.authority),
@@ -484,11 +687,35 @@ function ragResultFromProps(row: Record<string, unknown>, score: number, graphCo
   };
 }
 
-function toRagResult(record: Neo4jRecord, fallbackScore: number): RagResult {
+function toRagResult(
+  record: Neo4jRecord,
+  fallbackScore: number,
+  fallbackSource: "vector" | "bm25" | "hybrid" = "vector",
+): RagResult {
+  const rawSimilarity = record.get("similarity");
+  const vectorRank = asNumber(record.get("vector_rank"), 0);
+  const bm25Rank = asNumber(record.get("bm25_rank"), 0);
+  const searchMethod = asString(record.get("search_method"));
+  const source = vectorRank > 0 && bm25Rank > 0
+    ? "hybrid"
+    : vectorRank > 0
+    ? "vector"
+    : bm25Rank > 0
+    ? "bm25"
+    : searchMethod.includes("hybrid")
+    ? "hybrid"
+    : fallbackSource;
   return ragResultFromProps(
     propsOf(record.get("node")),
     asNumber(record.get("score"), fallbackScore),
     graphTrace(record),
+    {
+      source,
+      similarity: rawSimilarity == null ? undefined : asNumber(rawSimilarity, 0),
+      rrfScore: asNumber(record.get("rrf_score"), 0),
+      vectorRank,
+      bm25Rank,
+    },
   );
 }
 
@@ -614,6 +841,12 @@ export async function resolvePacks(
 ): Promise<PackResolveResponse> {
   if (!config.nornicUri) return { query: asString(request.query), candidates: [], total: 0 };
   const terms = searchTerms(request.query, request.package_name, request.symbol, request.language, request.domain);
+  const manifestClauses = [
+    'node.kind = "PackManifest"',
+    buildScopePredicate("node", scopeFilter),
+    scopeFilter?.authzMode === "enforce" ? 'coalesce(node.acl_mode, "open") IN ["open", ""]' : "true",
+    resolverTextPredicate(),
+  ];
   const clauses = [
     "coalesce(node.pack, node.pack_id, \"\") <> \"\"",
     buildScopePredicate("node", scopeFilter),
@@ -626,6 +859,24 @@ export async function resolvePacks(
     symbol: asString(request.symbol).trim(),
   };
   addScopeParams(scopeFilter, params);
+  for (const [property, value] of [
+    ["domain", request.domain],
+    ["content_type", request.content_type],
+    ["language", request.language],
+  ] as const) {
+    const item = asString(value).trim();
+    if (!item) continue;
+    params[property] = item;
+    manifestClauses.push(`node.${property} = $${property}`);
+  }
+  if (request.package_name) {
+    params.package_name = request.package_name;
+    manifestClauses.push("$package_name IN coalesce(node.package_names, [])");
+  }
+  if (request.version) {
+    params.requested_version = request.version;
+    manifestClauses.push("(node.source_version = $requested_version OR node.pack_version = $requested_version)");
+  }
   addOptionalResolverFilters(clauses, params, request);
   if (params.symbol) {
     clauses.push(`(
@@ -634,6 +885,36 @@ export async function resolvePacks(
       toLower(coalesce(node.retrieval_terms, "")) CONTAINS toLower($symbol)
     )`);
   }
+
+  const manifestCypher = `
+MATCH (node:ContentNode)
+WHERE ${manifestClauses.join("\n  AND ")}
+WITH node,
+     10.0 + coalesce(node.quality_score, 0.0) + coalesce(node.trust_score, 0.0) +
+     CASE WHEN $terms = [] THEN 0.0 ELSE 1.0 END AS score
+RETURN coalesce(node.pack, node.pack_id, "") AS pack_id,
+       coalesce(node.pack_version, "") AS pack_version,
+       coalesce(node.source_version, "") AS source_version,
+       coalesce(node.source_release, "") AS source_release,
+       coalesce(node.domain, "") AS domain,
+       coalesce(node.content_type, "") AS content_type,
+       coalesce(node.language, "") AS language,
+       coalesce(node.package_name, "") AS package_name,
+       coalesce(node.trust_score, -1.0) AS trust_score,
+       coalesce(node.quality_score, -1.0) AS quality_score,
+       coalesce(node.freshness_score, -1.0) AS freshness_score,
+       coalesce(node.node_count, 0) AS node_count,
+       coalesce(node.chunk_count, 0) AS chunk_count,
+       coalesce(node.example_count, 0) AS example_count,
+       coalesce(node.context_card_count, 0) AS context_card_count,
+       coalesce(node.pack_card_count, 0) AS pack_card_count,
+       coalesce(node.pattern_count, 0) AS pattern_count,
+       coalesce(node.constraint_count, 0) AS constraint_count,
+       coalesce(node.edge_count, 0) AS edge_count,
+       score
+ORDER BY score DESC, pack_id
+LIMIT $limit
+`;
 
   const cypher = `
 MATCH (node:ContentNode)
@@ -671,6 +952,11 @@ LIMIT $limit
 `;
   const session = driverFor(config).session({ database: config.nornicDatabase });
   try {
+    const manifestResult = await session.run(manifestCypher, params, { timeout: config.timeoutMs ?? 15000 });
+    if (manifestResult.records.length > 0) {
+      const candidates = manifestResult.records.map(rowToResolvedPack);
+      return { query: asString(request.query), candidates, total: candidates.length };
+    }
     const result = await session.run(cypher, params, { timeout: config.timeoutMs ?? 15000 });
     const candidates = result.records.map(rowToResolvedPack);
     return { query: asString(request.query), candidates, total: candidates.length };
@@ -868,6 +1154,7 @@ export async function retrieveKnowledgeBundle(
     includeAntipatterns?: boolean;
     includeContextCards?: boolean;
     includePackCards?: boolean;
+    includeRelatedSymbols?: boolean;
     routingMode?: "auto" | "local" | "hosted" | "hybrid";
     metadata?: MetadataFilterParams;
     graphDepth?: number;
@@ -967,7 +1254,7 @@ export async function retrieveKnowledgeBundle(
       artifactKind: request.artifactKind,
       limit: 6,
     }, scopeFilter),
-    findTypedNodes(config, {
+    request.includeRelatedSymbols === false ? Promise.resolve([]) : findTypedNodes(config, {
       query: request.query,
       packId,
       kinds: ["Symbol", "Concept"],
@@ -982,7 +1269,9 @@ export async function retrieveKnowledgeBundle(
   ]);
 
   const packCards = packCardRows.length > 0 ? packCardRows.map(contextCardFromRag) : [];
-  const contextCards = packCards.length > 0
+  const contextCards = request.includeContextCards === false && request.includePackCards === false
+    ? []
+    : packCards.length > 0
     ? packCards
     : contextCardRows.length > 0
     ? contextCardRows.map(contextCardFromRag)
@@ -1049,21 +1338,17 @@ export async function retrieveContext(
   if (!config.nornicUri || !query.trim()) return [];
 
   const result = await runGraphSearch(config, query, { ...options, topK });
-  const mapped = result.records.map((record, i) => toRagResult(record, 1 / (i + 1)));
-
-  for (const row of mapped) {
-    const boost = AUTH_BOOST[row.authority] ?? 1.0;
-    row.rerank_score = row.rerank_score * boost;
-  }
+  const mapped = result.records.map((record, i) => toRagResult(
+    record,
+    1 / (i + 1),
+    config.retrievalStrategy,
+  ));
 
   mapped.sort((a, b) => {
-    const aScore = a.rerank_score > 0 ? a.rerank_score : a.rrf_score;
-    const bScore = b.rerank_score > 0 ? b.rerank_score : b.rrf_score;
+    const aScore = (a.rerank_score > 0 ? a.rerank_score : a.rrf_score) * (AUTH_BOOST[a.authority] ?? 1.0);
+    const bScore = (b.rerank_score > 0 ? b.rerank_score : b.rrf_score) * (AUTH_BOOST[b.authority] ?? 1.0);
     return bScore - aScore;
   });
 
-  const scoreFiltered = config.rerankScoreMin > 0 && config.rerankEnabled
-    ? mapped.filter((row) => row.rerank_score >= config.rerankScoreMin)
-    : mapped.slice(0, topK);
-  return filterByFga(scoreFiltered, options.scopeFilter);
+  return filterByFga(mapped.slice(0, topK), options.scopeFilter);
 }

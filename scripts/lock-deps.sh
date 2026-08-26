@@ -98,8 +98,7 @@ SERVICES=(
 
     # Standalone (own venv or non-UBI base)
     "indexer|base/rag/indexer|"
-    "bm25-benchmark|benchmarks/bm25|"
-    "milvus-retrieval-benchmark|benchmarks/retrieval|"
+    "nornic-retrieval-benchmark|benchmarks/retrieval|"
     "prompt-evaluation|tests/prompts|"
 )
 

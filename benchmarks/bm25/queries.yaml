@@ -1,6 +1,6 @@
-# BM25 Benchmark Query Set
+# Native Hybrid Retrieval Benchmark Query Set
 #
-# Covers the major domains in synesis_catalog: architecture, kubernetes,
+# Covers the major domains in the NornicDB content graph: architecture, kubernetes,
 # code (Python/Go/Rust/TypeScript/Java), arXiv/LLM papers and blogs,
 # runbooks, licenses, and cross-domain foundations / lifestyle bootstrap YAML.
 #

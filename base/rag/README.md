@@ -19,7 +19,7 @@ processing or content-pack installation managed by the release.
 
 | Component | Purpose |
 |-----------|---------|
-| `nornicdb.yaml` | NornicDB graph/vector database, Bolt service, and durable PVC |
+| `nornicdb.yaml` | NornicDB native hybrid-search/graph database, HTTP + Bolt services, and durable PVC |
 | `embedder/` | BGE-M3 embedding service for components that still need explicit embeddings |
 | `indexer/` | Queue/staged/SynPack indexer that writes `ContentNode` graph nodes and relationships |
 | `pack-configs/` | Canonical SynPack v2 language/domain/platform pack definitions |
@@ -58,10 +58,11 @@ Primary edge types:
 
 Planner retrieval follows:
 
-1. vector query against the `embeddings` index
-2. pack/scope/ACL/temporal Cypher filtering
-3. graph expansion across semantic edges
-4. rerank/authority boost
+1. native NornicDB HTTP vector + BM25 retrieval, equal-weight RRF fusion, and
+   optional BGE stage-2 reranking
+2. point lookup of candidate IDs with pack/scope/ACL/temporal Cypher filtering
+3. bounded graph expansion across semantic edges
+4. authority-aware ordering without rewriting native score diagnostics
 5. structured context returned to planner and MCP callers
 
 Example:
@@ -79,10 +80,11 @@ ORDER BY score DESC
 Portable content packs are SynPack v2 ZIP archives with:
 
 - `manifest.json`
-- `nodes.jsonl`
-- `edges.jsonl`
+- typed `nodes/*.jsonl`, including one indexed `PackManifest` routing node
+- typed `edges/*.jsonl`
 - `sources.lock.json`
-- optional `vectors.npy`
+- `vectors/index.json` plus `vectors/chunks.f32`
+- `quality/report.json`
 
 The loader upserts graph nodes idempotently and creates deterministic
 relationships such as `CONTAINS` and `DEFINES`. Enrichment may add candidate

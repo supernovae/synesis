@@ -90,7 +90,7 @@ if [ "$mode" = "--full" ]; then
 
     (
         cd base/ast-mcp
-        run uv run --project ../.. --group dev \
+        run env PYTHONPATH=. uv run --project ../.. --group dev \
             --with-requirements requirements.lock pytest tests/ -q --tb=short
     )
 

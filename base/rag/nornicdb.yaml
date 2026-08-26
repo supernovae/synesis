@@ -17,8 +17,8 @@ metadata:
     app.kubernetes.io/name: synesis-nornicdb
     app.kubernetes.io/component: graph-rag
   annotations:
-    synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.5"
-    synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.5/docs/operations/docker.md"
+    synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.2.3"
+    synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.2.3/docs/operations/docker.md"
 spec:
   replicas: 1
   selector:
@@ -32,10 +32,10 @@ spec:
     spec:
       containers:
         - name: nornicdb
-          # Upstream v1.1.5 Docker docs list this Docker Hub namespace as the
+          # Upstream v1.2.3 Docker docs list this Docker Hub namespace as the
           # public AMD64 CPU production image. Override when upstream publishes
           # a GHCR/org image.
-          image: docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.5
+          image: docker.io/timothyswt/nornicdb-amd64-cpu:v1.2.3
           imagePullPolicy: IfNotPresent
           ports:
             - name: bolt
@@ -50,6 +50,14 @@ spec:
                   key: auth
             - name: NORNICDB_RUNTIME_PROFILE
               value: "cpu-bge"
+            - name: NORNICDB_SEARCH_RERANK_ENABLED
+              value: "true"
+            - name: NORNICDB_SEARCH_RERANK_PROVIDER
+              value: "http"
+            - name: NORNICDB_SEARCH_RERANK_API_URL
+              value: "http://bge-reranker:8000/rerank"
+            - name: NORNICDB_SEARCH_RERANK_MODEL
+              value: "BAAI/bge-reranker-v2-m3"
           volumeMounts:
             - name: data
               mountPath: /data

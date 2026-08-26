@@ -1,9 +1,8 @@
 # RAG retrieval evaluation
 
-This is the canonical evaluation contract for the graph-native RAG stack. The
-active backend is NornicDB; Milvus scripts under `benchmarks/bm25/` and
-`benchmarks/retrieval/` are retained only as historical migration experiments
-and are not release or pull-request gates.
+This is the canonical evaluation contract for the graph-native NornicDB RAG
+stack. The benchmark, golden, corpus-audit, and SynPack lanes all exercise the
+current production retrieval semantics.
 
 ## Active quality lanes
 
@@ -16,8 +15,8 @@ and are not release or pull-request gates.
 
 The retrieval golden suite is source-anchored rather than score-baselined. A
 zero-query or self-generated score file is not accepted as evidence of quality.
-The retired Milvus seed baseline was removed because its zero values made the
-old comparator false-green.
+The retired seed baseline was removed because its zero values made the old
+comparator false-green.
 
 ## Run the production retrieval suite
 

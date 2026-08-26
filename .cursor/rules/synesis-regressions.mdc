@@ -11,7 +11,7 @@ When changing planner, indexer, gateway, or images, **do not** bring back:
 |-----------------|-------------|
 | **RAGatouille / ColBERT** in app or planner images | **BGE reranker** microservice or **FlashRank**; see `ml-service-boundary` |
 | **KeyBERT** or **indexer → keyword-service** for default chunk keywords | Template `context_prefix` + optional `--enrich full` LLM JSON in `enrichment.py`; planner still uses **keyword-service** for query distillation / entry pipeline |
-| **`intended_roles`** on indexer chunks / Milvus schema | **Router** owns retrieval; see `rag-indexer-handlers` |
+| **`intended_roles`** on indexed graph nodes | **Router** owns retrieval; see `rag-indexer-handlers` |
 | **Direct RAG/web imports** in Planner, Executor, Writer, Critic | Only **Router** retrieves; see `router-governed-evidence` + `base/planner-ts/tests/router-governance.test.ts` |
 | SSE **`event: status`** lines for Open WebUI | JSON **`event`** key inside `data:`; see `sse-status-format` |
 | **`transformers` / `torch` in planner, indexer, admin, yarn** images | TEI embedder, keyword-service, dedicated `base/rag/*` inference services only |

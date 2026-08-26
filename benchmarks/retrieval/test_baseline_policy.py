@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import unittest
 
+import httpx
 from baseline_policy import BenchmarkContractError, find_regressions, validate_snapshot
+from bench_hybrid import native_search
 
 
 def snapshot(
@@ -53,6 +55,33 @@ class BaselinePolicyTests(unittest.TestCase):
 
     def test_individual_zero_metric_does_not_divide_by_zero(self) -> None:
         self.assertEqual(find_regressions(snapshot(recall_5=0.2), snapshot(recall_5=0), 0.05), [])
+
+    def test_native_search_parses_current_nornic_http_shape(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.path, "/nornicdb/search")
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "node": {
+                            "id": "storage-1",
+                            "labels": ["ContentNode"],
+                            "properties": {"id": "chunk-1", "kind": "Chunk"},
+                        },
+                        "score": 0.82,
+                        "rrf_score": 0.031,
+                        "vector_rank": 2,
+                        "bm25_rank": 1,
+                    }
+                ],
+            )
+
+        with httpx.Client(base_url="http://nornic.test", transport=httpx.MockTransport(handler)) as client:
+            rows, method = native_search(client, database="nornic", query="hybrid", top_k=5)
+
+        self.assertEqual(rows[0]["id"], "chunk-1")
+        self.assertEqual(rows[0]["rrf_score"], 0.031)
+        self.assertEqual(method, "rrf_hybrid+rerank")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import type { ScopeFilterOptions } from "../src/retrieval/types.js";
 
 const baseConfig: RagClientConfig = {
   nornicUri: "bolt://nornic.local:7687",
+  nornicHttpUrl: "",
   nornicUser: "neo4j",
   nornicPassword: "secret",
   nornicDatabase: "nornic",
@@ -28,12 +29,8 @@ const baseConfig: RagClientConfig = {
   embedderUrl: "",
   embedderModel: "BAAI/bge-m3",
   retrievalStrategy: "hybrid",
-  rrfK: 60,
-  scoreThreshold: 0,
-  rerankScoreMin: 0,
   graphDepth: 1,
   edgeTypes: ["DEFINES"],
-  rerankEnabled: false,
   timeoutMs: 1000,
 };
 

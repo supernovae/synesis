@@ -1,7 +1,7 @@
 """Validation and comparison policy for retrieval benchmark snapshots.
 
 This module deliberately has no benchmark-runtime dependencies so the quality
-gate can be unit tested without a live Milvus or embedding service.
+gate can be unit tested without a live NornicDB service.
 """
 
 from __future__ import annotations

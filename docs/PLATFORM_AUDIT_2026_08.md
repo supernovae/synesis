@@ -16,7 +16,7 @@ a reason for a wholesale framework or architecture rewrite.
 The highest-risk drift was at the seams rather than in those foundations:
 
 - The active corpus-quality workflow had been partially migrated to NornicDB,
-  while CI, Make targets, and documentation still invoked retired Milvus
+  while CI, Make targets, and documentation still invoked retired-backend
   arguments. A separate retrieval workflow used a zero-query baseline and
   comparison logic that skipped zero values, so it could appear green without
   measuring retrieval.
@@ -40,7 +40,7 @@ new infrastructure without evidence.
 
 - Made NornicDB the single active corpus-audit path in the quality runner,
   scheduled workflow, Make targets, and operator documentation.
-- Removed the obsolete Milvus retrieval-regression workflow and its empty
+- Removed the obsolete retrieval-regression workflow and its empty
   committed baseline.
 - Hardened the remaining legacy lab comparator so missing, empty, non-finite,
   zero-signal, and query-set-drifted baselines fail closed. Baseline promotion
@@ -110,8 +110,8 @@ over repeated runs, perturbations, tool faults, and equivalent end states.
   and curator. Their workflows and quality-runner image now install only those
   locks with hash verification, and the security matrix now audits both
   quality-tool environments alongside the service environments.
-- Added locks for the retained Milvus comparison labs and prompt-evaluation
-  harness, replacing the last floating workflow install. Every non-empty
+- Added locks for the retained retrieval labs and prompt-evaluation harness,
+  replacing the last floating workflow install. Every non-empty
   `requirements.txt` is now managed by the centralized freshness and audit
   gates; comment-only child-service files inherit their locked base image.
 - Refreshed the two locks found stale by the complete check (Admin and Indexer),
@@ -134,7 +134,7 @@ over repeated runs, perturbations, tool faults, and equivalent end states.
 | Revise | MCP OAuth story | Keep PAT/OIDC validation and OpenFGA, but add standard protected-resource discovery and resource/audience binding before claiming full HTTP MCP OAuth conformance. |
 | Revise | Memory model | Active planner memory is appropriately bounded and purgeable. Persistent Yarn/project observations need invalidation, supersession, and stale-memory evaluation before longer-lived personalization expands. |
 | Revise | Telemetry vocabulary | Preserve useful `yarn.*` operational attributes, while mapping model, agent, tool, and MCP spans onto current OpenTelemetry GenAI semantic conventions. |
-| Remove | Milvus from active release gates | Milvus scripts may remain as explicitly labeled experiments, but production quality gates must follow the NornicDB runtime. |
+| Remove | Retired retrieval backends from release gates | Production quality gates and comparison tools must exercise the NornicDB runtime. |
 | Remove | Zero-signal baselines and implicit baseline creation | A regression gate without observations is worse than no gate because it creates false confidence. |
 | Remove | Duplicate package keys and stale documentation claims | Ambiguous machine inputs and false operator instructions are reliability defects. |
 | Add | Controlled act/abstain pairs | Refusal-only tests reward over-caution; action-only tests reward unsafe compliance. A pair catches both. |

@@ -1,4 +1,0 @@
-# BM25 benchmark dependencies
-pymilvus>=2.5.0
-httpx
-pyyaml

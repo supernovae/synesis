@@ -149,6 +149,7 @@ const KnowledgeRouteBodySchema = z.object({
   include_antipatterns: z.boolean().optional(),
   include_context_cards: z.boolean().optional(),
   include_pack_cards: z.boolean().optional(),
+  include_related_symbols: z.boolean().optional(),
   symbol_kind: KnowledgeShortStringSchema.optional(),
   perf_tier: KnowledgeShortStringSchema.optional(),
   corpus_class: KnowledgeShortStringSchema.optional(),
@@ -830,6 +831,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   const knowledgeSearchRagConfig: import("./retrieval/rag-client.js").RagClientConfig = {
     nornicUri: config.SYNESIS_NORNIC_URI,
+    nornicHttpUrl: config.SYNESIS_NORNIC_HTTP_URL,
     nornicUser: config.SYNESIS_NORNIC_USER,
     nornicPassword: config.SYNESIS_NORNIC_PASSWORD,
     nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
@@ -838,12 +840,8 @@ export function buildApp(config: AppConfig): FastifyInstance {
     embedderUrl: config.SYNESIS_EMBEDDER_URL,
     embedderModel: config.SYNESIS_EMBEDDER_MODEL,
     retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
-    rrfK: config.SYNESIS_RAG_RRF_K,
-    scoreThreshold: config.SYNESIS_RAG_SCORE_THRESHOLD,
-    rerankScoreMin: config.SYNESIS_RAG_RERANK_SCORE_MIN,
     graphDepth: config.SYNESIS_NORNIC_GRAPH_DEPTH,
     edgeTypes: config.SYNESIS_NORNIC_EDGE_TYPES.split(",").map((s) => s.trim()).filter(Boolean),
-    rerankEnabled: config.SYNESIS_NORNIC_RERANK_ENABLED,
   };
 
   const retrieveContextFn = retrieveContext;
@@ -1448,6 +1446,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
     return {
       embedder_url: config.SYNESIS_EMBEDDER_URL ? "configured" : "not_set",
       nornic_uri: config.SYNESIS_NORNIC_URI ? "configured" : "not_set",
+      nornic_http_search: config.SYNESIS_NORNIC_HTTP_URL ? "configured" : "not_set",
       nornic_database: config.SYNESIS_NORNIC_DATABASE,
       nornic_runtime_profile: config.SYNESIS_NORNIC_RUNTIME_PROFILE,
       web_search_enabled: config.SYNESIS_WEB_SEARCH_ENABLED,
@@ -1456,7 +1455,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
       cohesion_lock_enabled: config.SYNESIS_COHESION_LOCK_ENABLED,
       gliner_service_url: config.SYNESIS_GLINER_SERVICE_URL ? "configured" : "not_set",
       rag_strategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
-      bge_reranker: config.SYNESIS_BGE_RERANKER_URL ? "configured" : "not_set",
+      reranker_owner: "nornicdb",
     };
   });
 
@@ -1597,6 +1596,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         includeAntipatterns: body?.include_antipatterns !== false,
         includeContextCards: body?.include_context_cards !== false,
         includePackCards: body?.include_pack_cards !== false,
+        includeRelatedSymbols: body?.include_related_symbols !== false,
         routingMode: optionalRoutingMode(body?.routing_mode),
         metadata: metadataFromKnowledgeBody(body),
         graphDepth: Number(body?.graph_depth) || undefined,
@@ -1689,6 +1689,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
         includeAntipatterns: body?.include_antipatterns !== false,
         includeContextCards: body?.include_context_cards !== false,
         includePackCards: body?.include_pack_cards !== false,
+        includeRelatedSymbols: body?.include_related_symbols !== false,
         routingMode: optionalRoutingMode(body?.routing_mode),
         metadata: metaParams,
         graphDepth: Number(body?.graph_depth) || undefined,

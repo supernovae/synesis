@@ -1,8 +1,9 @@
 """BGE Reranker Service -- high-accuracy cross-encoder re-ranking.
 
 Wraps BAAI/bge-reranker-v2-m3 behind a simple /rerank HTTP endpoint.
-Default reranker for the planner; FlashRank is available as a lighter
-inline alternative.
+NornicDB owns candidate fusion and calls this service for native stage-2
+reranking. Both the NornicDB/Cohere ``documents`` request and the original
+Synesis ``passages`` request are accepted.
 
 Model load runs in the background after bind so /live succeeds immediately;
 /ready stays 503 until load finishes. If load fails, the service stays ready
@@ -18,7 +19,7 @@ import time
 
 import torch
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from synesis_telemetry import configure_logging, get_logger
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -91,8 +92,14 @@ app = FastAPI(title="Synesis BGE Reranker", version="0.1.0", lifespan=lifespan)
 
 class RerankRequest(BaseModel):
     query: str
-    passages: list[str]
+    passages: list[str] = Field(default_factory=list)
+    documents: list[str] = Field(default_factory=list)
     top_k: int | None = None
+    top_n: int | None = None
+    model: str | None = None
+
+    def candidate_texts(self) -> list[str]:
+        return self.documents or self.passages
 
 
 class RerankResponse(BaseModel):
@@ -105,7 +112,10 @@ def _rerank_sync(request: RerankRequest) -> RerankResponse:
     start = time.monotonic()
     device = _device
 
-    pairs = [[request.query, p] for p in request.passages]
+    texts = request.candidate_texts()
+    if not texts:
+        return RerankResponse(scores=[], latency_ms=0.0)
+    pairs = [[request.query, text] for text in texts]
     inputs = tokenizer(
         pairs,
         padding=True,
@@ -126,7 +136,7 @@ def _rerank_sync(request: RerankRequest) -> RerankResponse:
     logger.info(
         "rerank_completed",
         extra={
-            "passages": len(request.passages),
+            "candidates": len(texts),
             "latency_ms": elapsed,
         },
     )
@@ -139,7 +149,7 @@ async def rerank(request: RerankRequest):
     if not _load_complete:
         raise HTTPException(status_code=503, detail="model loading")
     if _load_failed or tokenizer is None or model is None:
-        return RerankResponse(scores=[0.0] * len(request.passages), latency_ms=0.0)
+        return RerankResponse(scores=[0.0] * len(request.candidate_texts()), latency_ms=0.0)
 
     return await asyncio.to_thread(_rerank_sync, request)
 

@@ -28,6 +28,51 @@ def _write_pack(path: Path, manifest: dict, row: dict | None = None) -> None:
         zf.writestr("nodes/chunks.jsonl", json.dumps(row) + "\n")
 
 
+def test_materialized_pack_manifest_preserves_security_envelope(tmp_path: Path):
+    row = {
+        "id": "chunk-1",
+        "text": "Tenant-scoped operational guidance.",
+        "embedding": [0.0] * EMBEDDING_DIM,
+        "visibility_scope": "tenant",
+        "org_id": "acme",
+        "tenant_id": "payments",
+        "acl_mode": "restricted",
+        "acl_groups": "platform,security",
+        "acl_group_ids": ["platform", "security"],
+    }
+
+    synpack.materialize_synpack_v2([row], [], {"pack_id": "private-pack"}, tmp_path)
+
+    pack_manifest = json.loads((tmp_path / "nodes" / "pack_manifest.jsonl").read_text())
+    assert pack_manifest["visibility_scope"] == "tenant"
+    assert pack_manifest["org_id"] == "acme"
+    assert pack_manifest["tenant_id"] == "payments"
+    assert pack_manifest["acl_mode"] == "restricted"
+    assert pack_manifest["acl_group_ids"] == ["platform", "security"]
+
+
+def test_materialized_pack_rejects_mixed_security_scope(tmp_path: Path):
+    rows = [
+        {
+            "id": "chunk-global",
+            "text": "Global guidance.",
+            "embedding": [0.0] * EMBEDDING_DIM,
+            "visibility_scope": "global",
+        },
+        {
+            "id": "chunk-tenant",
+            "text": "Tenant guidance.",
+            "embedding": [0.0] * EMBEDDING_DIM,
+            "visibility_scope": "tenant",
+            "org_id": "acme",
+            "tenant_id": "payments",
+        },
+    ]
+
+    with pytest.raises(SynPackError, match="mixed visibility_scope"):
+        synpack.materialize_synpack_v2(rows, [], {"pack_id": "mixed-pack"}, tmp_path)
+
+
 def test_validate_synpack_accepts_bge_m3_manifest(tmp_path: Path):
     pack = tmp_path / "go.synpack"
     _write_pack(

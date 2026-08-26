@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetr
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import nornic_bulk_importer, platform_pack
-from app.schema import EMBEDDING_DIM
+from app.schema import EMBEDDING_DIM, GRAPH_EDGE_TYPES
 from app.synpack import validate_synpack
 
 
@@ -36,6 +36,7 @@ def test_extract_openshift_platform_pack_builds_resource_schema_and_risk_graph()
     assert any("oc adm policy who-can" in node["command"] for node in nodes["PlatformCommand"])
     assert any(edge["type"] == "HAS_FIELD" for edge in edges)
     assert any(edge["type"] == "VALIDATED_BY" for edge in edges)
+    assert {edge["type"] for edge in edges}.issubset(set(GRAPH_EDGE_TYPES))
     assert sources_lock["resource_kind_count"] >= 5
     assert chunks
 
@@ -66,7 +67,14 @@ def test_build_platform_pack_from_openshift_fixture(monkeypatch: pytest.MonkeyPa
         assert "nodes/resource_kinds.jsonl" in names
         assert "nodes/schema_properties.jsonl" in names
         assert "nodes/platform_commands.jsonl" in names
+        assert "nodes/pack_manifest.jsonl" in names
+        pack_manifest = json.loads(zf.read("nodes/pack_manifest.jsonl"))
         quality = json.loads(zf.read("quality/report.json"))
+    assert pack_manifest["kind"] == "PackManifest"
+    assert pack_manifest["pack_id"] == "openshift-latest"
+    assert pack_manifest["node_count"] == quality["node_count"]
+    assert pack_manifest["edge_count"] == quality["edge_count"]
+    assert pack_manifest["quality_score"] > 0
     assert quality["node_counts_by_kind"]["ResourceKind"] >= 5
     assert quality["node_counts_by_kind"]["ValidationRecipe"] >= 5
     assert quality["dangling_edge_count"] == 0

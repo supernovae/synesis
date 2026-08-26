@@ -36,7 +36,7 @@ const DOMAIN_PATTERNS: DomainPattern[] = [
   { key: "web_frontend", re: /\b(html|css|react|vue|angular|frontend|ui|ux|sticky\s*header|responsive|layout|tailwind)\b/gi, baseWeight: 0.4 },
   { key: "backend_api", re: /\b(api|rest|graphql|endpoint|microservice|http\s+(?:service|server)|server\s+timeouts?|request\s+context|graceful\s+shutdown|fastify|express|flask|django|gin|echo)\b/gi, baseWeight: 0.55 },
   { key: "cloud_infra", re: /\b(kubernetes|k8s|aws|gcp|azure|terraform|docker|container|infra|cluster|pod|deployment|openshift)\b/gi, baseWeight: 0.55 },
-  { key: "data_engineering", re: /\b(database|sql|nosql|etl|pipeline|milvus|postgres|redis|kafka|data\s*lake)\b/gi, baseWeight: 0.5 },
+  { key: "data_engineering", re: /\b(database|sql|nosql|etl|pipeline|nornicdb|postgres|redis|kafka|data\s*lake)\b/gi, baseWeight: 0.5 },
   { key: "ml_ai", re: /\b(model|embedding|rag|inference|transformer|llm|training|fine.?tun|neural|bert|gpt)\b/gi, baseWeight: 0.6 },
   { key: "security", re: /\b(security|auth|rbac|encryption|compliance|hipaa|pci|vulnerability|tls|certificate)\b/gi, baseWeight: 0.6 },
   { key: "devops", re: /\b(ci[\s/]?cd|github\s*action|jenkins|deploy|rollout|monitoring|prometheus|grafana|logging)\b/gi, baseWeight: 0.5 },

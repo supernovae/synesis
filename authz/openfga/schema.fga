@@ -51,7 +51,7 @@ type admin_endpoint
 #   can_read_public — global+open-ACL catalog (solo users, platform admins)
 #   can_read_org    — org-scoped content (requires org membership)
 #   can_read_tenant — tenant-scoped content (requires tenant membership)
-# Milvus metadata (visibility_scope, acl_mode, acl_groups) is the data-plane
+# NornicDB metadata (visibility_scope, acl_mode, acl_groups) is the data-plane
 # filter; FGA is the control-plane gate that runs BEFORE retrieval.
 
 type rag_catalog

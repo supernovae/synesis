@@ -6,7 +6,7 @@ For each (query, candidate_chunk) pair, asks an LLM to rate relevance 0-3.
 Results are cached to avoid re-judging on subsequent runs.
 
 Usage:
-    python llm_judge.py [--milvus-uri URI] [--embedder-url URL] [--llm-url URL]
+    python llm_judge.py [--nornic-url URL] [--llm-url URL]
                         [--model MODEL] [--pool-k K] [--threshold 2]
                         [--output relevance_labels_llm.json]
                         [--judgments-cache judgments_cache.json]
@@ -16,28 +16,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import httpx
 import yaml
-from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 
-COLLECTION = "synesis_catalog"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_JUDGE_MODEL = "synesis-general"
-
-OUTPUT_FIELDS = [
-    "chunk_id",
-    "text",
-    "document_name",
-    "domain",
-    "authority",
-    "source_url",
-    "heading_path",
-    "context_prefix",
-]
 
 JUDGE_PROMPT = """\
 Rate how relevant this document chunk is to the search query.
@@ -57,58 +44,40 @@ Respond with ONLY a single digit (0, 1, 2, or 3)."""
 
 
 # ---------------------------------------------------------------------------
-# Embedding + search helpers
+# Native search helper
 # ---------------------------------------------------------------------------
-
-
-def embed_text(text: str, embedder_url: str) -> list[float]:
-    resp = httpx.post(
-        f"{embedder_url}/embeddings",
-        json={"input": [text], "model": EMBEDDING_MODEL},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
 
 
 def hybrid_search(
     query: str,
-    query_vector: list[float],
-    client: MilvusClient,
+    client: httpx.Client,
+    database: str,
     top_k: int,
-    rrf_k: int = 60,
 ) -> list[dict[str, Any]]:
-    dense_req = AnnSearchRequest(
-        data=[query_vector],
-        anns_field="embedding",
-        param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
-        limit=top_k,
+    response = client.post(
+        "/nornicdb/search",
+        json={
+            "database": database,
+            "query": query,
+            "labels": ["ContentNode"],
+            "limit": top_k,
+            "filters": {"kind": ["Chunk"]},
+        },
     )
-    sparse_req = AnnSearchRequest(
-        data=[query],
-        anns_field="sparse_text",
-        param={"metric_type": "BM25"},
-        limit=top_k,
-    )
-    results = client.hybrid_search(
-        collection_name=COLLECTION,
-        reqs=[dense_req, sparse_req],
-        ranker=RRFRanker(k=rrf_k),
-        limit=top_k,
-        output_fields=OUTPUT_FIELDS,
-    )
-    formatted = []
-    for hit in results[0] if results else []:
-        entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+    response.raise_for_status()
+    formatted: list[dict[str, Any]] = []
+    payload = response.json()
+    for result in payload if isinstance(payload, list) else []:
+        node = result.get("node") if isinstance(result.get("node"), dict) else {}
+        properties = node.get("properties") if isinstance(node.get("properties"), dict) else {}
         formatted.append(
             {
-                "chunk_id": get("chunk_id", ""),
-                "text": get("text", ""),
-                "document_name": get("document_name", ""),
-                "domain": get("domain", ""),
-                "authority": get("authority", ""),
-                "source_url": get("source_url", ""),
+                "chunk_id": str(properties.get("chunk_id") or properties.get("id") or node.get("id") or ""),
+                "text": str(properties.get("text") or properties.get("content") or ""),
+                "document_name": str(properties.get("document_name") or ""),
+                "domain": str(properties.get("domain") or ""),
+                "authority": str(properties.get("authority") or ""),
+                "source_url": str(properties.get("source_url") or ""),
             }
         )
     return formatted
@@ -170,8 +139,10 @@ def save_cache(cache: dict[str, int], cache_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="LLM-as-judge relevance labeling")
-    parser.add_argument("--milvus-uri", default="http://localhost:19530")
-    parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
+    parser.add_argument("--nornic-url", default=os.getenv("SYNESIS_NORNIC_HTTP_URL", "http://localhost:7474"))
+    parser.add_argument("--database", default=os.getenv("SYNESIS_NORNIC_DATABASE", "nornic"))
+    parser.add_argument("--user", default=os.getenv("SYNESIS_NORNIC_USER", "neo4j"))
+    parser.add_argument("--password", default=os.getenv("SYNESIS_NORNIC_PASSWORD", ""))
     parser.add_argument("--llm-url", default="http://localhost:8080/v1", help="OpenAI-compatible endpoint")
     parser.add_argument("--model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--pool-k", type=int, default=30, help="Top-K results to pool per query for judging")
@@ -189,8 +160,8 @@ def main():
     with open(queries_path) as f:
         queries = yaml.safe_load(f)["queries"]
 
-    client = MilvusClient(uri=args.milvus_uri)
-    embedder_url = args.embedder_url.rstrip("/")
+    auth = httpx.BasicAuth(args.user, args.password) if args.password else None
+    client = httpx.Client(base_url=args.nornic_url.rstrip("/"), auth=auth, timeout=30.0)
     cache_path = Path(args.judgments_cache)
     cache = load_cache(cache_path)
 
@@ -207,8 +178,7 @@ def main():
         query_text = q["query"]
         print(f"\n[{qi + 1}/{len(queries)}] {qid}: {query_text}")
 
-        query_vector = embed_text(query_text, embedder_url)
-        candidates = hybrid_search(query_text, query_vector, client, args.pool_k)
+        candidates = hybrid_search(query_text, client, args.database, args.pool_k)
 
         # Deduplicate
         seen: dict[str, dict] = {}
@@ -253,6 +223,7 @@ def main():
     print(f"  Total relevant:   {total_relevant}")
     print(f"  Labels saved to:  {output_path}")
     print(f"  Cache saved to:   {cache_path}")
+    client.close()
 
 
 if __name__ == "__main__":

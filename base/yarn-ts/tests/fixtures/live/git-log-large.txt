@@ -5,7 +5,7 @@ Date:   Wed Mar 26 09:15:44 2025 -0700
     feat(router): add timeout budget per retrieval hop
 
     Each hop in the retrieval chain now receives a shrinking deadline so
-    tail latencies do not compound across Milvus, reranker, and snippet
+    tail latencies do not compound across NornicDB, reranker, and snippet
     assembly. Metrics export hop_durations_ms for dashboards.
 
 commit 8a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3

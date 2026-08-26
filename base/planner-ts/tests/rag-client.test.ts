@@ -19,6 +19,7 @@ import type { RagClientConfig } from "../src/retrieval/rag-client.js";
 
 const baseConfig: RagClientConfig = {
   nornicUri: "bolt://nornic.local:7687",
+  nornicHttpUrl: "",
   nornicUser: "neo4j",
   nornicPassword: "secret",
   nornicDatabase: "nornic",
@@ -27,12 +28,8 @@ const baseConfig: RagClientConfig = {
   embedderUrl: "",
   embedderModel: "BAAI/bge-m3",
   retrievalStrategy: "hybrid",
-  rrfK: 60,
-  scoreThreshold: 0,
-  rerankScoreMin: 0,
   graphDepth: 2,
   edgeTypes: ["DEFINES", "CALLS", "IMPORTS"],
-  rerankEnabled: true,
   timeoutMs: 1000,
 };
 
@@ -40,10 +37,72 @@ afterEach(() => {
   runMock.mockReset();
   closeMock.mockReset();
   sessionMock.mockClear();
+  vi.unstubAllGlobals();
   setFgaCheckOverride(null);
 });
 
 describe("retrieveContext", () => {
+  it("uses NornicDB native hybrid search and preserves fusion metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([{
+          node: {
+            id: "storage-1",
+            properties: { id: "chunk-native-1" },
+          },
+          score: 0.82,
+          rrf_score: 0.031,
+          vector_rank: 2,
+          bm25_rank: 1,
+        }]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    runMock.mockResolvedValue({
+      records: [{
+        get(key: string) {
+          if (key === "node") return { properties: {
+            id: "chunk-native-1",
+            text: "Server.Shutdown gracefully drains active requests.",
+            pack: "go-latest",
+            authority: "vetted",
+          } };
+          if (key === "score") return 0.82;
+          if (key === "rrf_score") return 0.031;
+          if (key === "vector_rank") return 2;
+          if (key === "bm25_rank") return 1;
+          if (key === "search_method") return "rrf_hybrid+rerank";
+          if (key === "neighbors" || key === "edge_list") return [];
+          return undefined;
+        },
+      }],
+    });
+
+    const results = await retrieveContext(
+      "graceful Go shutdown",
+      { ...baseConfig, nornicHttpUrl: "http://nornic.local:7474" },
+      { topK: 5, metadata: { pack_id: "go-latest" } },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, request] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      database: "nornic",
+      query: "graceful Go shutdown",
+      labels: ["ContentNode"],
+      filters: { kind: ["Chunk"], pack: ["go-latest"] },
+    });
+    const [cypher, params] = runMock.mock.calls[0];
+    expect(cypher).toContain("UNWIND $candidates AS candidate");
+    expect(cypher).not.toContain("db.index.vector.queryNodes");
+    expect(params.candidates[0]).toMatchObject({ id: "chunk-native-1", vector_rank: 2, bm25_rank: 1 });
+    expect(results[0]).toMatchObject({
+      retrieval_source: "hybrid",
+      vector_score: 0,
+      rrf_score: 0.031,
+      rerank_score: 0.82,
+    });
+  });
+
   it("queries NornicDB vector index with graph and metadata filters", async () => {
     runMock.mockResolvedValue({
       records: [
@@ -195,6 +254,53 @@ describe("retrieveContext", () => {
 });
 
 describe("retrieveKnowledgeBundle", () => {
+  it("returns raw source evidence without synthesized cards in source-only mode", async () => {
+    const record = (values: Record<string, unknown>) => ({
+      get(key: string) {
+        return values[key];
+      },
+    });
+    const node = (properties: Record<string, unknown>) => ({ properties });
+
+    runMock
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({ records: [] })
+      .mockResolvedValueOnce({
+        records: [record({
+          node: node({
+            id: "chunk-source-1",
+            kind: "Chunk",
+            text: "Authoritative upstream source text.",
+            pack: "go-latest",
+          }),
+          score: 0.9,
+          neighbors: [],
+          edge_list: [],
+        })],
+      });
+
+    const bundle = await retrieveKnowledgeBundle(
+      {
+        query: "source evidence",
+        packId: "go-latest",
+        includeExamples: false,
+        includeAntipatterns: false,
+        includeContextCards: false,
+        includePackCards: false,
+        includeRelatedSymbols: false,
+      },
+      baseConfig,
+    );
+
+    expect(bundle.source_chunks).toHaveLength(1);
+    expect(bundle.context_cards).toEqual([]);
+    expect(bundle.pack_cards).toEqual([]);
+    expect(bundle.examples).toEqual([]);
+    expect(bundle.anti_patterns).toEqual([]);
+    expect(bundle.related_symbols).toEqual([]);
+    expect(runMock).toHaveBeenCalledTimes(3);
+  });
+
   it("prefers PackCard rows while preserving context_cards compatibility", async () => {
     const record = (values: Record<string, unknown>) => ({
       get(key: string) {

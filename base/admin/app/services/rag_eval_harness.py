@@ -320,6 +320,8 @@ async def _run_bundle_case(
         "include_examples": True,
         "include_antipatterns": True,
         "include_context_cards": True,
+        "include_pack_cards": True,
+        "include_related_symbols": True,
     }
     for key, value in {
         "language": case.language,
@@ -357,7 +359,35 @@ async def _run_bundle_case(
                 "case_id": case.id,
             },
         }
-    return _score_case(case, resp.json(), latency_ms)
+    scored = _score_case(case, resp.json(), latency_ms)
+
+    # Run the same query against raw source evidence. The paired control makes
+    # SynPack promotion depend on measurable answer-readiness lift instead of
+    # assuming that more graph structure or generated cards always help.
+    control_payload = {
+        **payload,
+        "include_examples": False,
+        "include_antipatterns": False,
+        "include_context_cards": False,
+        "include_pack_cards": False,
+        "include_related_symbols": False,
+    }
+    control_started = time.perf_counter()
+    control_resp = await client.post("/v1/knowledge/bundle", json=control_payload)
+    control_latency_ms = (time.perf_counter() - control_started) * 1000
+    scored["source_only_latency_ms"] = round(control_latency_ms, 1)
+    if control_resp.status_code >= 400:
+        scored["source_only_score"] = None
+        scored["value_add_lift"] = None
+        scored["warnings"].append(f"source-only control returned HTTP {control_resp.status_code}")
+        return scored
+
+    control_scored = _score_case(case, control_resp.json(), control_latency_ms)
+    source_only_score = float(control_scored["score"])
+    scored["source_only_score"] = source_only_score
+    scored["value_add_lift"] = round(float(scored["score"]) - source_only_score, 4)
+    scored["source_only_counts"] = control_scored["counts"]
+    return scored
 
 
 def _aggregate(suite: RagEvalSuite, cases: list[dict[str, Any]], elapsed_ms: float) -> dict[str, Any]:
@@ -365,6 +395,15 @@ def _aggregate(suite: RagEvalSuite, cases: list[dict[str, Any]], elapsed_ms: flo
     passed = sum(1 for case in cases if case.get("passed"))
     errored = sum(1 for case in cases if case.get("failures") and not case.get("counts"))
     avg_score = sum(float(case.get("score") or 0) for case in cases) / max(total, 1)
+    paired_cases = [
+        case
+        for case in cases
+        if isinstance(case.get("source_only_score"), (int, float))
+        and isinstance(case.get("value_add_lift"), (int, float))
+    ]
+    source_only_avg = sum(float(case["source_only_score"]) for case in paired_cases) / max(len(paired_cases), 1)
+    value_add_avg = sum(float(case["value_add_lift"]) for case in paired_cases) / max(len(paired_cases), 1)
+    positive_lift = sum(1 for case in paired_cases if float(case["value_add_lift"]) > 0)
 
     def rate(name: str) -> float:
         relevant = [case for case in cases if name in (case.get("checks") or {})]
@@ -380,6 +419,10 @@ def _aggregate(suite: RagEvalSuite, cases: list[dict[str, Any]], elapsed_ms: flo
         "errored": errored,
         "pass_rate": round(passed / max(total, 1), 4),
         "avg_score": round(avg_score, 4),
+        "source_only_avg_score": round(source_only_avg, 4),
+        "value_add_lift": round(value_add_avg, 4),
+        "positive_lift_rate": round(positive_lift / max(len(paired_cases), 1), 4),
+        "paired_ablation_count": len(paired_cases),
         "symbol_hit_rate": round(rate("symbol_hit"), 4),
         "example_hit_rate": round(rate("examples_present"), 4),
         "anti_pattern_hit_rate": round(rate("anti_pattern_hit"), 4),
