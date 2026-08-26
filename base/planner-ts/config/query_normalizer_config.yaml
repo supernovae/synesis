@@ -131,7 +131,7 @@ extra_jargon:
   - qdrant
   - weaviate
   - pinecone
-  - milvus
+  - nornicdb
   - pgvector
   - opensearch
   - elasticsearch

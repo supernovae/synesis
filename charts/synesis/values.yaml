@@ -874,6 +874,8 @@ workloads:
         value: ""
       - name: SYNESIS_NORNIC_URI
         value: bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687
+      - name: SYNESIS_NORNIC_HTTP_URL
+        value: http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474
       - name: SYNESIS_NORNIC_DATABASE
         value: nornic
       - name: SYNESIS_RAG_AUTHZ_MODE
@@ -1591,10 +1593,10 @@ workloads:
     amd64Only: true
     strategy: Recreate
     annotations:
-      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.1.5"
-      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.1.5/docs/operations/docker.md"
+      synesis.io/upstream-release: "https://github.com/orneryd/NornicDB/releases/tag/v1.2.3"
+      synesis.io/upstream-docker-docs: "https://github.com/orneryd/NornicDB/blob/v1.2.3/docs/operations/docker.md"
     image:
-      # Upstream v1.1.5 Docker docs list the timothyswt Docker Hub images as
+      # Upstream v1.2.3 Docker docs list the timothyswt Docker Hub images as
       # the public production images. If upstream publishes a GHCR/org image,
       # override this repository at deploy time and keep the release annotation
       # above pointed at the GitHub tag under orneryd/NornicDB.
@@ -1604,7 +1606,7 @@ workloads:
       #   repository: neo4j
       #   tag: "5-community"
       repository: docker.io/timothyswt/nornicdb-amd64-cpu
-      tag: v1.1.5
+      tag: v1.2.3
     ports:
       - name: bolt
         containerPort: 7687
@@ -1613,6 +1615,14 @@ workloads:
     env:
       - name: NORNICDB_RUNTIME_PROFILE
         value: cpu-bge
+      - name: NORNICDB_SEARCH_RERANK_ENABLED
+        value: "true"
+      - name: NORNICDB_SEARCH_RERANK_PROVIDER
+        value: http
+      - name: NORNICDB_SEARCH_RERANK_API_URL
+        value: http://bge-reranker.synesis-rag.svc.cluster.local:8000/rerank
+      - name: NORNICDB_SEARCH_RERANK_MODEL
+        value: BAAI/bge-reranker-v2-m3
     volumeMounts:
       - name: data
         mountPath: /data
@@ -1621,7 +1631,7 @@ workloads:
         persistentVolumeClaim:
           claimName: synesis-nornicdb-data
     podSecurityContext:
-      # Upstream NornicDB v1.1.5 images currently run as root. Keep the
+      # Upstream NornicDB v1.2.3 images currently run as root. Keep the
       # container otherwise restricted with no privilege escalation, dropped
       # Linux capabilities, and RuntimeDefault seccomp.
       runAsNonRoot: false
@@ -1642,6 +1652,34 @@ workloads:
       limits:
         cpu: "4"
         memory: 16Gi
+  bgeReranker:
+    enabled: true
+    namespace: rag
+    name: bge-reranker
+    component: reranker
+    amd64Only: true
+    image:
+      repository: ghcr.io/supernovae/synesis/bge-reranker
+      tag: latest
+    ports:
+      - name: http
+        containerPort: 8000
+    env:
+      - name: BGE_RERANKER_MODEL
+        value: BAAI/bge-reranker-v2-m3
+      - name: BGE_RERANKER_REVISION
+        value: 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e
+    probes:
+      readiness: /ready
+      liveness: /live
+      startup: /ready
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
   embedder:
     # Disabled by default: the BGE-M3 TEI CPU container is memory-heavy and can
     # OOM during warmup on default clusters. Re-enable only with a right-sized

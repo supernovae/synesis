@@ -6,17 +6,22 @@ is a single `synesis-nornicdb` pod with a durable PVC and Bolt service on
 
 ## Planner Fanout
 
-Planner retrieval issues graph-native requests:
+Planner retrieval uses two coordinated NornicDB surfaces:
 
-- vector seed query
-- Cypher metadata/ACL/temporal filters
-- graph expansion
-- rerank/authority boost
+- native HTTP search for query embedding, vector + BM25 retrieval, equal-weight
+  RRF fusion, long-query handling, and optional cross-encoder reranking;
+- parameterized Bolt queries for principal-derived scope/ACL/temporal checks and
+  bounded graph expansion around the returned candidate IDs.
+
+If native HTTP search is temporarily unavailable, the planner degrades to the
+Bolt vector procedure. NornicDB scores remain unmodified in API responses;
+Synesis authority weights affect ordering only.
 
 Tune graph fanout with:
 
 - `SYNESIS_NORNIC_GRAPH_DEPTH`
 - `SYNESIS_NORNIC_EDGE_TYPES`
+- `SYNESIS_NORNIC_HTTP_URL`
 - `SYNESIS_RAG_OVERFETCH_MIN`
 - `SYNESIS_RAG_OVERFETCH_MAX`
 
@@ -84,60 +89,50 @@ oc rollout status deployment/synesis-nornicdb -n synesis-rag
 oc get svc synesis-nornicdb -n synesis-rag
 ```
 
-## NornicDB 1.1.5 Upgrade Notes
+## NornicDB 1.2.3 Upgrade Notes
 
-Synesis pins NornicDB to upstream `v1.1.5` in both Helm and the raw Kustomize
+Synesis pins NornicDB to upstream `v1.2.3` in both Helm and the raw Kustomize
 deployment:
 
-- Helm default: `workloads.nornicdb.image.tag: v1.1.5`
-- Raw manifest: `docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.5`
-- Release: `https://github.com/orneryd/NornicDB/releases/tag/v1.1.5`
+- Helm default: `workloads.nornicdb.image.tag: v1.2.3`
+- Raw manifest: `docker.io/timothyswt/nornicdb-amd64-cpu:v1.2.3`
+- Release: `https://github.com/orneryd/NornicDB/releases/tag/v1.2.3`
 - Docker docs:
-  `https://github.com/orneryd/NornicDB/blob/v1.1.5/docs/operations/docker.md`
+  `https://github.com/orneryd/NornicDB/blob/v1.2.3/docs/operations/docker.md`
 
-The v1.1.5 release is a post-v1.1.4 stabilization release focused on
-Cypher/Bolt correctness, Badger storage recovery, large embedding chunk
-persistence, and deterministic Neo4j-driver query behavior. The fixes are
-directly relevant to Synesis content-pack imports because the indexer uses
-batched Bolt `MATCH`, `CREATE`, `MERGE`, `SET`, `UNWIND`, relationship writes,
-and vector queries.
+The 1.2 line makes secure authentication the default, separates APOC
+import/export from general procedures, fixes relationship `MERGE` property
+identity, strengthens Cypher/Bolt transaction safety, and restores local and
+remote reranking. Version 1.2.3 also adds native BEIR/SciFact evaluation and
+uses equal weights for vector/BM25 RRF fusion. These changes are directly
+relevant to SynPack imports and native retrieval.
 
-No Synesis setting change is required for this upgrade. The upstream README now
-documents CPU images with bundled BGE embeddings, headless images, retention
-policies, Qdrant-compatible gRPC, and per-database search-index configuration.
-Synesis keeps the smaller `nornicdb-amd64-cpu` image because embedding is handled
-by the separate TEI/BGE service. The NornicDB HTTP port remains internal and is
-used by the Admin service health prober, so do not switch to a headless image or
-disable HTTP without also updating health checks. Continue to override the
-repository/tag at deploy time if you need a GPU, ARM64, or BGE-bundled NornicDB
-image.
+Synesis uses the published CPU image and keeps authentication enabled. The HTTP
+port is internal but is now a production search surface, not only a health
+probe. Do not switch to a headless image or disable HTTP without changing the
+planner. File import/export procedures remain disabled; SynPack ingestion uses
+parameterized Bolt batches instead.
 
-**Log hygiene:** NornicDB v1.1.5 startup logs include authentication details.
-Treat startup logs as sensitive, avoid sharing them externally, and rotate the
-`synesis-nornicdb-auth` Secret if those logs are exported to a broad audience or
-attached to support tickets.
+NornicDB calls the Synesis BGE reranker directly through its `http` rerank
+provider. The adapter accepts the NornicDB/Cohere `documents` request contract
+and fails open to RRF ordering if the model is unavailable.
 
 ## Fresh Reset for Pack Reload Testing
 
-NornicDB v1.1.5 includes the former search-index master-switch work plus
-additional storage/Bolt correctness fixes. For content pack bug verification, a
-fresh PVC reset is still often faster and cleaner than deleting graph content
-through Cypher.
+For content-pack bug verification, a fresh PVC reset is often faster and
+cleaner than deleting graph content through Cypher.
 
-Use the v1.1.5 load-test override when you want the upstream release tag plus
-cold BM25/vector indexes during bulk ingestion. As of v1.1.5, the upstream
-NornicDB Docker guide lists Docker Hub images under `timothyswt/*`; Synesis pins
-`docker.io/timothyswt/nornicdb-amd64-cpu:v1.1.5` and annotates the workload with
-the GitHub release URL at `https://github.com/orneryd/NornicDB/releases/tag/v1.1.5`.
-If upstream later publishes a GHCR or `nornicdb/*` org image, override the
-repository in Helm values while keeping the release annotation pointed at the
-same upstream tag.
+Use the 1.2.3 load-test override when you want cold BM25/vector indexes during
+bulk ingestion. Synesis pins
+`docker.io/timothyswt/nornicdb-amd64-cpu:v1.2.3` and annotates the workload with
+the corresponding GitHub release URL. Override the repository only when using
+another upstream architecture/runtime image.
 
 ```bash
 helm upgrade synesis charts/synesis \
   --namespace default \
   --reuse-values \
-  -f charts/synesis/examples/values-aks-nornicdb-v1.1.5-load-test.yaml
+  -f charts/synesis/examples/values-aks-nornicdb-v1.2.3-load-test.yaml
 ```
 
 To reset the graph store before reloading a pack, scale NornicDB down, delete

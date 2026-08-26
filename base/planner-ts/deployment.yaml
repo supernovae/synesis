@@ -166,6 +166,8 @@ spec:
               value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
             - name: SYNESIS_NORNIC_URI
               value: "bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"
+            - name: SYNESIS_NORNIC_HTTP_URL
+              value: "http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474"
             - name: SYNESIS_NORNIC_USER
               valueFrom:
                 secretKeyRef:

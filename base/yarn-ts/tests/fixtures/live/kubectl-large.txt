@@ -1,7 +1,7 @@
 # oc get pods -n synesis-rag -o wide
 NAME                              READY   STATUS             RESTARTS   AGE     IP            NODE
 embedder-7c9d4f8b6-xvq2m          1/1     Running            0          6d12h   10.131.2.88   worker-03.ocp.prod.example.com
-milvus-standalone-0               1/1     Running            1          41d     10.131.4.12   worker-01.ocp.prod.example.com
+nornicdb-0                        1/1     Running            1          41d     10.131.4.12   worker-01.ocp.prod.example.com
 keyword-service-5d7b9c4f8-hw9kp   1/1     Running            0          18h     10.131.2.44   worker-03.ocp.prod.example.com
 indexer-preprocess-684c9d7f9-zzrm 0/1     CrashLoopBackOff   37         3h7m    10.131.5.2    worker-02.ocp.prod.example.com
 router-sidecar-6f8b9d7c4-kp9nw     1/1     Running            0          2d      10.131.3.19   worker-04.ocp.prod.example.com

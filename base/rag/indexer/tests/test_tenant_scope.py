@@ -20,7 +20,7 @@ from app.schema import EMBEDDING_DIM, EXPECTED_FIELDS, SCHEMA_VERSION, catalog_e
 
 class TestSchemaV20TenancyFields:
     def test_version_is_20(self):
-        assert SCHEMA_VERSION == 20
+        assert SCHEMA_VERSION == 21
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS

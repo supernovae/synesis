@@ -117,7 +117,7 @@ jobs:
       - name: Run Bandit (report)
         run: |
           uvx "bandit[toml]" -c pyproject.toml -r base/ \
-            -x "**/.test-venv/**,**/.venv/**" \
+            -x "**/.test-venv/**,**/.venv/**,**/.work/**" \
             --severity-level medium \
             --confidence-level medium \
             -f json -o bandit-report.json || true
@@ -125,7 +125,7 @@ jobs:
       - name: Run Bandit (gate)
         run: |
           uvx "bandit[toml]" -c pyproject.toml -r base/ \
-            -x "**/.test-venv/**,**/.venv/**" \
+            -x "**/.test-venv/**,**/.venv/**,**/.work/**" \
             --severity-level medium \
             --confidence-level medium
 
@@ -161,9 +161,7 @@ jobs:
             dir: benchmarks/corpus
           - name: curator
             dir: tools/curator
-          - name: bm25-benchmark
-            dir: benchmarks/bm25
-          - name: milvus-retrieval-benchmark
+          - name: nornic-retrieval-benchmark
             dir: benchmarks/retrieval
           - name: prompt-evaluation
             dir: tests/prompts
@@ -178,29 +176,12 @@ jobs:
 
       - name: Audit ${{ matrix.name }}
         run: |
-          ignore_args=()
-          # base-ml/gliner-service: torch is locked to the current PyPI release,
-          # but OSV reports CVE-2025-3000 with no fixed version.
-          # See .github/SECURITY.md — remove when a patched release exists.
-          if [ "${{ matrix.name }}" = "base-ml" ] || [ "${{ matrix.name }}" = "gliner-service" ]; then
-            ignore_args+=(
-              --ignore-vuln CVE-2025-3000
-            )
-          fi
-          # indexer: nltk has no fixed PyPI version for CVE-2026-54293.
-          # See .github/SECURITY.md — remove when a patched release exists.
-          if [ "${{ matrix.name }}" = "indexer" ]; then
-            ignore_args+=(
-              --ignore-vuln CVE-2026-54293
-            )
-          fi
           uvx pip-audit \
             -r "${{ matrix.dir }}/requirements.lock" \
             --disable-pip \
             --require-hashes \
             --vulnerability-service osv \
-            --progress-spinner off \
-            "${ignore_args[@]}"
+            --progress-spinner off
 
   semgrep:
     name: Semgrep (Python/OWASP Security)

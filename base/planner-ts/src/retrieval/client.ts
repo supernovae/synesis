@@ -36,6 +36,7 @@ export class UnifiedRetrievalClient implements RetrievalClient {
     this.settings = {
       rag: {
         nornicUri: config.SYNESIS_NORNIC_URI,
+        nornicHttpUrl: config.SYNESIS_NORNIC_HTTP_URL,
         nornicUser: config.SYNESIS_NORNIC_USER,
         nornicPassword: config.SYNESIS_NORNIC_PASSWORD,
         nornicDatabase: config.SYNESIS_NORNIC_DATABASE,
@@ -44,12 +45,8 @@ export class UnifiedRetrievalClient implements RetrievalClient {
         embedderUrl: config.SYNESIS_EMBEDDER_URL,
         embedderModel: config.SYNESIS_EMBEDDER_MODEL,
         retrievalStrategy: config.SYNESIS_RAG_RETRIEVAL_STRATEGY,
-        rrfK: config.SYNESIS_RAG_RRF_K,
-        scoreThreshold: config.SYNESIS_RAG_SCORE_THRESHOLD,
-        rerankScoreMin: config.SYNESIS_RAG_RERANK_SCORE_MIN,
         graphDepth: config.SYNESIS_NORNIC_GRAPH_DEPTH,
         edgeTypes: config.SYNESIS_NORNIC_EDGE_TYPES.split(",").map((s) => s.trim()).filter(Boolean),
-        rerankEnabled: config.SYNESIS_NORNIC_RERANK_ENABLED,
       },
       web: {
         url: config.SYNESIS_WEB_SEARCH_URL,

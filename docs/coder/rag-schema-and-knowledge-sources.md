@@ -183,31 +183,33 @@ Planner knowledge search is graph-native with three public modes:
 
 The default source search path:
 
-1. Embed the query with TEI/BGE-M3 when the embedder is configured.
-2. Query NornicDB vector index `embeddings` for `ContentNode` seeds.
-3. Apply metadata, temporal, visibility, and ACL predicates in Cypher.
+1. Send the query and exact metadata filters to NornicDB native HTTP search.
+2. Let NornicDB own embedding, vector + BM25 retrieval, equal-weight RRF,
+   long-query handling, caching, and configured stage-2 reranking.
+3. Point-match returned candidate IDs in Cypher and apply temporal, visibility,
+   and ACL predicates.
 4. Optionally expand graph neighbors up to `graph_depth <= 3` over allowed edge
    types. Neighbor nodes receive the same auth predicate.
 5. Map graph rows into `RagResult` / `KnowledgeResult`.
-6. Apply authority boosts (`canonical`, `vetted`, `community`, `external`).
+6. Use authority weights for final ordering while preserving native score
+   fields for observability.
 7. Apply OpenFGA `can_read` checks in `SYNESIS_RAG_AUTHZ_MODE=enforce` for
    non-global or restricted/private rows.
 
 Bundle retrieval adds a pack-aware layer:
 
-1. Resolve likely packs using text predicates over pack id, name, domain,
-   content type, language, package, symbol, `retrieval_terms`, `query_aliases`,
-   and `task_intents`.
+1. Resolve likely packs from the indexed `PackManifest` routing node using pack
+   id, language, package, symbol, version, aliases, and task intents; fall back
+   to legacy aggregation only for older installed packs.
 2. Run source search scoped to the selected pack/version/metadata.
 3. Query typed nodes directly for `ContextCard`, `Example`, `Pattern`,
    `Constraint`, `Symbol`, and `Concept`.
 4. Return cards/examples/warnings/source chunks/related symbols plus quality and
    freshness signals.
 
-Important detail: `retrieval_source: "hybrid"` currently means vector seed
-search plus metadata, graph, pack-resolver, and typed-node retrieval. BM25
-fields and RRF score fields remain in the result contract for compatibility,
-   but the current NornicDB path is not a standalone BM25 engine.
+`retrieval_source`, vector/BM25 ranks, RRF score, and native final score reflect
+NornicDB's actual winning path. Graph and authority logic does not overwrite
+those diagnostics.
 
 For coding intents, planner retrieval applies a code-aware ranking pass in
 [`base/planner-ts/src/retrieval/unified.ts`](../../base/planner-ts/src/retrieval/unified.ts).
@@ -229,7 +231,7 @@ Supported planner/MCP/Yarn filters include:
 | Paths | `repo_path`, `module_path` |
 | Time/version | `commit`, `branch`, `temporal_at` |
 | Graph | `graph_depth`, `edge_types` |
-| Bundle controls | `include_examples`, `include_antipatterns`, `include_context_cards`, `mode` |
+| Bundle controls | `include_examples`, `include_antipatterns`, `include_context_cards`, `include_pack_cards`, `include_related_symbols`, `mode` |
 
 Coder guidance:
 

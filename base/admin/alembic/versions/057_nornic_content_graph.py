@@ -1,4 +1,4 @@
-"""Rename Milvus catalog bookkeeping to NornicDB content graph.
+"""Normalize legacy catalog bookkeeping to the NornicDB content graph.
 
 Revision ID: 057_nornic_content_graph
 Revises: 056
@@ -23,11 +23,34 @@ def _has_column(conn: sa.Connection, table: str, column: str) -> bool:
     return any(c["name"] == column for c in sa.inspect(conn).get_columns(table))
 
 
+def _legacy_schema_sync_table(conn: sa.Connection) -> str:
+    expected = {"id", "collection", "schema_version", "last_reset_at", "last_reported_by", "updated_at"}
+    inspector = sa.inspect(conn)
+    for table in inspector.get_table_names():
+        if table == "content_graph_schema_sync" or not table.endswith("_schema_sync"):
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        if expected.issubset(columns):
+            return table
+    return ""
+
+
+def _legacy_document_id_column(conn: sa.Connection, table: str) -> str:
+    if not _has_table(conn, table):
+        return ""
+    for column in sa.inspect(conn).get_columns(table):
+        name = str(column["name"])
+        if name.endswith("_doc_id") and name != "doc_id":
+            return name
+    return ""
+
+
 def upgrade() -> None:
     conn = op.get_bind()
 
-    if _has_table(conn, "milvus_schema_sync") and not _has_table(conn, "content_graph_schema_sync"):
-        op.rename_table("milvus_schema_sync", "content_graph_schema_sync")
+    legacy_sync_table = _legacy_schema_sync_table(conn)
+    if legacy_sync_table and not _has_table(conn, "content_graph_schema_sync"):
+        op.rename_table(legacy_sync_table, "content_graph_schema_sync")
     elif not _has_table(conn, "content_graph_schema_sync"):
         op.create_table(
             "content_graph_schema_sync",
@@ -40,22 +63,12 @@ def upgrade() -> None:
         )
 
     for table in ("ingestion_items", "ingestion_documents"):
-        if (
-            _has_table(conn, table)
-            and _has_column(conn, table, "milvus_doc_id")
-            and not _has_column(conn, table, "graph_node_id")
-        ):
-            op.alter_column(table, "milvus_doc_id", new_column_name="graph_node_id")
+        legacy_column = _legacy_document_id_column(conn, table)
+        if legacy_column and not _has_column(conn, table, "graph_node_id"):
+            op.alter_column(table, legacy_column, new_column_name="graph_node_id")
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    for table in ("ingestion_items", "ingestion_documents"):
-        if (
-            _has_table(conn, table)
-            and _has_column(conn, table, "graph_node_id")
-            and not _has_column(conn, table, "milvus_doc_id")
-        ):
-            op.alter_column(table, "graph_node_id", new_column_name="milvus_doc_id")
-    if _has_table(conn, "content_graph_schema_sync") and not _has_table(conn, "milvus_schema_sync"):
-        op.rename_table("content_graph_schema_sync", "milvus_schema_sync")
+    # Migration 008 now creates the normalized names directly, so the current
+    # baseline is also the correct downgrade target.
+    return None

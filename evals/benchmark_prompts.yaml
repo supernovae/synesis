@@ -298,7 +298,7 @@ prompts:
     bucket: medium
     corpus_slice: corpus
     prompt: >
-      How does our retrieval pipeline handle the case where Milvus returns
+      How does our retrieval pipeline handle the case where NornicDB returns
       low-confidence results? Walk me through the fallback chain.
     capabilities: [retrieval]
     must_pass:
@@ -834,7 +834,7 @@ prompts:
       - Horizontal scaling to 500M embeddings
       - Cost under $2k/month
 
-      Compare FAISS+custom infra vs Milvus vs Qdrant vs Weaviate.
+      Compare FAISS+custom infra vs NornicDB vs Qdrant vs Weaviate.
       Make a specific recommendation with capacity planning numbers.
       Show the infrastructure topology and deployment manifests.
     capabilities: [parametric, web, multi_step]

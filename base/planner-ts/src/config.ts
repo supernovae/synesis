@@ -207,6 +207,7 @@ const EnvSchema = z.object({
 
   // --- Retrieval / RAG ---
   SYNESIS_NORNIC_URI: z.string().default("bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687"),
+  SYNESIS_NORNIC_HTTP_URL: z.string().default("http://synesis-nornicdb.synesis-rag.svc.cluster.local:7474"),
   SYNESIS_NORNIC_USER: z.string().default("neo4j"),
   SYNESIS_NORNIC_PASSWORD: z.string().default(""),
   SYNESIS_NORNIC_DATABASE: z.string().default("nornic"),
@@ -214,20 +215,13 @@ const EnvSchema = z.object({
   SYNESIS_NORNIC_RUNTIME_PROFILE: z.enum(["cpu-bge", "cuda-bge", "metal-bge"]).default("cpu-bge"),
   SYNESIS_NORNIC_GRAPH_DEPTH: z.coerce.number().default(2),
   SYNESIS_NORNIC_EDGE_TYPES: z.string().default("CONTAINS,DEFINES,CALLS,IMPORTS,REFERENCES,OVERRIDES,IMPLEMENTS,DOCUMENTS"),
-  SYNESIS_NORNIC_RERANK_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
   SYNESIS_EMBEDDER_URL: z.string().default(""),
   SYNESIS_EMBEDDER_MODEL: z.string().default("BAAI/bge-m3"),
-  SYNESIS_BGE_RERANKER_URL: z.string().default(""),
   SYNESIS_RAG_TOP_K: z.coerce.number().default(5),
   SYNESIS_RAG_RETRIEVAL_STRATEGY: z
     .enum(["hybrid", "vector", "bm25"])
     .default("hybrid"),
   SYNESIS_RAG_RRF_K: z.coerce.number().default(60),
-  SYNESIS_RAG_SCORE_THRESHOLD: z.coerce.number().default(0.25),
-  SYNESIS_RAG_RERANK_SCORE_MIN: z.coerce.number().default(0.05),
   SYNESIS_RAG_OVERFETCH_MIN: z.coerce.number().default(30),
   SYNESIS_RAG_OVERFETCH_MAX: z.coerce.number().default(50),
   SYNESIS_RAG_ADAPTIVE_GAP_MULTIPLIER: z.coerce.number().default(1.5),

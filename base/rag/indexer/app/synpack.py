@@ -63,6 +63,7 @@ V2_CONSTRAINTS_PATH = "nodes/constraints.jsonl"
 V2_EXAMPLES_PATH = "nodes/examples.jsonl"
 V2_CONTEXT_CARDS_PATH = "nodes/context_cards.jsonl"
 V2_PACK_CARDS_PATH = "nodes/pack_cards.jsonl"
+V2_PACK_MANIFEST_PATH = "nodes/pack_manifest.jsonl"
 V2_EXTERNAL_REFS_PATH = "nodes/external_refs.jsonl"
 V2_EVAL_CASES_PATH = "nodes/eval_cases.jsonl"
 V2_RESOURCE_KINDS_PATH = "nodes/resource_kinds.jsonl"
@@ -78,6 +79,7 @@ V2_VECTOR_INDEX_PATH = "vectors/index.json"
 V2_VECTOR_BINARY_PATH = "vectors/chunks.f32"
 V2_EXTRA_NODE_FILES: dict[str, str] = {
     "PackCard": V2_PACK_CARDS_PATH,
+    "EvalCase": V2_EVAL_CASES_PATH,
     "ResourceKind": V2_RESOURCE_KINDS_PATH,
     "ApiGroupVersion": V2_API_GROUP_VERSIONS_PATH,
     "SchemaProperty": V2_SCHEMA_PROPERTIES_PATH,
@@ -317,7 +319,14 @@ def _node_base(row: dict[str, Any], *, node_id: str, kind: str, name: str = "") 
         "path": str(row.get("path") or row.get("module_path") or "")[:512],
         "authority": str(row.get("authority") or "")[:32],
         "visibility_scope": str(row.get("visibility_scope") or "global")[:16],
+        "org_id": str(row.get("org_id") or "")[:64],
+        "tenant_id": str(row.get("tenant_id") or "")[:64],
+        "owner_user_id": str(row.get("owner_user_id") or "")[:64],
+        "conversation_id": str(row.get("conversation_id") or "")[:128],
+        "expires_at_epoch": int(row.get("expires_at_epoch") or 0),
         "acl_mode": str(row.get("acl_mode") or "open")[:16],
+        "acl_groups": str(row.get("acl_groups") or "")[:1024],
+        "acl_group_ids": [str(value)[:128] for value in _as_list(row.get("acl_group_ids"))[:100]],
     }
 
 
@@ -331,6 +340,62 @@ def _add_unique(nodes: dict[str, dict[str, Any]], node: dict[str, Any]) -> None:
     node_id = str(node.get("id") or "")
     if node_id:
         nodes[node_id] = node
+
+
+def _pack_security_properties(manifest: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return one fail-closed security envelope for generated pack-level nodes."""
+
+    defaults: dict[str, Any] = {
+        "visibility_scope": "global",
+        "org_id": "",
+        "tenant_id": "",
+        "owner_user_id": "",
+        "conversation_id": "",
+        "expires_at_epoch": 0,
+        "acl_mode": "open",
+        "acl_groups": "",
+        "acl_group_ids": [],
+    }
+
+    def present(value: Any) -> bool:
+        return value is not None and value != "" and value != []
+
+    def canonical(value: Any) -> str:
+        if isinstance(value, (list, tuple, set)):
+            return json.dumps(sorted(str(item) for item in value), separators=(",", ":"))
+        return str(value)
+
+    resolved: dict[str, Any] = {}
+    for field, default in defaults.items():
+        row_values: dict[str, Any] = {}
+        for row in rows:
+            value = row.get(field)
+            if present(value):
+                row_values.setdefault(canonical(value), value)
+        if len(row_values) > 1:
+            raise SynPackError(f"pack contains mixed {field} values; split it into security-homogeneous packs")
+
+        explicit = manifest.get(field)
+        row_value = next(iter(row_values.values()), None)
+        if present(explicit) and row_value is not None and canonical(explicit) != canonical(row_value):
+            raise SynPackError(f"manifest {field} conflicts with chunk security metadata")
+        resolved[field] = explicit if present(explicit) else row_value if row_value is not None else default
+
+    if not resolved["acl_group_ids"] and resolved["acl_groups"]:
+        resolved["acl_group_ids"] = [item.strip() for item in str(resolved["acl_groups"]).split(",") if item.strip()][
+            :100
+        ]
+    return {
+        "visibility_scope": str(resolved["visibility_scope"] or "global")[:16],
+        "org_id": str(resolved["org_id"] or "")[:64],
+        "tenant_id": str(resolved["tenant_id"] or "")[:64],
+        "owner_user_id": str(resolved["owner_user_id"] or "")[:64],
+        "conversation_id": str(resolved["conversation_id"] or "")[:128],
+        "expires_at_epoch": int(resolved["expires_at_epoch"] or 0),
+        "acl_mode": str(resolved["acl_mode"] or "open")[:16],
+        "acl_groups": str(resolved["acl_groups"] or "")[:1024],
+        "acl_group_ids": [str(value)[:128] for value in _as_list(resolved["acl_group_ids"])[:100]],
+    }
 
 
 def _iter_enrichment_texts(enrichment: dict[str, Any], keys: tuple[str, ...]) -> Iterable[tuple[str, str]]:
@@ -781,6 +846,64 @@ def materialize_synpack_v2(
         for bucket in extra_nodes.values():
             node_ids.update(bucket)
 
+    manifest_node_id = f"{pack_id}:manifest"
+    package_terms = sorted({str(row.get("package_name") or "").strip() for row in rows if row.get("package_name")})
+    routing_terms = [
+        pack_id,
+        manifest.get("language"),
+        manifest.get("domain"),
+        manifest.get("content_type"),
+        *package_terms[:64],
+        *(str(row.get("task_intents") or "") for row in rows[:128]),
+        *(str(row.get("query_aliases") or "") for row in rows[:128]),
+        *(str(row.get("symbol_fqn") or "") for row in rows[:256]),
+        *(str(row.get("symbol_name") or "") for row in rows[:256]),
+    ]
+    pack_security = _pack_security_properties(manifest, rows)
+    pack_manifest = {
+        "id": manifest_node_id,
+        "kind": "PackManifest",
+        "name": str(manifest.get("name") or pack_id)[:160],
+        "text": " ".join(
+            str(value).strip()
+            for value in (
+                manifest.get("name") or pack_id,
+                manifest.get("description"),
+                manifest.get("language"),
+                manifest.get("domain"),
+                manifest.get("content_type"),
+                manifest.get("source_version"),
+            )
+            if str(value or "").strip()
+        )[:4096],
+        "pack": pack_id,
+        "pack_id": pack_id,
+        "pack_version": str(manifest.get("pack_version") or manifest.get("version") or "")[:64],
+        "source_version": str(manifest.get("source_version") or "")[:64],
+        "source_release": str(manifest.get("source_release") or "")[:128],
+        "upstream_commit": str(manifest.get("upstream_commit") or "")[:128],
+        "upstream_tag": str(manifest.get("upstream_tag") or "")[:128],
+        "language": str(manifest.get("language") or "")[:32],
+        "domain": str(manifest.get("domain") or "")[:64],
+        "content_type": str(manifest.get("content_type") or "developer")[:64],
+        "install_profile": str(manifest.get("install_profile") or "")[:128],
+        "embedding_profile": str(manifest.get("embedding_profile") or EMBEDDING_PROFILE)[:128],
+        "retrieval_terms": _csv(routing_terms, limit=192),
+        "package_names": package_terms[:128],
+        "trust_score": manifest.get("trust_score", -1.0),
+        "freshness_score": manifest.get("freshness_score", -1.0),
+        **pack_security,
+    }
+    node_ids.add(manifest_node_id)
+    for node_id in sorted(pack_cards):
+        typed_edges.append(
+            {"type": "HAS_PACK_CARD", "source_id": manifest_node_id, "target_id": node_id, "source": "pack"}
+        )
+    for node_id in sorted(context_cards):
+        typed_edges.append(
+            {"type": "HAS_CONTEXT_CARD", "source_id": manifest_node_id, "target_id": node_id, "source": "pack"}
+        )
+
     missing_before_external_refs = 0
     unresolved_edges = 0
     for edge in typed_edges:
@@ -819,6 +942,38 @@ def materialize_synpack_v2(
         if target_id and target_id not in node_ids:
             dangling_after_external_refs += 1
 
+    enrichment_coverage = enriched / len(rows) if rows else 1.0
+    graph_resolution = 1.0 - (unresolved_edges / len(typed_edges)) if typed_edges else 1.0
+    typed_node_count = (
+        len(rows)
+        + len(documents)
+        + len(packages)
+        + len(modules)
+        + len(symbols)
+        + len(concepts)
+        + len(patterns)
+        + len(constraints)
+        + len(examples)
+        + len(context_cards)
+        + len(pack_cards)
+        + len(external_refs)
+        + sum(len(bucket) for bucket in extra_nodes.values())
+        + 1
+    )
+    pack_manifest.update(
+        {
+            "node_count": typed_node_count,
+            "chunk_count": len(rows),
+            "edge_count": len(typed_edges),
+            "example_count": len(examples),
+            "context_card_count": len(context_cards),
+            "pack_card_count": len(pack_cards),
+            "pattern_count": len(patterns),
+            "constraint_count": len(constraints),
+            "quality_score": round((enrichment_coverage + max(0.0, graph_resolution)) / 2.0, 4),
+        }
+    )
+
     chunk_rows = [_compact_chunk_row(row) for row in rows]
     _write_jsonl(root_path / V2_CHUNKS_PATH, chunk_rows)
     _write_jsonl(root_path / V2_DOCUMENTS_PATH, documents.values())
@@ -831,6 +986,7 @@ def materialize_synpack_v2(
     _write_jsonl(root_path / V2_EXAMPLES_PATH, examples.values())
     _write_jsonl(root_path / V2_CONTEXT_CARDS_PATH, context_cards.values())
     _write_jsonl(root_path / V2_PACK_CARDS_PATH, pack_cards.values())
+    _write_jsonl(root_path / V2_PACK_MANIFEST_PATH, [pack_manifest])
     _write_jsonl(root_path / V2_EXTERNAL_REFS_PATH, external_refs.values())
     for kind, node_path in V2_EXTRA_NODE_FILES.items():
         if kind in extra_nodes:
@@ -882,13 +1038,12 @@ def materialize_synpack_v2(
         "Example": len(examples),
         "ContextCard": len(context_cards),
         "PackCard": len(pack_cards),
+        "PackManifest": 1,
         "ExternalRef": len(external_refs),
     }
     for kind, bucket in extra_nodes.items():
         node_counts[kind] = len(bucket)
     total_nodes = sum(node_counts.values())
-    enrichment_coverage = enriched / len(rows) if rows else 1.0
-    graph_resolution = 1.0 - (unresolved_edges / len(typed_edges)) if typed_edges else 1.0
     quality_report = {
         "format": "synpack-v2-quality",
         "pack_id": pack_id,

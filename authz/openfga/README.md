@@ -20,7 +20,7 @@ users the `user_id` column from `personal_access_tokens` must match.
 - **Org-optional**: solo users get direct `user → resource` tuples; org
   membership adds org/tenant-scoped grants alongside (not replacing) user-level.
 - **RAG two-plane**: FGA is control-plane (can this user retrieve at all?);
-  Milvus metadata is data-plane (which documents match scope/ACL).
+  NornicDB node metadata is data-plane (which documents match scope/ACL).
 - **Deny via exclusion**: `can_use = enabled but not blocked` for per-user
   deny. Platform-wide blocks use `platform_policy` checked in application code
   (two-step: blocked check first, then FGA `can_use`).

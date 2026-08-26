@@ -72,6 +72,7 @@ Supported edge types:
 - `HAS_EXAMPLE`
 - `HAS_PATTERN`
 - `HAS_CONTEXT_CARD`
+- `HAS_PACK_CARD`
 - `APPLIES_TO`
 - `DEPRECATED_BY`
 - `REPLACED_BY`
@@ -99,6 +100,7 @@ Typed node kinds:
 - `Example`
 - `ContextCard`
 - `PackCard`
+- `PackManifest`
 - `ExternalRef`
 - `EvalCase`
 - `ResourceKind`
@@ -117,9 +119,10 @@ stays complete and debuggable.
 
 Packs are loaded into the NornicDB content graph. Retrieval uses:
 
-1. pack resolution by library/language/package/symbol/version
+1. indexed `PackManifest` resolution by library/language/package/symbol/version
 2. exact symbol/package lookup
-3. vector search over chunk/example/card/pattern nodes
+3. NornicDB-native vector + BM25 search, equal-weight RRF fusion, and optional
+   stage-2 reranking over source chunks
 4. bounded graph expansion over semantic edges
 5. version/freshness filtering and warnings
 6. answer-ready context bundles for planner, Yarn, and MCP callers
@@ -171,6 +174,42 @@ claims, constraints, evidence refs, freshness, provenance, and taxonomy domain
 metadata. Bundle retrieval prefers `PackCard` nodes when present and falls back
 to `ContextCard` or source-derived cards for older packs.
 
+`PackManifest` is the lightweight routing and observability node for a pack. It
+contains normalized package names, query aliases, task intents, symbols,
+versions, install/embedding profiles, quality/trust/freshness signals, and
+materialized node/edge/card/example counts. Pack resolution queries this one
+node before using the legacy aggregate fallback, avoiding a graph-wide
+aggregation for every request.
+
+## Value Model
+
+SynPacks add value only when they make source evidence easier and safer for a
+model to use. Generated content is therefore an evidence-indexing layer, not a
+replacement for upstream source. The intended hierarchy is:
+
+1. `PackManifest` routes to the right pack cheaply.
+2. `PackCard` and `ContextCard` compress task intent, contracts, constraints,
+   examples, anti-patterns, and navigation hints.
+3. typed edges supply bounded multi-hop context when the question needs it.
+4. source chunks remain attached for quotation, verification, and fallback.
+
+Every SynPack eval now runs a paired ablation: the full bundle and the same
+query with cards/examples/anti-patterns disabled. Admin reports
+`source_only_avg_score`, `value_add_lift`, `positive_lift_rate`, and the number
+of valid pairs. Promotion should require non-negative average lift, positive
+lift on the cases intended to exercise generated artifacts, no source-evidence
+regression, and acceptable latency. A graph or generated card that does not
+improve the paired result should be revised or removed.
+
+This policy reflects current evidence that graph RAG is conditional rather
+than universally superior: [GraphRAG-Bench](https://arxiv.org/abs/2506.05690)
+evaluates when graphs help or hurt; [RAS](https://arxiv.org/abs/2502.10996)
+supports theme-scoped structured retrieval and ablation; [KG-Retriever](https://arxiv.org/abs/2412.05547)
+uses hierarchical graph/document retrieval; and [G-Retriever](https://arxiv.org/abs/2402.07630)
+supports bounded graph evidence selection. Synesis consequently uses native
+hybrid retrieval for seeds and adds graph structure only where pack evals show
+answer-readiness lift.
+
 ## Quality Gates
 
 Finalized v2 packs include quality metrics in `quality/report.json` and
@@ -182,6 +221,9 @@ manifest summaries:
 - unresolved edge count
 - external reference count
 - dangling edge count after materialization
+
+After installation, paired eval results add source-only score, value-add lift,
+and positive-lift rate to the promotion evidence.
 
 All content packs load through the SynPack v2 bulk importer. The old slow Bolt
 row-by-row path is no longer used for admin-managed content-pack installs.

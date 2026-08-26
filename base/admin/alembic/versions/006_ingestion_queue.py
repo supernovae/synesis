@@ -73,7 +73,7 @@ def upgrade() -> None:
             ),
             sa.Column("chunk_count", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("error_message", sa.Text(), nullable=False, server_default=""),
-            sa.Column("milvus_doc_id", sa.String(128), nullable=False, server_default=""),
+            sa.Column("graph_node_id", sa.String(128), nullable=False, server_default=""),
             sa.Column("queued_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),

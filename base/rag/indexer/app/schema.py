@@ -9,7 +9,7 @@ from synesis_telemetry import get_logger
 logger = get_logger("synesis.indexer.schema")
 
 SYNESIS_CATALOG = "content_graph"
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 EMBEDDING_DIM = 1024
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_PROFILE = "bge-m3-1024-cosine-v1"
@@ -33,6 +33,8 @@ GRAPH_NODE_LABELS = (
     "Constraint",
     "Example",
     "ContextCard",
+    "PackCard",
+    "PackManifest",
     "ExternalRef",
     "EvalCase",
     "Version",
@@ -51,7 +53,14 @@ GRAPH_EDGE_TYPES = (
     "HAS_EXAMPLE",
     "HAS_PATTERN",
     "HAS_CONTEXT_CARD",
+    "HAS_PACK_CARD",
+    "HAS_FIELD",
     "APPLIES_TO",
+    "REQUIRES",
+    "MANAGED_BY",
+    "VALIDATED_BY",
+    "CONFLICTS_WITH",
+    "OWNS",
     "DEPRECATED_BY",
     "REPLACED_BY",
     "WARNS_ABOUT",

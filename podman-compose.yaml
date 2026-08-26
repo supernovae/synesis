@@ -94,6 +94,7 @@ services:
       SYNESIS_KEYCLOAK_AUDIENCE: ${SYNESIS_KEYCLOAK_AUDIENCE:-}
       SYNESIS_KEYCLOAK_EXPECTED_AZP: ${SYNESIS_KEYCLOAK_EXPECTED_AZP:-synesis-admin}
       SYNESIS_NORNIC_URI: ${SYNESIS_NORNIC_URI:-bolt://nornicdb:7687}
+      SYNESIS_NORNIC_HTTP_URL: ${SYNESIS_NORNIC_HTTP_URL:-http://nornicdb:7474}
       SYNESIS_NORNIC_USER: ${SYNESIS_NORNIC_USER:-neo4j}
       SYNESIS_NORNIC_PASSWORD: ${SYNESIS_NORNIC_PASSWORD:-nornic-local-password}
       SYNESIS_NORNIC_DATABASE: ${SYNESIS_NORNIC_DATABASE:-nornic}
@@ -150,12 +151,12 @@ services:
       SYNESIS_PLANNER_TS_OPENWEBUI_BASE_URL: http://open-webui:8080
       SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN: ${SYNESIS_PLANNER_TS_OPENWEBUI_EVENT_TOKEN:-}
       SYNESIS_NORNIC_URI: ${SYNESIS_NORNIC_URI:-bolt://nornicdb:7687}
+      SYNESIS_NORNIC_HTTP_URL: ${SYNESIS_NORNIC_HTTP_URL:-http://nornicdb:7474}
       SYNESIS_NORNIC_USER: ${SYNESIS_NORNIC_USER:-neo4j}
       SYNESIS_NORNIC_PASSWORD: ${SYNESIS_NORNIC_PASSWORD:-nornic-local-password}
       SYNESIS_NORNIC_DATABASE: ${SYNESIS_NORNIC_DATABASE:-nornic}
       SYNESIS_RAG_AUTHZ_MODE: ${SYNESIS_RAG_AUTHZ_MODE:-audit}
       SYNESIS_EMBEDDER_URL: ${SYNESIS_EMBEDDER_URL:-}
-      SYNESIS_BGE_RERANKER_URL: ${SYNESIS_BGE_RERANKER_URL:-}
       SYNESIS_WEB_SEARCH_ENABLED: ${SYNESIS_WEB_SEARCH_ENABLED:-false}
       SYNESIS_WEB_SEARCH_URL: ${SYNESIS_WEB_SEARCH_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -336,12 +337,19 @@ services:
       - searxng-cache:/var/cache/searxng
 
   nornicdb:
-    image: docker.io/timothyswt/nornicdb-amd64-cpu:${SYNESIS_NORNICDB_IMAGE_TAG:-v1.1.5}
+    image: docker.io/timothyswt/nornicdb-amd64-cpu:${SYNESIS_NORNICDB_IMAGE_TAG:-v1.2.3}
     profiles: ["rag"]
     restart: unless-stopped
+    depends_on:
+      bge-reranker:
+        condition: service_started
     environment:
       NORNICDB_AUTH: neo4j/${SYNESIS_NORNIC_PASSWORD:-nornic-local-password}
       NORNICDB_RUNTIME_PROFILE: ${SYNESIS_NORNIC_RUNTIME_PROFILE:-cpu-bge}
+      NORNICDB_SEARCH_RERANK_ENABLED: "true"
+      NORNICDB_SEARCH_RERANK_PROVIDER: http
+      NORNICDB_SEARCH_RERANK_API_URL: http://bge-reranker:8000/rerank
+      NORNICDB_SEARCH_RERANK_MODEL: BAAI/bge-reranker-v2-m3
     ports:
       - "${SYNESIS_LOCAL_NORNIC_BOLT_PORT:-7687}:7687"
       - "${SYNESIS_LOCAL_NORNIC_HTTP_PORT:-7474}:7474"

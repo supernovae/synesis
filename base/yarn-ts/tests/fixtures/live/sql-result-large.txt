@@ -10,7 +10,7 @@
 +--------------------------------------+----------------------------------------------------------+-------------+----------------------------+
 | 8f3c1a2b-4d5e-6789-abcd-ef0123456789 | s3://synesis-docs-prod/policies/retention/v3.md          |         412 | 2025-03-26 08:11:02.441+00 |
 | 2a9b8c7d-6e5f-4321-fedc-ba9876543210 | git+https://github.com/example/synesis/base/planner/... |         891 | 2025-03-26 07:58:19.102+00 |
-| 5c4d3e2f-1a0b-9c8d-7e6f-543210fedcba | s3://synesis-docs-prod/runbooks/milvus-compaction.md   |         1204| 2025-03-25 22:40:55.883+00 |
+| 5c4d3e2f-1a0b-9c8d-7e6f-543210fedcba | s3://synesis-docs-prod/runbooks/nornicdb-indexes.md   |         1204| 2025-03-25 22:40:55.883+00 |
 | 1deadbeef-cafe-babe-4242-424242424242| https://wiki.internal.example/display/RAG/Enrichment   |         336 | 2025-03-25 19:12:44.201+00 |
 | 0f0e0d0c-0b0a-0908-0706-050403020100 | s3://customer-ingest/acme/q1-2025/faq.pdf                |         2048| 2025-03-25 16:03:11.009+00 |
 | aabbccdd-eeff-0011-2233-445566778899 | s3://synesis-docs-prod/api/gateway/openapi.yaml        |         1533| 2025-03-25 11:27:38.774+00 |

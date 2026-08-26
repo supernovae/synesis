@@ -10,7 +10,7 @@ Mar 26 10:14:09 w03 synesis-router[284910]: WARN legacy_auth X-Synesis-Legacy-To
 Mar 26 10:14:10 w03 synesis-router[284910]: INFO ratelimit tenant=acme-corp allow rem=11880
 Mar 26 10:14:11 w03 synesis-router[284910]: DEBUG oc_sa_token renewed ttl=3600s
 Mar 26 10:14:12 w03 synesis-router[284910]: INFO rid=ae43c6 GET /healthz 200 lat=1ms
-Mar 26 10:14:13 w03 synesis-router[284910]: ERROR milvus synesis-rag.svc:19530 connection_refused
+Mar 26 10:14:13 w03 synesis-router[284910]: ERROR nornicdb synesis-rag.svc:7687 connection_refused
 Mar 26 10:14:14 w03 synesis-router[284910]: INFO retry n=2 max=5 backoff_ms=400 jitter=true
 Mar 26 10:14:15 w03 synesis-router[284910]: WARN thread_pool q=812 workers=64 sat_ms=120
 Mar 26 10:14:16 w03 synesis-router[284910]: TRACE span=f7e2c1b0a9 http.server dur=3ms

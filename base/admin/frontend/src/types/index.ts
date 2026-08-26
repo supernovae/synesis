@@ -902,11 +902,15 @@ export interface RagEvalCaseResult {
   query: string;
   passed: boolean;
   score: number;
+  source_only_score?: number | null;
+  value_add_lift?: number | null;
+  source_only_latency_ms?: number;
   latency_ms: number;
   checks: Record<string, boolean>;
   failures: string[];
   warnings: string[];
   counts: Record<string, number>;
+  source_only_counts?: Record<string, number>;
   resolved_pack?: Record<string, unknown>;
   quality?: Record<string, number | null>;
   top_evidence?: Array<Record<string, unknown>>;

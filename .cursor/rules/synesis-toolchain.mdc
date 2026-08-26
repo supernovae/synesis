@@ -53,5 +53,5 @@ Every service has two dependency files:
 
 ## When to diverge
 
-- **Upstream images** (e.g. TEI, vLLM, Milvus) are pinned by vendors — do not force UBI inside third-party images; only Synesis-owned images need the UBI bias.
+- **Upstream images** (e.g. TEI, vLLM, NornicDB) are pinned by vendors — do not force UBI inside third-party images; only Synesis-owned images need the UBI bias.
 - **GitHub Actions** already uses `astral-sh/setup-uv` in workflows; keep container builds and local docs consistent with **uv**, not a mix of legacy pip-only instructions without reason.

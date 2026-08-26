@@ -28,10 +28,10 @@ Admin UI mapping: [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md).
 | **Admin Quality UI** | `base/admin/app/routers/rag.py`, `feedback.py`, React SPA | Dashboards, gaps, curator, benchmarks | `/rag/quality`, `/feedback/*` |
 | **Quality CronJob** | `base/quality-runner/` | Scheduled audit, admin import, optional curator | persisted quality snapshots |
 
-The Milvus utilities in `benchmarks/bm25/` and `benchmarks/retrieval/` are
-historical migration experiments. They are useful only when reproducing the
-former backend comparison and are not connected to CI, release gates, or the
-current production retrieval path.
+`benchmarks/retrieval/bench_hybrid.py` exercises NornicDB's native HTTP search
+path and uses the stable query/judgment data under `benchmarks/bm25/`. It is the
+only backend retrieval comparator; benchmark clients do not reimplement fusion
+or query embedding.
 
 ## Feedback Loop
 

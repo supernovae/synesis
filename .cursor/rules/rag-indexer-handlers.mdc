@@ -104,13 +104,13 @@ No handler code needed for enrichment — just return good `heading_path` and `d
 
 ## Schema fields (automatic, v4)
 
-The pipeline maps handler output to schema fields via `catalog_entity()`. Handlers don't touch Milvus directly. Fields populated from source config: `authority`, `origin_type`, `domain`, `source_type`, `handler`. Fields populated from handler output: `text`, `heading_path`, `section`, `document_name`, `source_url`, `doc_id`, `chunk_index`.
+The pipeline maps handler output to NornicDB node properties via `catalog_entity()`. Handlers do not write to the graph directly. Fields populated from source config: `authority`, `origin_type`, `domain`, `source_type`, `handler`. Fields populated from handler output: `text`, `heading_path`, `section`, `document_name`, `source_url`, `doc_id`, `chunk_index`.
 
 **Removed in v4:** `intended_roles` — the Router owns all retrieval; per-node role tagging is not used.
 
 ## Chunking utilities
 
-- `heading_aware_split(content, document_name)` — Markdown/structured text: splits by H1-H6, tracks heading_path ancestry, preserves code blocks and tables, word-based overlap. Hard cap at 8192 bytes (Milvus text field limit) prevents silent truncation.
+- `heading_aware_split(content, document_name)` — Markdown/structured text: splits by H1-H6, tracks heading_path ancestry, preserves code blocks and tables, and uses word-based overlap. The 8192-byte graph-property/prompt cap prevents silent truncation.
 - `chunk_text_simple(text, max_chars)` — Flat text: paragraph-boundary splitting for PDFs, transcripts, etc. Default 4000 chars.
 - `SCHEMA_MAX_BYTES = 8192` — chunks exceeding this after block restoration are re-split automatically.
 
@@ -118,7 +118,7 @@ The pipeline maps handler output to schema fields via `catalog_entity()`. Handle
 
 ```bash
 cd base/rag/indexer
-python -m app --sources sources-<category>.yaml --dry-run        # validate without Milvus
+python -m app --sources sources-<category>.yaml --dry-run        # validate without writing to NornicDB
 python -m app --sources sources-<category>.yaml --source "Name"  # index one source
 python -m app --sources sources-<category>.yaml --enrich full    # with LLM enrichment
 ```

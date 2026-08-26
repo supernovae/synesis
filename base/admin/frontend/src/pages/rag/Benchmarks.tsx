@@ -85,7 +85,7 @@ export default function Benchmarks() {
             <div>
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">SynPack Retrieval Evals</h2>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Runs YAML pack cases against planner knowledge bundles and persists training rows.
+                Runs paired full-bundle and source-only cases to measure whether generated pack artifacts add value.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -190,9 +190,10 @@ export default function Benchmarks() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-5">
           <MetricCard label="Pass Rate" value={`${Math.round(Number(ragEval?.aggregate?.pass_rate ?? 0) * 100)}%`} icon={Target} />
           <MetricCard label="Avg Score" value={Number(ragEval?.aggregate?.avg_score ?? 0).toFixed(3)} icon={TrendingUp} />
+          <MetricCard label="Value Lift" value={Number(ragEval?.aggregate?.value_add_lift ?? 0).toFixed(3)} icon={TrendingUp} />
           <MetricCard label="Cases" value={String(ragEval?.aggregate?.case_count ?? 0)} icon={Database} />
           <MetricCard label="Training Rows" value={String(ragEval?.training_rows?.length ?? 0)} icon={FileJson} />
         </div>
@@ -215,7 +216,7 @@ export default function Benchmarks() {
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
-                  {["Case", "Pass", "Score", "Evidence", "Failures"].map((h) => (
+                  {["Case", "Pass", "Pack / Source", "Lift", "Evidence", "Failures"].map((h) => (
                     <th key={h} className="px-2 py-2 text-left font-medium text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -232,7 +233,12 @@ export default function Benchmarks() {
                         {row.passed ? "pass" : "fail"}
                       </span>
                     </td>
-                    <td className="px-2 py-2 text-gray-700 dark:text-gray-300">{Number(row.score ?? 0).toFixed(3)}</td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-300">
+                      {Number(row.score ?? 0).toFixed(3)} / {row.source_only_score == null ? "n/a" : Number(row.source_only_score).toFixed(3)}
+                    </td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-300">
+                      {row.value_add_lift == null ? "n/a" : Number(row.value_add_lift).toFixed(3)}
+                    </td>
                     <td className="px-2 py-2 text-gray-600 dark:text-gray-300">
                       {Object.entries(row.counts ?? {}).map(([key, value]) => `${key}:${value}`).join(" ")}
                     </td>

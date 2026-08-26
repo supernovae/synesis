@@ -15,11 +15,11 @@ Terraform used the selected providers to generate the following execution plan. 
 
 Terraform will perform the following actions:
 
-  # aws_iam_role_policy_attachment.milvus_s3 will be created
-  + resource "aws_iam_role_policy_attachment" "milvus_s3" {
+  # aws_iam_role_policy_attachment.nornicdb_backup will be created
+  + resource "aws_iam_role_policy_attachment" "nornicdb_backup" {
       + id         = (known after apply)
-      + policy_arn = "arn:aws:iam::123456789012:policy/synesis-milvus-object-access-prod"
-      + role       = "synesis-milvus-node-prod"
+      + policy_arn = "arn:aws:iam::123456789012:policy/synesis-nornicdb-backup-prod"
+      + role       = "synesis-nornicdb-node-prod"
     }
 
   # kubernetes_deployment.embedder will be updated in-place
@@ -52,7 +52,7 @@ Terraform will perform the following actions:
 Plan: 4 to add, 3 to change, 2 to destroy.
 
 Changes to Outputs:
-  ~ milvus_endpoint = "milvus.synesis-rag.svc.cluster.local:19530" -> (known after apply)
+  ~ nornic_endpoint = "nornicdb.synesis-rag.svc.cluster.local:7687" -> (known after apply)
 
 ─────────────────────────────────────────────────────────────────────────────
 

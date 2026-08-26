@@ -330,7 +330,7 @@ Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
 
 The active gate is the source-anchored suite in
 `tests/prompts/go_retrieval_eval.yaml`, executed through the production planner
-knowledge-search endpoint. The retired Milvus score baseline was removed: it
+knowledge-search endpoint. The retired score baseline was removed: it
 contained zero queries and could not detect regressions. Add or update golden
 cases in review whenever the graph schema, embedding profile, pack contents,
 filters, or reranker changes. See [RAG_EVAL_GOLDEN.md](../RAG_EVAL_GOLDEN.md).

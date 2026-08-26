@@ -303,6 +303,7 @@ export interface KnowledgeSearchRequest {
   include_antipatterns?: boolean;
   include_context_cards?: boolean;
   include_pack_cards?: boolean;
+  include_related_symbols?: boolean;
   routing_mode?: "auto" | "local" | "hosted" | "hybrid";
 }
 
