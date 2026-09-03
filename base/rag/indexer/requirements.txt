@@ -19,7 +19,7 @@ pillow>=12.3.0
 # Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.26.0
 tree-sitter-language-pack>=1.15.8
-cryptography>=49.0.0
+cryptography>=50.0.1
 tree-sitter-language-pack>=1.13.7
 cryptography>=50.0.0
 requests>=2.34.2
