@@ -5,7 +5,7 @@
     "lint": "eslint packages base/yarn-ts base/planner-ts base/synesis-mcp base/admin-mcp-ts base/vision-worker"
   },
   "optionalDependencies": {
-    "@rolldown/binding-linux-x64-gnu": "1.2.5"
+    "@rolldown/binding-linux-x64-gnu": "1.2.6"
   },
   "workspaces": [
     "packages/*",

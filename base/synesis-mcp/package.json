@@ -28,11 +28,11 @@
     "@synesis/oidc-auth": "file:../../packages/synesis-oidc-auth",
     "fastify": "^5.12.1",
     "pg": "^8.23.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
