@@ -2,7 +2,7 @@
 
 This document describes an operator workflow for evaluating coding-agent behavior and exporting candidate training data. Training and model promotion are separate operator-managed steps, not an automatic quality guarantee.
 
-Current model shims are described in the [model audit](../model-shim-audit-2026-09.md). Successful reads, research, and plan maintenance are not failure evidence. Governor events are review signals: an intervention alone does not prove a bad response, and generated recovery guidance is not automatically a gold answer. Review these labels before training.
+Current model shims are described in the [model compatibility guide](../model-compatibility.md). Successful reads, research, and plan maintenance are not failure evidence. Governor events are review signals: an intervention alone does not prove a bad response, and generated recovery guidance is not automatically a gold answer. Review these labels before training.
 
 ## Governance Profiles
 

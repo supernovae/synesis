@@ -217,7 +217,7 @@ In short: Synesis is built for teams that want AI behavior to be inspectable, go
 
 Research papers motivate hypotheses; citing a method does not mean Synesis
 implements it or reproduces its results. Current model and client behavior is
-tracked in the [model shim audit](model-shim-audit-2026-09.md) and
+tracked in the [model compatibility guide](model-compatibility.md) and
 [harness compatibility guide](clients/HARNESS_COMPATIBILITY.md). In particular,
 sparse attention and MTP training do not justify automatic context discounts,
 and n-gram serving optimizations belong in the inference runtime.

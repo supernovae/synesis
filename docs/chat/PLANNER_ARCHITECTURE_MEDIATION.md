@@ -120,7 +120,7 @@ labels are descriptive; they do not apply arbitrary context discounts, shorter
 turns, governor bias or repair passes. Unknown quality and serving behavior stay
 unknown. Adaptive mode uses configured state reinforcement; multipass requires
 an explicit recommendation or aggressive mode. Keyword-based stale filtering is
-off by default. See the [model shim audit](../model-shim-audit-2026-09.md).
+off by default. See the [model compatibility guide](../model-compatibility.md).
 
 ## Public Offerings and Admin Overrides
 

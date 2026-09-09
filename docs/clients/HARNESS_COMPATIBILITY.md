@@ -2,7 +2,7 @@
 
 Reviewed 2026-09-09. This is compatibility support in Yarn's model API proxy and ACP bridge. It does not install or launch the named clients. Tests exercise the transport, adapter, schema restoration and path contracts; they are not live end-to-end certification of every upstream release.
 
-Model-family adaptations are reviewed separately in the [model shim audit](../model-shim-audit-2026-09.md). A DeepSeek model is not evidence that the caller is DeepSeek Harness.
+Model-family adaptations are reviewed separately in the [model compatibility guide](../model-compatibility.md). A DeepSeek model is not evidence that the caller is DeepSeek Harness.
 
 ## Integration contract
 

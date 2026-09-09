@@ -9,7 +9,7 @@ does not.
 
 These proxy checks are defense in depth. The native execution environment owns
 filesystem permissions, process isolation and approval enforcement. See the
-[current path policy](YARN_PATH_SANDBOX.md) and [model audit](../model-shim-audit-2026-09.md).
+[current path policy](YARN_PATH_SANDBOX.md) and [model compatibility guide](../model-compatibility.md).
 
 ## Goals
 

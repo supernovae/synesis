@@ -16,7 +16,7 @@ const tools = { read: { inputSchema: jsonSchema<{ path: string }>({ type: "objec
 afterEach(() => vi.unstubAllGlobals());
 
 describe("reasoning-compatible model transport", () => {
-  it.each(["deepseek-v4-pro", "Qwen3.6-35B-A3B", "kimi-k2.5", "MiniMax-M2.5", "GLM-5"])("round trips assistant reasoning and tool history for %s", async backendModel => {
+  it.each(["deepseek-v4-pro", "Qwen3.6-35B-A3B", "Qwen/Qwen3.8-27B", "Qwen/Qwen3.8-Flash-Next", "kimi-k2.5", "MiniMax-M2.5", "GLM-5"])("round trips assistant reasoning and tool history for %s", async backendModel => {
     let request: Record<string, unknown> = {};
     vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
       request = JSON.parse(init.body);

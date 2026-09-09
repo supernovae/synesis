@@ -249,7 +249,7 @@ See also `docs/CACHING.md` for provider-specific cache notes.
 Model architecture is descriptive evidence, not a measured operating limit.
 Built-in profiles preserve configured context capacity and leave unverified
 recall quality and runtime decoding behavior unknown. See the
-[model shim audit](../../../docs/model-shim-audit-2026-09.md) for current variants,
+[model compatibility guide](../../../docs/model-compatibility.md) for current variants,
 reasoning replay, exact-output deduplication, and validation limits.
 
 `src/providers/model-architecture-profile.ts` defines:

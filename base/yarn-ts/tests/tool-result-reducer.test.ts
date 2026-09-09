@@ -567,7 +567,7 @@ describe("ToolResultReductionService", () => {
     expect(noWmContent0).toBe(wmContent0);
   });
 
-  it("preserves literal last failing verification output for Qwen3-Coder-Next compaction hint", () => {
+  it.each(["Qwen/Qwen3.8-27B", "Qwen/Qwen3.8-Flash-Next", "MiniMax-M2.5", "unknown"])("preserves latest literal failure for %s", (backendModelHint) => {
     const svc = new ToolResultReductionService(makeConfig(500), new ArtifactStore());
     const failBody =
       "=== RUN   TestFoo\n--- FAIL: TestFoo (0.00s)\n    foo.go:12: wanted 1 got 2\nFAIL\nexit code 1\n" + "x".repeat(800);
@@ -576,7 +576,7 @@ describe("ToolResultReductionService", () => {
       { role: "tool" as const, name: "run_test", content: failBody },
     ];
     const out = svc.reduceMessages(messages, undefined, undefined, {
-      backendModelHint: "Qwen/Qwen3-Coder-Next-30B-A3B-Instruct",
+      backendModelHint,
     });
     const last = String(out.messages[out.messages.length - 1].content);
     expect(last).toContain("--- FAIL:");

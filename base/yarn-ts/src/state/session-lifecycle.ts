@@ -1,10 +1,4 @@
 import type { AppConfig } from "../config.js";
-import {
-  effectiveSawtoothCheckpointToolCalls,
-  effectiveSawtoothHistoryLengthThreshold,
-  inferCompactionSensitivity,
-  type CompactionSensitivity,
-} from "../context/compaction-sensitivity.js";
 import type { SawtoothContextManager } from "../context/sawtooth-manager.js";
 import type { SessionContinuityService } from "../context/session-continuity.js";
 import { formatPlanProgressBlock, serializePlanGraph, deserializePlanGraph } from "../planning/plan-graph.js";
@@ -490,20 +484,12 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
     }
   }
 
-  function compactionCheckpointHints(state: SessionState): { backendHint: string; sensitivity: CompactionSensitivity } {
-    const meta = String(state.record.metadata[SYNESIS_COMPACTION_BACKEND_META] ?? "").trim();
-    const tierId = String(state.record.lastTier ?? "").trim();
-    const backendHint = meta || resolveCompactionBackendModelHintFromRequestModel(tierId);
-    return { backendHint, sensitivity: inferCompactionSensitivity(backendHint) };
-  }
-
   function maybeCheckpoint(state: SessionState): void {
-    const { sensitivity } = compactionCheckpointHints(state);
     const isMinimal = config.SYNESIS_YARN_CONTEXT_BUDGET_COMPACTION_MODE === "minimal";
     const baseToolCalls = config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS;
     const baseHistLen = 60;
-    const toolTh = effectiveSawtoothCheckpointToolCalls(isMinimal ? baseToolCalls * 2 : baseToolCalls, sensitivity);
-    const histTh = effectiveSawtoothHistoryLengthThreshold(isMinimal ? baseHistLen * 2 : baseHistLen, sensitivity);
+    const toolTh = isMinimal ? baseToolCalls * 2 : baseToolCalls;
+    const histTh = isMinimal ? baseHistLen * 2 : baseHistLen;
     if (!sawtooth.shouldCheckpoint(state.history, state.toolCallsSinceCheckpoint, {
       toolCallsThreshold: toolTh,
       historyLengthThreshold: histTh,
@@ -511,7 +497,7 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
       return;
     }
     const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
-    void sawtooth.compressTrajectory(state.history, { sensitivity }).then((consolidated) => {
+    void sawtooth.compressTrajectory(state.history).then((consolidated) => {
       state.history = [{ role: "system", content: consolidated.summary }];
       state.toolCallsSinceCheckpoint = 0;
       getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");
@@ -532,8 +518,7 @@ export function createSessionLifecycleHelpers(input: SessionLifecycleHelpersInpu
     if (state.history.length <= 1) return false;
     const charsBefore = state.history.reduce((sum, m) => sum + m.content.length, 0);
     try {
-      const { sensitivity } = compactionCheckpointHints(state);
-      const consolidated = await sawtooth.compressTrajectory(state.history, { sensitivity });
+      const consolidated = await sawtooth.compressTrajectory(state.history);
       state.history = [{ role: "system", content: consolidated.summary }];
       state.toolCallsSinceCheckpoint = 0;
       getFileSnapshotRegistry(state.record.sessionKey).markCompaction("SUMMARY_ONLY");

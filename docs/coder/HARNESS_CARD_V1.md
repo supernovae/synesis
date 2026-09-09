@@ -19,7 +19,7 @@ The example below describes original Qwen3 Coder, not Coder Next or Qwen
 reasoning models. Built-in cards do not impose unmeasured tool-count limits or
 nudge solely because tool names repeat. Keep any custom overrides explicit and
 validate them against the actual endpoint and client schema. The
-[model audit](../model-shim-audit-2026-09.md) documents these boundaries.
+[model compatibility guide](../model-compatibility.md) documents these boundaries.
 
 ## Shape
 

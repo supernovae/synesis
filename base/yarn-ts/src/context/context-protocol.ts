@@ -8,7 +8,6 @@ export interface ContextMessage {
   content: string;
 }
 
-import type { CompactionSensitivity } from "./compaction-sensitivity.js";
 
 export interface ConsolidatedState {
   summary: string;
@@ -20,10 +19,6 @@ export interface CheckpointOptions {
   historyLengthThreshold?: number;
 }
 
-export interface CompressTrajectoryOptions {
-  sensitivity?: CompactionSensitivity;
-}
-
 export interface ContextProtocol {
   shouldCheckpoint(
     history: ContextMessage[],
@@ -33,6 +28,5 @@ export interface ContextProtocol {
   getLanguageHeuristics(ext: string): LanguageHeuristic;
   compressTrajectory(
     messages: ContextMessage[],
-    compressOpts?: CompressTrajectoryOptions,
   ): Promise<ConsolidatedState>;
 }

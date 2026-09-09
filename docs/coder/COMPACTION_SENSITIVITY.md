@@ -1,33 +1,25 @@
-# Compaction sensitivity (Qwen3-Coder)
+# Compaction policy and failure evidence
 
-Synesis yarn-ts adjusts **server-side** compaction and tool-result reduction based on the **tier-resolved backend model** string (from admin tier registry), not only global env vars.
+Synesis Yarn uses configured reduction, retention and checkpoint limits across model families. Backend model names do not silently change those limits. The filename is retained for existing links; the former Qwen/MiniMax sensitivity classifier has been removed.
 
-## Behavior
+## Common behavior
 
-| Sensitivity | Trigger (backend model id / name) | Tool reduction | Sawtooth checkpoint |
-|-------------|-----------------------------------|------------------|----------------------|
-| `strict_literals` | Substrings `coder-next`, `qwen3-coder-next`, `qwen3.6-coder-next` | Demotes `aggressive`/`ultra` reducer profile to `balanced`, raises `maxChars`, preserves **verbatim** the last failing verification tool result (bounded), uses a larger transcript-prune budget and keep-tool window, stricter compaction LLM prompt | Checkpoints later (higher tool-call and history thresholds) |
-| `qwen_coder` | Regex `qwen3.*coder` (excluding strict cases above) | Demotes aggressive/ultra to `balanced`, moderate `maxChars` bump, gentler transcript-prune keep window/budget | Slightly later checkpoints |
-| `default` | Everything else | Uses `SYNESIS_YARN_REDUCER_PROFILE` and `SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS` as configured | Default `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS` and history length 60 |
+- Tool-result reduction uses the configured profile and character caps. The latest detected verification failure receives bounded protection for every model, so reduction does not erase the immediate reason a task failed.
+- Transcript pruning uses the configured token budget and recent-tool window, with the existing common small-project budget floor and protected-message rules.
+- Sawtooth checkpoints use configured runtime-mode thresholds. The compaction prompt asks for current failure evidence, exact paths and recovery references; it does not promise lossless transcript storage.
+- Model routing metadata remains available for diagnostics. It does not select a hidden retention multiplier.
 
-Session Redis metadata key: `synesis_compaction_backend_model` (set each request from orchestrated tier).
+Relevant controls include `SYNESIS_YARN_REDUCER_PROFILE`, `SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS` and `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS`. Existing deployments previously receiving a family-based increase now use their configured limits. Re-evaluate those limits against the actual workload if necessary.
 
-## Ops overrides
+Explicit, measured architecture registry overrides are separate from these removed name heuristics; see [architecture controls](../model-architecture-awareness.md#admin-overrides). Client-side compaction remains a client operation: Synesis detects transcript drops and resets dedup state rather than rewriting client summaries.
 
-Global knobs still apply as baselines:
+## Model qualification
 
-- `SYNESIS_YARN_REDUCER_PROFILE` — `balanced` is safest for noisy tool logs.
-- `SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS` — raised further when sensitivity applies.
-- `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS` — base value scaled per sensitivity for fragile models.
+Failure-evidence retention does not establish prompt-injection resistance. Qualify evidence-bearing routes using [trust policy model compliance](TRUST_POLICY_MODEL_COMPLIANCE.md), and retain deterministic trust boundaries across families. See the [model compatibility guide](../model-compatibility.md) for model and endpoint distinctions.
 
-Client-side `/compact` (Claude Code, etc.) is unchanged: Synesis only detects large transcript drops and resets dedup; it does not rewrite client summaries.
+## Implementation
 
-## Trust-policy model qualification
-
-Model-family compaction settings do not establish prompt-injection resistance. Before approving a model for evidence-bearing Planner or Yarn routes, run both trust-policy flows documented in [Trust policy model compliance](TRUST_POLICY_MODEL_COMPLIANCE.md). Keep deterministic trust envelopes and scanning enabled for every family; do not treat a classifier or a passing model eval as a replacement for those controls.
-
-## Code
-
-- [base/yarn-ts/src/context/compaction-sensitivity.ts](../../base/yarn-ts/src/context/compaction-sensitivity.ts)
-- [base/yarn-ts/src/context/sawtooth-manager.ts](../../base/yarn-ts/src/context/sawtooth-manager.ts)
-- [base/yarn-ts/src/reduction/tool-result-reducer.ts](../../base/yarn-ts/src/reduction/tool-result-reducer.ts)
+- [Compaction prompt and failure detection](../../base/yarn-ts/src/context/compaction-sensitivity.ts)
+- [Sawtooth manager](../../base/yarn-ts/src/context/sawtooth-manager.ts)
+- [Tool-result reducer](../../base/yarn-ts/src/reduction/tool-result-reducer.ts)
+- [Transcript pruning](../../base/yarn-ts/src/reduction/transcript-pruning.ts)

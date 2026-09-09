@@ -3,13 +3,13 @@
 Synesis Yarn is an OpenAI-compatible control layer above heterogeneous model
 runtimes. It does not change model internals, attention kernels, MoE routing,
 or speculative decoding behavior in vLLM, SGLang, or hosted providers. Instead,
-Yarn adapts developer-harness behavior to the architecture traits of the model
-behind the endpoint.
+Yarn preserves model protocol requirements and applies configured harness policy
+for the model behind the endpoint.
 
 ## Evidence and limits
 
 Model architecture, endpoint transport, and client tool semantics are independent.
-The [September 2026 audit](model-shim-audit-2026-09.md) records verified model
+The [model compatibility guide](model-compatibility.md) records verified model
 versions, removed heuristics, research sources and deployment validation limits.
 
 Architecture names do not establish recall quality, safe working-context ratios,
@@ -62,9 +62,9 @@ architecture benefits from it.
 
 ## Durable Work Packets
 
-For models with weak long-tail retention, sliding-window behavior, MLA-style
-attention compression, hybrid compressed attention, or high retry sensitivity,
-Yarn can derive compact active-state artifacts from existing session signals.
+When the selected policy requests state reinforcement, Yarn can derive compact
+active-state artifacts from existing session signals. Architecture names alone
+do not establish a need for these artifacts.
 The artifacts are not hidden model memory and do not override filesystem/tool
 truth. They can include:
 
@@ -185,7 +185,7 @@ from “profile actively changed request handling.”
 ## Examples
 
 - DeepSeek V4 is distinct from V3/R1 MLA and V3.2 DSA. None receives an automatic capacity discount.
-- Qwen3 Coder Next and Qwen3.5/3.6 use hybrid linear/full attention; the legacy enum leaves this unknown with explanatory notes.
+- Qwen3 Coder Next and Qwen3.5/3.6 use hybrid linear/full attention. Qwen3.8-27B and Flash-Next have distinct hybrid designs; Flash-Next also includes learned n-gram embeddings and Qwen Sparse Attention. The legacy enum leaves these attention combinations unknown with explanatory notes.
 - MTP training does not identify the serving algorithm or HTTP chunk boundaries.
 - Unknown/proprietary models retain unknown architecture and quality traits.
 - A measured registry override can lower the operating context ceiling or enable bounded repair passes.

@@ -289,6 +289,11 @@ export function resolveModelArchitectureProfile(
     profile.activation = "moe";
     profile.attentionCompression = { ...UNKNOWN_COMPRESSION, localPath: "dense", longRangePath: "latent_compressed" };
     profile.notes = ["MLA compresses KV representations, not the token sequence; it does not justify a reduced context window."];
+  } else if (allowNameInference && /qwen3[._]8(?:-27b|-flash-next)/.test(model)) {
+    profile.activation = /-27b/.test(model) ? "dense" : "moe";
+    profile.notes = [/flash-next/.test(model)
+      ? "Qwen3.8 Flash Next combines Gated DeltaNet, QSA and learned n-gram embeddings. Serving kernels and embedding offload expose efficiency benefits; proxy retention remains model-independent."
+      : "Qwen3.8 hybrid linear/full attention supports efficient long contexts. The legacy attention enum has no exact representation; serving configuration controls capacity and decoding."];
   } else if (allowNameInference && /qwen3(?:[._]5|[._]6|-coder-next)/.test(model)) {
     profile.activation = /a\d+b|coder-next/.test(model) ? "moe" : "unknown";
     profile.notes = ["Qwen hybrid linear/full attention: the legacy attention enum has no exact representation. Keep attention unknown; no runtime decoding or context penalty inferred."];

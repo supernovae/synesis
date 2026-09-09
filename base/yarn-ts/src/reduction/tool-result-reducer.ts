@@ -15,15 +15,7 @@ import { createEmptyVerificationStats } from "../verification/types.js";
 import { formatSelfRepairBlock } from "../recall/formatter.js";
 import { formatTerminalVerificationHint, type TerminalSignals } from "../terminal/terminal-signals.js";
 import type { EnrichmentPool } from "../workers/pool.js";
-import {
-  effectiveMaxRawChars,
-  effectiveReducerProfile,
-  inferCompactionSensitivity,
-  looksLikeVerificationFailureOutput,
-  shouldPreserveLastVerificationFailureIndex,
-  type CompactionSensitivity,
-  type ReducerProfileName,
-} from "../context/compaction-sensitivity.js";
+import { looksLikeVerificationFailureOutput } from "../context/compaction-sensitivity.js";
 
 export interface ToolResultLike {
   role: string;
@@ -77,7 +69,7 @@ export interface ToolResultReductionResult {
 }
 
 export interface ReduceMessagesOpts {
-  /** Tier-resolved backend model id/name; used for Qwen3-Coder compaction sensitivity. */
+  /** Legacy caller metadata; retention is now model-independent. */
   backendModelHint?: string;
   /** Optional per-request override for JSON compaction stage. */
   jsonCompactionEnabled?: boolean;
@@ -272,12 +264,9 @@ export class ToolResultReductionService {
     opts?: ReduceMessagesOpts,
   ): ToolResultReductionResult {
     const jsonCompactionEnabled = opts?.jsonCompactionEnabled ?? this.config.SYNESIS_YARN_JSON_COMPACTION_ENABLED;
-    const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
-    const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
-    const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
-    const lastVerificationFailureIdx = shouldPreserveLastVerificationFailureIndex(sensitivity)
-      ? this.findLastVerificationFailureIndex(messages)
-      : -1;
+    const effProfile = this.config.SYNESIS_YARN_REDUCER_PROFILE;
+    const effMaxChars = this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+    const lastVerificationFailureIdx = this.findLastVerificationFailureIndex(messages);
 
     const recentExempt = Number(this.config.SYNESIS_YARN_TASK_PRUNING_RECENT_EXEMPT) || 0;
     const recentToolProtected = computeRecentToolProtectedSet(messages, recentExempt);
@@ -443,12 +432,9 @@ export class ToolResultReductionService {
       return this.reduceMessages(messages, taskCue, pruningWatermark, opts);
     }
 
-    const sensitivity: CompactionSensitivity = inferCompactionSensitivity(opts?.backendModelHint ?? "");
-    const effProfile = effectiveReducerProfile(this.config.SYNESIS_YARN_REDUCER_PROFILE as ReducerProfileName, sensitivity);
-    const effMaxChars = effectiveMaxRawChars(this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS, sensitivity);
-    const lastVerificationFailureIdx = shouldPreserveLastVerificationFailureIndex(sensitivity)
-      ? this.findLastVerificationFailureIndex(messages)
-      : -1;
+    const effProfile = this.config.SYNESIS_YARN_REDUCER_PROFILE;
+    const effMaxChars = this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
+    const lastVerificationFailureIdx = this.findLastVerificationFailureIndex(messages);
 
     const toolIndices: number[] = [];
     const toolInputs: Array<{ raw: string; commandHint: string; allowDispatch: boolean }> = [];

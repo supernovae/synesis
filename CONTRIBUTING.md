@@ -141,7 +141,7 @@ canonical reference and the README only where the project overview changes.
   Run `python3 scripts/check-doc-reference-integrity.py` for reference checks.
 
 Current references: [harness compatibility](docs/clients/HARNESS_COMPATIBILITY.md),
-[model behavior audit](docs/model-shim-audit-2026-09.md), and
+[model compatibility guide](docs/model-compatibility.md), and
 [architecture controls](docs/model-architecture-awareness.md).
 
 ## Commit Messages

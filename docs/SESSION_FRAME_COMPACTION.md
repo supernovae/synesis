@@ -13,7 +13,7 @@ coder context management, and client-owned transcript compaction.
 | Yarn sawtooth checkpoints | `base/yarn-ts/src/state/session-lifecycle.ts`, `base/yarn-ts/src/context/sawtooth-manager.ts` | Minimal mode | Consolidates Synesis session state after long tool trajectories. |
 | Transcript pruning | `base/yarn-ts/src/reduction/transcript-pruning.ts`, `base/yarn-ts/src/reduction/tool-result-reducer.ts` | Enabled | Replaces old or oversized tool results with bounded stubs and optional artifact handles. |
 | Client compaction detection | `base/yarn-ts/src/pipeline/claude-messages-route-preparation.ts`, `base/yarn-ts/src/pipeline/openai-route-transcript-stabilization.ts` | Enabled by route logic | Detects large incoming transcript drops and resets dedupe/file snapshot state. |
-| Model compaction sensitivity | `base/yarn-ts/src/context/compaction-sensitivity.ts`, `docs/coder/COMPACTION_SENSITIVITY.md` | Model-profile based | Adjusts compaction/reducer behavior for models that are sensitive to aggressive summarization. |
+| Common compaction evidence policy | `base/yarn-ts/src/context/compaction-sensitivity.ts`, `docs/coder/COMPACTION_SENSITIVITY.md` | Configured limits; shared evidence rules | Preserves current failure evidence without model-name retention or checkpoint multipliers. |
 
 The old planner-only structured checkpoint design has moved out of this
 document. Planner chat memory is now documented in

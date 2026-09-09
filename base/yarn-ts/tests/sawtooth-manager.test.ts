@@ -42,17 +42,16 @@ describe("SawtoothContextManager", () => {
     expect(out.archivedMessageCount).toBe(1);
   });
 
-  it("passes strict_literals compaction system prompt to compactFn", async () => {
+  it("uses shared literal-failure guidance for compaction", async () => {
     const mgr = new SawtoothContextManager();
     const mockCompact = vi.fn().mockResolvedValue("<ARCHITECTURAL_STATE>x</ARCHITECTURAL_STATE>");
     mgr.setCompactFn(mockCompact);
     await mgr.compressTrajectory(
       [{ role: "user", content: "u" }, { role: "assistant", content: "a" }],
-      { sensitivity: "strict_literals" },
     );
     expect(mockCompact).toHaveBeenCalledOnce();
     const systemArg = mockCompact.mock.calls[0][0] as string;
-    expect(systemArg).toContain("VERBATIM");
+    expect(systemArg).toContain("failure excerpt literal");
   });
 
   it("falls back to heuristic when compactFn throws", async () => {

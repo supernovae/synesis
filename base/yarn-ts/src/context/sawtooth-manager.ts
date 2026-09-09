@@ -1,12 +1,11 @@
 import type {
   CheckpointOptions,
-  CompressTrajectoryOptions,
   ContextMessage,
   ContextProtocol,
   ConsolidatedState,
   LanguageHeuristic,
 } from "./context-protocol.js";
-import { compactionSystemPromptFor, type CompactionSensitivity } from "./compaction-sensitivity.js";
+import { COMPACTION_SYSTEM_PROMPT } from "./compaction-sensitivity.js";
 import { maskVerboseLog } from "./log-mask.js";
 import { EXTENSION_HEURISTICS } from "./heuristics.js";
 
@@ -64,10 +63,8 @@ export class SawtoothContextManager implements ContextProtocol {
 
   async compressTrajectory(
     messages: ContextMessage[],
-    compressOpts?: CompressTrajectoryOptions,
   ): Promise<ConsolidatedState> {
-    const sensitivity: CompactionSensitivity = compressOpts?.sensitivity ?? "default";
-    const systemPrompt = compactionSystemPromptFor(sensitivity);
+    const systemPrompt = COMPACTION_SYSTEM_PROMPT;
     const masked = messages.map((m) => `${m.role}: ${maskVerboseLog(m.content)}`);
 
     if (this.compactFn) {

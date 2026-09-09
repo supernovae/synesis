@@ -120,7 +120,7 @@ and endpoint capabilities are resolved separately. See the
 [harness compatibility guide](../../docs/clients/HARNESS_COMPATIBILITY.md) for
 execution-context metadata and native tool-schema handling.
 
-The [model shim audit](../../docs/model-shim-audit-2026-09.md) records supported
+The [model compatibility guide](../../docs/model-compatibility.md) records supported
 family/variant handling and primary sources. Current behavior includes:
 
 - Separate Qwen3 Coder/Next sampling and general Qwen reasoning handling.

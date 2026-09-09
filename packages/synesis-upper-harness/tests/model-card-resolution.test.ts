@@ -14,3 +14,10 @@ describe("model card precedence", () => {
     expect(resolveHarnessCard({ modelId: "Qwen3.6-27B" }).capabilities.supports_thinking).toBe(true);
   });
 });
+
+it.each(["Qwen/Qwen3.8-27B", "Qwen/Qwen3.8-Flash-Next"])("uses the shared reasoning contract for %s", modelId => {
+  const card = resolveHarnessCard({ modelId });
+  expect(card.id).toBe("qwen");
+  expect(card.capabilities.supports_thinking).toBe(true);
+  expect(card.sampling_defaults.temperature).toBeUndefined();
+});

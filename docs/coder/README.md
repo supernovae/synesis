@@ -10,7 +10,7 @@ The intent is to keep model reasoning in the loop while reducing avoidable ambig
 
 Use the [harness compatibility guide](../clients/HARNESS_COMPATIBILITY.md) for
 client identity, cwd/project-root handling and execution boundaries, and the
-[model shim audit](../model-shim-audit-2026-09.md) for model variants, reasoning
+[model compatibility guide](../model-compatibility.md) for model variants, reasoning
 replay and removed heuristics. Design goals below describe intended outcomes;
 they are not guarantees of agent completion or safety.
 

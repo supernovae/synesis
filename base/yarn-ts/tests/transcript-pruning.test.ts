@@ -499,7 +499,7 @@ describe("TranscriptPruningService", () => {
       expect(String(result.messages[4].content)).toContain("latestRead");
     });
 
-    it("uses gentler keep window for qwen sensitivities", () => {
+    it("uses the configured retention window regardless of model name", () => {
       const cfg = {
         ...defaultConfig,
         keepTurns: 5,
@@ -528,9 +528,11 @@ describe("TranscriptPruningService", () => {
       const defaultStubbed = defaultResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
       const qwenStubbed = qwenResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
       const strictStubbed = strictResult.messages.filter((m) => String(m.content).includes("TOOL_RESULT_PRUNED")).length;
-      expect(defaultStubbed).toBeGreaterThan(qwenStubbed);
-      expect(qwenStubbed).toBeGreaterThanOrEqual(strictStubbed);
-      expect(String(strictResult.messages[2].content)).toContain("out-a");
+      expect(defaultStubbed).toBe(qwenStubbed);
+      expect(qwenStubbed).toBe(strictStubbed);
+      expect(defaultStubbed).toBeGreaterThan(0);
+      expect(qwenResult.messages).toEqual(defaultResult.messages);
+      expect(strictResult.messages).toEqual(defaultResult.messages);
     });
   });
 

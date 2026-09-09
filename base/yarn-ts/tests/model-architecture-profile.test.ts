@@ -44,6 +44,8 @@ describe("model architecture profile", () => {
     ["Qwen3-Coder-480B-A35B-Instruct", "full_attention"],
     ["Qwen3-Coder-Next", "unknown"],
     ["Qwen3.6-35B-A3B", "unknown"],
+    ["Qwen3.8-27B", "unknown"],
+    ["Qwen3.8-Flash-Next", "unknown"],
     ["GLM-5", "compressed_sparse_attention"],
     ["kimi-k2.5", "mla"],
     ["mistral-swa-coder", "unknown"],

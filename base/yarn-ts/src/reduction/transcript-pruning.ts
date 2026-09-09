@@ -1,7 +1,6 @@
 import { looksLikeVerificationFailureOutput } from "../context/compaction-sensitivity.js";
 import type { ArtifactStore } from "../state/artifact-store.js";
 import { isUnchangedHint, parseReadSnapshotEnvelope } from "./file-snapshot-registry.js";
-import { inferCompactionSensitivity, type CompactionSensitivity } from "../context/compaction-sensitivity.js";
 
 /**
  * Transcript Pruning Service
@@ -220,10 +219,10 @@ export class TranscriptPruningService {
    * pruning fires earlier and avoids carrying 30K+ tokens of stale context
    * for a 160KB codebase.
    */
-  effectiveBudget(projectSizeChars?: number, sensitivity: CompactionSensitivity = "default"): number {
-    const baseBudget = this.effectiveTranscriptBudgetForSensitivity(sensitivity);
+  effectiveBudget(projectSizeChars?: number): number {
+    const baseBudget = this.config.budgetChars;
     if (!projectSizeChars || projectSizeChars <= 0) return baseBudget;
-    const floor = sensitivity === "strict_literals" ? 90_000 : (sensitivity === "qwen_coder" ? 75_000 : 60_000);
+    const floor = 60_000;
     const scaled = projectSizeChars * 3;
     return Math.min(baseBudget, Math.max(scaled, floor));
   }
@@ -247,8 +246,7 @@ export class TranscriptPruningService {
       return { messages, pruned: false, invocationDelta: zeroDelta() };
     }
 
-    const sensitivity = inferCompactionSensitivity(backendModelHint ?? "");
-    const budget = this.effectiveBudget(projectSizeChars, sensitivity);
+    const budget = this.effectiveBudget(projectSizeChars);
     const totalChars = messages.reduce(
       (sum, m) => sum + contentLength(m.content),
       0,
@@ -311,9 +309,8 @@ export class TranscriptPruningService {
    * Public so other normalization stages (historical normalizer, tool-ID
    * stabilizer) can use the same boundary for consistency.
    */
-  computeKeepFromIndex(messages: MessageLike[], backendModelHint?: string): number {
-    const sensitivity = inferCompactionSensitivity(backendModelHint ?? "");
-    const keepToolResults = this.effectiveKeepToolResultsForSensitivity(sensitivity);
+  computeKeepFromIndex(messages: MessageLike[], _backendModelHint?: string): number {
+    const keepToolResults = this.config.keepToolResults;
     const userTurnBoundaries = computeUserTurnBoundaries(messages);
     const turnBased = userTurnBoundaries.length > this.config.keepTurns
       ? userTurnBoundaries[userTurnBoundaries.length - this.config.keepTurns]
@@ -327,21 +324,6 @@ export class TranscriptPruningService {
     }
     if (toolIndices.length <= keepToolResults) return 0;
     return toolIndices[toolIndices.length - keepToolResults];
-  }
-
-  private effectiveTranscriptBudgetForSensitivity(sensitivity: CompactionSensitivity): number {
-    const base = this.config.budgetChars;
-    if (sensitivity === "strict_literals") return Math.min(Math.max(base + 30_000, Math.floor(base * 1.5)), 180_000);
-    if (sensitivity === "qwen_coder") return Math.min(Math.max(base + 15_000, Math.floor(base * 1.25)), 140_000);
-    return base;
-  }
-
-  private effectiveKeepToolResultsForSensitivity(sensitivity: CompactionSensitivity): number {
-    const base = this.config.keepToolResults;
-    if (base <= 0) return base;
-    if (sensitivity === "strict_literals") return Math.min(Math.max(base + 12, Math.ceil(base * 1.8)), 80);
-    if (sensitivity === "qwen_coder") return Math.min(Math.max(base + 6, Math.ceil(base * 1.35)), 60);
-    return base;
   }
 
   /**

@@ -186,7 +186,7 @@ metadata does not prove the file exists or is current.
 Model shims no longer treat successful rereads alone as failure. Independently
 configured plan/governor controls can still intervene; inspect session events
 when diagnosing those decisions. See [governor behavior](../coder/GOVERNOR_HARNESS.md)
-and the [model audit](../model-shim-audit-2026-09.md).
+and the [model compatibility guide](../model-compatibility.md).
 
 Plan paths do not bypass the optional proxy path policy or the native client
 sandbox. Configure any needed external plan directory through trusted policy.
