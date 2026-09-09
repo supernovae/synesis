@@ -52,6 +52,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
     "@ai-sdk/openai": "^4.0.52",
+    "@ai-sdk/openai-compatible": "^3.0.45",
     "@fastify/rate-limit": "^11.2.0",
     "@openfga/sdk": "0.9.7",
     "@opentelemetry/api": "^1.9.1",

@@ -62,7 +62,9 @@ export function inferModelCapabilityPreset(
   const model = (modelId ?? "").toLowerCase();
   const fam = (family ?? "").toLowerCase();
   if (/deepseek/.test(model) || fam === "deepseek") {
-    return /v3|r1/.test(model) ? "deepseek_v3" : "deepseek_v4";
+    if (/distill/.test(model)) return undefined;
+    if (/v4/.test(model)) return "deepseek_v4";
+    return /v3|r1/.test(model) ? "deepseek_v3" : undefined;
   }
   if ((model.includes("qwen") && model.includes("coder")) || fam === "qwen3-coder") return "qwen_3_coder";
   if (/qwen/.test(model)) return "qwen_3";
@@ -87,6 +89,10 @@ export function adapterHintForModelCapabilityPreset(
       return "deepseek";
     case "qwen_3_coder":
       return "qwen3-coder";
+    case "qwen_3":
+      return "qwen";
+    case "glm_4_5":
+      return "glm";
     case "kimi_k2":
       return "kimi";
     case "minimax_m1":

@@ -123,7 +123,7 @@ reduce low-signal bytes without removing facts the model needs.
 |------------|--------------|---------|
 | Tool result reduction | `src/reduction/tool-result-reducer.ts`, `src/reduction/registry.ts` | Reduce build/test/lint/git/search/tool output into structured summaries. |
 | Validation normalization | `src/validation/service.ts` | Normalize test/lint output and optionally use a cheap fallback model for ambiguous output. |
-| Transcript pruning | `src/reduction/transcript-pruning.ts` | Remove stale duplicate commands, duplicate file reads, old tool results, near-duplicate output, and excessive assistant narration. |
+| Transcript pruning | `src/reduction/transcript-pruning.ts` | Remove stale duplicate commands, duplicate file reads, old tool results, byte-identical output, and excessive assistant narration. |
 | Read snapshot normalization | `src/reduction/read-snapshot-normalizer.ts`, `src/reduction/file-snapshot-registry.ts` | Convert unchanged file reads into compact snapshot references or replay content when needed. |
 | Content-addressed dedup | `src/reduction/content-addressed-dedup.ts` | Stub repeated identical file content by content hash. |
 | Response dedup | `src/dedupe/ResponseDedupe.ts` | Stub repeated idempotent tool results with the same tool/args/result hash. |
@@ -246,10 +246,11 @@ See also `docs/CACHING.md` for provider-specific cache notes.
 
 ## Model Architecture Mediation
 
-Token efficiency and cache reliability are affected by model architecture. A
-model with a huge declared context window may still have weak long-tail recall,
-sliding-window truncation behavior, attention compression tradeoffs, MoE routing
-variance, or brittle tool-call boundaries.
+Model architecture is descriptive evidence, not a measured operating limit.
+Built-in profiles preserve configured context capacity and leave unverified
+recall quality and runtime decoding behavior unknown. See the
+[model shim audit](../../../docs/model-shim-audit-2026-09.md) for current variants,
+reasoning replay, exact-output deduplication, and validation limits.
 
 `src/providers/model-architecture-profile.ts` defines:
 
@@ -285,9 +286,10 @@ Architecture policy is recorded on optimization cache diagnostics:
 - `effectiveContextCeilingTokens`
 - `architecturePolicyReasons`
 
-These fields make it possible to compare cache and quality behavior between,
-for example, raw Qwen, MiniMax, DeepSeek-style MLA, Kimi-style MoE, Xiaomi
-MiMo SWA/MTP profiles, and unknown OpenAI-compatible models.
+These fields support comparisons between configured model endpoints. A model
+name does not establish speculative serving, safe context percentages, or
+recall reliability. Adaptive mode does not add repair passes unless explicitly
+configured; aggressive mode can opt into a bounded repair pass.
 
 Architecture-sensitive sessions may also emit `current_work_packet_v1` events.
 The packet captures compact current-task state, latest tool truth, path context,

@@ -8,6 +8,19 @@ describe how a model behaves under tool use so the Master Harness can apply the
 right repairs, nudges, and validation without turning the runtime into
 model-specific spaghetti.
 
+## Matching and evidence
+
+Built-in matching prefers exact model IDs, then the most specific model
+substring, then family hints. Provider-only fallback must be unique. A shared
+OpenRouter or vLLM endpoint does not identify the model or prove its tool parser
+configuration. See [the current built-in cards](../../packages/synesis-upper-harness/src/cards.ts).
+
+The example below describes original Qwen3 Coder, not Coder Next or Qwen
+reasoning models. Built-in cards do not impose unmeasured tool-count limits or
+nudge solely because tool names repeat. Keep any custom overrides explicit and
+validate them against the actual endpoint and client schema. The
+[model audit](../model-shim-audit-2026-09.md) documents these boundaries.
+
 ## Shape
 
 ```yaml
@@ -15,17 +28,16 @@ schema_version: synesis_harness_card_v1
 id: qwen3-coder
 display_name: Qwen3 Coder
 model_match:
-  family_prefixes: [qwen, qwen3]
+  family_prefixes: [qwen3-coder]
   model_substrings: [qwen3-coder, qwen-coder]
-  provider_hints: [dashscope, vllm, openrouter]
+  provider_hints: []
 capabilities:
   supports_thinking: false
   native_tool_parser: false
-  max_effective_tools: 40
-  strict_json: low
-  strict_tool_args: low
+  strict_json: medium
+  strict_tool_args: medium
 repairs:
-  empty_arguments: normalize_to_empty_object
+  empty_arguments: preserve
   malformed_json: conservative
   argument_aliases:
     Bash:
@@ -33,7 +45,7 @@ repairs:
     Read:
       path: file_path
 loop_controls:
-  repeated_tool_dampening: true
+  repeated_tool_dampening: false
   plan_no_action_limit: 2
   edit_retry_limit: 2
 sampling_defaults:

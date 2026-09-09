@@ -945,3 +945,20 @@ describe("TranscriptPruningService", () => {
     });
   });
 });
+
+describe("exact output identity", () => {
+  it("does not merge outputs that differ in digits or unsampled lines", () => {
+    const svc = new TranscriptPruningService({ ...defaultConfig, keepTurns: 10, budgetChars: 1 });
+    const first = Array.from({ length: 200 }, (_, i) => `line ${i}: value 100`).join("\n");
+    const changedDigit = first.replace("value 100", "value 101");
+    const changedMiddle = first.replace("line 101: value 100", "line 101: secret is different");
+    const result = svc.prune([msg("user", "compare"), msg("tool", first, "inspect"), msg("tool", changedDigit, "inspect"), msg("tool", changedMiddle, "inspect")]);
+    expect(result.messages.slice(1).map(message => message.content)).toEqual([first, changedDigit, changedMiddle]);
+  });
+  it("preserves structured assistant reasoning and tool calls during pruning", () => {
+    const svc = new TranscriptPruningService({ ...defaultConfig, keepTurns: 1, budgetChars: 1 });
+    const content = [{ type: "reasoning", text: "r".repeat(1000) }, { type: "tool-call", toolCallId: "t", toolName: "read", input: {} }];
+    const result = svc.prune([{ role: "user", content: "start" }, { role: "assistant", content }, { role: "user", content: "continue" }]);
+    expect(result.messages[1].content).toEqual(content);
+  });
+});

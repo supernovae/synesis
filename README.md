@@ -4,185 +4,102 @@
 [![Lint](https://github.com/supernovae/synesis/actions/workflows/lint.yml/badge.svg)](https://github.com/supernovae/synesis/actions/workflows/lint.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**Build your own AI control plane: chat, coding agents, graph-native RAG, MCP tools, model governance, and security controls on infrastructure you own.**
+**Self-hosted chat, coding-agent integration, knowledge retrieval, and model operations.**
 
-Synesis is a self-hosted AI platform for teams that want more than a chatbot and more than a model proxy. It gives your organization a shared knowledge layer, an agent-ready coding runtime, an admin surface for model and provider operations, and safety controls that travel with the data instead of living in one-off prompts.
+Synesis connects chat clients and coding agents to shared model providers, indexed knowledge, tools, and operator controls. Run models on your own infrastructure or use hosted APIs, with routing, retrieval, session diagnostics, and review workflows in one platform.
 
-Use it to wire Open WebUI, IDE agents, MCP clients, OpenAI-compatible APIs, self-hosted models, and provider APIs into one system you can inspect, operate, and extend.
+The project is built for teams that want to operate and extend their AI stack. Start with a local evaluation; use the Helm chart to deploy on Kubernetes.
 
-**Start here:** [Local Compose](docs/LOCAL_COMPOSE.md) · [Helm install](docs/HELM_INSTALL.md) · [Connect an IDE with MCP](docs/clients/MCP_QUICKSTART.md) · [Coder clients](docs/clients/CLIENTS.md) · [Security model](docs/SECURITY.md) · [Design theory](docs/DESIGN_THEORY.md) · [Docs index](docs/README.md)
+[Try locally](docs/LOCAL_COMPOSE.md) · [Deploy with Helm](docs/HELM_INSTALL.md) · [Connect a client](docs/clients/CLIENTS.md) · [Documentation](docs/README.md) · [Contribute](CONTRIBUTING.md)
 
----
+## What it provides
 
-## Why Synesis Exists
+| Surface | What you can use |
+| --- | --- |
+| **Chat** | A planner API for Open WebUI and OpenAI-compatible clients, with direct-answer, planning, retrieval, writing, and critic paths selected by workflow and configuration. |
+| **Coder** | Yarn, a runtime for OpenAI- and Claude-style coding traffic, with provider routing, context budgets, tool validation, session state, and an ACP bridge. |
+| **Knowledge** | NornicDB-backed vector and graph retrieval over indexed documents and code, with provenance, freshness, review metadata, and optional OpenFGA authorization checks. |
+| **MCP tools** | Knowledge search, SynPack context bundles, web search, and patch checks for external agents. Available tools depend on the deployment and enabled integrations. |
+| **Administration** | Model and provider configuration, credentials, review queues, usage, traces, feedback, and security events. |
 
-Most AI stacks make you choose:
+Shared TypeScript packages and service boundaries let you add tools, indexers, model adapters, and deployment integrations. Taxonomy and policy configuration provide additional ways to adapt behavior without editing prompts throughout the codebase.
 
-- a RAG app that cannot power coding agents,
-- a coding agent that knows nothing about your organization,
-- a model gateway without review, provenance, or operational controls,
-- or a SaaS product that cannot be air-gapped or deeply customized.
+## Try it locally
 
-Synesis is the integrated version: a Kubernetes-native platform where knowledge, tools, models, traces, review workflows, and safety policies are shared infrastructure.
-
-## What You Can Build
-
-**A private knowledge assistant**
-
-Run Open WebUI or any OpenAI-compatible chat client against a planner pipeline that classifies intent, builds a plan, retrieves evidence, writes with citations, and applies critic checks before responding.
-
-**An IDE-native coding layer**
-
-Connect Claude Code, Cursor, VS Code, JetBrains, OpenCode, ACP clients, or custom harnesses to Synesis coder endpoints and MCP tools. Give agents access to your docs, code corpus, SynPack bundles, web search, and safety checks.
-
-**A graph-native RAG system**
-
-Index docs, code, API specs, web pages, and package knowledge into NornicDB. Retrieval can combine vector search, graph expansion, freshness scoring, authority signals, HITL review status, and OpenFGA-backed authorization.
-
-**An AI operations console**
-
-Use the admin UI to manage model registry entries, provider routing, provider API keys, RAG review queues, security events, chat feedback, traces, and operational settings.
-
-**A platform to fork**
-
-The repo is organized as real services and shared packages, not a demo script. You can replace model providers, add MCP tools, tune taxonomy behavior, wire new indexers, or run only the pieces you need.
-
-## The Fun Parts
-
-- **MCP that knows your world**: `@synesis/mcp` gives IDEs and agents graph search, docs search, code search, SynPack bundles, web search, and patch integrity checks.
-- **Trust envelopes everywhere**: untrusted RAG, web, tool, and MCP content is wrapped in `TrustPacketV1` with attribution and policy metadata.
-- **Multi-role model architecture**: route planner, writer, coder, critic, summarizer, and embedding work to the models that fit each job.
-- **Taxonomy-shaped behavior**: domain behavior lives in YAML instead of being buried in prompt strings.
-- **Coder context control**: Yarn adds compaction, transcript pruning, tool-result reduction, model-aware mediation, tracing, and governance around OpenAI/Claude-style coding traffic.
-- **Operator-first security**: prompt-injection events, review queues, authz traces, security headers, and hardened schemas are visible and testable.
-
-## Try It
-
-### 1. Try it locally
-
-Run the core stack without Kubernetes:
+Install Podman with Compose support, or Docker Compose, then run from this repository:
 
 ```bash
 cp .env.example .env
 podman compose -f podman-compose.yaml up -d
 ```
 
-Then open Open WebUI at <http://localhost:3000>. See [`docs/LOCAL_COMPOSE.md`](docs/LOCAL_COMPOSE.md) for Docker Compose, optional RAG/MCP/search profiles, and model-provider configuration.
+For Docker, substitute `docker compose` for `podman compose`.
 
-### 2. Deploy the platform
+Open <http://localhost:3000> to create an Open WebUI account. **Model calls are disabled by default:** this first step starts the services for UI and health checks. Follow the [local setup guide](docs/LOCAL_COMPOSE.md#quick-start) to configure a model endpoint and enable chat.
 
-Pick a checked-in values example for your environment, copy it, then edit hosts, storage, providers, and secrets.
+The local stack uses published container images. RAG, ingestion, search, and MCP services are optional profiles. Admin browser login requires a configured OIDC provider; the Compose stack does not include a Keycloak realm import. Local defaults are intended for development and evaluation.
 
-```bash
-cp charts/synesis/examples/values-eks-external.yaml my-values.yaml
+## Deploy and connect
 
-helm upgrade --install synesis ./charts/synesis \
-  -f my-values.yaml \
-  --namespace default \
-  --create-namespace \
-  --timeout 20m
-```
+For Kubernetes, choose and customize a [Helm values example](charts/synesis/examples/), then follow the [installation guide](docs/HELM_INSTALL.md). Configure identity, secrets, storage, networking, and model providers for your environment. The chart provides deployment configuration; operating and securing the installation remains your responsibility.
 
-Other starting points are in [`charts/synesis/examples/`](charts/synesis/examples/), including AKS and GKE variants. The full production guide is [`docs/HELM_INSTALL.md`](docs/HELM_INSTALL.md).
+Once a deployment is running:
 
-### 3. Bootstrap admin access
+- [Bootstrap admin access](docs/admin/KEYCLOAK_BOOTSTRAP.md) through Keycloak.
+- [Connect MCP tools](docs/clients/MCP_QUICKSTART.md) using a PAT with `mcp:invoke` scope or the documented OIDC flow.
+- [Connect a coding client](docs/clients/CLIENTS.md) to the coder API or ACP bridge.
+- [Index your content](docs/INDEXERS.md) and configure [RAG](docs/RAG.md) or [SynPacks](docs/SYNPACKS.md).
 
-Create a user in the Keycloak `synesis` realm, assign `synesis-admin`, and sign in to the admin app. The admin API intentionally has no hardcoded username/password fallback.
-
-Guide: [`docs/admin/KEYCLOAK_BOOTSTRAP.md`](docs/admin/KEYCLOAK_BOOTSTRAP.md)
-
-### 4. Connect your IDE or agent harness
-
-After you create a Synesis PAT with `mcp:invoke` or `coder` scope, point your client at Synesis MCP:
-
-```json
-{
-  "mcpServers": {
-    "synesis": {
-      "command": "npx",
-      "args": ["-y", "@synesis/mcp"],
-      "env": {
-        "SYNESIS_URL": "https://synesis.company.com",
-        "SYNESIS_PAT": "syn-your-token"
-      }
-    }
-  }
-}
-```
-
-Setup guides:
-
-- [`docs/clients/MCP_QUICKSTART.md`](docs/clients/MCP_QUICKSTART.md) for MCP.
-- [`docs/clients/CLIENTS.md`](docs/clients/CLIENTS.md) for Claude Code, Cursor, ACP, and HTTP clients.
-- [`base/yarn-ts/README.md`](base/yarn-ts/README.md) for coder runtime details.
-
-## How It Fits Together
+## How it fits together
 
 ```mermaid
 flowchart LR
-    Chat[Chat clients\nOpen WebUI / OpenAI API] --> Planner[Planner pipeline\nplan + retrieve + write + critique]
-    IDE[IDE agents\nClaude Code / Cursor / ACP] --> Coder[Synesis coder\nYarn runtime]
+    Chat[Chat clients] --> Planner[Planner API]
+    Agents[Coding clients] --> Yarn[Yarn coder API / ACP bridge]
     MCP[MCP clients] --> Tools[Synesis MCP tools]
-
-    Planner --> RAG[NornicDB\nvector + graph RAG]
-    Tools --> RAG
-    Coder --> Tools
-
-    Planner --> Admin[Admin UI\nmodels + providers + review + traces]
-    Coder --> Admin
-    RAG --> Admin
-
-    Admin --> Providers[Model providers\nself-hosted or API]
-    Planner --> Providers
-    Coder --> Providers
+    Planner --> Models[Configured model providers]
+    Yarn --> Models
+    Planner --> Knowledge[Knowledge retrieval / NornicDB]
+    Tools --> Knowledge
+    Admin[Admin] -. configuration .-> Planner
+    Admin -. configuration .-> Yarn
+    Admin -. review and ingestion .-> Knowledge
 ```
 
-The short version:
+Planner and Yarn share contracts and infrastructure, but serve different workflows. An existing coding client continues to own its native tools, execution environment, and approval controls. Synesis supplies additional context and policy checks at the API boundary.
 
-- **Chat** goes through the planner pipeline for structured planning, retrieval, writing, and critic review.
-- **Coder** traffic goes through Yarn, an OpenAI/Claude-compatible runtime for IDE and agent workflows.
-- **MCP** exposes Synesis knowledge and safety tools to external agents.
-- **Admin** is the operator surface for models, providers, review queues, security events, and traces.
-- **RAG** is graph-native and authorization-aware, backed by NornicDB and optional OpenFGA row checks.
+## Compatibility and boundaries
 
-## Explore The System
+- **Client support is integration-specific.** The [harness compatibility guide](docs/clients/HARNESS_COMPATIBILITY.md) covers recognized clients, including Hermes Agent and DeepSeek Harness, metadata requirements, and tested contracts. Recognition is not certification of every client version or plugin.
+- **Model behavior and endpoint behavior are separate.** The [model shim audit](docs/model-shim-audit-2026-09.md) documents DeepSeek, Qwen, GLM, Kimi, MiniMax, and MiMo handling, including reasoning replay and current validation limits. Tool parsers and optional API features depend on the serving endpoint.
+- **Context reduction has tradeoffs.** Configured budgets, exact-output deduplication, and recoverable artifacts can reduce repeated input. Compaction can still remove useful detail; model names do not justify automatic context discounts or recall guarantees.
+- **Security controls have defined boundaries.** Schema validation, trust metadata, authorization checks, and tool policies provide defense in depth. They do not guarantee correct answers or replace the execution host's sandbox. See the [security model](docs/SECURITY.md).
+- **Self-hosted does not automatically mean offline.** Hosted models, web search, package downloads, and external connectors create network dependencies. A disconnected installation requires internally available models, images, dependencies, and data sources.
 
-- [Graph-native RAG](docs/RAG.md): retrieval, NornicDB, graph expansion, provenance, and authz.
-- [Planner workflow](docs/chat/WORKFLOW_PLANNER.MD): entry, planning, routing, writing, critic, and response flow.
-- [Coder runtime](docs/coder/README.md): Yarn, harness compatibility, compaction, tracing, and tool governance.
-- [Security posture](docs/SECURITY.md): trust envelopes, schema hardening, prompt-injection controls, and operator checks.
-- [Web search](docs/WEB_SEARCH.md): self-hosted SearXNG grounding.
-- [Indexers](docs/INDEXERS.md): queue-driven ingestion for docs, code, APIs, licenses, and web pages.
-- [Sandbox](docs/SANDBOX.md): isolated code execution and validation.
-- [Observability](docs/OBSERVABILITY.md): metrics, dashboards, traces, and validation.
-- [Design theory](docs/DESIGN_THEORY.md): guiding hypotheses, research lineage, and why the platform is shaped as a control plane.
-- [Comparison notes](docs/COMPARISON.md): where Synesis fits relative to frameworks, RAG apps, coding agents, and SaaS search.
+Automated tests exercise contracts and regression cases. Live model quality, latency, cost, and compatibility depend on your configuration and workload. Use the [testing guide](docs/development/TESTING.md) and deployment canaries before relying on a new integration.
 
-## Repository Map
+## Explore the project
+
+- [Documentation index](docs/README.md): setup, users, operators, and development.
+- [Chat workflow](docs/chat/WORKFLOW_PLANNER.MD) and [coder runtime](base/yarn-ts/README.md).
+- [Knowledge retrieval](docs/RAG.md), [indexers](docs/INDEXERS.md), and [web search](docs/WEB_SEARCH.md).
+- [Observability](docs/OBSERVABILITY.md) and [security](docs/SECURITY.md).
+- [Design hypotheses](docs/DESIGN_THEORY.md) and [project fit](docs/COMPARISON.md).
 
 ```text
-base/                 Runtime services: planner, coder, admin, RAG, MCP, sandbox, model serving
-packages/             Shared TypeScript packages and publishable MCP tooling
-charts/synesis/       Helm chart, examples, templates, and production deployment knobs
-docs/                 Product, operator, security, client, and development docs
-clients/              Client-side helpers and integration assets
+base/                 Runtime services
+packages/             Shared TypeScript packages and MCP tooling
+charts/synesis/       Helm chart and deployment examples
+docs/                 User, operator, design, and development documentation
+clients/              Client helpers and integration assets
 evals/                Evaluation fixtures and harness material
-scripts/              Build, validation, dependency, and maintenance helpers
+scripts/              Build, validation, and maintenance tools
 ```
-
-## Project Goals
-
-- Keep AI infrastructure inspectable, portable, and self-hostable.
-- Make retrieval, provenance, review, and security shared platform features.
-- Give coding agents access to real organizational context without turning every IDE into a separate silo.
-- Support heterogeneous model fleets instead of assuming one model should do everything.
-- Make operator controls visible: model routing, provider keys, security events, traces, feedback, and review queues.
-- Stay forkable: clear services, shared contracts, docs, tests, and Kubernetes-first deployment.
 
 ## Contributing
 
-Contributions are welcome, especially around clients, MCP tools, indexers, model adapters, evals, docs, and deployment hardening. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [development docs](docs/development/README.md).
+Contributions to integrations, evals, documentation, tools, and deployment workflows are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [development guide](docs/development/README.md). For behavioral changes, include a reproducible example and relevant validation; distinguish measured results from intended improvements.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for the full text.
+[Apache License 2.0](LICENSE).

@@ -3,10 +3,10 @@ import { resolvePlannerArchitectureMediation } from "../src/context/architecture
 import type { ChatMessage } from "../src/context/session-store.js";
 
 const MODELS = [
-  { id: "deepseek-v4", expectedAttention: "mla" },
-  { id: "qwen3-coder-plus", expectedAttention: "global_local_hybrid" },
-  { id: "kimi-k2.7-code", expectedAttention: "hybrid_compressed_attention" },
-  { id: "minimax-abab-7", expectedAttention: "heavily_compressed_attention" },
+  { id: "deepseek-v4", expectedAttention: "hybrid_compressed_attention" },
+  { id: "qwen3-coder-plus", expectedAttention: "full_attention" },
+  { id: "kimi-k2.5", expectedAttention: "mla" },
+  { id: "minimax-abab-7", expectedAttention: "unknown" },
 ] as const;
 
 const SCENARIOS: Array<{
@@ -67,7 +67,7 @@ describe("OpenWebUI deterministic architecture eval matrix", () => {
 
         expect(mediation.profile.attention).toBe(model.expectedAttention);
         expect(mediation.chatProfile).toBe(scenario.expectedProfile);
-        expect(mediation.policy.multipass.maxRepairPasses).toBe(1);
+        expect(mediation.policy.multipass.maxRepairPasses).toBe(0);
         expect(mediation.activeStateHeader).toContain("SYNESIS_PLANNER_ACTIVE_STATE");
         expect(mediation.trace.fact_pin_count).toBeGreaterThanOrEqual(0);
         if (scenario.evidenceBlock) {

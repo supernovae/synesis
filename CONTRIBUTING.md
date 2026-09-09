@@ -12,9 +12,11 @@ Thank you for your interest in contributing! This document provides guidelines t
 
 ## Development Checks
 
-For intent-flow and prompting validation (unit tests + live integration), see [docs/development/DEVELOPMENT_CHECKS.md](docs/development/DEVELOPMENT_CHECKS.md):
-- **Unit tests** (no deploy): `pytest tests/test_intent_validation.py tests/test_graph_routing.py`
-- **Live validation** (after deploy): `oc port-forward` + `python scripts/validate-intent-live.py`
+Use the [development checks](docs/development/DEVELOPMENT_CHECKS.md) and
+[testing guide](docs/development/TESTING.md) for the service you change. TypeScript
+workspaces provide build and test scripts; live provider checks require a
+configured deployment and credentials. Run the relevant local checks before
+requesting review and report any checks you could not run.
 
 ## Development Setup
 
@@ -107,12 +109,10 @@ YAML files are validated with [yamllint](https://yamllint.readthedocs.io/). Conf
 yamllint -c .yamllint.yml base/ overlays/
 ```
 
-Kustomize overlays must build cleanly:
+Build the overlays affected by your change, for example:
 
 ```bash
-kustomize build overlays/dev > /dev/null
-kustomize build overlays/staging > /dev/null
-kustomize build overlays/prod > /dev/null
+kustomize build overlays/api > /dev/null
 ```
 
 ### Dockerfiles
@@ -123,6 +123,27 @@ Dockerfiles are linted with [hadolint](https://github.com/hadolint/hadolint):
 find base/ -name Dockerfile | xargs hadolint
 ```
 
+## Documentation claims
+
+Describe shipped behavior, prerequisites and configuration separately from design
+goals. When changing a model adapter, endpoint or harness contract, update its
+canonical reference and the README only where the project overview changes.
+
+- Name the tested model/client versions and serving configuration. Recognition
+  or a mocked protocol test is not live end-to-end certification.
+- Support performance or quality claims with a reproducible workload, baseline,
+  configuration and measured result. Label illustrative numbers as examples.
+- Explain safety boundaries and recovery limits; avoid guarantees of safe
+  execution, perfect recall or lossless compaction.
+- Cite research as motivation unless the implementation and evaluations actually
+  reproduce its method. Keep proposals and dated findings distinct from current defaults.
+- Verify commands, defaults, file links and headings against the repository.
+  Run `python3 scripts/check-doc-reference-integrity.py` for reference checks.
+
+Current references: [harness compatibility](docs/clients/HARNESS_COMPATIBILITY.md),
+[model behavior audit](docs/model-shim-audit-2026-09.md), and
+[architecture controls](docs/model-architecture-awareness.md).
+
 ## Commit Messages
 
 - Use imperative mood: "Add feature" not "Added feature"
@@ -131,8 +152,8 @@ find base/ -name Dockerfile | xargs hadolint
 
 ## Pull Request Checklist
 
-- [ ] All linters pass locally (`ruff check`, `shellcheck`, `yamllint`, `hadolint`)
-- [ ] Kustomize builds succeed for all overlays
+- [ ] Relevant linters and tests pass; unrun checks are reported
+- [ ] Affected deployment manifests build or render successfully
 - [ ] New shell scripts have `set -euo pipefail`
 - [ ] New Python files follow the existing patterns in `base/`
 - [ ] New Kubernetes resources include appropriate labels (`app.kubernetes.io/*`)

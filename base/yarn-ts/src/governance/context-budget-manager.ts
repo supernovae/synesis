@@ -196,7 +196,10 @@ function replaceContentPreservingFormat(
     }
   }
   if (msg.role === "assistant" && Array.isArray(msg.content)) {
-    return { ...msg, content: [{ type: "text", text: stubText }] };
+    return { ...msg, content: [
+      ...msg.content.filter((part: Record<string, unknown>) => part.type !== "text"),
+      { type: "text", text: stubText },
+    ] };
   }
   return { ...msg, content: stubText };
 }

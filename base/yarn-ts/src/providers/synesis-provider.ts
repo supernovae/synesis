@@ -1,4 +1,4 @@
-import { customProvider } from "ai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenAI } from "@ai-sdk/openai";
 import { normalizeOpenAICompatTierModelId, type TierConfig } from "./admin-tier-registry.js";
 import { adapterHintForModelCapabilityPreset } from "./model-architecture-profile.js";
@@ -146,23 +146,16 @@ export class SynesisProviderRegistry {
       },
     );
 
-    const upstream = createOpenAI({
-      baseURL: selected.baseUrl,
-      apiKey: selected.apiKey,
-      fetch: transportFetch,
-    });
-    const provider = customProvider({
-      languageModels: {
-        [selected.id]: upstream.chat(selected.backendModel)
-      }
-    });
     const adapter = resolveAdapter(
       selected.backendModel,
       selected.baseUrl,
       selected.adapterHint ?? adapterHintForModelCapabilityPreset(selected.modelCapabilityPreset),
     );
+    const upstreamModel = createUpstreamChatModel(
+      selected.backendModel, selected.baseUrl, selected.apiKey, transportFetch, adapter.family,
+    );
     return {
-      model: provider.languageModel(selected.id),
+      model: upstreamModel,
       resolvedModelId: selected.id,
       adapter
     };
@@ -200,21 +193,62 @@ export class SynesisProviderRegistry {
           : [],
       },
     );
-    const upstream = createOpenAI({
-      baseURL: baseUrl,
-      apiKey,
-      fetch: transportFetch,
-    });
-    const provider = customProvider({
-      languageModels: {
-        [modelId]: upstream.chat(backendModel),
-      },
-    });
     const adapter = resolveAdapter(backendModel, baseUrl, adapterHint);
+    const upstreamModel = createUpstreamChatModel(backendModel, baseUrl, apiKey, transportFetch, adapter.family);
     return {
-      model: provider.languageModel(modelId),
+      model: upstreamModel,
       resolvedModelId: modelId,
       adapter,
     };
   }
+}
+
+/** Preserve the reasoning_content extension using the SDK's compatible provider.
+ * Keep the existing `openai` option namespace so both request protocols use the
+ * same option builder; translate only the known SDK/wire spelling differences.
+ */
+function createUpstreamChatModel(
+  model: string,
+  baseURL: string,
+  apiKey: string,
+  fetch: typeof globalThis.fetch,
+  family: string,
+) {
+  const deepseekEndpoint = resolveEndpointCapabilityId(baseURL) === "deepseek";
+  const reasoningCompatible = deepseekEndpoint || ["deepseek", "qwen", "kimi", "minimax", "glm", "xiaomi"].includes(family);
+  if (!reasoningCompatible) return createOpenAI({ baseURL, apiKey, fetch }).chat(model);
+  return createOpenAICompatible({
+    name: "openai",
+    baseURL,
+    apiKey,
+    fetch,
+    includeUsage: true,
+    // Preserve explicit schema requests; unsupported endpoints should reject
+    // them instead of silently downgrading to unconstrained JSON mode.
+    supportsStructuredOutputs: true,
+    transformRequestBody: body => {
+      const result = { ...body };
+      const wireNames = {
+        maxCompletionTokens: "max_tokens",
+        parallelToolCalls: "parallel_tool_calls",
+        logitBias: "logit_bias",
+        serviceTier: "service_tier",
+        promptCacheKey: "prompt_cache_key",
+        promptCacheRetention: "prompt_cache_retention",
+        safetyIdentifier: "safety_identifier",
+      };
+      for (const [sdk, wire] of Object.entries(wireNames)) {
+        if (!(sdk in result)) continue;
+        result[wire] = result[sdk];
+        delete result[sdk];
+      }
+      if (deepseekEndpoint) {
+        if (typeof result.enable_thinking === "boolean") {
+          result.thinking = { type: result.enable_thinking ? "enabled" : "disabled" };
+        }
+        delete result.enable_thinking;
+      }
+      return result;
+    },
+  }).chatModel(model);
 }

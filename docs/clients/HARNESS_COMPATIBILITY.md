@@ -2,6 +2,8 @@
 
 Reviewed 2026-09-09. This is compatibility support in Yarn's model API proxy and ACP bridge. It does not install or launch the named clients. Tests exercise the transport, adapter, schema restoration and path contracts; they are not live end-to-end certification of every upstream release.
 
+Model-family adaptations are reviewed separately in the [model shim audit](../model-shim-audit-2026-09.md). A DeepSeek model is not evidence that the caller is DeepSeek Harness.
+
 ## Integration contract
 
 Use `x-synesis-client` or flat `metadata.synesis_client` with one of the client IDs below. Send the existing `synesis_project_root` and `synesis_shell_cwd` metadata (or equivalent headers) from the **execution environment**, not the proxy or the browser. Use distinct conversation/session IDs for concurrent workspaces. Refresh cwd after changes, and refresh workspace context when moving to another checkout or backend.

@@ -19,7 +19,6 @@ import {
 } from "./openai-route-inputs.js";
 import {
   buildOpenAIChatProviderRequestOptions,
-  suppressThinkingWhenRequiredToolChoice,
 } from "./provider-options.js";
 import {
   architecturePolicyTrace,
@@ -451,24 +450,8 @@ export function prepareOpenAIChatProviderRuntime(
   });
   const samplingOptions = providerRequestOptions.samplingOptions;
   const structuredOutput = providerRequestOptions.structuredOutput;
-  let providerOptions = providerRequestOptions.providerOptions;
-  const thinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
-    providerOptions,
-    effectiveToolChoice as PhaseAwareToolChoice | undefined,
-  );
-  providerOptions = thinkingToolChoiceGuard.providerOptions;
-  if (thinkingToolChoiceGuard.suppressed) {
-    routePersistence.recordSessionEvent(
-      "phase_required_tool_choice_thinking_guard",
-      "execution-governor",
-      "Suppressed thinking because tool_choice=required is incompatible with provider thinking mode.",
-      {
-        path: "openai",
-        phase: input.governorPhase,
-        phase_reason: phasePolicy.reason ?? null,
-      },
-    );
-  }
+  const providerOptions = providerRequestOptions.providerOptions;
+
   const admissionResult = runRouteContextAdmission({
     surface: "openai",
     messages: modelMessages as Array<{ role: string; content: unknown; name?: string; tool_call_id?: string }>,

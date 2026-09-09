@@ -52,6 +52,11 @@ function contentChars(content: unknown): number {
   try { return JSON.stringify(content ?? "").length; } catch { return 0; }
 }
 
+function reasoningChars(message: Record<string, unknown>): number {
+  return message.role === "assistant" && typeof message.reasoning_content === "string"
+    ? message.reasoning_content.length : 0;
+}
+
 function toolCallChars(message: Record<string, unknown>): number {
   const calls = message.tool_calls as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(calls)) return 0;
@@ -82,7 +87,8 @@ export function estimateTokens(
 
   for (const msg of messages) {
     const chars = contentChars(msg.content)
-      + toolCallChars(msg as Record<string, unknown>);
+      + toolCallChars(msg as Record<string, unknown>)
+      + reasoningChars(msg as Record<string, unknown>);
     const overhead = PER_MESSAGE_OVERHEAD_TOKENS;
 
     switch (msg.role) {
@@ -131,7 +137,8 @@ export function estimateMessageTokens(
   message: { role: string; content: unknown },
 ): number {
   const chars = contentChars(message.content)
-    + toolCallChars(message as Record<string, unknown>);
+    + toolCallChars(message as Record<string, unknown>)
+    + reasoningChars(message as Record<string, unknown>);
   const overhead = PER_MESSAGE_OVERHEAD_TOKENS;
 
   switch (message.role) {

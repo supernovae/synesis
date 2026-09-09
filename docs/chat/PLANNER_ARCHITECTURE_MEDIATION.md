@@ -16,12 +16,12 @@ attention model, a sliding-window model, an MLA-style model, and a compressed
 long-context model can all expose the same `/v1/chat/completions` interface but
 behave differently in long chats.
 
-Planner treats large declared context as addressable storage when the selected
-architecture profile indicates long-context compression. The reliable working
-set is reinforced with active state, fact pins, evidence IDs, and hygiene
-signals near the planner/writer prompts.
+Planner can reinforce context with active state, fact pins, evidence IDs, and
+hygiene signals. Built-in attention labels do not reduce configured context
+capacity or establish recall quality. Storage/working-set interpretations and
+operational limits require explicit registry configuration.
 
-This is especially useful for:
+Intended evaluation scenarios include:
 
 - Open WebUI sessions with many follow-up turns;
 - roleplay or creative continuity where canon must stay stable;
@@ -29,8 +29,7 @@ This is especially useful for:
 - long advisory sessions with persistent goals and constraints;
 - RAG answers where evidence IDs and citations need to stay close to the final
   writer prompt;
-- DeepSeek/Qwen/Kimi/MiniMax-class models where large context does not always
-  mean dense recall.
+- comparing long-context behavior across configured model endpoints.
 
 ## Request Controls
 
@@ -61,11 +60,11 @@ Mode behavior:
 - `off`: no architecture mediation and no Planner active-state injection.
 - `observe`: compute profile, hygiene, pins, manifest, and trace artifacts, but
   do not alter prompts.
-- `safe`: filter obvious duplicate/stale low-value context and keep strict
-  validation posture without extra model passes.
+- `safe`: filter duplicate low-value context and keep strict
+  validation posture without extra model passes; stale-keyword filtering requires
+  an explicit recommendation.
 - `adaptive`: inject Planner active state when the resolved architecture policy
-  benefits from it; allow at most one repair path for critical
-  fact/reference/structure issues.
+  enables it; additional repair passes require an explicit recommendation.
 - `aggressive`: use the same artifacts with a stronger retrieve-answer-verify
   posture, still bounded to one repair pass.
 
@@ -114,26 +113,14 @@ using target type `chat_profile` and one of the profile slugs above. Built-in
 profiles stay in code so Open WebUI works well without requiring prompt-library
 configuration.
 
-## Model-Family Defaults
+## Model-family defaults
 
-The built-in model-family profiles are conservative harness defaults. They are
-not claims about provider internals, and admin registry overrides remain
-authoritative.
-
-- DeepSeek/MLA-style: stronger active-state replay, fact pins near the prompt
-  tail, JSON/structured-output repair posture, and latest-state preference over
-  stale transcript context.
-- Qwen/global-local hybrid: anti-repetition pressure, follow-up interpretation,
-  concise state grounding, and medium-risk long-context verification.
-- Kimi/Moonshot-style: explicit long-context state replay, evidence manifest
-  emphasis, citation/reference checks, and shorter answer sections when useful.
-- MiniMax/heavily compressed style: short-turn bias, strict reference checks,
-  duplicate/stale context filtering, and bounded repair.
-- Full-attention models: avoid unnecessary heavy active-state prompt churn by
-  default while still allowing request/admin overrides.
-
-Unknown models use conservative defaults: explicit state headers, context
-hygiene, structured validation, and recent-state replay.
+Planner shares the audited architecture resolver with Yarn. Verified attention
+labels are descriptive; they do not apply arbitrary context discounts, shorter
+turns, governor bias or repair passes. Unknown quality and serving behavior stay
+unknown. Adaptive mode uses configured state reinforcement; multipass requires
+an explicit recommendation or aggressive mode. Keyword-based stale filtering is
+off by default. See the [model shim audit](../model-shim-audit-2026-09.md).
 
 ## Public Offerings and Admin Overrides
 
@@ -210,7 +197,8 @@ For most Open WebUI deployments:
 - use `safe` if compatibility risk is more important than continuity gains;
 - use `aggressive` only for long-context tasks where verification/repair cost is
   acceptable;
-- use `off` to debug raw provider behavior.
+- use `off` to isolate architecture mediation during debugging; other runtime
+  controls remain independent.
 
-This gives Planner better cross-model behavior without pretending every model
-has the same dense working memory.
+Compare these settings on your workload. They are controls for evaluation, not
+a promise of better recall or task quality.

@@ -15,6 +15,7 @@ interface OpenAIChatMessage {
   role: string;
   content?: unknown;
   name?: string;
+  reasoning_content?: string | null;
   tool_call_id?: string;
   tool_calls?: Array<{
     id: string;
@@ -462,7 +463,10 @@ export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): Mo
         out.push({ role: "user", content: normalizeUserContent(m.content) } as ModelMessage);
         break;
       case "assistant": {
-        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
+        const parts: Array<{ type: "text" | "reasoning"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
+        if (typeof m.reasoning_content === "string" && m.reasoning_content.length > 0) {
+          parts.push({ type: "reasoning", text: m.reasoning_content });
+        }
         const text = extractAssistantText(m.content);
         if (text) parts.push({ type: "text", text });
         if (m.tool_calls) {

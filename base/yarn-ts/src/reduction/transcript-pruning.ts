@@ -1,5 +1,4 @@
 import { looksLikeVerificationFailureOutput } from "../context/compaction-sensitivity.js";
-import { normalizeCommandOutputForComparison } from "./output-normalization.js";
 import type { ArtifactStore } from "../state/artifact-store.js";
 import { isUnchangedHint, parseReadSnapshotEnvelope } from "./file-snapshot-registry.js";
 import { inferCompactionSensitivity, type CompactionSensitivity } from "../context/compaction-sensitivity.js";
@@ -271,7 +270,7 @@ export class TranscriptPruningService {
     out = this.deduplicateFileReads(out, keepFromIndex, protectedReadIdx);
     out = this.evictStaleToolResults(out, keepFromIndex, evictProtectedIdx);
     out = this.condenseOldAssistant(out, keepFromIndex);
-    out = this.collapseNearDuplicateOutputs(out, keepFromIndex, protectedReadIdx);
+    out = this.collapseNearDuplicateOutputs(out, protectedReadIdx);
 
     const afterChars = out.reduce(
       (sum, m) => sum + contentLength(m.content),
@@ -489,7 +488,7 @@ export class TranscriptPruningService {
   ): MessageLike[] {
     return messages.map((m, i) => {
       if (i >= keepFromIndex) return m;
-      if (m.role !== "assistant") return m;
+      if (m.role !== "assistant" || Array.isArray(m.content)) return m;
       const raw = contentString(m.content);
       if (raw.length <= this.config.assistantCondenseChars) return m;
       this.stats.assistantCondensed += 1;
@@ -503,15 +502,9 @@ export class TranscriptPruningService {
     });
   }
 
-  /**
-   * Strategy 5: Tool results with identical or near-identical content get
-   * collapsed to a reference pointing at the latest occurrence.  Catches
-   * repeated builds/tests that produce the same output even when the command
-   * strings differ slightly (e.g. `go test ./...` vs `go test -v ./...`).
-   */
+  /** Replace only byte-identical outputs with a reference to their latest copy. */
   private collapseNearDuplicateOutputs(
     messages: MessageLike[],
-    keepFromIndex: number,
     protectedIndices: Set<number>,
   ): MessageLike[] {
     const fingerprintToLatest = new Map<string, number>();
@@ -590,7 +583,7 @@ export class TranscriptPruningService {
     out = this.deduplicateFileReads(out, emergencyKeep, protectedReadIdx);
     out = this.evictStaleToolResults(out, emergencyKeep, evictProtectedIdx);
     out = this.condenseOldAssistant(out, emergencyKeep);
-    out = this.collapseNearDuplicateOutputs(out, emergencyKeep, protectedReadIdx);
+    out = this.collapseNearDuplicateOutputs(out, protectedReadIdx);
 
     let charsAfter = out.reduce((sum, m) => sum + contentLength(m.content), 0);
     if (charsAfter > targetCharBudget) {
@@ -694,18 +687,11 @@ function extractToolCallCommands(messages: MessageLike[]): Map<string, string> {
 }
 
 /**
- * Produce a short fingerprint for content comparison.  Uses sampled lines so
- * that outputs differing only in timestamps or run counts still match.
+ * Compare complete exact content. Sampling lines or masking numbers can hide
+ * changed failures, identifiers, citations or code.
  */
 function contentFingerprint(raw: string): string {
-  const normalized = normalizeCommandOutputForComparison(raw);
-  const lines = normalized.split("\n");
-  const sampled: string[] = [];
-  const step = Math.max(1, Math.floor(lines.length / 20));
-  for (let i = 0; i < lines.length; i += step) {
-    sampled.push(lines[i].trim().replace(/\d+/g, "#").replace(/\s+/g, " "));
-  }
-  return sampled.join("\n");
+  return raw;
 }
 
 function escapeXmlAttr(s: string): string {

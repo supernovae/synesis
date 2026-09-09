@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { canonicalValidationToolName } from "../tool-aliases.js";
 
 /**
@@ -158,960 +159,103 @@ function hasUsableToolArg(value: unknown): boolean {
   return true;
 }
 
-const IMPLEMENT_INTENT_RE =
-  /\b(i('| a)?ll|let me|i need to|i should|i can)\b.{0,40}\b(implement|add|fix|update|enhance|complete|continue)\b/i;
-
-const FINGERPRINT_ARG_KEYS = [
-  "file_path",
-  "old_string",
-  "new_string",
-  "command",
-  "pattern",
-  "glob_pattern",
-] as const;
-
-const TASK_TOOL_NAMES = new Set([
-  "taskcreate",
-  "taskupdate",
-  "tasklist",
-  "taskget",
-  "todowrite",
-]);
-
-function truncateForFingerprint(value: string, max = 80): string {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (compact.length <= max) return compact;
-  return `${compact.slice(0, max)}…`;
-}
-
-function isTaskTrackerToolName(toolName: string): boolean {
-  return TASK_TOOL_NAMES.has(toolName.trim().toLowerCase());
-}
-
-function isActionToolCall(call: RecentToolCall): boolean {
-  const t = call.toolName.trim().toLowerCase();
-  if (t === "edit" || t === "update" || t === "write") return true;
-  if (t !== "bash") return false;
-  const cmdRaw = call.args?.command;
-  if (typeof cmdRaw !== "string") return false;
-  const cmd = cmdRaw.toLowerCase();
-  return /\b(test|build|lint|vet|pytest|unittest|vitest|jest|mocha|mypy|ruff|tsc)\b/.test(cmd)
-    || /\bgo\s+test\b/.test(cmd)
-    || /\bcargo\s+test\b/.test(cmd)
-    || /\bpython(?:\d+(?:\.\d+)?)?\s+-m\s+(?:pytest|unittest)\b/.test(cmd);
-}
-
+/** Stable full-argument identity: retain case, offsets, URLs and edit content. */
 export function fingerprintToolCall(call: RecentToolCall): string {
-  const tool = call.toolName.trim().toLowerCase();
-  const args = call.args ?? {};
-  const canonicalArgs: Record<string, unknown> = { ...args };
-  if (canonicalArgs.file_path === undefined && canonicalArgs.path !== undefined) {
-    canonicalArgs.file_path = canonicalArgs.path;
-  }
-  delete canonicalArgs.path;
-  const rawPath =
-    (typeof call.filePath === "string" && call.filePath.trim()) ||
-    (typeof canonicalArgs.file_path === "string" && canonicalArgs.file_path.trim()) ||
-    (typeof canonicalArgs.filename === "string" && canonicalArgs.filename.trim()) ||
-    "";
-  const normalizedPath = rawPath
-    ? normalizeWorkspaceRelativeFilePath(rawPath).toLowerCase()
-    : "";
-  const parts: string[] = [`t:${tool}`];
-  if (normalizedPath) parts.push(`p:${normalizedPath}`);
-
-  for (const key of FINGERPRINT_ARG_KEYS) {
-    const raw = canonicalArgs[key];
-    if (raw === undefined || raw === null) continue;
-    let normalized: string;
-    if (key === "file_path" && typeof raw === "string") {
-      normalized = normalizeWorkspaceRelativeFilePath(raw).toLowerCase();
-    } else if (typeof raw === "string") {
-      normalized = truncateForFingerprint(raw);
-    } else if (typeof raw === "number" || typeof raw === "boolean") {
-      normalized = String(raw);
-    } else {
-      normalized = truncateForFingerprint(JSON.stringify(raw));
-    }
-    if (normalized) parts.push(`${key}:${normalized}`);
-  }
-  return parts.join("|");
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)]));
+    return value;
+  };
+  return createHash("sha256").update(JSON.stringify(canonical({ tool: call.toolName, path: call.filePath, args: call.args }))).digest("hex");
 }
 
-/**
- * Shared across adapters that use Claude Code–style file tools (Qwen, MiniMax, etc.).
- * Keep in sync for any edit-strategy change (Read→Write vs Edit/Update).
- */
-export const SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE = [
-  "",
-  "## Workflow discipline (Plan → Do → Act)",
-  "- **Plan-first mode**: Begin with explicit research, clarification, and a detailed plan (file paths, steps, success criteria, 'Done when'). Get implicit approval via tool use before heavy implementation. Use <plan> or TaskUpdate for tracking.",
-  "- **Focused actions per turn**: Prefer one focused action per turn. Avoid combining unrelated actions (e.g., plan update + code edit). Batching related tool calls (e.g., multiple file reads for context) is acceptable.",
-  "- **Task tracking discipline**: Create task items once per user request. After that, only update existing task items; never create duplicate tasks with the same intent/title. Mark complete before claiming done.",
-  "- **Read-then-act**: After reading a file, your NEXT action must be an edit, write, or bash command. Do not re-read the same file unless a previous Edit/Update failed.",
-  "- **Prefer Read once, then Write (full file)**: For changing an existing file, prefer **one Read** to load current contents, then **Write** the complete updated file. Search-and-replace (Edit/Update) often fails on exact `old_string` match; use it only for **small, surgical** edits where you can quote a **minimal unique** hunk from the file you just read.",
-  "- **Plan commitment**: Once you state a plan, execute it step by step. Do not re-gather information you already have. Use explicit phase transitions (explore → edit → verify → report).",
-  "- **Progressive narrowing + self-verification**: Each tool call must produce NEW information or make a change. After edits, immediately run relevant tests/verification. Include 'Done when: tests pass, behavior matches spec' criteria.",
-  "- **File offset awareness**: When reading large files, use offset/limit parameters to read specific sections. Do not re-read from line 1 if you already have the beginning.",
-  "- **Parallel Tool Limits**: Do NOT emit multiple Edit/Update/Write tool calls for the same file in a single turn. The first edit will change the file and cause the subsequent edits to fail. Make one edit, wait for the result, then make the next.",
-  "- **Blind Writes**: Do NOT use the Write tool on a file without reading it first to verify its current state.",
-  "- **Edit failures**: If an Edit/Update call fails, do NOT retry with identical arguments. Re-read the file, then **Write the full file** (preferred) or use a new exact `old_string` from the fresh read.",
-  "- **Git commit followthrough**: When staging files with git add, follow through with git commit in the same sequence. Do not loop on git status/diff between add and commit.",
-  "- **Full verification output**: When running test/build commands, do not pipe output through head/tail. Capture full output so failures are visible.",
+const TOOL_CONTRACT_GUIDANCE = [
+  "Use the offered tool names and schemas, including their path and approval semantics.",
+  "Inspect existing content before targeted edits; new files may use the native write tool. Do not replace file tools with shell commands to evade schema errors.",
+  "After a failed call, inspect the error and correct its cause. Successful reads, task updates and distinct edits are progress, not evidence of a loop.",
 ].join("\n");
 
-export class Qwen3CoderAdapter implements ModelAdapter {
-  readonly family = "qwen3-coder";
-  readonly supportsThinking = false;
-  readonly maxEffectiveTools = 40;
-
-  /**
-   * When true, the backend handles XML→JSON tool call conversion natively
-   * (DashScope, vLLM with --tool-call-parser=qwen3_coder). We skip the
-   * heavy heredoc workaround prompt and trust tool calls to come through clean.
-   */
-  readonly nativeToolParser: boolean;
-
-  constructor(nativeToolParser = false) {
-    this.nativeToolParser = nativeToolParser;
-  }
-
-  defaultSamplingParams(): { temperature: number; top_p: number } {
-    return { temperature: 0.7, top_p: 0.95 };
-  }
-
-  toolSystemPrompt(toolCount: number): string | undefined {
-    if (toolCount === 0) return undefined;
-
-    const workflowDiscipline = SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE;
-
-    // Backend with native XML parser handles tool calls correctly — minimal guidance only
-    if (this.nativeToolParser) {
-      return [
-        "# Tool Calling Guidelines",
-        "Use the EXACT parameter names from each tool's schema.",
-        "If a tool requires no arguments, pass an empty object: `{}`.",
-        "Use RELATIVE file paths (e.g., `hello.go`, `cmd/main.go`), not absolute paths.",
-        "For file tools, paths are relative to the client working directory. Do NOT prefix paths with the workspace folder name.",
-        "Do NOT assume shell `cd` changes file-tool path roots.",
-        workflowDiscipline,
-      ].join("\n");
+/** Nudge only when repeated identical calls have explicit failure evidence. */
+function repeatedFailurePrompt(calls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
+  const threshold = Math.max(2, options.editRetryLimit ?? 3);
+  if (calls.length < threshold) return null;
+  const tail = calls.slice(-threshold);
+  const fingerprint = fingerprintToolCall(tail[0]);
+  if (!tail.every(call => fingerprintToolCall(call) === fingerprint)) return null;
+  const failed = (content: string | undefined): boolean => {
+    if (!content) return false;
+    try {
+      const result = JSON.parse(content) as Record<string, unknown>;
+      if (!result || typeof result !== "object") return false;
+      return result.is_error === true || result.isError === true || result.status === "failed" || result.status === "error"
+        || (typeof result.exit_code === "number" && result.exit_code !== 0);
+    } catch {
+      return /^(?:Error:|File not found:|No such file or directory|ENOENT\b|ValidationError:)/im.test(content);
     }
+  };
+  if (!tail.every(call => failed(call.resultContent))) return null;
+  return "The same tool call returned an explicit failure repeatedly. Inspect the latest error and current tool schema, then change the failing arguments or report the blocker. Do not repeat the unchanged failed call.";
+}
 
-    // JSON-only backend (DeepInfra, OpenRouter) — steer toward Bash heredoc for code
-    return [
-      "# Tool Calling Guidelines",
-      "You have access to tools. When calling a tool, you MUST use the EXACT parameter names from the tool's schema.",
-      "If a tool requires no arguments, pass an empty object: `{}`.",
-      "Do not omit the arguments field. Call one tool at a time.",
-      "Never emit XML tool wrappers/tags (e.g. <tool_call>, <tool>, </tool>).",
-      "Tool calls must be plain JSON arguments through the tool API only.",
-      "",
-      "## Critical parameter names (use these EXACTLY):",
-      "- **Write tool**: `file_path` (string), `content` (string). Both required.",
-      "- **Read tool**: `file_path` (string). Required.",
-      "- **Edit tool**: `file_path`, `old_string`, `new_string`.",
-      "- **Bash tool**: `command` (string). Required.",
-      "- **Grep tool**: `pattern` (string).",
-      "- **Glob tool**: `glob_pattern` (string).",
-      "",
-      "## Creating files (PREFERRED method for source code):",
-      "For files containing source code, use the **Bash** tool with a heredoc instead of the Write tool.",
-      "This avoids JSON escaping problems with quotes and newlines in code.",
-      "",
-      "Example — create a Go file:",
-      '{"command": "cat > hello.go << \'EOF\'\\npackage main\\n\\nimport \\"fmt\\"\\n\\nfunc main() {\\n\\tfmt.Println(\\"Hello, World!\\")\\n}\\nEOF"}',
-      "",
-      "Example — create a Python file:",
-      '{"command": "cat > app.py << \'EOF\'\\nfrom flask import Flask\\n\\napp = Flask(__name__)\\n\\n@app.route(\\"/\\")\\ndef index():\\n    return \\"Hello\\"\\nEOF"}',
-      "",
-      "Only use the Write tool for short config files or single-line content.",
-      "",
-      "## File paths:",
-      "Use RELATIVE paths from the current working directory (e.g., `hello.go`, `cmd/main.go`).",
-      "Do NOT use absolute paths like `/home/user/...`. The user's OS may not be Linux.",
-      "For file tools, do NOT prefix with the repository/workspace folder name.",
-      "Shell cwd persistence and file-tool roots depend on the harness; follow the offered schema and current execution context.",
-      "",
-      "## Directories (avoid getting lost):",
-      "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times.",
-      "If the workspace is empty or you are already at the project root, create files there (`main.go`, `go.mod`) instead of nesting duplicate path segments.",
-      workflowDiscipline,
-    ].join("\n");
+class SchemaDrivenAdapter implements ModelAdapter {
+  readonly family: string;
+  readonly supportsThinking: boolean;
+  constructor(family: string, supportsThinking = true) {
+    this.family = family;
+    this.supportsThinking = supportsThinking;
   }
-
+  toolSystemPrompt(toolCount: number): string | undefined {
+    return toolCount > 0 ? TOOL_CONTRACT_GUIDANCE : undefined;
+  }
   normalizeToolCallArgs(args: string): string {
-    const trimmed = args.trim();
-    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "{}";
-    return trimmed;
+    return args.trim(); // malformed or missing JSON is not proof of an empty object
   }
-
-  remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
+  remapToolArgs(toolName: string, input: Record<string, unknown>) {
     return remapCommonToolArgAliases(toolName, input);
   }
-
-  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
-    if (recentToolCalls.length < 3) return null;
-
-    const planNoActionLimit = Math.max(1, options.planNoActionLimit ?? 4);
-    const editRetryLimit = Math.max(2, options.editRetryLimit ?? 3);
-    const stagnationWindow = Math.max(3, options.stagnationWindow ?? 8);
-    const stagnationThreshold = Math.max(2, options.stagnationThreshold ?? 3);
-    const userIntent = this._classifyUserIntent(options.recentUserPrompt);
-
-    const noAction = this._detectPlanWithoutAction(
-      recentToolCalls,
-      options.recentAssistantText,
-      options.recentUserPrompt,
-      planNoActionLimit,
-    );
-    if (noAction) return noAction;
-
-    // Ordered checks: edit-retry before broader repeated-intent/read loops.
-    const editRetries = this._detectEditRetryLoop(recentToolCalls, editRetryLimit);
-    if (editRetries) return editRetries;
-
-    const gitIntrospectionLoop = this._detectGitIntrospectionLoop(recentToolCalls);
-    if (gitIntrospectionLoop) return gitIntrospectionLoop;
-
-    const multiActionDrift = this._detectSingleActionDrift(recentToolCalls);
-    if (multiActionDrift) return multiActionDrift;
-
-    const repeatedIntent = this._detectRepeatedIntentLoop(
-      recentToolCalls,
-      stagnationWindow,
-      stagnationThreshold,
-      userIntent,
-    );
-    if (repeatedIntent) return repeatedIntent;
-
-    return this._detectReadLoop(
-      recentToolCalls,
-      stagnationThreshold,
-      userIntent,
-      options.recentToolResultText ?? null,
-    );
+  getEarlyPivotPrompt(calls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
+    return repeatedFailurePrompt(calls, options);
   }
-
-  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
-    if (recentToolNames.length < 3) return null;
-
-    const READ_SEARCH_TOOLS = new Set(["Read", "cat", "head", "tail", "read"]);
-    const GREP_FIND_TOOLS = new Set(["Grep", "grep", "Glob", "glob", "rg"]);
-
-    const tail = recentToolNames.slice(-6);
-    let consecutiveCount = 1;
-    const lastTool = tail[tail.length - 1];
-    for (let i = tail.length - 2; i >= 0; i--) {
-      if (tail[i] === lastTool) {
-        consecutiveCount++;
-      } else {
-        break;
-      }
-    }
-
-    const isReadSearch = READ_SEARCH_TOOLS.has(lastTool);
-    const isGrepFind = GREP_FIND_TOOLS.has(lastTool);
-    const isTaskTool = isTaskTrackerToolName(lastTool);
-    const threshold = isTaskTool ? 3 : (isReadSearch || isGrepFind) ? 4 : lastTool === "Bash" ? 6 : 4;
-
-    if (consecutiveCount < threshold) return null;
-
-    if (isReadSearch) {
-      return `You have called ${lastTool} ${consecutiveCount} times consecutively. You already have the file contents. STOP reading and respond to the user or make your edit. Do NOT call ${lastTool} again.`;
-    }
-    if (isGrepFind) {
-      return `You have called ${lastTool} ${consecutiveCount} times consecutively. Narrow your approach: act on the results you have, or try a different tool.`;
-    }
-    if (isTaskTool) {
-      return `You have called ${lastTool} ${consecutiveCount} times consecutively. STOP creating/updating duplicate tasks. Reuse the existing task list and take exactly one concrete implementation action now (Edit/Write/Bash test).`;
-    }
-    if (lastTool === "Bash") {
-      return `You have called Bash ${consecutiveCount} times consecutively. STOP broad verification loops. Do exactly one concrete action now: (1) Read the target file for the next feature, then (2) apply one Edit/Write. Do NOT run broad go test/go build again until after that edit.`;
-    }
-    return `You have called ${lastTool} ${consecutiveCount} times consecutively. Vary your approach: if gathering info, now act on it. If something is failing, re-read the error and try a different strategy.`;
+  dampenConsecutiveSameTools(_names: string[]): string | null {
+    return null; // tool names alone cannot establish failure or stagnation
   }
-
-  enrichToolDescription(toolName: string, description: string): string {
-    const hints: Record<string, string> = {
-      Read: " [Qwen hint: Read a file ONCE, then Write the full updated file (preferred) or a tiny Edit. Do not re-read unless a previous Edit/Update failed.]",
-      Edit: " [Qwen hint: Use only for small hunks with exact old_string from your last Read. If it fails, re-read and prefer full-file Write.]",
-      Update: " [Qwen hint: Use only for small hunks with exact old_string from your last Read. If it fails, re-read and prefer full-file Write.]",
-      Write: " [Qwen hint: PREFERRED for new files and for changing existing files after one Read (full `content` replacement).]",
-      Bash: " [Qwen hint: Use for running tests, builds, and creating files via heredoc. Do not use cat to read files — use the Read tool instead.]",
-      Grep: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
-      Glob: " [Qwen hint: Search once, then act on results. Do not repeat with minor variations.]",
-    };
-    const hint = hints[toolName];
-    return hint ? description + hint : description;
+  enrichToolDescription(_toolName: string, description: string): string {
+    return description; // the native schema/description already defines the tool
   }
+}
 
-  private _detectPlanWithoutAction(
-    recentToolCalls: RecentToolCall[],
-    recentAssistantText: string | null | undefined,
-    recentUserPrompt: string | null | undefined,
-    noActionLimit: number,
-  ): string | null {
-    const text = (recentAssistantText ?? "").trim();
-    if (!text || !IMPLEMENT_INTENT_RE.test(text)) return null;
-    const userPrompt = (recentUserPrompt ?? "").toLowerCase();
-    const isPlanMaintenance =
-      userPrompt.includes("plan")
-      && /\b(update|mark|check off|complete|resume|load|show|current|remaining)\b/.test(userPrompt);
-    // Plan maintenance often requires a read->edit sequence; avoid tripping the
-    // no-action detector too early during these flows.
-    if (isPlanMaintenance) return null;
-    const tail = recentToolCalls.slice(-noActionLimit);
-    if (tail.length < noActionLimit) return null;
-    if (tail.some((c) => isActionToolCall(c))) return null;
-    return "You stated an implementation plan but did not execute it. Your next step must be exactly one concrete action: (1) Edit/Write code, (2) run a test/build command, or (3) state a blocker and pick a different strategy.";
+export class Qwen3CoderAdapter extends SchemaDrivenAdapter {
+  /** Explicit deployment hint only; never inferred from a URL. */
+  readonly nativeToolParser: boolean;
+  constructor(nativeToolParser = false, readonly variant: "original" | "next" = "original") {
+    super("qwen3-coder", false);
+    this.nativeToolParser = nativeToolParser;
   }
-
-  private _classifyUserIntent(prompt?: string | null): "show" | "edit" | "unknown" {
-    if (!prompt) return "unknown";
-    const lower = prompt.toLowerCase();
-    if (/\b(implement|fix|change|edit|update|add|create|build|write|refactor|delete|remove)\b/.test(lower)) return "edit";
-    if (/\b(show|display|print|view|see|what('s| is)|current|status|check)\b/.test(lower)) return "show";
-    return "unknown";
-  }
-
-  private _detectRepeatedIntentLoop(
-    recentToolCalls: RecentToolCall[],
-    window: number,
-    threshold: number,
-    userIntent: "show" | "edit" | "unknown" = "unknown",
-  ): string | null {
-    const tail = recentToolCalls.slice(-window);
-    const counts = new Map<string, { count: number; sample: RecentToolCall }>();
-    for (const call of tail) {
-      if (isActionToolCall(call)) continue;
-      const sig = fingerprintToolCall(call);
-      const prev = counts.get(sig);
-      if (prev) {
-        prev.count += 1;
-      } else {
-        counts.set(sig, { count: 1, sample: call });
-      }
-    }
-    let top: { count: number; sample: RecentToolCall } | null = null;
-    for (const value of counts.values()) {
-      if (value.count >= threshold && (!top || value.count > top.count)) {
-        top = value;
-      }
-    }
-    if (!top) return null;
-    const target = top.sample.filePath?.trim()
-      || (typeof top.sample.args?.file_path === "string" ? top.sample.args.file_path : "")
-      || "the same target";
-    const isPlanTarget = target.includes("/.claude/plans/") || target.includes("\\.claude\\plans\\");
-    if (userIntent === "edit" && isPlanTarget) {
-      return `You are maintaining a plan file (${target}) and repeating reads/searches without applying updates. STOP re-reading. Execute exactly one Edit/Write now to mark completed items, then continue with the next task.`;
-    }
-    if (userIntent === "show") {
-      return `STOP. You already have the contents of ${target}. The user asked to see it. Respond to the user NOW with the content you have. Do NOT call any more tools.`;
-    }
-    return `You are repeating the same intent on ${target} (${top.count} times) without forward progress. Stop repeating this call pattern. Make one concrete change now (Edit/Write or test/build), and do not re-read or re-search ${target} until after that action.`;
-  }
-
-  private _detectGitIntrospectionLoop(recentToolCalls: RecentToolCall[]): string | null {
-    const tail = recentToolCalls.slice(-8);
-    if (tail.length < 4) return null;
-    let gitIntrospectionCount = 0;
-    let lastTarget = "";
-    for (const call of tail) {
-      const tool = call.toolName.trim().toLowerCase();
-      if (tool !== "bash") continue;
-      const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
-      if (!cmd) continue;
-      const isGitInspect =
-        /\bgit\s+status\b/.test(cmd)
-        || /\bgit\s+diff\b/.test(cmd)
-        || /\bgit\s+log\b/.test(cmd)
-        || /\bgit\s+show\b/.test(cmd);
-      const isGitAction =
-        /\bgit\s+add\b/.test(cmd)
-        || /\bgit\s+commit\b/.test(cmd)
-        || /\bgit\s+checkout\b/.test(cmd)
-        || /\bgit\s+restore\b/.test(cmd);
-      if (!isGitInspect || isGitAction) continue;
-      gitIntrospectionCount += 1;
-      const m = cmd.match(/[\w./-]+\.(go|ts|tsx|js|jsx|py|rs|java|md|json|yaml|yml)\b/);
-      if (m?.[0]) lastTarget = m[0];
-    }
-    if (gitIntrospectionCount < 4) return null;
-    const target = lastTarget || "the modified file";
-    return `You are looping on git inspection commands (${gitIntrospectionCount} times). STOP running git status/diff/log. Next action must be concrete: Edit/Write ${target}, OR stage+commit if done. Do not run more git inspection commands until after that action.`;
-  }
-
-  private _detectReadLoop(
-    recentToolCalls: RecentToolCall[],
-    threshold: number,
-    userIntent: "show" | "edit" | "unknown" = "unknown",
-    recentToolResultText: string | null = null,
-  ): string | null {
-    const READ_LIKE = new Set(["read", "cat", "head", "tail"]);
-    const EDIT_LIKE = new Set(["edit", "update", "write"]);
-    const tail = recentToolCalls.slice(-Math.max(6, threshold + 2));
-    const readCalls: RecentToolCall[] = [];
-    for (let i = tail.length - 1; i >= 0; i--) {
-      const normalized = tail[i].toolName.trim().toLowerCase();
-      if (READ_LIKE.has(normalized)) {
-        readCalls.push(tail[i]);
-      } else if (EDIT_LIKE.has(normalized)) {
-        break;
-      } else {
-        break;
-      }
-    }
-    // Fire earlier (threshold - 1) when user intent is "show" — the model
-    // already has the content and should just display it.
-    const effectiveThreshold = userIntent === "show" ? Math.max(2, threshold - 1) : threshold;
-    if (readCalls.length < effectiveThreshold) return null;
-    // If the model is adapting (switching between Read and Bash on the same
-    // file), give it extra room — only fire when the SAME fingerprint appears
-    // repeatedly without any tool change.
-    const readTools = new Set(readCalls.map((c) => c.toolName));
-    if (readTools.size > 1 && readCalls.length < effectiveThreshold + 2) return null;
-    const filePaths = readCalls.map((c) => c.filePath).filter(Boolean);
-    const uniqueFiles = [...new Set(filePaths)];
-    if (uniqueFiles.length === 0) return null;
-    const fileList = uniqueFiles.slice(0, 4).join(", ");
-    const primaryFile = uniqueFiles[0] ?? "";
-    const toolText = (recentToolResultText ?? "").toLowerCase();
-    const hasCompileLikeError =
-      /\bassignment mismatch\b/.test(toolText)
-      || /\bundefined:\b/.test(toolText)
-      || /\bcannot use\b/.test(toolText)
-      || /\bnot enough arguments\b/.test(toolText)
-      || /\btoo many arguments\b/.test(toolText)
-      || /\berror: exit code\b/.test(toolText);
-    if (hasCompileLikeError && readCalls.length < effectiveThreshold + 2) {
-      return null;
-    }
-    const isPlanFile = primaryFile.includes("/.claude/plans/") || primaryFile.includes("\\.claude\\plans\\");
-    if (userIntent === "edit" && isPlanFile) {
-      return `You are maintaining a plan file (${fileList}). STOP re-reading it. Execute exactly one Edit/Write now to mark completed items, then continue with the next task.`;
-    }
-    if (userIntent === "show") {
-      return `STOP. You already have the contents of ${fileList}. The user asked to see/show it. Respond to the user NOW with the content you have. Do NOT read the file again.`;
-    }
-    return `You have read ${fileList} multiple times. You have enough context. Make your change now using Edit/Write or run a test/build. Do not read these files again.`;
-  }
-
-  /** Detect mixed exploratory hops without any concrete action. */
-  private _detectSingleActionDrift(recentToolCalls: RecentToolCall[]): string | null {
-    const tail = recentToolCalls.slice(-6);
-    if (tail.length < 4) return null;
-
-    const categories = new Set<string>();
-    let actionCount = 0;
-    for (const call of tail) {
-      if (isActionToolCall(call)) {
-        actionCount += 1;
-        continue;
-      }
-      const tool = call.toolName.trim().toLowerCase();
-      if (tool === "read" || tool === "cat" || tool === "head" || tool === "tail") {
-        categories.add("read");
-      } else if (tool === "grep" || tool === "glob") {
-        categories.add("search");
-      } else if (tool === "bash") {
-        const cmd = typeof call.args?.command === "string" ? call.args.command.toLowerCase() : "";
-        if (
-          /\bgit\s+status\b/.test(cmd)
-          || /\bgit\s+diff\b/.test(cmd)
-          || /\bgit\s+log\b/.test(cmd)
-          || /\bls\s+-la\b/.test(cmd)
-          || /\bfind\s+/.test(cmd)
-        ) {
-          categories.add("inspect");
-        }
-      }
-    }
-
-    if (actionCount > 0) return null;
-    if (categories.size < 3) return null;
-    return "You are mixing multiple exploratory actions in one loop (read/search/inspect) without progress. Next turn: perform exactly ONE concrete action only — either a single Edit/Write, OR one focused test/build command, OR one user-facing blocker question.";
-  }
-
-  /** Detect repeated Edit/Update calls to the same file (error-retry loop). */
-  private _detectEditRetryLoop(recentToolCalls: RecentToolCall[], minRetries: number): string | null {
-    if (recentToolCalls.length < minRetries) return null;
-
-    const tail = recentToolCalls.slice(-5);
-    const EDIT_TOOLS = new Set(["Edit", "Update", "edit", "update"]);
-
-    let consecutiveEdits = 0;
-    let editFile: string | undefined;
-    for (let i = tail.length - 1; i >= 0; i--) {
-      const call = tail[i];
-      if (!EDIT_TOOLS.has(call.toolName)) break;
-      if (editFile === undefined) {
-        editFile = call.filePath;
-      } else if (call.filePath !== editFile) {
-        break;
-      }
-      consecutiveEdits++;
-    }
-
-    if (consecutiveEdits >= minRetries && editFile) {
-      return `You have attempted to edit ${editFile} ${consecutiveEdits} times and it keeps failing. STOP retrying the same edit. Re-read the file first to see its current content, then construct a new Edit with the correct old_string that matches the actual file content.`;
-    }
-    return null;
+  defaultSamplingParams(): { temperature: number; top_p: number } {
+    return { temperature: this.variant === "next" ? 1.0 : 0.7, top_p: 0.95 };
   }
 }
 
 export class GenericOpenAIAdapter implements ModelAdapter {
-  readonly family: string;
-  readonly supportsThinking = false;
-
-  constructor(family = "generic") {
-    this.family = family;
-  }
+  constructor(readonly family = "generic", readonly supportsThinking = true) {}
 }
-
-/**
- * MiniMax models often lose track of shell CWD vs repository layout, leading to
- * `sed`/`cat` on bare filenames or wrong-relative paths. Strong path + Read-first rails.
- */
-/**
- * Model families that use {@link Qwen3CoderAdapter}-style loop steering in Yarn
- * (`getEarlyPivotPrompt`, `dampenConsecutiveSameTools`, write-tool prioritization).
- */
-export const TOOL_LOOP_STEERING_FAMILIES = new Set<string>(["qwen3-coder", "kimi", "xiaomi"]);
 
 export function adapterUsesToolLoopSteering(family: string): boolean {
-  return TOOL_LOOP_STEERING_FAMILIES.has(family);
+  return ["qwen3-coder", "qwen", "kimi", "minimax", "xiaomi", "deepseek", "glm"].includes(family);
 }
 
-/**
- * Kimi K2.x / Moonshot coding agents (OpenCode, Kimi Code API, OpenRouter, vLLM).
- *
- * Known K2.x behavioral patterns this adapter targets:
- * - **Path/CWD confusion**: prepends UI/workspace segments (e.g. `k8/overseerr/foo.yaml`) while
- *   file-tool roots may differ from `shell_cwd` — follow the current tool schema.
- * - **Strict tool schema**: rejects empty assistant turns; prefers exact `file_path` / `command` names.
- * - **Long-horizon drift**: repeated Read/WebFetch/git status without edits in agent sessions.
- * - **Verbal plans without tools**: states intent in prose then loops on discovery.
- * - **Parameter aliases**: often emits `path` instead of `file_path`, `cmd` instead of `command`.
- *
- * Associate with any provider via Admin **adapter_hint=kimi** or backend id matching `kimi|moonshot|k2.5|k2.6|k2.7`.
- */
-export class KimiAdapter implements ModelAdapter {
-  readonly family = "kimi";
-  readonly supportsThinking = true;
-  readonly maxEffectiveTools = 48;
-
-  /** Reuse Qwen loop detectors; Kimi-specific checks run first. */
-  private readonly pivotDelegate = new Qwen3CoderAdapter(false);
-
-  toolSystemPrompt(toolCount: number): string | undefined {
-    if (toolCount === 0) return undefined;
-    return [
-      "# Tool discipline (Kimi K2.x — coding agents)",
-      "You are in a **client-executed** tool environment: Read/Write/Edit run on the user's machine, not on the API server.",
-      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`.",
-      "",
-      "## File paths",
-      "- Follow the offered tool schema for absolute or relative paths. File-tool roots may differ from shell cwd; verify the target rather than stripping prefixes.",
-      "",
-      "## Tool schema (strict providers)",
-      "- Use **exact** parameter names from each tool schema: `file_path`, `command`, `old_string`, `new_string`.",
-      "- Every tool call must include an `arguments` object (use `{}` when empty).",
-      "- Do not emit empty assistant messages with no text and no tool calls.",
-      "- Prefer **one focused tool** per turn when exploring; batch only related reads.",
-      "",
-      "## Read vs shell",
-      "- Prefer **Read** with a correct relative `file_path` over `cat`/`sed`/`head` on guessed paths.",
-      "- If Read returns “File not found”, fix the path (check `shell_cwd` / `pwd`) — do not retry the same path.",
-      "",
-      "## WebFetch",
-      "- Fetch a URL **once** per task unless the user asked to refresh or content changed.",
-      "- After a successful fetch, use the result; do not refetch the same docs while debugging paths.",
-      "",
-      "## Long sessions (K2.x agent mode)",
-      "- After stating a plan, take the **next concrete** Edit/Write or one verification command — do not re-gather the same context.",
-      "- Mark tasks complete before claiming done; avoid duplicate TaskCreate/TaskUpdate/TodoWrite items with the same intent.",
-      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
-    ].join("\n");
-  }
-
-  normalizeToolCallArgs(args: string): string {
-    const trimmed = args.trim();
-    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "{}";
-    return trimmed;
-  }
-
-  remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
-    return this.pivotDelegate.remapToolArgs!(toolName, input);
-  }
-
-  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
-    const pathMiss = this._detectPathNotFoundRetryLoop(recentToolCalls, options.recentToolResultText);
-    if (pathMiss) return pathMiss;
-    const webRetry = this._detectWebFetchRetryLoop(recentToolCalls);
-    if (webRetry) return webRetry;
-    const proseStall = this._detectProseWithoutTools(recentToolCalls, options.recentAssistantText);
-    if (proseStall) return proseStall;
-    return this.pivotDelegate.getEarlyPivotPrompt!(recentToolCalls, options);
-  }
-
-  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
-    const web = this._dampenConsecutiveWebFetch(recentToolNames);
-    if (web) return web;
-    return this.pivotDelegate.dampenConsecutiveSameTools!(recentToolNames);
-  }
-
-  enrichToolDescription(toolName: string, description: string): string {
-    const hints: Record<string, string> = {
-      Read:
-        " [Kimi: Follow the offered path schema. After a missing-file result, verify the target before retrying.]",
-      Write:
-        " [Kimi: Same path rules as Read. Read once, then Write full content for substantive edits.]",
-      Edit:
-        " [Kimi: Exact `old_string` from last Read; tiny hunks only. On failure, re-read then Write full file.]",
-      Update:
-        " [Kimi: Exact `old_string` from last Read; tiny hunks only. On failure, re-read then Write full file.]",
-      Bash:
-        " [Kimi: `command` required. Shell cwd may differ from file-tool root — use Read for file content, not cat/sed on uncertain paths.]",
-      WebFetch:
-        " [Kimi: One fetch per URL per task unless user requests refresh. Do not refetch docs while fixing local file paths.]",
-      Grep:
-        " [Kimi: Set target_directory to a subtree; act on results instead of repeating broad searches.]",
-      Glob:
-        " [Kimi: Scoped pattern (e.g. `**/*.yaml` in cwd), not repo path prefixes duplicated from the UI.]",
-    };
-    const hint = hints[toolName];
-    return hint ? description + hint : description;
-  }
-
-  defaultSamplingParams(): { temperature?: number; top_p?: number } | undefined {
-    // K2.x thinking-mode defaults per Moonshot docs; client/request values still win when set.
-    return { temperature: 1.0, top_p: 0.95 };
-  }
-
-  private _detectPathNotFoundRetryLoop(
-    recentToolCalls: RecentToolCall[],
-    recentToolResultText?: string | null,
-  ): string | null {
-    const result = (recentToolResultText ?? "").toLowerCase();
-    if (!/file not found|no such file|enoent/.test(result)) return null;
-    const tail = recentToolCalls.slice(-6);
-    const readFails = tail.filter((c) => {
-      const t = c.toolName.trim().toLowerCase();
-      return t === "read" || t === "read_file";
-    });
-    if (readFails.length < 2) return null;
-    const paths = readFails
-      .map((c) => c.filePath ?? (typeof c.args?.file_path === "string" ? c.args.file_path : ""))
-      .filter(Boolean);
-    const unique = [...new Set(paths)];
-    return [
-      "Read failed with a path error. Check the offered tool path schema and current execution environment.",
-      "Preserve the intended target; do not strip path segments based on their names.",
-      unique.length > 0
-        ? `Recent failing paths: ${unique.slice(0, 3).join(", ")}. Inspect the intended location with a bounded directory check.`
-        : "Check the execution directory, then use the file tool according to its own schema.",
-      "Do NOT retry the same prefixed path.",
-    ].join(" ");
-  }
-
-  private _detectWebFetchRetryLoop(recentToolCalls: RecentToolCall[]): string | null {
-    const tail = recentToolCalls.slice(-8);
-    const urls: string[] = [];
-    for (const call of tail) {
-      const t = call.toolName.trim().toLowerCase();
-      if (t !== "webfetch" && t !== "web_fetch" && t !== "fetch") continue;
-      const url = typeof call.args?.url === "string" ? call.args.url.trim() : "";
-      if (url) urls.push(url);
-    }
-    if (urls.length < 2) return null;
-    const last = urls[urls.length - 1];
-    const repeatCount = urls.filter((u) => u === last).length;
-    if (repeatCount < 2) return null;
-    return `You fetched the same URL (${last}) ${repeatCount} times. Use the content already returned, or fix local file paths with Read using paths matching the offered tool schema. Do not refetch unless the user asked for an update.`;
-  }
-
-  private _detectProseWithoutTools(
-    recentToolCalls: RecentToolCall[],
-    recentAssistantText?: string | null,
-  ): string | null {
-    const text = (recentAssistantText ?? "").trim();
-    if (text.length < 280 || !IMPLEMENT_INTENT_RE.test(text)) return null;
-    const tail = recentToolCalls.slice(-4);
-    if (tail.some((c) => isActionToolCall(c))) return null;
-    if (tail.length < 2) return null;
-    return "You wrote a long implementation plan in prose but did not call tools. Kimi agent sessions need concrete tool use: one Read or Edit/Write now, or one focused Bash verification — not another planning paragraph.";
-  }
-
-  private _dampenConsecutiveWebFetch(recentToolNames: string[]): string | null {
-    const tail = recentToolNames.slice(-5);
-    if (tail.length < 3) return null;
-    const last = tail[tail.length - 1]?.trim().toLowerCase() ?? "";
-    if (last !== "webfetch" && last !== "web_fetch" && last !== "fetch") return null;
-    let consecutive = 1;
-    for (let i = tail.length - 2; i >= 0; i--) {
-      const n = tail[i]?.trim().toLowerCase() ?? "";
-      if (n === last) consecutive++;
-      else break;
-    }
-    if (consecutive < 3) return null;
-    return `You called ${last} ${consecutive} times in a row. Stop refetching; use prior fetch output or fix local files with Read (paths matching the offered tool schema).`;
-  }
+export class KimiAdapter extends SchemaDrivenAdapter {
+  constructor() { super("kimi"); }
+  // Thinking vs instant modes have different recommendations. Let the endpoint
+  // select defaults unless the caller/deployment supplies sampling parameters.
+  defaultSamplingParams(): undefined { return undefined; }
 }
-
-export class MiniMaxAdapter implements ModelAdapter {
-  readonly family = "minimax";
-  readonly supportsThinking = false;
-
-  toolSystemPrompt(toolCount: number): string | undefined {
-    if (toolCount === 0) return undefined;
-    return [
-      "# Tool discipline (MiniMax — paths and shell)",
-      "The Bash tool runs in a **session working directory** that may or may not be the git/repository root.",
-      "<SESSION_EXECUTION_CONTEXT> reports project and shell context. Each file tool defines its own path semantics; shell cwd is not automatically its root.",
-      "",
-      "## Read before raw shell file ops",
-      "- Prefer a bounded native read with a path matching its schema; do not guess basenames for shell reads.",
-      "- If you use Bash to read files, every path must be correct for the **current shell cwd**: either `cd` to the repo root or the file's directory first, or use a single path relative to the current directory.",
-      "- A **bare** `ask_test.go` or `foo.go` only works if the shell cwd is already that file's directory; if a command fails with “No such file”, your cwd or path was wrong — fix the path or `cd`, do not guess repeatedly.",
-      "",
-      "## Stabilize location",
-      "- When unsure, one short `pwd` (or list the target path) before destructive or line-based commands.",
-      "- Do not assert a “repo root” path in prose without confirming it matches `project_root`, `shell_cwd`, or `pwd` in this session.",
-      "- Keep **one** consistent story: either work from repo root with rooted relative paths, or `cd` once and use paths under that directory.",
-      "",
-      "## Discovery",
-      "- First pass: list_dir or Read `README.md` / `go.mod` / `package.json` at the repository root to learn layout, then narrow (same as global discovery policy).",
-      "- When a native task/todo/job tracker is available, update existing items after each completed milestone; do not wait until the end to mark many items complete at once.",
-      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
-    ].join("\n");
-  }
-
-  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
-    const trackerFailure = this._detectTaskTrackerSchemaFailure(recentToolCalls, options.recentToolResultText);
-    if (trackerFailure) return trackerFailure;
-    const duplicatedPathMiss = this._detectDuplicatedRootPathMiss(options.recentToolResultText);
-    if (duplicatedPathMiss) return duplicatedPathMiss;
-    const writeVerificationDrift = this._detectWriteVerificationDrift(
-      recentToolCalls,
-      options.recentToolResultText,
-    );
-    if (writeVerificationDrift) return writeVerificationDrift;
-    return null;
-  }
-
-  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
-    const staleTracker = this._detectStaleTaskTracker(recentToolNames);
-    if (staleTracker) return staleTracker;
-    return null;
-  }
-
-  enrichToolDescription(toolName: string, description: string): string {
-    const hints: Record<string, string> = {
-      Read:
-        " [MiniMax: Use the offered path schema. Inspect existing content and prefer targeted edits; reread when context is stale or absent.]",
-      Write:
-        " [MiniMax: Use full writes for new files or intentional replacement after inspection. Preserve the intended path and unrelated content.]",
-      Edit:
-        " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
-      Update:
-        " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
-      Bash:
-        " [MiniMax: Shell cwd may differ from repo root. For file commands, cd to repo root or use rooted relative paths. Prefer Read to inspect files instead of sed/cat on uncertain paths.]",
-      Grep:
-        " [MiniMax: Set target_directory or scope to a subtree; avoid searching from an unknown cwd.]",
-      Glob:
-        " [MiniMax: Use a scoped pattern (e.g. cmd/**/*.go), not a bare filename in the wrong directory.]",
-      TodoWrite:
-        " [MiniMax: Keep this tracker current. After completing each milestone, update existing todos before starting distant later work; do not wait until final tests to mark everything complete.]",
-      todowrite:
-        " [MiniMax: Keep this tracker current. After completing each milestone, update existing todos before starting distant later work; do not wait until final tests to mark everything complete.]",
-      TaskUpdate:
-        " [MiniMax: Use this to advance existing task status after each completed milestone. Avoid leaving the first item in progress while implementing later steps.]",
-      TaskCreate:
-        " [MiniMax: Create tasks once, then use TaskUpdate/TodoWrite to advance existing items instead of recreating or bulk-closing them at the end.]",
-    };
-    const hint = hints[toolName];
-    return hint ? description + hint : description;
-  }
-
-  private _detectStaleTaskTracker(recentToolNames: string[]): string | null {
-    const tail = recentToolNames.slice(-12);
-    let lastTaskIndex = -1;
-    for (let i = tail.length - 1; i >= 0; i--) {
-      if (isTaskTrackerToolName(tail[i])) {
-        lastTaskIndex = i;
-        break;
-      }
-    }
-    if (lastTaskIndex < 0) return null;
-    const toolsSinceTask = tail.slice(lastTaskIndex + 1);
-    if (toolsSinceTask.length < 5) return null;
-    if (toolsSinceTask.some(isTaskTrackerToolName)) return null;
-    const recentNonTask = toolsSinceTask.slice(-5).map((name) => name.trim()).filter(Boolean);
-    return [
-      `You used a task/todo tracker, then made ${toolsSinceTask.length} tool calls without updating it (${recentNonTask.join(", ")}).`,
-      "Before more broad verification or distant work, update the existing task tracker item(s) for completed milestones, then take exactly one concrete next action.",
-      "Do not recreate the task list and do not wait until the end to mark many items complete at once.",
-    ].join(" ");
-  }
-
-  private _detectTaskTrackerSchemaFailure(
-    recentToolCalls: RecentToolCall[],
-    recentToolResultText?: string | null,
-  ): string | null {
-    const text = (recentToolResultText ?? "").toLowerCase();
-    if (!text.includes("schemaerror") && !text.includes("invalid arguments")) return null;
-    if (!text.includes("todo") && !text.includes("taskupdate") && !text.includes("taskcreate")) return null;
-    const sawRecentTaskTool = recentToolCalls.slice(-6).some((call) => isTaskTrackerToolName(call.toolName));
-    if (!sawRecentTaskTool) return null;
-    return [
-      "The failure was a task/todo tracker schema error, not evidence that previous code writes failed.",
-      "Do NOT rebuild or rewrite completed files because the tracker update failed.",
-      "Retry only the tracker update with the exact client schema, or continue from the files already written and verify one narrow target.",
-    ].join(" ");
-  }
-
-  private _detectWriteVerificationDrift(
-    recentToolCalls: RecentToolCall[],
-    recentToolResultText?: string | null,
-  ): string | null {
-    const text = (recentToolResultText ?? "").toLowerCase();
-    if (!/no such file|file not found|cannot access|find: .*no such|enoent/.test(text)) return null;
-    const tail = recentToolCalls.slice(-10);
-    let lastWriteIndex = -1;
-    for (let i = tail.length - 1; i >= 0; i--) {
-      const call = tail[i];
-      const tool = call.toolName.trim().toLowerCase();
-      if (tool === "write" || tool === "edit" || tool === "update") {
-        lastWriteIndex = i;
-        break;
-      }
-    }
-    if (lastWriteIndex < 0) return null;
-    const toolsSinceWrite = tail.slice(lastWriteIndex + 1);
-    if (toolsSinceWrite.length < 2) return null;
-    const verificationTools = toolsSinceWrite.filter((call) => {
-      const tool = call.toolName.trim().toLowerCase();
-      return tool === "bash" || tool === "read" || tool === "glob" || tool === "grep";
-    });
-    if (verificationTools.length < 2) return null;
-    return [
-      "You recently used Write/Edit, then a later verification command could not find a path.",
-      "Treat this as a path/cwd mismatch until proven otherwise; it does NOT mean the writes failed.",
-      "Do not rebuild the app. Verify the exact path used in the prior Write/Edit once, then continue from the existing files.",
-    ].join(" ");
-  }
-
-  private _detectDuplicatedRootPathMiss(recentToolResultText?: string | null): string | null {
-    const text = recentToolResultText ?? "";
-    if (!/no such file|file not found|cannot access|enoent/i.test(text)) return null;
-    const absolutePaths = text.match(/\/[A-Za-z0-9._/-]+/g) ?? [];
-    for (const candidate of absolutePaths) {
-      const duplicate = duplicatedAdjacentPathSuffix(candidate);
-      if (!duplicate) continue;
-      return [
-        `The failed path appears to duplicate the working-root prefix: ${duplicate.duplicatedPrefix}/${duplicate.duplicatedPrefix}/...`,
-        duplicate.repairedExample
-          ? `Use the shorter client-tool path \`${duplicate.repairedExample}\` instead of prepending \`${duplicate.duplicatedPrefix}\`.`
-          : `Strip the repeated \`${duplicate.duplicatedPrefix}\` prefix before retrying.`,
-        "Do not retry the same duplicated path and do not rebuild files that were already written.",
-      ].join(" ");
-    }
-    return null;
-  }
+export class MiniMaxAdapter extends SchemaDrivenAdapter {
+  constructor() { super("minimax"); }
 }
-
-export class XiaomiMiMoAdapter implements ModelAdapter {
-  readonly family = "xiaomi";
-  readonly supportsThinking = true;
-  private readonly recoveryDelegate = new MiniMaxAdapter();
-
-  toolSystemPrompt(toolCount: number): string | undefined {
-    if (toolCount === 0) return undefined;
-    return [
-      "# Tool discipline (Xiaomi MiMo — agentic coding)",
-      "MiMo is strongest when path state, task state, and tool boundaries stay explicit.",
-      "<SESSION_EXECUTION_CONTEXT> supplies path hints; offered file-tool schemas define resolution.",
-      "",
-      "## Paths",
-      "- Follow the offered file-tool schema and confirmed execution environment for path resolution.",
-      "- Never prepend workspace/cwd segments already present in the environment; use the project-relative path observed under the current tool root.",
-      "- If a path fails, run one narrow location check (`pwd`, `ls`, or Glob), then update the path; do not retry variants blindly.",
-      "",
-      "## Tool and task state",
-      "- Validate exact tool argument names before calling.",
-      "- Update native task/todo state after each completed milestone.",
-      "- Treat latest tool output as authoritative over older plan text.",
-      "- After verification output, either fix one implicated file or summarize the exact blocker.",
-      "",
-      "## Model variants",
-      "- MiMo-V2.5-Pro: suitable for longer agent work, but keep a current-state ledger near the latest turn.",
-      "- MiMo-V2.5 and MiMo-V2-Flash: prefer shorter turns, structured tool digests, and deterministic validation.",
-      SHARED_CLAUDE_CODE_WORKFLOW_DISCIPLINE,
-    ].join("\n");
-  }
-
-  enrichToolDescription(toolName: string, description: string): string {
-    const hints: Record<string, string> = {
-      Read:
-        " [Xiaomi MiMo: Follow the offered path schema. Inspect content before editing and refresh stale context.]",
-      Write:
-        " [Xiaomi MiMo: Include full content for writes and preserve the intended target path.]",
-      Edit:
-        " [Xiaomi MiMo: Use exact old_string from current file content and the offered path schema.]",
-      Bash:
-        " [Xiaomi MiMo: Shell cwd may differ from file-tool root. Use pwd once if unsure; do not retry the same failing command.]",
-      TodoWrite:
-        " [Xiaomi MiMo: Keep todos current after each completed milestone; todos must be arrays/objects matching the schema, not JSON strings.]",
-      Glob:
-        " [Xiaomi MiMo: Scope patterns from the current root; avoid cwd-prefixed duplicate paths.]",
-    };
-    return `${description}${hints[toolName] ?? ""}`;
-  }
-
-  getEarlyPivotPrompt(recentToolCalls: RecentToolCall[], options: QwenPivotOptions = {}): string | null {
-    return this.recoveryDelegate.getEarlyPivotPrompt(recentToolCalls, options);
-  }
-
-  dampenConsecutiveSameTools(recentToolNames: string[]): string | null {
-    return this.recoveryDelegate.dampenConsecutiveSameTools(recentToolNames);
-  }
-
-  normalizeToolCallArgs(args: string): string {
-    const trimmed = args.trim();
-    if (!trimmed || trimmed === "null" || trimmed === "undefined") return "{}";
-    return trimmed;
-  }
-
-  remapToolArgs(toolName: string, input: Record<string, unknown>): { input: Record<string, unknown>; remapped: boolean } {
-    return remapCommonToolArgAliases(toolName, input);
-  }
-
-  defaultSamplingParams(): { temperature?: number; top_p?: number } {
-    return { temperature: 1.0, top_p: 0.95 };
-  }
-}
-
-function duplicatedAdjacentPathSuffix(
-  filePath: string,
-): { duplicatedPrefix: string; repairedExample: string | null } | null {
-  const parts = filePath.split("/").filter(Boolean);
-  for (let start = 0; start < parts.length - 2; start++) {
-    const maxLen = Math.min(4, Math.floor((parts.length - start) / 2));
-    for (let len = maxLen; len >= 1; len--) {
-      const first = parts.slice(start, start + len);
-      const second = parts.slice(start + len, start + (len * 2));
-      if (second.length !== first.length || !first.every((part, index) => second[index] === part)) continue;
-      const repaired = parts.slice(start + (len * 2)).join("/");
-      return {
-        duplicatedPrefix: first.join("/"),
-        repairedExample: repaired || null,
-      };
-    }
-  }
-  return null;
+export class XiaomiMiMoAdapter extends SchemaDrivenAdapter {
+  constructor() { super("xiaomi"); }
+  defaultSamplingParams(): undefined { return undefined; }
 }
 
 export class ClaudeAdapter implements ModelAdapter {
@@ -1123,72 +267,24 @@ export class ClaudeAdapter implements ModelAdapter {
   }
 }
 
-export class DeepSeekAdapter implements ModelAdapter {
-  readonly family = "deepseek";
-  readonly supportsThinking = true;
-
-  providerOptions(): Record<string, Record<string, unknown>> {
-    return { openai: { reasoningParser: "deepseek_r1" } };
-  }
+export class DeepSeekAdapter extends SchemaDrivenAdapter {
+  constructor() { super("deepseek"); }
 }
 
-/**
- * Adapter-neutral: detect malformed Write tool calls and convert to Bash heredoc.
- *
- * JSON tool calling breaks when code content contains nested quotes (the Qwen3-Coder
- * paper explicitly notes "heavy escaping overhead for multi-line code" in JSON format).
- * When the model fails to properly serialize code, the content comes through truncated
- * or garbled. This function detects that and rewrites the tool call as a Bash heredoc,
- * which avoids JSON escaping entirely.
- *
- * Returns null if no repair needed, or a replacement tool call if repaired.
- */
-/**
- * Qwen3 / JSON tool backends sometimes emit Bash with the shell command in a
- * wrong property, or a single stray key copied from user text (e.g. `{"World!":""}`)
- * with no `command` field — the client then treats the stray key as the command
- * (`command not found: World!:`).
- */
+/** Repair an unambiguous command alias without inventing executable content. */
 export function repairBashToolCall(
   toolName: string,
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; repaired: boolean } | null {
   if (canonicalValidationToolName(toolName) !== "Bash") return null;
-
-  const ALLOWED = new Set(["command", "description", "is_background", "timeout"]);
-  const cmd = input.command;
-  if (typeof cmd === "string" && cmd.trim()) return null;
-
-  const extras = Object.entries(input).filter(([k]) => k && !ALLOWED.has(k));
-  const nonEmptyStringPairs = extras.filter(([, v]) => typeof v === "string" && (v as string).trim());
-
-  // Wrong key but the value is the real shell command
-  if (nonEmptyStringPairs.length === 1) {
-    const [, v] = nonEmptyStringPairs[0];
-    const out: Record<string, unknown> = { command: v };
-    if (typeof input.description === "string") out.description = input.description;
-    if (typeof input.is_background === "boolean") out.is_background = input.is_background;
-    return { input: out, repaired: true };
-  }
-
-  // Single stray key with empty value — unrecoverable; fail clearly for the user
-  if (extras.length === 1 && nonEmptyStringPairs.length === 0) {
-    const [k, v] = extras[0];
-    if (v === "" || v === null || v === undefined) {
-      const msg =
-        "Synesis Yarn: model sent invalid Bash arguments (no command string). " +
-        "Try again, or use a backend with native Qwen3 tool parsing (vLLM --tool-call-parser=qwen3_coder or DashScope).";
-      return {
-        input: {
-          command: `echo ${shellEscape(msg)} >&2; exit 1`,
-          description: `Repaired malformed Bash args (stray key ${JSON.stringify(k)})`,
-        },
-        repaired: true,
-      };
-    }
-  }
-
-  return null;
+  if (typeof input.command === "string") return null;
+  // Only documented command aliases; never execute an arbitrary stray value.
+  const aliases = ["cmd", "shell_command", "bash_command"];
+  const present = aliases.filter(key => typeof input[key] === "string");
+  if (present.length !== 1) return null;
+  const out: Record<string, unknown> = { ...input, command: input[present[0]] };
+  delete out[present[0]];
+  return { input: out, repaired: true };
 }
 
 export function repairWriteToolCall(
@@ -1200,26 +296,12 @@ export function repairWriteToolCall(
   return null;
 }
 
+/** Arrays are not file content. Preserve invalid input for schema validation. */
 export function repairWriteContentArray(
-  toolName: string,
-  input: Record<string, unknown>,
+  _toolName: string,
+  _input: Record<string, unknown>,
 ): { input: Record<string, unknown>; repaired: boolean } | null {
-  if (canonicalValidationToolName(toolName) !== "Write") return null;
-  const filePath = input.file_path;
-  const content = input.content;
-  if (typeof filePath !== "string" || !filePath.trim()) return null;
-  if (!Array.isArray(content)) return null;
-  if (!content.every((part) => typeof part === "string")) return null;
-
-  // Some OpenAI-compatible tool parsers split large Write.content strings at
-  // commas inside source code, producing a string[] that clients correctly
-  // reject. Join with commas to reconstruct the intended file text.
-  const repairedContent = content.join(", ");
-  if (!repairedContent.trim()) return null;
-  return {
-    input: { ...input, content: repairedContent },
-    repaired: true,
-  };
+  return null;
 }
 
 export function normalizeFileToolArgs(
@@ -1298,27 +380,8 @@ export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
   return filePath;
 }
 
-function shellEscape(s: string): string {
-  if (/^[a-zA-Z0-9_./-]+$/.test(s)) return s;
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
-/**
- * Backends that handle the Qwen3-Coder XML tool format server-side,
- * converting XML tool calls to clean JSON before returning them via the API.
- * DashScope path removed; vLLM with --tool-call-parser=qwen3_coder (or localhost/in-cluster)
- * uses native parser for shorter tool prompts and better KV cache compatibility.
- */
-function hasNativeQwenToolParser(baseUrl?: string): boolean {
-  if (!baseUrl) return false;
-  const u = baseUrl.toLowerCase();
-  // Local vLLM with qwen3_coder parser or in-cluster services
-  if (u.includes("vllm") || u.includes(".svc.cluster.local") || u.includes("localhost") || u.includes("127.0.0.1")) return true;
-  return false;
-}
-
 export const KNOWN_ADAPTER_FAMILIES = [
-  "qwen3-coder", "qwen3-coder-next", "claude", "deepseek", "kimi", "minimax", "xiaomi", "generic",
+  "qwen3-coder", "qwen3-coder-next", "qwen", "glm", "claude", "deepseek", "kimi", "minimax", "xiaomi", "generic",
 ] as const;
 export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
 
@@ -1327,13 +390,15 @@ export type AdapterFamily = (typeof KNOWN_ADAPTER_FAMILIES)[number];
  * When `adapterHint` is set (from admin Model Registry), it overrides regex auto-detection.
  * Otherwise pattern-matches against known model families. Falls back to GenericOpenAIAdapter.
  */
-export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHint?: string | null): ModelAdapter {
+export function resolveAdapter(backendModel: string, _baseUrl?: string, adapterHint?: string | null): ModelAdapter {
   const hint = (adapterHint ?? "").trim().toLowerCase();
   if (hint && (KNOWN_ADAPTER_FAMILIES as readonly string[]).includes(hint)) {
-    return resolveByFamily(hint as AdapterFamily, baseUrl);
+    return resolveByFamily(hint as AdapterFamily, backendModel);
   }
   const m = backendModel.toLowerCase();
-  if (/qwen3.*coder(-next)?/i.test(m)) return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+  if (/qwen3.*coder/i.test(m)) return new Qwen3CoderAdapter(false, /coder-next/.test(m) ? "next" : "original");
+  if (/qwen3/.test(m)) return new SchemaDrivenAdapter("qwen");
+  if (/glm[-_.]?[45]/.test(m)) return new SchemaDrivenAdapter("glm");
   if (/claude|anthropic/i.test(m)) return new ClaudeAdapter();
   if (/deepseek/i.test(m)) return new DeepSeekAdapter();
   if (/kimi|moonshot|k2[.-]?[567]/i.test(m)) return new KimiAdapter();
@@ -1342,11 +407,12 @@ export function resolveAdapter(backendModel: string, baseUrl?: string, adapterHi
   return new GenericOpenAIAdapter("generic");
 }
 
-function resolveByFamily(family: AdapterFamily, baseUrl?: string): ModelAdapter {
+function resolveByFamily(family: AdapterFamily, backendModel?: string): ModelAdapter {
   switch (family) {
-    case "qwen3-coder":
-    case "qwen3-coder-next":
-      return new Qwen3CoderAdapter(hasNativeQwenToolParser(baseUrl));
+    case "qwen3-coder": return new Qwen3CoderAdapter(false, /coder-next/i.test(backendModel ?? "") ? "next" : "original");
+    case "qwen3-coder-next": return new Qwen3CoderAdapter(false, "next");
+    case "qwen": return new SchemaDrivenAdapter("qwen");
+    case "glm": return new SchemaDrivenAdapter("glm");
     case "claude": return new ClaudeAdapter();
     case "deepseek": return new DeepSeekAdapter();
     case "kimi": return new KimiAdapter();

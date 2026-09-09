@@ -25,7 +25,6 @@ import { admissionErrorMessage } from "./context-admission.js";
 import { runRouteContextAdmission } from "./route-context-admission.js";
 import {
   buildClaudeMessagesProviderRequestOptions,
-  suppressThinkingWhenRequiredToolChoice,
 } from "./provider-options.js";
 import {
   architecturePolicyTrace,
@@ -342,7 +341,7 @@ export function prepareClaudeMessagesProviderRuntime(
     supportsTopK: adapter.family !== "minimax",
   });
   const samplingOptions = providerRequestOptions.samplingOptions;
-  let providerOptions = providerRequestOptions.providerOptions;
+  const providerOptions = providerRequestOptions.providerOptions;
   const phaseApplication = applyRoutePhasePolicy({
     adapterFamily: adapter.family,
     basePolicyEnabled: Boolean(config.SYNESIS_YARN_PHASE_EXECUTION_POLICY_ENABLED && input.phasePolicyEnabledByMatrix),
@@ -369,23 +368,7 @@ export function prepareClaudeMessagesProviderRuntime(
   const phaseFiltered = phaseApplication.phaseFiltered;
   effectiveTools = phaseApplication.effectiveTools;
   const effectiveToolChoice = phaseApplication.effectiveToolChoice;
-  const thinkingToolChoiceGuard = suppressThinkingWhenRequiredToolChoice(
-    providerOptions,
-    effectiveToolChoice as PhaseAwareToolChoice | undefined,
-  );
-  providerOptions = thinkingToolChoiceGuard.providerOptions;
-  if (thinkingToolChoiceGuard.suppressed) {
-    routePersistence.recordSessionEvent(
-      "phase_required_tool_choice_thinking_guard",
-      "execution-governor",
-      "Suppressed thinking because tool_choice=required is incompatible with provider thinking mode.",
-      {
-        path: "claude",
-        phase: input.governorPhase,
-        phase_reason: phasePolicy.reason ?? null,
-      },
-    );
-  }
+
 
   const sdkTools = claudeToolsToSDK(effectiveTools as never);
   const forensicsPhasePolicy: RequestForensicsRecord["phasePolicy"] = {

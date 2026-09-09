@@ -819,3 +819,25 @@ describe("applySoftCompaction preserves SDK ModelMessage content format", () => 
     }
   });
 });
+
+describe("protocol state during compaction", () => {
+  it("retains structured reasoning and tool calls when assistant text is condensed", () => {
+    const reasoning = { type: "reasoning", text: "Retain this reasoning" };
+    const call = { type: "tool-call", toolCallId: "c1", toolName: "read", input: { path: "a" } };
+    const messages = [
+      { role: "assistant", content: [reasoning, { type: "text", text: "Narration. ".repeat(1000) }, call] },
+      { role: "user", content: "Continue" },
+    ];
+    const classified = messages.map((message, index) => ({ index, tier: "historical" as const, retentionScore: 0, estimatedTokens: estimateMessageTokens(message), tags: [] }));
+    const result = applySoftCompaction(messages, classified, 100, undefined, "aggressive");
+    expect(result.messages[0].content).toEqual(expect.arrayContaining([reasoning, call]));
+    expect(result.tokensRecovered).toBeGreaterThan(0);
+  });
+});
+
+ it("accounts for replayed reasoning in raw protocol context estimates", () => {
+   const plain = { role: "assistant", content: "Done" };
+   const reasoning = { ...plain, reasoning_content: "r".repeat(4200) };
+   expect(estimateMessageTokens(reasoning) - estimateMessageTokens(plain)).toBe(1000);
+   expect(estimateTokens([reasoning]).totalTokens).toBe(estimateMessageTokens(reasoning));
+ });

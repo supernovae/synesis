@@ -24,6 +24,8 @@ This tree is organized by **audience** and **product surface**. Implementation c
 - **Develop & test:** [Development index](development/README.md).
 - **Coder eval gates:** [Harness trust KPI lane](development/TESTING.md#97-harness-trust-kpi-lane-coder-reliability).
 - **Security posture:** [Security controls](SECURITY.md) · [Security todo tracker](security_todo.md).
+- **Model behavior:** [September model shim audit](model-shim-audit-2026-09.md) · [Architecture controls](model-architecture-awareness.md).
+- **Harness compatibility:** [Client contracts and limitations](clients/HARNESS_COMPATIBILITY.md).
 - **Latest platform audit:** [August 2026 architecture and research review](PLATFORM_AUDIT_2026_08.md).
 - **Project positioning:** [Comparison notes](COMPARISON.md).
 
@@ -34,3 +36,12 @@ Kubernetes / Keycloak / registry details: [`docs/admin/`](admin/) (e.g. [Keycloa
 ## Research & long-form design
 
 Product-facing reading paths: **chat/** and **coder/** hubs above. Current engineering checks and validation commands live under **[development/](development/README.md)**.
+
+## Documentation scope
+
+Setup guides describe prerequisites and configuration. Runtime references describe
+implemented behavior; design documents describe goals and hypotheses. Dated
+audits and benchmark notes are snapshots, not support commitments. A passing
+contract test does not certify every client/model release, and performance claims
+need a named workload, configuration, and measurement. Prefer the current
+compatibility references above when older notes describe retired behavior.

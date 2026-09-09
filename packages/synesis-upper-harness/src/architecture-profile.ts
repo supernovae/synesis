@@ -209,16 +209,16 @@ const UNKNOWN_RECOMMENDATIONS: ModelArchitectureProfile["recommendations"] = {
   preferFrontLoadedInstructions: true,
   preferRecentToolStateReplay: true,
   preferStructuredToolDigests: true,
-  preferShorterTurns: true,
+  preferShorterTurns: false,
   preferExplicitStateHeaders: true,
   preferDeterministicValidation: true,
-  denseAttentionFacade: true,
+  denseAttentionFacade: false,
   semanticStateGraph: true,
   activeStateHeader: true,
   criticalFactPins: true,
   evidenceManifest: true,
   contextDedupe: true,
-  stalenessFiltering: true,
+  stalenessFiltering: false,
   contradictionScanning: true,
   longRangeRecallVerification: true,
   citationVerification: true,
@@ -238,30 +238,6 @@ const UNKNOWN_COMPRESSION: AttentionCompressionProfile = {
   },
 };
 
-const FULL_ATTENTION_COMPRESSION: AttentionCompressionProfile = {
-  localPath: "dense",
-  longRangePath: "dense",
-  declaredContextInterpretation: "dense_working_memory",
-  risk: {
-    longRangeRetrieval: "low",
-    exactNeedleRecall: "low",
-    staleContextInterference: "low",
-    citationDrift: "low",
-  },
-};
-
-const HYBRID_COMPRESSED_COMPRESSION: AttentionCompressionProfile = {
-  localPath: "global_local",
-  longRangePath: "retrieval_compressed",
-  declaredContextInterpretation: "storage_with_working_set",
-  risk: {
-    longRangeRetrieval: "high",
-    exactNeedleRecall: "high",
-    staleContextInterference: "high",
-    citationDrift: "medium",
-  },
-};
-
 export function defaultConservativeArchitectureProfile(
   modelId = "unknown",
   provider?: string | null,
@@ -274,13 +250,11 @@ export function defaultConservativeArchitectureProfile(
     activation: "unknown",
     decoding: "unknown",
     declaredContextTokens: finitePositive(declaredContextTokens),
-    effectiveWorkingContextTokens: effectiveContextFromRatio(declaredContextTokens, 0.75),
-    safeInstructionTokens: 12_000,
-    safeToolOutputTokens: 24_000,
+    effectiveWorkingContextTokens: finitePositive(declaredContextTokens),
     attentionCompression: UNKNOWN_COMPRESSION,
-    traits: { ...UNKNOWN_TRAITS, compactionSensitivity: "medium", retrySensitivity: "medium" },
+    traits: { ...UNKNOWN_TRAITS },
     recommendations: { ...UNKNOWN_RECOMMENDATIONS },
-    notes: ["Conservative fallback for unknown model architecture."],
+    notes: ["Unverified architecture: preserve declared context; use measured registry overrides for operational limits."],
   };
 }
 
@@ -294,344 +268,42 @@ export function resolveModelArchitectureProfile(
   const declared = finitePositive(input.declaredContextTokens);
   const explicitPreset = normalizeModelCapabilityPreset(input.modelCapabilityPreset);
   const preset = explicitPreset ?? inferModelCapabilityPreset(modelId, family);
-  const allowNameInference = explicitPreset !== "generic_openai_compatible";
-  let profile = defaultConservativeArchitectureProfile(modelId, provider, declared);
+  const allowNameInference = explicitPreset === undefined
+    || (explicitPreset !== "generic_openai_compatible" && explicitPreset === inferModelCapabilityPreset(modelId, family));
+  const profile = defaultConservativeArchitectureProfile(modelId, provider, declared);
 
-  if (
-    preset === "deepseek_v3"
-    || preset === "deepseek_v4"
-    || (allowNameInference && (/deepseek/.test(model) || family === "deepseek"))
-  ) {
-    const isV4 = preset === "deepseek_v4" || (/v4/.test(model) && preset !== "deepseek_v3");
-    profile = {
-      ...profile,
-      attention: "mla",
-      activation: /moe|v[34]|r1/i.test(model) ? "moe" : "unknown",
-      decoding: /mtp/.test(model) ? "mtp" : "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isV4 ? 0.68 : 0.70),
-      safeInstructionTokens: 10_000,
-      safeToolOutputTokens: 18_000,
-      attentionCompression: {
-        ...HYBRID_COMPRESSED_COMPRESSION,
-        longRangePath: "latent_compressed",
-      },
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: "medium",
-        outputThroughputBias: "medium",
-        retrySensitivity: "medium",
-        compactionSensitivity: "high",
-        longRangeRetrievalReliability: "medium",
-        exactNeedleRecallReliability: "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "high",
-        staleContextSensitivity: "high",
-        structuredOutputReliability: "medium",
-      },
-      recommendations: {
-        ...UNKNOWN_RECOMMENDATIONS,
-        preferMemoryStitching: true,
-        preferFrontLoadedInstructions: true,
-        preferRecentToolStateReplay: true,
-        preferStructuredToolDigests: true,
-        preferShorterTurns: true,
-        preferExplicitStateHeaders: true,
-        preferDeterministicValidation: true,
-      },
-      notes: [
-        isV4
-          ? "DeepSeek V4 harness preset: apply MLA-style mediation and treat declared context as storage-backed working set."
-          : "DeepSeek V3/R1 harness preset: MLA-style mediation treats declared context as larger than reliable working memory.",
-      ],
-    };
-  } else if (
-    preset === "xiaomi_mimo_2"
-    || preset === "xiaomi_mimo_2_5"
-    || (allowNameInference && (/xiaomi|mimo/.test(model) || family === "xiaomi"))
-  ) {
-    const isFlash = /flash/.test(model) || preset === "xiaomi_mimo_2";
-    const isV25 = preset === "xiaomi_mimo_2_5" || /2[._-]?5/.test(model);
-    profile = {
-      ...profile,
-      attention: isFlash ? "sliding_window" : "hybrid_compressed_attention",
-      activation: "moe",
-      decoding: isFlash ? "mtp" : "speculative_friendly",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, isFlash ? 0.58 : isV25 ? 0.72 : 0.65),
-      safeInstructionTokens: isFlash ? 8_000 : 12_000,
-      safeToolOutputTokens: isFlash ? 14_000 : 22_000,
-      attentionCompression: isFlash
-        ? {
-            ...HYBRID_COMPRESSED_COMPRESSION,
-            localPath: "sliding_window",
-            longRangePath: "sparse_compressed",
-          }
-        : HYBRID_COMPRESSED_COMPRESSION,
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: isFlash ? "weak" : "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: isFlash ? "weak" : "medium",
-        outputThroughputBias: isFlash ? "high" : "medium",
-        retrySensitivity: "high",
-        compactionSensitivity: "high",
-        longRangeRetrievalReliability: isFlash ? "weak" : "medium",
-        exactNeedleRecallReliability: isFlash ? "weak" : "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "high",
-        staleContextSensitivity: "high",
-        structuredOutputReliability: "medium",
-        speculativeBoundaryRisk: "high",
-      },
-      recommendations: {
-        ...UNKNOWN_RECOMMENDATIONS,
-        preferMemoryStitching: true,
-        preferFrontLoadedInstructions: true,
-        preferRecentToolStateReplay: true,
-        preferStructuredToolDigests: true,
-        preferShorterTurns: true,
-        preferExplicitStateHeaders: true,
-        preferDeterministicValidation: true,
-      },
-      notes: [
-        isFlash
-          ? "MiMo V2 harness preset treats SWA/MTP behavior as short-turn and boundary-validation sensitive."
-          : "MiMo V2.5 harness preset uses explicit state replay for long agent sessions and MoE determinism.",
-      ],
-    };
-  } else if (
-    preset === "qwen_3"
-    || preset === "qwen_3_coder"
-    || (allowNameInference && (/qwen/.test(model) || family === "qwen3-coder"))
-  ) {
-    profile = {
-      ...profile,
-      attention: "global_local_hybrid",
-      activation: /moe/.test(model) ? "moe" : "dense",
-      decoding: "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.82),
-      attentionCompression: {
-        ...HYBRID_COMPRESSED_COMPRESSION,
-        localPath: "global_local",
-        longRangePath: "sparse_compressed",
-        risk: { ...HYBRID_COMPRESSED_COMPRESSION.risk, longRangeRetrieval: "medium", exactNeedleRecall: "medium" },
-      },
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: "medium",
-        outputThroughputBias: "medium",
-        retrySensitivity: "medium",
-        compactionSensitivity: "medium",
-        longRangeRetrievalReliability: "medium",
-        exactNeedleRecallReliability: "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "medium",
-        staleContextSensitivity: "medium",
-        structuredOutputReliability: "medium",
-      },
-      recommendations: {
-        ...UNKNOWN_RECOMMENDATIONS,
-        preferShorterTurns: true,
-        preferDeterministicValidation: true,
-      },
-      notes: [
-        preset === "qwen_3_coder"
-          ? "Qwen3 Coder harness preset keeps existing adapter steering and adds architecture-level validation bias."
-          : "Qwen3 harness preset uses moderate active-state replay without endpoint-specific transport assumptions.",
-      ],
-    };
-  } else if (
-    preset === "glm_4_5"
-    || (allowNameInference && (/glm[-_. ]?4[-_. ]?5|glm[-_. ]?45/.test(model) || family === "glm"))
-  ) {
-    profile = {
-      ...profile,
-      attention: "hybrid_compressed_attention",
-      activation: "moe",
-      decoding: "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.74),
-      safeToolOutputTokens: 20_000,
-      attentionCompression: HYBRID_COMPRESSED_COMPRESSION,
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: "medium",
-        outputThroughputBias: "medium",
-        retrySensitivity: "medium",
-        compactionSensitivity: "high",
-        longRangeRetrievalReliability: "medium",
-        exactNeedleRecallReliability: "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "medium",
-        staleContextSensitivity: "high",
-        structuredOutputReliability: "medium",
-      },
-      recommendations: { ...UNKNOWN_RECOMMENDATIONS },
-      notes: ["GLM 4.5 harness preset uses active-state replay and citation/reference verification for long contexts."],
-    };
-  } else if (
-    preset === "kimi_k2"
-    || (allowNameInference && (/kimi|moonshot|k2[.-]?[567]/.test(model) || family === "kimi"))
-  ) {
-    profile = {
-      ...profile,
-      attention: "hybrid_compressed_attention",
-      activation: "moe",
-      decoding: "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.78),
-      safeToolOutputTokens: 20_000,
-      attentionCompression: HYBRID_COMPRESSED_COMPRESSION,
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: "medium",
-        outputThroughputBias: "medium",
-        retrySensitivity: "medium",
-        compactionSensitivity: "high",
-        longRangeRetrievalReliability: "medium",
-        exactNeedleRecallReliability: "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "high",
-        staleContextSensitivity: "high",
-        structuredOutputReliability: "medium",
-      },
-      recommendations: { ...UNKNOWN_RECOMMENDATIONS },
-      notes: ["Long-context profile uses explicit state replay instead of assuming long-tail recall."],
-    };
-  } else if (
-    preset === "minimax_m1"
-    || preset === "minimax_m2"
-    || (allowNameInference && (/minimax|abab/.test(model) || family === "minimax"))
-  ) {
-    profile = {
-      ...profile,
-      attention: "heavily_compressed_attention",
-      activation: "moe",
-      decoding: "speculative_friendly",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.65),
-      safeToolOutputTokens: 14_000,
-      attentionCompression: {
-        ...HYBRID_COMPRESSED_COMPRESSION,
-        localPath: "compressed",
-        longRangePath: "retrieval_compressed",
-      },
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "weak",
-        toolCallingReliability: "medium",
-        longContextReliability: "weak",
-        outputThroughputBias: "high",
-        retrySensitivity: "high",
-        compactionSensitivity: "high",
-        longRangeRetrievalReliability: "weak",
-        exactNeedleRecallReliability: "weak",
-        localCoherence: "medium",
-        duplicateContextSensitivity: "high",
-        staleContextSensitivity: "high",
-        structuredOutputReliability: "medium",
-        speculativeBoundaryRisk: "high",
-      },
-      recommendations: {
-        ...UNKNOWN_RECOMMENDATIONS,
-        preferMemoryStitching: true,
-        preferFrontLoadedInstructions: true,
-        preferRecentToolStateReplay: true,
-        preferStructuredToolDigests: true,
-        preferShorterTurns: true,
-        preferExplicitStateHeaders: true,
-        preferDeterministicValidation: true,
-      },
-      notes: ["Throughput-biased profile favors short turns, explicit task state, and strict validation."],
-    };
-  } else if (allowNameInference && /llama|mixtral|mistral/.test(model)) {
-    profile = {
-      ...profile,
-      attention: /sliding|swa|mistral/.test(model) ? "sliding_window" : "full_attention",
-      activation: /mixtral|moe/.test(model) ? "moe" : "dense",
-      decoding: "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(
-        declared,
-        /sliding|swa|mistral/.test(model) ? 0.55 : 0.85,
-      ),
-      attentionCompression: /sliding|swa|mistral/.test(model)
-        ? {
-            ...HYBRID_COMPRESSED_COMPRESSION,
-            localPath: "sliding_window",
-            longRangePath: "sparse_compressed",
-          }
-        : FULL_ATTENTION_COMPRESSION,
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: /sliding|swa|mistral/.test(model) ? "weak" : "medium",
-        toolCallingReliability: "medium",
-        longContextReliability: /sliding|swa|mistral/.test(model) ? "weak" : "medium",
-        outputThroughputBias: "medium",
-        retrySensitivity: "medium",
-        compactionSensitivity: /sliding|swa|mistral/.test(model) ? "high" : "medium",
-        longRangeRetrievalReliability: /sliding|swa|mistral/.test(model) ? "weak" : "medium",
-        exactNeedleRecallReliability: /sliding|swa|mistral/.test(model) ? "weak" : "medium",
-        localCoherence: "medium",
-        duplicateContextSensitivity: /sliding|swa|mistral/.test(model) ? "high" : "medium",
-        staleContextSensitivity: /sliding|swa|mistral/.test(model) ? "high" : "medium",
-        structuredOutputReliability: "medium",
-      },
-      recommendations: { ...UNKNOWN_RECOMMENDATIONS },
-      notes: ["Open-weight profile is cautious unless an admin override declares stronger behavior."],
-    };
-  } else if (allowNameInference && (/gpt|openai|o[134]/.test(model) || provider === "openai")) {
-    profile = {
-      ...profile,
-      attention: "full_attention",
-      activation: "dense",
-      decoding: "standard",
-      effectiveWorkingContextTokens: effectiveContextFromRatio(declared, 0.9),
-      safeToolOutputTokens: 30_000,
-      attentionCompression: FULL_ATTENTION_COMPRESSION,
-      traits: {
-        ...UNKNOWN_TRAITS,
-        longTailRetention: "strong",
-        toolCallingReliability: "strong",
-        longContextReliability: "strong",
-        outputThroughputBias: "medium",
-        retrySensitivity: "low",
-        compactionSensitivity: "low",
-        longRangeRetrievalReliability: "strong",
-        exactNeedleRecallReliability: "strong",
-        localCoherence: "strong",
-        duplicateContextSensitivity: "low",
-        staleContextSensitivity: "low",
-        structuredOutputReliability: "strong",
-        speculativeBoundaryRisk: "low",
-      },
-      recommendations: {
-        ...UNKNOWN_RECOMMENDATIONS,
-        preferMemoryStitching: false,
-        preferFrontLoadedInstructions: false,
-        preferRecentToolStateReplay: false,
-        preferStructuredToolDigests: true,
-        preferShorterTurns: false,
-        preferExplicitStateHeaders: false,
-        preferDeterministicValidation: true,
-        denseAttentionFacade: false,
-        semanticStateGraph: false,
-        activeStateHeader: false,
-        criticalFactPins: false,
-        evidenceManifest: false,
-        contextDedupe: true,
-        stalenessFiltering: false,
-        contradictionScanning: false,
-        longRangeRecallVerification: false,
-        citationVerification: true,
-        multipassRetrieval: false,
-        strictToolBoundaryValidation: false,
-      },
-      notes: ["Full-attention default keeps existing context policy unless operators override it."],
-    };
+  // Architectural facts do not establish retrieval quality, safe working-context
+  // percentages, tool-count limits or speculative-decoding behavior at an endpoint.
+  // Keep those unknown unless the registry supplies a measured override.
+  if (preset === "deepseek_v4" || (allowNameInference && /deepseek.*v4/.test(model))) {
+    profile.attention = "hybrid_compressed_attention";
+    profile.activation = "moe";
+    profile.attentionCompression = { ...UNKNOWN_COMPRESSION, localPath: "sliding_window", longRangePath: "sparse_compressed" };
+    profile.notes = ["DeepSeek V4 uses hybrid CSA/HCA attention. No empirical context penalty inferred."];
+  } else if (allowNameInference && /deepseek.*v3[._-]2/.test(model)) {
+    profile.attention = "compressed_sparse_attention";
+    profile.activation = "moe";
+    profile.notes = ["DeepSeek V3.2 uses DSA; this does not establish recall degradation."];
+  } else if (preset === "deepseek_v3" || (allowNameInference && /deepseek.*(?:v3|r1)(?!.*distill)/.test(model))) {
+    profile.attention = "mla";
+    profile.activation = "moe";
+    profile.attentionCompression = { ...UNKNOWN_COMPRESSION, localPath: "dense", longRangePath: "latent_compressed" };
+    profile.notes = ["MLA compresses KV representations, not the token sequence; it does not justify a reduced context window."];
+  } else if (allowNameInference && /qwen3(?:[._]5|[._]6|-coder-next)/.test(model)) {
+    profile.activation = /a\d+b|coder-next/.test(model) ? "moe" : "unknown";
+    profile.notes = ["Qwen hybrid linear/full attention: the legacy attention enum has no exact representation. Keep attention unknown; no runtime decoding or context penalty inferred."];
+  } else if (preset === "qwen_3_coder" || (allowNameInference && /qwen3-/.test(model))) {
+    profile.attention = "full_attention";
+    profile.activation = /a\d+b/.test(model) ? "moe" : "unknown";
+    profile.notes = ["Original Qwen3/Qwen3 Coder use full attention; Coder Next and later hybrids are handled separately."];
+  } else if (allowNameInference && /glm-5/.test(model)) {
+    profile.attention = "compressed_sparse_attention";
+    profile.activation = "moe";
+    profile.notes = ["GLM-5 uses DSA; preserve declared capacity and measure workload behavior."];
+  } else if (allowNameInference && /kimi-k2(?:[._-]5)?(?:$|-)/.test(model)) {
+    profile.attention = "mla";
+    profile.activation = "moe";
+    profile.notes = ["Kimi K2/K2.5 use MLA; thinking mode and endpoint behavior remain separate."];
   }
 
   return applyArchitectureOverride(profile, input.override ?? null);
@@ -655,7 +327,7 @@ export function deriveModelExecutionPolicy(profile: ModelArchitectureProfile): M
   }
   if (profile.activation === "moe") reasons.push("moe_activation");
   if (profile.decoding === "mtp" || profile.decoding === "speculative_friendly") {
-    reasons.push("stream_boundary_sensitive_decoding");
+    reasons.push("declared_decoding_architecture");
   }
   if (profile.traits.longTailRetention === "weak") reasons.push("weak_long_tail_retention");
   if (profile.traits.compactionSensitivity === "high") reasons.push("high_compaction_sensitivity");
@@ -663,8 +335,7 @@ export function deriveModelExecutionPolicy(profile: ModelArchitectureProfile): M
   const compactionMode: ModelExecutionPolicy["compactionMode"] =
     profile.traits.compactionSensitivity === "high"
     || profile.traits.longTailRetention === "weak"
-    || profile.attention === "sliding_window"
-      ? "aggressive"
+      ? "minimal"
       : undefined;
 
   const contextBudget: ModelExecutionPolicy["contextBudget"] = {
@@ -698,8 +369,6 @@ export function deriveModelExecutionPolicy(profile: ModelArchitectureProfile): M
     structuredOutputVerification: profile.recommendations.preferDeterministicValidation,
     strictToolBoundaryValidation:
       profile.recommendations.strictToolBoundaryValidation
-      || profile.decoding === "mtp"
-      || profile.decoding === "speculative_friendly"
       || profile.traits.toolCallingReliability === "weak",
   };
   const multipass: ModelExecutionPolicy["multipass"] = {
@@ -740,7 +409,7 @@ export function deriveModelExecutionPolicy(profile: ModelArchitectureProfile): M
     mediationMode: "adaptive",
     applyContextBudgetPolicy: true,
     applySystemHint: true,
-    applyGovernorBias: true,
+    applyGovernorBias: false,
     trace: {
       profileId: profile.modelId,
       policyHash: hashPolicy(selected),
@@ -805,7 +474,7 @@ export function applyArchitectureMediationMode(
 ): ModelExecutionPolicy {
   const applyContextBudgetPolicy = mode === "safe" || mode === "adaptive" || mode === "aggressive";
   const applySystemHint = mode === "adaptive" || mode === "aggressive";
-  const applyGovernorBias = mode === "safe" || mode === "adaptive" || mode === "aggressive";
+  const applyGovernorBias = policy.applyGovernorBias && (mode === "safe" || mode === "adaptive" || mode === "aggressive");
   const strictStreamToolBoundaryValidation =
     policy.strictStreamToolBoundaryValidation || mode === "safe" || mode === "aggressive";
   const contextBudget: ModelExecutionPolicy["contextBudget"] = {
@@ -844,8 +513,8 @@ export function applyArchitectureMediationMode(
     strictToolBoundaryValidation: strictStreamToolBoundaryValidation,
   };
   const multipass: ModelExecutionPolicy["multipass"] = {
-    enabled: mode === "adaptive" || mode === "aggressive",
-    maxRepairPasses: mode === "adaptive" || mode === "aggressive" ? 1 : 0,
+    enabled: mode === "aggressive" || (mode === "adaptive" && policy.multipass.enabled),
+    maxRepairPasses: mode === "aggressive" || (mode === "adaptive" && policy.multipass.enabled) ? 1 : 0,
     retrieveAnswerVerifyRepair: mode === "aggressive",
   };
   const selected = {
@@ -1072,12 +741,6 @@ function finitePositive(value: unknown): number | undefined {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(n) || n <= 0) return undefined;
   return Math.trunc(n);
-}
-
-function effectiveContextFromRatio(value: unknown, ratio: number): number | undefined {
-  const n = finitePositive(value);
-  if (!n) return undefined;
-  return Math.max(1, Math.floor(n * ratio));
 }
 
 function hashPolicy(value: unknown): string {

@@ -37,11 +37,11 @@ describe("model architecture diagnostics route", () => {
       declared_context_tokens: 128_000,
       override_applied: true,
       architecture: {
-        decoding: "speculative_friendly",
+        decoding: "unknown",
         safe_tool_output_tokens: 12_000,
         retry_sensitivity: "high",
         strict_stream_tool_boundary_validation: true,
-        declared_context_interpretation: "storage_with_working_set",
+        declared_context_interpretation: "unknown",
       },
     });
   });

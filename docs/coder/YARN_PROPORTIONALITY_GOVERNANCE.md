@@ -10,8 +10,8 @@ Without proportionality governance, the agent has no structural pressure to matc
 
 1. **Intent-scope matching** — The user's request implicitly defines an acceptable change envelope. "Fix the XSS bug" implies surgical patches, not feature removal.
 2. **Graduated response** — Small breaches get nudges, moderate breaches get guidance, severe breaches trigger intervention or pause.
-3. **Never block legitimate work** — Broad refactors and explicit removals are valid. Proportionality only constrains when the classified scope is narrow.
-4. **Deterministic first, critic second** — Fast regex + threshold checks handle 90% of cases. The LLM critic is optional and only fires for ambiguous high-risk situations.
+3. **Minimize false intervention** — Broad refactors and explicit removals are valid. Proportionality only constrains when the classified scope is narrow.
+4. **Deterministic first, critic second** — Regex and threshold checks provide the first pass; their coverage and false-positive rate require workload evaluation. The LLM critic is optional and only fires for ambiguous high-risk situations.
 5. **Composable with sensemaking** — Proportionality signals feed into the existing Cynefin-aware sensemaking governor as first-class friction signals.
 
 ## Architecture

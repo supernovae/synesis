@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   applyArchitectureMediationMode,
-  buildArchitecturePolicySystemHint,
   buildContextMediationArtifacts,
   deriveModelExecutionPolicy,
   normalizeModelCapabilityPreset,
@@ -25,9 +24,9 @@ describe("architecture mediation", () => {
     expect(policy.stateReinforcement.activeStateHeader).toBe(true);
   });
 
-  it("treats hybrid compressed attention as storage with a working set", () => {
+  it("records verified hybrid attention without inventing a working-context penalty", () => {
     const profile = resolveModelArchitectureProfile({
-      modelId: "kimi-k2.7-code",
+      modelId: "deepseek-v4-pro",
       declaredContextTokens: 256_000,
     });
     const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "adaptive");
@@ -41,7 +40,7 @@ describe("architecture mediation", () => {
     });
 
     expect(profile.attention).toBe("hybrid_compressed_attention");
-    expect(policy.contextBudget.interpretation).toBe("storage_with_working_set");
+    expect(policy.contextBudget.interpretation).toBe("unknown");
     expect(policy.canonicalization.dedupe).toBe(true);
     expect(policy.retrieval.evidenceManifest).toBe(true);
     expect(artifacts.criticalFactPins.length).toBeGreaterThan(0);
@@ -71,13 +70,13 @@ describe("architecture mediation", () => {
     expect(artifacts.activeStateHeader?.match(/<\/SYNESIS_ACTIVE_STATE>/g)).toHaveLength(1);
   });
 
-  it("does not add heavy active-state hints for full-attention models by default", () => {
+  it("does not infer proprietary model architecture from a brand", () => {
     const profile = resolveModelArchitectureProfile({ modelId: "gpt-4.1", provider: "openai" });
     const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "adaptive");
 
-    expect(profile.attention).toBe("full_attention");
-    expect(policy.stateReinforcement.activeStateHeader).toBe(false);
-    expect(buildArchitecturePolicySystemHint(policy)).toBeNull();
+    expect(profile.attention).toBe("unknown");
+    expect(policy.applyGovernorBias).toBe(false);
+    expect(policy.multipass.enabled).toBe(false);
   });
 
   it("uses controlled model capability presets independent of endpoint/model string", () => {
@@ -89,8 +88,8 @@ describe("architecture mediation", () => {
     });
     const policy = deriveModelExecutionPolicy(profile);
 
-    expect(profile.attention).toBe("mla");
-    expect(policy.contextBudget.interpretation).toBe("storage_with_working_set");
+    expect(profile.attention).toBe("hybrid_compressed_attention");
+    expect(policy.contextBudget.interpretation).toBe("unknown");
     expect(policy.reasons).toContain("attention_compression");
     expect(telemetryProviderForModelCapabilityPreset("deepseek-v4")).toBe("deepseek");
     expect(normalizeModelCapabilityPreset("mimo-v2.5")).toBe("xiaomi_mimo_2_5");

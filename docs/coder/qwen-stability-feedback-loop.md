@@ -1,6 +1,8 @@
 # Qwen Stability Feedback Loop
 
-This document defines the operational loop for improving coding-agent stability with safety-first governance, reproducible evaluations, and training data exports.
+This document describes an operator workflow for evaluating coding-agent behavior and exporting candidate training data. Training and model promotion are separate operator-managed steps, not an automatic quality guarantee.
+
+Current model shims are described in the [model audit](../model-shim-audit-2026-09.md). Successful reads, research, and plan maintenance are not failure evidence. Governor events are review signals: an intervention alone does not prove a bad response, and generated recovery guidance is not automatically a gold answer. Review these labels before training.
 
 ## Governance Profiles
 
@@ -10,7 +12,7 @@ Yarn now supports explicit governance profiles via `SYNESIS_YARN_GOVERNANCE_PROF
   - Prioritizes runaway safety over behavior policing.
   - Allows more retries before loop-based pause interventions.
 - `balanced_completion` (default)
-  - Best default for production quality: soft steering + safety protections.
+  - Default profile combining soft steering and safety protections; validate its intervention rate on your workload.
 - `strict_control`
   - Aggressive loop policing for debugging / forensic runs.
 
@@ -20,7 +22,7 @@ Related controls are still enforced independently:
 - tool-call runaway limits
 - rate limiting and circuit breaker controls
 
-## End-to-End Closed Loop
+## Evaluation and training workflow
 
 ```mermaid
 flowchart TD
@@ -64,11 +66,11 @@ The execution governor produces per-request signals that feed directly into the 
 
 | Signal | Source | Training Use |
 |--------|--------|-------------|
-| `governor_intervened` | `training_signals.governor_intervened` | Tag trajectory as negative example for SFT filtering or DPO rejected side |
+| `governor_intervened` | `training_signals.governor_intervened` | Flag trajectory for review before SFT/DPO labeling |
 | `governor_rules` | `training_signals.governor_rules` | Populate `failure_tags[]` with specific failure classes (e.g. `verification_stall_no_edit`) |
-| `no_edit_evidence` | `training_signals.no_edit_evidence` | Quality signal: model looping without making progress |
-| `trailing_verification_stall` | `training_signals.trailing_verification_stall` | Quality signal: extended verification sequence without edits |
-| `governor_pause_count` | Session metadata | Soft reward signal for RLAIF: lower is better |
+| `no_edit_evidence` | `training_signals.no_edit_evidence` | Review signal; no edits may be appropriate for the task |
+| `trailing_verification_stall` | `training_signals.trailing_verification_stall` | Review signal; assess whether repeated verification was needed |
+| `governor_pause_count` | Session metadata | Candidate metric; interpret alongside task success and false interventions |
 
 See [GOVERNOR_HARNESS.md](./GOVERNOR_HARNESS.md) for the full telemetry schema and query examples.
 

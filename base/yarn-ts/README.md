@@ -112,17 +112,31 @@ Most production deployments should use Helm values and Synesis admin provider co
 
 See [../../docs/HELM_INSTALL.md](../../docs/HELM_INSTALL.md) and the Helm chart values for deployment-specific defaults.
 
-## Model Reasoning
+## Model and harness compatibility
 
-Yarn normalizes model reasoning options at the provider boundary. It accepts OpenAI-style and vendor-style reasoning fields and maps supported values into provider options only when the selected model family can use them.
+Model adapters preserve protocol differences without prescribing a client's file
+layout, editing workflow, or commit behavior. Client identity, model identity,
+and endpoint capabilities are resolved separately. See the
+[harness compatibility guide](../../docs/clients/HARNESS_COMPATIBILITY.md) for
+execution-context metadata and native tool-schema handling.
 
-Current behavior is implemented in:
+The [model shim audit](../../docs/model-shim-audit-2026-09.md) records supported
+family/variant handling and primary sources. Current behavior includes:
 
-- `src/pipeline/provider-options.ts`
-- `src/providers/model-architecture-profile.ts`
-- `src/prompt/infer-model-family.ts`
+- Separate Qwen3 Coder/Next sampling and general Qwen reasoning handling.
+- Reasoning-content replay for supported compatible providers, including
+  DeepSeek tool continuations; clients must supply the required history.
+- Preserved caller thinking intent, including required tool choice. Unsupported
+  endpoint combinations can still return errors.
+- Full-argument failure-loop detection; repeated successful reads alone do not
+  trigger the model shim's pivot guidance. Other governor controls are configured separately.
+- Configured context capacity without unmeasured model-name discounts;
+  explicit registry overrides remain available.
 
-Operators should prefer admin-managed model roles and architecture profiles over per-client hardcoding.
+The compatible SDK provider handles the documented reasoning extension. This is
+not full feature parity with every vendor API. Endpoint tool parsers, chat
+templates, structured output, and sampling options need deployment validation.
+Automated wire-format tests do not certify live model quality or performance.
 
 ## Context And Memory
 

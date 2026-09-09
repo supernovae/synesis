@@ -6,6 +6,14 @@ This directory collects **capability and architecture** notes for coder. For “
 
 The intent is to keep model reasoning in the loop while reducing avoidable ambiguity through deterministic evidence, stronger retrieval, and organization-level governance. These are building blocks, not mandatory gates.
 
+## Current compatibility references
+
+Use the [harness compatibility guide](../clients/HARNESS_COMPATIBILITY.md) for
+client identity, cwd/project-root handling and execution boundaries, and the
+[model shim audit](../model-shim-audit-2026-09.md) for model variants, reasoning
+replay and removed heuristics. Design goals below describe intended outcomes;
+they are not guarantees of agent completion or safety.
+
 ## Core Principles
 
 - **Capability-first adoption:** teams can start with minimal policy and gradually enable stronger governance.
@@ -65,7 +73,6 @@ Research anchors are collected in
 - [YARN_SESSION_DEBUGGING.md](./YARN_SESSION_DEBUGGING.md) — troubleshooting
 - [YARN_COST_ANALYSIS.md](./YARN_COST_ANALYSIS.md) — cost notes
 - [YARN_PERFORMANCE_REVIEW_FINDINGS.md](./YARN_PERFORMANCE_REVIEW_FINDINGS.md) — performance review
-- [../../base/yarn-ts/README.md#markdown-response-style](../../base/yarn-ts/README.md#markdown-response-style) — markdown response style modes and operator override
 
 ## Consolidated Feature Areas
 

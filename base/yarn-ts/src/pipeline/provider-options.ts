@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { jsonSchema, Output as aiOutput } from "ai";
 
-import type { PhaseAwareToolChoice } from "../governance/phase-execution-policy.js";
 import type { AiSdkJsonResponseFormat } from "../openai-compat.js";
 import { toAiSdkJsonResponseFormat } from "../openai-compat.js";
 import type { ModelSamplingDefaults } from "../providers/admin-tier-registry.js";
@@ -53,7 +52,7 @@ export interface ProviderSecurityScope {
   sessionKey: string;
 }
 
-const REASONING_EFFORT_VALUES = new Set(["low", "medium", "high"]);
+const REASONING_EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 export function buildClaudeMessagesProviderRequestOptions(
   input: ClaudeMessagesProviderRequestOptionsInput,
@@ -172,35 +171,6 @@ export function buildOpenAIChatProviderRequestOptions(
   };
 }
 
-export function suppressThinkingWhenRequiredToolChoice(
-  providerOptions: Record<string, Record<string, unknown>> | undefined,
-  toolChoice: PhaseAwareToolChoice | undefined,
-): { providerOptions: Record<string, Record<string, unknown>> | undefined; suppressed: boolean } {
-  if (toolChoice !== "required") {
-    return { providerOptions, suppressed: false };
-  }
-  const openaiOptions = (providerOptions?.openai ?? {}) as Record<string, unknown>;
-  const hasThinkingEnabled =
-    Object.prototype.hasOwnProperty.call(openaiOptions, "thinking")
-    || (Object.prototype.hasOwnProperty.call(openaiOptions, "enable_thinking")
-      && openaiOptions.enable_thinking !== false);
-  if (!hasThinkingEnabled) {
-    return { providerOptions, suppressed: false };
-  }
-  const nextOpenaiOptions: Record<string, unknown> = {
-    ...openaiOptions,
-    enable_thinking: false,
-  };
-  delete nextOpenaiOptions.thinking;
-  return {
-    providerOptions: {
-      ...(providerOptions ?? {}),
-      openai: nextOpenaiOptions,
-    },
-    suppressed: true,
-  };
-}
-
 export function buildOpenAiJsonOutput(format: AiSdkJsonResponseFormat | undefined) {
   if (!format) return undefined;
   if ("schema" in format) {
@@ -290,9 +260,9 @@ function providerSafeScalar(value: unknown, max = 256): string | null {
   return sanitized || null;
 }
 
-function providerReasoningEffort(value: unknown): "low" | "medium" | "high" | undefined {
+function providerReasoningEffort(value: unknown): "low" | "medium" | "high" | "xhigh" | "max" | undefined {
   return typeof value === "string" && REASONING_EFFORT_VALUES.has(value)
-    ? value as "low" | "medium" | "high"
+    ? value as "low" | "medium" | "high" | "xhigh" | "max"
     : undefined;
 }
 

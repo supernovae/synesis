@@ -247,6 +247,7 @@ export const ChatMessageSchema = z.object({
   role: RoleSchema,
   content: OpenAIMessageContentSchema.optional(),
   name: z.string().max(256).optional(),
+  reasoning_content: z.string().nullable().optional(),
   tool_call_id: z.string().optional(),
   tool_calls: z.array(ToolCallSchema).optional(),
 }).strict().transform((message) => ({
@@ -322,7 +323,7 @@ const MAX_MODEL_CHARS = 256;
 const MAX_OUTPUT_TOKENS = 2_000_000;
 const MAX_LOGIT_BIAS_KEYS = 2048;
 const ProviderIdentifierSchema = z.string().max(256);
-const ReasoningEffortSchema = z.enum(["low", "medium", "high"]);
+const ReasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
 const ServiceTierSchema = z.enum(["auto", "flex", "priority", "default"]);
 const PromptCacheRetentionSchema = z.enum(["in_memory", "24h"]);
 const TextVerbositySchema = z.enum(["low", "medium", "high"]);

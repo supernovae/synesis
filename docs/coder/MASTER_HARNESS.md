@@ -7,9 +7,13 @@ cross-model tool governance.
 Model-specific behavior belongs in Harness Cards. Permission and harm policy
 does not.
 
+These proxy checks are defense in depth. The native execution environment owns
+filesystem permissions, process isolation and approval enforcement. See the
+[current path policy](YARN_PATH_SANDBOX.md) and [model audit](../model-shim-audit-2026-09.md).
+
 ## Goals
 
-- Make universal safety obvious and true across every model and protocol path.
+- Apply consistent, testable safety checks across integrated model and protocol paths.
 - Keep token budget decisions understandable, traceable, and testable.
 - Make governor and repair decisions visible as structured events.
 - Provide a clean foundation for provider-supplied behavior cards without
@@ -27,7 +31,7 @@ The Master Harness owns:
 - stale-write and unsafe plan-write protection once file-state telemetry is
   attached
 - trace and scorecard event contracts
-- systemic repair rules that are safe across all models
+- model-independent schema checks and conservative argument repairs
 
 Harness Cards own:
 
@@ -35,7 +39,7 @@ Harness Cards own:
 - tool schema tolerance
 - argument aliases commonly produced by a model family
 - malformed JSON/tool-call repair tolerance
-- repeated-tool and loop-risk tendencies
+- explicit loop-control configuration; built-in cards do not nudge on tool-name streaks alone
 - model sampling defaults
 - optional plugin hooks for model-specific behavior
 

@@ -75,7 +75,7 @@ describe("composeEndpointTransportFetch", () => {
     expect(seenHeaders?.get("x-session-affinity")).toBeNull();
   });
 
-  it("sets User-Agent for Kimi Coding adapter (subscription / coding-agent gate)", async () => {
+  it("identifies Synesis honestly to Kimi Coding", async () => {
     const adapter = getEndpointTransportAdapter("kimi_coding");
     let seenHeaders: Headers | undefined;
     const nativeFetch: typeof fetch = async (_input, init) => {
@@ -88,6 +88,6 @@ describe("composeEndpointTransportFetch", () => {
       headers: { authorization: "Bearer sk-test" },
       body: JSON.stringify({ model: "kimi-for-coding", messages: [] }),
     });
-    expect(seenHeaders?.get("user-agent")).toBe("claude-code/0.1.0");
+    expect(seenHeaders?.get("user-agent")).toBe("synesis-yarn/0.1.0");
   });
 });

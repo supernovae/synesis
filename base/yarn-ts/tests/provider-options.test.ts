@@ -5,30 +5,16 @@ import {
   buildClaudeMessagesProviderRequestOptions,
   buildOpenAIChatProviderRequestOptions,
   openAiMetadataProviderOptions,
-  suppressThinkingWhenRequiredToolChoice,
 } from "../src/pipeline/provider-options.js";
 import type { ClaudeMessagesRequest, OpenAIChatCompletionRequest } from "../src/schemas.js";
 
-describe("suppressThinkingWhenRequiredToolChoice", () => {
-  it("leaves provider options untouched unless tool_choice is required", () => {
-    const providerOptions = { openai: { thinking: { effort: "medium" } } };
-
-    expect(suppressThinkingWhenRequiredToolChoice(providerOptions, "auto")).toEqual({
-      providerOptions,
-      suppressed: false,
+describe("caller thinking intent", () => {
+  it("preserves requested thinking when tool choice is required", () => {
+    const result = buildOpenAIChatProviderRequestOptions({
+      request: { model: "core", messages: [], tool_choice: "required", enable_thinking: true, reasoning_effort: "max" } as OpenAIChatCompletionRequest,
+      supportsTopK: false,
     });
-  });
-
-  it("removes thinking and disables enable_thinking for required tool choice", () => {
-    const result = suppressThinkingWhenRequiredToolChoice(
-      { openai: { thinking: { effort: "medium" }, enable_thinking: true, other: "kept" } },
-      "required",
-    );
-
-    expect(result).toEqual({
-      providerOptions: { openai: { enable_thinking: false, other: "kept" } },
-      suppressed: true,
-    });
+    expect(result.providerOptions?.openai).toMatchObject({ enable_thinking: true, reasoningEffort: "max" });
   });
 });
 

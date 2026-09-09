@@ -9,7 +9,7 @@ describe("planner architecture mediation", () => {
   it("honors nested metadata controls and builds roleplay active state", () => {
     const mediation = resolvePlannerArchitectureMediation({
       requestedModel: "Synesis",
-      writerModel: "kimi-k2.7-code",
+      writerModel: "kimi-k2.5",
       metadata: { synesis: { contextMediation: "adaptive", architectureProfile: "auto" } },
       messages: [
         { role: "user", content: "Roleplay as Captain Vale. Canon: the ship is Aurora. Always stay in character." },
@@ -20,7 +20,7 @@ describe("planner architecture mediation", () => {
     });
 
     expect(mediation.policy.mediationMode).toBe("adaptive");
-    expect(mediation.profile.attention).toBe("hybrid_compressed_attention");
+    expect(mediation.profile.attention).toBe("mla");
     expect(mediation.chatProfile).toBe("roleplay_creative_continuity");
     expect(mediation.activeStateHeader).toContain("SYNESIS_PLANNER_ACTIVE_STATE");
     expect(mediation.activeStateHeader).toContain("roleplay_creative_continuity");
@@ -71,8 +71,8 @@ describe("planner architecture mediation", () => {
       taskDescription: "Continue the long task.",
     });
 
-    expect(mediation.profile.attention).toBe("mla");
-    expect(mediation.policy.contextBudget.interpretation).toBe("storage_with_working_set");
+    expect(mediation.profile.attention).toBe("hybrid_compressed_attention");
+    expect(mediation.policy.contextBudget.interpretation).toBe("unknown");
   });
 
   it("safe mode removes duplicate low-value context through the shared hygiene filter", () => {
@@ -97,8 +97,8 @@ describe("planner architecture mediation", () => {
       { role: "user", content: "latest question" },
     ], mediation.policy);
 
-    expect(out.removedCount).toBe(2);
-    expect(out.messages.map((m) => m.content)).toEqual(["System stays.", "repeat me", "latest question"]);
+    expect(out.removedCount).toBe(1);
+    expect(out.messages.map((m) => m.content)).toEqual(["System stays.", "obsolete stale note no longer relevant", "repeat me", "latest question"]);
   });
 
   it("ships built-in chat profile prompts", () => {

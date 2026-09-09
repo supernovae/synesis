@@ -81,7 +81,7 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
       family_prefixes: ["generic", "openai-compatible"],
     },
     capabilities: {
-      supports_thinking: false,
+      supports_thinking: true,
       native_tool_parser: true,
       strict_json: "medium",
       strict_tool_args: "medium",
@@ -92,24 +92,23 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
     id: "qwen3-coder",
     display_name: "Qwen3 Coder",
     model_match: {
-      family_prefixes: ["qwen", "qwen3"],
+      family_prefixes: ["qwen3-coder"],
       model_substrings: ["qwen3-coder", "qwen-coder"],
-      provider_hints: ["dashscope", "vllm", "openrouter"],
+      provider_hints: [],
     },
     capabilities: {
       supports_thinking: false,
       native_tool_parser: false,
-      max_effective_tools: 40,
-      strict_json: "low",
-      strict_tool_args: "low",
+      strict_json: "medium",
+      strict_tool_args: "medium",
     },
     repairs: {
       argument_aliases: COMMON_CODING_TOOL_ARGUMENT_ALIASES,
-      empty_arguments: "normalize_to_empty_object",
+      empty_arguments: "preserve",
       malformed_json: "conservative",
     },
     loop_controls: {
-      repeated_tool_dampening: true,
+      repeated_tool_dampening: false,
       plan_no_action_limit: 2,
       edit_retry_limit: 2,
     },
@@ -120,12 +119,35 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
   }),
   card({
     schema_version: HARNESS_CARD_SCHEMA_VERSION,
+    id: "qwen3-coder-next",
+    display_name: "Qwen3 Coder Next",
+    model_match: { family_prefixes: ["qwen3-coder-next"], model_substrings: ["qwen3-coder-next"] },
+    capabilities: { supports_thinking: false, native_tool_parser: true, strict_json: "medium", strict_tool_args: "medium" },
+    sampling_defaults: { temperature: 1.0, top_p: 0.95 },
+    repairs: { argument_aliases: COMMON_CODING_TOOL_ARGUMENT_ALIASES },
+  }),
+  card({
+    schema_version: HARNESS_CARD_SCHEMA_VERSION,
+    id: "qwen",
+    display_name: "Qwen reasoning models",
+    model_match: { family_prefixes: ["qwen"], model_substrings: ["qwen3.5", "qwen3.6", "qwen3-", "qwen3."] },
+    capabilities: { supports_thinking: true, native_tool_parser: true, strict_json: "medium", strict_tool_args: "medium" },
+  }),
+  card({
+    schema_version: HARNESS_CARD_SCHEMA_VERSION,
+    id: "glm",
+    display_name: "GLM",
+    model_match: { family_prefixes: ["glm"], model_substrings: ["glm-4", "glm-5"] },
+    capabilities: { supports_thinking: true, native_tool_parser: true, strict_json: "medium", strict_tool_args: "medium" },
+  }),
+  card({
+    schema_version: HARNESS_CARD_SCHEMA_VERSION,
     id: "kimi",
     display_name: "Kimi / Moonshot",
     model_match: {
       family_prefixes: ["kimi", "moonshot"],
       model_substrings: ["kimi", "moonshot", "k2.5", "k2.6", "k2.7"],
-      provider_hints: ["kimi_coding", "moonshot", "openrouter", "vllm"],
+      provider_hints: ["kimi_coding", "moonshot"],
     },
     capabilities: {
       supports_thinking: true,
@@ -135,17 +157,13 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
     },
     repairs: {
       argument_aliases: COMMON_CODING_TOOL_ARGUMENT_ALIASES,
-      empty_arguments: "normalize_to_empty_object",
+      empty_arguments: "preserve",
       malformed_json: "conservative",
     },
     loop_controls: {
-      repeated_tool_dampening: true,
+      repeated_tool_dampening: false,
       plan_no_action_limit: 2,
       edit_retry_limit: 2,
-    },
-    sampling_defaults: {
-      temperature: 1,
-      top_p: 0.95,
     },
   }),
   card({
@@ -155,21 +173,21 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
     model_match: {
       family_prefixes: ["minimax"],
       model_substrings: ["minimax", "abab"],
-      provider_hints: ["minimax", "openrouter"],
+      provider_hints: ["minimax"],
     },
     capabilities: {
-      supports_thinking: false,
+      supports_thinking: true,
       native_tool_parser: true,
       strict_json: "medium",
       strict_tool_args: "medium",
     },
     repairs: {
       argument_aliases: COMMON_CODING_TOOL_ARGUMENT_ALIASES,
-      empty_arguments: "normalize_to_empty_object",
+      empty_arguments: "preserve",
       malformed_json: "conservative",
     },
     loop_controls: {
-      repeated_tool_dampening: true,
+      repeated_tool_dampening: false,
       plan_no_action_limit: 3,
       edit_retry_limit: 2,
     },
@@ -197,7 +215,7 @@ export const BUILTIN_HARNESS_CARDS: HarnessCardV1[] = [
     model_match: {
       family_prefixes: ["deepseek"],
       model_substrings: ["deepseek"],
-      provider_hints: ["deepseek", "vllm", "openrouter"],
+      provider_hints: ["deepseek"],
     },
     capabilities: {
       supports_thinking: true,
@@ -212,18 +230,7 @@ function normalize(value: string | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function cardMatches(cardValue: HarnessCardV1, modelId: string, provider?: string, family?: string): boolean {
-  const model = normalize(modelId);
-  const providerHint = normalize(provider);
-  const familyHint = normalize(family);
-  const match = cardValue.model_match;
-  if (match.exact_models.some((m) => normalize(m) === model)) return true;
-  if (match.model_substrings.some((m) => model.includes(normalize(m)))) return true;
-  if (familyHint && match.family_prefixes.some((m) => familyHint.startsWith(normalize(m)))) return true;
-  if (providerHint && match.provider_hints.some((m) => providerHint.includes(normalize(m)))) return true;
-  return false;
-}
-
+/** Specific model evidence outranks family hints; provider-only fallback must be unique. */
 export function resolveHarnessCard(params: {
   modelId: string;
   provider?: string;
@@ -231,7 +238,20 @@ export function resolveHarnessCard(params: {
   cards?: HarnessCardV1[];
 }): HarnessCardV1 {
   const cards = params.cards?.length ? params.cards : BUILTIN_HARNESS_CARDS;
-  return cards.find((candidate) =>
-    cardMatches(candidate, params.modelId, params.provider, params.family),
-  ) ?? BUILTIN_HARNESS_CARDS[0]!;
+  const model = normalize(params.modelId);
+  const family = normalize(params.family);
+  const provider = normalize(params.provider);
+  const exact = cards.find(c => c.model_match.exact_models.some(m => normalize(m) === model && model !== ""));
+  if (exact) return exact;
+  const bySpecificity = (kind: "model" | "family") => cards
+    .map(card => ({ card, score: Math.max(0, ...(kind === "model" ? card.model_match.model_substrings : card.model_match.family_prefixes)
+      .map(value => normalize(value))
+      .filter(value => value && (kind === "model" ? model.includes(value) : family === value || family.startsWith(`${value}-`)))
+      .map(value => value.length)) }))
+    .filter(match => match.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.card;
+  const matched = bySpecificity("model") ?? bySpecificity("family");
+  if (matched) return matched;
+  const providers = cards.filter(c => c.model_match.provider_hints.some(p => normalize(p) === provider && provider !== ""));
+  return providers.length === 1 ? providers[0]! : BUILTIN_HARNESS_CARDS[0]!;
 }

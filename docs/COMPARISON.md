@@ -1,50 +1,25 @@
-# Synesis Comparison Notes
+# Is Synesis a fit?
 
-This page keeps the comparison material out of the top-level README. It is not
-a leaderboard. It is a positioning guide for deciding when Synesis is the right
-kind of project to run or fork.
+Synesis combines chat and coder APIs, knowledge retrieval, MCP tools, and an admin surface in a self-hosted platform. This page describes the operating tradeoffs; it does not rank other products or claim feature parity with them.
 
-## Where Synesis Fits
+## When to evaluate it
 
-Synesis is closest to an **AI control plane**: model routing, graph-native RAG,
-chat, coding agents, MCP tooling, admin operations, security events, and review
-workflows in one self-hosted stack.
+- You want shared model configuration and indexed knowledge across chat and coding clients.
+- You need to inspect retrieval provenance, session traces, review state, or model usage.
+- You want to extend service code, indexers, tools, or model compatibility handling.
+- Your team can operate the backing services, identity provider, storage, and model endpoints.
 
-| Capability | Synesis | AI SDK / LlamaIndex | Dify / Flowise | Cursor / Continue | Perplexity / Glean |
-|---|---|---|---|---|---|
-| Self-hosted control plane | Yes | Framework only | Partial | No | No |
-| Air-gap friendly architecture | Yes, with self-hosted models and internal data plane | Depends on what you build | Depends on deployment | No | No |
-| Chat plus coding agents | Yes | Build it yourself | Mostly chat/RAG | Coding only | Search/answering |
-| MCP integration | Built in | Build it yourself | Limited or custom | Client-side only | No |
-| Graph-native RAG | NornicDB vector + graph search | Bring your own | Basic workflow RAG | Not primary surface | Proprietary search |
-| Admin operations UI | Models, providers, keys, RAG review, traces, security events | No | Basic UI | No | SaaS admin |
-| Trust/provenance controls | TrustPacketV1, attribution, scan status, review status | Build it yourself | Limited | Limited | Source links |
-| Multi-role model routing | Planner, writer, coder, critic, summarizer, embedder | Build it yourself | Usually single workflow model | Usually one coding model | Proprietary |
-| Forkable platform code | Yes | Yes, as libraries | Yes, app/workflow layer | Limited by product | No |
+## What running it involves
 
-## Choose Synesis When
+| Need | Synesis approach | Responsibility to plan for |
+| --- | --- | --- |
+| Local evaluation | Compose stack with optional service profiles | Configure a model endpoint; default startup is a smoke test. |
+| Platform deployment | Kubernetes Helm chart and examples | Identity, secrets, networking, storage, upgrades, and monitoring. |
+| Private knowledge | Indexed documents/code and NornicDB retrieval | Ingestion quality, source permissions, freshness, and review. |
+| Coding integration | Coder API, ACP bridge, and MCP tools | Client/version validation and the native execution sandbox. |
+| Model choice | Configured self-hosted or hosted endpoints | Model availability, licensing, cost, serving features, and workload evaluation. |
+| Disconnected operation | Deployment can use internally hosted components | Mirror required artifacts and remove external service dependencies. |
 
-- You want one platform for chat, RAG, coding agents, MCP, and model operations.
-- Your data and model traffic need to stay in your infrastructure.
-- Operators need a UI for providers, model registry, RAG review, security
-  events, traces, and feedback.
-- You want to extend the system with new indexers, tools, model adapters, or
-  deployment patterns.
-- You want provenance, authorization, and trust metadata attached to retrieved
-  context rather than handled as prompt convention.
+A smaller application or library may be easier to maintain if you only need one chatbot, a retrieval component, or a single model endpoint. Synesis is most useful when the shared platform capabilities justify the additional services.
 
-## Choose A Smaller Tool When
-
-- You only need a single chatbot over a small document set.
-- You want a library, not an operated platform.
-- You do not need Kubernetes, model governance, RAG review, security event
-  tracking, or IDE agent integration.
-- You prefer SaaS speed over self-hosted control.
-
-## Related Docs
-
-- [Top-level README](../README.md)
-- [Helm install](HELM_INSTALL.md)
-- [MCP quickstart](clients/MCP_QUICKSTART.md)
-- [Security posture](SECURITY.md)
-- [Graph-native RAG](RAG.md)
+See the [README](../README.md), [local setup](LOCAL_COMPOSE.md), [deployment guide](HELM_INSTALL.md), [security model](SECURITY.md), and [compatibility limits](clients/HARNESS_COMPATIBILITY.md) before choosing a deployment scope.

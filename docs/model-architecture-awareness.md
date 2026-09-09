@@ -6,49 +6,22 @@ or speculative decoding behavior in vLLM, SGLang, or hosted providers. Instead,
 Yarn adapts developer-harness behavior to the architecture traits of the model
 behind the endpoint.
 
-## Why Provider Names Are Not Enough
+## Evidence and limits
 
-Provider/model-family handling catches useful quirks such as tool argument
-shape, thinking support, and endpoint capabilities. It does not describe how a
-model behaves under long coding sessions. Two models behind the same
-OpenAI-compatible API can differ sharply:
+Model architecture, endpoint transport, and client tool semantics are independent.
+The [September 2026 audit](model-shim-audit-2026-09.md) records verified model
+versions, removed heuristics, research sources and deployment validation limits.
 
-- full-attention models may tolerate larger working transcripts;
-- sliding-window models can lose long-tail state even when the declared context
-  window is large;
-- global/local hybrid and compressed sparse attention models may expose large
-  context as addressable storage rather than dense working memory;
-- MLA / attention-compressed models may need explicit state packets rather than
-  raw transcript volume;
-- MoE models benefit from deterministic task-stage labels and stricter validation;
-- MTP or speculative-friendly serving needs careful stream/tool-call boundary
-  validation;
-- high-throughput cheap-output models may need shorter turns and recent task
-  state replay.
+Architecture names do not establish recall quality, safe working-context ratios,
+short-turn requirements, or runtime speculative decoding. Unknown behavior stays
+unknown. The configured context capacity is preserved unless a measured registry
+override supplies a lower operating limit; ordinary output reservation and context
+admission still apply. Compaction-sensitive overrides prefer minimal compaction.
 
-When users say “the model is getting dumb,” the issue is often a platform
-mediation problem: old state is weakly attended, tool results are too verbose,
-or the harness assumes the provider’s declared context window equals reliable
-working memory.
-
-## What Yarn Controls
-
-Yarn’s `ModelArchitectureProfile` and derived `ModelExecutionPolicy` make those
-tradeoffs explicit. The first pass applies policy to:
-
-- effective context ceilings used by context admission;
-- storage-vs-working-set context interpretation for compressed long-context
-  models;
-- compaction aggressiveness for weak long-tail or SWA-like profiles;
-- active state headers, critical fact pins, and evidence manifests near the
-  model working set;
-- deterministic validation, structured tool-output preferences, citation
-  checks, and missing-reference checks;
-- trace and cache diagnostics explaining which architecture policy was selected.
-
-Unknown models degrade to conservative defaults: explicit state headers,
-structured tool digests, recent task replay, deterministic validation, and a
-reduced effective working context when no better signal exists.
+State headers, evidence manifests, exact deduplication and deterministic validation
+are ordinary harness controls. They are not repairs to model attention. Built-in
+profiles do not add governor bias, stale-keyword deletion, or extra model passes
+based on model branding.
 
 ## Mediation Modes
 
@@ -72,10 +45,10 @@ models that benefit from it. Requests can override it with the
 - `off`: do not apply architecture budget or prompt mediation for the request;
 - `observe`: resolve and trace the profile/policy, but do not alter budget
   ceilings, compaction, or prompt hints;
-- `safe`: filter obvious duplicate/stale low-value context and enforce strict
+- `safe`: filter duplicate low-value context (staleness filtering requires an explicit override) and enforce strict
   tool/schema boundaries without extra model passes;
 - `adaptive`: apply architecture-aware active state, fact pins, evidence
-  manifests, and at most one repair pass for critical fact/reference violations;
+  manifests; repair passes require an explicit registry recommendation;
 - `aggressive`: run one retrieve-answer-verify-repair pass for long-context
   tasks and return the repaired result with trace metadata.
 
@@ -105,8 +78,9 @@ truth. They can include:
 - verification warnings for missing block IDs, stale references, critical fact
   recall gaps, and quote/citation risk.
 
-`off` performs raw pass-through. `observe` builds and traces artifacts without
-injecting them. `safe` may filter obvious duplicate/stale low-value context.
+`off` disables architecture mediation; authentication, schema validation and other
+independently configured runtime controls still apply. `observe` builds and traces artifacts without
+injecting them. `safe` may filter duplicate low-value context; stale filtering requires an override.
 `adaptive` injects active state when the selected architecture policy benefits
 from it. `aggressive` uses the same bounded artifacts with one verify/repair
 opportunity.
@@ -165,7 +139,7 @@ xiaomi_mimo_2_5
 
 Use `generic_openai_compatible` when an opaque model id should suppress
 name-based architecture inference. Leave the preset unset to use conservative
-automatic inference from model id/provider. These presets are harness policy
+automatic inference from model ID. These presets are harness policy
 defaults for mediation, adapter hints, and cache diagnostics; they are not
 freeform claims about the provider or serving stack.
 
@@ -173,29 +147,20 @@ Admins can also override inferred profiles through model registry route params.
 The first pass supports either an `architecture_profile` object or direct
 fields:
 
+For example, an operator might set the following **after measuring** an endpoint
+and workload. These numbers are illustrative, not recommended model defaults:
+
 ```json
 {
-  "model_capability_preset": "deepseek_v4",
-  "architecture_attention": "hybrid_compressed_attention",
-  "architecture_activation": "moe",
-  "architecture_decoding": "speculative_friendly",
-  "architecture_compression_local_path": "global_local",
-  "architecture_compression_long_range_path": "retrieval_compressed",
-  "architecture_context_interpretation": "storage_with_working_set",
   "effective_working_context_tokens": 90000,
-  "safe_instruction_tokens": 10000,
   "safe_tool_output_tokens": 16000,
   "architecture_compaction_sensitivity": "high",
-  "architecture_exact_needle_recall_reliability": "weak",
-  "architecture_critical_fact_pins": true,
-  "architecture_evidence_manifest": true,
   "default_context_mediation_mode": "adaptive"
 }
 ```
 
-These overrides are harness policy, not claims about the actual inference
-engine. Operators should prefer cautious settings unless they have trace data
-showing stronger behavior.
+Record the model/version, serving configuration, workload and evaluation result
+with an override. Architectural facts alone do not establish these limits.
 
 ## Operator Diagnostics
 
@@ -219,20 +184,8 @@ from “profile actively changed request handling.”
 
 ## Examples
 
-- DeepSeek-style MLA model: Yarn applies harness policy defaults that treat
-  declared context as larger than reliable working memory, prefer memory
-  stitching, and keep high-signal decisions in explicit state headers.
-- Xiaomi MiMo model: Yarn treats MiMo-V2.5 Pro as a long-agent MoE profile with
-  explicit current-state replay, and treats MiMo Flash as SWA/MTP-sensitive so
-  short turns, path discipline, and stream/tool boundary checks stay prominent.
-- MoE coder: Yarn favors deterministic validation and clearer task-stage labels
-  to reduce ambiguous instruction blends.
-- Throughput-optimized model: Yarn encourages shorter turns, structured tool
-  digests, recent task replay, and safer retries so lower developer harnesses do
-  not each need to rediscover the same mediation rules.
-
-This is the product boundary: Synesis is not a dumb proxy and not a magic
-long-context repair system. It is architecture-aware model mediation that
-normalizes developer experience across different model runtimes. Built-in
-example profiles are harness policy defaults, not authoritative claims about a
-provider's model internals; admin registry overrides remain authoritative.
+- DeepSeek V4 is distinct from V3/R1 MLA and V3.2 DSA. None receives an automatic capacity discount.
+- Qwen3 Coder Next and Qwen3.5/3.6 use hybrid linear/full attention; the legacy enum leaves this unknown with explanatory notes.
+- MTP training does not identify the serving algorithm or HTTP chunk boundaries.
+- Unknown/proprietary models retain unknown architecture and quality traits.
+- A measured registry override can lower the operating context ceiling or enable bounded repair passes.

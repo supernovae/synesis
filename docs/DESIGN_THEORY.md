@@ -11,9 +11,9 @@ This document captures the guiding hypotheses behind the platform. The canonical
 | AI systems are joint cognitive systems, not autonomous oracles. | Ask for clarification when the frame is weak; expose traces, citations, assumptions, and review state. | Planner clarify-first, Admin traces, RAG review queues, Open WebUI status events |
 | Complexity should change the workflow. | Clear tasks can be direct; complicated and complex tasks need planning, retrieval, critique, and sometimes user input. | `entry-classifier.ts`, `domain-profile.ts`, `llm-planner.ts`, planner pipeline |
 | Retrieval is a governance mechanism, not just search. | Evidence carries provenance, authority, freshness, authorization, and review metadata. | NornicDB graph RAG, SynPacks, `retrieveUnified()`, Admin review |
-| Trust has to be structural. | Untrusted user, web, RAG, MCP, and tool content is wrapped and scanned instead of handled by prompt convention. | `TrustPacketV1`, strict Zod schemas, scanner packages, security events |
+| Trust has to be structural. | Trust envelopes and scanning attach provenance and policy signals at integrated content boundaries; they do not make untrusted content safe. | `TrustPacketV1`, strict Zod schemas, scanner packages, security events |
 | Quality improves through feedback loops. | Critic checks, eval lanes, scorecards, and telemetry become part of the platform, not separate scripts. | Planner critic, Yarn Eval Gym, request forensics, feedback sync |
-| Model fleets need architecture-aware mediation. | Different models receive different context, compaction, evidence, and active-state treatment. | Planner/Yarn architecture mediation, model registry, provider diagnostics |
+| Model fleets need architecture-aware mediation. | Separate documented model behavior from endpoint capabilities; use measured overrides for context and compaction limits. | Planner/Yarn architecture mediation, model registry, provider diagnostics |
 | Coding agents need operational governance. | Tool loops, verification churn, path drift, and context growth are controlled by runtime policy. | Yarn execution governor, transcript pruning, tool collapse, MCP allowlists |
 | Operators need visible controls. | Model routing, provider keys, security events, RAG review, traces, and scaling are first-class UI/API concerns. | Admin UI, Helm chart, observability docs, security posture docs |
 
@@ -212,3 +212,12 @@ In short: Synesis is built for teams that want AI behavior to be inspectable, go
 - [Coder Runtime](coder/README.md)
 - [Eval Gym](coder/EVAL_GYM.md)
 - [Comparison Notes](COMPARISON.md)
+
+## Evidence and implementation status
+
+Research papers motivate hypotheses; citing a method does not mean Synesis
+implements it or reproduces its results. Current model and client behavior is
+tracked in the [model shim audit](model-shim-audit-2026-09.md) and
+[harness compatibility guide](clients/HARNESS_COMPATIBILITY.md). In particular,
+sparse attention and MTP training do not justify automatic context discounts,
+and n-gram serving optimizations belong in the inference runtime.

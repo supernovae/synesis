@@ -33,7 +33,7 @@ Optional profiles add MCP, search, RAG, and ingestion services.
 ## Requirements
 
 - Podman with Compose support, or Docker with the Compose plugin.
-- Enough disk for images and volumes.
+- Enough disk for images and volumes; resource use increases with optional profiles.
 - Optional model/provider API keys if you want real model calls.
 
 The default compose stack pulls published images from GHCR and Docker Hub. It
@@ -220,4 +220,10 @@ The local compose defaults trade strict production posture for convenience:
 - TLS, ingress, network policies, Kubernetes secrets, service accounts,
   autoscaling, and OpenShift SCC hardening are not represented.
 
-Use Helm for internet-facing environments.
+Published Compose ports do not specify a loopback bind address. Keep this stack
+on a trusted development host or restrict access with host networking/firewall
+configuration; opening a localhost URL does not make the listeners private.
+
+Use the Helm guide to configure an externally accessible deployment, including
+identity, TLS, secrets and network restrictions. Installing the chart alone does
+not establish a production security posture.

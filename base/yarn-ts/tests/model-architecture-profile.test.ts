@@ -36,79 +36,40 @@ describe("model architecture profile", () => {
     expect(profile.recommendations.preferShorterTurns).toBe(false);
   });
 
-  it("maps DeepSeek-like models to MLA mediation", () => {
-    const profile = resolveModelArchitectureProfile({
-      modelId: "deepseek/deepseek-v3.2",
-      declaredContextTokens: 128_000,
-      family: "deepseek",
-    });
-    const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.attention).toBe("mla");
-    expect(policy.preferMemoryStitching).toBe(true);
-    expect(policy.preferExplicitStateHeaders).toBe(true);
-    expect(policy.reasons).toContain("attention_compression");
-  });
-
-  it("reduces effective working context for sliding-window profiles", () => {
-    const profile = resolveModelArchitectureProfile({
-      modelId: "mistral-swa-coder",
-      declaredContextTokens: 100_000,
-    });
-    const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.attention).toBe("sliding_window");
-    expect(policy.effectiveContextCeilingTokens).toBeLessThan(100_000);
-    expect(policy.compactionMode).toBe("aggressive");
-  });
-
-  it("raises deterministic validation preference for MoE profiles", () => {
-    const profile = resolveModelArchitectureProfile({ modelId: "kimi-k2.7-code", family: "kimi" });
-    const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.activation).toBe("moe");
-    expect(policy.preferDeterministicValidation).toBe(true);
-    expect(policy.reasons).toContain("moe_activation");
-  });
-
-  it("enables stream/tool boundary validation for speculative-friendly profiles", () => {
-    const profile = resolveModelArchitectureProfile({ modelId: "minimax-m2.1", family: "minimax" });
-    const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.decoding).toBe("speculative_friendly");
-    expect(policy.strictStreamToolBoundaryValidation).toBe(true);
-    expect(policy.reasons).toContain("stream_boundary_sensitive_decoding");
-  });
-
-  it("maps Xiaomi MiMo Flash to SWA/MTP-sensitive mediation", () => {
-    const profile = resolveModelArchitectureProfile({
-      modelId: "mimo-v2-flash",
-      family: "xiaomi",
-      declaredContextTokens: 256_000,
-    });
-    const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.attention).toBe("sliding_window");
-    expect(profile.activation).toBe("moe");
-    expect(profile.decoding).toBe("mtp");
-    expect(policy.compactionMode).toBe("aggressive");
+  it.each([
+    ["deepseek-v4-pro", "hybrid_compressed_attention"],
+    ["deepseek-v3.2", "compressed_sparse_attention"],
+    ["deepseek-r1", "mla"],
+    ["DeepSeek-R1-Distill-Qwen-32B", "unknown"],
+    ["Qwen3-Coder-480B-A35B-Instruct", "full_attention"],
+    ["Qwen3-Coder-Next", "unknown"],
+    ["Qwen3.6-35B-A3B", "unknown"],
+    ["GLM-5", "compressed_sparse_attention"],
+    ["kimi-k2.5", "mla"],
+    ["mistral-swa-coder", "unknown"],
+    ["minimax-m2.5", "unknown"],
+    ["mimo-v2.5-pro", "unknown"],
+    ["gpt-4.1", "unknown"],
+  ])("keeps capacity and quality separate from verified architecture: %s", (modelId, attention) => {
+    const profile = resolveModelArchitectureProfile({ modelId, declaredContextTokens: 128_000 });
+    const policy = applyArchitectureMediationMode(deriveModelExecutionPolicy(profile), "adaptive");
+    expect(profile.attention).toBe(attention);
+    expect(profile.effectiveWorkingContextTokens).toBe(128_000);
+    expect(profile.traits.exactNeedleRecallReliability).toBe("unknown");
+    expect(profile.decoding).toBe("unknown");
+    expect(policy.compactionMode).not.toBe("aggressive");
+    expect(policy.applyGovernorBias).toBe(false);
+    expect(policy.multipass.enabled).toBe(false);
     expect(policy.strictStreamToolBoundaryValidation).toBe(true);
   });
 
-  it("maps Xiaomi MiMo V2.5 Pro to long-agent explicit state mediation", () => {
-    const profile = resolveModelArchitectureProfile({
-      modelId: "mimo-v2.5-pro",
-      declaredContextTokens: 1_000_000,
-    });
+  it("uses measured sensitivity to preserve context instead of compacting harder", () => {
+    const profile = resolveModelArchitectureProfile({ modelId: "measured", override: {
+      traits: { compactionSensitivity: "high" }, effectiveWorkingContextTokens: 32_000,
+    } });
     const policy = deriveModelExecutionPolicy(profile);
-
-    expect(profile.attention).toBe("hybrid_compressed_attention");
-    expect(profile.activation).toBe("moe");
-    expect(policy.effectiveContextCeilingTokens).toBeLessThan(1_000_000);
-    expect(policy.preferExplicitStateHeaders).toBe(true);
-    expect(policy.contextBudget.interpretation).toBe("storage_with_working_set");
-    expect(policy.stateReinforcement.criticalFactPins).toBe(true);
-    expect(policy.retrieval.evidenceManifest).toBe(true);
+    expect(policy.compactionMode).toBe("minimal");
+    expect(policy.effectiveContextCeilingTokens).toBe(32_000);
   });
 
   it("resolves architecture mediation mode from request metadata before config", () => {
@@ -162,7 +123,7 @@ describe("model architecture profile", () => {
     expect(policy.mediationMode).toBe("aggressive");
     expect(policy.applyContextBudgetPolicy).toBe(true);
     expect(policy.applySystemHint).toBe(true);
-    expect(policy.applyGovernorBias).toBe(true);
+    expect(policy.applyGovernorBias).toBe(false);
     expect(policy.strictStreamToolBoundaryValidation).toBe(true);
     expect(policy.multipass.retrieveAnswerVerifyRepair).toBe(true);
     expect(buildArchitecturePolicySystemHint(policy)).toContain("mode=aggressive");

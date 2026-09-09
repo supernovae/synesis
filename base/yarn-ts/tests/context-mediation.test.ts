@@ -49,8 +49,9 @@ describe("context mediation artifacts", () => {
     expect(artifacts.verificationWarnings).toContain("missing_evidence_block_id:ctx-deadbeef00");
   });
 
-  it("filters duplicate and stale low-value blocks in safe/adaptive modes", () => {
+  it("filters duplicate and stale low-value blocks when explicitly configured", () => {
     const policy = hybridPolicy();
+    policy.canonicalization.stalenessFiltering = true;
     const result = filterContextBlocksForMediation([
       "Current fact: use src/app.ts",
       "Current fact: use src/app.ts",
