@@ -1,3 +1,4 @@
+import { resolveHarnessClient } from "../adapters/harness-registry.js";
 import type { OpenAIChatCompletionRequest, RequestMetadata } from "../schemas.js";
 import { OpenAIChatCompletionRequestSchema } from "../schemas.js";
 import type { AppConfig } from "../config.js";
@@ -105,43 +106,11 @@ function headerOne(headers: Record<string, unknown>, key: string): string | null
   return null;
 }
 
-function inferOpenAiClientKindFromUserAgent(ua: string): string | null {
-  const normalized = ua.toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes("opencode")) return "opencode";
-  if (normalized.includes("roo") && normalized.includes("opencode")) return "roo-opencode";
-  if (normalized.includes("claude-code") || normalized.includes("anthropic")) return "claude-code";
-  if (normalized.includes("cursor")) return "cursor";
-  if (normalized.includes("codex")) return "codex-cli";
-  if (normalized.includes("goose")) return "goose";
-  return null;
-}
-
 function resolveOpenAiClientKind(
   headers: Record<string, unknown>,
   metadata: RequestMetadata | null,
 ): string {
-  const explicit = headerOne(headers, "x-synesis-client");
-  if (explicit) return explicit;
-
-  const candidates: unknown[] = metadata
-    ? [
-        metadata.synesis_client,
-        metadata.synesis_acp_client_name,
-      ]
-    : [];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim().toLowerCase().replace(/\s+/g, "-");
-    }
-  }
-
-  const userAgent = headerOne(headers, "user-agent");
-  if (userAgent) {
-    const inferred = inferOpenAiClientKindFromUserAgent(userAgent);
-    if (inferred) return inferred;
-  }
-  return "unknown";
+  return resolveHarnessClient(headers, metadata);
 }
 
 function resolveOpenAiConversationId(

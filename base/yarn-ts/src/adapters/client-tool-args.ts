@@ -30,7 +30,7 @@ function toRecord(value: unknown): Record<string, unknown> | null {
 function toolParameters(tool: ClientToolArgDefinition): Record<string, unknown> | null {
   const fnParams = toRecord(tool.function?.parameters);
   if (fnParams) return fnParams;
-  return toRecord(tool.input_schema);
+  return toRecord(tool.input_schema) ?? toRecord(tool.parameters);
 }
 
 function findToolDefinition(
@@ -44,7 +44,13 @@ function findToolDefinition(
     const candidate = toolDefinitionName(tool);
     if (!candidate) continue;
     if (normalizeName(candidate) === requested) return tool;
-    if (normalizeName(canonicalValidationToolName(candidate)) === requestedCanonical) return tool;
+  }
+  const matches = tools.filter(tool => {
+    const candidate = toolDefinitionName(tool);
+    return candidate && normalizeName(canonicalValidationToolName(candidate)) === requestedCanonical;
+  });
+  if (matches.length === 1) {
+    return matches[0];
   }
   return null;
 }
@@ -84,6 +90,8 @@ function restoreCommonArgsToSchema(
   moveArg(args, "target_directory", "path", props);
   moveArg(args, "target_directory", "directory", props);
 
+  moveArg(args, "file_path", "path", props);
+  moveArg(args, "command", "cmd", props);
   moveArg(args, "file_path", "filePath", props);
   moveArg(args, "filePath", "file_path", props);
   moveArg(args, "old_string", "oldString", props);

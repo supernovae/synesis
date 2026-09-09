@@ -19,14 +19,14 @@ describe("ClientAdapterPacks", () => {
     const packs = new ClientAdapterPacks();
     const p = packs.resolve("codex-cli");
     expect(p.mode).toBe("cli");
-    expect(p.workflow).toBe("validation");
+    expect(p.workflow).toBe("mixed");
   });
 
   it("respects explicitly requested mode", () => {
     const packs = new ClientAdapterPacks();
     const p = packs.resolve("cursor", "background");
     expect(p.mode).toBe("background");
-    expect(p.workflow).toBe("planning");
+    expect(p.workflow).toBe("mixed");
   });
 
   it("sanitizes client names before rendering adapter attributes", () => {
@@ -82,15 +82,12 @@ describe("ClientAdapterPacks", () => {
     expect(block).toContain("<CLIENT_ADAPTER>");
     expect(block).toContain("client: claude-code");
     expect(block).toContain("family: default");
-    expect(block).toContain("prefer Update/Edit-style targeted diffs");
+    expect(block).toContain("targeted edit tool");
     expect(block).toContain("do not delete or weaken failing tests");
-    expect(block).toContain("~/.claude/plans/** is a valid harness-managed write path");
-    expect(block).toContain("call ExitPlanMode after the plan is ready");
-    expect(block).toContain("treat plan mode as closed and begin implementation");
-    expect(block).toContain("After approval, do not re-read or rewrite the plan file");
-    expect(block).not.toContain("do not start implementation while plan mode remains active");
-    expect(block).not.toContain("use write_file for new/generated files");
-    expect(block).not.toContain("ask.go");
+    expect(block).toContain("Read expects absolute paths");
+    expect(block).toContain("plan path remains subject to the client's permissions");
+    expect(block).not.toContain("create 3-7");
+    expect(block).not.toContain("content is already in your conversation");
   });
 
   it("uses exact OpenCode native tool names", () => {
@@ -98,12 +95,9 @@ describe("ClientAdapterPacks", () => {
     const p = packs.resolve("opencode");
     const block = packs.toSystemBlock(p);
 
-    expect(block).toContain("Use exact OpenCode tool names only");
-    expect(block).toContain("For new/generated full files, use write");
-    expect(block).toContain("use the currently offered full-file write tool");
-    expect(block).toContain("write_file");
-    expect(block).not.toContain("use write_file for new/generated files");
-    expect(block).not.toContain("Prefer str_replace for existing files");
+    expect(block).toContain("tools and plugins are configurable");
+    expect(block).toContain("exact schemas");
+    expect(block).not.toContain("use write_file");
   });
 
   it("resolves openclaw variants to openclaw family features", () => {
@@ -137,7 +131,7 @@ describe("appendPathContextToAdapterBlock", () => {
     ).toBe("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>");
     expect(
       appendPathContextToAdapterBlock("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>", {}, null, "cursor"),
-    ).toBe("<CLIENT_ADAPTER>x</CLIENT_ADAPTER>");
+    ).toContain("<PATH_HYGIENE>");
   });
 
   it("appends PATH_HYGIENE when claude-code hint and no session context", () => {
@@ -154,7 +148,7 @@ describe("appendPathContextToAdapterBlock", () => {
     expect(out).toContain("<PATH_HYGIENE>");
     expect(out).toContain("generic path hygiene rules, not facts about the user's files");
     expect(out).toContain("do not read guessed source, test, or package files before they exist");
-    expect(out).toContain("Do not regenerate the project");
+    expect(out).toContain("regenerate a project based on a single missing path");
     expect(out).not.toContain("/home/byron/src/test");
     expect(out).not.toContain("taskpulse/README.md");
   });
@@ -164,11 +158,11 @@ describe("appendPathContextToAdapterBlock", () => {
       projectRoot: null,
       shellCwd: "/Users/me/project",
     });
-    expect(block).toContain("shell_cwd: /Users/me/project");
+    expect(block).toContain('shell_cwd: "/Users/me/project"');
     expect(block).toContain("repeats the last path segment of shell_cwd");
     expect(block).toContain("human-readable paths");
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
-    expect(block).toContain("paths relative to shell_cwd/current working directory");
+    expect(block).toContain("Shell cwd, file-tool roots and the project boundary can differ");
     expect(block).toContain("do not read guessed application files before they exist");
     expect(block).not.toContain("aws-cost-calculator");
   });
@@ -203,7 +197,7 @@ describe("appendPathContextToAdapterBlock", () => {
     const out = appendPathContextToAdapterBlock("base", { "x-synesis-workspace-root": "/Users/me/calc" }, null);
     expect(out).toContain("base");
     expect(out).toContain("<SESSION_EXECUTION_CONTEXT>");
-    expect(out).toContain("project_root: /Users/me/calc");
+    expect(out).toContain('project_root: "/Users/me/calc"');
     expect(out).toContain("Language package identity must come from explicit user input");
     expect(out).toContain("human-readable paths");
     expect(out).toContain("<FILE_PATH_RESOLUTION>");
@@ -215,8 +209,8 @@ describe("appendPathContextToAdapterBlock", () => {
       shellCwd: "/Users/me/monorepo/services/api",
     });
     expect(block).toContain("<FILE_PATH_RESOLUTION>");
-    expect(block).toContain("Current shell working directory for this session is repo-relative: services/api");
-    expect(block).toContain("shell_cwd is the file-tool execution root");
+    expect(block).toContain('Current shell working directory for this session is repo-relative: "services/api"');
+    expect(block).toContain("shell_cwd does not establish the root of every file tool");
   });
 
   it("prefers metadata synesis_project_root over header", () => {
@@ -239,8 +233,8 @@ describe("appendPathContextToAdapterBlock", () => {
 
     expect(ctx.projectRoot).toBe("/repo/app");
     expect(ctx.shellCwd).toBe("/repo/app/packages/api");
-    expect(block).toContain("project_root: /repo/app");
-    expect(block).toContain("shell_cwd: /repo/app/packages/api");
+    expect(block).toContain('project_root: "/repo/app"');
+    expect(block).toContain('shell_cwd: "/repo/app/packages/api"');
   });
 
   it("rejects unsafe session path hints", () => {

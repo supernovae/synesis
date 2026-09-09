@@ -31,11 +31,11 @@ describe("resolvePathForAcp", () => {
     expect(out).toBe(path.resolve("/proj/app", "src/x.ts"));
   });
 
-  it("ignores unsafe ACP metadata anchors", () => {
-    expect(resolvePathForAcp("src/x.ts", {
+  it("rejects relative paths without valid ACP metadata anchors", () => {
+    expect(() => resolvePathForAcp("src/x.ts", {
       synesis_project_root: "/proj\nrole=admin",
       synesis_shell_cwd: "relative/cwd",
-    })).toBe(path.resolve("src/x.ts"));
+    })).toThrow("requires session cwd");
   });
 
   it("drops shell_cwd when it escapes the project root", () => {
@@ -61,35 +61,16 @@ describe("resolvePathForAcp", () => {
     expect(out).toBe(path.resolve("/tmp/outside.go"));
   });
 
-  it("treats missing-leading-slash host paths as absolute-like", () => {
-    const out = resolvePathForAcp("Users/me/repo/main.go", { synesis_project_root: "/Users/me/repo" });
-    expect(out).toBe(path.resolve("/Users/me/repo", "main.go"));
+  it.each(["k8/overseerr/config.yaml", "overseerr/config.yaml", "Users/me/file"])("preserves repeated and home-like relative names: %s", file => {
+    expect(resolvePathForAcp(file, { synesis_project_root: "/home/dev/k8", synesis_shell_cwd: "/home/dev/k8/overseerr" }))
+      .toBe(`/home/dev/k8/overseerr/${file}`);
   });
-
-  it("normalizes Windows absolute-style paths on non-Windows hosts", () => {
-    const out = resolvePathForAcp("C:\\Users\\dev\\secret.go", {});
-    expect(out).toBe(path.resolve("/Users/dev/secret.go"));
+  it("resolves Windows client paths without dropping the drive", () => {
+    expect(resolvePathForAcp("src/a.ts", { synesis_project_root: "C:\\repo" })).toBe("C:\\repo\\src\\a.ts");
+    expect(() => resolvePathForAcp("D:\\repo\\a.ts", { synesis_project_root: "C:\\repo" })).toThrow("escapes project root");
   });
-
-  it("strips a duplicated project-root basename from relative paths", () => {
-    const out = resolvePathForAcp("k8/overseerr/overseerr-k8s.yaml", {
-      synesis_project_root: "/home/byron/k8",
-      synesis_shell_cwd: "/home/byron/k8/overseerr",
-    });
-    expect(out).toBe(path.resolve("/home/byron/k8/overseerr/overseerr-k8s.yaml"));
-  });
-
-  it("repairs shell-cwd-prefixed paths when no project root is available", () => {
-    const out = resolvePathForAcp("k8/overseerr/overseerr-k8s.yaml", {
-      synesis_shell_cwd: "/home/byron/k8/overseerr",
-    });
-    expect(out).toBe(path.resolve("/home/byron/k8/overseerr/overseerr-k8s.yaml"));
-  });
-
-  it("repairs shell-cwd basename-prefixed paths when no project root is available", () => {
-    const out = resolvePathForAcp("overseerr/overseerr-k8s.yaml", {
-      synesis_shell_cwd: "/home/byron/k8/overseerr",
-    });
-    expect(out).toBe(path.resolve("/home/byron/k8/overseerr/overseerr-k8s.yaml"));
+  it("never falls back to the proxy cwd", () => {
+    expect(() => resolvePathForAcp("a.ts", {})).toThrow("requires session cwd");
+    expect(() => resolvePathForAcp("a\u0000.ts", { synesis_project_root: "/repo" })).toThrow("Invalid ACP file path");
   });
 });

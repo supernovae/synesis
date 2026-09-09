@@ -178,7 +178,7 @@ describe("prepareOpenAINonStreamExternalToolCalls", () => {
       {
         toolCallId: "write-1",
         toolName: "Write",
-        input: { file_path: "requirements.txt", content: "fastapi\n" },
+        input: { file_path: "/home/byron/src/test/requirements.txt", content: "fastapi\n" },
       },
     ]);
     expect(calls).toEqual(["upper", "diff", "ledger", "unwrap"]);

@@ -159,3 +159,16 @@ describe("upper harness", () => {
     expect(decision.trace.plugin_rules).toContain("plugin.kimi.webfetch_repeat");
   });
 });
+
+describe("native harness safety aliases", () => {
+  it.each(["terminal", "exec_command", "run_shell_command", "execute_command"])("checks dangerous commands in %s", toolName => {
+    const decision = evaluateUpperHarness({ modelId: "generic", toolCall: { toolName, input: { command: "rm -rf /tmp/project" } } });
+    expect(decision.action).toBe("block");
+    expect(decision.trace.systemic_rules).toContain("safety.shell.rm_rf");
+  });
+  it.each(["workdir", "dir_path"])("checks native execution directory %s", field => {
+    const decision = evaluateUpperHarness({ modelId: "generic", toolCall: { toolName: "terminal", input: { command: "pwd", [field]: "../other" } } });
+    expect(decision.action).toBe("block");
+    expect(decision.trace.systemic_rules).toContain("safety.path.parent_traversal");
+  });
+});

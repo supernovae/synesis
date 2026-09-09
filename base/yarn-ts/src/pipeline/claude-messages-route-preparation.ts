@@ -1,3 +1,4 @@
+import { resolveHarnessClient } from "../adapters/harness-registry.js";
 import type { FastifyRequest } from "fastify";
 
 import type { AuthUser } from "../auth.js";
@@ -192,7 +193,7 @@ export async function prepareClaudeMessagesRoute(
   const body: ClaudeMessagesRequest = parsed.data;
   const taskCue = extractLatestUserPromptFromMessages(body.messages as Array<{ role: string; content: unknown }>);
 
-  const clientKind = String((input.request.headers["x-synesis-client"] as string | undefined) ?? "claude-code");
+  const clientKind = resolveHarnessClient(input.request.headers, body.metadata, "claude-code");
   const conversationId = resolveClaudeConversationId(
     body.metadata,
     input.request.headers as Record<string, unknown>,

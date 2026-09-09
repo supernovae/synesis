@@ -1,6 +1,5 @@
 import path from "node:path";
 import {
-  constrainFileToolPathToProjectRoot,
   normalizeFileToolArgs,
   remapCommonToolArgAliases,
   validateToolArgs,
@@ -22,7 +21,6 @@ import {
 import {
   buildStructuredErrorBashCommand,
   buildUserSafeErrorBashCommand,
-  shellEscape,
 } from "./diagnostics.js";
 import { isCoderClientKind } from "../session/session-key.js";
 import { extractShellWriteTargets } from "../governance/shell-write-command.js";
@@ -276,39 +274,9 @@ function governToolCallInner(opts: GovernToolCallOptions): GovernedToolCall {
     out.input = pathNorm.input;
     out.normalizedPath = true;
   }
-  const cwdPrefixRepair = repairShellCwdPrefixedFilePath(logicalName, out.input, pathAnchors.shellCwd, pathAnchors.projectRoot);
-  if (cwdPrefixRepair.repaired) {
-    out.input = cwdPrefixRepair.input;
-    out.normalizedPath = true;
-  }
-  const exactCwdDuplicateRecovery = maybeRecoverExactDuplicatedCwdRead(
-    logicalName,
-    out.input,
-    pathAnchors.shellCwd,
-    pathAnchors.projectRoot,
-    opts.clientKind,
-  );
-  if (exactCwdDuplicateRecovery) {
-    out.toolName = exactCwdDuplicateRecovery.toolName;
-    out.input = exactCwdDuplicateRecovery.input;
-    out.normalizedPath = true;
-    return out;
-  }
-
-  if (opts.enforcePathRoot && anchorRoot) {
-    const requestedFilePath = typeof out.input.file_path === "string" ? out.input.file_path.trim() : "";
-    const rootClamp = constrainFileToolPathToProjectRoot(anchorRoot, logicalName, out.input);
-    if (rootClamp.constrained) {
-      out.input = rootClamp.input;
-      out.constrainedToRoot = true;
-      const pathRecovery = recoverConstrainedPathRequest(logicalName, requestedFilePath, out.input);
-      if (pathRecovery) {
-        out.toolName = pathRecovery.toolName;
-        out.input = pathRecovery.input;
-        return out;
-      }
-    }
-  }
+  // Never repair path prefixes or convert absolute paths to relative paths here.
+  // Repeated directory names can be real; the client's tool root may differ
+  // from shell cwd. Access checks below must see the original target.
 
   if (opts.blockWriteCapableTools && isWriteCapableTool(logicalName)) {
     const message = `Synesis Yarn blocked write-capable tool '${logicalName}' for the current session policy.`;
@@ -715,25 +683,6 @@ function toRecord(value: unknown, keyName: string): { input: Record<string, unkn
   return null;
 }
 
-function recoverConstrainedPathRequest(
-  logicalName: string,
-  requestedFilePath: string,
-  governedInput: Record<string, unknown>,
-): { toolName: string; input: Record<string, unknown> } | null {
-  if (!(logicalName === "Edit" || logicalName === "Update")) return null;
-  if (!requestedFilePath || !path.isAbsolute(requestedFilePath)) return null;
-  const governedPath = typeof governedInput.file_path === "string" ? governedInput.file_path.trim() : "";
-  if (!governedPath) return null;
-  const base = path.basename(governedPath);
-  if (!base) return null;
-  // If an absolute path was clamped into project root, discover candidates first.
-  // This avoids "file not found" on a potentially wrong basename and gives deterministic next steps.
-  return {
-    toolName: "Glob",
-    input: { glob_pattern: `**/${base}` },
-  };
-}
-
 function isWriteCapableTool(logicalName: string): boolean {
   return logicalName === "Write"
     || logicalName === "Edit"
@@ -1056,100 +1005,6 @@ function maybeBlockVerificationForFailure(
   };
 }
 
-function repairShellCwdPrefixedFilePath(
-  logicalName: string,
-  input: Record<string, unknown>,
-  shellCwd?: string | null,
-  projectRoot?: string | null,
-): { input: Record<string, unknown>; repaired: boolean } {
-  if (!["Write", "Read", "Edit", "Update"].includes(logicalName)) return { input, repaired: false };
-  const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  const { projectRoot: project, anchorRoot: cwd } = normalizePathAnchors(projectRoot, shellCwd);
-  if (!raw || !cwd) return { input, repaired: false };
-  if (path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
-    return { input, repaired: false };
-  }
-
-  const normalized = raw.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/{2,}/g, "/");
-  const rawParts = normalized.split("/").filter(Boolean);
-  if (rawParts.length < 2) return { input, repaired: false };
-
-  if (project) {
-    const taskRel = path.relative(path.resolve(project), path.resolve(cwd)).split(path.sep).join("/");
-    const taskRelParts = taskRel.split("/").filter((part) => part && part !== "." && part !== "..");
-    if (taskRelParts.length > 0 && startsWithParts(rawParts, taskRelParts)) {
-      const repaired = rawParts.slice(taskRelParts.length).join("/");
-      if (repaired) return { input: { ...input, file_path: repaired }, repaired: true };
-    }
-  }
-
-  const cwdParts = path.resolve(cwd).split(path.sep).filter(Boolean);
-  const max = Math.min(cwdParts.length, rawParts.length - 1);
-  for (let n = max; n >= 2; n -= 1) {
-    const suffix = cwdParts.slice(cwdParts.length - n);
-    if (!startsWithParts(rawParts, suffix)) continue;
-    const repaired = rawParts.slice(n).join("/");
-    if (repaired) return { input: { ...input, file_path: repaired }, repaired: true };
-  }
-
-  return { input, repaired: false };
-}
-
-function maybeRecoverExactDuplicatedCwdRead(
-  logicalName: string,
-  input: Record<string, unknown>,
-  shellCwd?: string | null,
-  projectRoot?: string | null,
-  clientKind?: string,
-): { toolName: string; input: Record<string, unknown> } | null {
-  if (logicalName !== "Read") return null;
-  const raw = typeof input.file_path === "string" ? input.file_path.trim() : "";
-  const { anchorRoot: cwd } = normalizePathAnchors(projectRoot, shellCwd);
-  if (!raw || !cwd || path.isAbsolute(raw) || raw.startsWith("~") || raw.startsWith("../") || raw === "..") {
-    return null;
-  }
-
-  const normalized = raw.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/{2,}/g, "/");
-  const rawParts = normalized.split("/").filter(Boolean);
-  if (rawParts.length < 2) return null;
-
-  const cwdParts = path.resolve(cwd).split(path.sep).filter(Boolean);
-  const max = Math.min(cwdParts.length, rawParts.length);
-  for (let n = max; n >= 2; n -= 1) {
-    const suffix = cwdParts.slice(cwdParts.length - n);
-    if (rawParts.length !== suffix.length || !startsWithParts(rawParts, suffix)) continue;
-    const message = [
-      `The requested Read path "${normalized}" duplicates the current workspace suffix.`,
-      `Current workspace root is "${cwd}".`,
-      "Use paths relative to the current workspace; for root discovery, inspect the current directory instead.",
-    ].join(" ");
-    if (clientKind === "claude-code") {
-      return {
-        toolName: "Synesis_Error_PathSandbox",
-        input: {
-          synesis_error: true,
-          reason: "duplicated_cwd_relative_path",
-          blocked_path: normalized,
-          message,
-          retryable: true,
-        },
-      };
-    }
-    return {
-      toolName: "Bash",
-      input: {
-        command: [
-          "printf '%s\\n' 'SYNESIS_PATH_CONTEXT_V1 reason=duplicated_cwd_relative_path'",
-          `printf 'cwd=%s\\nrequested=%s\\n' "$(pwd 2>/dev/null || true)" ${shellEscape(normalized)}`,
-          "find . -maxdepth 2 -mindepth 1 -print 2>/dev/null | sed 's#^\\./##' | sort | head -80",
-        ].join("; "),
-        description: "Recover from duplicated cwd-relative Read path with a bounded directory listing",
-      },
-    };
-  }
-  return null;
-}
-
 function startsWithParts(parts: string[], prefix: string[]): boolean {
   if (prefix.length > parts.length) return false;
   return prefix.every((part, index) => parts[index] === part);
@@ -1317,11 +1172,10 @@ function maybeBlockPathSandbox(
   // File/search tool paths, including absolute Glob patterns like /repo-parent/*
   if (logicalName !== "Bash") {
     for (const entry of sandboxPathsForNonBashTool(logicalName, input)) {
-      if (clientKind === "claude-code" && isClaudePlanFilePath(entry.path)) continue;
       const result = evaluatePathAccess(entry.path, entry.operation, policy);
       if (!result.allowed) {
         const message = result.nudge
-          ?? `Path "${entry.path}" is outside the project sandbox. ${result.reason}. Use files within ${policy.projectRoot} or ~/.claude/ instead.`;
+          ?? `Path "${entry.path}" is outside the project sandbox. ${result.reason}. Use the intended workspace or an explicitly allowed path.`;
         if (clientKind === "claude-code") {
           return {
             toolName: "Synesis_Error_PathSandbox",
@@ -1372,7 +1226,6 @@ function maybeBlockPathSandbox(
         || input.command.includes(`>>${bp}`)
           ? "write" : "read";
       const result = evaluatePathAccess(bp, bashOp, policy);
-      if (clientKind === "claude-code" && isClaudePlanFilePath(bp)) continue;
       if (!result.allowed) {
         const message = result.nudge
           ?? `Bash command references "${bp}" which is outside the project sandbox. ${result.reason}.`;

@@ -14,7 +14,7 @@ Without a reliable execution context, coding models tend to make expensive path 
 - They read guessed files in empty workspaces before confirming what exists.
 - They run build/test commands from the wrong shell directory.
 
-Yarn uses this context to add a `<SESSION_EXECUTION_CONTEXT>` system block, enforce file-tool path boundaries when configured, recover session path hints across turns, and give guarded git workflows accurate repo state.
+Yarn uses this context to add a `<SESSION_EXECUTION_CONTEXT>` system block, check lexical path boundaries when configured, recover session path hints across turns, and provide git context. These are client-reported hints, not permission grants or filesystem proof.
 
 ## Source Priority
 
@@ -36,7 +36,7 @@ Synthetic workspace handshakes are currently disabled by default in Yarn. Client
 
 `project_root` is the stable workspace or repository boundary for the session. It should be an absolute path and should not change during a session unless the user actually moves to a different project.
 
-`shell_cwd` is the current execution directory for shell commands and client-native file tools. It may be the same as `project_root` or a subdirectory inside it. Yarn drops `shell_cwd` if it is outside `project_root`.
+`shell_cwd` is the reported execution directory for shell commands. Each native file tool defines its own path semantics; this field does not redefine its root. It may be the same as `project_root` or a subdirectory inside it. Yarn drops `shell_cwd` if it is outside `project_root`.
 
 `synesis_runtime` is optional prompt/debug context about the client runtime. It is not a security boundary.
 
@@ -232,3 +232,14 @@ If the model still duplicates workspace paths, inspect the actual request that r
 If Yarn blocks an absolute file path with `missing_workspace_context_absolute_path`, send explicit metadata or headers. Prior tool evidence can help later turns, but it is not a reliable substitute for a client-supplied workspace root.
 
 If Claude Code shows only transcript-level additional context, make sure the local proxy is running and that `.claude/synesis-context.json` is being merged into the HTTP request body.
+
+## Harness compatibility and migration (September 2026)
+
+See [the harness review](HARNESS_COMPATIBILITY.md) for upstream evidence and supported client identifiers.
+
+- Preserve native absolute paths. Yarn no longer strips Linux home prefixes, Windows drives, or repeated directory names, and no longer converts absolute paths to relative paths. Correct a path using observed evidence after an error.
+- ACP relative file paths require a valid session cwd/root. The bridge never falls back to the proxy cwd. Its explicit resolution contract remains cwd first, workspace boundary second.
+- Open/recent editor files no longer establish a workspace boundary from their common ancestor.
+- When Yarn's optional lexical sandbox is enabled, its default allows the project tree only (plus the null sink). Proxy HOME/TMPDIR, harness settings, credentials, plan directories and scratch directories are not implicit grants. Trusted deployment code may pass explicit `homeDir`, `allowedReadGlobs`, `allowedWriteGlobs`, and `blockedGlobs` to `buildDefaultPolicy`; request metadata must not become trusted grants. Explicit denies take precedence.
+- The execution host must enforce filesystem permissions, symlink resolution, mounts and approval rules. The proxy cannot validate remote realpaths or fully sandbox arbitrary shell programs. Prefer absolute native file paths when enforcing the proxy's lexical policy; relative paths in that policy resolve against its configured project root.
+- A working directory outside the declared project root is still excluded from Yarn's workspace hints. For multi-root work, use distinct project sessions or explicit trusted policy grants; do not widen the root to a common home directory.

@@ -841,9 +841,10 @@ Today's date: Monday Apr 7, 2026
     expect(meta.workspacePath).toBe("/Users/bymiller/src/synesis");
   });
 
-  it("derives projectRoot from open files when no user_info", () => {
+  it("does not turn open-file common ancestors into workspace authority", () => {
     const meta = extractClientMetadata(OPEN_FILES_BLOCK);
-    expect(meta.projectRoot).not.toBeNull();
+    expect(meta.projectRoot).toBeNull();
+    expect(meta.shellCwd).toBeNull();
   });
 
   it("handles loose patterns without <user_info> tags", () => {

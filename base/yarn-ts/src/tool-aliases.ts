@@ -52,6 +52,7 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   ls: "LS",
   list: "LS",
   list_dir: "LS",
+  list_directory: "LS",
 
   grep: "Grep",
   rg: "Grep",
@@ -65,6 +66,9 @@ const ALIAS_TO_CANONICAL: Record<string, CanonicalValidationTool> = {
   powershell: "PowerShell",
   pwsh: "PowerShell",
   shell: "Bash",
+  terminal: "Bash",
+  run_shell_command: "Bash",
+  exec_command: "Bash",
   run_terminal_cmd: "Bash",
   execute_command: "Bash",
   run_test: "Bash",

@@ -212,9 +212,8 @@ function extractOpenFiles(text: string, meta: ClientMetadata): void {
 }
 
 /**
- * Derive projectRoot from workspacePath and file paths.
- * workspacePath from <user_info> is the most reliable source.
- * If not available, try to infer from common prefix of open/recent files.
+ * Derive a workspace hint from explicit environment fields only.
+ * Open/recent files do not establish a workspace boundary.
  */
 function deriveProjectRoot(meta: ClientMetadata): void {
   if (meta.workspacePath) {
@@ -235,42 +234,9 @@ function deriveProjectRoot(meta: ClientMetadata): void {
     return;
   }
 
-  const allFiles = [...meta.recentFiles, ...meta.openFiles];
-  if (allFiles.length === 0) return;
+  // Open/recent files may span unrelated projects. Their common ancestor is
+  // not evidence of workspace ownership or the execution directory.
 
-  const prefix = commonPathPrefix(allFiles);
-  if (prefix && prefix.length > 1) {
-    meta.projectRoot = prefix;
-    meta.shellCwd = prefix;
-  }
-}
-
-/**
- * Find the longest common directory prefix among a set of absolute paths.
- */
-function commonPathPrefix(paths: string[]): string | null {
-  if (paths.length === 0) return null;
-  if (paths.length === 1) {
-    const parts = paths[0].split("/");
-    parts.pop();
-    return parts.join("/");
-  }
-
-  const splitPaths = paths.map((p) => p.split("/"));
-  const minLen = Math.min(...splitPaths.map((p) => p.length));
-  const common: string[] = [];
-
-  for (let i = 0; i < minLen; i++) {
-    const segment = splitPaths[0][i];
-    if (splitPaths.every((p) => p[i] === segment)) {
-      common.push(segment);
-    } else {
-      break;
-    }
-  }
-
-  const result = common.join("/");
-  return result || null;
 }
 
 /**

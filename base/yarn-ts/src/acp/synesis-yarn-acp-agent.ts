@@ -25,7 +25,7 @@ import type {
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { shapeTerminalOutput } from "../terminal/output-shaper.js";
 import { attachShapingToSignals, classifyTerminalOutput } from "../terminal/terminal-signals.js";
-import { isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
+import { hasControlCharacter, isPathInsideRoot, normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 import {
   applyUpperHarnessToolCall,
   buildYarnUpperHarnessContext,
@@ -243,74 +243,22 @@ export function mapCoderToolNameToAcpKind(name: string): ToolKind {
 
 /** Resolve relative coder paths using session metadata anchors (for ACP fs RPC). */
 export function resolvePathForAcp(filePath: string, meta: Record<string, unknown>): string {
-  const fp = filePath.trim();
-  if (!fp) return fp;
-  const root = meta.synesis_project_root;
-  const cwd = meta.synesis_shell_cwd;
-  const projectRoot = normalizeAbsolutePathHint(typeof root === "string" ? root : undefined) ?? "";
-  const rawShellCwd = normalizeAbsolutePathHint(typeof cwd === "string" ? cwd : undefined) ?? "";
-  const shellCwd = projectRoot && rawShellCwd && !isPathInsideRoot(rawShellCwd, projectRoot)
-    ? ""
-    : rawShellCwd;
-  const anchor = shellCwd || projectRoot;
-  const hasAnchor = anchor.trim().length > 0;
-  const normalized = fp.replace(/\\/g, "/");
-  const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(normalized);
-  const withHostSlash = maybeHostLikeNoSlash ? `/${normalized}` : normalized;
-  const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(fp) || /^[A-Za-z]:\//.test(normalized);
-  const rel = !path.isAbsolute(withHostSlash) && !looksWindowsAbsolute && hasAnchor
-    ? normalizeAcpRelativePath(normalized, anchor, shellCwd || null)
-    : fp;
-  const candidate = hasAnchor
-    ? (
-      looksWindowsAbsolute && path.sep !== "\\"
-        ? path.resolve("/", normalized.replace(/^[A-Za-z]:[\\/]/, ""))
-        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(anchor, rel))
-    )
-    : (
-      looksWindowsAbsolute && path.sep !== "\\"
-        ? path.resolve("/", normalized.replace(/^[A-Za-z]:[\\/]/, ""))
-        : (path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(fp))
-    );
-
-  const boundary = projectRoot || shellCwd;
-  if (boundary && !isInsideDirectory(candidate, boundary)) {
-    throw new Error(`Path escapes project root: ${fp}`);
-  }
+  if (!filePath || hasControlCharacter(filePath)) throw new Error("Invalid ACP file path");
+  const projectRoot = normalizeAbsolutePathHint(typeof meta.synesis_project_root === "string" ? meta.synesis_project_root : undefined);
+  const reportedCwd = normalizeAbsolutePathHint(typeof meta.synesis_shell_cwd === "string" ? meta.synesis_shell_cwd : undefined);
+  const cwd = projectRoot && reportedCwd && !isPathInsideRoot(reportedCwd, projectRoot) ? null : reportedCwd;
+  const anchor = cwd ?? projectRoot;
+  const absolute = normalizeAbsolutePathHint(filePath);
+  if (!absolute && !anchor) throw new Error("ACP relative file path requires session cwd");
+  const paths = (anchor ?? absolute)!.startsWith("/") ? path.posix : path.win32;
+  const candidate = absolute ?? paths.resolve(anchor!, filePath);
+  const boundary = projectRoot ?? cwd;
+  if (boundary && !isPathInsideRoot(candidate, boundary)) throw new Error(`Path escapes project root: ${filePath}`);
   return candidate;
 }
 
 function isInsideDirectory(filePath: string, dir: string): boolean {
-  const rel = path.relative(path.resolve(dir), path.resolve(filePath));
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-}
-
-function normalizeAcpRelativePath(relPath: string, anchor: string, shellCwdForDuplicateRepair: string | null): string {
-  const clean = relPath.replace(/\0/g, "").replace(/^\.\/+/, "");
-  const anchorBase = path.basename(path.resolve(anchor));
-  if (anchorBase && (clean === anchorBase || clean.startsWith(`${anchorBase}/`))) {
-    const stripped = clean.slice(anchorBase.length).replace(/^\/+/, "");
-    return stripped || ".";
-  }
-  if (shellCwdForDuplicateRepair) {
-    return repairShellCwdPrefixedRelativePath(clean, shellCwdForDuplicateRepair);
-  }
-  return clean;
-}
-
-function repairShellCwdPrefixedRelativePath(relPath: string, shellCwd: string): string {
-  const relParts = relPath.split("/").filter(Boolean);
-  const cwdParts = path.resolve(shellCwd).split(path.sep).filter(Boolean);
-  const max = Math.min(relParts.length, cwdParts.length);
-  for (let len = max; len >= 1; len -= 1) {
-    const suffix = cwdParts.slice(cwdParts.length - len);
-    const prefix = relParts.slice(0, len);
-    if (suffix.join("/") === prefix.join("/")) {
-      const rest = relParts.slice(len);
-      return rest.length > 0 ? rest.join("/") : ".";
-    }
-  }
-  return relPath;
+  return isPathInsideRoot(filePath, dir);
 }
 
 function validateAcpToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {

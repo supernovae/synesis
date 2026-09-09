@@ -1,6 +1,4 @@
-import path from "node:path";
 import { canonicalValidationToolName } from "../tool-aliases.js";
-import { normalizeAbsolutePathHint } from "../path-governance/path-hints.js";
 
 /**
  * Model-specific adapters for upstream LLM behavioral differences.
@@ -333,7 +331,7 @@ export class Qwen3CoderAdapter implements ModelAdapter {
       "Use RELATIVE paths from the current working directory (e.g., `hello.go`, `cmd/main.go`).",
       "Do NOT use absolute paths like `/home/user/...`. The user's OS may not be Linux.",
       "For file tools, do NOT prefix with the repository/workspace folder name.",
-      "Shell `cd` usage does not change client-native file-tool root semantics; keep file paths relative to the session working directory.",
+      "Shell cwd persistence and file-tool roots depend on the harness; follow the offered schema and current execution context.",
       "",
       "## Directories (avoid getting lost):",
       "Do not `mkdir` and `cd` into a folder that repeats the project name multiple times.",
@@ -691,7 +689,7 @@ export function adapterUsesToolLoopSteering(family: string): boolean {
  *
  * Known K2.x behavioral patterns this adapter targets:
  * - **Path/CWD confusion**: prepends UI/workspace segments (e.g. `k8/overseerr/foo.yaml`) while
- *   client file tools resolve from `shell_cwd` — use basename or repo-relative paths only.
+ *   file-tool roots may differ from `shell_cwd` — follow the current tool schema.
  * - **Strict tool schema**: rejects empty assistant turns; prefers exact `file_path` / `command` names.
  * - **Long-horizon drift**: repeated Read/WebFetch/git status without edits in agent sessions.
  * - **Verbal plans without tools**: states intent in prose then loops on discovery.
@@ -714,12 +712,8 @@ export class KimiAdapter implements ModelAdapter {
       "You are in a **client-executed** tool environment: Read/Write/Edit run on the user's machine, not on the API server.",
       "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`.",
       "",
-      "## File paths (critical)",
-      "- Client-native file tools resolve paths relative to **`shell_cwd`** when it is set; otherwise **`project_root`**.",
-      "- Use paths **relative to that root only** (e.g. `overseerr-k8s.yaml`, `cmd/main.go`).",
-      "- **Never** prepend `shell_cwd` or workspace folder segments already shown in the UI (e.g. if cwd is `.../k8/overseerr`, use `overseerr-k8s.yaml`, NOT `k8/overseerr/overseerr-k8s.yaml`).",
-      "- Do **not** use absolute paths (`/home/...`) for file tools unless the tool schema requires it.",
-      "- Shell `cd` does **not** change file-tool roots; only `shell_cwd` / `project_root` matter for Read/Write/Edit.",
+      "## File paths",
+      "- Follow the offered tool schema for absolute or relative paths. File-tool roots may differ from shell cwd; verify the target rather than stripping prefixes.",
       "",
       "## Tool schema (strict providers)",
       "- Use **exact** parameter names from each tool schema: `file_path`, `command`, `old_string`, `new_string`.",
@@ -771,7 +765,7 @@ export class KimiAdapter implements ModelAdapter {
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
       Read:
-        " [Kimi: `file_path` relative to shell_cwd when set (else project_root). No workspace/cwd prefix duplication. One Read per file per phase; on 'File not found' fix path before retry.]",
+        " [Kimi: Follow the offered path schema. After a missing-file result, verify the target before retrying.]",
       Write:
         " [Kimi: Same path rules as Read. Read once, then Write full content for substantive edits.]",
       Edit:
@@ -813,11 +807,11 @@ export class KimiAdapter implements ModelAdapter {
       .filter(Boolean);
     const unique = [...new Set(paths)];
     return [
-      "Read failed with a path error. Client file tools resolve relative to `shell_cwd` (see <SESSION_EXECUTION_CONTEXT>), not from a repeated workspace folder prefix.",
-      "Use a path relative to shell_cwd only (e.g. `overseerr-k8s.yaml` when cwd is already `.../k8/overseerr`).",
+      "Read failed with a path error. Check the offered tool path schema and current execution environment.",
+      "Preserve the intended target; do not strip path segments based on their names.",
       unique.length > 0
-        ? `Recent failing paths: ${unique.slice(0, 3).join(", ")}. Strip parent segments that duplicate shell_cwd, or run one short \`pwd\` in Bash and match that directory.`
-        : "Run one short `pwd` in Bash, then Read using a path relative to that directory.",
+        ? `Recent failing paths: ${unique.slice(0, 3).join(", ")}. Inspect the intended location with a bounded directory check.`
+        : "Check the execution directory, then use the file tool according to its own schema.",
       "Do NOT retry the same prefixed path.",
     ].join(" ");
   }
@@ -835,7 +829,7 @@ export class KimiAdapter implements ModelAdapter {
     const last = urls[urls.length - 1];
     const repeatCount = urls.filter((u) => u === last).length;
     if (repeatCount < 2) return null;
-    return `You fetched the same URL (${last}) ${repeatCount} times. Use the content already returned, or fix local file paths with Read using shell_cwd-relative paths. Do not refetch unless the user asked for an update.`;
+    return `You fetched the same URL (${last}) ${repeatCount} times. Use the content already returned, or fix local file paths with Read using paths matching the offered tool schema. Do not refetch unless the user asked for an update.`;
   }
 
   private _detectProseWithoutTools(
@@ -862,7 +856,7 @@ export class KimiAdapter implements ModelAdapter {
       else break;
     }
     if (consecutive < 3) return null;
-    return `You called ${last} ${consecutive} times in a row. Stop refetching; use prior fetch output or fix local files with Read (shell_cwd-relative paths).`;
+    return `You called ${last} ${consecutive} times in a row. Stop refetching; use prior fetch output or fix local files with Read (paths matching the offered tool schema).`;
   }
 }
 
@@ -875,10 +869,10 @@ export class MiniMaxAdapter implements ModelAdapter {
     return [
       "# Tool discipline (MiniMax — paths and shell)",
       "The Bash tool runs in a **session working directory** that may or may not be the git/repository root.",
-      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`. Client-native file tools (Read/Write/Edit) resolve paths relative to `shell_cwd` when it is set; otherwise use `project_root`.",
+      "<SESSION_EXECUTION_CONTEXT> reports project and shell context. Each file tool defines its own path semantics; shell cwd is not automatically its root.",
       "",
       "## Read before raw shell file ops",
-      "- To view part of a file, **prefer Read** with `file_path` set relative to `shell_cwd` when provided, otherwise project-root-relative (e.g. `cmd/foo/ask_test.go`), not `sed`/`head`/`cat` on a guessed basename.",
+      "- Prefer a bounded native read with a path matching its schema; do not guess basenames for shell reads.",
       "- If you use Bash to read files, every path must be correct for the **current shell cwd**: either `cd` to the repo root or the file's directory first, or use a single path relative to the current directory.",
       "- A **bare** `ask_test.go` or `foo.go` only works if the shell cwd is already that file's directory; if a command fails with “No such file”, your cwd or path was wrong — fix the path or `cd`, do not guess repeatedly.",
       "",
@@ -916,9 +910,9 @@ export class MiniMaxAdapter implements ModelAdapter {
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
       Read:
-        " [MiniMax: Use paths relative to shell_cwd/current working directory when provided, otherwise project_root (e.g. cmd/pkg/file.go). Do not prepend workspace or cwd folder names. Read a file once, then **Write** the full updated file to change it; use Edit/Update only for tiny exact hunks.]",
+        " [MiniMax: Use the offered path schema. Inspect existing content and prefer targeted edits; reread when context is stale or absent.]",
       Write:
-        " [MiniMax: PREFERRED for new files and for updates after one Read (full `content`). Path is relative to shell_cwd/current working directory when provided, otherwise project_root; avoid bare filenames when multiple packages exist.]",
+        " [MiniMax: Use full writes for new files or intentional replacement after inspection. Preserve the intended path and unrelated content.]",
       Edit:
         " [MiniMax: Same file_path rules as Read — full path from repo root. Use only for small hunks with exact `old_string` from your last Read; on failure, re-read and prefer full-file Write.]",
       Update:
@@ -1039,10 +1033,10 @@ export class XiaomiMiMoAdapter implements ModelAdapter {
     return [
       "# Tool discipline (Xiaomi MiMo — agentic coding)",
       "MiMo is strongest when path state, task state, and tool boundaries stay explicit.",
-      "<SESSION_EXECUTION_CONTEXT> may define `project_root` and `shell_cwd`; file tools resolve relative to that context.",
+      "<SESSION_EXECUTION_CONTEXT> supplies path hints; offered file-tool schemas define resolution.",
       "",
       "## Paths",
-      "- Use file paths relative to `shell_cwd` when provided, otherwise `project_root`.",
+      "- Follow the offered file-tool schema and confirmed execution environment for path resolution.",
       "- Never prepend workspace/cwd segments already present in the environment; use the project-relative path observed under the current tool root.",
       "- If a path fails, run one narrow location check (`pwd`, `ls`, or Glob), then update the path; do not retry variants blindly.",
       "",
@@ -1062,11 +1056,11 @@ export class XiaomiMiMoAdapter implements ModelAdapter {
   enrichToolDescription(toolName: string, description: string): string {
     const hints: Record<string, string> = {
       Read:
-        " [Xiaomi MiMo: Use paths relative to shell_cwd/project_root. Do not prepend cwd/workspace folder names. Read once, then act on the result.]",
+        " [Xiaomi MiMo: Follow the offered path schema. Inspect content before editing and refresh stale context.]",
       Write:
-        " [Xiaomi MiMo: Include full content. Path is shell_cwd/project-root relative; avoid duplicate cwd prefixes.]",
+        " [Xiaomi MiMo: Include full content for writes and preserve the intended target path.]",
       Edit:
-        " [Xiaomi MiMo: Use exact old_string from the latest Read and a shell_cwd/project-root relative file_path.]",
+        " [Xiaomi MiMo: Use exact old_string from current file content and the offered path schema.]",
       Bash:
         " [Xiaomi MiMo: Shell cwd may differ from file-tool root. Use pwd once if unsure; do not retry the same failing command.]",
       TodoWrite:
@@ -1198,43 +1192,12 @@ export function repairBashToolCall(
 }
 
 export function repairWriteToolCall(
-  toolName: string,
-  input: Record<string, unknown>,
+  _toolName: string,
+  _input: Record<string, unknown>,
 ): { rewrittenToolName: string; rewrittenInput: Record<string, unknown> } | null {
-  if (canonicalValidationToolName(toolName) !== "Write") return null;
-
-  const filePath = input.file_path as string | undefined;
-  const content = input.content as string | undefined;
-
-  if (!filePath || typeof filePath !== "string") return null;
-  if (!content || typeof content !== "string") return null;
-
-  // Heuristics for garbled content:
-  // 1. Content looks like single-quoted dict syntax (model failed JSON encoding)
-  // 2. Content is suspiciously short for a source file (< 20 chars) but has a code extension
-  // 3. Content has no newlines but the file extension suggests multi-line code
-  const codeExtensions = /\.(go|py|js|ts|jsx|tsx|rs|c|cpp|h|java|rb|sh|yaml|yml|toml|json|html|css)$/i;
-  const looksLikePythonDict = /^\{['"][^"']+['"]\s*:/.test(content.trim());
-  const tooShortForCode = content.length < 20 && codeExtensions.test(filePath);
-  const noNewlinesInCode = !content.includes("\n") && content.length < 50 && codeExtensions.test(filePath);
-
-  // Never Bash-repair obvious JSON-serialization garbage — a heredoc of `{'World!': ''}` is worse than
-  // leaving the Write as-is so the client can show a failed tool / model can retry.
-  if (looksLikePythonDict) return null;
-
-  if (!tooShortForCode && !noNewlinesInCode) return null;
-
-  const safePath = normalizeHallucinatedLinuxWritePath(filePath);
-
-  // Rewrite as Bash heredoc -- avoids JSON escaping entirely
-  const heredocCmd = `cat > ${shellEscape(safePath)} << 'SYNESIS_EOF'\n${content}\nSYNESIS_EOF`;
-  return {
-    rewrittenToolName: "Bash",
-    rewrittenInput: {
-      command: heredocCmd,
-      description: `Create ${safePath} (repaired from malformed Write)`,
-    },
-  };
+  // Short files are valid. Converting Write to Bash changes cwd resolution,
+  // permissions and tool availability; let the offered tool validate its input.
+  return null;
 }
 
 export function repairWriteContentArray(
@@ -1278,70 +1241,15 @@ export function normalizeFileToolArgs(
 }
 
 /**
- * Normalise file_path for Read / Write / Edit / Update tool calls.
- *
- * Design principle: the **client** (Claude Code) is the security boundary.
- * It prompts the user for permission on sensitive paths and controls what
- * actually executes on disk.  Yarn should:
- *
- *  1. Fix hallucinated paths      — `/home/user/…`, `C:\Users\…` on macOS
- *  2. Normalise in-root absolutes — `/Users/me/proj/main.go` → `main.go`
- *  3. Pass through legitimate out-of-root absolutes unchanged so the client
- *     can apply its own permission model (e.g. `~/.claude/plans/`).
- *
- * Only truly foreign / hallucinated paths (Linux sandbox, Windows-on-Unix)
- * are clamped to basename.  Relative traversals (`../../x`) are left alone
- * because `normalizeWorkspaceRelativeFilePath` already stripped hallucinated
- * prefixes; what remains is intentional.
+ * Retained compatibility entry point. A proxy cannot infer a client's file-tool
+ * root or filesystem from its own OS. Preserve target identity; the configured
+ * path sandbox and the execution host validate access, rather than relocating it.
  */
 export function constrainFileToolPathToProjectRoot(
-  projectRoot: string | null | undefined,
-  toolName: string,
+  _projectRoot: string | null | undefined,
+  _toolName: string,
   input: Record<string, unknown>,
 ): { input: Record<string, unknown>; constrained: boolean } {
-  const normalizedProjectRoot = normalizeAbsolutePathHint(projectRoot);
-  if (!normalizedProjectRoot) return { input, constrained: false };
-  if (!["Write", "Read", "Edit", "Update"].includes(toolName)) return { input, constrained: false };
-  const fp = input.file_path;
-  if (typeof fp !== "string" || !fp.trim()) return { input, constrained: false };
-
-  const root = path.resolve(normalizedProjectRoot);
-  const raw = fp.trim();
-  const maybeHostLikeNoSlash = /^(Users|home|root)\//.test(raw);
-  const withHostSlash = maybeHostLikeNoSlash ? `/${raw}` : raw;
-  const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(withHostSlash);
-
-  // Windows drive-letter paths on a non-Windows host are always hallucinated.
-  if (looksWindowsAbsolute && path.sep !== "\\") {
-    const base = path.basename(withHostSlash.replace(/\\/g, "/"));
-    const clamped =
-      base && base !== "." && base !== ".."
-        ? base.split(path.sep).join("/")
-        : "file";
-    return { input: { ...input, file_path: clamped }, constrained: true };
-  }
-
-  const resolved = path.isAbsolute(withHostSlash) ? path.resolve(withHostSlash) : path.resolve(root, withHostSlash);
-  const rel = path.relative(root, resolved);
-  const inside =
-    rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-
-  if (inside) {
-    // In-root absolute → project-relative (convenience, not security).
-    const normalizedRel = (rel || ".").split(path.sep).join("/");
-    const prev = raw.replace(/\\/g, "/");
-    if (normalizedRel === prev) return { input, constrained: false };
-    return { input: { ...input, file_path: normalizedRel }, constrained: true };
-  }
-
-  // Out-of-root: pass through legitimate absolute paths to the client.
-  // The client (Claude Code) enforces its own read/write permission model.
-  if (path.isAbsolute(withHostSlash)) {
-    return { input, constrained: false };
-  }
-
-  // Relative traversal (e.g. ../../foo) — leave as-is; normalizeWorkspaceRelativeFilePath
-  // already stripped hallucinated prefixes.
   return { input, constrained: false };
 }
 
@@ -1380,56 +1288,14 @@ export function validateToolArgs(
   return { valid: missing.length === 0, missing };
 }
 
-/**
- * Models often hallucinate `/home/user/foo.go` (Linux sandbox). Claude Code runs on the user's machine;
- * use a relative path (basename or tail after /home/<user>/).
- */
+/** @deprecated Host-looking paths are legitimate client paths; never relocate them. */
 export function normalizeHallucinatedLinuxWritePath(filePath: string): string {
-  const p = filePath.trim();
-  const homeUser = /^\/home\/[^/]+\/(.+)$/;
-  const m = p.match(homeUser);
-  if (m) return m[1];
-  if (p.startsWith("/root/")) return p.slice("/root/".length);
-  return p;
+  return filePath;
 }
 
-/**
- * Normalize common file-path quirks from tool calls:
- * - surrounding quotes/backticks
- * - Windows separators
- * - duplicated leading repo segment (e.g. foo/foo/bar.go)
- * - leading "./"
- */
+/** Preserve path identity, including UNC paths, POSIX backslashes and repeated names. */
 export function normalizeWorkspaceRelativeFilePath(filePath: string): string {
-  let p = filePath.trim();
-  if (!p) return p;
-  p = p.replace(/^["'`]+|["'`]+$/g, "");
-  p = p.replace(/\\/g, "/");
-  p = p.replace(/^\.\/+/, "");
-  p = p.replace(/\/{2,}/g, "/");
-  // Fix missing leading slash on absolute-looking paths (common post-compaction hallucination)
-  if (/^(Users|home|root)\//.test(p)) {
-    p = `/${p}`;
-  }
-  const preHallucinated = p;
-  p = normalizeHallucinatedLinuxWritePath(p);
-  const hallucinatedLinuxPathRewritten = preHallucinated !== p;
-  const preserveLeadingSlash = p.startsWith("/") && !hallucinatedLinuxPathRewritten;
-
-  const parts = p.split("/").filter((s) => s.length > 0);
-  let guard = 0;
-  while (
-    parts.length >= 2 &&
-    parts[0] === parts[1] &&
-    parts[0] !== "." &&
-    parts[0] !== ".." &&
-    guard < 32
-  ) {
-    parts.shift();
-    guard += 1;
-  }
-  const normalized = parts.join("/");
-  return preserveLeadingSlash ? `/${normalized}` : normalized;
+  return filePath;
 }
 
 function shellEscape(s: string): string {

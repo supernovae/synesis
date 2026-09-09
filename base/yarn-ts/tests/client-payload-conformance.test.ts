@@ -44,7 +44,7 @@ describe("client payload conformance fixtures", () => {
     if (!parsed.success) return;
 
     const profile = packs.resolve("claude-code");
-    expect(profile.mode).toBe("ide");
+    expect(profile.mode).toBe("cli");
 
     const sdkTools = claudeToolsToSDK(parsed.data.tools as never);
     expect(sdkTools).toBeDefined();
@@ -629,13 +629,13 @@ describe("client payload conformance fixtures", () => {
     {
       profile: "roo-opencode",
       file: "openai_tool_history_payload.json",
-      expectedMode: "ide",
+      expectedMode: "cli",
       expectedToolChoice: "auto",
     },
     {
       profile: "opencode",
       file: "openai_function_choice_payload.json",
-      expectedMode: "ide",
+      expectedMode: "cli",
       expectedToolChoice: { type: "tool", toolName: "write_file" },
     },
   ])("client matrix accepts $profile OpenAI payload shape", ({ profile, file, expectedMode, expectedToolChoice }) => {

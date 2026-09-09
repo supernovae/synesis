@@ -1,3 +1,4 @@
+import { findHarnessProfile } from "./harness-registry.js";
 /**
  * Session execution context — client→yarn contract for project_root, shell_cwd, runtime.
  * @see docs/clients/SESSION_EXECUTION_CONTEXT.md
@@ -231,11 +232,10 @@ export function parseSessionExecutionContext(
 /** Repo-relative path from project_root to shell_cwd when cwd is inside the repo; otherwise null. */
 function taskDirRelativeToRepo(projectRoot: string, shellCwd: string): string | null {
   try {
-    const r = path.resolve(projectRoot);
-    const c = path.resolve(shellCwd);
-    const rel = path.relative(r, c);
-    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
-    return rel.split(path.sep).join("/");
+    if (!isPathInsideRoot(shellCwd, projectRoot)) return null;
+    const paths = projectRoot.startsWith("/") ? path.posix : path.win32;
+    const rel = paths.relative(projectRoot, shellCwd);
+    return rel ? rel.split(paths.sep).join("/") : null;
   } catch {
     return null;
   }
@@ -269,7 +269,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
 
   const lines: string[] = ["<SESSION_EXECUTION_CONTEXT>"];
   if (ctx.projectRoot) {
-    lines.push(`project_root: ${ctx.projectRoot}`);
+    lines.push(`project_root: ${JSON.stringify(ctx.projectRoot).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}`);
     lines.push(
       "Treat project_root as the repository/workspace anchor. Create new work under it; do not nest multiple directories with the same name.",
     );
@@ -277,7 +277,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
       "If the workspace is empty, add the requested project files at the root instead of mkdir && cd into repeated path segments.",
     );
     lines.push(
-      "For client-native Read/Write/Edit/Update tools, use paths relative to shell_cwd/current working directory when it is set; otherwise use project_root. Do not prepend project_root or shell_cwd segments to relative file paths.",
+      "Native file tools follow their offered path schema; use absolute paths when required. shell_cwd does not establish the root of every file tool.",
     );
     lines.push(
       "When running build or test commands, remember that they run from the current shell directory. If the project is in a subdirectory, run the command from that subdirectory or use the toolchain's working-directory option.",
@@ -287,7 +287,7 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
     );
   }
   if (ctx.shellCwd) {
-    lines.push(`shell_cwd: ${ctx.shellCwd}`);
+    lines.push(`shell_cwd: ${JSON.stringify(ctx.shellCwd).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}`);
     lines.push(
       "shell_cwd is the current task directory on the client when provided; prefer editing within the existing tree under project_root when both are set.",
     );
@@ -305,26 +305,18 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
   if (ctx.projectRoot || ctx.shellCwd) {
     lines.push("<FILE_PATH_RESOLUTION>");
     lines.push(
-      "Read/Write/Edit/Update file_path: use paths relative to shell_cwd/current working directory when it is set. If only project_root is available, use paths relative to project_root.",
-    );
-    lines.push(
-      "Do not invent a sibling directory or alternate checkout name (e.g. a folder next to the real repo). Strip bogus parent segments and anchor paths under project_root or shell_cwd.",
-    );
-    lines.push(
-      "project_root is the broader workspace/repo boundary for context. shell_cwd is the file-tool execution root for client-native tools; when both are set and shell_cwd is a subdirectory, do not include that subdirectory prefix in file_path.",
-    );
-    lines.push(
-      "Do not request access to parent/sibling directories such as ../, ~/src, or the parent of project_root just to discover files. If a file is missing, inspect the current workspace root with pwd/ls and then create or edit only inside shell_cwd/project_root.",
-    );
-    lines.push(
-      "In a fresh or empty workspace, do not read guessed application files before they exist. Confirm the root with a narrow listing, then create the requested scaffold from that root.",
+      "Resolve file paths according to the offered tool schema and current execution environment. Shell cwd, file-tool roots and the project boundary can differ.",
+      "Use explicit per-call cwd/workdir when supported. A shell cd does not establish cwd persistence or change other tools' roots.",
+      "Path hints are client-reported context, not access grants. Respect the execution host's allowed roots, sandbox and approvals, including explicitly allowed external paths.",
+      "Do not strip repeated names, parent segments, drive letters or home prefixes to repair a path. Inspect the intended location after an error; never silently redirect a write.",
+      "In a fresh or empty workspace, do not read guessed application files before they exist. Confirm the target with a narrow listing, then scaffold there.",
     );
     const pr = ctx.projectRoot?.trim();
     const cw = ctx.shellCwd?.trim();
     if (pr && cw && pr !== cw) {
       const sub = taskDirRelativeToRepo(pr, cw);
       if (sub) {
-        lines.push(`Current shell working directory for this session is repo-relative: ${sub}`);
+        lines.push(`Current shell working directory for this session is repo-relative: ${JSON.stringify(sub).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}`);
       }
     }
     lines.push("</FILE_PATH_RESOLUTION>");
@@ -372,31 +364,19 @@ export function toSessionExecutionContextSystemBlock(ctx: ParsedSessionExecution
 function pathHygieneFallbackBlock(): string {
   return [
     "<PATH_HYGIENE>",
-    "No project_root or shell_cwd was provided by the client. Infer the workspace from the user's task and the first successful pwd in Bash; default to staying in that directory for new files.",
-    "This block contains generic path hygiene rules, not facts about the user's files. Do not treat placeholder names or paths here as files that exist.",
-    "Do not mkdir && cd into a nested folder whose name repeats the current directory. If you are already inside the project folder, create the requested files there.",
-    "If pwd is already the workspace root, file-tool paths are relative to that cwd. Use the project-relative path observed in the workspace; do not prepend parent directory segments copied from pwd.",
-    "If a path error shows a duplicated cwd/project-root segment, strip the repeated segment before retrying. Do not regenerate the project because one path lookup failed.",
-    "In a fresh or empty workspace, do not read guessed source, test, or package files before they exist. Confirm the root with `pwd`/`ls`, then create the requested scaffold from that root.",
-    "After a path miss, run one narrow location check (pwd plus ls/find for the intended project folder), then create or edit only the missing file at the corrected path.",
-    "A failed install/test because requirements.txt or a source file is missing at one path is evidence about that path only; it is not evidence that previous successful writes are invalid.",
-    "Shell cd only affects Bash; keep Read/Write/Edit paths consistent with the directory you mean to modify.",
-    "When running build or test commands, remember that they run from the current shell directory. If the project is in a subdirectory, run the command from that subdirectory or use the toolchain's working-directory option.",
-    "Do not infer package/module ownership from surrounding platform names. For new repositories, ask for module/import path (or use a neutral placeholder like `example.com/<name>` until provided).",
-    "When summarizing verification for the user, use human-readable paths (repo-relative dirs, scoped globs, or state pwd after inferring it) instead of bare build/test commands without context.",
-    "Before rm or other destructive commands, list the target path and confirm; avoid guessing with wildcards on project trees.",
+    "Workspace paths are unknown. These are generic path hygiene rules, not facts about the user's files.",
+    "Use the harness environment or a narrow location check to establish the target before file operations. Never use the proxy server cwd or guess a home directory.",
+    "Follow each offered tool's path schema. Shell cwd and file-tool roots may differ; use explicit workdir when supported and verify cwd after a session/backend change.",
+    "After a path error inspect the intended location. Do not strip prefixes or repeated directory names, relocate writes, or regenerate a project based on a single missing path.",
+    "In an empty workspace, do not read guessed source, test, or package files before they exist. Confirm the target, then scaffold there.",
+    "Do not infer package/module ownership from surrounding platform names. Use user input or repository metadata.",
+    "Report verification with human-readable paths and the working directory used.",
     "</PATH_HYGIENE>",
   ].join("\n");
 }
 
 function shouldAppendPathHygieneFallback(coderClientHint: string | null | undefined): boolean {
-  const c = (coderClientHint ?? "").trim().toLowerCase();
-  return c === "claude-code"
-    || c.includes("claude-code")
-    || c === "opencode"
-    || c.includes("opencode")
-    || c === "synesis-acp"
-    || c.includes("synesis-acp");
+  return findHarnessProfile(coderClientHint) !== undefined;
 }
 
 /**
@@ -412,7 +392,11 @@ export function appendPathContextToAdapterBlock(
 ): string {
   const ctx = parseSessionExecutionContext(headers, metadata, options);
   const block = toSessionExecutionContextSystemBlock(ctx);
-  if (block) return `${adapterBlock}\n\n${block}`;
+  if (block) {
+    const fallback = !ctx.projectRoot && !ctx.shellCwd && shouldAppendPathHygieneFallback(coderClientHint)
+      ? `\n\n${pathHygieneFallbackBlock()}` : "";
+    return `${adapterBlock}\n\n${block}${fallback}`;
+  }
   if (shouldAppendPathHygieneFallback(coderClientHint)) {
     return `${adapterBlock}\n\n${pathHygieneFallbackBlock()}`;
   }

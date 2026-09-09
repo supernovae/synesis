@@ -3,7 +3,7 @@ import path from "node:path";
 const PATH_HINT_MAX_CHARS = 4096;
 
 function isAbsolutePathHint(value: string): boolean {
-  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+  return value.startsWith("/") || /^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(value);
 }
 
 function isFilesystemRoot(value: string): boolean {
@@ -18,7 +18,7 @@ function isFilesystemRoot(value: string): boolean {
   return normalized.toLowerCase() === parsed.root.toLowerCase();
 }
 
-function hasControlCharacter(value: string): boolean {
+export function hasControlCharacter(value: string): boolean {
   for (const char of value) {
     const code = char.charCodeAt(0);
     if (code <= 31 || code === 127) return true;
@@ -38,10 +38,13 @@ export function normalizeAbsolutePathHint(value: string | null | undefined): str
   return path.win32.normalize(trimmed);
 }
 
+/** Lexical client-path comparison only: no proxy cwd, filesystem or symlink inference. */
 export function isPathInsideRoot(resolvedFile: string, resolvedRoot: string): boolean {
-  const normFile = path.normalize(resolvedFile);
-  const normRoot = path.normalize(resolvedRoot);
-  if (normFile === normRoot) return true;
-  const prefix = normRoot.endsWith(path.sep) ? normRoot : `${normRoot}${path.sep}`;
-  return normFile.startsWith(prefix);
+  const windows = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(resolvedRoot);
+  const fileWindows = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(resolvedFile);
+  if (windows !== fileWindows) return false;
+  const paths = windows ? path.win32 : path.posix;
+  if (!paths.isAbsolute(resolvedFile) || !paths.isAbsolute(resolvedRoot)) return false;
+  const relative = paths.relative(resolvedRoot, resolvedFile);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${paths.sep}`) && !paths.isAbsolute(relative));
 }

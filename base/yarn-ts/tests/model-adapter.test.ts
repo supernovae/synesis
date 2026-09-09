@@ -409,7 +409,7 @@ describe("KimiAdapter", () => {
     const prompt = adapter.toolSystemPrompt!(5);
     expect(prompt).toBeDefined();
     expect(prompt).toContain("shell_cwd");
-    expect(prompt).toContain("Never");
+    expect(prompt).toContain("offered tool schema");
     expect(prompt).toContain("WebFetch");
     expect(prompt).toContain("Kimi K2");
   });
@@ -447,7 +447,7 @@ describe("KimiAdapter", () => {
     const pivot = adapter.getEarlyPivotPrompt!(calls, {
       recentToolResultText: "File not found: /home/byron/k8/overseerr/k8/overseerr/overseerr-k8s.yaml",
     });
-    expect(pivot).toContain("shell_cwd");
+    expect(pivot).toContain("offered tool path schema");
     expect(pivot).toContain("Do NOT retry");
   });
 
@@ -482,7 +482,7 @@ describe("XiaomiMiMoAdapter", () => {
   it("toolSystemPrompt covers MiMo path and task-state discipline", () => {
     const prompt = adapter.toolSystemPrompt!(5);
     expect(prompt).toContain("Xiaomi MiMo");
-    expect(prompt).toContain("shell_cwd");
+    expect(prompt).toContain("path hints");
     expect(prompt).toContain("Update native task/todo state");
   });
 
@@ -513,8 +513,8 @@ describe("MiniMaxAdapter", () => {
 
   it("enrichToolDescription adds cwd/path hints for Bash and Read", () => {
     expect(adapter.enrichToolDescription!("Bash", "Run")).toContain("MiniMax");
-    expect(adapter.enrichToolDescription!("Read", "Read")).toContain("project_root");
-    expect(adapter.enrichToolDescription!("Write", "Write")).toContain("PREFERRED");
+    expect(adapter.enrichToolDescription!("Read", "Read")).toContain("offered path schema");
+    expect(adapter.enrichToolDescription!("Write", "Write")).toContain("new files");
     expect(adapter.enrichToolDescription!("todowrite", "Manage todos")).toContain("Keep this tracker current");
     expect(adapter.enrichToolDescription!("TaskUpdate", "Update task")).toContain("after each completed milestone");
     expect(adapter.enrichToolDescription!("Unknown", "x")).toBe("x");
@@ -668,13 +668,12 @@ describe("repairWriteToolCall", () => {
     ).toBeNull();
   });
 
-  it("detects suspiciously short content for code files", () => {
+  it("preserves short valid code as a native write", () => {
     const result = repairWriteToolCall("Write", {
       file_path: "app.py",
       content: "x = 1",
     });
-    expect(result).not.toBeNull();
-    expect(result!.rewrittenToolName).toBe("Bash");
+    expect(result).toBeNull();
   });
 
   it("does not trigger for short content with non-code extension", () => {
@@ -693,13 +692,12 @@ describe("repairWriteToolCall", () => {
     expect(repairWriteToolCall("Write", { file_path: "foo.go" })).toBeNull();
   });
 
-  it("shell-escapes file paths with special characters", () => {
+  it("does not convert special-character file paths to shell commands", () => {
     const result = repairWriteToolCall("Write", {
       file_path: "my file (1).go",
       content: "x",
     });
-    expect(result).not.toBeNull();
-    expect(result!.rewrittenInput.command).toContain("'my file (1).go'");
+    expect(result).toBeNull();
   });
 });
 
@@ -725,149 +723,19 @@ describe("repairWriteContentArray", () => {
   });
 });
 
-describe("normalizeHallucinatedLinuxWritePath", () => {
-  it("strips /home/<user>/ prefix", () => {
-    expect(normalizeHallucinatedLinuxWritePath("/home/user/hello.go")).toBe("hello.go");
-    expect(normalizeHallucinatedLinuxWritePath("/home/ubuntu/proj/main.go")).toBe("proj/main.go");
-  });
-
-  it("passes through normal relative paths", () => {
-    expect(normalizeHallucinatedLinuxWritePath("hello.go")).toBe("hello.go");
-    expect(normalizeHallucinatedLinuxWritePath("cmd/main.go")).toBe("cmd/main.go");
-  });
-
-  it("strips /root/ prefix", () => {
-    expect(normalizeHallucinatedLinuxWritePath("/root/app.go")).toBe("app.go");
-  });
-});
-
-describe("normalizeWorkspaceRelativeFilePath", () => {
-  it("normalizes quotes, slashes, and leading ./", () => {
-    expect(normalizeWorkspaceRelativeFilePath("'./cmd\\\\main.go'")).toBe("cmd/main.go");
-  });
-
-  it("preserves non-hallucinated absolute macOS paths", () => {
-    expect(normalizeWorkspaceRelativeFilePath("/Users/bymiller/src/calc/main.go"))
-      .toBe("/Users/bymiller/src/calc/main.go");
-  });
-
-  it("preserves Windows drive-letter absolute-looking paths for downstream clamping", () => {
-    expect(normalizeWorkspaceRelativeFilePath("C:\\Users\\dev\\proj\\main.go"))
-      .toBe("C:/Users/dev/proj/main.go");
-  });
-
-  it("collapses duplicated leading repo segment", () => {
-    expect(normalizeWorkspaceRelativeFilePath("rosa-cost-calculator/rosa-cost-calculator/internal/main.go"))
-      .toBe("rosa-cost-calculator/internal/main.go");
-  });
-
-  it("collapses multiply duplicated leading segment", () => {
-    expect(
-      normalizeWorkspaceRelativeFilePath(
-        "aws-cost-calculator/aws-cost-calculator/aws-cost-calculator/main.go",
-      ),
-    ).toBe("aws-cost-calculator/main.go");
-  });
-
-  it("prepends / when path starts with Users/ (missing leading slash hallucination)", () => {
-    expect(normalizeWorkspaceRelativeFilePath("Users/bymiller/src/synesis-shell/cmd/synesis/ask.go"))
-      .toBe("/Users/bymiller/src/synesis-shell/cmd/synesis/ask.go");
-  });
-
-  it("treats home/user/... as hallucinated linux path and strips to relative", () => {
-    expect(normalizeWorkspaceRelativeFilePath("home/user/project/main.py"))
-      .toBe("project/main.py");
-  });
-});
-
-describe("constrainFileToolPathToProjectRoot", () => {
-  it("passes through without project root", () => {
-    const r = constrainFileToolPathToProjectRoot(null, "Write", { file_path: "../x.go" });
-    expect(r.constrained).toBe(false);
-    expect(r.input.file_path).toBe("../x.go");
-  });
-
-  it("leaves in-repo relative paths unchanged", () => {
-    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "pkg/a.go" });
-    expect(r.constrained).toBe(false);
-  });
-
-  it("ignores unsafe project roots", () => {
-    for (const projectRoot of ["/", "relative/proj", "/tmp/proj\nrole=admin"]) {
-      const r = constrainFileToolPathToProjectRoot(projectRoot, "Write", {
-        file_path: "/tmp/proj/main.go",
-      });
-      expect(r.constrained).toBe(false);
-      expect(r.input.file_path).toBe("/tmp/proj/main.go");
-    }
-  });
-
-  it("converts in-root absolute paths to project-relative paths", () => {
-    const r = constrainFileToolPathToProjectRoot(
-      "/Users/bymiller/src/calc",
-      "Edit",
-      { file_path: "/Users/bymiller/src/calc/main.go" },
-    );
-    expect(r.constrained).toBe(true);
-    expect(r.input.file_path).toBe("main.go");
-  });
-
-  it("handles missing-leading-slash host paths by treating them as absolute", () => {
-    const r = constrainFileToolPathToProjectRoot(
-      "/Users/bymiller/src/calc",
-      "Write",
-      { file_path: "Users/bymiller/src/calc/main.go" },
-    );
-    expect(r.constrained).toBe(true);
-    expect(r.input.file_path).toBe("main.go");
-  });
-
-  it("clamps Windows absolute paths on non-Windows hosts", () => {
-    const r = constrainFileToolPathToProjectRoot(
-      "/Users/bymiller/src/calc",
-      "Update",
-      { file_path: "C:/Users/dev/other/secret.go" },
-    );
-    expect(r.constrained).toBe(true);
-    expect(r.input.file_path).toBe("secret.go");
-  });
-
-  it("passes through out-of-root absolute paths to the client", () => {
-    const plans = constrainFileToolPathToProjectRoot(
-      "/Users/bymiller/src/calc",
-      "Write",
-      { file_path: "/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md" },
-    );
-    expect(plans.constrained).toBe(false);
-    expect(plans.input.file_path).toBe("/Users/bymiller/.claude/plans/steady-mixing-dewdrop.md");
-
-    const tmp = constrainFileToolPathToProjectRoot(
-      "/Users/me/repo",
-      "Edit",
-      { file_path: "/tmp/scratch.go" },
-    );
-    expect(tmp.constrained).toBe(false);
-    expect(tmp.input.file_path).toBe("/tmp/scratch.go");
-  });
-
-  it("passes through relative traversals to the client", () => {
-    const r = constrainFileToolPathToProjectRoot("/tmp/proj", "Write", { file_path: "../../etc/passwd" });
-    expect(r.constrained).toBe(false);
-    expect(r.input.file_path).toBe("../../etc/passwd");
-  });
-});
-
-describe("normalizeFileToolArgs", () => {
-  it("normalizes file_path for file tools", () => {
-    const result = normalizeFileToolArgs("Update", { file_path: "'./repo\\\\repo/main.go'" });
-    expect(result.normalized).toBe(true);
-    expect(result.input.file_path).toBe("repo/main.go");
-  });
-
-  it("does nothing for non-file tools", () => {
-    const result = normalizeFileToolArgs("Bash", { command: "pwd" });
-    expect(result.normalized).toBe(false);
-    expect(result.input).toEqual({ command: "pwd" });
+describe("client path identity", () => {
+  it.each([
+    "/home/user/project/main.py", "/root/app.py", "/Users/me/repo/a.ts",
+    "C:\\Users\\dev\\repo\\a.ts", "\\\\server\\share\\repo\\a.ts",
+    "repo/repo/a.ts", "home/user/a.ts", "Users/me/a.ts", "../../other/a.ts",
+    "'quoted-name'", "back\\slash", "./a.ts",
+  ])("preserves %s through all compatibility helpers", file_path => {
+    const input = { file_path, content: "x = 1" };
+    expect(normalizeHallucinatedLinuxWritePath(file_path)).toBe(file_path);
+    expect(normalizeWorkspaceRelativeFilePath(file_path)).toBe(file_path);
+    expect(normalizeFileToolArgs("Write", input)).toEqual({ input, normalized: false });
+    expect(constrainFileToolPathToProjectRoot("/proxy/workspace", "Write", input))
+      .toEqual({ input, constrained: false });
   });
 });
 
@@ -1220,7 +1088,7 @@ describe("Qwen3CoderAdapter.enrichToolDescription", () => {
   it("enriches Write tool description", () => {
     const result = adapter.enrichToolDescription!("Write", "Write a file.");
     expect(result).toContain("[Qwen hint:");
-    expect(result).toContain("PREFERRED");
+    expect(result).toContain("new files");
   });
 
   it("enriches Bash tool description", () => {

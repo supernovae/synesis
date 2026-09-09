@@ -6,6 +6,10 @@ const SHELL_TOOL_NAMES = new Set([
   "run_command",
   "run_shell",
   "terminal",
+  "exec_command",
+  "run_shell_command",
+  "execute_command",
+  "run_terminal_cmd",
 ]);
 
 const WRITE_CAPABLE_TOOL_NAMES = new Set([
@@ -17,11 +21,16 @@ const WRITE_CAPABLE_TOOL_NAMES = new Set([
   "update",
   "multiedit",
   "applypatch",
+  "apply_patch",
+  "edit_file",
+  "patch",
   "str_replace",
 ]);
 
 const PATH_FIELD_NAMES = new Set([
   "cwd",
+  "workdir",
+  "dir_path",
   "destination",
   "directory",
   "file",

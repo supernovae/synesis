@@ -1,3 +1,4 @@
+import { findHarnessProfile } from "../adapters/harness-registry.js";
 import { cacheKeyPart } from "@synesis/auth-contracts";
 
 export interface SessionIdentity {
@@ -80,24 +81,7 @@ function isFreshClientTranscript(messages: Array<{ role?: unknown; content?: unk
 }
 
 export function isCoderClientKind(clientKind: string): boolean {
-  const c = clientKind.trim().toLowerCase();
-  if (!c) return false;
-  return [
-    "opencode",
-    "claude-code",
-    "codex",
-    "cursor",
-    "goose",
-    "aider",
-    "continue",
-    "cline",
-    "roo",
-    "windsurf",
-    "zed",
-    "jetbrains",
-    "gemini-cli",
-    "synesis-acp",
-  ].some((needle) => c.includes(needle));
+  return findHarnessProfile(clientKind) !== undefined;
 }
 
 export interface FreshImplicitSessionStart {

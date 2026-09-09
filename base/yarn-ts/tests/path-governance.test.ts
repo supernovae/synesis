@@ -1,106 +1,17 @@
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { governToolCall } from "../src/path-governance/tool-call-governance.js";
 import { buildDefaultPolicy } from "../src/path-governance/path-sandbox.js";
 
 describe("governToolCall", () => {
-  it("normalizes duplicate leading file segments for write tools", () => {
-    const out = governToolCall({
-      toolName: "Write",
-      input: { file_path: "repo/repo/main.go", content: "package main" },
-      projectRoot: "/Users/me/repo",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-    });
-    expect(out.input.file_path).toBe("repo/main.go");
-    expect(out.normalizedPath).toBe(true);
-  });
-
-  it("repairs project-relative file paths that duplicate shell_cwd", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "k8/overseerr/overseerr-k8s.yaml" },
-      projectRoot: "/home/byron",
-      shellCwd: "/home/byron/k8/overseerr",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "claude-code",
-    });
-    expect(out.input.file_path).toBe("overseerr-k8s.yaml");
-    expect(out.normalizedPath).toBe(true);
-  });
-
-  it("repairs opencode cwd-prefixed camelCase file paths before returning to the client", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { filePath: "k8/overseerr/overseerr-k8s.yaml" },
-      projectRoot: "/home/byron/k8",
-      shellCwd: "/home/byron/k8/overseerr",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "opencode",
-    });
-    expect(out.input.filePath).toBe("overseerr-k8s.yaml");
-    expect(out.normalizedPath).toBe(true);
-  });
-
-  it("repairs project-root-prefixed OpenCode paths when shell_cwd is absent", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { path: "src/test/taskpulse/app/models/task.py" },
-      projectRoot: "/home/byron/src/test",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "opencode",
-    });
-
-    expect(out.input.file_path).toBe("taskpulse/app/models/task.py");
-    expect(out.normalizedPath).toBe(true);
-  });
-
-  it("repairs paths that repeat a suffix of shell_cwd without project_root", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "k8/overseerr/overseerr-k8s.yaml" },
-      shellCwd: "/home/byron/k8/overseerr",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "claude-code",
-    });
-    expect(out.input.file_path).toBe("overseerr-k8s.yaml");
-    expect(out.normalizedPath).toBe(true);
-  });
-
-  it("does not repair paths using an out-of-root shell_cwd", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "other/config.yaml" },
-      projectRoot: "/repo/app",
-      shellCwd: "/repo/other",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "claude-code",
-    });
-
-    expect(out.input.file_path).toBe("other/config.yaml");
-    expect(out.normalizedPath).toBe(false);
-  });
-
-  it("recovers exact cwd-suffix Read paths with bounded root discovery", () => {
-    const out = governToolCall({
-      toolName: "Read",
-      input: { file_path: "src/test" },
-      projectRoot: "/home/byron/src/test",
-      shellCwd: "/home/byron/src/test",
-      enforcePathRoot: true,
-      blockBashPathDrift: true,
-      clientKind: "opencode",
-    });
-
-    expect(out.toolName).toBe("Bash");
-    expect(out.normalizedPath).toBe(true);
-    expect(String(out.input.command)).toContain("duplicated_cwd_relative_path");
-    expect(String(out.input.command)).toContain("find . -maxdepth 2");
+  it.each(["claude-code", "opencode", "hermes-agent", "deepseek-harness", "gemini-cli", "codex-cli", "pi", "unknown"])("preserves targets for %s even when cwd differs", clientKind => {
+    for (const file_path of ["repo/repo/main.go", "k8/overseerr/config.yaml", "/home/dev/repo/main.go", "src/test", "C:/Users/dev/repo/main.go"]) {
+      const out = governToolCall({ toolName: "Write", input: { file_path, content: "package main" },
+        projectRoot: "/home/dev/repo", shellCwd: "/home/dev/repo/subdir", clientKind,
+        enforcePathRoot: true, blockBashPathDrift: true });
+      expect(out.toolName).toBe("Write");
+      expect(out.input.file_path).toBe(file_path);
+      expect(out.normalizedPath).toBe(false);
+    }
   });
 
   it("passes through out-of-root paths to the client (client enforces permissions)", () => {
@@ -169,7 +80,7 @@ describe("governToolCall", () => {
     expect(out.input.file_path).toBe("/Users/bymiller/.claude/plans/you-are-a-rust-buzzing-gadget.md");
   });
 
-  it("allows Claude plan files through the sandbox policy for Claude Code clients", () => {
+  it("does not bypass explicit sandbox policy for Claude plan files", () => {
     const out = governToolCall({
       toolName: "Write",
       input: {
@@ -184,9 +95,8 @@ describe("governToolCall", () => {
       clientKind: "claude-code",
     });
 
-    expect(out.blockedPathSandbox).not.toBe(true);
-    expect(out.toolName).toBe("Write");
-    expect(out.input.file_path).toBe("/Users/someone/.claude/plans/you-are-a-rust-buzzing-gadget.md");
+    expect(out.blockedPathSandbox).toBe(true);
+    expect(out.toolName).toBe("Synesis_Error_PathSandbox");
   });
 
   it("blocks Windows absolute file paths for coder clients until workspace context is known", () => {
@@ -585,7 +495,7 @@ describe("governToolCall", () => {
       blockBashPathDrift: true,
     });
     expect(out.toolName).toBe("read_file");
-    expect(out.normalizedPath).toBe(true);
+    expect(out.normalizedPath).toBe(false);
   });
 
   it("blocks write-capable tools when strict profile is enabled", () => {
@@ -1086,41 +996,12 @@ describe("governToolCall", () => {
     expect(out.input.file_path).toBe("/Users/someone/other-project/src/vector_store.py");
   });
 
-  it("clamps hallucinated paths but passes through legitimate ones", () => {
+  it("preserves absolute and relative targets without guessing client OS", () => {
     const root = "/Users/me/repo";
-
-    const hallucinated: Array<[string, string]> = [
-      ["C:/Users/dev/secret.go", "secret.go"],
-      ["C:\\Users\\dev\\secret.go", "secret.go"],
-    ];
-    for (const [filePath, expected] of hallucinated) {
-      const out = governToolCall({
-        toolName: "Write",
-        input: { file_path: filePath, content: "package main" },
-        projectRoot: root,
-        enforcePathRoot: true,
-        blockBashPathDrift: true,
-      });
-      expect(out.constrainedToRoot).toBe(true);
-      expect(out.input.file_path).toBe(expected);
-    }
-
-    const inRoot: Array<[string, string]> = [
-      ["main.go", "main.go"],
-      ["/Users/me/repo/cmd/app.go", "cmd/app.go"],
-      ["Users/me/repo/cmd/app.go", "cmd/app.go"],
-    ];
-    for (const [filePath, expected] of inRoot) {
-      const out = governToolCall({
-        toolName: "Write",
-        input: { file_path: filePath, content: "package main" },
-        projectRoot: root,
-        enforcePathRoot: true,
-        blockBashPathDrift: true,
-      });
-      const governedPath = String(out.input.file_path ?? "");
-      expect(path.isAbsolute(governedPath)).toBe(false);
-      expect(governedPath).toBe(expected);
+    for (const file_path of ["C:/Users/dev/secret.go", "C:\\Users\\dev\\secret.go", "main.go", "/Users/me/repo/cmd/app.go", "Users/me/repo/cmd/app.go"]) {
+      const out = governToolCall({ toolName: "Write", input: { file_path, content: "package main" }, projectRoot: root, enforcePathRoot: true, blockBashPathDrift: true });
+      expect(out.constrainedToRoot).toBe(false);
+      expect(out.input.file_path).toBe(file_path);
     }
 
     const passThrough = [

@@ -29,3 +29,7 @@ This note captures external invariants adopted by Yarn's read-snapshot hardening
 - Dedup compatibility with envelopes: `src/reduction/content-addressed-dedup.ts`
 - Governor no-op recognition for typed unchanged state: `src/governance/execution-governor.ts`
 
+
+## September 2026 review
+
+See [Harness compatibility review](../../../docs/clients/HARNESS_COMPATIBILITY.md) for current upstream sources, research rationale, supported client IDs and migration notes. Shared adapters now agree with the snapshot visibility invariants above. Paths are preserved rather than guessed or relocated, and native tool schemas take precedence over client-name assumptions.
