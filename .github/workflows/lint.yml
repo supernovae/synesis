@@ -227,6 +227,9 @@ jobs:
         working-directory: base/synesis-mcp
         run: npx tsc --noEmit
 
+      - name: Shared tool contracts
+        run: npm test --workspace=@synesis/mcp-tools
+
       - name: Unit tests
         working-directory: base/synesis-mcp
         run: npx vitest run
@@ -330,3 +333,15 @@ jobs:
               "$df" || status=1
           done
           exit "$status"
+
+  architecture-analysis-tests:
+    name: Offline architecture analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts --workspace=@synesis/architecture-lab --include-workspace-root=false
+      - run: npm run build --workspace=@synesis/architecture-lab
+      - run: npm test --workspace=@synesis/architecture-lab

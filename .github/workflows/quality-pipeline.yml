@@ -1,10 +1,6 @@
 name: Quality Pipeline
 
 on:
-  schedule:
-    # Weekly: Sunday 02:00 UTC
-    - cron: "0 2 * * 0"
-
   workflow_dispatch:
     inputs:
       audit:
@@ -45,9 +41,7 @@ env:
 
 jobs:
   corpus-audit:
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && inputs.audit)
+    if: inputs.audit
     runs-on: self-hosted
     timeout-minutes: 60
     environment: validation

@@ -1,7 +1,7 @@
 {
   "name": "@synesis/mcp-tools",
   "version": "0.1.0",
-  "description": "Shared tool definitions for Synesis MCP servers — graph-native RAG, SynPack retrieval, and developer safety tooling.",
+  "description": "Shared tool definitions for Synesis MCP servers \u2014 graph-native RAG, SynPack retrieval, and developer safety tooling.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,7 +17,8 @@
   "scripts": {
     "prebuild": "npm run build -w @synesis/context-trust",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

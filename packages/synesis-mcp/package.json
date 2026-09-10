@@ -1,10 +1,10 @@
 {
   "name": "@synesis/mcp",
-  "version": "0.1.0",
-  "description": "Synesis MCP server — graph-native RAG, SynPack knowledge bundles, and multi-corpus search for any IDE or agent harness.",
+  "version": "0.2.0",
+  "description": "Portable source packs and local SQLite knowledge tools for MCP clients.",
   "type": "module",
   "bin": {
-    "synesis-mcp": "dist/cli.js"
+    "synesis": "dist/cli.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,11 +21,13 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "npm run build",
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@synesis/mcp-tools": "file:../synesis-mcp-tools"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
@@ -35,11 +37,12 @@
   "keywords": [
     "mcp",
     "synesis",
-    "rag",
     "synpack",
     "knowledge",
-    "ai",
-    "context"
+    "offline"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.14.0"
+  }
 }

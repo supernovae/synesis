@@ -1,0 +1,59 @@
+name: Knowledge checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/synesis-mcp/**'
+      - 'examples/source-pack/**'
+      - 'evals/architecture/local-smoke.mjs'
+      - 'evals/architecture/source-files.txt'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/knowledge.yml'
+  pull_request:
+    paths:
+      - 'packages/synesis-mcp/**'
+      - 'examples/source-pack/**'
+      - 'evals/architecture/local-smoke.mjs'
+      - 'evals/architecture/source-files.txt'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/knowledge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['24', '26']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+      - run: npm run build
+      - run: npm test
+      - name: Source navigation smoke
+        run: node evals/architecture/local-smoke.mjs "$RUNNER_TEMP/local-smoke.json"
+      - name: Verify standalone package install
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack" "$RUNNER_TEMP/install"
+          npm pack --workspace=@synesis/mcp --pack-destination "$RUNNER_TEMP/pack"
+          (cd "$RUNNER_TEMP/install" && npm install --ignore-scripts --omit=dev "$RUNNER_TEMP"/pack/synesis-mcp-*.tgz)
+          "$RUNNER_TEMP/install/node_modules/.bin/synesis" build examples/source-pack/pack.json --root examples/source-pack --output "$RUNNER_TEMP/example.synpack"
+          "$RUNNER_TEMP/install/node_modules/.bin/synesis" import "$RUNNER_TEMP/example.synpack" --library "$RUNNER_TEMP/knowledge"
+          "$RUNNER_TEMP/install/node_modules/.bin/synesis" search readPinnedSource --library "$RUNNER_TEMP/knowledge" --pack synesis-example --version 1.0

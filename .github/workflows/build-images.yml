@@ -1,39 +1,6 @@
 name: Build and Push Images
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'base/**/Dockerfile'
-      - 'base/**/Containerfile'
-      - 'base/**/requirements.txt'
-      - 'base/**/requirements.lock'
-      - 'base/**/app/**'
-      - 'base/**/frontend/**'
-      - 'base/**/plugins/**'
-      - 'base/**/alembic/**'
-      - 'base/**/*.sh'
-      - 'base/**/*.yaml'
-      - 'base/images/**'
-      - 'base/sandbox/image/**'
-      - 'base/rag/indexer/**'
-      - 'base/rag/preprocess-service/**'
-      - 'base/rag/spam-service/**'
-      - 'base/rag/knowledge-base/**'
-      - 'base/synesis-mcp/**'
-      - 'base/ast-mcp/**'
-      - 'base/admin-mcp-ts/**'
-      - 'base/yarn-ts/**'
-      - 'base/planner-ts/**'
-      - 'base/security/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'base/quality-runner/**'
-      - 'base/webui/**'
-      - 'benchmarks/corpus/**'
-      - 'tools/curator/**'
-      - '.github/workflows/build-images.yml'
   workflow_dispatch:
     inputs:
       tag:

@@ -1,6 +1,6 @@
 # Live Yarn verification (base/yarn-ts `npm run verify:live`).
 #
-# Triggers: manual + GitHub Release published — not on every PR/commit (cost control).
+# Manual only: the retired deployment is not a validation prerequisite.
 #
 # Canonical GitHub configuration (Settings → Secrets and variables → Actions):
 #   Variable SYNESIS_YARN_EVAL_URL — Yarn OpenAI-compatible base URL (e.g. https://coder.kybern.dev).
@@ -12,8 +12,6 @@ name: Yarn live verify
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: read

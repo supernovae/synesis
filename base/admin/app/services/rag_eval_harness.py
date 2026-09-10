@@ -239,25 +239,18 @@ def _score_case(case: RagEvalCase, bundle: dict[str, Any], latency_ms: float) ->
             failures.append("expected source chunks")
 
     checks["context_cards_present"] = len(cards) > 0
-    if len(cards) == 0:
-        warnings_out.append("no answer-ready context cards returned")
 
     quality = _pack_quality(bundle)
-    scored_checks = [
-        checks.get("symbol_hit", True),
-        checks.get("language_match", True),
-        checks.get("examples_present", True) if examples_required else True,
-        checks.get("anti_pattern_hit", True),
-        checks.get("warning_hit", True),
-        checks.get("source_evidence_present", True),
-        checks.get("context_cards_present", False),
-    ]
+    # Enrichment presence and producer-reported quality are diagnostics, not
+    # evidence that retrieval satisfied the task. Score both treatments alike.
+    scored_names = ["symbol_hit", "language_match", "anti_pattern_hit", "warning_hit", "source_evidence_present"]
+    if examples_required:
+        scored_names.append("examples_present")
+    scored_checks = [checks[name] for name in scored_names if name in checks]
+    if not scored_checks:
+        failures.append("no retrieval expectations configured")
     base_score = sum(1 for item in scored_checks if item) / max(len(scored_checks), 1)
-    quality_bonus = 0.0
-    for value in quality.values():
-        if isinstance(value, float):
-            quality_bonus += min(value, 1.0) * 0.02
-    score = round(min(1.0, base_score + quality_bonus), 4)
+    score = round(base_score, 4)
     passed = not failures and score >= 0.8
 
     return {

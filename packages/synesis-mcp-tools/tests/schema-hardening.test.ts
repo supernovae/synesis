@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ecmaPackageRiskInputSchema, terraformPlanAnalyzeInputSchema } from "../../synesis-mcp-tools/src/knowledge-schemas.js";
-import { analyzeTerraformPlanLocal } from "../../synesis-mcp-tools/src/terraform-plan.js";
+import { ecmaPackageRiskInputSchema, terraformPlanAnalyzeInputSchema } from "../src/knowledge-schemas.js";
+import { analyzeTerraformPlanLocal } from "../src/terraform-plan.js";
 
 const PLAN = {
   resource_changes: [{

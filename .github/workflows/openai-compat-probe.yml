@@ -1,4 +1,4 @@
-# Manual / scheduled gap report — never blocks merge.
+# Manual gap report — never blocks merge.
 #
 # GitHub configuration:
 #   Variable SYNESIS_PLANNER_EVAL_URL — planner base URL (e.g. https://api.kybern.dev).
@@ -10,8 +10,6 @@ name: OpenAI compat probe (optional)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 12 * * 0" # weekly Sunday 12:00 UTC
 
 jobs:
   probe:

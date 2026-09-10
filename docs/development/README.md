@@ -1,5 +1,7 @@
 # Engineering & development documentation
 
+Start local-reader work with [source packs](../SOURCE_PACKS.md) and the [contribution guide](../../CONTRIBUTING.md#local-reader-development). `npm run build` and `npm test` require no live deployment. The platform inventories below describe code awaiting extraction/removal.
+
 These pages support **contributors and operators** who work from the repository: CI, tests, migrations, and maintained engineering runbooks. They are **not** the primary path for end-user “connect my IDE” setup — use [`docs/user/`](../user/README.md) and [`docs/clients/`](../clients/CLIENTS.md) for that.
 
 ## Testing & CI (start here)

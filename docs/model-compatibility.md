@@ -1,5 +1,7 @@
 # Model compatibility and serving optimizations
 
+The local source-pack reader does not intercept model traffic or select model shims. Its client/model endpoint owns reasoning and serving behavior. The adapter details below describe the existing Planner/Yarn code during extraction, not a support promise for the new reader. See [the current architecture](ARCHITECTURE_REVIEW.md).
+
 Synesis provides a common API and tool-validation layer while preserving model-specific reasoning protocols. It does not implement attention kernels, learned memory, or speculative decoding. This guide records the compatibility behavior we maintain and the serving options operators can evaluate. Architecture is an efficiency design choice, not a reliability rating.
 
 Primary sources last reviewed: **2026-09-09**. A model-family match selects compatibility behavior; it does not certify an endpoint, hardware configuration, or task-success rate.
@@ -29,11 +31,11 @@ These controls normalize transport and tool handling without promising identical
 | **Xiaomi MiMo** | Dedicated family resolution, reasoning replay and native tool validation. | Match capabilities to the exact checkpoint and endpoint; branding alone does not establish recall or serving performance. [V2.5 Pro card](https://huggingface.co/XiaomiMiMo/MiMo-V2.5-Pro). |
 | **Other / opaque models** | Generic compatible transport and common validation; explicit family configuration can select a known adapter. | Unknown architectural and quality traits remain unknown. Reasoning extensions, vision, structured output and tool parsing require endpoint-specific validation. |
 
-### Older deployments we still accommodate
+### Earlier adapter entries
 
-Compatibility is retained where it has a concrete protocol or sampling purpose, rather than treating older checkpoints as the baseline for modern models.
+These entries remain in the existing platform registry. They are not the baseline for the local reader or a promise of continued support for older deployments.
 
-| Model | Maintained distinction |
+| Model | Recorded distinction |
 | --- | --- |
 | Qwen3-Coder original / Qwen3-Coder-Next | Separate sampling defaults: temperature 0.7 / 1.0 respectively, both top-p 0.95. Original defaults are not inherited by general Qwen reasoning models. Next is non-thinking. [Original card](https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct), [Next card](https://huggingface.co/Qwen/Qwen3-Coder-Next). |
 | Qwen3.5 / Qwen3.6 | Common Qwen reasoning transport; hybrid linear/full attention does not impose a context discount. Historical thinking preservation depends on the template. [3.5 card](https://huggingface.co/Qwen/Qwen3.5-397B-A17B), [3.6 card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B). |

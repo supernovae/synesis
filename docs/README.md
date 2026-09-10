@@ -1,5 +1,6 @@
 # Synesis documentation
 
+The local source-pack CLI and MCP reader are implemented. Start with [source packs](SOURCE_PACKS.md), [MCP setup](clients/MCP_QUICKSTART.md) and [client boundaries](clients/CLIENTS.md). The [architecture decision record](ARCHITECTURE_REVIEW.md) tracks the remaining work. Most platform guides below describe code awaiting extraction/removal; they are not prerequisites for the local reader.
 This tree is organized by **audience** and **product surface**. Implementation code lives under `base/`; these pages describe how to deploy, operate, extend, and use Synesis.
 
 ## How to read this repo
@@ -17,7 +18,7 @@ This tree is organized by **audience** and **product surface**. Implementation c
 
 ## Quick links
 
-- **New operators:** [README](../README.md) (repository overview) → [Local Compose](LOCAL_COMPOSE.md) or [Helm install](HELM_INSTALL.md).
+- **Start here:** [README](../README.md) → [local source packs](SOURCE_PACKS.md). For the existing stack: [Local Compose](LOCAL_COMPOSE.md) or [Helm install](HELM_INSTALL.md).
 - **Chat pipeline:** [Workflow](chat/WORKFLOW_PLANNER.MD) · [Open WebUI](chat/OPENWEBUI.md) · [OpenAI compatibility](chat/PLANNER_OPENAI_COMPATIBILITY.md).
 - **Coder runtime:** [`base/yarn-ts/README.md`](../base/yarn-ts/README.md) · [Coder doc index](coder/README.md).
 - **Connect a client:** [Client overview](clients/CLIENTS.md) · [Claude Code → coder](clients/CLAUDECODE.md).
@@ -26,7 +27,7 @@ This tree is organized by **audience** and **product surface**. Implementation c
 - **Security posture:** [Security controls](SECURITY.md) · [Security todo tracker](security_todo.md).
 - **Model behavior:** [Model compatibility guide](model-compatibility.md) · [Architecture controls](model-architecture-awareness.md).
 - **Harness compatibility:** [Client contracts and limitations](clients/HARNESS_COMPATIBILITY.md).
-- **Latest platform audit:** [August 2026 architecture and research review](PLATFORM_AUDIT_2026_08.md).
+- **Current architecture direction:** [Decision record and implementation sequence](ARCHITECTURE_REVIEW.md). Historical snapshot: [August 2026 review](PLATFORM_AUDIT_2026_08.md).
 - **Project positioning:** [Comparison notes](COMPARISON.md).
 
 ## Admin-only

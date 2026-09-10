@@ -1,0 +1,22 @@
+{
+  "name": "@synesis/architecture-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "inventory": "node dist/inventory.js",
+    "compare": "node dist/cli.js",
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\""
+  },
+  "dependencies": {
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

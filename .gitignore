@@ -109,3 +109,11 @@ docs/wip/
 base/yarn-ts/eval-governor-regression-phase*.json
 base/yarn-ts/eval-results*.json
 base/yarn-ts/eval-results-post-*.json
+
+# Local source packs and libraries may contain private evidence
+.synesis/
+*.synpack
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal

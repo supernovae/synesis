@@ -18,7 +18,21 @@ workspaces provide build and test scripts; live provider checks require a
 configured deployment and credentials. Run the relevant local checks before
 requesting review and report any checks you could not run.
 
-## Development Setup
+## Local reader development
+
+For the new source-pack CLI and MCP reader, use Node.js 24.14 or newer:
+
+```bash
+npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+npm run build
+npm test
+```
+
+The core is in `packages/synesis-mcp`; its tests include SQLite and a real MCP subprocess. No cluster, model endpoint, PAT, Python runtime or database daemon is needed. Keep source access explicit, preserve immutable version identities and test actual failure cases. Hosted access remains a separate contract; do not infer tenant isolation from a local library path.
+
+The source-pack CLI is a fix-forward replacement of the old Planner-backed MCP command. Do not add compatibility environment variables, old pack importers or another model proxy. See the [architecture decision record](docs/ARCHITECTURE_REVIEW.md) and [source-pack contract](docs/SOURCE_PACKS.md).
+
+## Existing platform tooling
 
 ```bash
 # Install uv (recommended — used in CI and containers)

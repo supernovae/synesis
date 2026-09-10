@@ -1,6 +1,6 @@
 # Go RAG harness against planner POST /v1/knowledge/search (scripts/rag_retrieval_eval.py).
 #
-# Triggers: manual + release, and relevant PRs when live validation is enabled.
+# Manual only: there is no running platform baseline.
 #
 # Canonical GitHub configuration (Settings → Secrets and variables → Actions):
 #   Secret   SYNESIS_INTERNAL_SERVICE_TOKEN — internal service token (synesis-internal-service-auth), not a PAT.
@@ -11,16 +11,7 @@
 name: RAG retrieval eval (Go harness)
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "base/planner-ts/src/retrieval/**"
-      - "base/rag/**"
-      - "scripts/rag_retrieval_eval.py"
-      - "tests/prompts/go_retrieval_eval.yaml"
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: read
@@ -28,10 +19,6 @@ permissions:
 jobs:
   go-retrieval-eval:
     name: Go retrieval eval suite
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'release' ||
-      (github.event_name == 'pull_request' && vars.SYNESIS_VALIDATION_ENABLED == 'true')
     runs-on: self-hosted
     timeout-minutes: 20
     environment: validation

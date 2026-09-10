@@ -1,0 +1,15 @@
+{
+  "id": "synesis-example",
+  "version": "1.0",
+  "title": "Source pack example",
+  "sourceRevision": "example-1",
+  "attribution": "Synesis contributors",
+  "license": "Apache-2.0",
+  "redistribution": "permitted",
+  "files": [
+    {
+      "path": "guide.md",
+      "symbols": ["readPinnedSource"]
+    }
+  ]
+}

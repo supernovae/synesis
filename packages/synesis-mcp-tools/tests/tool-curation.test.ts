@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { SynesisMcpAuth, SynesisMcpDeps } from "@synesis/mcp-tools";
-import { getSynesisPlatformCatalog, registerSynesisMcpTools } from "@synesis/mcp-tools";
+import type { SynesisMcpAuth, SynesisMcpDeps } from "../src/index.js";
+import { getSynesisPlatformCatalog, registerSynesisMcpTools } from "../src/index.js";
 
 const CORE_TOOLS = [
   "synesis_search",

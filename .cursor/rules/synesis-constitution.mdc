@@ -1,59 +1,17 @@
 ---
-description: Synesis system constitution — router-governed evidence, deterministic triage, evidence-gated critique, anti-oscillation
-globs: base/planner/**/*.py,base/planner/plugins/weights/*.yaml
-alwaysApply: false
+description: Architecture decisions follow current outcomes and explicit safety boundaries
+alwaysApply: true
 ---
 
-# Synesis System Constitution
+# Architecture guidance
 
-These are architectural guidance, not hard rules. Follow the planner's existing patterns rather than enforcing rigid formality. When modifying the planner graph, router, or entry classifier, keep these conventions in mind.
+Use [the architecture decision record](docs/ARCHITECTURE_REVIEW.md) for the current direction and implementation status. The previous deployment is intentionally shut down because of cost. A running cluster is not a prerequisite for code review, simplification or design decisions.
 
-## 1. Router Owns All Retrieval
+- Prefer native clients and optional knowledge tools. Do not require Planner/Yarn interception, another agent loop, model-specific planning, or a mandatory inference fleet in new paths.
+- Preserve source identity, versions, bounded recoverable evidence and authorization. Model-generated summaries and confidence scores do not establish correctness or permission.
+- Keep the client's cwd, tools, execution and approvals under client control. Proxy cwd and client-supplied identity headers are not authority.
+- Separate design constraints from measured quality claims. Missing model evaluations limit claims about task improvement; they do not require rebuilding a retired deployment.
+- Existing runtime rules describe their scoped implementation. They do not mandate carrying its topology or graph policies into a replacement.
+- Fix forward with one selected implementation. Do not introduce old-format importers, configuration aliases, dual writes or permanent experimental adapters.
 
-Only the **Router** node touches RAG and web search. Evidence packets are the data contract.
-
-- **Evidence packets** flow through `state['evidence_packets']` — structured `EvidencePacket` objects (query, sources, snippets, summary, confidence).
-- No node may import or call retrieval modules directly. Planner, Executor, Writer, and Critic consume packets from state only.
-- The Router merges new packets via `_merge_evidence_packets` reducer (append + deduplicate by `(query, section_id)`).
-
-## 2. Delegation First
-
-If a task involves a **protocol** (ActivityPub, OAuth, gRPC), **multiple files**, or **system architecture**, route through Router → Planner for complex tasks.
-
-- **Protocol triggers** live in `plugins/weights/domain_protocols.yaml` — fediverse, activitypub, oauth, etc.
-- When `difficulty >= plan_required_above` (0.7), Router routes to Planner (no fast-path through Executor).
-
-## 3. Deterministic Triage
-
-Use the EntryClassifier (regex + YAML weights + continuous difficulty 0-1) to bypass the LLM for trivial tasks.
-
-- **Trivial** (`difficulty < 0.15`): Router → Writer/Respond (no planning).
-- **Complex** (`difficulty >= 0.7`): Router → Planner → Router (re-retrieval if needed) → Executor/Writer.
-- Mid-range: Router may route to Executor or Writer directly with optional RAG evidence.
-
-## 4. Evidence-Gated Critique
-
-No critique can exist without evidence. The Critic validates against `evidence_packets`.
-
-- Missing or insufficient evidence triggers `need_more_evidence` → Router re-retrieval.
-- Critic cites evidence when rejecting; `evidence_requests` flow from Planner/Critic back to Router.
-
-## 5. Anti-Oscillation
-
-Deterministic controls prevent style drift, decision oscillation, and grounding loss across the graph.
-
-- **SemanticFrame is set-once.** If you need to change it, you have a design bug. The `_set_once_dict` reducer in `state.py` enforces this — only `frame_extractor` should return `semantic_frame`.
-- **Writer reads `decision_ledger`, not `execution_plan` prose.** The planner emits structured `DecisionEntry` objects; the writer consumes those directly.
-- **Critic compares draft against `decision_ledger` and `style_contract_locked`.** The `_build_ledger_rubric()` function injects ledger entries into the critic prompt.
-- **Changing a frozen decision requires an `OverrideRequest`** with `override_reason` and `override_scope`. Narrow scope auto-approves; broad scope requires critic confirmation.
-- **Validators run deterministically before/after nodes** via `validated_node()` wrapper in `graph.py`. Do not bypass the wrapper when adding new content-producing nodes.
-- **Oscillation detector** scores style, decision, retrieval, section churn, and unsupported overrides. Runs in `route_after_critic`; force-terminates when score exceeds `oscillation_threshold`.
-- **Retrieval churn detection** invalidates cache entries when evidence loops repeatedly without resolution.
-
-## 6. Code Style
-
-Python 3.12+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two-Phase Commit.
-
-## Adding New Protocols
-
-Drop keywords into `plugins/weights/domain_protocols.yaml`. No code changes. High weight (15–25) forces `task_size=hard`.
+Validate the affected contract using the code that exists. Do not prescribe removed Python nodes, reducer wrappers, automatic complexity thresholds or a router monopoly as general architectural requirements.

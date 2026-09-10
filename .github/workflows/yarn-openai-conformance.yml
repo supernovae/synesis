@@ -24,8 +24,6 @@ on:
       - "packages/synesis-upper-harness/**"
       - ".github/workflows/yarn-openai-conformance.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "15 9 * * *"
 
 permissions:
   contents: read
@@ -60,7 +58,7 @@ jobs:
 
   openai-conformance-live:
     name: OpenAI conformance (live endpoint)
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
     timeout-minutes: 25
     defaults:

@@ -1,6 +1,8 @@
 # GitHub Actions: validation URLs and tokens
 
-Single reference for repository **Variables** and **Secrets** used by optional live workflows. These names are standardized across workflows; local scripts may accept the same names or older aliases (see each tool’s header comment).
+This reference applies to manual evaluations of the older platform code awaiting extraction/removal. There is no running target. The local reader's `knowledge.yml` workflow and package artifact build require no service URLs, credentials or model calls. Provisioning the old platform is not a development prerequisite.
+
+The following **Variables** and **Secrets** are used only when explicitly dispatching the corresponding live workflows. Local scripts may accept additional names; see each tool's header comment.
 
 ## Two secrets (do not conflate)
 
@@ -8,8 +10,8 @@ Single reference for repository **Variables** and **Secrets** used by optional l
 |------|------|--------|----------|
 | **`SYNESIS_INTERNAL_SERVICE_TOKEN`** | **Secret** | Token from `synesis-internal-service-auth` (same as planner `SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN`) | **Service-to-service** routes — e.g. `POST /v1/knowledge/search` (RAG retrieval eval). **Not** a PAT. |
 | **`SYNESIS_TEST_PAT_TOKEN`** | **Secret** | Personal access token (`syn-…`) with scopes for planner/Yarn **user-space** `/v1` (chat, models) | Prompt regression (live), OpenAI compat probe, Yarn live verify |
-| **`SYNESIS_NORNIC_USER`** | **Secret** | NornicDB username (typically `neo4j`) | Weekly/manual corpus-quality audit |
-| **`SYNESIS_NORNIC_PASSWORD`** | **Secret** | NornicDB password | Weekly/manual corpus-quality audit |
+| **`SYNESIS_NORNIC_USER`** | **Secret** | NornicDB username (typically `neo4j`) | Manual corpus-quality audit |
+| **`SYNESIS_NORNIC_PASSWORD`** | **Secret** | NornicDB password | Manual corpus-quality audit |
 
 Use a GitHub **Environment** named `validation` with branch protection / optional reviewers when these workflows should not run without approval.
 
@@ -19,14 +21,9 @@ Use a GitHub **Environment** named `validation` with branch protection / optiona
 |------|----------------|---------|
 | `SYNESIS_PLANNER_EVAL_URL` | `https://api.kybern.dev` | RAG retrieval eval (URL only; token is internal), prompt regression (live), OpenAI probe (planner) |
 | `SYNESIS_YARN_EVAL_URL` | `https://coder.kybern.dev` | OpenAI compat probe (Yarn), Yarn live verify |
-| `SYNESIS_VALIDATION_ENABLED` | `true` / `false` | Workflows that gate on “validation enabled” (see individual workflow headers) |
 | `SYNESIS_NORNIC_URI` | `bolt://synesis-nornicdb.synesis-rag.svc.cluster.local:7687` | Corpus-quality audit |
 | `SYNESIS_NORNIC_DATABASE` | `nornic` | Corpus-quality audit |
 | `SYNESIS_NORNIC_VECTOR_INDEX` | `embeddings` | Corpus-quality audit |
-
-## Legacy names (do not use for new setup)
-
-Older docs referred to `SYNESIS_VALIDATION_API_URL` and `SYNESIS_VALIDATION_API_KEY`. Replace with **`SYNESIS_PLANNER_EVAL_URL`** plus the appropriate secret above.
 
 ## Local equivalents
 

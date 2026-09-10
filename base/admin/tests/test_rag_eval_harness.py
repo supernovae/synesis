@@ -1,6 +1,38 @@
 from __future__ import annotations
 
-from app.services.rag_eval_harness import RagEvalSuite, _aggregate
+from app.services.rag_eval_harness import RagEvalCase, RagEvalSuite, _aggregate, _score_case
+
+
+def test_enrichment_metadata_does_not_improve_retrieval_score() -> None:
+    case = RagEvalCase(id="source", query="find parseConfig", expect={"symbols": ["parseConfig"]})
+    source = {"source_chunks": [{"text": "parseConfig"}]}
+    enriched = {
+        **source,
+        "context_cards": [{"text": "generated summary"}],
+        "quality": {"quality_score": 1.0, "trust_score": 1.0, "freshness_score": 1.0},
+    }
+    # Check both a successful retrieval and one missing the requested symbol;
+    # score saturation must not hide an enrichment bonus on failed retrieval.
+    for selected in [case, RagEvalCase(id="missing", query="missing", expect={"symbols": ["absentSymbol"]})]:
+        plain = _score_case(selected, source, 1.0)
+        with_cards = _score_case(selected, enriched, 1.0)
+        assert plain["score"] == with_cards["score"]
+        assert plain["passed"] == with_cards["passed"]
+        assert plain["warnings"] == with_cards["warnings"]
+        assert not plain["checks"]["context_cards_present"]
+        assert with_cards["checks"]["context_cards_present"]
+
+
+def test_missing_expectations_do_not_award_free_points() -> None:
+    missing = RagEvalCase(id="missing", query="parseConfig", expect={"symbols": ["parseConfig"]})
+    result = _score_case(missing, {}, 1.0)
+    assert result["score"] == 0.0
+    assert not result["passed"]
+
+    unspecified = _score_case(RagEvalCase(id="unspecified", query="anything"), {}, 1.0)
+    assert unspecified["score"] == 0.0
+    assert not unspecified["passed"]
+    assert "no retrieval expectations configured" in unspecified["failures"]
 
 
 def test_aggregate_reports_synpack_value_add_lift() -> None:

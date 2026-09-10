@@ -1,7 +1,6 @@
 # Synesis Quality Pipeline
 
-End-to-end corpus quality management: audit, benchmark, curate, ingest, and
-verify against the current NornicDB-backed RAG stack.
+This page describes corpus management in the older NornicDB-backed platform code awaiting extraction/removal. There is no running deployment. The [local source-pack reader](SOURCE_PACKS.md) does not require this pipeline, its services or generated enrichment.
 
 ## Architecture
 
@@ -72,9 +71,9 @@ Retrieval tooling should target:
 - `SYNESIS_NORNIC_VECTOR_INDEX=embeddings`
 - `SYNESIS_INTERNAL_SERVICE_TOKEN=...` for `make bench-retrieval`
 
-## CI / Scheduled Runs
+## Manual CI runs
 
-The quality pipeline can run as a scheduled or manual workflow:
+The quality pipeline workflow requires explicit manual dispatch against an intentionally provisioned target:
 
 ```bash
 gh workflow run quality-pipeline.yml -f audit=true -f curator=true
@@ -85,8 +84,9 @@ Requirements: a self-hosted runner with network access to NornicDB, repository
 variables `SYNESIS_NORNIC_URI`, `SYNESIS_NORNIC_DATABASE`, and
 `SYNESIS_NORNIC_VECTOR_INDEX` when defaults do not apply, and validation
 environment secrets `SYNESIS_NORNIC_USER` / `SYNESIS_NORNIC_PASSWORD` when
-authentication is enabled. The in-cluster CronJob is the preferred scheduled
-deployment because it reads NornicDB credentials from the Kubernetes Secret.
+authentication is enabled. The existing in-cluster CronJob reads credentials
+from a Kubernetes Secret, but is not running and is not a requirement or
+recommended deployment path for the local reader.
 CI and the quality-runner image install the committed, hash-verified
 `benchmarks/corpus/requirements.lock` and `tools/curator/requirements.lock`;
 refresh them through `./scripts/lock-deps.sh`, not by editing locks directly.

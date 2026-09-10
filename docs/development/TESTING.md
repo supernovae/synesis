@@ -1,6 +1,17 @@
 # Synesis test suite — CI, local, and manual
 
-This document is the **inventory** of how we validate Synesis: what runs automatically, what needs secrets or live APIs, and where to extend coverage. Use it when adding features or tuning CI.
+The local knowledge reader is validated without services, credentials or model calls:
+
+```bash
+npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+npm run build
+npm test
+node evals/architecture/local-smoke.mjs /tmp/synesis-local-smoke.json
+```
+
+`knowledge.yml` checks Node 24 and 26, source-pack integrity, root boundaries, version-pinned evidence, concurrent reads, backup/restore, CLI behavior, MCP negotiation and standalone package installation. The smoke script checks source navigation against native files; it does not measure model quality or establish a retrieval advantage.
+
+The remaining sections inventory the older platform code awaiting extraction/removal. Its offline checks remain useful while that code exists. All deployment-dependent evaluations require manual dispatch; there is no running deployment to validate and none is needed to develop the reader. See [the architecture decision](../ARCHITECTURE_REVIEW.md).
 
 **Related:** [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets), [CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md) (GitHub variables and secrets for validation jobs).
 
@@ -10,11 +21,12 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
+| [`.github/workflows/knowledge.yml`](../../.github/workflows/knowledge.yml) | Local CLI/library tests, source navigation and standalone package installation on Node 24/26 | Runs on relevant PRs |
 | [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
 | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
-| [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | NornicDB corpus audit and optional curator | No; scheduled/manual |
-| [`.github/workflows/rag-retrieval-eval.yml`](../../.github/workflows/rag-retrieval-eval.yml) | Source-anchored retrieval suite through planner → NornicDB | Relevant PRs when validation is enabled; manual/release otherwise |
+| [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | NornicDB corpus audit and optional curator | No; manual only |
+| [`.github/workflows/rag-retrieval-eval.yml`](../../.github/workflows/rag-retrieval-eval.yml) | Source-anchored retrieval suite through planner → NornicDB | No; manual only |
 
 **Note:** planner ontology + taxonomy YAML now lives in `base/planner-ts/config/` and is exercised by planner-ts tests.
 
@@ -225,30 +237,18 @@ kubectl create secret generic synesis-internal-service-auth \
 
 ## 9. Quality Regression Workflows
 
-### 9.1 Three activation modes
+### 9.1 Offline checks and explicit live runs
 
-Live validation tests (prompt regression, retrieval regression) support three modes so you can control cost during heavy development and still guarantee coverage at release time.
-
-| Mode | Trigger | When to use | Cost | How to activate |
-|------|---------|-------------|------|-----------------|
-| **PR-gated (default off)** | `pull_request` → `base/planner-ts/**`, `tests/prompts/**` | Continuous development — off by default to avoid token burn on every push | Per-PR (when enabled) | Set `SYNESIS_VALIDATION_ENABLED=true` as a GitHub **Variable** on the repo |
-| **Manual dispatch** | `workflow_dispatch` via Actions UI or `gh` CLI | Ad-hoc testing after a big change, before a release, or local debugging | On-demand | Trigger manually (see §9.3) |
-| **Release ring** | `release: published` | Tag/release pipeline — runs automatically when you cut a release | Per-release | Create a GitHub release or tag |
-
-**PR-gated mode** is intentionally off by default. Offline validation (YAML structure, router governance unit tests) always runs on PR. The live suite only fires when the repo variable is set, so daily pushes don't burn tokens.
-
-**Manual dispatch** is the primary mode during active development. Run it when you want to validate changes against the live cluster without waiting for a PR merge.
-
-**Release ring** fires automatically on `release: published`. When you're down to fewer pushes and cutting releases, every release gets a full regression pass.
+Offline prompt validation and unit tests run on relevant PRs. Prompt regression, retrieval evaluation and Yarn live verification require `workflow_dispatch` and an intentionally provisioned target. They do not run on releases, schedules or a validation-enabled PR flag. Do not restore services just to satisfy these checks; the local reader has its own service-free workflow.
 
 ### 9.2 Lane A: Merge-Blocking CI Gates
 
 | Workflow | Trigger | What It Checks | Blocking? |
 |----------|---------|---------------|-----------|
 | `prompt-regression.yml` — Prompt Suite Offline | PR touching `base/planner-ts/src/**`, `tests/prompts/**` | YAML validation + Python harness load for `tests/prompts/test_prompts.yaml` | Yes |
-| `prompt-regression.yml` — Prompt Suite Live | PR (when `SYNESIS_VALIDATION_ENABLED=true`), manual dispatch, or release | Live prompt suite via `tests/prompts/run_test_suite.py` | Yes (when triggered) |
+| `prompt-regression.yml` — Prompt Suite Live | Manual dispatch only | Live prompt suite via `tests/prompts/run_test_suite.py` | No PR gate |
 | Router governance unit tests | Via `lint.yml` → planner-ts job | `base/planner-ts/tests/router-governance.test.ts` (Vitest) | Yes |
-| `rag-retrieval-eval.yml` | Relevant PR (when enabled), manual dispatch, or release | Production planner → NornicDB retrieval against source/text golden cases | Yes (when triggered) |
+| `rag-retrieval-eval.yml` | Manual dispatch only | Planner → NornicDB retrieval against source/text golden cases | No PR gate |
 | `guardrails-tests.yml` | Push/PR touching `base/security/**` | `pytest` in `base/security/tests` | Yes |
 
 ### 9.3 Running live tests manually
@@ -420,9 +420,9 @@ npm run eval:rollback -- \
 Workflow automation (`.github/workflows/yarn-governor-eval-tiers.yml`):
 
 - `governor-pr-fast`: PR gate for API contract hardening plus governor unit/smoke tests.
-- `governor-nightly`: generates canary scorecard + rollback decision in advisory mode (no enforced hold).
-- `governor-main`: enforces hold policy when red-line breaches persist for the configured streak threshold.
-- `governor-prerelease`: enforces hold policy on release lane before promotion.
+- `governor-manual`: explicitly dispatched platform replay using the existing `nightly` profile and artifact names. It generates an advisory scorecard; the name does not imply a scheduled run.
+
+Automatic nightly, main and prerelease platform evaluation lanes have been retired.
 
 Published artifacts include:
 

@@ -1,105 +1,91 @@
 # Synesis
 
-[![Build Images](https://github.com/supernovae/synesis/actions/workflows/build-images.yml/badge.svg)](https://github.com/supernovae/synesis/actions/workflows/build-images.yml)
-[![Lint](https://github.com/supernovae/synesis/actions/workflows/lint.yml/badge.svg)](https://github.com/supernovae/synesis/actions/workflows/lint.yml)
+[![Knowledge checks](https://github.com/supernovae/synesis/actions/workflows/knowledge.yml/badge.svg)](https://github.com/supernovae/synesis/actions/workflows/knowledge.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**Self-hosted chat, coding-agent integration, knowledge retrieval, and model operations.**
+**Portable source packs and local knowledge tools for chat and coding clients.**
 
-Synesis connects chat clients and coding agents to shared model providers, indexed knowledge, tools, and operator controls. Run models on your own infrastructure or use hosted APIs, with routing, retrieval, session diagnostics, and review workflows in one platform.
+Synesis packages selected documents and code into versioned source archives, indexes them locally, and exposes search and source reads through MCP. Results carry source revisions, checksums and citations. Your client continues to own model calls, planning, execution and approvals.
 
-The project is built for teams that want to operate and extend their AI stack. Start with a local evaluation; use the Helm chart to deploy on Kubernetes.
+The local CLI and MCP reader work without a running Synesis deployment, model credentials or a database service. They use Node.js and an embedded SQLite index. This is the first implemented part of the [architecture redesign](docs/ARCHITECTURE_REVIEW.md); shared hosting and broader retrieval-quality evaluation remain separate work.
 
-[Try locally](docs/LOCAL_COMPOSE.md) · [Deploy with Helm](docs/HELM_INSTALL.md) · [Connect a client](docs/clients/CLIENTS.md) · [Documentation](docs/README.md) · [Contribute](CONTRIBUTING.md)
+[Quick start](#try-it) · [Source packs](docs/SOURCE_PACKS.md) · [Connect a client](docs/clients/MCP_QUICKSTART.md) · [Design decisions](docs/ARCHITECTURE_REVIEW.md) · [Contribute](CONTRIBUTING.md)
 
-## What it provides
+## Try it
 
-| Surface | What you can use |
-| --- | --- |
-| **Chat** | A planner API for Open WebUI and OpenAI-compatible clients, with direct-answer, planning, retrieval, writing, and critic paths selected by workflow and configuration. |
-| **Coder** | Yarn, a runtime for OpenAI- and Claude-style coding traffic, with provider routing, context budgets, tool validation, session state, and an ACP bridge. |
-| **Knowledge** | NornicDB-backed vector and graph retrieval over indexed documents and code, with provenance, freshness, review metadata, and optional OpenFGA authorization checks. |
-| **MCP tools** | Knowledge search, SynPack context bundles, web search, and patch checks for external agents. Available tools depend on the deployment and enabled integrations. |
-| **Administration** | Model and provider configuration, credentials, review queues, usage, traces, feedback, and security events. |
-
-Shared TypeScript packages and service boundaries let you add tools, indexers, model adapters, and deployment integrations. Taxonomy and policy configuration provide additional ways to adapt behavior without editing prompts throughout the codebase.
-
-## Try it locally
-
-Install Podman with Compose support, or Docker Compose, then run from this repository:
+Use Node.js **24.14 or newer**. From a checkout:
 
 ```bash
-cp .env.example .env
-podman compose -f podman-compose.yaml up -d
+npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+npm run build
+npm run synesis -- build examples/source-pack/pack.json \
+  --root examples/source-pack --output /tmp/synesis-example.synpack
+npm run synesis -- import /tmp/synesis-example.synpack --library /tmp/synesis-example-library
+npm run synesis -- search readPinnedSource \
+  --library /tmp/synesis-example-library --pack synesis-example --version 1.0
 ```
 
-For Docker, substitute `docker compose` for `podman compose`.
+The example includes one small source file. Output files are created privately and never overwrite an existing file; choose another output path when repeating a build. Reimporting identical content is harmless. A changed pack needs a new version.
 
-Open <http://localhost:3000> to create an Open WebUI account. **Model calls are disabled by default:** this first step starts the services for UI and health checks. Follow the [local setup guide](docs/LOCAL_COMPOSE.md#quick-start) to configure a model endpoint and enable chat.
+For your own content, write a [build configuration](docs/SOURCE_PACKS.md#build-a-pack) with explicit files, revision, attribution and license. Source archives are private by default. No files are discovered automatically from your home directory or the client's working directory.
 
-The local stack uses published container images. RAG, ingestion, search, and MCP services are optional profiles. Admin browser login requires a configured OIDC provider; the Compose stack does not include a Keycloak realm import. Local defaults are intended for development and evaluation.
+## Connect through MCP
 
-## Deploy and connect
+Configure a stdio MCP server using your client's supported settings:
 
-For Kubernetes, choose and customize a [Helm values example](charts/synesis/examples/), then follow the [installation guide](docs/HELM_INSTALL.md). Configure identity, secrets, storage, networking, and model providers for your environment. The chart provides deployment configuration; operating and securing the installation remains your responsibility.
-
-Once a deployment is running:
-
-- [Bootstrap admin access](docs/admin/KEYCLOAK_BOOTSTRAP.md) through Keycloak.
-- [Connect MCP tools](docs/clients/MCP_QUICKSTART.md) using a PAT with `mcp:invoke` scope or the documented OIDC flow.
-- [Connect a coding client](docs/clients/CLIENTS.md) to the coder API or ACP bridge.
-- [Index your content](docs/INDEXERS.md) and configure [RAG](docs/RAG.md) or [SynPacks](docs/SYNPACKS.md).
-
-## How it fits together
-
-```mermaid
-flowchart LR
-    Chat[Chat clients] --> Planner[Planner API]
-    Agents[Coding clients] --> Yarn[Yarn coder API / ACP bridge]
-    MCP[MCP clients] --> Tools[Synesis MCP tools]
-    Planner --> Models[Configured model providers]
-    Yarn --> Models
-    Planner --> Knowledge[Knowledge retrieval / NornicDB]
-    Tools --> Knowledge
-    Admin[Admin] -. configuration .-> Planner
-    Admin -. configuration .-> Yarn
-    Admin -. review and ingestion .-> Knowledge
+```json
+{
+  "mcpServers": {
+    "synesis": {
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/synesis/packages/synesis-mcp/dist/cli.js",
+        "mcp",
+        "--library",
+        "/absolute/path/to/private-library"
+      ]
+    }
+  }
+}
 ```
 
-Planner and Yarn share contracts and infrastructure, but serve different workflows. An existing coding client continues to own its native tools, execution environment, and approval controls. Synesis supplies additional context and policy checks at the API boundary.
+Clients differ in their configuration structure; the executable and arguments are the contract. See [MCP setup](docs/clients/MCP_QUICKSTART.md). For MCP, invoke the CLI directly so npm's command banners cannot enter the protocol stream.
 
-## Compatibility and boundaries
+| Tool | Purpose |
+| --- | --- |
+| `knowledge_packs` | Discover installed pack versions and provenance. |
+| `knowledge_sources` | Browse source paths within an exact version. |
+| `knowledge_search` | Find bounded evidence using words, paths or annotated symbols. |
+| `knowledge_read` | Read original source text, with citations and a continuation offset. |
 
-- **Client support is integration-specific.** The [harness compatibility guide](docs/clients/HARNESS_COMPATIBILITY.md) covers recognized clients, including Hermes Agent and DeepSeek Harness, metadata requirements, and tested contracts. Recognition is not certification of every client version or plugin.
-- **Model behavior and endpoint behavior are separate.** The [model compatibility guide](docs/model-compatibility.md) documents DeepSeek, Qwen, GLM, Kimi, MiniMax, and MiMo handling, including reasoning replay and current validation limits. Tool parsers and optional API features depend on the serving endpoint.
-- **Context reduction has tradeoffs.** Configured budgets, exact-output deduplication, and recoverable artifacts can reduce repeated input. Compaction can still remove useful detail; model names do not justify automatic context discounts or recall guarantees.
-- **Security controls have defined boundaries.** Schema validation, trust metadata, authorization checks, and tool policies provide defense in depth. They do not guarantee correct answers or replace the execution host's sandbox. See the [security model](docs/SECURITY.md).
-- **Self-hosted does not automatically mean offline.** Hosted models, web search, package downloads, and external connectors create network dependencies. A disconnected installation requires internally available models, images, dependencies, and data sources.
+Every search/read selects an explicit pack and version. The MCP tools are read-only; building, importing, exporting and deleting packs are explicit CLI operations.
 
-Automated tests exercise contracts and regression cases. Live model quality, latency, cost, and compatibility depend on your configuration and workload. Use the [testing guide](docs/development/TESTING.md) and deployment canaries before relying on a new integration.
+## Scope and boundaries
 
-## Explore the project
+- **The library is local and private to its OS user.** Every source in the configured library is accessible to that MCP client. Use separate libraries for separate client trust boundaries. Hosted multi-tenant authorization is not implemented by this reader.
+- **Sources remain inspectable.** Packs contain source text and metadata, with a rebuildable SQLite index. They contain no model weights, required embeddings or generated context cards.
+- **Retrieval is lexical.** Exact names and paths work well for navigation; paraphrases, multilingual questions and complex research need evaluation. No task-success improvement or hallucination prevention is guaranteed.
+- **Integrity is not trust.** Checksums detect changed content. They do not establish the publisher's identity, validate a claim or make source instructions safe to execute.
+- **Model compatibility stays with the native client and endpoint.** Synesis does not rewrite transcripts, discount context windows by model family or add another planning loop.
+- **Offline use needs installed dependencies and available packs.** Pack operations themselves make no network or model calls. Your chosen client/model may have separate network requirements.
 
-- [Documentation index](docs/README.md): setup, users, operators, and development.
-- [Chat workflow](docs/chat/WORKFLOW_PLANNER.MD) and [coder runtime](base/yarn-ts/README.md).
-- [Knowledge retrieval](docs/RAG.md), [indexers](docs/INDEXERS.md), and [web search](docs/WEB_SEARCH.md).
-- [Observability](docs/OBSERVABILITY.md) and [security](docs/SECURITY.md).
-- [Design hypotheses](docs/DESIGN_THEORY.md) and [project fit](docs/COMPARISON.md).
+The CLI also supports validation, export, deletion, index rebuilding and consistent local backups. See [storage and recovery](docs/SOURCE_PACKS.md#storage-and-recovery). Node's built-in SQLite API is still evolving; the supported runtime range is exercised in CI rather than inferred from a model or client name.
 
-```text
-base/                 Runtime services
-packages/             Shared TypeScript packages and MCP tooling
-charts/synesis/       Helm chart and deployment examples
-docs/                 User, operator, design, and development documentation
-clients/              Client helpers and integration assets
-evals/                Evaluation fixtures and harness material
-scripts/              Build, validation, and maintenance tools
+## Development status
+
+The prior multi-service deployment was shut down because of operating cost. The Planner-backed MCP entry point has been replaced with the local reader; it no longer consumes `SYNESIS_URL`, `SYNESIS_PAT` or a broad remote tool catalog. Existing Planner/Yarn and infrastructure code remains in the repository for capability extraction and removal. It is not a dependency of the new package or a second supported mode of its CLI.
+
+The [decision record](docs/ARCHITECTURE_REVIEW.md) tracks completed work, remaining boundaries and the stopping points for a pack-only product or retirement. The project does not currently offer a hosted service or claim universal model/harness parity.
+
+```bash
+npm run build
+npm test
 ```
 
-## Contributing
+Tests exercise real SQLite operations and an MCP client/server subprocess, including immutable versions, malformed packs, source-root confinement, Unicode reads, backup/restore and shutdown. They do not establish live model quality or large-corpus capacity.
 
-Contributions to integrations, evals, documentation, tools, and deployment workflows are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [development guide](docs/development/README.md). For behavioral changes, include a reproducible example and relevant validation; distinguish measured results from intended improvements.
+Code for the new core lives in [packages/synesis-mcp](packages/synesis-mcp/). Improvements to source formats, retrieval evals and client integration are welcome. See [contributing](CONTRIBUTING.md).
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache-2.0](LICENSE). Source packs retain their own attribution, licensing and redistribution declarations.

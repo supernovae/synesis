@@ -18,9 +18,6 @@ on:
         type: string
         default: "Synesis"
 
-  release:
-    types: [published]
-
 permissions:
   contents: read
 
@@ -83,10 +80,7 @@ jobs:
   prompt-suite-live:
     name: Prompt Regression (Live)
     needs: [prompt-suite-offline]
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'release' ||
-      (github.event_name == 'pull_request' && vars.SYNESIS_VALIDATION_ENABLED == 'true')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: self-hosted
     timeout-minutes: 30
     environment: validation
@@ -109,6 +103,8 @@ jobs:
         env:
           SYNESIS_API_URL: ${{ vars.SYNESIS_PLANNER_EVAL_URL }}
           SYNESIS_TEST_PAT_TOKEN: ${{ secrets.SYNESIS_TEST_PAT_TOKEN }}
+          PROMPT_CATEGORIES: ${{ inputs.categories || 'adversarial retrieval_quality node_routing grounding' }}
+          PROMPT_MODEL: ${{ inputs.model || 'Synesis' }}
         run: |
           if [ -z "${SYNESIS_API_URL}" ]; then
             echo "Missing repository variable SYNESIS_PLANNER_EVAL_URL."
@@ -118,12 +114,12 @@ jobs:
             echo "Missing secret SYNESIS_TEST_PAT_TOKEN."
             exit 1
           fi
-          CATS="${{ inputs.categories || 'adversarial retrieval_quality node_routing grounding' }}"
+          read -r -a CATS <<< "$PROMPT_CATEGORIES"
           python tests/prompts/run_test_suite.py \
             --api-url "$SYNESIS_API_URL" \
             --api-key "$SYNESIS_TEST_PAT_TOKEN" \
-            --model "${{ inputs.model || 'Synesis' }}" \
-            --category $CATS \
+            --model "$PROMPT_MODEL" \
+            --category "${CATS[@]}" \
             --output prompt-regression-report.yaml
 
       - name: Check for failures

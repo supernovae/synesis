@@ -1,5 +1,7 @@
 # Security Posture
 
+For the local source-pack reader, use the [source-pack boundaries](SOURCE_PACKS.md#client-access-boundary) and [MCP setup](clients/MCP_QUICKSTART.md). It provides local OS/library isolation and bounded read-only tools; it does not implement the hosted identity, tenant or execution controls described in this platform reference.
+
 Synesis employs defense-in-depth against prompt injection across both **planner-ts** (RAG-grounded knowledge pipeline) and **yarn-ts** (IDE/agent completion runtime). Both runtimes share a unified trust envelope based on `TrustPacketV1` JSON packets from the `@synesis/context-trust` shared package.
 
 For internet exposure and edge controls, see [`docs/CLOUDFLARE_EDGE_HARDENING.md`](./CLOUDFLARE_EDGE_HARDENING.md). For yarn-ts specifics, see [`docs/coder/YARN_TS_CONTEXT_TRUST.md`](./coder/YARN_TS_CONTEXT_TRUST.md).

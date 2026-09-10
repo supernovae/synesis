@@ -1,81 +1,17 @@
 ---
-description: LangGraph state safety — nodes must forward keys downstream needs
+description: State and routing safety for the existing TypeScript planner
 globs: base/planner-ts/src/graph.ts,base/planner-ts/src/nodes/*.ts,base/planner-ts/src/state/**/*.ts
 alwaysApply: false
 ---
 
-# LangGraph State Safety
+# Existing planner state safety
 
-We use `StateGraph(dict)`. Merge semantics: nodes return partial updates; keys not returned may be dropped depending on graph construction.
+The current planner uses a TypeScript GraphEnvelope and explicit node execution in [graph.ts](base/planner-ts/src/graph.ts). It is not the removed Python StateGraph implementation. Read the actual node contract before changing state propagation.
 
-## Rules
+- Preserve required state on success, early return, error and timeout paths. Do not assume a library automatically merges fields.
+- Use the current [state types](base/planner-ts/src/state/types.ts) and [reducer helpers](base/planner-ts/src/state/reducers.ts); do not recreate Python state.py or graph.py wrappers.
+- Check both the field a node writes and the transition that consumes it. Cover relevant alternate routes with behavioral tests.
+- A timeout response does not itself cancel underlying work. Propagate cancellation to external calls where supported and prevent late work from publishing state after termination.
+- Keep source provenance and caller scope attached to evidence. State merging is not authorization.
 
-1. **Nodes are partial updaters** — Return only the keys you modify or explicitly forward. Never construct a fresh state dict (that wipes everything).
-2. **Forward required keys** — If a downstream node (e.g. Respond) needs `generated_code`, `patch_ops`, `code_explanation`, `evidence_packets`, any node between Router and Respond must include them in its return. Don't assume keys persist.
-3. **Never overwrite with None** — Returning `"key": None` can clear the value. Omit the key if unchanged, or pass `state.get("key", "")` to forward.
-4. **Early exits** — Early returns (e.g. `if not code: return {...}`) must still forward keys that Respond needs.
-
-## Safe pattern
-
-```python
-# BAD: assumes generated_code persists
-return {"next_node": "critic", "execution_exit_code": 0}
-
-# GOOD: explicitly forward keys Respond needs
-return {
-    "next_node": "critic",
-    "execution_exit_code": 0,
-    "generated_code": state.get("generated_code", ""),
-    "code_explanation": state.get("code_explanation", ""),
-    "patch_ops": state.get("patch_ops", []) or [],
-    "evidence_packets": state.get("evidence_packets") or [],
-}
-```
-
-## Key flow
-
-Router → [evidence_packets] → Planner/Executor/Writer → Critic → Respond. Every node between Router and Respond must forward `evidence_packets`, `generated_code`, `code_explanation`, `patch_ops` in all return paths: Planner, Executor, Writer, PatchIntegrityGate, Critic, and `with_timeout` wrapper (timeout fallback). Note: Sandbox is decoupled from the default pipeline (see docs/WORKFLOW_PLANNER.MD).
-
-## Evidence packets (RAG)
-
-Evidence flows through `state['evidence_packets']` with `_merge_evidence_packets` reducer. No parallel lists.
-
-- **Router** is the sole owner: populates packets from RAG/web retrieval.
-- **Planner, Writer, Critic** consume packets; they must forward them downstream but must NOT populate or modify them directly.
-
-## Routing signals
-
-Nodes set `next_node` (or other routing signals) to steer conditional edges. **If a node sets a routing signal, the router for that node's outgoing edge MUST read it.**
-
-| Node        | Sets `next_node` | Also sets | Router              | Must check? |
-|-------------|------------------|-----------|---------------------|-------------|
-| Router      | planner, writer, respond | — | route_after_router | ✓ (reads first) |
-| Planner     | writer, respond, planner | — | route_after_plan_gate | ✓ (uses plan_gate_passed, clarification, approval; graph uses plan_gate not planner `next_node`) |
-| Plan gate   | — | plan_gate_passed | route_after_plan_gate | ✓ |
-| Critic      | respond, writer | need_more_evidence | route_after_critic | ✓ (uses critic_approved, iteration, need_more_evidence) |
-
-**Checklist when adding/changing routing:** When a node starts setting `next_node` (or a new routing field), add a corresponding check at the *top* of the router for that node's outgoing edge. Do not rely on downstream logic to "figure it out."
-
-## Typed schema (GraphState)
-
-The graph uses `StateGraph(GraphState)` where `GraphState` is a `TypedDict` in `state.py`. This provides schema documentation and IDE support. Keys are kept in sync with `SynesisState` (Pydantic).
-
-## Reducer-Protected Fields
-
-These fields use custom reducers (`app/reducers.py`) that enforce immutability and monotonicity at the LangGraph level. **Do not return these keys from nodes that shouldn't set them** — the reducer silently ignores unauthorized writes, but returning them adds unnecessary state churn.
-
-| Field | Reducer | Owner node | Rule |
-|-------|---------|------------|------|
-| `semantic_frame` | `_set_once_dict` | `frame_extractor` | Do NOT return from any other node |
-| `style_contract_locked` | `_set_once_dict` | `planner` | Do NOT return from any other node |
-| `decision_ledger` | `_append_only_ledger` | `planner` | New entries only; never modify existing by `decision_id` |
-| `evidence_packets` | `_merge_evidence_packets` | `router` | Router appends/merges; all other nodes forward only |
-| `critique_register` | `_merge_critique_register` | `critic`, validators | Status advances forward only (open→resolved→settled) |
-| `override_log` | `_append_only_ledger` | any node | Append-only audit trail; never delete entries |
-| `draft_fingerprints` | `_append_only_strings` | `writer` | Hash trail of draft revisions |
-
-**Key flow:** `Planner → [decision_ledger, style_contract_locked] → Writer → Critic [reads ledger for comparison]`
-
-## Validators (contract_validator.py)
-
-Executor and critic are wrapped with `validated_node()` in `graph.py`. Pre-validators inject warnings into the node's context; post-validators write to `critique_register`. Do not bypass the wrapper — if adding a new node that produces `generated_code`, wrap it with the appropriate validators.
+These rules apply to maintenance of this graph, not to the architecture of new knowledge tools. The [architecture decision record](docs/ARCHITECTURE_REVIEW.md) does not retain a mandatory planning graph.

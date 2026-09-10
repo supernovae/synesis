@@ -2,7 +2,10 @@
   "name": "synesis",
   "private": true,
   "scripts": {
-    "lint": "eslint packages base/yarn-ts base/planner-ts base/synesis-mcp base/admin-mcp-ts base/vision-worker"
+    "lint": "eslint packages base/yarn-ts base/planner-ts base/synesis-mcp base/admin-mcp-ts base/vision-worker",
+    "build": "npm run build --workspace=@synesis/mcp",
+    "test": "npm test --workspace=@synesis/mcp",
+    "synesis": "node packages/synesis-mcp/dist/cli.js"
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "1.2.6"
