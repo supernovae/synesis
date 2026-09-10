@@ -1,9 +1,9 @@
-"""Handler: Web page crawler (Crawl4AI) with sitemap-first discovery, robots.txt, content gate.
+"""Handler: Static HTTPS crawler with sitemap-first discovery, robots.txt, content gate.
 
 Discovery modes (``config.discovery``):
 - ``sitemap_first`` — expand sitemap(s), then fall back to same-host BFS if empty.
 - ``sitemap_only`` — only URLs from sitemaps (no BFS fallback).
-- ``bfs`` — legacy link following from the seed URL only.
+- ``bfs`` — link following from the seed URL only.
 
 Sitemaps are taken from ``config.sitemap_urls``, then robots.txt ``Sitemap:`` lines,
 then ``/sitemap.xml`` and ``/sitemap_index.xml`` on the seed host.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import deque
 from html.parser import HTMLParser
 from typing import Any
@@ -34,7 +35,7 @@ from ..robots_cache import (
     crawl_delay_seconds,
     fetch_robots_info,
 )
-from ..safe_http import validate_public_https_url
+from ..safe_http import get_public_https, validate_public_https_url
 from ..sitemap_collect import collect_urls_from_sitemaps
 from . import register
 from .base import Chunk, RawDocument
@@ -132,12 +133,6 @@ class WebPageHandler:
 
 
 async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy) -> list[dict[str, str]]:
-    import importlib.util
-
-    if importlib.util.find_spec("crawl4ai") is None:
-        logger.error("crawl4ai not installed. Run: pip install crawl4ai")
-        return []
-
     try:
         seed_url = validate_public_https_url(seed_url)
     except ValueError as exc:
@@ -302,40 +297,6 @@ def _merge_pages_by_url(
     return out
 
 
-def _markdown_richness_score(md: str) -> tuple[int, int, int]:
-    """Rough quality proxy: prefer code fences, then line count, then char size."""
-    text = md or ""
-    return (text.count("```"), text.count("\n"), len(text))
-
-
-def _select_markdown_content(
-    html: str,
-    result: Any,
-) -> str:
-    """Pick the richer markdown between trafilatura and crawler-native markdown."""
-    from ..extract import html_to_markdown, normalize_doc_markdown
-
-    trafilatura_md = normalize_doc_markdown(html_to_markdown(html))
-    crawl4ai_md_raw = (
-        getattr(result, "markdown", "")
-        or getattr(result, "fit_markdown", "")
-        or getattr(result, "cleaned_markdown", "")
-        or ""
-    )
-    crawl4ai_md = normalize_doc_markdown(str(crawl4ai_md_raw))
-
-    if not trafilatura_md and not crawl4ai_md:
-        return ""
-    if not trafilatura_md:
-        return crawl4ai_md
-    if not crawl4ai_md:
-        return trafilatura_md
-
-    if _markdown_richness_score(crawl4ai_md) > _markdown_richness_score(trafilatura_md):
-        return crawl4ai_md
-    return trafilatura_md
-
-
 async def _fetch_url_list(
     urls: list[str],
     seed_url: str,
@@ -346,66 +307,8 @@ async def _fetch_url_list(
     rinfo: Any,
     max_pages: int,
 ) -> list[dict[str, str]]:
-    from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
-
-    seed_host = urlparse(seed_url).hostname or ""
-    pages: list[dict[str, str]] = []
-    crawler_config = CrawlerRunConfig()
-
-    async with AsyncWebCrawler() as crawler:
-        for i, url in enumerate(urls):
-            if len(pages) >= max_pages:
-                break
-            if i > 0 and pause > 0:
-                await asyncio.sleep(pause)
-
-            if respect_robots and not can_fetch(url, user_agent, rinfo):
-                logger.debug("robots_disallow url=%s", url)
-                continue
-
-            try:
-                url = validate_public_https_url(url)
-            except ValueError as exc:
-                logger.warning("Blocked crawl URL %s: %s", url, exc)
-                continue
-
-            passes, reason = url_passes_filter(url, policy, seed_host=seed_host)
-            if not passes:
-                logger.debug("url_filtered (%s): %s", reason, url)
-                continue
-
-            try:
-                result = await crawler.arun(url=url, config=crawler_config)
-            except Exception as e:
-                logger.warning("Crawl failed for %s: %s", url, e)
-                continue
-
-            if not result:
-                continue
-            html = getattr(result, "html", "") or ""
-            if not html:
-                continue
-
-            depth = 0 if normalize_url(url) == normalize_url(seed_url) else 1
-            verdict = evaluate_page(url, html, policy, depth=depth)
-            if verdict and not verdict.should_index and depth > 0:
-                logger.info(
-                    "Page rejected (score=%.2f, type=%s): %s — %s",
-                    verdict.quality_score,
-                    verdict.doc_type,
-                    url,
-                    verdict.rejection_reason,
-                )
-                continue
-
-            md = _select_markdown_content(html, result)
-            if not md:
-                logger.debug("trafilatura returned empty for %s", url)
-                continue
-
-            pages.append({"url": url, "markdown": md, "crawl_depth": depth})
-
-    return pages
+    queue = deque((url, 0 if normalize_url(url) == normalize_url(seed_url) else 1) for url in urls[: max_pages * 2])
+    return await _visit_pages(queue, seed_url, False, 1, policy, user_agent, pause, respect_robots, rinfo, max_pages, 0)
 
 
 async def _crawl_bfs(
@@ -420,138 +323,132 @@ async def _crawl_bfs(
     max_pages: int,
     max_links_per_page: int,
 ) -> list[dict[str, str]]:
-    from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+    return await _visit_pages(
+        deque([(seed_url, 0)]),
+        seed_url,
+        follow_links,
+        max_depth,
+        policy,
+        user_agent,
+        pause,
+        respect_robots,
+        rinfo,
+        max_pages,
+        max_links_per_page,
+    )
+
+
+async def _visit_pages(
+    queue: deque[tuple[str, int]],
+    seed_url: str,
+    follow_links: bool,
+    max_depth: int,
+    policy: GatePolicy,
+    user_agent: str,
+    pause: float,
+    respect_robots: bool,
+    rinfo: Any,
+    max_pages: int,
+    max_links_per_page: int,
+) -> list[dict[str, str]]:
+    from ..extract import html_to_markdown, normalize_doc_markdown
 
     pages: list[dict[str, str]] = []
     visited: set[str] = set()
     seed_host = urlparse(seed_url).hostname or ""
-    crawler_config = CrawlerRunConfig()
-    queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
-    request_idx = 0
+    requests = 0
+    # Bound failed requests and queued links too, not only successfully indexed pages.
+    max_attempts = max_pages * 5
+    last_request = 0.0
 
-    async with AsyncWebCrawler() as crawler:
-        while queue and len(pages) < max_pages:
-            url, depth = queue.popleft()
-            canonical = normalize_url(url)
+    def check_url(url: str) -> None:
+        passes, reason = url_passes_filter(url, policy, seed_host=seed_host)
+        if not passes:
+            raise ValueError(f"URL outside crawl policy: {reason}")
+        if respect_robots and not can_fetch(url, user_agent, rinfo):
+            raise ValueError("URL disallowed by robots.txt")
 
-            if canonical in visited:
+    def before_request(url: str) -> None:
+        nonlocal last_request
+        check_url(url)
+        delay = max(0.0, last_request + pause - time.monotonic()) if last_request else 0.0
+        if delay:
+            time.sleep(delay)
+        last_request = time.monotonic()
+
+    while queue and len(pages) < max_pages and requests < max_attempts:
+        url, depth = queue.popleft()
+        canonical = normalize_url(url)
+        if canonical in visited:
+            continue
+        visited.add(canonical)
+        try:
+            check_url(url)
+            requests += 1
+            response = await asyncio.to_thread(
+                get_public_https,
+                url,
+                headers={"User-Agent": user_agent},
+                max_bytes=8 * 1024 * 1024,
+                check_url=before_request,
+            )
+            media_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if media_type not in {"text/html", "application/xhtml+xml"}:
+                logger.debug("Skipping non-HTML crawl response: %s", url)
                 continue
-            visited.add(canonical)
-
-            passes, reason = url_passes_filter(url, policy, seed_host=seed_host)
-            if not passes and depth > 0:
-                logger.debug("URL filtered (%s): %s", reason, url)
+            final_url = str(response.url)
+            final_canonical = normalize_url(final_url)
+            if final_canonical != canonical and final_canonical in visited:
                 continue
-
-            if respect_robots and not can_fetch(url, user_agent, rinfo):
-                logger.debug("robots_disallow bfs url=%s", url)
-                continue
-
-            try:
-                url = validate_public_https_url(url)
-            except ValueError as exc:
-                logger.warning("Blocked crawl URL %s: %s", url, exc)
-                continue
-
-            if request_idx > 0 and pause > 0:
-                await asyncio.sleep(pause)
-            request_idx += 1
-
-            try:
-                result = await crawler.arun(url=url, config=crawler_config)
-            except Exception as e:
-                logger.warning("Crawl failed for %s: %s", url, e)
-                continue
-
-            if not result:
-                continue
-
-            html = getattr(result, "html", "") or ""
-            if not html:
-                continue
-
-            verdict = evaluate_page(url, html, policy, depth=depth)
-
+            visited.add(final_canonical)
+            html = response.text
+            verdict = evaluate_page(final_url, html, policy, depth=depth)
             if verdict and not verdict.should_index and depth > 0:
-                logger.info(
-                    "Page rejected (score=%.2f, type=%s): %s — %s",
-                    verdict.quality_score,
-                    verdict.doc_type,
-                    url,
-                    verdict.rejection_reason,
+                continue
+            markdown = normalize_doc_markdown(html_to_markdown(html))
+            if not markdown:
+                logger.info("No static HTML evidence: %s; save rendered HTML explicitly if needed", final_url)
+                continue
+            pages.append({"url": final_url, "markdown": markdown, "crawl_depth": depth})
+            if follow_links and depth < max_depth and (not verdict or verdict.should_follow_children):
+                children = _extract_child_urls(
+                    html, final_url, seed_host, policy, visited, max_links_per_page=max_links_per_page
                 )
-                continue
-
-            md = _select_markdown_content(html, result)
-            if not md:
-                logger.debug("trafilatura returned empty for %s", url)
-                continue
-
-            pages.append({"url": url, "markdown": md, "crawl_depth": depth})
-
-            if not follow_links or depth >= max_depth:
-                continue
-            if verdict and not verdict.should_follow_children:
-                continue
-
-            child_urls = _extract_child_urls(result, seed_host, policy, visited, max_links_per_page=max_links_per_page)
-            for child in child_urls:
-                queue.append((child, depth + 1))
-
+                for child in children:
+                    if len(queue) + len(visited) >= max_attempts:
+                        break
+                    queue.append((child, depth + 1))
+        except Exception as exc:
+            logger.warning("Static crawl failed for %s: %s", url, exc)
     return pages
 
 
 def _extract_child_urls(
-    result: Any,
+    html: str,
+    base_url: str,
     seed_host: str,
     policy: GatePolicy,
     visited: set[str],
     *,
     max_links_per_page: int = 80,
 ) -> list[str]:
-    """Extract and filter child URLs from a crawl result."""
-    internal_links = []
-    if getattr(result, "links", None):
-        internal_links = getattr(result.links, "internal", []) or []
-    if not internal_links:
-        html = getattr(result, "html", "") or ""
-        if html:
-            parser = _AnchorHrefParser()
-            try:
-                parser.feed(html)
-            except Exception:
-                parser.hrefs = []
-            base_url = getattr(result, "url", "") or ""
-            internal_links = [urljoin(base_url, href) for href in parser.hrefs]
-
+    """Extract same-host HTTPS links directly from the fetched HTML."""
+    parser = _AnchorHrefParser()
+    parser.feed(html)
     children: list[str] = []
-    max_per_page = max(1, max_links_per_page)
-
-    base_url = getattr(result, "url", "") or ""
-    for link in internal_links[:max_per_page]:
-        href = link if isinstance(link, str) else getattr(link, "href", "")
-        if not href:
-            continue
-        href = href.strip()
+    for href in parser.hrefs:
         if href.startswith(("javascript:", "mailto:", "tel:", "#")):
             continue
-
         absolute = urljoin(base_url, href)
         parsed = urlparse(absolute)
-        if parsed.scheme not in ("http", "https"):
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() != seed_host.lower():
             continue
-
         canonical = normalize_url(absolute)
-        if canonical in visited:
+        if canonical in visited or canonical in children:
             continue
-
-        if parsed.hostname and parsed.hostname.lower() != seed_host.lower():
+        if not url_passes_filter(absolute, policy, seed_host=seed_host)[0]:
             continue
-
-        passes, _reason = url_passes_filter(absolute, policy, seed_host=seed_host)
-        if not passes:
-            continue
-
-        children.append(absolute)
-
-    return children[:max_per_page]
+        children.append(canonical)
+        if len(children) >= max_links_per_page:
+            break
+    return children

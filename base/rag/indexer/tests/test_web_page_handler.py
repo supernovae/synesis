@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 from types import SimpleNamespace
 
 import pytest
-from app import extract as extract_mod
 from app.content_gate import GatePolicy
 from app.handlers import web_page
 
@@ -17,7 +15,6 @@ def _public_https(monkeypatch: pytest.MonkeyPatch):
 
 def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
     monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
     monkeypatch.setattr(web_page, "crawl_delay_seconds", lambda _ua, _rinfo: 0.0)
     monkeypatch.setattr(
@@ -61,7 +58,6 @@ def test_sitemap_first_expands_with_bfs_when_sitemap_is_thin(monkeypatch: pytest
 
 def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyPatch):
     seed = "https://example.com/docs"
-    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: object())
     monkeypatch.setattr(web_page, "fetch_robots_info", lambda _seed_url: SimpleNamespace(sitemap_urls=[]))
     monkeypatch.setattr(web_page, "crawl_delay_seconds", lambda _ua, _rinfo: 0.0)
     monkeypatch.setattr(
@@ -96,56 +92,88 @@ def test_sitemap_only_does_not_expand_with_bfs(monkeypatch: pytest.MonkeyPatch):
     assert pages[0]["url"] == seed
 
 
-def test_extract_child_urls_falls_back_to_html_anchors():
-    result = SimpleNamespace(
-        url="https://gobyexample.com/",
-        links=None,
-        html=(
-            "<html><body>"
-            '<a href="/if-else">If Else</a>'
-            '<a href="/for">For</a>'
-            '<a href="https://external.example.com/x">External</a>'
-            "</body></html>"
-        ),
-    )
+def test_extract_child_urls_uses_same_host_https_and_deduplicates():
+    html = '<a href="/if-else">If</a><a href="for#one">For</a><a href="for#two">Again</a>'
+    html += '<a href="https://external.example/x">External</a><a href="http://gobyexample.com/x">HTTP</a>'
+    html += '<a href="mailto:test@example.com">Mail</a><a href="/seen">Seen</a>'
     policy = GatePolicy(allowed_prefixes=["https://gobyexample.com/"])
     children = web_page._extract_child_urls(
-        result,
-        seed_host="gobyexample.com",
-        policy=policy,
-        visited=set(),
+        html, "https://gobyexample.com/", "gobyexample.com", policy, {"https://gobyexample.com/seen"}
     )
-    assert "https://gobyexample.com/if-else" in children
-    assert "https://gobyexample.com/for" in children
-    assert all("external.example.com" not in c for c in children)
+    assert children == ["https://gobyexample.com/if-else", "https://gobyexample.com/for"]
 
 
-def test_extract_child_urls_normalizes_relative_internal_links():
-    result = SimpleNamespace(
-        url="https://gobyexample.com/",
-        links=SimpleNamespace(internal=["http-client", "/for", "mailto:test@example.com"]),
-        html="",
+def test_static_crawl_applies_scope_robots_and_page_limits(monkeypatch):
+    import httpx
+
+    visited = []
+    seed = "https://example.com/docs"
+    html = "<article><h1>Guide</h1><p>" + ("Useful project documentation. " * 30) + "</p>"
+    html += '<a href="/docs/child">Child</a><a href="/docs/denied">Denied</a><a href="https://other.example/x">Other</a></article>'
+
+    def fetch(url, **kwargs):
+        kwargs["check_url"](url)
+        assert kwargs["max_bytes"] == 8 * 1024 * 1024
+        visited.append(url)
+        return httpx.Response(200, text=html, headers={"content-type": "text/html"}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(web_page, "get_public_https", fetch)
+    monkeypatch.setattr(web_page, "can_fetch", lambda url, *_: not url.endswith("/denied"))
+    monkeypatch.setattr(
+        web_page,
+        "evaluate_page",
+        lambda *_args, **_kwargs: SimpleNamespace(should_index=True, should_follow_children=True),
     )
-    policy = GatePolicy(allowed_prefixes=["https://gobyexample.com/"])
-    children = web_page._extract_child_urls(
-        result,
-        seed_host="gobyexample.com",
-        policy=policy,
-        visited=set(),
+    pages = asyncio.run(web_page._crawl_bfs(seed, True, 2, GatePolicy(), "trial-agent", 0, True, object(), 10, 10))
+    assert visited == [seed, seed + "/child"]
+    assert [page["url"] for page in pages] == visited
+    assert all("Useful project documentation" in page["markdown"] for page in pages)
+
+
+def test_crawl_checks_redirect_scope_and_reports_final_source_url(monkeypatch):
+    import httpx
+
+    seed = "https://example.com/docs"
+
+    def fetch(url, **kwargs):
+        with pytest.raises(ValueError, match="outside crawl policy"):
+            kwargs["check_url"]("https://other.example/docs")
+        final = url + "/canonical"
+        kwargs["check_url"](final)
+        return httpx.Response(
+            200,
+            text="<html><body><article><h1>Guide</h1><p>"
+            + ("Retained evidence. " * 30)
+            + "</p></article></body></html>",
+            headers={"content-type": "text/html"},
+            request=httpx.Request("GET", final),
+        )
+
+    monkeypatch.setattr(web_page, "get_public_https", fetch)
+    monkeypatch.setattr(
+        web_page,
+        "evaluate_page",
+        lambda *_args, **_kwargs: SimpleNamespace(should_index=True, should_follow_children=False),
     )
-    assert "https://gobyexample.com/http-client" in children
-    assert "https://gobyexample.com/for" in children
-    assert all(not c.startswith("mailto:") for c in children)
+    pages = asyncio.run(web_page._crawl_bfs(seed, False, 0, GatePolicy(), "trial", 0, False, object(), 1, 1))
+    assert pages[0]["url"] == seed + "/canonical"
 
 
-def test_select_markdown_content_prefers_richer_crawler_markdown(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(extract_mod, "html_to_markdown", lambda _html: "short")
-    monkeypatch.setattr(extract_mod, "normalize_doc_markdown", lambda md: md)
+def test_crawl_limits_failures_as_well_as_successes(monkeypatch):
+    from collections import deque
 
-    result = SimpleNamespace(
-        markdown='```\nfmt.Println("hi")\n```\n\nMore text',
-        fit_markdown="",
-        cleaned_markdown="",
+    fetched = []
+
+    def fail(url, **kwargs):
+        fetched.append(url)
+        raise OSError("Unavailable source")
+
+    monkeypatch.setattr(web_page, "get_public_https", fail)
+    queue = deque((f"https://example.com/docs/{i}", 0) for i in range(30))
+    pages = asyncio.run(
+        web_page._visit_pages(
+            queue, "https://example.com/docs", False, 0, GatePolicy(), "trial", 0, False, object(), 1, 1
+        )
     )
-    chosen = web_page._select_markdown_content("<html/>", result)
-    assert chosen.startswith("```")
+    assert pages == []
+    assert len(fetched) == 5

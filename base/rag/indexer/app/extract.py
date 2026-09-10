@@ -1,75 +1,23 @@
-"""Unified HTML-to-Markdown extraction via trafilatura.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["trafilatura==2.2.0", "lxml==6.1.3"]
+# ///
+"""Shared HTML extraction and an optional offline saved-HTML command.
 
-Single conversion pipeline for all indexer handlers. Trafilatura handles
-boilerplate removal (nav, ads, sidebars, cookie banners) and produces
-clean Markdown with headings, code blocks, tables, and links preserved.
-
-This replaces the previous split between markdownify (curated manifests,
-html_document, arxiv_paper) and crawl4ai's built-in converter (web_page).
-
-Post-extraction normalization (normalize_doc_markdown) strips residual
-nav/footer lines that trafilatura sometimes leaves and collapses whitespace
-so the chunk-level quality gate sees cleaner text.
+Run with ``uv run --script base/rag/indexer/app/extract.py --help``.
+The command needs only its declared extraction dependency, not the indexer stack.
 """
 
 from __future__ import annotations
 
-import logging
-import re
-from collections.abc import Callable
-from contextlib import contextmanager
-from typing import Any
-
-logger = logging.getLogger("synesis.indexer.extract")
-_TRAFILATURA_EXTRACT: Callable[..., str | None] | bool | None = None
-_TRAFILATURA_LOGGERS = ("trafilatura", "trafilatura.core", "trafilatura.utils")
-
-# Lines that are *only* nav/footer/chrome residue left by trafilatura.
-# Each pattern is matched against a stripped line (case-insensitive).
-_NAV_LINE_PATTERNS = (
-    r"^\s*skip to (?:main )?content\s*$",
-    r"^\s*back to top\s*$",
-    r"^\s*menu\s*$",
-    r"^\s*search\s*$",
-    r"^\s*subscribe\s*$",
-    r"^\s*cookie (?:policy|preferences)\s*$",
-    r"^\s*contact\s*us?\s*$",
-    r"^\s*email\s*us?\s*$",
-    r"^\s*newsletter\s*$",
-    r"^\s*follow\s+us\s*$",
-    r"^\s*sign\s*up\s*$",
-    r"^\s*log\s*in\s*$",
-    r"^\s*register\s*$",
-    r"^\s*share\s+(?:this|on)\s*$",
-    r"^\s*tweet\s+this\s*$",
-    r"^\s*all\s+rights\s+reserved\.?\s*$",
-    r"^\s*powered\s+by\s+.*$",
-    r"^\s*toggle\s+(?:navigation|menu|sidebar)\s*$",
-    r"^\s*close\s*$",
-    r"^\s*home\s*$",
-    r"^\s*©.*$",
-)
-_NAV_LINE_RE = re.compile("|".join(f"({p})" for p in _NAV_LINE_PATTERNS), re.IGNORECASE)
-
 
 def normalize_doc_markdown(md: str) -> str:
-    """Strip nav/footer residues and collapse excess whitespace.
+    """Trim outer whitespace; keep source lines and code intact.
 
-    Call after html_to_markdown() and before heading_aware_split() so the
-    chunk-level quality gate sees content without junk lines that would
-    trigger boilerplate penalties or thin+boilerplate rejections.
+    Words such as Home, Search and Close can be real content. Extraction owns
+    boilerplate handling; an extra line-deletion heuristic cannot prove context.
     """
-    if not md or not md.strip():
-        return md
-    lines = md.split("\n")
-    cleaned: list[str] = []
-    for line in lines:
-        if _NAV_LINE_RE.match(line.strip()):
-            continue
-        cleaned.append(line)
-    text = "\n".join(cleaned)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    return md.strip()
 
 
 def html_to_markdown(
@@ -79,79 +27,131 @@ def html_to_markdown(
     include_links: bool = True,
     fast: bool = False,
 ) -> str:
-    """Extract main content from HTML and return Markdown.
+    """Extract HTML with one converter. Never fetch URLs or execute scripts.
 
-    Args:
-        html: Raw HTML string.
-        include_tables: Preserve table content in output.
-        include_links: Preserve hyperlink targets in output.
-        fast: Skip fallback extraction algorithms (faster but less recall).
-
-    Returns:
-        Markdown string, or empty string if extraction fails.
+    A missing dependency or parser failure remains an error, rather than silently
+    switching to a regex converter with different evidence preservation behavior.
     """
     if not html or not html.strip():
         return ""
-    global _TRAFILATURA_EXTRACT
-    if _TRAFILATURA_EXTRACT is None:
-        try:
-            from trafilatura import extract
+    from lxml.html import Element, fromstring
+    from trafilatura import extract
+    from trafilatura.settings import use_config
 
-            _TRAFILATURA_EXTRACT = extract
-        except ModuleNotFoundError as e:
-            _TRAFILATURA_EXTRACT = False
-            logger.warning("trafilatura unavailable; using basic html fallback: %s", e)
-    if _TRAFILATURA_EXTRACT is False:
-        return normalize_doc_markdown(_basic_html_to_markdown(html))
+    tree = fromstring(html)
+    if tree.tag not in {"html", "body"}:
+        # A supplied fragment is already a selected body, not a whole web page.
+        # Give its headings and paragraphs one content container for extraction.
+        article = Element("article")
+        article.append(tree)
+        body = Element("body")
+        body.append(article)
+        tree = Element("html")
+        tree.append(body)
+    config = use_config()
+    # Short references are valid evidence; size-based rescues can discard them.
+    config["DEFAULT"]["MIN_EXTRACTED_SIZE"] = "0"
+
+    return (
+        extract(
+            tree,
+            output_format="markdown",
+            include_tables=include_tables,
+            include_links=include_links,
+            include_formatting=True,
+            include_comments=False,
+            fast=fast,
+            config=config,
+        )
+        or ""
+    )
+
+
+def extract_saved_html(root: str, source: str, output: str) -> dict[str, str | int]:
+    """Convert one explicitly selected UTF-8 file and publish a new private Markdown file."""
+    import hashlib
+    import json
+    import os
+    import stat
+    import tempfile
+    from importlib.metadata import version
+    from pathlib import Path, PurePosixPath
+
+    if not root or not source or "\\" in source or ":" in source or any(ord(c) < 32 or ord(c) == 127 for c in source):
+        raise ValueError("An explicit root and relative POSIX HTML path are required")
+    if source.startswith("/") or any(part in {"", ".", ".."} for part in source.split("/")):
+        raise ValueError("Source must stay inside the explicit root")
+    if PurePosixPath(source).suffix.lower() not in {".html", ".htm"}:
+        raise ValueError("Select a saved .html or .htm file")
+    directory = Path(root).resolve(strict=True)
+    if not directory.is_dir():
+        raise ValueError("Root must be a directory")
+    path = directory
+    for part in source.split("/"):
+        path = path / part
+        if path.is_symlink():
+            raise ValueError("Symlinks are not HTML inputs")
+    path.resolve(strict=True).relative_to(directory)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
-        extract_fn = _TRAFILATURA_EXTRACT
-        with _quiet_trafilatura_logs():
-            result = extract_fn(
-                html,
-                output_format="markdown",
-                include_tables=include_tables,
-                include_links=include_links,
-                fast=fast,
-            )
-        return result or normalize_doc_markdown(_basic_html_to_markdown(html))
-    except Exception as e:
-        logger.warning("trafilatura extraction failed: %s", e)
-        return normalize_doc_markdown(_basic_html_to_markdown(html))
-
-
-@contextmanager
-def _quiet_trafilatura_logs():
-    loggers = [logging.getLogger(name) for name in _TRAFILATURA_LOGGERS]
-    previous = [(log.level, log.disabled) for log in loggers]
-    try:
-        for log in loggers:
-            log.setLevel(logging.CRITICAL + 1)
-        yield
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 8 * 1024 * 1024:
+            raise ValueError("HTML input must be a regular file no larger than 8 MiB")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            data = stream.read(before.st_size + 1)
+        after = os.fstat(fd)
+        if len(data) != before.st_size or before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns:
+            raise ValueError("HTML input changed during reading")
     finally:
-        for log, (level, disabled) in zip(loggers, previous, strict=True):
-            log.setLevel(level)
-            log.disabled = disabled
+        os.close(fd)
+    html = data.decode("utf-8-sig", errors="strict")
+    if "\0" in html:
+        raise ValueError("HTML input must not contain NUL bytes")
+    markdown = normalize_doc_markdown(html_to_markdown(html))
+    if not markdown:
+        raise ValueError("No extractable text; render or review the source explicitly")
+    provenance: dict[str, str | int] = {
+        "kind": "derived-html",
+        "sourcePath": source,
+        "sourceSha256": hashlib.sha256(data).hexdigest(),
+        "sourceBytes": len(data),
+        "extractor": "trafilatura",
+        "extractorVersion": version("trafilatura"),
+    }
+    # Provenance travels with the derived text; the pack later hashes this entire file.
+    # Markdown citations refer to derived lines, not original HTML line positions.
+    metadata = json.dumps(provenance, sort_keys=True, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
+    header = "<!-- synesis-source " + metadata + " -->\n\n"
+    encoded = (header + markdown + "\n").encode("utf-8")
+    if len(encoded) > 2 * 1024 * 1024:
+        raise ValueError("Extracted Markdown exceeds the 2 MiB source-pack limit")
+    target = Path(output).absolute()
+    with tempfile.TemporaryDirectory(prefix=".synesis-extract-", dir=target.parent) as staging:
+        staged = Path(staging) / "source.md"
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(staged, target)  # Same filesystem, complete bytes, refuses overwrite.
+    return {**provenance, "outputBytes": len(encoded), "outputSha256": hashlib.sha256(encoded).hexdigest()}
 
 
-def _basic_html_to_markdown(html: str) -> str:
-    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", html)
-    text = re.sub(r"(?is)<h([1-6])[^>]*>(.*?)</h\1>", _heading_repl, text)
-    text = re.sub(r"(?is)<(?:p|div|section|article|main|li|tr|br)\b[^>]*>", "\n", text)
-    text = re.sub(r"(?is)</(?:p|div|section|article|main|li|tr|table|ul|ol)>", "\n", text)
-    text = re.sub(r"(?is)<[^>]+>", "", text)
-    text = _html_unescape(text)
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+def main() -> None:
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Extract one saved HTML file without network or model calls.")
+    parser.add_argument("--root", required=True, help="Explicit source directory")
+    parser.add_argument("--input", required=True, help="Relative POSIX path of one saved HTML file")
+    parser.add_argument("--output", required=True, help="New Markdown file; existing files are never overwritten")
+    args = parser.parse_args()
+    try:
+        result = extract_saved_html(args.root, args.input, args.output)
+    except (OSError, ValueError, ImportError) as exc:
+        parser.exit(1, f"synesis-extract: {exc}\n")
+    print(json.dumps(result, indent=2))
 
 
-def _heading_repl(match: Any) -> str:
-    level = int(match.group(1))
-    inner = _html_unescape(re.sub(r"(?is)<[^>]+>", "", match.group(2))).strip()
-    return f"\n{'#' * level} {inner}\n" if inner else "\n"
-
-
-def _html_unescape(text: str) -> str:
-    import html as html_lib
-
-    return html_lib.unescape(text)
+if __name__ == "__main__":
+    main()

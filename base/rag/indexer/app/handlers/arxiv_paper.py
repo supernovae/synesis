@@ -290,19 +290,12 @@ def _fetch_html_content(
     client: httpx.Client,
     arxiv_id: str,
 ) -> tuple[str, str]:
-    """Try the arxiv HTML rendering. Returns (content, 'html') or ('', '').
-
-    Uses ``ensure_rendered`` to detect JS-shell pages and re-fetch them
-    via crawl4ai's headless Chromium so trafilatura gets real DOM content.
-    """
+    """Try arXiv's static HTML rendering; the caller can fall back to PDF."""
     url = _ARXIV_HTML_URL.format(arxiv_id=arxiv_id)
     try:
         resp = client.get(url)
         if resp.status_code == 200 and len(resp.text) > 2000:
-            from ..fetch import ensure_rendered
-
-            rendered = ensure_rendered(resp.text, url)
-            return rendered, "html"
+            return resp.text, "html"
     except Exception as e:
         logger.debug("HTML fetch failed for %s: %s", arxiv_id, e)
     return "", ""

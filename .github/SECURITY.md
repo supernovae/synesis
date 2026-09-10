@@ -85,17 +85,13 @@ The script compiles in dependency order: `base-api` first, then `base-ml` (const
 
 **Workflow for dependency changes:** edit `requirements.txt` (human intent with version ranges), run `./scripts/lock-deps.sh`, commit both files. CI enforces freshness via the **Lockfile Freshness Check** job. Pull requests and pushes run the check only for changed dependency inputs and their constrained dependents; the scheduled security workflow still runs a full lockfile drift check.
 
-**pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver entirely. This eliminates the `ResolutionImpossible` errors previously seen with complex dependency trees (e.g. crawl4ai in the indexer).
+**pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver. Package installation separately validates hashes; the OSV audit backend checks hash presence, not archive contents.
 
-### crawl4ai and unclecode-litellm
+### Removed crawler dependency path
 
-Crawl4AI is pinned in `base/rag/indexer/requirements.txt` and refreshed through `scripts/lock-deps.sh indexer`. It pulls **unclecode-litellm** (a fork of litellm used by crawl4ai's LLM extraction features). The Synesis indexer **does not use** LLM extraction -- it uses only `AsyncWebCrawler` for browser-based HTML retrieval. The `unclecode-litellm` package is **stripped post-install** in the indexer Dockerfile (`uv pip uninstall --system unclecode-litellm`).
+Crawl4AI and its NLTK/unclecode-litellm/browser dependency path have been removed from the retained indexer. This addresses its [PYSEC-2026-3740 / GHSA-8mgp-746c-j5xp](https://github.com/nltk/nltk/security/advisories/GHSA-8mgp-746c-j5xp) finding by removing the affected package, without an audit exception. The regenerated 49-package lockfile passes the OSV dependency audit as of September 10, 2026. The Dockerfile no longer downloads Chromium or strips selected packages after installation.
 
-**Assessment**: `unclecode-litellm==1.81.13` is a standalone PyPI package that does **not** depend on the compromised main `litellm` package. Its code is never imported or executed by indexer code paths. The litellm PyPI compromise ([GitHub #24518](https://github.com/BerriAI/litellm/issues/24518)) does not affect the indexer. The Security Scan workflow also checks lockfiles for compromised main `litellm` package indicators.
-
-## Outstanding dependency finding
-
-The September 10, 2026 indexer audit reports **NLTK 3.10.3**, pulled through Crawl4AI, for [PYSEC-2026-3740 / GHSA-8mgp-746c-j5xp](https://github.com/nltk/nltk/security/advisories/GHSA-8mgp-746c-j5xp). Upstream lists no patched version as of that date. This finding remains unsuppressed and the indexer audit fails; the local reader does not depend on NLTK, Crawl4AI or Python. Retire or replace this dependency path when extracting useful ingestion capabilities. This is an unresolved finding, not an accepted exception or a claim that the affected indexer is safe to deploy.
+Static ingestion validates public HTTPS destinations and the crawler's host/path/robots rules before each redirected request. Responses have byte and time limits; the fetcher requests identity encoding and rejects content encodings it cannot bound. DNS validation is not a network firewall or a guarantee against DNS rebinding. URL ingestion remains operator controlled and needs appropriate egress controls if hosted. The optional saved-HTML command has no network-fetch or JavaScript-execution path; its output is derived, untrusted source evidence.
 
 ## Known Acceptances (Development Phase)
 

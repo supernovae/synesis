@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import io
 import logging
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -33,11 +34,15 @@ def _fetch_xml(url: str, timeout: float) -> str | None:
             url,
             timeout=timeout,
             headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/xml,text/xml,*/*"},
+            max_bytes=8 * 1024 * 1024,
         )
         r.raise_for_status()
         data = r.content
-        if url.lower().endswith(".gz") or "gzip" in (r.headers.get("content-encoding") or "").lower():
-            data = gzip.decompress(data)
+        if urlparse(url).path.lower().endswith(".gz") or data.startswith(b"\x1f\x8b"):
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+                data = stream.read(8 * 1024 * 1024 + 1)
+        if len(data) > 8 * 1024 * 1024:
+            raise ValueError("Sitemap exceeds the 8 MiB decoded limit")
         return data.decode("utf-8", errors="replace")
     except Exception as e:
         logger.debug("sitemap_fetch_failed url=%s err=%s", url, e)

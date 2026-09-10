@@ -1,0 +1,10 @@
+{
+  "id": "synesis-saved-html",
+  "version": "1.0",
+  "title": "Saved HTML example",
+  "sourceRevision": "example-saved-guide-1",
+  "attribution": "Synesis contributors",
+  "license": "Apache-2.0",
+  "redistribution": "permitted",
+  "files": ["saved-guide.md"]
+}

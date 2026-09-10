@@ -102,9 +102,7 @@ class SeedCorpusHandler:
         if is_pdf:
             content: str | bytes = resp.content
         else:
-            from ..fetch import ensure_rendered
-
-            content = ensure_rendered(resp.text, url)
+            content = resp.text
 
         if not is_pdf:
             verdict = evaluate_page(url, resp.text, GatePolicy())

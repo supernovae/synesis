@@ -35,6 +35,28 @@ UTF-8 source bytes, including line endings and a BOM when present, are preserved
 
 `redistribution` defaults to `private`. Set it to `permitted` only when you have the right to distribute the included sources. The field records a declaration; it does not establish authorization or enforce DRM. All output archives use private file permissions, including packs declared redistributable. Publishing an archive or changing its file permissions is a separate deliberate action.
 
+## Prepare saved HTML without a service
+
+An optional command exposes the same HTML converter used by the retained indexer. It runs independently with Python 3.12+ and `uv`; the Node reader still requires neither. Start with a saved `.html`/`.htm` file you have permission to use:
+
+```bash
+html_work=$(mktemp -d /tmp/synesis-html.XXXXXX)
+uv run --script base/rag/indexer/app/extract.py \
+  --root examples/source-pack --input saved-guide.html \
+  --output "$html_work/saved-guide.md"
+npm run synesis -- build examples/source-pack/saved-html-pack.json \
+  --root "$html_work" --output "$html_work/guide.synpack"
+npm run synesis -- import "$html_work/guide.synpack" --library "$html_work/library"
+npm run synesis -- search readPinnedSource \
+  --library "$html_work/library" --pack synesis-saved-html --version 1.0
+```
+
+The command uses its inline dependency declaration for Trafilatura and lxml. Initial dependency installation may need network access; conversion does not fetch referenced URLs, load images, execute page JavaScript or call a model. It accepts one explicitly selected UTF-8 input under `--root`, rejects symlinks and traversal, limits input to 8 MiB and output to 2 MiB, and creates a private output file without overwriting an existing one. Its filesystem contract is currently tested on POSIX systems.
+
+The generated Markdown starts with a `synesis-source` JSON comment recording the relative input path, original HTML SHA-256/byte count, and extractor/version. This is **derived evidence**: the pack hashes the generated Markdown; citations refer to its lines, not original HTML line numbers. Keep the original file separately and review extraction of code, tables and layout before distributing a pack. A source hash records identity, not publisher authentication or complete extraction fidelity. For a new source snapshot, choose a new pack version and an appropriate `sourceRevision`.
+
+The shared converter has one extraction path. It does not select output by length or delete lines because they look like navigation words. A missing dependency, parser error or empty extraction remains visible. JavaScript-only pages need an explicitly rendered/saved snapshot from the user's chosen browser tool. OCR, PDF/table reconstruction, connector refresh and hosted ingestion remain separate work.
+
 ## Format and identity
 
 A `.synpack` is gzip-compressed canonical UTF-8 JSON with `format: "synesis.source-pack"` and `formatVersion: 1`. Its schema includes the build metadata, sorted source records and a pack digest. Each source includes `path`, `text`, `sha256`, `symbols` and optional `url`.

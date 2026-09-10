@@ -11,6 +11,16 @@ node evals/architecture/local-smoke.mjs /tmp/synesis-local-smoke.json
 
 `knowledge.yml` checks Node 24 and 26, source-pack integrity, root boundaries, version-pinned evidence, concurrent reads, backup/restore, CLI behavior, MCP negotiation and standalone package installation. The smoke script checks source navigation against native files; it does not measure model quality or establish a retrieval advantage.
 
+The same workflow runs the indexer unit suite and a saved-HTML-to-pack CLI test
+with Python 3.12 and the reduced indexer lockfile. HTTP is mocked; no deployment,
+browser or inference endpoint is required. Build the reader first, then run:
+
+```bash
+PYTHONPATH=base/rag/indexer:base/images/base-api/synesis-telemetry \
+  uv run --python 3.12 --with-requirements base/rag/indexer/requirements.lock \
+  --with pytest --no-project python -m pytest base/rag/indexer/tests -q
+```
+
 The remaining sections inventory the older platform code awaiting extraction/removal. Its offline checks remain useful while that code exists. All deployment-dependent evaluations require manual dispatch; there is no running deployment to validate and none is needed to develop the reader. See [the architecture decision](../ARCHITECTURE_REVIEW.md).
 
 **Related:** [DEVELOPMENT_CHECKS.md](./DEVELOPMENT_CHECKS.md) (post-deploy intent validation, Makefile targets), [CI_GITHUB_VALIDATION.md](./CI_GITHUB_VALIDATION.md) (GitHub variables and secrets for validation jobs).
@@ -21,7 +31,7 @@ The remaining sections inventory the older platform code awaiting extraction/rem
 
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
-| [`.github/workflows/knowledge.yml`](../../.github/workflows/knowledge.yml) | Local CLI/library tests, source navigation and standalone package installation on Node 24/26 | Runs on relevant PRs |
+| [`.github/workflows/knowledge.yml`](../../.github/workflows/knowledge.yml) | Local CLI/library tests, source navigation and standalone installation on Node 24/26; static ingestion and saved-HTML contracts on Python 3.12 | Runs on relevant PRs |
 | [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
 | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |

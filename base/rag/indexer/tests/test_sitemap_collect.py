@@ -3,6 +3,21 @@ from __future__ import annotations
 from app.sitemap_collect import _parse_sitemap_xml
 
 
+def test_gzipped_sitemap_expansion_is_bounded(monkeypatch):
+    import gzip
+
+    import httpx
+    from app import sitemap_collect
+
+    response = httpx.Response(
+        200,
+        content=gzip.compress(b"x" * (8 * 1024 * 1024 + 1)),
+        request=httpx.Request("GET", "https://example.com/sitemap.xml.gz"),
+    )
+    monkeypatch.setattr(sitemap_collect, "get_public_https", lambda *_args, **_kwargs: response)
+    assert sitemap_collect._fetch_xml("https://example.com/sitemap.xml.gz", 5) is None
+
+
 def test_parse_urlset_sitemap():
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

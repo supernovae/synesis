@@ -29,6 +29,8 @@ The example includes one small source file. Output files are created privately a
 
 For your own content, write a [build configuration](docs/SOURCE_PACKS.md#build-a-pack) with explicit files, revision, attribution and license. Source archives are private by default. No files are discovered automatically from your home directory or the client's working directory.
 
+Saved web documentation can use the optional [offline HTML preparation command](docs/SOURCE_PACKS.md#prepare-saved-html-without-a-service). It produces reviewable Markdown with original-file provenance using the shared converter, without starting an indexer or browser service.
+
 ## Connect through MCP
 
 Configure a stdio MCP server using your client's supported settings:

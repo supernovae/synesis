@@ -13,7 +13,7 @@ alwaysApply: true
 - **`base-ml`** (`base/images/base-ml/Dockerfile`) extends base-api (same UBI base, same venv).
 - **`base-devtools`** (`base/images/base-devtools/Dockerfile`) extends **`registry.access.redhat.com/ubi10/nodejs-24:latest`** (Node.js **24** LTS + Python **3.12** in `/usr`). Adds **Go** and **JDK 21** (AppStream), **shellcheck** / **cppcheck** via **EPEL 10**, and **`python-unversioned-command`** so `python` resolves to 3.12. Sets **`ENV UV_PYTHON=/usr/bin/python3`** so `uv pip install --system` targets the image Python. Sandbox builds on this image.
 - **Minimal variants:** Use `ubi10/*-minimal` or `ubi10/ubi-minimal` for slim Python/Node runtimes where appropriate.
-- **`rag/indexer`** (`base/rag/indexer/Dockerfile`): **UBI 10** `python-312-minimal` plus **`microdnf`** RPMs for Playwright’s **bundled** Chromium (Playwright’s `install-deps` only emits `apt-get` on UBI — use an explicit RPM list). `uv pip install --system` + `playwright install chromium` as in other app images.
+- **`rag/indexer`** (`base/rag/indexer/Dockerfile`): retained **UBI 10** `python-312-minimal` image with static HTTP and document extraction. Crawl4AI, Playwright/Chromium and automatic browser fallback have been removed. The saved-HTML command in `app/extract.py` can run independently through its inline `uv` dependency declaration; it does not require this image.
 
 **`base-devtools`** children use `uv pip install --system` against **`/usr/bin/python3`** (system site-packages, writable as root during build).
 

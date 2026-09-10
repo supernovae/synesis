@@ -6,6 +6,9 @@ on:
     paths:
       - 'packages/synesis-mcp/**'
       - 'examples/source-pack/**'
+      - 'base/rag/indexer/app/**'
+      - 'base/rag/indexer/tests/**'
+      - 'base/rag/indexer/requirements*'
       - 'evals/architecture/local-smoke.mjs'
       - 'evals/architecture/source-files.txt'
       - 'package.json'
@@ -15,6 +18,9 @@ on:
     paths:
       - 'packages/synesis-mcp/**'
       - 'examples/source-pack/**'
+      - 'base/rag/indexer/app/**'
+      - 'base/rag/indexer/tests/**'
+      - 'base/rag/indexer/requirements*'
       - 'evals/architecture/local-smoke.mjs'
       - 'evals/architecture/source-files.txt'
       - 'package.json'
@@ -30,6 +36,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-ingestion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v7
+      - run: npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+      - run: npm run build
+      - name: Static ingestion and saved HTML contracts
+        env:
+          PYTHONPATH: base/rag/indexer:base/images/base-api/synesis-telemetry
+        run: uv run --python 3.12 --with-requirements base/rag/indexer/requirements.lock --with pytest --no-project python -m pytest base/rag/indexer/tests -q
+
   local-reader:
     runs-on: ubuntu-latest
     timeout-minutes: 10

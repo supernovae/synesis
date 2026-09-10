@@ -60,7 +60,9 @@ def fetch_robots_info(seed_url: str, *, timeout: float = 20.0) -> RobotsInfo:
     sitemap_urls: list[str] = []
     failed = False
     try:
-        r = get_public_https(robots_url, timeout=timeout, headers={"User-Agent": DEFAULT_USER_AGENT})
+        r = get_public_https(
+            robots_url, timeout=timeout, headers={"User-Agent": DEFAULT_USER_AGENT}, max_bytes=512 * 1024
+        )
         if r.status_code == 200 and r.text:
             lines = r.text.splitlines()
             rp.parse(lines)

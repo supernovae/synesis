@@ -37,16 +37,12 @@ class HTMLDocumentHandler:
             logger.error("Failed to fetch HTML %s: %s", url, e)
             return []
 
-        from ..fetch import ensure_rendered
-
-        content = ensure_rendered(resp.text, url)
-
         return [
             RawDocument(
                 doc_id=f"html:{name}",
                 name=name,
-                content=content,
-                source_url=url,
+                content=resp.text,
+                source_url=str(resp.url),
             )
         ]
 

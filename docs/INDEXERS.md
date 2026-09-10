@@ -1,16 +1,22 @@
-# Knowledge Indexers
+# Retained Platform Indexers
 
-The Synesis indexer is the production ingestion path for RAG content. It claims
+For the current local reader, use [source packs](SOURCE_PACKS.md), including the
+optional saved-HTML preparation command. It needs no ingestion queue, database
+service, browser runtime or model endpoint. The previous deployment is shut down.
+This page describes platform code retained while useful handlers are extracted;
+it is not the reader's installation path.
+
+The retained Synesis indexer claims
 work from the Admin ingestion queue, installs hosted SynPack archives, fetches
 and normalizes custom sources, chunks and enriches content, embeds text with
 TEI/BGE-M3, scans for prompt-injection signals, and writes graph nodes plus
 relationships into **NornicDB**.
 
-Curated Synesis-maintained corpora should be built and distributed as
-**SynPack v2** archives. Use Admin queue bootstrap files for custom
-organization-specific loads, experiments, or one-off documents.
+Its hosted **SynPack v2** archives and Admin queue bootstrap files belong to that
+platform. The local reader uses the separate format documented in
+[SOURCE_PACKS.md](SOURCE_PACKS.md).
 
-## Current Architecture
+## Platform Architecture
 
 ```mermaid
 flowchart LR
@@ -126,8 +132,8 @@ load handlers are:
 
 | Handler | Use |
 |---|---|
-| `web_page` | Multi-page docs sites with sitemap/robots support |
-| `html_document` | Single HTML page |
+| `web_page` | Static HTTPS docs sites with sitemap/link discovery and robots support |
+| `html_document` | Single static HTML page |
 | `markdown_file` | Direct Markdown URL |
 | `github_code` | Repository source code |
 | `github_markdown` | Repository docs or wiki-style markdown |
@@ -135,6 +141,20 @@ load handlers are:
 | `pdf_document` | Direct PDF URL |
 | `structured_data` | YAML/JSON/TOML/XML reference data |
 | `generic_text` | Plain text files |
+
+HTML handlers use the shared Trafilatura converter. Crawl4AI, Chromium and the
+automatic JavaScript-rendering fallback have been removed. Pages that need
+JavaScript require an explicitly rendered/saved snapshot from a browser tool;
+the [offline preparation command](SOURCE_PACKS.md#prepare-saved-html-without-a-service)
+can convert that snapshot for a local pack. Review derived text for extraction
+loss, especially code, tables and page layout.
+
+Public-HTTPS fetching bounds response bytes and checks redirected destinations.
+The web crawler also applies host/path/robots policy before each page request.
+It requests identity encoding and rejects compressed HTTP content encodings;
+gzip sitemap files have a separate bounded decoder. URL validation is not a
+network firewall or protection against DNS rebinding; hosted ingestion still
+needs operator-controlled URLs and appropriate egress controls.
 
 Classify custom loads with the same fields the indexer and planner understand:
 
