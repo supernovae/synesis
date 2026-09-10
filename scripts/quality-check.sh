@@ -67,8 +67,6 @@ if [ "$mode" = "--full" ]; then
     run npm run typecheck -w base/yarn-ts
     run npm run test -w base/yarn-ts
     run npm run test -w base/planner-ts
-    run npm run test -w base/synesis-mcp
-    run npm run test -w base/admin-mcp-ts
 
     (
         cd base/admin

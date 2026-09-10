@@ -3,7 +3,8 @@
 Provides sync and async variants with persistent connection pooling,
 batch splitting, and optional L2 normalization.
 
-Requires httpx and numpy — both provided by the base-api image.
+Requires httpx. Array-returning methods additionally require numpy; the indexer's
+plain-list interface does not load it.
 """
 
 from __future__ import annotations
@@ -13,10 +14,9 @@ import time
 from typing import TYPE_CHECKING
 
 import httpx
-import numpy as np
 
 if TYPE_CHECKING:
-    pass
+    import numpy as np
 
 logger = logging.getLogger("synesis.embed_client")
 
@@ -26,6 +26,8 @@ DEFAULT_MODEL = "BAAI/bge-m3"
 
 def _normalize(arr: np.ndarray) -> np.ndarray:
     """L2-normalize rows in-place, treating zero-norm rows as unit."""
+    import numpy as np
+
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return arr / norms
@@ -76,6 +78,8 @@ class EmbedClient:
 
     def embed(self, texts: list[str], *, normalize: bool = True) -> np.ndarray:
         """Embed texts in batches. Returns (N, D) float32 array."""
+        import numpy as np
+
         if not texts:
             return np.empty((0, 0), dtype=np.float32)
 
@@ -130,6 +134,8 @@ class AsyncEmbedClient:
 
     async def embed(self, texts: list[str], *, normalize: bool = True) -> np.ndarray:
         """Embed texts in batches. Returns (N, D) float32 array."""
+        import numpy as np
+
         if not texts:
             return np.empty((0, 0), dtype=np.float32)
 

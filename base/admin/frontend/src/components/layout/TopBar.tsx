@@ -55,7 +55,6 @@ const breadcrumbLabels: Record<string, string> = {
   "capability-matrix": "Capability Matrix",
   "infra-costs": "Infrastructure Costs",
   audit: "Audit trail",
-  assistant: "Assistant",
   account: "Account",
   tokens: "API Tokens",
   organization: "Organization",

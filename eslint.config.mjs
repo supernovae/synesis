@@ -45,8 +45,6 @@ export default tseslint.config(
       "packages/**/*.ts",
       "base/yarn-ts/**/*.ts",
       "base/planner-ts/**/*.ts",
-      "base/synesis-mcp/**/*.ts",
-      "base/admin-mcp-ts/**/*.ts",
     ],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {

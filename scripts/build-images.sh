@@ -99,8 +99,6 @@ SERVICE_IMAGES=(
     "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
-    "synesis-mcp|base/synesis-mcp/Containerfile|."
-    "admin-mcp-ts|base/admin-mcp-ts/Containerfile|."
     "yarn-ts|base/yarn-ts/Containerfile|."
 )
 
@@ -196,7 +194,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="$(base_image_ref synesis-base-devtools)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner-ts|synesis-mcp|admin-mcp-ts|yarn-ts)
+        planner-ts|yarn-ts)
             local_base="$(base_image_ref synesis-base-node-workspace)"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

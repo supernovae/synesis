@@ -2,8 +2,7 @@
 """Run retrieval-focused evals against planner POST /v1/knowledge/search.
 
 Auth (important):
-  This route is wired for the *shared internal service token* (same Bearer value MCP
-  uses to call the planner — see base/synesis-mcp knowledge-search handler), not a user PAT.
+  This retained Planner route uses the shared internal service token, not a user PAT.
 
   Admin PATs (syn-...) work on user-facing planner routes (e.g. chat completions) but
   will get 401 on /v1/knowledge/search if you pass them here. Use the token from
@@ -140,7 +139,7 @@ def main() -> int:
         print(
             "Missing internal service token. Pass --token or set "
             "SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN or SYNESIS_INTERNAL_SERVICE_TOKEN "
-            "(same value as secret synesis-internal-service-auth / MCP→planner). "
+            "(same value as secret synesis-internal-service-auth). "
             "User PATs (syn-...) are not accepted on /v1/knowledge/search.",
             file=sys.stderr,
         )

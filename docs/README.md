@@ -1,14 +1,15 @@
 # Synesis documentation
 
 The local source-pack CLI and MCP reader are implemented. Start with [source packs](SOURCE_PACKS.md), [MCP setup](clients/MCP_QUICKSTART.md) and [client boundaries](clients/CLIENTS.md). The [architecture decision record](ARCHITECTURE_REVIEW.md) tracks the remaining work. Most platform guides below describe code awaiting extraction/removal; they are not prerequisites for the local reader.
-This tree is organized by **audience** and **product surface**. Implementation code lives under `base/`; these pages describe how to deploy, operate, extend, and use Synesis.
+This tree is organized by **audience** and **product surface**. The current core lives in `packages/synesis-mcp`; retained platform implementations live under `base/`. The hosted MCP services and Admin assistant loop have been removed.
 
 ## How to read this repo
 
 | Area | Canonical product name | Code (engineering) | Doc hub |
 |------|------------------------|-------------------|---------|
-| **Chat** | Knowledge and conversational assistant (Open WebUI, OpenAI-compatible chat clients) | `base/planner-ts/` | [`docs/chat/README.md`](chat/README.md) |
-| **Coder** | IDE and agent coding runtime (Claude Code, Cursor, ACP bridges, etc.) | `base/yarn-ts/` | [`docs/coder/README.md`](coder/README.md) |
+| **Local knowledge** | Source-pack CLI and MCP reader | `packages/synesis-mcp/` | [Source packs](SOURCE_PACKS.md) |
+| **Retained chat** | Knowledge and conversational assistant (Open WebUI, OpenAI-compatible chat clients) | `base/planner-ts/` | [`docs/chat/README.md`](chat/README.md) |
+| **Retained coder** | IDE and agent coding runtime (Claude Code, Cursor, ACP bridges, etc.) | `base/yarn-ts/` | [`docs/coder/README.md`](coder/README.md) |
 | **Platform** | RAG, gateway, models, security, shared infrastructure | Many `base/*` services | This directory (top-level `*.md`) |
 | **User / clients** | “How do I connect my tool?” | — | [`docs/user/README.md`](user/README.md) and [`docs/clients/CLIENTS.md`](clients/CLIENTS.md) |
 | **Engineering** | CI, local workflows, parity trackers, deep audits | — | [`docs/development/README.md`](development/README.md) |

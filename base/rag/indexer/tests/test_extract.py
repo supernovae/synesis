@@ -53,7 +53,7 @@ def test_saved_html_records_original_identity_and_refuses_overwrite(tmp_path):
     assert output.read_bytes() == original
 
 
-@pytest.mark.parametrize("path", ["../outside.html", "/tmp/outside.html", "a/../input.html", "./input.html"])
+@pytest.mark.parametrize("path", ["../outside.html", "/outside.html", "a/../input.html", "./input.html"])
 def test_saved_html_rejects_ambiguous_or_escaping_paths(tmp_path, path):
     with pytest.raises(ValueError):
         extract_mod.extract_saved_html(str(tmp_path), path, str(tmp_path / "output.md"))

@@ -2,7 +2,6 @@ import { useParams, useNavigate } from "react-router";
 import {
   useTrace,
   useTraceChain,
-  useAssistantChat,
   useDeleteTrace,
   useClearCriticData,
   useCriticModels,
@@ -18,20 +17,11 @@ import {
   Clock,
   Cpu,
   Zap,
-  Send,
-  Loader2,
-  Bot,
-  User,
-  Maximize2,
-  Minimize2,
-  ExternalLink,
-  X,
   Trash2,
   Eraser,
   Play,
 } from "lucide-react";
-import { useState, useRef, useEffect, useCallback } from "react";
-import MarkdownContent from "../../components/common/MarkdownContent";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -83,12 +73,10 @@ function SpanRow({
   span,
   index,
   traceStart,
-  onSpanAssistant,
 }: {
   span: SpanRecord;
   index: number;
   traceStart: number;
-  onSpanAssistant: (spanIndex: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const offset = span.start_time ? (span.start_time - traceStart) * 1000 : 0;
@@ -140,16 +128,6 @@ function SpanRow({
         {span.outcome && span.outcome !== "success" && (
           <StatusBadge status={span.outcome === "error" ? "error" : "warning"} label={span.outcome} />
         )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSpanAssistant(index);
-          }}
-          className="rounded bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
-        >
-          Summarize with AI
-        </button>
       </button>
 
       {open && (
@@ -596,215 +574,11 @@ function OptimizationLedgerPanel({ ledger }: { ledger: OptLedger }) {
   );
 }
 
-const QUICK_PROMPTS = [
-  "Summarize this trace.",
-  "Where did it fail or underperform?",
-  "Where did the critic reject or flag issues?",
-  "Where was evidence insufficient or missing?",
-];
-
-function TraceAssistantPanel({
-  traceId,
-  spanIndex,
-  onClose,
-  traceJson,
-}: {
-  traceId: string;
-  spanIndex: number | null;
-  onClose: () => void;
-  traceJson?: string;
-}) {
-  const [message, setMessage] = useState("");
-  const [replies, setReplies] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
-  const [expanded, setExpanded] = useState(false);
-  const chatMutation = useAssistantChat();
-  const endRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [replies]);
-
-  const send = useCallback(
-    (msg: string) => {
-      if (!msg.trim()) return;
-      setReplies((r) => [...r, { role: "user", content: msg }]);
-      setMessage("");
-      chatMutation.mutate(
-        {
-          message: msg,
-          trace_id: traceId,
-          ...(spanIndex !== null ? { span_index: spanIndex } : {}),
-        },
-        {
-          onSuccess: (data) => {
-            setReplies((r) => [...r, { role: "assistant", content: data.response }]);
-          },
-          onError: () => {
-            setReplies((r) => [...r, { role: "assistant", content: "Failed to get response." }]);
-          },
-        },
-      );
-    },
-    [chatMutation, traceId, spanIndex],
-  );
-
-  const sendToAdminAssistant = () => {
-    const conversationText = replies
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n\n");
-    const contextPayload = [
-      `Trace ID: ${traceId}`,
-      spanIndex !== null ? `Span: #${spanIndex + 1}` : "",
-      "--- Conversation ---",
-      conversationText,
-      traceJson ? "\n--- Trace Data ---\n" + traceJson.slice(0, 8000) : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    navigate("/assistant/admin", { state: { context: contextPayload } });
-  };
-
-  // Fullscreen overlay vs inline panel
-  const panelClasses = expanded
-    ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900 p-6"
-    : "rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900";
-
-  const chatAreaClasses = expanded
-    ? "flex-1 min-h-0 space-y-3 overflow-y-auto rounded border border-gray-100 p-3 dark:border-gray-700"
-    : "max-h-96 space-y-3 overflow-y-auto rounded border border-gray-100 p-2 dark:border-gray-700";
-
-  return (
-    <div className={panelClasses}>
-      {/* Header */}
-      <div className="mb-3 flex items-center gap-2">
-        <Bot className="h-5 w-5 text-indigo-500" />
-        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Trace Assistant
-          {spanIndex !== null && (
-            <span className="ml-2 font-normal text-gray-500">(span #{spanIndex + 1})</span>
-          )}
-        </h3>
-        <span className="flex-1" />
-        {replies.length > 0 && (
-          <button
-            type="button"
-            onClick={sendToAdminAssistant}
-            title="Continue in Admin Assistant with full context"
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Open in Assistant
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          title={expanded ? "Shrink" : "Expand"}
-          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-        >
-          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Quick prompts */}
-      <div className="mb-2 flex flex-wrap gap-1">
-        {QUICK_PROMPTS.map((q, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => send(q)}
-            disabled={chatMutation.isPending}
-            className="rounded bg-indigo-100 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60 disabled:opacity-50"
-          >
-            {q}
-          </button>
-        ))}
-      </div>
-
-      {/* Chat messages */}
-      <div className={chatAreaClasses}>
-        {replies.length === 0 && (
-          <p className="py-4 text-center text-xs text-gray-400">
-            Ask a question or pick a quick prompt above.
-          </p>
-        )}
-        {replies.map((m, i) => (
-          <div
-            key={i}
-            className={`flex gap-2 ${m.role === "user" ? "justify-end" : ""}`}
-          >
-            {m.role === "assistant" && (
-              <Bot className="mt-1 h-4 w-4 flex-shrink-0 text-indigo-400" />
-            )}
-            <div
-              className={`rounded-lg px-3 py-2 ${
-                expanded ? "max-w-[90%]" : "max-w-[85%]"
-              } ${
-                m.role === "user"
-                  ? "bg-indigo-100 text-sm text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-200"
-                  : "bg-gray-50 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
-              }`}
-            >
-              {m.role === "assistant" ? (
-                <MarkdownContent content={m.content} />
-              ) : (
-                <span className="text-sm">{m.content}</span>
-              )}
-            </div>
-            {m.role === "user" && (
-              <User className="mt-1 h-4 w-4 flex-shrink-0 text-gray-400" />
-            )}
-          </div>
-        ))}
-        {chatMutation.isPending && (
-          <div className="flex gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-            <span className="text-sm text-gray-500">Thinking…</span>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-
-      {/* Input */}
-      <div className="mt-2 flex gap-2">
-        <input
-          type="text"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send(message)}
-          placeholder="Ask about this trace…"
-          className="flex-1 rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-        />
-        <button
-          type="button"
-          onClick={() => send(message)}
-          disabled={chatMutation.isPending || !message.trim()}
-          className="flex items-center gap-1 rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          <Send className="h-4 w-4" />
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function TraceDetail() {
   const { traceId } = useParams<{ traceId: string }>();
   const navigate = useNavigate();
   const { data: trace, isLoading, refetch: refetchTrace } = useTrace(traceId || "");
   const { data: traceChainData } = useTraceChain(traceId || "");
-  const [assistantSpanIndex, setAssistantSpanIndex] = useState<number | null>(null);
-  const [showTraceAssistant, setShowTraceAssistant] = useState(false);
   const deleteTrace = useDeleteTrace();
   const clearCritic = useClearCriticData();
   const { data: modelData } = useCriticModels();
@@ -1276,31 +1050,6 @@ export default function TraceDetail() {
         </div>
       </div>
 
-      {/* Trace assistant */}
-      {traceId && (
-        <div>
-          {showTraceAssistant ? (
-            <TraceAssistantPanel
-              traceId={traceId}
-              spanIndex={assistantSpanIndex}
-              traceJson={JSON.stringify(trace, null, 2)}
-              onClose={() => {
-                setShowTraceAssistant(false);
-                setAssistantSpanIndex(null);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowTraceAssistant(true)}
-              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              Open trace assistant — summarize or review this trace with AI
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Phase Timings */}
       {trace.phase_timings && Object.keys(trace.phase_timings).length > 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
@@ -1486,10 +1235,6 @@ export default function TraceDetail() {
               span={span}
               index={i}
               traceStart={traceStart}
-              onSpanAssistant={(spanIndex) => {
-                setAssistantSpanIndex(spanIndex);
-                setShowTraceAssistant(true);
-              }}
             />
           ))
         ) : (

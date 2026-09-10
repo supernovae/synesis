@@ -15,7 +15,6 @@ kind: Kustomization
 resources:
   - ../../base/core
   - ../../base/model-serving
-  - ../../base/synesis-mcp
   - ../../base/yarn-ts
   - ../../base/ast-mcp
   - ../../base/vision-worker
@@ -64,17 +63,11 @@ images:
   - name: ghcr.io/open-webui/open-webui
     newName: ghcr.io/supernovae/synesis/open-webui
     newTag: v0.9.6
-  - name: synesis-mcp-hosted
-    newName: ghcr.io/supernovae/synesis/synesis-mcp
-    newTag: latest
   - name: synesis-ast-mcp
     newName: ghcr.io/supernovae/synesis/synesis-ast-mcp
     newTag: latest
   - name: synesis-vision-worker
     newName: ghcr.io/supernovae/synesis/vision-worker
-    newTag: latest
-  - name: synesis-admin-mcp-ts
-    newName: ghcr.io/supernovae/synesis/admin-mcp-ts
     newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn-ts
     newName: ghcr.io/supernovae/synesis/yarn-ts

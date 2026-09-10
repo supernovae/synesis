@@ -335,8 +335,6 @@ workloads:
   admin: { enabled: false }
   plannerTs: { enabled: false }
   yarn: { enabled: false }
-  mcpTs: { enabled: false }
-  adminMcpTs: { enabled: false }
   webui: { enabled: false }
   search: { enabled: false }
   nornicdb: { enabled: false }

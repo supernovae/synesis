@@ -597,14 +597,6 @@ export interface CriticDetailed {
   }>;
 }
 
-export interface McpTool {
-  [key: string]: unknown;
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  call_count?: number;
-  avg_latency_ms?: number;
-}
 
 export interface FeedbackEntry {
   [key: string]: unknown;

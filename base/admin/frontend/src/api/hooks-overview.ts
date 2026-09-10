@@ -81,31 +81,6 @@ export function useUsageSummaryUnified(sinceHours: number) {
   });
 }
 
-export function useMcpAgentHealth() {
-  return useQuery<{ reachable: boolean; latency_ms?: number | null; error?: string | null }>({
-    queryKey: ["integrations", "mcp", "health"],
-    queryFn: () => apiGet("/integrations/mcp/health"),
-  });
-}
-
-export function useMcpAdminMcpHealth() {
-  return useQuery<{ reachable: boolean; latency_ms?: number | null; error?: string | null }>({
-    queryKey: ["integrations", "mcp", "admin-mcp-health"],
-    queryFn: () => apiGet("/integrations/mcp/admin-mcp-health"),
-  });
-}
-
-export function useMcpAdminCatalog() {
-  return useQuery<{
-    tools: Array<{ name: string; description?: string; min_role?: string }>;
-    scope: string;
-    note?: string;
-  }>({
-    queryKey: ["integrations", "mcp", "admin-catalog"],
-    queryFn: () => apiGet("/integrations/mcp/admin-catalog"),
-  });
-}
-
 // --- Models ---
 
 export function useModelCosts() {

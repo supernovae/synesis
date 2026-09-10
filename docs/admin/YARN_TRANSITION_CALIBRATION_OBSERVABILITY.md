@@ -61,23 +61,6 @@ In **Coder session detail → Events**, operators can:
   - includes per-event quality label/score/reasons/risk flags and optional raw metadata
   - powers live watch loops and incident-tail workflows
 
-## Admin Assistant + MCP Tools
-
-Transition-quality telemetry is also exposed to the Admin Assistant through Admin MCP:
-
-- `yarn_transition_quality`: direct access to transition-quality trend telemetry.
-- `yarn_transition_events_tail`: risk-focused tail of `yarn_session_events` for transition event kinds.
-- `yarn_transition_watch`: short live watch loop (poll + interval) for near-real-time incident triage.
-- `yarn_transition_incident_brief`: synthesized operator brief that combines quality summary,
-  event-tail signals, and recommended actions.
-
-`synesis-admin-mcp-ts` is now the tool-catalog and invocation source of truth for these
-Admin tools, authenticated with the same Admin UI bearer token. Access is restricted to
-`org_admin` / `platform_admin` users.
-
-This enables conversation-first debugging without switching repeatedly between pages and raw
-event JSON, reducing cognitive overhead during optimization and incident response.
-
 ## Operator Playbook
 
 1. Open **Coder → Transition Calibration** and scan score trend + threshold crossings.

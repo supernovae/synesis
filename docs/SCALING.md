@@ -1,4 +1,10 @@
-# Scaling
+# Retained platform scaling
+
+The current local reader uses a client-launched stdio process and embedded SQLite.
+There is no running Synesis deployment. This page covers retained platform code,
+not installation or high-availability guarantees for the reader. The hosted MCP
+services and their autoscaling manifests have been removed. See
+[the architecture decision](ARCHITECTURE_REVIEW.md).
 
 Synesis scales through Kubernetes Deployments rendered by the Helm chart plus service-specific state handling. The two latency-sensitive application services, `planner-ts` and `yarn-ts`, externalize durable session state to Redis so rolling updates, HPA events, and pod rescheduling do not lose active conversations.
 
@@ -14,7 +20,6 @@ flowchart TD
 
   WebUI --> Planner["planner-ts"]
   Yarn --> Planner
-  MCP["synesis-mcp"] --> Planner
 
   Planner --> Redis["Redis\nplanner sessions"]
   Yarn --> Redis
@@ -29,7 +34,6 @@ flowchart TD
 | --- | ---: | --- | --- | --- |
 | `planner-ts` | 2 | Redis `SessionData`, Admin DB logs | Yes, when `SYNESIS_PLANNER_TS_REDIS_URL` is set | Not required |
 | `yarn-ts` | 1 | Redis sessions, snapshots, event/history stores, Admin DB usage/traces | Yes, when `SYNESIS_YARN_SESSION_REDIS_URL` is set | Recommended |
-| `synesis-mcp` | 1 | Mostly stateless, delegates to Planner/Yarn/Admin | Yes | Not required |
 | `admin` | 1 | Postgres | Horizontally possible, but keep DB migrations/startup behavior in mind | Not required |
 | `open-webui` | 1 | Open WebUI DB/PVC depending on deployment | Treat as stateful unless externalized | Usually keep 1 |
 | `nornicdb`, Redis, Postgres | 1 | Primary data stores | Do not scale with Deployment replicas unless the backing product supports clustering | N/A |
@@ -173,17 +177,6 @@ Current chart defaults:
 
 Yarn request rate limiting uses Redis sorted sets when Redis is available and falls back to in-memory limits if Redis operations fail. Check `/health/telemetry` for the active limiter backend.
 
-## MCP
-
-`synesis-mcp` is designed to be horizontally scalable because it delegates durable work to Planner, Yarn, Admin, and shared stores. The base manifests include an HPA/PDB example:
-
-| Manifest | Default |
-| --- | --- |
-| `base/synesis-mcp/hpa.yaml` | min `2`, max `10`, CPU `70%`, conservative scale behavior |
-| `base/synesis-mcp/pdb.yaml` | `minAvailable: 1` |
-
-In Helm, configure it under `workloads.mcpTs.autoscaling` and `workloads.mcpTs.podDisruptionBudget`.
-
 ## Stateful Services
 
 Do not scale these by simply increasing Deployment replicas:
@@ -306,7 +299,6 @@ Validate after rollout:
 ```bash
 kubectl -n synesis-planner get deploy/synesis-planner-ts hpa pdb
 kubectl -n synesis-yarn get deploy/synesis-yarn svc/synesis-yarn hpa pdb
-kubectl -n synesis-yarn get deploy/synesis-mcp hpa pdb
 ```
 
 ## Troubleshooting

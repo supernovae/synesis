@@ -1,6 +1,6 @@
 ---
 description: Keep Yarn governor tool semantics aligned with MCP tool contracts and aliases
-globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/mcp/index.ts,base/yarn-ts/src/mcp/handlers/coding-tools.ts,base/yarn-ts/src/eval/scenario-runner.ts,base/yarn-ts/src/eval/turn-scorer.ts,packages/synesis-mcp-tools/src/dispatch.ts,packages/synesis-mcp-tools/src/register-synesis-tools.ts,packages/synesis-mcp-tools/src/catalog.ts,base/yarn-ts/tests/execution-governor.test.ts,base/yarn-ts/tests/eval-scenario-runner.test.ts,base/yarn-ts/tests/eval-turn-scorer.test.ts
+globs: base/yarn-ts/src/governance/execution-governor.ts,base/yarn-ts/src/mcp/index.ts,base/yarn-ts/src/mcp/handlers/coding-tools.ts,base/yarn-ts/src/eval/scenario-runner.ts,base/yarn-ts/src/eval/turn-scorer.ts,packages/synesis-mcp-tools/src/dispatch.ts,packages/synesis-mcp-tools/src/catalog.ts,base/yarn-ts/tests/execution-governor.test.ts,base/yarn-ts/tests/eval-scenario-runner.test.ts,base/yarn-ts/tests/eval-turn-scorer.test.ts
 alwaysApply: false
 ---
 
@@ -10,7 +10,6 @@ When adding, renaming, aliasing, or reclassifying tools, keep these surfaces syn
 
 1. **Canonical platform names**:
    - `packages/synesis-mcp-tools/src/dispatch.ts` (`SYNESIS_MCP_TOOL_NAMES` + `dispatchSynesisTool`)
-   - `packages/synesis-mcp-tools/src/register-synesis-tools.ts`
    - `packages/synesis-mcp-tools/src/catalog.ts`
 2. **Yarn MCP exposure/governance**:
    - `base/yarn-ts/src/mcp/index.ts` (`SYNESIS_PLATFORM_TOOL_SET`, allowlists, route behavior)

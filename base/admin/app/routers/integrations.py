@@ -1,21 +1,19 @@
-"""MCP tools and web search integration stats, log, and HITL policy management."""
+"""Web search integration stats, log, and HITL policy management."""
 
 from __future__ import annotations
 
 import time
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import case, delete, func, select
 
-from ..auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME, UserInfo, get_current_user
+from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import RouteGroup, can_access_route_group, trace_scope_filters
-from ..route_validation import validate_safe_identifier
 from ..services import prometheus_client_svc as prom
-from ..services.mcp_client import get_admin_mcp_tools, get_mcp_tools, probe_admin_mcp_health, probe_mcp_health
 from ..services.outbound_security import validate_public_https_url
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
@@ -42,18 +40,6 @@ _WEB_SEARCH_SOURCE_SURFACE_VALUES = {
 }
 
 
-def _clean_org_headers(org_headers: dict[str, str]) -> dict[str, str]:
-    cleaned: dict[str, str] = {}
-    for header_name in ("x-synesis-org-id", "x-active-org-id"):
-        value = str(org_headers.get(header_name, "") or "").strip()
-        if value:
-            try:
-                cleaned[header_name] = validate_safe_identifier(value, field_name=header_name, max_length=128)
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return cleaned
-
-
 UrlPolicyAction = Literal["allow", "block", "vetted"]
 
 _FILTER_MAX_LENGTHS = {
@@ -77,19 +63,6 @@ def _ensure_org_content_admin(user: UserInfo) -> None:
 def _ensure_platform_control(user: UserInfo) -> None:
     if not can_access_route_group(user, RouteGroup.platform_control):
         raise HTTPException(status_code=403, detail="Requires platform admin access")
-
-
-def _sanitize_probe_payload(payload: dict) -> dict:
-    allowed_errors = {"not_ready", "upstream_unhealthy", "request_failed", None}
-    raw_error = payload.get("error")
-    error = raw_error if raw_error in allowed_errors else "request_failed"
-    return {
-        "reachable": bool(payload.get("reachable", False)),
-        "status_code": payload.get("status_code"),
-        "latency_ms": payload.get("latency_ms"),
-        "url": payload.get("url"),
-        "error": error,
-    }
 
 
 def _apply_web_search_log_scope(stmt, user: UserInfo):
@@ -119,50 +92,6 @@ def _validate_web_search_log_filters(filters: dict[str, str]) -> dict[str, str]:
         for field_name, max_length in _FILTER_MAX_LENGTHS.items()
         for value in [filters.get(field_name, "")]
     }
-
-
-# ── MCP ──
-
-
-@router.get("/mcp/tools")
-async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
-    tools = await get_mcp_tools()
-    return {"tools": tools}
-
-
-@router.get("/mcp/health")
-async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
-    """Reachability of synesis-mcp (agent / IDE Streamable MCP)."""
-    return _sanitize_probe_payload(await probe_mcp_health())
-
-
-@router.get("/mcp/admin-mcp-health")
-async def admin_mcp_streamable_health(_user: UserInfo = Depends(get_current_user)):
-    """Reachability of synesis-admin-mcp-ts (Admin MCP, Streamable HTTP)."""
-    return _sanitize_probe_payload(await probe_admin_mcp_health())
-
-
-@router.get("/mcp/admin-catalog")
-async def mcp_admin_tool_catalog(request: Request, user: UserInfo = Depends(get_current_user)):
-    """Admin MCP tools (executed in admin API; MCP transport is synesis-admin-mcp-ts)."""
-    auth_header = (request.headers.get("authorization") or "").strip()
-    session_cookie = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
-    csrf_cookie = (request.cookies.get(CSRF_COOKIE_NAME) or "").strip()
-    csrf_token = (request.headers.get(CSRF_HEADER_NAME) or request.headers.get("x-csrf-token") or "").strip()
-    org_headers = _clean_org_headers(
-        {
-            "x-synesis-org-id": request.headers.get("x-synesis-org-id") or "",
-            "x-active-org-id": request.headers.get("x-active-org-id") or "",
-        }
-    )
-    ts_tools = await get_admin_mcp_tools(
-        auth_header,
-        org_headers,
-        session_cookie=session_cookie,
-        csrf_cookie=csrf_cookie,
-        csrf_token=csrf_token,
-    )
-    return {"tools": ts_tools, "scope": "synesis-admin-mcp-ts"}
 
 
 # ── Web search: aggregate stats (Prometheus) ──

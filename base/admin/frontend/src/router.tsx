@@ -47,7 +47,6 @@ const ConflictGroups = lazy(() => import("./pages/pipeline/ConflictGroups"));
 const TraceList = lazy(() => import("./pages/traces/TraceList"));
 const TraceDetail = lazy(() => import("./pages/traces/TraceDetail"));
 
-const McpTools = lazy(() => import("./pages/integrations/McpTools"));
 const WebSearch = lazy(() => import("./pages/integrations/WebSearch"));
 
 const FeedbackList = lazy(() => import("./pages/feedback/FeedbackList"));
@@ -58,8 +57,6 @@ const CircuitBreakers = lazy(() => import("./pages/observability/CircuitBreakers
 const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
 const ErrorDetail = lazy(() => import("./pages/observability/ErrorDetail"));
 
-const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
-const SupportAssistant = lazy(() => import("./pages/assistant/SupportAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
@@ -218,7 +215,6 @@ export const router = createBrowserRouter([
         ),
       },
 
-      { path: "integrations/mcp", element: <McpTools /> },
       { path: "integrations/search", element: <WebSearch /> },
 
       { path: "feedback", element: <FeedbackList /> },
@@ -262,16 +258,6 @@ export const router = createBrowserRouter([
       { path: "account/usage/audit", element: <AccountUsageAudit /> },
       { path: "account/organization", element: <Organization /> },
 
-      {
-        path: "assistant/admin",
-        element: (
-          <RequireRole role="admin">
-            <AdminAssistant />
-          </RequireRole>
-        ),
-      },
-      { path: "assistant/support", element: <SupportAssistant /> },
-      { path: "assistant", element: <Navigate to="/assistant/support" replace /> },
       { path: "settings", element: <SystemConfig /> },
       {
         path: "settings/provider-keys",

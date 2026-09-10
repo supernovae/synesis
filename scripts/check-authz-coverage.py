@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Fail if admin API routes are added without explicit auth coverage.
 
-This is intentionally narrow and repo-specific. It catches common FastAPI and
-Fastify mistakes: a route decorator with no auth dependency, no router-level
+This is intentionally narrow and repo-specific. It catches common FastAPI
+mistakes: a route decorator with no auth dependency, no router-level
 auth dependency, and no service-token check in the handler body.
 """
 
 from __future__ import annotations
 
 import ast
-import re
 import sys
 from pathlib import Path
 
@@ -39,19 +38,6 @@ FASTAPI_PUBLIC_ROUTES = {
     ("auth_router.py", "oauth_token_exchange"),
     ("auth_router.py", "oauth_refresh"),
 }
-
-FASTIFY_ROUTE_RE = re.compile(
-    r"""app\.(get|post|put|patch|delete)\(\s*(?P<path>["'`][^"'`]+["'`]|config\.[A-Z0-9_]+)""",
-    re.MULTILINE,
-)
-FASTIFY_PUBLIC_PATHS = {"/health", "/health/readiness", "/health/telemetry", "/ready"}
-FASTIFY_AUTH_MARKERS = (
-    "authenticateAdminRequest",
-    "resolvePatAndAuth",
-    "enforceFga",
-    "requireInternalServiceToken",
-    "mcpRouteOptions",
-)
 
 
 def _call_name(node: ast.AST) -> str:
@@ -118,33 +104,8 @@ def check_fastapi() -> list[str]:
     return failures
 
 
-def _route_path(raw: str) -> str:
-    raw = raw.strip()
-    if raw.startswith(("'", '"', "`")) and raw.endswith(("'", '"', "`")):
-        return raw[1:-1]
-    return raw
-
-
-def check_fastify() -> list[str]:
-    failures: list[str] = []
-    for path in [
-        ROOT / "base/admin-mcp-ts/src/index.ts",
-        ROOT / "base/synesis-mcp/src/index.ts",
-    ]:
-        text = path.read_text()
-        for match in FASTIFY_ROUTE_RE.finditer(text):
-            route_path = _route_path(match.group("path"))
-            if route_path in FASTIFY_PUBLIC_PATHS:
-                continue
-            window = text[match.start() : match.start() + 2400]
-            if any(marker in window for marker in FASTIFY_AUTH_MARKERS):
-                continue
-            failures.append(f"{path.relative_to(ROOT)} route {match.group(1).upper()} {route_path} lacks auth marker")
-    return failures
-
-
 def main() -> int:
-    failures = check_fastapi() + check_fastify()
+    failures = check_fastapi()
     if failures:
         print("Auth/authz coverage check failed:", file=sys.stderr)
         for failure in failures:

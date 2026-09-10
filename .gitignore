@@ -1,3 +1,6 @@
+# Generated application/package builds, including retired workspace output.
+**/dist/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -9,18 +12,10 @@ build/
 
 # Node / frontend build
 node_modules/
-base/admin/frontend/dist/
 base/admin/frontend/.vite/
 
 # Shared TS package build output (rebuilt in CI)
-packages/*/dist/
 *.tsbuildinfo
-
-# TypeScript service build output
-base/synesis-mcp/dist/
-base/admin-mcp-ts/dist/
-base/planner-ts/dist/
-base/yarn-ts/dist/
 
 # KFP compiled pipeline artifacts
 pipelines/*.yaml

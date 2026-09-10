@@ -28,7 +28,7 @@ Default services:
 | Postgres | `localhost:5432` | Admin, traces, usage, model/provider metadata |
 | Redis | `localhost:6379` | Planner and Yarn session state |
 
-Optional profiles add MCP, search, RAG, and ingestion services.
+Optional profiles add search, RAG, and ingestion services. The hosted MCP services have been removed; use the [local stdio reader](clients/MCP_QUICKSTART.md).
 
 ## Requirements
 
@@ -100,12 +100,6 @@ Start only the default stack:
 
 ```bash
 podman compose -f podman-compose.yaml up -d
-```
-
-Add MCP services:
-
-```bash
-podman compose -f podman-compose.yaml --profile mcp up -d
 ```
 
 Add local SearXNG for web-search experiments:
@@ -206,7 +200,7 @@ SYNESIS_IMAGE_TAG=local podman compose -f podman-compose.yaml up -d planner
 ```
 
 Repeat with the relevant `Containerfile` or `Dockerfile` for `admin`, `yarn-ts`,
-`synesis-mcp`, or the RAG helper service you are changing.
+or the RAG helper service you are changing.
 
 ## Production Differences
 

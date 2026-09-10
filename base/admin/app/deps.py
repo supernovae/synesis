@@ -29,15 +29,8 @@ INTERNAL_SERVICE_TOKEN = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "")
 # Optional: sync evaluation feedback from Open WebUI (admin export API).
 OPENWEBUI_URL = os.getenv("SYNESIS_OPENWEBUI_URL", "").strip()
 OPENWEBUI_ADMIN_TOKEN = os.getenv("SYNESIS_OPENWEBUI_ADMIN_TOKEN", "").strip()
+# Still used by the retained Yarn diagnostics brief endpoint.
 ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-writer")
-MCP_URL = os.getenv(
-    "SYNESIS_MCP_URL",
-    "http://synesis-mcp.synesis-yarn.svc.cluster.local:8100",
-)
-ADMIN_MCP_URL = os.getenv(
-    "SYNESIS_ADMIN_MCP_URL",
-    "http://synesis-admin-mcp-ts.synesis-admin.svc.cluster.local:8102",
-)
 DATABASE_URL = os.getenv(
     "SYNESIS_ADMIN_DATABASE_URL",
     "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin",

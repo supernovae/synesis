@@ -75,7 +75,7 @@ The CLI also supports validation, export, deletion, index rebuilding and consist
 
 ## Development status
 
-The prior multi-service deployment was shut down because of operating cost. The Planner-backed MCP entry point has been replaced with the local reader; it no longer consumes `SYNESIS_URL`, `SYNESIS_PAT` or a broad remote tool catalog. Existing Planner/Yarn and infrastructure code remains in the repository for capability extraction and removal. It is not a dependency of the new package or a second supported mode of its CLI.
+The prior multi-service deployment was shut down because of operating cost. The two hosted MCP services and the Admin assistant loop have been removed, along with their UI, deployment and CI wiring. The local reader does not consume `SYNESIS_URL`, `SYNESIS_PAT` or a broad remote tool catalog. Existing Planner/Yarn and infrastructure code remains in the repository for capability extraction and removal. It is not a dependency of the new package or a second supported mode of its CLI.
 
 The [decision record](docs/ARCHITECTURE_REVIEW.md) tracks completed work, remaining boundaries and the stopping points for a pack-only product or retirement. The project does not currently offer a hosted service or claim universal model/harness parity.
 

@@ -45,10 +45,8 @@ jobs:
       spam-service: ${{ steps.filter.outputs.spam-service }}
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
-      synesis-mcp: ${{ steps.filter.outputs.synesis-mcp }}
       ast-mcp: ${{ steps.filter.outputs.ast-mcp }}
       vision-worker: ${{ steps.filter.outputs.vision-worker }}
-      admin-mcp-ts: ${{ steps.filter.outputs.admin-mcp-ts }}
       yarn-ts: ${{ steps.filter.outputs.yarn-ts }}
       planner-ts: ${{ steps.filter.outputs.planner-ts }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
@@ -71,9 +69,7 @@ jobs:
             base-node-workspace:
               - 'base/images/base-node-workspace/**'
               - 'packages/**'
-              - 'base/admin-mcp-ts/package.json'
               - 'base/planner-ts/package.json'
-              - 'base/synesis-mcp/package.json'
               - 'base/yarn-ts/package.json'
               - 'package.json'
               - 'package-lock.json'
@@ -100,16 +96,10 @@ jobs:
               - 'tools/curator/**'
             open-webui:
               - 'base/webui/**'
-            synesis-mcp:
-              - 'base/synesis-mcp/**'
-              - 'packages/synesis-mcp-tools/**'
             ast-mcp:
               - 'base/ast-mcp/**'
             vision-worker:
               - 'base/vision-worker/**'
-            admin-mcp-ts:
-              - 'base/admin-mcp-ts/**'
-              - 'base/admin/kustomization.yaml'
             yarn-ts:
               - 'base/yarn-ts/**'
               - 'packages/synesis-telemetry/**'
@@ -469,13 +459,6 @@ jobs:
             change_key: quality-runner
             base_change_key: base-api
             platforms: linux/amd64,linux/arm64
-          - name: synesis-mcp
-            dockerfile: base/synesis-mcp/Containerfile
-            context: .
-            base_arg: synesis-base-node-workspace
-            change_key: synesis-mcp
-            base_change_key: base-node-workspace
-            platforms: linux/amd64,linux/arm64
           # GHCR image name synesis-ast-mcp (ast-mcp push failed with write_package in CI).
           - name: synesis-ast-mcp
             dockerfile: base/ast-mcp/Dockerfile
@@ -483,13 +466,6 @@ jobs:
             base_arg: synesis-base-api
             change_key: ast-mcp
             base_change_key: base-api
-            platforms: linux/amd64,linux/arm64
-          - name: admin-mcp-ts
-            dockerfile: base/admin-mcp-ts/Containerfile
-            context: .
-            base_arg: synesis-base-node-workspace
-            change_key: admin-mcp-ts
-            base_change_key: base-node-workspace
             platforms: linux/amd64,linux/arm64
           - name: yarn-ts
             dockerfile: base/yarn-ts/Containerfile

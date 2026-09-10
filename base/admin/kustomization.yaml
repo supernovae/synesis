@@ -12,7 +12,6 @@ resources:
   - namespace.yaml
   - deployment.yaml
   - service.yaml
-  - ../admin-mcp-ts
   - route.yaml
   - network-policy.yaml
   # Provider-key RBAC lives with runtime namespace manifests so admin

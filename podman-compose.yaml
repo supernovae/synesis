@@ -4,7 +4,6 @@
 #   postgres, redis, synesis-admin, planner-ts, yarn-ts, Open WebUI
 #
 # Optional profiles:
-#   mcp     - synesis-mcp and synesis-admin-mcp-ts
 #   search  - SearXNG for planner web search experiments
 #   rag     - NornicDB plus lightweight RAG helper services
 #   ingest  - one-shot queue indexer; pair with --profile rag
@@ -85,8 +84,6 @@ services:
       SYNESIS_PLANNER_TS_URL: http://planner:8080
       SYNESIS_YARN_URL: http://yarn:8000
       SYNESIS_YARN_TS_URL: http://yarn:8000
-      SYNESIS_MCP_URL: http://synesis-mcp:8100
-      SYNESIS_ADMIN_MCP_URL: http://admin-mcp:8102
       SYNESIS_OPENWEBUI_URL: http://open-webui:8080
       SYNESIS_OPENWEBUI_ADMIN_TOKEN: ${SYNESIS_OPENWEBUI_ADMIN_TOKEN:-}
       SYNESIS_KEYCLOAK_ISSUER_URL: ${SYNESIS_KEYCLOAK_ISSUER_URL:-}
@@ -267,61 +264,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 30
-
-  synesis-mcp:
-    image: ghcr.io/supernovae/synesis/synesis-mcp:${SYNESIS_IMAGE_TAG:-latest}
-    profiles: ["mcp"]
-    restart: unless-stopped
-    depends_on:
-      planner:
-        condition: service_started
-      postgres:
-        condition: service_healthy
-    environment:
-      NODE_ENV: development
-      PORT: "8100"
-      HOST: 0.0.0.0
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      <<: *common-service-env
-      SYNESIS_MCP_HTTP_PATH: /mcp
-      SYNESIS_MCP_AUTHZ_MODE: ${SYNESIS_MCP_AUTHZ_MODE:-audit}
-      SYNESIS_MCP_ALLOW_INTERNAL_ONLY: ${SYNESIS_MCP_ALLOW_INTERNAL_ONLY:-true}
-      SYNESIS_MCP_CORS_ORIGINS: ${SYNESIS_MCP_CORS_ORIGINS:-http://localhost:3000,http://localhost:8081}
-      SYNESIS_PLANNER_URL: http://planner:8080
-      SYNESIS_ADMIN_DB_URL: *admin-db-url-node
-    ports:
-      - "${SYNESIS_LOCAL_MCP_PORT:-8100}:8100"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-
-  admin-mcp:
-    image: ghcr.io/supernovae/synesis/admin-mcp-ts:${SYNESIS_IMAGE_TAG:-latest}
-    profiles: ["mcp"]
-    restart: unless-stopped
-    depends_on:
-      admin:
-        condition: service_started
-      planner:
-        condition: service_started
-    environment:
-      PORT: "8102"
-      HOST: 0.0.0.0
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      <<: *common-service-env
-      SYNESIS_ADMIN_API_URL: http://admin:8080
-      SYNESIS_ADMIN_URL: http://admin:8080
-      SYNESIS_PLANNER_URL: http://planner:8080
-      SYNESIS_PLANNER_TS_INTERNAL_SERVICE_TOKEN: ${SYNESIS_INTERNAL_SERVICE_TOKEN:-local-dev-internal-token}
-    ports:
-      - "${SYNESIS_LOCAL_ADMIN_MCP_PORT:-8102}:8102"
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8102/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
 
   searxng:
     image: docker.io/searxng/searxng:latest

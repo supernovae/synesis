@@ -2,7 +2,7 @@
   "name": "synesis",
   "private": true,
   "scripts": {
-    "lint": "eslint packages base/yarn-ts base/planner-ts base/synesis-mcp base/admin-mcp-ts base/vision-worker",
+    "lint": "eslint packages base/yarn-ts base/planner-ts base/vision-worker",
     "build": "npm run build --workspace=@synesis/mcp",
     "test": "npm test --workspace=@synesis/mcp",
     "synesis": "node packages/synesis-mcp/dist/cli.js"
@@ -13,16 +13,14 @@
   "workspaces": [
     "packages/*",
     "base/planner-ts",
-    "base/yarn-ts",
-    "base/synesis-mcp",
-    "base/admin-mcp-ts"
+    "base/yarn-ts"
   ],
   "overrides": {
     "axios": "1.18.0",
     "esbuild": "0.28.1",
     "express-rate-limit": "8.5.1",
     "follow-redirects": "1.16.0",
-    "hono": "4.13.1",
+    "hono": "4.13.5",
     "@hono/node-server": "2.0.12",
     "brace-expansion": "5.0.9",
     "fastify": "5.12.1",

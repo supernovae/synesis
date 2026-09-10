@@ -19,16 +19,6 @@ workloads:
   admin:
     nodeSelector: *coreNodeSelector
 
-  adminMcpTs:
-    nodeSelector: *coreNodeSelector
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 250m
-        memory: 256Mi
-
   nornicdb:
     nodeSelector: *coreNodeSelector
     strategy: Recreate
@@ -89,9 +79,6 @@ workloads:
       limits:
         cpu: "2"
         memory: 6Gi
-
-  mcpTs:
-    nodeSelector: *coreNodeSelector
 
   openfga:
     nodeSelector: *coreNodeSelector

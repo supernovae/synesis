@@ -8,7 +8,6 @@ import type {
   PipelineMetrics,
   CriticStats,
   CriticDetailed,
-  McpTool,
   FeedbackEntry,
   KnowledgeGap,
   CuratorProposal,
@@ -549,13 +548,6 @@ export function useClearCriticData() {
 
 // --- Integrations ---
 
-export function useMcpTools() {
-  return useQuery<{ tools: McpTool[] }>({
-    queryKey: ["integrations", "mcp", "tools"],
-    queryFn: () => apiGet("/integrations/mcp/tools"),
-  });
-}
-
 interface WebSearchStats {
   total: number;
   avg_latency_ms: number | null;
@@ -1063,30 +1055,6 @@ export function useTraceStats() {
     queryKey: ["traces", "stats"],
     queryFn: () => apiGet("/traces/stats"),
     refetchInterval: 30_000,
-  });
-}
-
-// --- Assistant ---
-
-export function useAssistantChat() {
-  return useMutation<
-    { response: string; tokens: number; model: string; tool_rounds?: number },
-    Error,
-    { message: string; context?: string; trace_id?: string; span_index?: number }
-  >({
-    mutationFn: (data) =>
-      apiPost("/assistant/chat", data),
-  });
-}
-
-export function useSupportAssistantChat() {
-  return useMutation<
-    { response: string; tokens: number; model: string; tool_rounds?: number },
-    Error,
-    { message: string; context?: string }
-  >({
-    mutationFn: (data) =>
-      apiPost("/assistant/support/chat", data),
   });
 }
 

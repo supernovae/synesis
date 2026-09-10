@@ -13,11 +13,9 @@ const yarnTsDir = join(__dirname, "..");
 const repoRoot = join(yarnTsDir, "..", "..");
 const nodeBaseContainerfilePath = join(repoRoot, "base", "images", "base-node-workspace", "Containerfile");
 const packagesDir = join(repoRoot, "packages");
-const nodeServiceWorkspaces = ["base/yarn-ts", "base/planner-ts", "base/synesis-mcp", "base/admin-mcp-ts"];
+const nodeServiceWorkspaces = ["base/yarn-ts", "base/planner-ts"];
 const nodeServiceImageFiles = [
   ...nodeServiceWorkspaces.map((workspace) => [workspace, join(repoRoot, workspace, "Containerfile")] as const),
-  ["base/synesis-mcp", join(repoRoot, "base/synesis-mcp/Dockerfile")] as const,
-  ["base/admin-mcp-ts", join(repoRoot, "base/admin-mcp-ts/Dockerfile")] as const,
 ];
 
 function readPackageJson(path: string): { name?: string; dependencies?: Record<string, string> } {

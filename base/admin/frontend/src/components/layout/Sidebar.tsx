@@ -20,7 +20,6 @@ import {
   ScanSearch,
   Shield,
   ShieldCheck,
-  Bot,
   Sparkles,
   User,
   type LucideIcon,
@@ -148,7 +147,6 @@ const navigation: NavItem[] = [
     icon: Plug,
     minRole: "org_admin",
     children: [
-      { label: "MCP Tools", path: "/integrations/mcp" },
       { label: "Web Search", path: "/integrations/search" },
     ],
   },
@@ -172,8 +170,6 @@ const navigation: NavItem[] = [
       { label: "Feedback Loop", path: "/observability/feedback-loop" },
     ],
   },
-  { label: "Admin Assistant", icon: Bot, path: "/assistant/admin", minRole: "org_admin" },
-  { label: "Support Assistant", icon: Bot, path: "/assistant/support", minRole: "user" },
   {
     label: "Account",
     icon: User,

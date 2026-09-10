@@ -17,9 +17,13 @@ browser or inference endpoint is required. Build the reader first, then run:
 
 ```bash
 PYTHONPATH=base/rag/indexer:base/images/base-api/synesis-telemetry \
-  uv run --python 3.12 --with-requirements base/rag/indexer/requirements.lock \
+  uv run --isolated --python 3.12 --with-requirements base/rag/indexer/requirements.lock \
   --with pytest --no-project python -m pytest base/rag/indexer/tests -q
 ```
+
+`--isolated` prevents packages in a developer's existing environment from hiding
+missing dependencies. The shared embedding client's list interface is also
+tested with NumPy unavailable; array-returning methods still require NumPy.
 
 The remaining sections inventory the older platform code awaiting extraction/removal. Its offline checks remain useful while that code exists. All deployment-dependent evaluations require manual dispatch; there is no running deployment to validate and none is needed to develop the reader. See [the architecture decision](../ARCHITECTURE_REVIEW.md).
 
@@ -32,7 +36,7 @@ The remaining sections inventory the older platform code awaiting extraction/rem
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
 | [`.github/workflows/knowledge.yml`](../../.github/workflows/knowledge.yml) | Local CLI/library tests, source navigation and standalone installation on Node 24/26; static ingestion and saved-HTML contracts on Python 3.12 | Runs on relevant PRs |
-| [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; **synesis-mcp** + **admin-mcp-ts** Vitest; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
+| [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml) | ShellCheck; **Ruff** (`base/`); yamllint; kustomize build (overlay matrix); Hadolint; **admin** pytest; **yarn-ts** `tsc` + Vitest; shared **mcp-tools** contracts; **planner-ts** Vitest; **synesis-context-trust** package tests | Yes (required jobs) |
 | [`.github/workflows/security.yml`](../../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
 | [`.github/workflows/quality-pipeline.yml`](../../.github/workflows/quality-pipeline.yml) | NornicDB corpus audit and optional curator | No; manual only |
@@ -140,7 +144,7 @@ Legend: **Yes** = implemented and should have contract tests; **Partial** = subs
 
 ## 5. Other Python services
 
-Admin, indexer, RAG microservices, MCP: tests run **per component** (see each `base/*/pytest.ini` or `tests/` if present). Security workflow may run scanners over shared paths; **not** all services have full pytest in CI — check the relevant `Containerfile` / README.
+Admin, indexer and retained RAG microservices: tests run **per component** (see each `base/*/pytest.ini` or `tests/` if present). Security workflow may run scanners over shared paths; **not** all services have full pytest in CI — check the relevant `Containerfile` / README.
 
 ---
 

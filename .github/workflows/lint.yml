@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verify admin and MCP routes declare auth
+      - name: Verify Admin routes declare auth
         run: python3 scripts/check-authz-coverage.py
 
   kustomize:
@@ -115,24 +115,6 @@ jobs:
           PYTHONPATH=.:../images/base-api/synesis-telemetry
           python -m pytest tests/ -q --tb=short
           --cov=app --cov-branch --cov-report=term --cov-fail-under=44
-
-  indexer-tests:
-    name: Indexer tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          uv pip install --system -r base/images/base-api/requirements.lock
-          uv pip install --system -r base/rag/indexer/requirements.lock
-          uv pip install --system "pytest>=8" "pytest-asyncio>=0.23"
-      - name: Indexer pytest
-        working-directory: base/rag/indexer
-        run: PYTHONPATH=.:../../images/base-api/synesis-telemetry python -m pytest tests/ -q --tb=short
 
   ast-mcp-tests:
     name: AST MCP tests
@@ -199,62 +181,8 @@ jobs:
         working-directory: base/yarn-ts
         run: npx vitest run
 
-  synesis-mcp-tests:
-    name: Synesis MCP typecheck + tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      # Root install + build shared packages so workspace/file dependencies resolve with dist/*.d.ts.
-      - name: Install root workspace dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Build Synesis MCP workspace dependencies
-        run: |
-          npm run build -w packages/synesis-auth-contracts
-          npm run build -w packages/synesis-oidc-auth
-          npm run build -w packages/synesis-mcp-tools
-
-      - name: Install dependencies
-        working-directory: base/synesis-mcp
-        run: npm ci
-
-      - name: Typecheck
-        working-directory: base/synesis-mcp
-        run: npx tsc --noEmit
-
       - name: Shared tool contracts
         run: npm test --workspace=@synesis/mcp-tools
-
-      - name: Unit tests
-        working-directory: base/synesis-mcp
-        run: npx vitest run
-
-  admin-mcp-ts-tests:
-    name: Admin MCP-TS typecheck + tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        working-directory: base/admin-mcp-ts
-        run: npm install
-
-      - name: Typecheck
-        working-directory: base/admin-mcp-ts
-        run: npx tsc --noEmit
-
-      - name: Unit tests
-        working-directory: base/admin-mcp-ts
-        run: npx vitest run
 
   admin-frontend:
     name: Admin frontend lint + build + tests

@@ -30,6 +30,5 @@ export {
   type SearchSourceSurface,
   buildSearchAttributionBody,
 } from "./search-contract.js";
-export { registerSynesisMcpTools, type RegisterSynesisMcpToolsOptions } from "./register-synesis-tools.js";
 export { getSynesisPlatformCatalog, type SynesisPlatformCatalogEntry } from "./catalog.js";
 export { terraformPlanAnalyzeInputSchema } from "./knowledge-schemas.js";

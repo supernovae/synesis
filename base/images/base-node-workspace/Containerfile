@@ -9,6 +9,7 @@ WORKDIR /opt/app-root/src
 # the same dependency graph that service images use, without re-running npm ci
 # in every TypeScript service image.
 COPY package.json package-lock.json ./
+COPY packages/synesis-architecture-lab/package.json packages/synesis-architecture-lab/
 COPY packages/synesis-auth-contracts/package.json packages/synesis-auth-contracts/
 COPY packages/synesis-context-trust/package.json packages/synesis-context-trust/
 COPY packages/synesis-mcp/package.json packages/synesis-mcp/
@@ -16,14 +17,10 @@ COPY packages/synesis-mcp-tools/package.json packages/synesis-mcp-tools/
 COPY packages/synesis-oidc-auth/package.json packages/synesis-oidc-auth/
 COPY packages/synesis-telemetry/package.json packages/synesis-telemetry/
 COPY packages/synesis-upper-harness/package.json packages/synesis-upper-harness/
-COPY base/admin-mcp-ts/package.json base/admin-mcp-ts/
 COPY base/planner-ts/package.json base/planner-ts/
-COPY base/synesis-mcp/package.json base/synesis-mcp/
 COPY base/yarn-ts/package.json base/yarn-ts/
 RUN npm ci --ignore-scripts
-RUN npm ls --workspace=base/synesis-mcp @fastify/rate-limit --omit=dev \
-  && npm ls --workspace=base/admin-mcp-ts @fastify/rate-limit --omit=dev \
-  && npm ls --workspace=base/yarn-ts @fastify/rate-limit --omit=dev \
+RUN npm ls --workspace=base/yarn-ts @fastify/rate-limit --omit=dev \
   && npm ls --workspace=base/planner-ts @fastify/rate-limit --omit=dev
 
 # Shared packages are built here once. App images inherit their dist/types and

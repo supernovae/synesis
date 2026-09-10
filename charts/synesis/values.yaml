@@ -317,8 +317,6 @@ openfga:
         name: synesis-planner-ts
       - namespace: yarn
         name: synesis-yarn
-      - namespace: yarn
-        name: synesis-mcp
 
 keycloak:
   enabled: true
@@ -485,14 +483,6 @@ ingress:
       host: auth-admin.example.com
       path: /
       pathType: Prefix
-    synesis-mcp:
-      namespace: yarn
-      service: synesis-mcp
-      port: http
-      originPort: 8100
-      host: mcp.example.com
-      path: /
-      pathType: Prefix
 
 cloudflared:
   # Optional Cloudflare Tunnel connector. When enabled, this renders a
@@ -650,12 +640,6 @@ workloads:
           secretKeyRef:
             name: synesis-openwebui-admin-token
             key: token
-      - name: SYNESIS_ADMIN_ASSISTANT_MODEL
-        value: synesis-writer
-      - name: SYNESIS_MCP_URL
-        value: http://synesis-mcp.synesis-yarn.svc.cluster.local:8100
-      - name: SYNESIS_ADMIN_MCP_URL
-        value: http://synesis-admin-mcp-ts.synesis-admin.svc.cluster.local:8102
       - name: SYNESIS_QUALITY_REPORT_PATH
         value: /data/quality/corpus_audit_report.json
       - name: SYNESIS_CURATOR_PROPOSALS_PATH
@@ -664,6 +648,8 @@ workloads:
         value: /etc/synesis/taxonomy_prompt_config.yaml
       - name: SYNESIS_CONTENT_PACK_CATALOG_URL
         value: https://r2.kybern.dev/synesis-pack-catalog.json
+      - name: SYNESIS_ADMIN_ASSISTANT_MODEL
+        value: synesis-writer
       - name: SYNESIS_INTERNAL_SERVICE_TOKEN
         valueFrom:
           secretKeyRef:
@@ -1265,116 +1251,6 @@ workloads:
     podDisruptionBudget:
       enabled: false
       minAvailable: 1
-  mcpTs:
-    enabled: true
-    namespace: yarn
-    name: synesis-mcp
-    component: mcp
-    image:
-      repository: ghcr.io/supernovae/synesis/synesis-mcp
-      tag: latest
-    ports:
-      - name: http
-        containerPort: 8100
-    env:
-      - name: PORT
-        value: "8100"
-      - name: SYNESIS_MCP_HTTP_PATH
-        value: /mcp
-      - name: SYNESIS_MCP_AUTHZ_MODE
-        value: enforce
-      - name: SYNESIS_MCP_GLOBAL_RATE_LIMIT_MAX
-        value: "1200"
-      - name: SYNESIS_MCP_GLOBAL_RATE_LIMIT_WINDOW
-        value: "1 minute"
-      - name: SYNESIS_PLANNER_URL
-        value: http://synesis-planner-ts.synesis-planner.svc.cluster.local:8080
-      - name: SYNESIS_OPENFGA_API_URL
-        value: http://openfga.synesis-authz.svc.cluster.local:8080
-      - name: SYNESIS_OPENFGA_STORE_ID
-        valueFrom:
-          secretKeyRef:
-            name: openfga-client-config
-            key: store-id
-      - name: SYNESIS_OPENFGA_MODEL_ID
-        valueFrom:
-          secretKeyRef:
-            name: openfga-client-config
-            key: model-id
-      - name: SYNESIS_OPENFGA_AUTH_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: openfga-client-config
-            key: auth-token
-      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: synesis-internal-service-auth
-            key: token
-      - name: SYNESIS_ADMIN_DB_URL
-        valueFrom:
-          secretKeyRef:
-            name: synesis-admin-db-url
-            key: trace-url
-            optional: true
-      - name: SYNESIS_REQUIRE_PAT_PEPPER
-        value: "true"
-      - name: SYNESIS_PAT_PEPPER
-        valueFrom:
-          secretKeyRef:
-            name: synesis-pat-pepper
-            key: pepper
-      - name: SYNESIS_OIDC_ISSUER_URL
-        value: "{{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}"
-      - name: SYNESIS_OIDC_INTERNAL_ISSUER_URL
-        value: "{{ .Values.keycloak.internalIssuerUrl }}"
-      - name: SYNESIS_OIDC_ALLOWED_CLIENT_IDS
-        value: synesis-harness
-      - name: SYNESIS_OIDC_REQUIRED_ROLES
-        value: synesis-user,synesis-org-admin,synesis-admin
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
-        memory: 256Mi
-    probes:
-      readiness: /health/readiness
-      liveness: /health
-  adminMcpTs:
-    enabled: true
-    namespace: admin
-    name: synesis-admin-mcp-ts
-    component: admin-mcp
-    image:
-      repository: ghcr.io/supernovae/synesis/admin-mcp-ts
-      tag: latest
-    ports:
-      - name: http
-        containerPort: 8102
-    env:
-      - name: PORT
-        value: "8102"
-      - name: SYNESIS_ADMIN_URL
-        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
-      - name: SYNESIS_ADMIN_API_URL
-        value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
-      - name: SYNESIS_INTERNAL_SERVICE_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: synesis-internal-service-auth
-            key: token
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 250m
-        memory: 256Mi
-    probes:
-      readiness: /ready
-      liveness: /health
   webui:
     enabled: true
     namespace: webui

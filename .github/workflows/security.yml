@@ -229,10 +229,6 @@ jobs:
             dir: .
           - name: admin-frontend
             dir: base/admin/frontend
-          - name: synesis-mcp
-            dir: base/synesis-mcp
-          - name: admin-mcp-ts
-            dir: base/admin-mcp-ts
           - name: planner-ts
             dir: base/planner-ts
           - name: yarn-ts
@@ -319,7 +315,7 @@ jobs:
             --config "https://semgrep.dev/p/xss" \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
             --json --json-output=semgrep-ts-services-results.json \
-            packages/ base/admin-mcp-ts/src/ base/synesis-mcp/src/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/ || true
+            packages/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/ || true
 
       - name: Run Semgrep on Planner/Yarn TypeScript (gate)
         run: |
@@ -330,7 +326,7 @@ jobs:
             --severity ERROR \
             --error \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            packages/ base/admin-mcp-ts/src/ base/synesis-mcp/src/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/
+            packages/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/
 
       - name: Upload Semgrep Planner/Yarn results
         uses: actions/upload-artifact@v6
