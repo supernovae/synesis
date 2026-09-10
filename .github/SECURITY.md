@@ -87,6 +87,11 @@ The script compiles in dependency order: `base-api` first, then `base-ml` (const
 
 **pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver. Package installation separately validates hashes; the OSV audit backend checks hash presence, not archive contents.
 
+The lockfile check preserves committed versions and verifies that they still
+match declared requirements. New upstream releases alone do not make a lock
+stale. Run `./scripts/lock-deps.sh <service>` to refresh versions deliberately;
+vulnerability auditing remains a separate gate.
+
 ### Removed crawler dependency path
 
 Crawl4AI and its NLTK/unclecode-litellm/browser dependency path have been removed from the retained indexer. This addresses its [PYSEC-2026-3740 / GHSA-8mgp-746c-j5xp](https://github.com/nltk/nltk/security/advisories/GHSA-8mgp-746c-j5xp) finding by removing the affected package, without an audit exception. The regenerated 49-package lockfile passes the OSV dependency audit as of September 10, 2026. The Dockerfile no longer downloads Chromium or strips selected packages after installation.

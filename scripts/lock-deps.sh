@@ -12,7 +12,7 @@ set -euo pipefail
 # Usage:
 #   ./scripts/lock-deps.sh               # recompile all lockfiles
 #   ./scripts/lock-deps.sh admin         # recompile one service
-#   ./scripts/lock-deps.sh --check       # exit non-zero if any lockfile is stale
+#   ./scripts/lock-deps.sh --check       # validate declared dependencies at locked versions
 #   ./scripts/lock-deps.sh --check --changed origin/main
 #                                      # check only services affected by changed
 #                                      # requirement inputs, plus dependents
@@ -297,6 +297,10 @@ check_one() {
     local tmp compile_log
     tmp="$(mktemp)"
     compile_log="$(mktemp)"
+    # A lockfile check validates the selected versions, not today's newest
+    # releases. uv reuses this output's pins, updating them only if the declared
+    # requirements require it. Explicit compile commands above still refresh.
+    cp "$lock" "$tmp"
     if ! uv pip compile "$src" "${args[@]}" -o "$tmp" >"$compile_log" 2>&1; then
         log "ERROR $name — failed to compile requirements.lock"
         sed 's/^/[lock-deps]   /' "$compile_log" >&2

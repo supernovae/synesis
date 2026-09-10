@@ -432,8 +432,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Lockfile freshness — ensures committed requirements.lock files match
-  # their source requirements.txt. Prevents stale lockfiles from silently
-  # drifting from declared dependencies.
+  # their source requirements.txt at selected versions. Available upstream
+  # upgrades alone do not invalidate a committed lockfile.
   # ---------------------------------------------------------------------------
   lockfile-freshness:
     name: Lockfile Freshness Check
@@ -446,6 +446,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.11.20"
+
+      - name: Verify lockfile checker against local package fixtures
+        run: python3 -m unittest discover -s tests/dependencies -v
 
       - name: Verify lockfiles are up to date
         env:
