@@ -1,4 +1,4 @@
-"""Shared crawl config defaults/parsing for web_page handler and telemetry."""
+"""Crawl config defaults and parsing for the retained web page handler."""
 
 from __future__ import annotations
 

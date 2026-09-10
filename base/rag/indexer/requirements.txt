@@ -1,24 +1,10 @@
-aiohttp>=3.14.3
+# Optional source preparation handlers; the Node reader does not use Python.
 httpx>=0.28.1
-boto3>=1.43.83
-# synesis_telemetry: installed separately in Dockerfile (UBI base-api path copy, not base-api image)
 defusedxml>=0.7.1
-neo4j>=6.3.0
 pyyaml>=6.0.3
-# PDF parsing
 PyMuPDF>=1.28.2
-# HTML parsing and content extraction
 beautifulsoup4>=4.15.0
 lxml>=6.1.1,<7
-lxml-html-clean>=0.4.5
 trafilatura>=2.2.0
-# Static web ingestion uses httpx above; no browser or model client dependency.
-pillow>=12.3.0
-# Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.26.0
 tree-sitter-language-pack>=1.15.8
-cryptography>=50.0.1
-requests>=2.34.2
-# Pin urllib3 to address CVE-2026-44431, CVE-2026-44432 (transitive via requests, boto3, etc.)
-urllib3>=2.7.0
-pygments>=2.20.0

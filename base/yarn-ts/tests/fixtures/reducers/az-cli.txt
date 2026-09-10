@@ -1,1 +1,0 @@
-[{"name":"vm-app","type":"Microsoft.Compute/virtualMachines","location":"eastus","provisioningState":"Succeeded"},{"name":"vm-jump","type":"Microsoft.Compute/virtualMachines","location":"westus2","provisioningState":"Succeeded"}]

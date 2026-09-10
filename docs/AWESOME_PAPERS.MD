@@ -1,6 +1,8 @@
 # Awesome papers and primary references
 
-Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routing, and agent runtimes. **Implementation details** stay in topic docs ([SECURITY.md](SECURITY.md), [RAG.md](RAG.md), [CRITIC_RESEARCH.md](CRITIC_RESEARCH.md), [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md)); this file is the single place for **canonical links** and one-line “why we care.”
+This is the historical bibliography consulted during the broader platform's development. References to governors, routing, TrustPackets and graph pipelines below describe research motivations for retired implementations, not current features or performance claims. The current scope is documented in [source packs](SOURCE_PACKS.md), [model compatibility](model-compatibility.md) and [architecture decisions](ARCHITECTURE_REVIEW.md).
+
+Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routing, and agent runtimes. **Implementation details** stay in topic docs ([SECURITY.md](SECURITY.md), [RAG.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/RAG.md), [CRITIC_RESEARCH.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/CRITIC_RESEARCH.md), [SYSTEMS_THEORY.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/SYSTEMS_THEORY.md)); this file is the single place for **canonical links** and one-line “why we care.”
 
 ---
 
@@ -67,9 +69,9 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 
 | Title | Link | Why it matters here |
 |-------|------|---------------------|
-| What to Make Sense of in the Era of LLM? | [arXiv:2603.08604](https://arxiv.org/abs/2603.08604) | Human–AI collaborative sensemaking ([DESIGN_THEORY.md](DESIGN_THEORY.md), [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md)) |
+| What to Make Sense of in the Era of LLM? | [arXiv:2603.08604](https://arxiv.org/abs/2603.08604) | Human–AI collaborative sensemaking ([DESIGN_THEORY.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/DESIGN_THEORY.md), [SYSTEMS_THEORY.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/SYSTEMS_THEORY.md)) |
 
-*Books and classical articles* (no single URL) are summarized in [SYSTEMS_THEORY.md](SYSTEMS_THEORY.md): Hollnagel (Synesis namesake, Safety-II), Woods & Hollnagel (joint cognitive systems), Klein et al. (data-frame / sensemaking), Pirolli & Card (information foraging), Snowden & Boone (Cynefin), Blei et al. (LDA), Agrawal et al. (diversification), Broder (web search intent), Hearst (search UI / facets).
+*Books and classical articles* (no single URL) are summarized in [SYSTEMS_THEORY.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/SYSTEMS_THEORY.md): Hollnagel (Synesis namesake, Safety-II), Woods & Hollnagel (joint cognitive systems), Klein et al. (data-frame / sensemaking), Pirolli & Card (information foraging), Snowden & Boone (Cynefin), Blei et al. (LDA), Agrawal et al. (diversification), Broder (web search intent), Hearst (search UI / facets).
 
 ---
 
@@ -77,7 +79,7 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 
 | Title | Link | Why it matters here |
 |-------|------|---------------------|
-| Routesplain | [arXiv:2511.09373](https://arxiv.org/abs/2511.09373) | Concept-based routing for software tasks ([INTENT_TAXONOMY.md](INTENT_TAXONOMY.md)) |
+| Routesplain | [arXiv:2511.09373](https://arxiv.org/abs/2511.09373) | Concept-based routing for software tasks ([INTENT_TAXONOMY.md](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/INTENT_TAXONOMY.md)) |
 
 ---
 
@@ -85,7 +87,7 @@ Curated bibliography for Synesis: security, RAG, evaluation, sensemaking, routin
 
 | Title | Link | Why it matters here |
 |-------|------|---------------------|
-| Lost in the Middle | [arXiv:2307.03172](https://arxiv.org/abs/2307.03172) | U-shaped attention; ordering of context ([context and recall](coder/context-and-recall-architecture.md), [context stretch](coder/YARN_CONTEXT_STRETCH.md)) |
+| Lost in the Middle | [arXiv:2307.03172](https://arxiv.org/abs/2307.03172) | U-shaped attention; ordering of context ([context and recall](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/coder/context-and-recall-architecture.md), [context stretch](https://github.com/supernovae/synesis/blob/efd751515f362864697dec6897981a169894048e/docs/coder/YARN_CONTEXT_STRETCH.md)) |
 
 ---
 

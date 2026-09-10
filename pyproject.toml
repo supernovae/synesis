@@ -1,10 +1,3 @@
-[project]
-name = "synesis"
-version = "0.1.0"
-description = "A resilient, Safety-II aligned LLM code assistant on OpenShift AI"
-requires-python = ">=3.12"
-license = {text = "Apache-2.0"}
-
 [tool.ruff]
 target-version = "py312"
 line-length = 120
@@ -25,23 +18,14 @@ ignore = [
     "E501",   # line length handled by formatter
     "RUF002",  # × (MULTIPLICATION SIGN) in docstrings is intentional for "intent x vertical"
     "RUF003",  # EN DASH in comments/docs is intentional (e.g. "0.0–1.0", "Tier1–4")
-    "S105",   # heuristic flags K8s secret *names* and similar constants, not credential values
-    "S106",   # test fixtures use literal credentials
-    "S608",   # Alembic migrations use audited string SQL
-    "B904",   # raise-without-from in FastAPI handlers; large churn to add `from e` everywhere
-    "S314",   # defusedxml for sitemap: trusted/internal XML only in this path
+    "S106",   # test fixtures use literal placeholders
     "S311",   # evals/scripts use random for sampling, not crypto
-    "RUF006", # intentional fire-and-forget asyncio.create_task in servers
-    "E712",   # SQLAlchemy column == True is idiomatic in filters
     "S101",   # allow assert in non-test code (used in state validation)
-    "S104",   # binding to all interfaces is intentional for containers
-    "S108",   # hardcoded /tmp is fine in containers with emptyDir mounts
     "S110",   # try-except-pass is used intentionally for optional deps
     "S112",   # try-except-continue is used in batch indexers by design
-    "S603",   # subprocess calls are used intentionally in sandbox
-    "S607",   # partial executable path is fine in containers
+    "S603",   # reviewed Git and CLI subprocess calls use argument lists
+    "S607",   # Git/CLI tests use installed executables on PATH
     "B007",   # unused loop variables are acceptable in iteration patterns
-    "B008",   # function call in default arg (FastAPI Depends pattern)
     "B905",   # zip() without strict= is fine for matched iterables
     "E402",   # module-level import not at top (conditional imports)
     "E741",   # ambiguous variable names acceptable in tight loops
@@ -58,60 +42,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/test_*.py" = ["S101"]
 "**/tests/**" = ["S101", "RUF001"]
-"**/test_integration_live.py" = ["S101", "S310"]
-"**/frame_eval/test_frame_accuracy.py" = ["S101", "F821", "RUF059"]
-"**/alembic/**" = ["S608"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-exclude = ["base/webui/overrides/middleware.py"]
 
 # Bandit (CI: uvx bandit[toml] -c pyproject.toml -r base/). Exclude venvs so
 # third-party code does not trigger plugins or internal bandit errors.
 [tool.bandit]
 exclude_dirs = [".venv", ".test-venv", "venv", "node_modules"]
-
-[dependency-groups]
-dev = [
-    "coverage>=7.13.5",
-    "pygments>=2.20.0",
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.4.0",
-    "pytest-cov>=7.1.0",
-    "vulture>=2.15",
-]
-
-[tool.vulture]
-min_confidence = 100
-
-# Coverage: used by pytest --cov=… and `coverage report`. Example (telemetry package):
-#   PYTHONPATH=base/images/base-api/synesis-telemetry \
-#     uv run --group dev pytest \
-#     --cov=synesis_telemetry --cov-report=term --cov-config=pyproject.toml
-[tool.coverage.run]
-branch = true
-relative_files = true
-omit = [
-    "*/.venv/*",
-    "*/.test-venv/*",
-    "*/tests/*",
-    "*/test_*.py",
-    "*/alembic/*",
-    "*/frame_eval/*",
-    "*/__pycache__/*",
-]
-
-[tool.coverage.report]
-precision = 1
-skip_empty = true
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise NotImplementedError",
-    "if TYPE_CHECKING:",
-    "if typing.TYPE_CHECKING:",
-    "if __name__ == \"__main__\":",
-    "@abstractmethod",
-]
-fail_under = 44

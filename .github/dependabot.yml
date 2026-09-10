@@ -1,96 +1,20 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-
-  # npm was added after axios supply-chain work; the first weekly run opens many PRs
-  # because versions were never previously tracked—not a Node/npm regression.
-  # Groups bundle minor+patch to cut noise; majors stay separate for review.
-  - package-ecosystem: "npm"
-    directory: "/"
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 8
+      interval: weekly
+    open-pull-requests-limit: 5
     groups:
-      npm-root-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "npm"
-    directory: "/base/admin/frontend"
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /base/rag/indexer
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 8
-    groups:
-      admin-frontend-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "npm"
-    directory: "/base/vision-worker"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 8
-    groups:
-      vision-worker-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "pip"
-    directory: "/base/admin"
-    schedule:
-      interval: "weekly"
+      interval: weekly
     open-pull-requests-limit: 3
-
-  - package-ecosystem: "pip"
-    directory: "/base/rag/indexer"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-
-  - package-ecosystem: "docker"
-    directory: "/base/sandbox/image"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "python"
-        versions: [">=3.14"]
-
-  - package-ecosystem: "docker"
-    directory: "/base/admin"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "python"
-        versions: [">=3.14"]
-
-  - package-ecosystem: "docker"
-    directory: "/base/rag/bge-reranker"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "python"
-        versions: [">=3.14"]
-
-  - package-ecosystem: "docker"
-    directory: "/base/rag/indexer"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "python"
-        versions: [">=3.14"]

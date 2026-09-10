@@ -1,23 +1,11 @@
-## Summary
+## Change
 
-<!-- Brief description of what this PR does and why -->
+<!-- What problem does this solve? Describe the resulting behavior. -->
 
-## Changes
+## Validation
 
-<!-- List the key changes -->
+<!-- Checks run and material limitations. Include source/privacy boundaries if affected. -->
 
--
--
-
-## Checklist
-
-- [ ] Linters pass (`make quality`, `npm run lint`, frontend lint if touched)
-- [ ] Auth/authz-sensitive routes declare explicit user/RBAC/service-token coverage
-- [ ] Kustomize builds succeed for all overlays
-- [ ] No secrets or credentials in the diff
-- [ ] README updated (if applicable)
-- [ ] Tested on OpenShift cluster (if applicable)
-
-## Related Issues
-
-<!-- Link to related issues: Fixes #123, Relates to #456 -->
+- [ ] Relevant tests and `make quality` pass
+- [ ] Documentation matches implemented behavior
+- [ ] No private sources, libraries, credentials or generated packs included

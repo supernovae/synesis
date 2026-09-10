@@ -10,10 +10,9 @@ chunk.metadata overrides.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
-
-from synesis_telemetry import get_logger
 
 from ..chunking import chunk_text_simple, heading_aware_split
 from ..content_gate import GatePolicy, evaluate_page
@@ -22,7 +21,7 @@ from ..safe_http import get_public_https
 from . import register
 from .base import Chunk, RawDocument
 
-logger = get_logger("synesis.indexer.handler.seed_corpus")
+logger = logging.getLogger("synesis.indexer.handler.seed_corpus")
 
 _FETCH_TIMEOUT = 45
 

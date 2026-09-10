@@ -34,13 +34,8 @@ body:
     attributes:
       label: Component
       options:
-        - Planner (planner-ts)
-        - Gateway (LiteLLM)
-        - RAG Pipeline
-        - Sandbox / Executor
-        - Model Serving
-        - Web UI
-        - Knowledge Indexers
-        - Observability
-        - Deployment / DevOps
-        - New Component
+        - Source packs
+        - Search and source reads
+        - MCP integration
+        - Source preparation
+        - Documentation or development tools

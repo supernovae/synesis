@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(ROOT / "base" / "images" / "base-api" / "synesis-telemetry"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import extract as extract_mod
 

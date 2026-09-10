@@ -1,1 +1,0 @@
-# torch, transformers, fastapi, uvicorn, pydantic provided by synesis-base-ml

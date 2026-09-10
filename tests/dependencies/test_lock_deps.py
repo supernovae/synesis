@@ -37,7 +37,7 @@ class LockfileCheckTests(unittest.TestCase):
 
             def run(*arguments):
                 return subprocess.run(
-                    ["bash", str(scripts / "lock-deps.sh"), *arguments, "indexer"],
+                    ["bash", str(scripts / "lock-deps.sh"), *arguments],
                     cwd=root,
                     env={**os.environ, "UV_CACHE_DIR": str(root / "cache"), "UV_OFFLINE": "1"},
                     text=True,
@@ -64,7 +64,7 @@ class LockfileCheckTests(unittest.TestCase):
             requirements("2")
             stale = run("--check")
             self.assertNotEqual(stale.returncode, 0)
-            self.assertIn("STALE indexer", stale.stdout)
+            self.assertIn("STALE", stale.stdout + stale.stderr)
             self.assertEqual(lock.read_bytes(), original)
 
             refreshed = run()

@@ -9,7 +9,6 @@ on:
       - 'base/rag/indexer/app/**'
       - 'base/rag/indexer/tests/**'
       - 'base/rag/indexer/requirements*'
-      - 'base/images/base-api/synesis-telemetry/**'
       - 'pyproject.toml'
       - 'evals/architecture/local-smoke.mjs'
       - 'evals/architecture/source-files.txt'
@@ -23,7 +22,6 @@ on:
       - 'base/rag/indexer/app/**'
       - 'base/rag/indexer/tests/**'
       - 'base/rag/indexer/requirements*'
-      - 'base/images/base-api/synesis-telemetry/**'
       - 'pyproject.toml'
       - 'evals/architecture/local-smoke.mjs'
       - 'evals/architecture/source-files.txt'
@@ -57,7 +55,7 @@ jobs:
       - run: npm run build
       - name: Static ingestion and saved HTML contracts
         env:
-          PYTHONPATH: base/rag/indexer:base/images/base-api/synesis-telemetry
+          PYTHONPATH: base/rag/indexer
         run: uv run --isolated --python 3.12 --with-requirements base/rag/indexer/requirements.lock --with pytest --no-project python -m pytest base/rag/indexer/tests -q
 
   local-reader:

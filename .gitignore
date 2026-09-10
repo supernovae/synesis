@@ -1,114 +1,54 @@
-# Generated application/package builds, including retired workspace output.
+# Generated package output and dependency caches
 **/dist/
-
-# Python
+node_modules/
+*.tsbuildinfo
+build/
+*.egg-info/
 __pycache__/
 *.py[cod]
-*$py.class
-*.egg-info/
-build/
-.eggs/
-*.egg
-
-# Node / frontend build
-node_modules/
-base/admin/frontend/.vite/
-
-# Shared TS package build output (rebuilt in CI)
-*.tsbuildinfo
-
-# KFP compiled pipeline artifacts
-pipelines/*.yaml
-
-# Test report artifacts
-test_report_*.yaml
-test_outputs_*/
-
-# Virtual environments
 .venv/
-.admin-ci-venv/
 .test-venv/
 venv/
-scripts/.venv/
-
-# uv lockfiles (per-service; requirements.lock is the canonical lockfile)
 **/uv.lock
 
-# IDE
+# IDE / OS
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-
-# Cursor (project rules are committed intentionally)
+.DS_Store
+Thumbs.db
 .cursor/*
 !.cursor/rules/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Model weights (large files -- use scripts to download)
-*.safetensors
-*.bin
-*.gguf
-*.pt
-*.onnx
-
-# Local model cache
-synesis-models/
-
-# Synpack artifacts (large generated bundles)
-synpacks/
-.work/synpacks/
-dist/synpacks/
-base/rag/indexer/synpacks/
-base/rag/indexer/dist/synpacks/
-
-# Secrets and credentials
+# Credentials and private local material
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 credentials.json
-scripts/setup-aws-permissions.sh
-
-# Kustomize build output
-output.txt
-scripts/output.txt
-
-# Terraform state (if colocated)
-*.tfstate
-*.tfstate.*
-.terraform/
-
-# Logs
-*.log
-
-# Coverage and test artifacts
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Local review / working documents (not for commit)
-state_review.md
-
-# Docs: track all documentation except experimental WIP under docs/wip/
-docs/wip/
-
-# base/yarn-ts: local eval/regression JSON dumps (CI emits artifacts; do not commit)
-base/yarn-ts/eval-governor-regression-phase*.json
-base/yarn-ts/eval-results*.json
-base/yarn-ts/eval-results-post-*.json
-
-# Local source packs and libraries may contain private evidence
 .synesis/
 *.synpack
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+synpacks/
+
+# Test, local review and working artifacts
+*.log
+.coverage
+coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.work/
+state_review.md
+docs/wip/
+
+# Pre-existing local deployment artifacts; keep these private after retirement.
+pipelines/*.yaml
+scripts/output.txt
+scripts/setup-aws-permissions.sh

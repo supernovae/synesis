@@ -35,55 +35,6 @@ jobs:
         with:
           category: "/language:${{ matrix.language }}"
 
-  # ---------------------------------------------------------------------------
-  # IaC misconfiguration scanning (Checkov — replaces Trivy config scan)
-  # Trivy was removed after supply-chain compromise GHSA-69fq-xp46-6x23.
-  # ---------------------------------------------------------------------------
-  checkov:
-    name: Checkov IaC Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Run Checkov (SARIF report)
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: .
-          config_file: .checkov.yml
-          output_format: sarif
-          output_file_path: checkov-results.sarif
-          soft_fail: true
-
-      - name: Upload Checkov SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: checkov-results.sarif
-          category: 'checkov-iac'
-
-      - name: Run Checkov (gate — hard fail)
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: .
-          config_file: .checkov.yml
-          output_format: cli
-          soft_fail: false
-
-      - uses: astral-sh/setup-uv@v7
-
-      - name: Enforce exact Kubernetes exception baseline
-        run: |
-          cd "$RUNNER_TEMP"
-          uvx checkov==3.3.0 -d "$GITHUB_WORKSPACE/base" \
-            --framework kubernetes --output json --soft-fail --quiet \
-            > checkov-kubernetes.json
-          jq -r '.results.failed_checks[] | [.check_id,.file_path,.resource] | @tsv' \
-            checkov-kubernetes.json | LC_ALL=C sort -u > checkov-kubernetes.tsv
-          diff -u "$GITHUB_WORKSPACE/.checkov-kubernetes-baseline.tsv" checkov-kubernetes.tsv
-
-  # ---------------------------------------------------------------------------
-  # Filesystem vulnerability scanning (Grype — replaces Trivy vuln scan)
-  # ---------------------------------------------------------------------------
   grype:
     name: Grype Vulnerability Scan
     runs-on: ubuntu-latest
@@ -139,32 +90,6 @@ jobs:
   pip-audit:
     name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: base-api
-            dir: base/images/base-api
-          - name: base-ml
-            dir: base/images/base-ml
-          - name: admin
-            dir: base/admin
-          - name: ast-mcp
-            dir: base/ast-mcp
-          - name: indexer
-            dir: base/rag/indexer
-          - name: preprocess-service
-            dir: base/rag/preprocess-service
-          - name: gliner-service
-            dir: base/rag/gliner-service
-          - name: corpus-benchmarks
-            dir: benchmarks/corpus
-          - name: curator
-            dir: tools/curator
-          - name: nornic-retrieval-benchmark
-            dir: benchmarks/retrieval
-          - name: prompt-evaluation
-            dir: tests/prompts
     steps:
       - uses: actions/checkout@v7
 
@@ -174,10 +99,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Audit ${{ matrix.name }}
+      - name: Audit preparation dependencies
         run: |
           uvx pip-audit \
-            -r "${{ matrix.dir }}/requirements.lock" \
+            -r base/rag/indexer/requirements.lock \
             --disable-pip \
             --require-hashes \
             --vulnerability-service osv \
@@ -198,7 +123,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/rag/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ || true
+            base/rag/indexer/app/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -206,7 +131,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/rag/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/admin/app/
+            base/rag/indexer/app/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v6
@@ -215,26 +140,9 @@ jobs:
           name: semgrep-results
           path: semgrep-results.json
 
-  # ---------------------------------------------------------------------------
-  # Frontend (JavaScript/TypeScript/React) security
-  # ---------------------------------------------------------------------------
   npm-audit:
     name: npm Audit
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: workspace-root
-            dir: .
-          - name: admin-frontend
-            dir: base/admin/frontend
-          - name: planner-ts
-            dir: base/planner-ts
-          - name: yarn-ts
-            dir: base/yarn-ts
-          - name: vision-worker
-            dir: base/vision-worker
     steps:
       - uses: actions/checkout@v7
 
@@ -243,71 +151,30 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        working-directory: ${{ matrix.dir }}
-        run: npm ci --ignore-scripts 2>/dev/null || npm install
+        run: npm ci --ignore-scripts
 
       - name: npm audit (report)
-        working-directory: ${{ matrix.dir }}
         run: npm audit --json > npm-audit-report.json || true
 
       - name: npm audit (gate — high/critical)
-        working-directory: ${{ matrix.dir }}
         run: npm audit --audit-level=high
 
       - name: Upload npm audit report
         uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: npm-audit-report-${{ matrix.name }}
-          path: ${{ matrix.dir }}/npm-audit-report.json
-
-  semgrep-js:
-    name: Semgrep (JS/TS/React Security)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v7
-
-      - name: Run Semgrep on frontend (report)
-        run: |
-          uvx semgrep scan \
-            --config "https://semgrep.dev/p/typescript" \
-            --config "https://semgrep.dev/p/react" \
-            --config "https://semgrep.dev/p/owasp-top-ten" \
-            --config "https://semgrep.dev/p/xss" \
-            --error \
-            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            --json --json-output=semgrep-js-results.json \
-            base/admin/frontend/src/ || true
-
-      - name: Run Semgrep on frontend (gate)
-        run: |
-          uvx semgrep scan \
-            --config "https://semgrep.dev/p/typescript" \
-            --config "https://semgrep.dev/p/react" \
-            --config "https://semgrep.dev/p/owasp-top-ten" \
-            --config "https://semgrep.dev/p/xss" \
-            --error \
-            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            base/admin/frontend/src/
-
-      - name: Upload Semgrep JS results
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: semgrep-js-results
-          path: semgrep-js-results.json
+          name: npm-audit-report
+          path: npm-audit-report.json
 
   semgrep-ts-services:
-    name: Semgrep (Planner/Yarn TypeScript Security)
+    name: Semgrep (knowledge TypeScript Security)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Run Semgrep on Planner/Yarn TypeScript (report)
+      - name: Run Semgrep on knowledge TypeScript (report)
         run: |
           uvx semgrep scan \
             --config "https://semgrep.dev/p/typescript" \
@@ -315,9 +182,9 @@ jobs:
             --config "https://semgrep.dev/p/xss" \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
             --json --json-output=semgrep-ts-services-results.json \
-            packages/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/ || true
+            packages/synesis-mcp/src/ || true
 
-      - name: Run Semgrep on Planner/Yarn TypeScript (gate)
+      - name: Run Semgrep on knowledge TypeScript (gate)
         run: |
           uvx semgrep scan \
             --config "https://semgrep.dev/p/typescript" \
@@ -326,122 +193,20 @@ jobs:
             --severity ERROR \
             --error \
             --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            packages/ base/planner-ts/src/ base/yarn-ts/src/ base/vision-worker/app/
+            packages/synesis-mcp/src/
 
-      - name: Upload Semgrep Planner/Yarn results
+      - name: Upload Semgrep knowledge results
         uses: actions/upload-artifact@v6
         if: always()
         with:
           name: semgrep-ts-services-results
           path: semgrep-ts-services-results.json
 
-  # ---------------------------------------------------------------------------
-  # Supply-chain guardrails
-  # ---------------------------------------------------------------------------
-  supply-chain-guard:
-    name: Supply-Chain IOC Guard
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5
-
-      - name: Check Helm production defaults fail closed
-        run: |
-          set +e
-          OUTPUT="$(helm template synesis charts/synesis 2>&1)"
-          STATUS=$?
-          set -e
-          echo "$OUTPUT"
-          if [ "$STATUS" -eq 0 ]; then
-            echo "::error::Synesis chart rendered with production-unsafe defaults."
-            exit 1
-          fi
-          if ! echo "$OUTPUT" | grep -Eq 'must not be latest|must be set to a non-placeholder value'; then
-            echo "::error::Synesis chart failed for an unexpected reason."
-            exit 1
-          fi
-          helm template synesis charts/synesis --set global.allowInsecureDefaults=true >/dev/null
-
-      - name: Check for compromised LiteLLM PyPI versions
-        run: |
-          echo "=== Scanning for compromised LiteLLM versions (1.82.7, 1.82.8) ==="
-          FOUND=0
-          for pattern in 'litellm==1\.82\.7' 'litellm==1\.82\.8' 'litellm>=1\.82\.7' 'litellm_init\.pth' 'models\.litellm\.cloud'; do
-            if grep -rn --include='*.txt' --include='*.lock' --include='*.toml' --include='*.cfg' \
-                 --include='*.yaml' --include='*.yml' --include='*.json' \
-                 -E "$pattern" . 2>/dev/null; then
-              echo "::error::Compromised LiteLLM IOC detected: $pattern"
-              FOUND=1
-            fi
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            echo "::error::Supply-chain IOC check FAILED — see above."
-            exit 1
-          fi
-          echo "No compromised LiteLLM indicators found."
-
-      - name: Check for compromised axios npm artifacts (Mar 2026 supply chain)
-        run: |
-          echo "=== Scanning lockfiles for axios 1.14.1 / 0.30.4 / plain-crypto-js 4.2.1 IOCs ==="
-          FOUND=0
-          for pattern in \
-            'axios/-/axios-1\.14\.1\.tgz' \
-            'axios/-/axios-0\.30\.4\.tgz' \
-            'plain-crypto-js/-/plain-crypto-js-4\.2\.1\.tgz'; do
-            if grep -rn --include='package-lock.json' -E "$pattern" . 2>/dev/null; then
-              echo "::error::Compromised axios / plain-crypto-js IOC detected: $pattern"
-              FOUND=1
-            fi
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            echo "::error::Axios supply-chain IOC check FAILED — see above."
-            exit 1
-          fi
-          echo "No compromised axios / plain-crypto-js indicators found."
-
-      - name: Check for mutable LiteLLM image tags
-        run: |
-          echo "=== Scanning gateway manifests for floating LiteLLM image tags ==="
-          FOUND=0
-          for f in base/gateway/helm/values-synesis.yaml base/gateway/litellm-deployment.yaml; do
-            if [ -f "$f" ]; then
-              if grep -nE 'tag:\s*"?main-stable"?' "$f" || \
-                 grep -nE 'image:.*litellm[^:]*:(main-stable|latest)\b' "$f"; then
-                echo "::error file=$f::Mutable LiteLLM image tag detected — pin to a versioned tag."
-                FOUND=1
-              fi
-            fi
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            exit 1
-          fi
-          echo "All LiteLLM image references are pinned."
-
-      - name: Check for residual Trivy references
-        run: |
-          echo "=== Scanning for residual Trivy/Aqua Security references ==="
-          FOUND=0
-          if grep -rnE 'aquasecurity/trivy' .github/workflows/ | grep -v 'grep.*aquasecurity'; then
-            echo "::error::Trivy reference detected — removed after supply-chain compromise. Use Checkov + Grype."
-            FOUND=1
-          fi
-          if [ "$FOUND" -eq 1 ]; then
-            exit 1
-          fi
-          echo "No Trivy references found in CI workflows."
-
-  # ---------------------------------------------------------------------------
-  # Lockfile freshness — ensures committed requirements.lock files match
-  # their source requirements.txt at selected versions. Available upstream
-  # upgrades alone do not invalidate a committed lockfile.
-  # ---------------------------------------------------------------------------
   lockfile-freshness:
     name: Lockfile Freshness Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -450,15 +215,5 @@ jobs:
       - name: Verify lockfile checker against local package fixtures
         run: python3 -m unittest discover -s tests/dependencies -v
 
-      - name: Verify lockfiles are up to date
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            ./scripts/lock-deps.sh --check
-          elif [ -n "$BASE_SHA" ] && ! echo "$BASE_SHA" | grep -Eq '^0+$'; then
-            ./scripts/lock-deps.sh --check --changed "$BASE_SHA"
-          else
-            ./scripts/lock-deps.sh --check
-          fi
+      - name: Verify declared requirements at locked versions
+        run: ./scripts/lock-deps.sh --check

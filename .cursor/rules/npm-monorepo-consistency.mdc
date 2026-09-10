@@ -1,29 +1,12 @@
 ---
-description: Align npm dependency versions across Synesis TS packages; avoid stale majors for familiarity
+description: Use the core manifest and root npm lockfile as dependency truth
 alwaysApply: true
 ---
 
-# npm / TypeScript dependency consistency
+# Dependencies
 
-## Goals
+The sole workspace is [the local reader](../../packages/synesis-mcp/package.json), with one [root lockfile](../../package-lock.json). Install development tools with `npm ci --ignore-scripts`; build/test through the root scripts.
 
-- **One behavioral baseline** for shared libraries (Zod, Vitest, TypeScript, Fastify, etc.) so services and packages do not drift silently.
-- Prefer **current stable** releases and fix code when upgrading—not permanent shims or “known old” stacks because a model or doc example used an older API.
-- Stay off **bleeding edge** (alphas, same-day majors): use widely adopted minors/patches and respect peer dependency ranges.
+Inspect current versions, peer ranges and actual consumers before updating. Remove orphan overrides with their consumers. Prefer current stable versions when compatible and verified; do not force unrelated tools to the same major or conceal an incompatible lockfile with an install fallback.
 
-## Canonical sources of truth
-
-1. **Workspace root** [`package.json`](package.json): `workspaces` + **`overrides`** for security and cross-workspace pins (e.g. `axios`, `zod`). When changing a pinned override, update **every** `package.json` that declares that package and refresh **all** affected `package-lock.json` files.
-2. **Current core** — [`packages/synesis-mcp/package.json`](packages/synesis-mcp/package.json) declares the reader runtime and dependencies. Use the root lockfile for the exact resolved versions; do not maintain another version table in these rules.
-3. **Retained platform workspaces** share the root lockfile while they remain. Deleted services must also leave workspace, image, CI and dependency-update configurations. Their dependencies are not prerequisites for the local reader.
-4. **Admin SPA** [`base/admin/frontend/package.json`](base/admin/frontend/package.json): Vite/React stack may differ, but **TypeScript** should stay compatible with the rest of the repo when peers allow (e.g. `typescript-eslint` must declare support for the chosen TypeScript major). Vite projects need [`src/vite-env.d.ts`](base/admin/frontend/src/vite-env.d.ts) with `/// <reference types="vite/client" />` for CSS imports under strict TS.
-
-## Do not
-
-- Introduce **Zod 3** or other **superseded majors** on new code paths “for familiarity.”
-- Add a second lockfile strategy (e.g. duplicate conflicting ranges) without updating the canonical package + lockfiles above.
-
-## When editing dependencies
-
-- Inspect the affected package, lockfile and peer ranges first. Keep a security override consistent across its consumers without forcing unrelated tooling to the same major.
-- After edits: `npm install` at repo root (workspaces) and separately under **`base/admin/frontend`** where that tree keeps its own lock; run **`npm test`** / **`npm run build`** for touched apps.
+The standalone package-install CI check must pass without root overrides or other workspace packages. The reader must remain independent of the optional Python preparation environment.

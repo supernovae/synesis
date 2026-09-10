@@ -1,1 +1,0 @@
-"""Synesis power CLI package."""

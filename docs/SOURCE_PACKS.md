@@ -37,7 +37,7 @@ UTF-8 source bytes, including line endings and a BOM when present, are preserved
 
 ## Prepare saved HTML without a service
 
-An optional command exposes the same HTML converter used by the retained indexer. It runs independently with Python 3.12+ and `uv`; the Node reader still requires neither. Start with a saved `.html`/`.htm` file you have permission to use:
+An optional command exposes the shared HTML converter retained from the former indexer. It runs independently with Python 3.12+ and `uv`; the Node reader still requires neither. Start with a saved `.html`/`.htm` file you have permission to use:
 
 ```bash
 html_work=$(mktemp -d /tmp/synesis-html.XXXXXX)

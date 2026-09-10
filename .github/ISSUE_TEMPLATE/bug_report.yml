@@ -1,71 +1,39 @@
 name: Bug Report
-description: Report a bug in Project Synesis
-labels: ["bug", "triage"]
+description: Report a problem with the local source-pack tools
+labels: [bug, triage]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Thank you for reporting a bug. Please fill out the sections below.
-
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: A clear description of the bug.
+      label: Problem
+      description: Describe expected and actual behavior.
     validations:
       required: true
-
   - type: textarea
     id: steps
     attributes:
-      label: Steps to Reproduce
-      description: How can we reproduce this?
+      label: Reproduction
+      description: Include commands and a small public or synthetic example. Do not attach private source packs or libraries.
       placeholder: |
-        1. Deploy with `helm upgrade --install synesis ./charts/synesis -f my-synesis-values.yaml`
-        2. Send a request to `/v1/chat/completions`
-        3. Observe error in planner logs
+        1. Build/import a source pack
+        2. Run a CLI command or call an MCP tool
+        3. Observe the error
     validations:
       required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Expected Behavior
-      description: What should have happened?
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual Behavior
-      description: What actually happened? Include error messages or logs.
-    validations:
-      required: true
-
   - type: input
-    id: openshift-version
+    id: environment
     attributes:
-      label: OpenShift Version
-      placeholder: "4.16"
-
-  - type: input
-    id: rhoai-version
-    attributes:
-      label: RHOAI Version
-      placeholder: "2.14"
-
+      label: Environment
+      description: Repository commit, OS, Node version, and MCP client/version if relevant.
+    validations:
+      required: true
   - type: dropdown
     id: component
     attributes:
       label: Component
       options:
-        - Planner (planner-ts)
-        - RAG Pipeline
-        - Sandbox / Executor
-        - Model Serving (vLLM)
-        - Web UI (Open WebUI)
-        - SearXNG (Search)
-        - Knowledge Indexers
-        - Helm Chart / Deployment
-        - Other
+        - Pack build or validation
+        - Library or search
+        - MCP integration
+        - Saved HTML preparation
+        - Documentation or development tools

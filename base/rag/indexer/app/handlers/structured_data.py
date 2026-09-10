@@ -323,9 +323,9 @@ def _chunk_json(content: str, file_path: str, document_name: str) -> list[Chunk]
 
 def _chunk_xml(content: str, file_path: str, document_name: str) -> list[Chunk]:
     try:
-        import xml.etree.ElementTree as ET
+        import defusedxml.ElementTree as ET
 
-        root = ET.fromstring(content)  # nosec B314
+        root = ET.fromstring(content)
     except Exception:
         return _chunk_generic(content, file_path, document_name, "xml")
 

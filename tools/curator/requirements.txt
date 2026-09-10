@@ -1,3 +1,0 @@
-# Curator agent dependencies
-httpx
-pyyaml

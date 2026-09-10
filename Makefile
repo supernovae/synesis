@@ -1,26 +1,11 @@
-# Synesis Makefile
-# Run from project root.
-# Prerequisites: npm ci (for planner-ts workspace tests)
+.PHONY: build test quality quality-full install-hooks
 
-.PHONY: mock-tests online-tests tests quality quality-full install-hooks help
-.PHONY: bench-retrieval bench-corpus-audit
-.PHONY: curator-discover curator-report
+build:
+	npm run build
 
-# ── Unit / Integration Tests ─────────────────────────────────────────────────
+test: build
+	npm test
 
-# Offline tests: planner-ts unit tests.
-mock-tests:
-	cd base/planner-ts && npm test
-
-# Online tests: hit live planner-ts via oc port-forward. Requires:
-#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
-online-tests:
-	python scripts/validate-intent-live.py --url http://localhost:8080
-
-# All unit/mock tests (alias)
-tests: mock-tests
-
-# Local quality gates. The pre-push hook runs the quick gate automatically.
 quality:
 	./scripts/quality-check.sh --quick
 
@@ -29,56 +14,3 @@ quality-full:
 
 install-hooks:
 	git config core.hooksPath .githooks
-
-# ── Retrieval Benchmark ──────────────────────────────────────────────────────
-# Exercises the production planner -> NornicDB retrieval path:
-#   oc port-forward svc/synesis-planner-ts 8080:8080 -n synesis-planner
-#   export SYNESIS_INTERNAL_SERVICE_TOKEN=...
-
-bench-retrieval:
-	python scripts/rag_retrieval_eval.py --url http://localhost:8080 --suite tests/prompts/go_retrieval_eval.yaml
-
-# ── Corpus Quality Tools ─────────────────────────────────────────────────────
-# Requires a port-forward to the canonical graph database:
-#   oc port-forward svc/synesis-nornicdb 7687:7687 -n synesis-rag
-
-# Per-domain corpus coverage audit (identifies weak domains and dead-weight)
-bench-corpus-audit:
-	python benchmarks/corpus/audit_corpus.py
-
-# Corpus audit with LLM-generated queries (richer coverage but costs more)
-bench-corpus-audit-llm:
-	python benchmarks/corpus/audit_corpus.py --llm-url http://localhost:8080/v1
-
-# ── Auto-Curation ────────────────────────────────────────────────────────────
-# Also requires port-forward to SearXNG:
-#   oc port-forward svc/searxng 8888:8080 -n synesis-search
-
-# Discover ingestion item proposals for weak domains.
-curator-discover:
-	python tools/curator/curator_agent.py
-
-# Show audit report summary (no side effects)
-curator-report:
-	@python -c "import json; r=json.load(open('benchmarks/corpus/corpus_audit_report.json')); \
-	print(f\"Strong: {r['summary']['strong']}, Adequate: {r['summary']['adequate']}, \
-	Weak: {r['summary']['weak']}, Empty: {r['summary']['empty']}\"); \
-	print(f\"Weak: {', '.join(r['weak_domains'][:15])}\"); \
-	print(f\"Empty: {', '.join(r['empty_domains'][:15])}\")"
-
-help:
-	@echo "── Tests ──"
-	@echo "  mock-tests            - Offline tests (routing, API, E2E with mocks)"
-	@echo "  online-tests          - Validation against live planner (oc port-forward)"
-	@echo "  tests                 - Alias for mock-tests"
-	@echo ""
-	@echo "── Retrieval Benchmark (requires planner port-forward + internal token) ──"
-	@echo "  bench-retrieval       - Production NornicDB retrieval eval"
-	@echo ""
-	@echo "── Corpus Quality (requires NornicDB; LLM endpoint optional) ──"
-	@echo "  bench-corpus-audit    - Per-domain coverage audit"
-	@echo "  bench-corpus-audit-llm - Audit with LLM-generated queries"
-	@echo ""
-	@echo "── Auto-Curation (requires SearXNG + OpenAI-compatible endpoint) ──"
-	@echo "  curator-discover      - Find sources for weak domains"
-	@echo "  curator-report        - Show audit report summary"

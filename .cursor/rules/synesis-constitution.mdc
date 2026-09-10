@@ -5,13 +5,13 @@ alwaysApply: true
 
 # Architecture guidance
 
-Use [the architecture decision record](docs/ARCHITECTURE_REVIEW.md) for the current direction and implementation status. The previous deployment is intentionally shut down because of cost. A running cluster is not a prerequisite for code review, simplification or design decisions.
+Use [the architecture decision record](../../docs/ARCHITECTURE_REVIEW.md) for the current direction and implementation status. The previous deployment is intentionally shut down because of cost. A running cluster is not a prerequisite for code review, simplification or design decisions.
 
 - Prefer native clients and optional knowledge tools. Do not require Planner/Yarn interception, another agent loop, model-specific planning, or a mandatory inference fleet in new paths.
 - Preserve source identity, versions, bounded recoverable evidence and authorization. Model-generated summaries and confidence scores do not establish correctness or permission.
 - Keep the client's cwd, tools, execution and approvals under client control. Proxy cwd and client-supplied identity headers are not authority.
 - Separate design constraints from measured quality claims. Missing model evaluations limit claims about task improvement; they do not require rebuilding a retired deployment.
-- Existing runtime rules describe their scoped implementation. They do not mandate carrying its topology or graph policies into a replacement.
+- Planner/Yarn/Admin and their deployment stack are removed. Remaining preparation helpers do not mandate a service topology or generated graph.
 - Fix forward with one selected implementation. Do not introduce old-format importers, configuration aliases, dual writes or permanent experimental adapters.
 
 Validate the affected contract using the code that exists. Do not prescribe removed Python nodes, reducer wrappers, automatic complexity thresholds or a router monopoly as general architectural requirements.

@@ -1,152 +1,32 @@
-# Security Policy
+# Security policy
 
-The current local source-pack reader uses Node.js and embedded SQLite; see its [access and integrity boundaries](../docs/SOURCE_PACKS.md). The previous deployment is shut down. Service/image details below describe retained platform code awaiting extraction or removal, not prerequisites for the local reader.
+Synesis is experimental. Fixes are applied to `main`; there is no response-time SLA or hosted service. See the [local access and integrity boundaries](../docs/SECURITY.md).
 
-## Supported Versions
-
-Project Synesis is currently experimental. Security fixes are applied to the `main` branch only.
-
-| Version | Supported |
-|---------|-----------|
-| main    | Yes       |
-
-## Reporting a Vulnerability
-
-If you discover a security vulnerability in Project Synesis, please **do not** open a public GitHub issue.
-
-Instead, please report it through one of the following channels:
-
-1. **GitHub Security Advisory** (preferred): Use the [Security Advisories](https://github.com/supernovae/synesis/security/advisories) tab to privately report the vulnerability.
-2. **Email**: Contact the maintainers directly.
-
-Reports are handled on a best-effort basis by the project maintainers. The project does not offer a response-time SLA.
+Report vulnerabilities privately through [GitHub Security Advisories](https://github.com/supernovae/synesis/security/advisories). Do not include private source material in public issues.
 
 ## Scope
 
-The following are in scope for security reports:
+Relevant issues include source-root escape, unintended file access, source-pack integrity or version reassignment, unbounded parsing/decompression, disclosure across a configured library/client boundary, and vulnerable retained dependencies. Report dependency findings that affect this checkout, even if an upstream advisory exists.
 
-- Source-pack integrity, source-root confinement and unintended local file access
-- Disclosure of library content across the configured client access boundary
-- Container image vulnerabilities in Synesis-built images
-- Kubernetes manifest misconfigurations (privilege escalation, missing SCCs, etc.)
-- Code execution sandbox escapes
-- Secret exposure in logs, manifests, or environment variables
-- Authentication/authorization bypasses in the API gateway
+The retired platform has no supported gateway, remote Admin API, execution sandbox, model service or deployment. The local library is accessible to its OS user and every client explicitly configured to read it; it does not implement per-document multi-tenant authorization or copy revocation.
 
-## Out of Scope
+## Automated checks
 
-- Vulnerabilities in upstream dependencies that have already been reported (e.g., vLLM, LiteLLM, NornicDB)
-- Denial-of-service attacks against development/test environments
-- Social engineering
+CI runs CodeQL for Python and TypeScript, Bandit, Semgrep, Grype, npm audit and pip-audit, plus language/shell lint and local contract tests. Applicable findings fail their workflows. Branch protection is repository configuration, not a guarantee made by these files. Scanners and tests do not establish absence of vulnerabilities.
 
-## CI/CD Security Tooling
+Container image, Kubernetes and Helm checks were removed with those artifacts. There is no image publication workflow or image SBOM promise. The package artifact workflow builds a local tarball; it does not publish an npm release.
 
-All checks run on every push to `main` and on pull requests:
+## Dependency handling
 
-| Tool | What it checks | Blocks merge |
-|------|---------------|--------------|
-| **CodeQL** | Semantic code analysis (Python) | Yes |
-| **Bandit** | Python-specific security patterns (medium+ severity) | Yes |
-| **Checkov** | K8s/Dockerfile/Kustomize/Helm/Actions misconfiguration | Yes |
-| **Grype** | Filesystem vulnerability scan (HIGH/CRITICAL) | Yes |
-| **Syft** | CycloneDX SBOM generation (per image build) | Artifact only |
-| **Semgrep** | OWASP Top 10, Python security rules | Yes |
-| **pip-audit** | Known vulnerabilities in Python dependencies | Yes |
-| **ESLint** | TypeScript/JavaScript security-dangerous patterns and code smell warnings | Yes |
-| **Ruff** | Lint + flake8-bandit (S-class) security rules | Yes |
-| **ShellCheck** | Shell script analysis | Yes |
-| **Hadolint** | Dockerfile best practices | Yes |
-| **Dependabot** | Dependency version alerts | Advisory |
+The root npm lockfile covers the sole TypeScript workspace and development tools. CI installs with `npm ci --ignore-scripts`, without an install fallback. A separate package-install check verifies that the packed reader works without root overrides or unrelated workspaces.
 
-Snyk is not required for the baseline gate because CodeQL, Semgrep, npm audit, pip-audit, Checkov, Grype, and Ruff already cover the open-source CI posture. If the project adopts Snyk, treat it as an additional SAST/SCA signal using a repository `SNYK_TOKEN`, not as a replacement for the existing GitHub-native and lockfile-based checks.
-
-Admin API and MCP route auth coverage is also checked by `scripts/check-authz-coverage.py`. The check is intentionally repo-specific: every non-public FastAPI route must declare a user/RBAC/internal-service dependency or call an internal-token verifier, and MCP Fastify routes must pass through the expected PAT/session/FGA auth path.
-
-**Note:** Trivy was removed after the Aqua Security supply-chain compromise ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Checkov (IaC misconfiguration) and Grype (vulnerability scanning) replace it. Syft generates CycloneDX SBOMs for every built image.
-
-Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.checkov.yml` (including `CKV_K8S_49` for the RHBK Keycloak operator `Role` in `base/keycloak/operator-rbac.yaml`, and `CKV_DOCKER_3` for the thin **Open WebUI** child `Dockerfile` that inherits upstream’s default root user).
-
-### Python dependency lockfiles and hash verification
-
-All Synesis service images install Python dependencies from **`requirements.lock`** files generated by **`uv pip compile --generate-hashes`**. This provides two layers of supply-chain protection:
-
-1. **Version pinning** -- every transitive dependency is resolved to an exact version, eliminating silent upgrades between builds.
-2. **SHA-256 hash verification** -- Dockerfiles use `uv pip install --require-hashes`, which rejects any package whose content hash does not match the lockfile. Even if a PyPI package is republished with identical version but tampered content, the build will fail.
-
-Lockfiles are compiled for **Python 3.12** on **linux/x86_64** (the production image target). A central script manages all lockfiles:
+The optional ingestion environment has one `requirements.txt` and a generated lockfile with selected versions and SHA-256 hashes. It targets Python 3.12/Linux for CI; the saved-HTML command independently declares its smaller script environment. Neither Python environment is needed to run the Node reader.
 
 ```bash
-./scripts/lock-deps.sh               # recompile all lockfiles
-./scripts/lock-deps.sh indexer       # recompile one environment
-./scripts/lock-deps.sh --check       # verify lockfiles are fresh (CI uses this)
+./scripts/lock-deps.sh          # intentionally resolve available versions
+./scripts/lock-deps.sh --check  # validate declared requirements at existing pins
 ```
 
-The script compiles in dependency order: `base-api` first, then `base-ml` (constrained by base-api), then downstream services (constrained by their base image's lockfile). This prevents version skew across image layers.
+The check seeds the resolver with the committed pins. New available releases alone do not invalidate the lock; changed or removed requirements do. A local-wheel regression test verifies this behavior. Vulnerability scans and intentional version updates remain separate responsibilities.
 
-**Workflow for dependency changes:** edit `requirements.txt` (human intent with version ranges), run `./scripts/lock-deps.sh`, commit both files. CI enforces freshness via the **Lockfile Freshness Check** job. Pull requests and pushes run the check only for changed dependency inputs and their constrained dependents; the scheduled security workflow still runs a full lockfile drift check.
-
-**pip-audit** scans the pre-resolved lockfiles directly, bypassing pip's resolver. Package installation separately validates hashes; the OSV audit backend checks hash presence, not archive contents.
-
-The lockfile check preserves committed versions and verifies that they still
-match declared requirements. New upstream releases alone do not make a lock
-stale. Run `./scripts/lock-deps.sh <service>` to refresh versions deliberately;
-vulnerability auditing remains a separate gate.
-
-### Removed crawler dependency path
-
-Crawl4AI and its NLTK/unclecode-litellm/browser dependency path have been removed from the retained indexer. This addresses its [PYSEC-2026-3740 / GHSA-8mgp-746c-j5xp](https://github.com/nltk/nltk/security/advisories/GHSA-8mgp-746c-j5xp) finding by removing the affected package, without an audit exception. The regenerated 49-package lockfile passes the OSV dependency audit as of September 10, 2026. The Dockerfile no longer downloads Chromium or strips selected packages after installation.
-
-Static ingestion validates public HTTPS destinations and the crawler's host/path/robots rules before each redirected request. Responses have byte and time limits; the fetcher requests identity encoding and rejects content encodings it cannot bound. DNS validation is not a network firewall or a guarantee against DNS rebinding. URL ingestion remains operator controlled and needs appropriate egress controls if hosted. The optional saved-HTML command has no network-fetch or JavaScript-execution path; its output is derived, untrusted source evidence.
-
-## Known Acceptances (Development Phase)
-
-The following items are accepted during active development and tracked for resolution before production release:
-
-### Container image tags
-
-All first-party images currently use `:latest` tags. This is intentional during rapid development where images are rebuilt frequently from `main`. Before production:
-
-- [ ] Adopt semantic versioning for all Synesis-built images
-- [x] Pin LiteLLM image to versioned tag (`main-v1.82.3-stable`) and Helm chart to `--version`
-- [x] Pin NornicDB to a versioned image tag
-- [ ] Pin remaining third-party images to digest or semver (vLLM, SearXNG)
-- [ ] Enforce tag immutability in the container registry
-
-### Python supply-chain posture
-
-- [x] All service images install from `uv pip compile` lockfiles with SHA-256 hashes
-- [x] Dockerfiles enforce `--require-hashes` at install time
-- [x] CI verifies changed lockfile freshness on PRs and pushes, with full scheduled drift checks
-- [x] pip-audit scans pre-resolved lockfiles (no resolver-dependent results)
-- [x] LiteLLM PyPI compromise IOCs checked by supply-chain-guard job
-- [x] CycloneDX SBOMs generated for every image build (Syft)
-- [x] Image vulnerability scanning on every build (Grype)
-- [ ] Enable cosign/sigstore signature verification for first-party images
-
-### Container registries
-
-Images are currently pulled from public registries (`ghcr.io`, `quay.io`, `registry.redhat.io`, Docker Hub). Before production:
-
-- [ ] Restrict to trusted/approved registries via OPA or Kyverno admission policies
-- [ ] Mirror required third-party images into an organization-controlled registry
-- [ ] Enable image signature verification (cosign/sigstore)
-
-### Read-only root filesystem
-
-`CKV_K8S_22` (readOnlyRootFilesystem) is suppressed in `.checkov.yml`. Many containers require writable paths for model caches, HuggingFace home, `/tmp`, and crawl state. Before production:
-
-- [ ] Audit each container for minimum writable paths
-- [ ] Enable `readOnlyRootFilesystem: true` with targeted `emptyDir` mounts
-
-### CORS wildcard
-
-The planner service defaults to `CORS_ORIGINS=*` for development. The value is configurable via the `SYNESIS_CORS_ORIGINS` environment variable. Before production:
-
-- [ ] Set `SYNESIS_CORS_ORIGINS` to the specific frontend origin(s) in the deployment overlay
-
-### Secrets in base manifests
-
-Base Kubernetes manifests contain placeholder secrets (LiteLLM master key, WebUI API key, NornicDB auth, SearXNG secret key). These are documented with `# SECURITY` comments. Before production:
-
-- [ ] Replace all placeholder secrets via overlays using SealedSecrets or an external secret manager
-- [ ] Ensure no plaintext secrets appear in deployed ConfigMaps/Secrets
+The former Crawl4AI/NLTK/browser/model-client dependency path is removed. The remaining ingestion code has no database, telemetry, embedding or model-client dependency. Review dependency changes for their actual retained use; do not restore abandoned service stacks to satisfy obsolete lockfiles.

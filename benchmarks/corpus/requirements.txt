@@ -1,4 +1,0 @@
-# Corpus benchmark and audit dependencies
-neo4j>=5.27.0
-httpx
-pyyaml

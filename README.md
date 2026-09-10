@@ -7,7 +7,7 @@
 
 Synesis packages selected documents and code into versioned source archives, indexes them locally, and exposes search and source reads through MCP. Results carry source revisions, checksums and citations. Your client continues to own model calls, planning, execution and approvals.
 
-The local CLI and MCP reader work without a running Synesis deployment, model credentials or a database service. They use Node.js and an embedded SQLite index. This is the first implemented part of the [architecture redesign](docs/ARCHITECTURE_REVIEW.md); shared hosting and broader retrieval-quality evaluation remain separate work.
+The local CLI and MCP reader work without a running Synesis deployment, model credentials or a database service. They use Node.js and an embedded SQLite index. This is the implemented local path described in the [architecture redesign](docs/ARCHITECTURE_REVIEW.md). Shared hosting remains conditional on a demonstrated need; model task-quality gains have not been established.
 
 [Quick start](#try-it) · [Source packs](docs/SOURCE_PACKS.md) · [Connect a client](docs/clients/MCP_QUICKSTART.md) · [Design decisions](docs/ARCHITECTURE_REVIEW.md) · [Contribute](CONTRIBUTING.md)
 
@@ -75,7 +75,7 @@ The CLI also supports validation, export, deletion, index rebuilding and consist
 
 ## Development status
 
-The prior multi-service deployment was shut down because of operating cost. The two hosted MCP services and the Admin assistant loop have been removed, along with their UI, deployment and CI wiring. The local reader does not consume `SYNESIS_URL`, `SYNESIS_PAT` or a broad remote tool catalog. Existing Planner/Yarn and infrastructure code remains in the repository for capability extraction and removal. It is not a dependency of the new package or a second supported mode of its CLI.
+The prior multi-service deployment was shut down because of operating cost. Planner, Yarn, Admin, their model/harness shims, shared controller packages and deployment machinery have now been removed. The local reader does not consume a remote Synesis URL, PAT or model registry. Optional source preparation retains a small set of handlers for extraction or removal; it does not provide a hosted ingestion service.
 
 The [decision record](docs/ARCHITECTURE_REVIEW.md) tracks completed work, remaining boundaries and the stopping points for a pack-only product or retirement. The project does not currently offer a hosted service or claim universal model/harness parity.
 

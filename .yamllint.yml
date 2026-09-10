@@ -16,6 +16,5 @@ rules:
 
 ignore: |
   scripts/.venv/
-  .github/
   **/.test-venv/
   **/node_modules/**

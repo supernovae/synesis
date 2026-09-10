@@ -1,183 +1,30 @@
-# Contributing to Project Synesis
+# Contributing
 
-Thank you for your interest in contributing! This document provides guidelines to help you get started.
+Synesis is a local source-pack builder and reader. Start with the [README](README.md), [source-pack contract](docs/SOURCE_PACKS.md), and [architecture decisions](docs/ARCHITECTURE_REVIEW.md).
 
-## Getting Started
-
-1. Fork the repository and clone your fork
-2. Create a feature branch from `main`
-3. Make your changes following the standards below
-4. Run the linters locally before pushing
-5. Open a pull request against `main`
-
-## Development Checks
-
-Use the [development checks](docs/development/DEVELOPMENT_CHECKS.md) and
-[testing guide](docs/development/TESTING.md) for the service you change. TypeScript
-workspaces provide build and test scripts; live provider checks require a
-configured deployment and credentials. Run the relevant local checks before
-requesting review and report any checks you could not run.
-
-## Local reader development
-
-For the new source-pack CLI and MCP reader, use Node.js 24.14 or newer:
+Use Node.js 24.14 or newer. A full development install includes the repository linter:
 
 ```bash
-npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
+npm ci --ignore-scripts
 npm run build
 npm test
+npm run lint
 ```
 
-The core is in `packages/synesis-mcp`; its tests include SQLite and a real MCP subprocess. No cluster, model endpoint, PAT, Python runtime or database daemon is needed. Keep source access explicit, preserve immutable version identities and test actual failure cases. Hosted access remains a separate contract; do not infer tenant isolation from a local library path.
+The core has no model credentials, server, database daemon or Python prerequisite. Tests use real SQLite and an MCP subprocess. The knowledge workflow also checks Node 24/26 and installation of the packed artifact outside this workspace.
 
-The source-pack CLI is a fix-forward replacement of the old Planner-backed MCP command. Do not add compatibility environment variables, old pack importers or another model proxy. See the [architecture decision record](docs/ARCHITECTURE_REVIEW.md) and [source-pack contract](docs/SOURCE_PACKS.md).
-
-## Existing platform tooling
+For Python preparation work, install Python 3.12, uv and ShellCheck. `make quality` runs lint, formatting, shell and documentation checks; `make quality-full` also builds/tests the core, checks the lockfile validator with local wheel fixtures, and runs ingestion tests in an isolated Python environment. Dependency installation may require network access. No check needs the old deployment or paid inference.
 
 ```bash
-# Install uv (recommended — used in CI and containers)
-# macOS
-brew install uv
-# or standalone installer
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install Python tooling via uv
-uvx ruff check base/        # no install needed — uvx runs tools ephemerally
-uvx yamllint -c .yamllint.yml base/
-
-# Install ShellCheck (macOS)
-brew install shellcheck
-
-# Install ShellCheck (Fedora/RHEL)
-sudo dnf install ShellCheck
-
-# Install hadolint for Dockerfile linting
-brew install hadolint
-
-# Use the repository's tracked commit hooks
+make quality
+make quality-full
 make install-hooks
 ```
 
-## Local Quality Gates
+The optional [saved-HTML command](docs/SOURCE_PACKS.md#prepare-saved-html-without-a-service) has its own script dependencies. Other [retained ingestion handlers](base/rag/indexer/README.md) are extraction candidates, not a shipped connector or service API.
 
-The repository includes tracked Git hooks under `.githooks/`.
+For intentional dependency updates, edit the relevant manifest and regenerate its lockfile. `npm ci` must work without falling back to `npm install`. The Python environment uses `./scripts/lock-deps.sh`; `--check` validates existing pins against requirements without demanding every available upstream update. Review audit findings and test the resulting environment.
 
-```bash
-make quality       # quick local parity with lint/doc CI checks
-make quality-full  # quick checks plus TypeScript/frontend build and tests
-npm run lint       # ESLint for TypeScript/JavaScript workspaces and services
-```
+Preserve explicit roots, immutable versions, bounded reads and clear citations. Keep model calls, planning, execution and approvals with the client. Add a behavior workaround only for an observed failure with a narrow contract and a retirement condition.
 
-The pre-commit hook checks staged whitespace, likely secrets, Ruff formatting/linting for Python, yamllint for YAML, and ShellCheck for shell scripts. The pre-push hook runs `make quality` unless `SYNESIS_SKIP_PRE_PUSH=1` is set. `make quality` also runs `scripts/check-authz-coverage.py`, which fails when admin or MCP routes are added without explicit auth/authz coverage.
-
-## Code Standards
-
-### Shell Scripts
-
-All shell scripts must pass [ShellCheck](https://www.shellcheck.net/) at `warning` severity:
-
-```bash
-shellcheck --severity=warning scripts/*.sh
-```
-
-Key conventions:
-- Use `#!/usr/bin/env bash` and `set -euo pipefail`
-- Quote all variable expansions: `"$VAR"` not `$VAR`
-- Use `[[` instead of `[` for conditionals
-- Use `$(command)` instead of backticks
-
-### Python
-
-Python code is linted and formatted with [ruff](https://docs.astral.sh/ruff/). Configuration lives in `pyproject.toml`.
-
-```bash
-# Check for lint errors
-ruff check base/
-
-# Auto-fix what can be fixed
-ruff check --fix base/
-
-# Check formatting
-ruff format --check base/
-
-# Auto-format
-ruff format base/
-```
-
-### TypeScript / JavaScript
-
-TypeScript and JavaScript code is linted with ESLint. The root config covers
-workspace packages and services; the admin frontend keeps its React-specific
-config under `base/admin/frontend/`.
-
-```bash
-npm run lint
-cd base/admin/frontend && npm run lint
-```
-
-### YAML / Kubernetes Manifests
-
-YAML files are validated with [yamllint](https://yamllint.readthedocs.io/). Configuration lives in `.yamllint.yml`.
-
-```bash
-yamllint -c .yamllint.yml base/ overlays/
-```
-
-Build the overlays affected by your change, for example:
-
-```bash
-kustomize build overlays/api > /dev/null
-```
-
-### Dockerfiles
-
-Dockerfiles are linted with [hadolint](https://github.com/hadolint/hadolint):
-
-```bash
-find base/ -name Dockerfile | xargs hadolint
-```
-
-## Documentation claims
-
-Describe shipped behavior, prerequisites and configuration separately from design
-goals. When changing a model adapter, endpoint or harness contract, update its
-canonical reference and the README only where the project overview changes.
-
-- Name the tested model/client versions and serving configuration. Recognition
-  or a mocked protocol test is not live end-to-end certification.
-- Support performance or quality claims with a reproducible workload, baseline,
-  configuration and measured result. Label illustrative numbers as examples.
-- Explain safety boundaries and recovery limits; avoid guarantees of safe
-  execution, perfect recall or lossless compaction.
-- Cite research as motivation unless the implementation and evaluations actually
-  reproduce its method. Keep proposals and dated findings distinct from current defaults.
-- Verify commands, defaults, file links and headings against the repository.
-  Run `python3 scripts/check-doc-reference-integrity.py` for reference checks.
-
-Current references: [harness compatibility](docs/clients/HARNESS_COMPATIBILITY.md),
-[model compatibility guide](docs/model-compatibility.md), and
-[architecture controls](docs/model-architecture-awareness.md).
-
-## Commit Messages
-
-- Use imperative mood: "Add feature" not "Added feature"
-- Keep the subject line under 72 characters
-- Reference issues when applicable: "Fix sandbox timeout (#42)"
-
-## Pull Request Checklist
-
-- [ ] Relevant linters and tests pass; unrun checks are reported
-- [ ] Affected deployment manifests build or render successfully
-- [ ] New shell scripts have `set -euo pipefail`
-- [ ] New Python files follow the existing patterns in `base/`
-- [ ] New Kubernetes resources include appropriate labels (`app.kubernetes.io/*`)
-- [ ] `README.md` is updated if adding new features or changing architecture
-- [ ] No secrets, credentials, or API keys in the commit
-
-## Security
-
-If you discover a security vulnerability, please report it privately by opening a GitHub Security Advisory rather than a public issue.
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
+Use public or synthetic test sources. Keep private sources, built packs, SQLite libraries and credentials out of commits and issue reports. Document measured results separately from hypotheses; protocol tests do not establish model-quality gains. Security reports follow the [security policy](.github/SECURITY.md).

@@ -1,111 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 cd "$(git rev-parse --show-toplevel)"
 
-mode="${1:---quick}"
+case "${1:---quick}" in
+    --quick|--full) ;;
+    *) echo "usage: ./scripts/quality-check.sh [--quick|--full]" >&2; exit 2 ;;
+esac
 
-require_cmd() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        echo "quality-check: missing required command: $1" >&2
-        exit 1
-    fi
-}
+uvx ruff check base/ scripts/ tests/
+uvx ruff format --check base/ scripts/ tests/
+npm run lint
+shellcheck --severity=warning --shell=bash scripts/*.sh .githooks/pre-commit .githooks/pre-push
+uvx yamllint -c .yamllint.yml .github/ base/rag/indexer/crawl_policy.yaml
+python3 scripts/check-doc-reference-integrity.py
 
-run() {
-    echo "quality-check: $*"
-    "$@"
-}
-
-require_cmd uvx
-require_cmd shellcheck
-require_cmd npm
-
-export UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/synesis-uv-cache}"
-export UV_TOOL_DIR="${UV_TOOL_DIR:-${TMPDIR:-/tmp}/synesis-uv-tools}"
-mkdir -p "$UV_CACHE_DIR" "$UV_TOOL_DIR"
-
-run uvx ruff check base/ --output-format=github
-run uvx ruff format --check base/
-run python3 scripts/check-authz-coverage.py
-run python3 scripts/check-json-schema-contract-parity.py
-run npm run lint
-
-shell_files=()
-while IFS= read -r file; do
-    shell_files+=("$file")
-done < <(
-    find scripts base \
-        -path '*/.venv/*' -prune -o \
-        -path '*/.test-venv/*' -prune -o \
-        -path '*/node_modules/*' -prune -o \
-        -path '*/.work/*' -prune -o \
-        -name '*.sh' -type f -print
-)
-if [ "${#shell_files[@]}" -gt 0 ]; then
-    run shellcheck --severity=warning --shell=bash "${shell_files[@]}"
-fi
-
-yaml_files=()
-while IFS= read -r file; do
-    yaml_files+=("$file")
-done < <(
-    while IFS= read -r file; do
-        [ -f "$file" ] && printf '%s\n' "$file"
-    done < <(git ls-files base overlays | grep -E '\.ya?ml$' || true)
-)
-if [ "${#yaml_files[@]}" -gt 0 ]; then
-    run uvx yamllint -c .yamllint.yml "${yaml_files[@]}"
-fi
-run python3 scripts/check-doc-reference-integrity.py
-
-if [ "$mode" = "--full" ]; then
-    run npm run build -w packages/synesis-telemetry
-    run npm run build -w packages/synesis-context-trust
-    run npm run build -w packages/synesis-mcp-tools
-    run npm run build -w packages/synesis-upper-harness
-    run npm run typecheck -w base/yarn-ts
-    run npm run test -w base/yarn-ts
-    run npm run test -w base/planner-ts
-
-    (
-        cd base/admin
-        PYTHONPATH=.:../images/base-api/synesis-telemetry run uv run \
-            --project ../.. --group dev \
-            --with-requirements ../images/base-api/requirements.lock \
-            --with-requirements requirements.lock \
-            pytest tests/ -q --tb=short --cov=app --cov-branch --cov-fail-under=44
-    )
-
-    (
-        cd base/rag/indexer
-        PYTHONPATH=.:../../images/base-api/synesis-telemetry run uv run \
-            --project ../../.. --group dev \
-            --with-requirements ../../images/base-api/requirements.lock \
-            --with-requirements requirements.lock \
-            pytest tests/ -q --tb=short
-    )
-
-    (
-        cd base/ast-mcp
-        run env PYTHONPATH=. uv run --project ../.. --group dev \
-            --with-requirements requirements.lock pytest tests/ -q --tb=short
-    )
-
-    run uv run --group dev pytest base/webui/tests -q --tb=short
-
-    (
-        cd base/vision-worker
-        run npm test
-    )
-
-    (
-        cd base/admin/frontend
-        run npm run lint
-        run npm run build
-        run npm test
-    )
-elif [ "$mode" != "--quick" ]; then
-    echo "usage: ./scripts/quality-check.sh [--quick|--full]" >&2
-    exit 2
+if [ "${1:---quick}" = "--full" ]; then
+    npm run build
+    npm test
+    python3 -m unittest discover -s tests/dependencies -v
+    PYTHONPATH=base/rag/indexer uv run --isolated --python 3.12 \
+        --with-requirements base/rag/indexer/requirements.lock --with pytest \
+        --no-project python -m pytest base/rag/indexer/tests -q
 fi

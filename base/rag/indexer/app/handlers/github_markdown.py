@@ -6,17 +6,17 @@ then chunks them with heading-aware splitting.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
-from synesis_telemetry import get_logger
 
 from ..chunking import heading_aware_split
 from . import register
 from .base import Chunk, RawDocument
 
-logger = get_logger("synesis.indexer.handler.github_markdown")
+logger = logging.getLogger("synesis.indexer.handler.github_markdown")
 
 GITHUB_API = "https://api.github.com"
 _MARKDOWN_EXTS = {".md", ".mdx", ".markdown"}

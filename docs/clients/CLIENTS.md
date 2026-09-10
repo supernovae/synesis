@@ -10,4 +10,4 @@ The same library can be selected by multiple local clients that have the same in
 
 The contract is MCP stdio, not recognition of a client name. An installed model/client's native protocol capabilities determine reasoning, images, audio, execution and long-running task behavior. Synesis does not claim those capabilities on the client's behalf.
 
-Existing client-specific pages for the previous Planner/Yarn platform remain implementation references during extraction. Their proxy endpoints, PAT/OIDC flows and hooks are not setup requirements or supported aliases for the new local reader. The [architecture decision record](../ARCHITECTURE_REVIEW.md) tracks the remaining platform removals and optional hosted work.
+The previous Planner/Yarn proxy endpoints, PAT/OIDC flows and hooks have been removed. The [architecture decision record](../ARCHITECTURE_REVIEW.md) explains the cutover; [harness compatibility](HARNESS_COMPATIBILITY.md) describes the current verification boundary.
