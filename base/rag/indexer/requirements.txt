@@ -25,4 +25,4 @@ cryptography>=50.0.0
 requests>=2.34.2
 # Pin urllib3 to address CVE-2026-44431, CVE-2026-44432 (transitive via requests, boto3, etc.)
 urllib3>=2.7.0
-pygments>=2.20.0
+pygments>=2.21.0
