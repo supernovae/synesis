@@ -1,0 +1,56 @@
+{
+  "kind": "public-repository-capability-trial",
+  "description": "Replay the actual MCP setup change using immutable Git snapshots. Expected paths are supplied for source recovery, so this is not an agent task-success benchmark.",
+  "revisions": [
+    "bf1b833bbae63b7db3e0fb5182d7b397ada6da22",
+    "7a35383fada1d32bcc581a250389a6d87a660f9b"
+  ],
+  "files": [
+    "README.md",
+    "docs/clients/MCP_QUICKSTART.md",
+    "docs/clients/HARNESS_COMPATIBILITY.md",
+    "docs/model-compatibility.md"
+  ],
+  "tasks": [
+    {
+      "id": "previous-setup",
+      "revision": 0,
+      "question": "What did MCP setup require before the local-reader redesign?",
+      "query": "running deployment planner token",
+      "path": "docs/clients/MCP_QUICKSTART.md",
+      "expected": "A running Synesis deployment with the planner backend accessible."
+    },
+    {
+      "id": "current-setup",
+      "revision": 1,
+      "question": "Does the local reader require a Planner URL or model credentials?",
+      "query": "Planner URL model credentials",
+      "path": "docs/clients/MCP_QUICKSTART.md",
+      "expected": "It does not use a Planner URL, PAT, OIDC server or model credentials."
+    },
+    {
+      "id": "client-cwd",
+      "revision": 1,
+      "question": "How can two clients with different working directories use the same knowledge?",
+      "query": "working directory absolute library paths",
+      "path": "docs/clients/MCP_QUICKSTART.md",
+      "expected": "Absolute executable, script and library paths keep behavior independent of the client's cwd or project root."
+    },
+    {
+      "id": "private-boundary",
+      "revision": 1,
+      "question": "What can a configured client read from a private library?",
+      "query": "configured client read every installed source",
+      "path": "docs/clients/MCP_QUICKSTART.md",
+      "expected": "A configured client can read every installed source in that library."
+    },
+    {
+      "id": "serving-boundary",
+      "revision": 1,
+      "question": "Should the proxy add n-grams to a prompt to enable learned n-gram embeddings?",
+      "query": "learned n grams embeddings",
+      "path": "docs/model-compatibility.md",
+      "expected": "Flash-Next adds learned bigram/trigram embedding tables to its MoE backbone."
+    }
+  ]
+}

@@ -77,6 +77,8 @@ The prior multi-service deployment was shut down because of operating cost. The 
 
 The [decision record](docs/ARCHITECTURE_REVIEW.md) tracks completed work, remaining boundaries and the stopping points for a pack-only product or retirement. The project does not currently offer a hosted service or claim universal model/harness parity.
 
+A [public capability trial](evals/architecture/README.md#public-capability-trial) confirms that Git snapshots and an existing filesystem MCP server already cover offline versioned reads and reuse across working directories. Synesis's combined search/version/citation interface remains a convenience to evaluate in real work, not a demonstrated retrieval or model-quality advantage.
+
 ```bash
 npm run build
 npm test

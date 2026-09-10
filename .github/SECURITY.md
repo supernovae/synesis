@@ -1,5 +1,7 @@
 # Security Policy
 
+The current local source-pack reader uses Node.js and embedded SQLite; see its [access and integrity boundaries](../docs/SOURCE_PACKS.md). The previous deployment is shut down. Service/image details below describe retained platform code awaiting extraction or removal, not prerequisites for the local reader.
+
 ## Supported Versions
 
 Project Synesis is currently experimental. Security fixes are applied to the `main` branch only.
@@ -17,12 +19,14 @@ Instead, please report it through one of the following channels:
 1. **GitHub Security Advisory** (preferred): Use the [Security Advisories](https://github.com/supernovae/synesis/security/advisories) tab to privately report the vulnerability.
 2. **Email**: Contact the maintainers directly.
 
-We will acknowledge receipt within 48 hours and provide an initial assessment within 5 business days.
+Reports are handled on a best-effort basis by the project maintainers. The project does not offer a response-time SLA.
 
 ## Scope
 
 The following are in scope for security reports:
 
+- Source-pack integrity, source-root confinement and unintended local file access
+- Disclosure of library content across the configured client access boundary
 - Container image vulnerabilities in Synesis-built images
 - Kubernetes manifest misconfigurations (privilege escalation, missing SCCs, etc.)
 - Code execution sandbox escapes
@@ -88,6 +92,10 @@ The script compiles in dependency order: `base-api` first, then `base-ml` (const
 Crawl4AI is pinned in `base/rag/indexer/requirements.txt` and refreshed through `scripts/lock-deps.sh indexer`. It pulls **unclecode-litellm** (a fork of litellm used by crawl4ai's LLM extraction features). The Synesis indexer **does not use** LLM extraction -- it uses only `AsyncWebCrawler` for browser-based HTML retrieval. The `unclecode-litellm` package is **stripped post-install** in the indexer Dockerfile (`uv pip uninstall --system unclecode-litellm`).
 
 **Assessment**: `unclecode-litellm==1.81.13` is a standalone PyPI package that does **not** depend on the compromised main `litellm` package. Its code is never imported or executed by indexer code paths. The litellm PyPI compromise ([GitHub #24518](https://github.com/BerriAI/litellm/issues/24518)) does not affect the indexer. The Security Scan workflow also checks lockfiles for compromised main `litellm` package indicators.
+
+## Outstanding dependency finding
+
+The September 10, 2026 indexer audit reports **NLTK 3.10.3**, pulled through Crawl4AI, for [PYSEC-2026-3740 / GHSA-8mgp-746c-j5xp](https://github.com/nltk/nltk/security/advisories/GHSA-8mgp-746c-j5xp). Upstream lists no patched version as of that date. This finding remains unsuppressed and the indexer audit fails; the local reader does not depend on NLTK, Crawl4AI or Python. Retire or replace this dependency path when extracting useful ingestion capabilities. This is an unresolved finding, not an accepted exception or a claim that the affected indexer is safe to deploy.
 
 ## Known Acceptances (Development Phase)
 
