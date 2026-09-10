@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Engineering workflow
 
-Inspect the current code and the user's stated constraints, implement authorized work, and verify the affected contract. Ask for missing information only when it blocks a necessary step.
+Inspect the current code and user constraints, implement authorized work, and verify the affected contract. Ask for missing information only when it blocks a necessary step.
 
-There is no running Synesis system. Use local tests and recorded evidence; do not inspect or restore a historical cluster as a prerequisite. Separate verification of code behavior from claims about live model quality or operating cost.
+Use local tests and direct source inspection. Separate code verification from live model-quality and operating-cost claims. Report meaningful checks and material limitations.
 
-Report what changed, relevant checks and material limitations. Preserve user changes and keep private sources, credentials and generated libraries out of commits.
+Preserve user changes. Keep private sources, credentials, trial notes and generated libraries out of commits. Trial preparation does not authorize model calls, data publication or client configuration changes.

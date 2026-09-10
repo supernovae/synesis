@@ -18,7 +18,7 @@ class LockfileCheckTests(unittest.TestCase):
             scripts = root / "scripts"
             scripts.mkdir()
             shutil.copyfile(REPO / "scripts/lock-deps.sh", scripts / "lock-deps.sh")
-            source = root / "base/rag/indexer"
+            source = root / "tools/prepare-html"
             source.mkdir(parents=True)
             wheels = root / "wheels"
             wheels.mkdir()
@@ -33,13 +33,19 @@ class LockfileCheckTests(unittest.TestCase):
                     archive.writestr(f"{info}/RECORD", "")
 
             def requirements(version):
-                (source / "requirements.txt").write_text(f"--no-index\n--find-links {wheels}\nlockdemo>={version}\n")
+                (source / "extract.py").write_text(f'# /// script\n# dependencies = ["lockdemo>={version}"]\n# ///\n')
 
             def run(*arguments):
                 return subprocess.run(
                     ["bash", str(scripts / "lock-deps.sh"), *arguments],
                     cwd=root,
-                    env={**os.environ, "UV_CACHE_DIR": str(root / "cache"), "UV_OFFLINE": "1"},
+                    env={
+                        **os.environ,
+                        "UV_CACHE_DIR": str(root / "cache"),
+                        "UV_OFFLINE": "1",
+                        "UV_NO_INDEX": "true",
+                        "UV_FIND_LINKS": str(wheels),
+                    },
                     text=True,
                     capture_output=True,
                     timeout=30,

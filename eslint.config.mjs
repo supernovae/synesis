@@ -5,6 +5,12 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"] },
   {
+    files: ["scripts/**/*.mjs"],
+    ...js.configs.recommended,
+    languageOptions: { globals: globals.node },
+    rules: { ...js.configs.recommended.rules, "no-eval": "error", "no-implied-eval": "error", "no-new-func": "error" },
+  },
+  {
     files: ["packages/synesis-mcp/**/*.ts"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { globals: globals.node },

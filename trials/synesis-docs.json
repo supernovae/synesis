@@ -1,0 +1,16 @@
+{
+  "id": "synesis-docs-trial",
+  "version": "1.0",
+  "title": "Synesis documentation warm-up",
+  "sourceRevision": "selected-working-tree-content-identified-by-pack-digest",
+  "attribution": "Synesis contributors",
+  "license": "Apache-2.0",
+  "redistribution": "private",
+  "files": [
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/SOURCE_PACKS.md",
+    "docs/SECURITY.md",
+    "docs/clients/MCP_QUICKSTART.md"
+  ]
+}

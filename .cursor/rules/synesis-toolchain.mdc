@@ -1,12 +1,12 @@
 ---
-description: Validate the local Node reader and isolated optional Python preparation
+description: Validate the Node reader and isolated saved-HTML command
 alwaysApply: true
 ---
 
 # Toolchain
 
-Use [contributing instructions](../../CONTRIBUTING.md) for current commands. Node 24.14+ runs the reader; CI exercises Node 24 and 26. Optional source preparation is tested with Python 3.12 and uv.
+Use [contributing instructions](../../CONTRIBUTING.md). Node 24.14+ runs the reader; CI exercises Node 24 and 26. Saved-HTML preparation is tested with Python 3.12 and uv.
 
-Use one root npm lockfile and the optional ingestion requirements lock. The root Python TOML contains lint configuration, not a second Python application environment. Use isolated environments for Python dependency-closure checks.
+Use the root npm lockfile. The HTML script's inline dependency declaration is its input manifest; its generated requirements lock is the test/audit environment. Root Python TOML contains lint configuration.
 
-There is no running deployment, container image, Compose stack or Kubernetes prerequisite. Do not restore one to run tests. Local file and MCP contract tests need no model credentials or inference calls.
+Use isolated environments for Python dependency checks. Local file, trial-preflight and MCP tests require no model credentials or inference calls.

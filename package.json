@@ -2,7 +2,7 @@
   "name": "synesis",
   "private": true,
   "scripts": {
-    "lint": "eslint packages/synesis-mcp",
+    "lint": "eslint packages/synesis-mcp scripts/*.mjs",
     "build": "npm run build --workspace=@synesis/mcp",
     "test": "npm test --workspace=@synesis/mcp",
     "synesis": "node packages/synesis-mcp/dist/cli.js"

@@ -1,7 +1,0 @@
-# Local experiment configuration, model outputs and private source archives.
-*.local.json
-*.answers.jsonl
-*.trials.jsonl
-*.zip
-*.pack
-results/

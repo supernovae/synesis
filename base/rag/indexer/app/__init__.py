@@ -1,1 +1,0 @@
-# Synesis Unified RAG Indexer

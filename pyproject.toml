@@ -3,51 +3,18 @@ target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
-select = [
-    "E",     # pycodestyle errors
-    "W",     # pycodestyle warnings
-    "F",     # pyflakes
-    "I",     # isort
-    "B",     # flake8-bugbear
-    "S",     # flake8-bandit (security)
-    "UP",    # pyupgrade
-    "SIM",   # flake8-simplify
-    "RUF",   # ruff-specific
-]
-ignore = [
-    "E501",   # line length handled by formatter
-    "RUF002",  # × (MULTIPLICATION SIGN) in docstrings is intentional for "intent x vertical"
-    "RUF003",  # EN DASH in comments/docs is intentional (e.g. "0.0–1.0", "Tier1–4")
-    "S106",   # test fixtures use literal placeholders
-    "S311",   # evals/scripts use random for sampling, not crypto
-    "S101",   # allow assert in non-test code (used in state validation)
-    "S110",   # try-except-pass is used intentionally for optional deps
-    "S112",   # try-except-continue is used in batch indexers by design
-    "S603",   # reviewed Git and CLI subprocess calls use argument lists
-    "S607",   # Git/CLI tests use installed executables on PATH
-    "B007",   # unused loop variables are acceptable in iteration patterns
-    "B905",   # zip() without strict= is fine for matched iterables
-    "E402",   # module-level import not at top (conditional imports)
-    "E741",   # ambiguous variable names acceptable in tight loops
-    "SIM102", # nested if is sometimes more readable than collapsed
-    "SIM103", # early-return style vs single boolean return
-    "SIM108", # ternary is not always clearer than if/else
-    "SIM110", # for-loop with return True is sometimes clearer than any()
-    "SIM117", # nested with statements acceptable for readability
-    "RUF005", # list concat vs spread is stylistic
-    "RUF059", # unused unpacked tuple elements in tests/destructuring
-    "UP042",  # str+Enum pattern is intentional for JSON serialization
-]
+select = ["E", "W", "F", "I", "B", "S", "UP", "SIM", "RUF"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/test_*.py" = ["S101"]
-"**/tests/**" = ["S101", "RUF001"]
+# Fixed Git argv for local documentation checks.
+"scripts/check-doc-reference-integrity.py" = ["S603", "S607"]
+# Tests invoke the local CLI/resolver and include Unicode evidence fixtures.
+"**/test_*.py" = ["S101", "S603", "S607", "E402", "RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
-# Bandit (CI: uvx bandit[toml] -c pyproject.toml -r base/). Exclude venvs so
-# third-party code does not trigger plugins or internal bandit errors.
 [tool.bandit]
 exclude_dirs = [".venv", ".test-venv", "venv", "node_modules"]

@@ -8,6 +8,6 @@ The four MCP tools open the selected SQLite library read-only. Tools cannot chan
 
 Checksums detect changed bytes; they do not authenticate a publisher or establish that source claims are correct. Source text may contain malicious instructions. The client owns instruction handling, execution, approvals and sandboxing.
 
-The optional saved-HTML converter reads one explicit local file and records its original hash. It does not run page scripts or fetch a URL. Other retained ingestion handlers are not exposed by the MCP server and do not establish safe arbitrary remote ingestion. Their acquisition behavior must be reviewed before shipping a connector.
+The optional saved-HTML converter reads one explicit local file and records its original hash. It does not run page scripts or fetch a URL. Source acquisition and review happen before conversion; the command does not provide a remote ingestion endpoint.
 
-No Synesis model proxy, hosted API, execution sandbox, identity stack or deployment is included. [Report security issues privately](../.github/SECURITY.md); automated scans and tests do not constitute a complete security audit.
+The client owns model access, tool execution and sandboxing. [Report security issues privately](../.github/SECURITY.md); automated scans and tests do not constitute a complete security audit.

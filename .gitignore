@@ -48,7 +48,7 @@ htmlcov/
 state_review.md
 docs/wip/
 
-# Pre-existing local deployment artifacts; keep these private after retirement.
+# Additional private local artifacts
 pipelines/*.yaml
 scripts/output.txt
 scripts/setup-aws-permissions.sh

@@ -6,12 +6,10 @@ on:
     paths:
       - 'packages/synesis-mcp/**'
       - 'examples/source-pack/**'
-      - 'base/rag/indexer/app/**'
-      - 'base/rag/indexer/tests/**'
-      - 'base/rag/indexer/requirements*'
+      - 'tools/prepare-html/**'
+      - 'scripts/trial.mjs'
+      - 'trials/**'
       - 'pyproject.toml'
-      - 'evals/architecture/local-smoke.mjs'
-      - 'evals/architecture/source-files.txt'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/knowledge.yml'
@@ -19,12 +17,10 @@ on:
     paths:
       - 'packages/synesis-mcp/**'
       - 'examples/source-pack/**'
-      - 'base/rag/indexer/app/**'
-      - 'base/rag/indexer/tests/**'
-      - 'base/rag/indexer/requirements*'
+      - 'tools/prepare-html/**'
+      - 'scripts/trial.mjs'
+      - 'trials/**'
       - 'pyproject.toml'
-      - 'evals/architecture/local-smoke.mjs'
-      - 'evals/architecture/source-files.txt'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/knowledge.yml'
@@ -38,7 +34,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  source-ingestion:
+  saved-html:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,10 +49,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
       - run: npm run build
-      - name: Static ingestion and saved HTML contracts
-        env:
-          PYTHONPATH: base/rag/indexer
-        run: uv run --isolated --python 3.12 --with-requirements base/rag/indexer/requirements.lock --with pytest --no-project python -m pytest base/rag/indexer/tests -q
+      - name: Saved HTML contracts
+        run: uv run --isolated --python 3.12 --with-requirements tools/prepare-html/requirements.lock --with pytest --no-project python -m pytest tools/prepare-html/tests -q
 
   local-reader:
     runs-on: ubuntu-latest
@@ -73,8 +67,6 @@ jobs:
       - run: npm ci --ignore-scripts --workspace=@synesis/mcp --include-workspace-root=false
       - run: npm run build
       - run: npm test
-      - name: Source navigation smoke
-        run: node evals/architecture/local-smoke.mjs "$RUNNER_TEMP/local-smoke.json"
       - name: Verify standalone package install
         shell: bash
         run: |

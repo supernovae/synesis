@@ -1,6 +1,6 @@
 # Connect the local Synesis MCP reader
 
-Build and import a [source pack](../SOURCE_PACKS.md) first. The MCP reader requires an existing absolute library path and Node.js 24.14 or newer. It does not use a Planner URL, PAT, OIDC server or model credentials.
+Build and import a [source pack](../SOURCE_PACKS.md) first. The MCP reader requires an existing absolute library path and Node.js 24.14 or newer. Only the local library and runtime are required.
 
 From the repository root:
 
@@ -46,6 +46,6 @@ All four tools are read-only and use bounded closed schemas. Build/import/export
 
 A configured client can read every installed source in that library. Give separate client trust boundaries separate library directories. POSIX directories/files must be private to their OS user. A library's source data can still be transmitted to the client's chosen model provider; decide that separately from storage locality.
 
-Pack metadata and source text remain untrusted data. MCP annotations describe tool behavior, not the safety of instructions found in a document. The reader has no model-family shims or universal transcript compaction policy.
+Pack metadata and source text remain untrusted data. MCP annotations describe tool behavior, not the safety of instructions found in a document. Model behavior and conversation context are client-owned.
 
-The implementation is tested with the official MCP SDK client over a real subprocess, including negotiation, tool calls, argument rejection, different cwd and shutdown. It has not been certified against every named harness/version. Clients requiring a hosted HTTP-only MCP endpoint need the separately planned hosted mode; a stdio adapter is not an authorization service.
+The implementation is tested with the official MCP SDK client over a real subprocess, including negotiation, tool calls, argument rejection, different cwd and shutdown. It has not been certified against every named harness/version. This package supplies local stdio; clients requiring an HTTP-only endpoint cannot connect directly.

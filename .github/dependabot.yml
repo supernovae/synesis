@@ -13,8 +13,3 @@ updates:
       npm-minor-patch:
         patterns: ['*']
         update-types: [minor, patch]
-  - package-ecosystem: pip
-    directory: /base/rag/indexer
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3

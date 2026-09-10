@@ -7,9 +7,9 @@
 
 Synesis packages selected documents and code into versioned source archives, indexes them locally, and exposes search and source reads through MCP. Results carry source revisions, checksums and citations. Your client continues to own model calls, planning, execution and approvals.
 
-The local CLI and MCP reader work without a running Synesis deployment, model credentials or a database service. They use Node.js and an embedded SQLite index. This is the implemented local path described in the [architecture redesign](docs/ARCHITECTURE_REVIEW.md). Shared hosting remains conditional on a demonstrated need; model task-quality gains have not been established.
+The local CLI and MCP reader work without a running Synesis deployment, model credentials or a database service. They use Node.js and an embedded SQLite index. This is the implemented local path described in the [architecture](docs/ARCHITECTURE.md). Shared hosting remains conditional on a demonstrated need; model task-quality gains have not been established.
 
-[Quick start](#try-it) · [Source packs](docs/SOURCE_PACKS.md) · [Connect a client](docs/clients/MCP_QUICKSTART.md) · [Design decisions](docs/ARCHITECTURE_REVIEW.md) · [Contribute](CONTRIBUTING.md)
+[Quick start](#try-it) · [Source packs](docs/SOURCE_PACKS.md) · [Connect a client](docs/clients/MCP_QUICKSTART.md) · [Run a trial](docs/TRIAL.md) · [Architecture](docs/ARCHITECTURE.md) · [Contribute](CONTRIBUTING.md)
 
 ## Try it
 
@@ -29,7 +29,7 @@ The example includes one small source file. Output files are created privately a
 
 For your own content, write a [build configuration](docs/SOURCE_PACKS.md#build-a-pack) with explicit files, revision, attribution and license. Source archives are private by default. No files are discovered automatically from your home directory or the client's working directory.
 
-Saved web documentation can use the optional [offline HTML preparation command](docs/SOURCE_PACKS.md#prepare-saved-html-without-a-service). It produces reviewable Markdown with original-file provenance using the shared converter, without starting an indexer or browser service.
+Saved web documentation can use the optional [offline HTML preparation command](docs/SOURCE_PACKS.md#prepare-saved-html). It produces reviewable Markdown with original-file provenance with a standalone converter.
 
 ## Connect through MCP
 
@@ -75,11 +75,9 @@ The CLI also supports validation, export, deletion, index rebuilding and consist
 
 ## Development status
 
-The prior multi-service deployment was shut down because of operating cost. Planner, Yarn, Admin, their model/harness shims, shared controller packages and deployment machinery have now been removed. The local reader does not consume a remote Synesis URL, PAT or model registry. Optional source preparation retains a small set of handlers for extraction or removal; it does not provide a hosted ingestion service.
+The local package is experimental and usable from a checkout. Its combined search/version/citation interface is being evaluated in real work. Model task-quality gains, broad client certification and large-corpus capacity have not been established.
 
-The [decision record](docs/ARCHITECTURE_REVIEW.md) tracks completed work, remaining boundaries and the stopping points for a pack-only product or retirement. The project does not currently offer a hosted service or claim universal model/harness parity.
-
-A [public capability trial](evals/architecture/README.md#public-capability-trial) confirms that Git snapshots and an existing filesystem MCP server already cover offline versioned reads and reuse across working directories. Synesis's combined search/version/citation interface remains a convenience to evaluate in real work, not a demonstrated retrieval or model-quality advantage.
+The [trial kit](docs/TRIAL.md) creates matching source snapshots for normal file tools and Synesis, generates MCP launch settings and checks the connection. It includes a blank worksheet for task completion, setup/update effort and corrections. Start with the public warm-up, then select tasks and sources you actually need.
 
 ```bash
 npm run build
@@ -88,7 +86,7 @@ npm test
 
 Tests exercise real SQLite operations and an MCP client/server subprocess, including immutable versions, malformed packs, source-root confinement, Unicode reads, backup/restore and shutdown. They do not establish live model quality or large-corpus capacity.
 
-Code for the new core lives in [packages/synesis-mcp](packages/synesis-mcp/). Improvements to source formats, retrieval evals and client integration are welcome. See [contributing](CONTRIBUTING.md).
+The core lives in [packages/synesis-mcp](packages/synesis-mcp/). Improvements to source formats, retrieval evals and client integration are welcome. See [contributing](CONTRIBUTING.md).
 
 ## License
 

@@ -1,0 +1,13 @@
+---
+description: Keep source preparation explicit and reviewable
+globs: tools/prepare-html/**/*.py
+alwaysApply: false
+---
+
+# Source preparation
+
+The [saved-HTML command](../../tools/prepare-html/README.md) reads one selected file and produces Markdown with original-file provenance.
+
+Require an explicit root and file selection, reject symlinks/traversal, bound input/output and publish privately without overwriting. Preserve code, links and tables when extractable; make failures visible. Keep derived text reviewable and original evidence separately available.
+
+Add a format only for an observed source-preparation need. A content heuristic or metadata label cannot establish truth, authorization or safe execution.

@@ -1,6 +1,6 @@
 # Source packs and local libraries
 
-The local Synesis CLI builds portable source packs and serves an embedded SQLite library over MCP stdio. It does not call a model or require the former Planner/Yarn platform. The implementation is [@synesis/mcp](../packages/synesis-mcp/); its command is `synesis`.
+The local Synesis CLI builds portable source packs and serves an embedded SQLite library over MCP stdio. Pack operations do not call a model. The implementation is [@synesis/mcp](../packages/synesis-mcp/); its command is `synesis`.
 
 From a checkout, build with `npm run build` and run commands as `npm run synesis -- ...`. A packaged installation provides the `synesis` executable. No new npm release is claimed by these instructions.
 
@@ -35,13 +35,13 @@ UTF-8 source bytes, including line endings and a BOM when present, are preserved
 
 `redistribution` defaults to `private`. Set it to `permitted` only when you have the right to distribute the included sources. The field records a declaration; it does not establish authorization or enforce DRM. All output archives use private file permissions, including packs declared redistributable. Publishing an archive or changing its file permissions is a separate deliberate action.
 
-## Prepare saved HTML without a service
+## Prepare saved HTML
 
-An optional command exposes the shared HTML converter retained from the former indexer. It runs independently with Python 3.12+ and `uv`; the Node reader still requires neither. Start with a saved `.html`/`.htm` file you have permission to use:
+An optional command converts one saved HTML file to Markdown. It runs independently with Python 3.12+ and `uv`; the Node reader still requires neither. Start with a saved `.html`/`.htm` file you have permission to use:
 
 ```bash
 html_work=$(mktemp -d /tmp/synesis-html.XXXXXX)
-uv run --script base/rag/indexer/app/extract.py \
+uv run --script tools/prepare-html/extract.py \
   --root examples/source-pack --input saved-guide.html \
   --output "$html_work/saved-guide.md"
 npm run synesis -- build examples/source-pack/saved-html-pack.json \
@@ -55,7 +55,7 @@ The command uses its inline dependency declaration for Trafilatura and lxml. Ini
 
 The generated Markdown starts with a `synesis-source` JSON comment recording the relative input path, original HTML SHA-256/byte count, and extractor/version. This is **derived evidence**: the pack hashes the generated Markdown; citations refer to its lines, not original HTML line numbers. Keep the original file separately and review extraction of code, tables and layout before distributing a pack. A source hash records identity, not publisher authentication or complete extraction fidelity. For a new source snapshot, choose a new pack version and an appropriate `sourceRevision`.
 
-The shared converter has one extraction path. It does not select output by length or delete lines because they look like navigation words. A missing dependency, parser error or empty extraction remains visible. JavaScript-only pages need an explicitly rendered/saved snapshot from the user's chosen browser tool. OCR, PDF/table reconstruction, connector refresh and hosted ingestion remain separate work.
+The converter preserves links and tables when extractable. A missing dependency, parser error or empty extraction remains visible. JavaScript-only pages need an explicitly rendered/saved snapshot from the user's chosen browser tool. OCR, PDF conversion and automatic source refresh are not provided.
 
 ## Format and identity
 
@@ -65,7 +65,7 @@ The digest is SHA-256 of the canonical JSON payload excluding the digest field. 
 
 Each `(id, version)` is immutable within a library. Identical imports are idempotent; different content or metadata under the same version is an error. There is no implicit `latest` alias. Discovery lists versions; the client selects one explicitly.
 
-This is a fresh source-pack contract. Old graph/vector SynPack ZIPs and architecture-experiment archives are rejected. Rebuild selected original sources using the new builder; there is no conversion or migration command. A SQLite file is never an importable pack.
+Only the format and schema described here are accepted. A ZIP archive or SQLite database is not an importable source pack.
 
 Limits are enforced before or during input reads/decompression: 32 MiB compressed archive, 64 MiB uncompressed JSON, 2 MiB per source and 5,000 sources per pack. Build-config input is limited to 1 MiB. These bound individual operations, not total library disk usage or all future capacity requirements.
 
@@ -103,7 +103,7 @@ synesis delete --library /absolute/private-library --pack project-guide --versio
 
 Export validates a consistent source snapshot. `rebuild` reconstructs FTS indexes from stored sources. Pack output and backup publication refuse overwrite and expose only completed output files. `backup` uses SQLite's backup API so a live WAL is handled consistently; do not copy only the main database while writers are active.
 
-To restore a trusted local backup, stop readers/writers, create a fresh private directory and place the backup there as `library.sqlite` with private permissions. Open that directory with the CLI. Alternatively, create a fresh library by importing retained source archives. Only the current library schema is accepted; there are no upgrade/migration paths.
+To restore a trusted local backup, stop readers/writers, create a fresh private directory and place the backup there as `library.sqlite` with private permissions. Open that directory with the CLI. Alternatively, create a fresh library by importing retained source archives. The backup must use the supported library schema.
 
 Deletion removes active pack records and indexed evidence. A minimal ID/version/digest record remains so a previously used version cannot be reassigned to different content. Reimporting that same content is allowed. Deletion cannot revoke exported archives, external backups or a client's prior copies, and is not a promise of forensic secure erasure. Keep private outputs outside version control and apply your device's backup/encryption/retention policy.
 
@@ -113,4 +113,4 @@ The reader uses [Node's built-in SQLite API](https://nodejs.org/api/sqlite.html)
 
 Every source in a configured library is available to that MCP client. Use a separate library for every required local access boundary; the client cannot widen access through tool arguments. Private source data may still be sent by the client to its configured model provider. Choosing a local reader does not make an independently hosted model private or offline.
 
-Hosted shared retrieval, external identity, per-document/group/session grants, connector refresh jobs and authorized downloads are separate architecture work. Do not expose this stdio reader as an unauthenticated network service or treat a library path as multi-tenant authorization. See [MCP setup](clients/MCP_QUICKSTART.md) and [the decision record](ARCHITECTURE_REVIEW.md).
+The local reader does not provide hosted retrieval, per-document/group/session grants or remote downloads. Do not expose this stdio reader as an unauthenticated network service or treat a library path as multi-tenant authorization. See [MCP setup](clients/MCP_QUICKSTART.md) and [architecture](ARCHITECTURE.md).

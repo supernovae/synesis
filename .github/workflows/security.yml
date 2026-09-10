@@ -67,7 +67,7 @@ jobs:
 
       - name: Run Bandit (report)
         run: |
-          uvx "bandit[toml]" -c pyproject.toml -r base/ \
+          uvx "bandit[toml]" -c pyproject.toml -r tools/ \
             -x "**/.test-venv/**,**/.venv/**,**/.work/**" \
             --severity-level medium \
             --confidence-level medium \
@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Bandit (gate)
         run: |
-          uvx "bandit[toml]" -c pyproject.toml -r base/ \
+          uvx "bandit[toml]" -c pyproject.toml -r tools/ \
             -x "**/.test-venv/**,**/.venv/**,**/.work/**" \
             --severity-level medium \
             --confidence-level medium
@@ -102,7 +102,7 @@ jobs:
       - name: Audit preparation dependencies
         run: |
           uvx pip-audit \
-            -r base/rag/indexer/requirements.lock \
+            -r tools/prepare-html/requirements.lock \
             --disable-pip \
             --require-hashes \
             --vulnerability-service osv \
@@ -123,7 +123,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/rag/indexer/app/ || true
+            tools/prepare-html/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -131,7 +131,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/rag/indexer/app/
+            tools/prepare-html/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v6
@@ -180,9 +180,9 @@ jobs:
             --config "https://semgrep.dev/p/typescript" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --config "https://semgrep.dev/p/xss" \
-            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" --include "*.mjs" \
             --json --json-output=semgrep-ts-services-results.json \
-            packages/synesis-mcp/src/ || true
+            packages/synesis-mcp/src/ scripts/ || true
 
       - name: Run Semgrep on knowledge TypeScript (gate)
         run: |
@@ -192,8 +192,8 @@ jobs:
             --config "https://semgrep.dev/p/xss" \
             --severity ERROR \
             --error \
-            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
-            packages/synesis-mcp/src/
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" --include "*.mjs" \
+            packages/synesis-mcp/src/ scripts/
 
       - name: Upload Semgrep knowledge results
         uses: actions/upload-artifact@v6
