@@ -8,7 +8,7 @@
     "synesis": "node packages/synesis-mcp/dist/cli.js"
   },
   "optionalDependencies": {
-    "@rolldown/binding-linux-x64-gnu": "1.2.6"
+    "@rolldown/binding-linux-x64-gnu": "1.2.7"
   },
   "workspaces": [
     "packages/*",
@@ -34,8 +34,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.9.0",
-    "globals": "^17.11.0",
-    "typescript-eslint": "^8.67.0"
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.69.0"
   }
 }
