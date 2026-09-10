@@ -7,4 +7,4 @@ beautifulsoup4>=4.15.0
 lxml>=6.1.1,<7
 trafilatura>=2.2.0
 tree-sitter>=0.26.0
-tree-sitter-language-pack>=1.15.8
+tree-sitter-language-pack>=1.16.2
